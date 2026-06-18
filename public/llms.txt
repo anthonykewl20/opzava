@@ -1,0 +1,30 @@
+# Opzava
+
+> Open-source dashboard for AI agent orchestration.
+
+Opzava is a self-hosted AI operations control plane for managing AI agent fleets. It provides task dispatch, cost tracking, quality review gates, recurring task scheduling, and multi-agent coordination.
+
+## Key Features
+- Agent management with full lifecycle (register, heartbeat, wake, retire)
+- Kanban task board with priorities, assignments, and comments
+- Task queue with atomic claiming and priority-based dispatch
+- Auto-dispatch with model routing (Opus/Sonnet/Haiku by task complexity)
+- Aegis quality review gates for task sign-off
+- Real-time monitoring via WebSocket + SSE
+- Token usage and cost tracking with per-model breakdowns
+- Natural language recurring tasks with cron scheduling
+- MCP server with 35+ tools for agent integration
+- CLI for headless/scripted usage
+- Role-based access control (viewer, operator, admin)
+- REST API with OpenAPI spec
+
+## Stack
+Next.js 16, React 19, TypeScript 5, SQLite (better-sqlite3), Tailwind CSS
+
+## Links
+- Source: https://github.com/anthonykewl20/opzava
+- Landing page: https://opzava.anito.ai
+- License: MIT
+
+## llms-full.txt
+For the complete API reference and integration guide, see docs/cli-agent-control.md in the repository.

@@ -1,0 +1,20 @@
+{
+  "name": "mission-control-manage",
+  "version": "1.0.0",
+  "description": "Manage a running Opzava instance — health checks, diagnostics, upgrades, backups",
+  "author": "Builderz Labs",
+  "license": "MIT",
+  "tools": ["exec", "http"],
+  "parameters": {
+    "base_url": {
+      "type": "string",
+      "default": "http://localhost:3000",
+      "description": "Opzava base URL"
+    },
+    "api_key": {
+      "type": "string",
+      "description": "API key for authentication (x-api-key header)"
+    }
+  },
+  "tags": ["mission-control", "management", "health", "upgrade", "backup"]
+}

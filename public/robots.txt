@@ -1,0 +1,9 @@
+# Opzava — AI Operations Control Plane
+# https://opzava.anito.ai
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /setup
+Disallow: /login
+Disallow: /_next/

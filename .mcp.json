@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "fidex": {
+      "command": "/home/anthony/.local/bin/fidex",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}
