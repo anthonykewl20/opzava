@@ -210,4 +210,41 @@ describe('isCronDue', () => {
     expect(isCronDue('0 9-17 * * *', t9, 0)).toBe(true)
     expect(isCronDue('0 9-17 * * *', t18, 0)).toBe(false)
   })
+
+  // F11: day-of-month and month fields were silently dropped (only min/hour/dow were checked),
+  // so a date-constrained cron over-fired. These assert all five fields are honoured.
+  it('honours the day-of-month field', () => {
+    const firstAtMidnight = new Date(2026, 0, 1, 0, 0, 0).getTime() // Jan 1 2026 00:00 local
+    const secondAtMidnight = new Date(2026, 0, 2, 0, 0, 0).getTime() // Jan 2 2026 00:00 local
+    expect(isCronDue('0 0 1 * *', firstAtMidnight, 0)).toBe(true)
+    expect(isCronDue('0 0 1 * *', secondAtMidnight, 0)).toBe(false)
+  })
+
+  it('honours the month field', () => {
+    const janFirst = new Date(2026, 0, 1, 0, 0, 0).getTime() // Jan 1
+    const febFirst = new Date(2026, 1, 1, 0, 0, 0).getTime() // Feb 1
+    expect(isCronDue('0 0 1 1 *', janFirst, 0)).toBe(true) // January only
+    expect(isCronDue('0 0 1 1 *', febFirst, 0)).toBe(false)
+  })
+
+  it('uses OR semantics when both day-of-month and day-of-week are restricted', () => {
+    // "0 0 13 * 5" = midnight on the 13th OR any Friday (standard Vixie-cron semantics).
+    const friNot13 = new Date(2026, 0, 2, 0, 0, 0) // Fri Jan 2 2026 (Friday, not the 13th)
+    const the13thNotFri = new Date(2026, 0, 13, 0, 0, 0) // Tue Jan 13 2026 (13th, not Friday)
+    const neither = new Date(2026, 0, 6, 0, 0, 0) // Tue Jan 6 2026 (not 13th, not Friday)
+    // self-checking preconditions
+    expect(friNot13.getDay()).toBe(5)
+    expect(the13thNotFri.getDate()).toBe(13)
+    expect(the13thNotFri.getDay()).not.toBe(5)
+    expect(isCronDue('0 0 13 * 5', friNot13.getTime(), 0)).toBe(true)
+    expect(isCronDue('0 0 13 * 5', the13thNotFri.getTime(), 0)).toBe(true)
+    expect(isCronDue('0 0 13 * 5', neither.getTime(), 0)).toBe(false)
+  })
+
+  it('matches only the day-of-month when day-of-week is wildcard', () => {
+    const friNot13 = new Date(2026, 0, 2, 0, 0, 0).getTime() // Friday, not the 13th
+    const the13th = new Date(2026, 0, 13, 0, 0, 0).getTime()
+    expect(isCronDue('0 0 13 * *', friNot13, 0)).toBe(false)
+    expect(isCronDue('0 0 13 * *', the13th, 0)).toBe(true)
+  })
 })

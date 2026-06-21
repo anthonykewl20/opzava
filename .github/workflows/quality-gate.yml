@@ -48,6 +48,9 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      - name: Governance gates
+        run: pnpm test:governance
+
       - name: Prepare E2E environment
         run: cp .env.test .env
 

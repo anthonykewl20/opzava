@@ -15,7 +15,7 @@
 
 | Phase | Findings | Theme | Gate before merge |
 |------|----------|-------|-------------------|
-| **0 — Guardrails** | F8, F11 | Cheap correctness + stop regressions | governance job green in CI |
+| **0 — Guardrails** ✅ | F8, F11 | Cheap correctness + stop regressions | **DONE** — governance gates in CI; cron bug fixed |
 | **1 — Make the live path safe** 🔴 | F4, F1 | The only live side effect (campaign send) is currently unsafe | live send is approval+idempotency+receipt gated; no cleartext secret on the wire |
 | **2 — Enforce product-integrity gates** 🔴 | F10, F3, F9 | "Anti-slop / fact-check / approval before draft" is currently decorative | a failed quality verdict halts the run; one orchestrator |
 | **3 — Make the durable runner real** 🟠 | F5, F6, F2 | Runner is built but never runs in background; admin config inert | daemon runs; retries/recovery/limits enforced; agent boundary defined |
@@ -29,9 +29,13 @@
 
 ---
 
-## Phase 0 — Guardrails (do first; ~1 day total)
+## Phase 0 — Guardrails (do first; ~1 day total) — ✅ DONE
 
-### F8 — Wire the governance gates into CI 🟡 (enabler)
+### F8 — Wire the governance gates into CI 🟡 (enabler) — ✅ DONE
+- **Shipped:** added `test:governance` (`node --test test/*.test.mjs`) to `package.json`, folded it into
+  `test:all`, and added a **Governance gates** step to `.github/workflows/quality-gate.yml` (after Unit
+  tests). All 9 `test/*.test.mjs` gates (267 assertions) now run on every PR/push. Verified the step fails
+  non-zero when a gate breaks. *Note:* the `scripts/` brand-residue scope gap is still open — that's F12.
 - **Change:** add a `node --test` script (`package.json`) and a step in `.github/workflows/quality-gate.yml`
   that runs the 9 `test/*.test.mjs` gates; OR fold them into the vitest include. They pass today only when run
   by hand.
@@ -41,13 +45,13 @@
   broken branch.
 - **Why first:** every later phase adds invariants we want CI to defend (esp. F7, F12).
 
-### F11 — Fix `isCronDue` to honour all five cron fields 🟡 (correctness bug)
-- **Change:** `schedule-parser.ts:166` parses only `[min, hour, , , dow]`; make it match day-of-month + month
-  too, or delegate to the existing full parser in `cron-occurrences.ts` (collapse the two so they can't
-  disagree).
-- **Files:** `src/lib/schedule-parser.ts` (+ reuse `cron-occurrences.ts`).
-- **Effort:** S · **Risk:** low-med (changes when crons fire — add cases first).
-- **Done-gate:** a unit test where a `0 0 1 * *` cron fires only on day-1 (currently over-fires daily).
+### F11 — Fix `isCronDue` to honour all five cron fields 🟡 (correctness bug) — ✅ DONE
+- **Shipped:** `isCronDue` now parses all five fields — added the month check (`getMonth()+1`) and a
+  `matchesCronDay` helper applying standard Vixie-cron day-of-month/day-of-week **OR** semantics, mirroring
+  `matchesDay` in `cron-occurrences.ts` so the "is it due now" check and the occurrence enumerator agree.
+- **Files:** `src/lib/schedule-parser.ts`, `src/lib/__tests__/schedule-parser.test.ts` (+4 tests).
+- **Done-gate met (TDD):** added tests first (confirmed red), then fixed → green. `0 0 1 * *` now fires only
+  on day-1; `0 0 1 1 *` only in January; `0 0 13 * 5` matches the 13th OR any Friday. Full suite 1791 ✓.
 
 ---
 
