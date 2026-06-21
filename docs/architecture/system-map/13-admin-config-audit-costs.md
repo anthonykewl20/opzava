@@ -2,8 +2,9 @@
 
 > Zone: `src/opzava/platform/admin-config/` (+ `audit/`, `costs/`). The typed, validation-first backbone
 > for operator config, secret indirection, audit trail, and cost accounting. Marks: ✅✅ = both passes
-> (the F4/F6 fresh agents independently verified the load-bearing claims); 🔎 = single deep pass
-> (schema/table detail), pending a second read; ⚠️ = correction.
+> (the F4/F6 fresh agents independently verified the load-bearing claims); 🔎→✅ = single-pass detail
+> (schema/table) **re-checked & confirmed in the second pass** (all 🔎 claims held); ⚠️ = correction.
+> See [`99-verification-register.md`](./99-verification-register.md).
 
 ## Admin config — `OpzavaAdminSettings`
 
@@ -95,8 +96,8 @@ estimatedCostCents:int≥0, actualCostCents:int≥0|null, currency:len3, recorde
 
 | table | columns | created by |
 |-------|---------|-----------|
-| `opzava_admin_settings` | `settings_id` PK (`'singleton'`) · `version` · `updated_at` · `updated_by` · `record_json` | `admin-config/repository.ts` (lazy) 🔎 |
-| `opzava_admin_settings_audit_events` | `audit_event_id` PK · `occurred_at` · `record_json` | same 🔎 |
+| `opzava_admin_settings` | `settings_id` PK (`'singleton'`) · `version` · `updated_at` · `updated_by` · `record_json` | `admin-config/repository.ts` (lazy) ✅ |
+| `opzava_admin_settings_audit_events` | `audit_event_id` PK · `occurred_at` · `record_json` (idx is composite `(occurred_at, audit_event_id)`) | same ✅ |
 
 Audit + cost events **at runtime** are NOT in this zone's tables — they're persisted into the shared
 `opzava_runner_operational_events` (`kind: 'audit' | 'cost'`). There is **no** secret-value table; secret

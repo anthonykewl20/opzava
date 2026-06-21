@@ -218,7 +218,50 @@ also leave them as manually-run gates?
    (quality gates block, secrets are references, no hardcoded models, governance in CI) are
    documented but not mechanically enforced.
 
-> All findings above are ✅✅ double-verified. Lower-confidence observations from single-pass
-> research (orphaned `va-task-review` role, two divergent content orchestrators, `isCronDue`
-> checking only 3/5 cron fields, inherited-brand residue in `scripts/`) are tracked in the zone
-> docs and will be promoted here only after a second independent pass confirms them.
+> All findings F1–F8 are ✅✅ double-verified. The four lower-confidence single-pass observations have now
+> been **confirmed by an independent second verification pass** (with file:line evidence) and are promoted to
+> findings F9–F12 below.
+
+---
+
+## F9 🟠 Orphaned `va-task-review` step — no role owns it ✅
+
+`va-task-review` is an artifact type (`general-va/artifacts/general-va-artifact.ts:3`), a step service
+(`general-va/steps/va-task-review-service.ts`), and sits in `GENERAL_VA_PIPELINE_ORDER`
+(`team/department-pipeline.ts:21`). But the General VA role owns only `['va-task-intake','va-task-draft']`
+(`team/agent-role.ts:154`) — no default role owns `va-task-review`. `buildDepartmentPipeline('General VA')`
+yields it with `agentId:null`; its artifacts are attributed to no one.
+
+**Audit question:** Do the shared repos have pipeline steps with no owning role/agent?
+
+---
+
+## F10 🟠 Two divergent content orchestrators ✅
+
+`content/workflow/content-workflow-executor.ts` (sync, mock) and `content-workflow-recording-executor.ts`
+(async; provider-call steps emit events) **fully duplicate** the 11-step sequence. `run-and-record-content-workflow.ts:18`
+wraps the **recording** one — which is what `POST /api/ops/runs` (`route.ts:109`) actually calls. Two code paths,
+one workflow definition, easy to drift.
+
+**Audit question:** Do the shared repos keep a single orchestrator per workflow, or fork sync/async variants?
+
+---
+
+## F11 🟡 `isCronDue` checks only 3 of 5 cron fields ✅
+
+`src/lib/schedule-parser.ts:166` destructures `[minExpr, hourExpr, , , dowExpr]` — positions 2 (day-of-month)
+and 3 (month) are discarded; lines 169–173 match only minute/hour/day-of-week. So a cron with a day-of-month or
+month constraint **over-fires**. `cron-occurrences.ts` is a separate, full 5-field parser → the two disagree.
+
+**Audit question:** Do the shared repos parse all five cron fields consistently in one place?
+
+---
+
+## F12 🟡 Inherited-brand residue in `scripts/` is ungated ✅
+
+`scripts/mc-mcp-server.cjs:734` sets `serverInfo.name = 'mission-control'`; `mission-control` is pervasive across
+`scripts/` (station-doctor.sh, security-audit.sh, deploy-standalone.sh, take-screenshots.ts, mc-cli.cjs, …). The
+branding gate (`test/branding.test.mjs:75-91`) scans only `src/app`, `src/components`, `messages/` — never
+`scripts/`. Compounds **F8**: the gate is both unwired in CI *and* scoped to miss this residue.
+
+**Audit question:** Do the shared repos scope their brand checks to cover ops/CLI tooling, not just app source?

@@ -2,10 +2,15 @@
 
 > The single SQLite database is the spine of the whole system. Both engines persist here.
 > This ledger is the authoritative table inventory; every other zone doc references it.
+>
+> **✅ Second-pass verified:** every table / column / migration claim below was re-checked against source
+> (`schema.sql`, `migrations.ts`, the opzava repos). 48 inherited migrations (ids 001–050, 030/031 absent),
+> `035` drops+recreates `api_keys`, and all six opzava module-table column sets confirmed. Corrections logged
+> in [`99-verification-register.md`](./99-verification-register.md).
 
 **Engine & connection** ✅ (`src/lib/db.ts:23-59`)
 - One `better-sqlite3` handle, opened lazily by `getDatabase()` (singleton; self-initializes on
-  module import outside `next build` — `db.ts:600`).
+  module import outside `next build` — `db.ts:602`).
 - File: `config.dbPath` = `MISSION_CONTROL_DB_PATH` or `<MISSION_CONTROL_DATA_DIR>/mission-control.db`
   (default `.data/mission-control.db`).
 - Pragmas: `journal_mode=WAL`, `synchronous=NORMAL`, `cache_size=1000`, `foreign_keys=ON`,
@@ -65,12 +70,12 @@ migration-managed table and a lazily-provisioned one.
 | Runner | `opzava_runner_dead_letters` | `runner/migrations.ts:64` | ✅ |
 | Runner | `opzava_runner_operational_events` | `runner/migrations.ts:76` | ✅ |
 | Runner | `opzava_runner_external_call_reservations` | `runner/migrations.ts:91` (migration `opzava_runner_003`) | ✅ |
-| Core | `opzava_approvals` | `core/approvals/approval-repository.ts` (lazy `ensureSchema`) | 🔎 |
-| Content | `opzava_content_artifacts` | `modules/content/artifacts/artifact-repository.ts` (lazy) | 🔎 |
-| Content | `opzava_campaigns` | `modules/content/campaign/campaign-repository.ts` (lazy) | 🔎 |
-| Team | `opzava_agent_roles` | `modules/team/agent-role-repository.ts` (lazy) | 🔎 |
-| Admin | `opzava_admin_settings` | `platform/admin-config/repository.ts` (lazy) | 🔎 |
-| Admin | `opzava_admin_settings_audit_events` | `platform/admin-config/repository.ts` (lazy) | 🔎 |
+| Core | `opzava_approvals` | `core/approvals/approval-repository.ts` (lazy `ensureSchema`) | ✅ |
+| Content | `opzava_content_artifacts` | `modules/content/artifacts/artifact-repository.ts` (lazy) | ✅ |
+| Content | `opzava_campaigns` | `modules/content/campaign/campaign-repository.ts` (lazy) | ✅ |
+| Team | `opzava_agent_roles` | `modules/team/agent-role-repository.ts` (lazy) | ✅ |
+| Admin | `opzava_admin_settings` | `platform/admin-config/repository.ts` (lazy) | ✅ |
+| Admin | `opzava_admin_settings_audit_events` | `platform/admin-config/repository.ts` (lazy) | ✅ |
 
 ---
 
@@ -128,7 +133,7 @@ idempotency_key TEXT PRIMARY KEY NOT NULL · external_call_id TEXT NOT NULL · r
 
 ---
 
-## opzava module tables — columns (🔎 from research, pending direct re-read)
+## opzava module tables — columns (✅ verified second pass — all six column sets confirmed against the repos)
 
 | table | columns (canonical record always in `record_json`) | indexes |
 |-------|------|---------|
@@ -146,7 +151,7 @@ corrupt row throws on read rather than silently returning bad data. Writes are U
 
 ---
 
-## Key inherited tables — columns (🔎 from research, agent proven accurate on migration gaps)
+## Key inherited tables — columns (✅ verified second pass; migration-gap and column claims confirmed)
 
 These are the highest-traffic inherited tables. Full per-column detail for the long tail
 (`runs`, `eval_*`, `provision_*`, etc.) lives in [`50-inherited-agent-task.md`](./50-inherited-agent-task.md).
@@ -179,13 +184,13 @@ tables; the default workspace row `id=1` always exists. Sessions/api-keys also c
 
 **Secrets-in-DB invariant** 🔎: session tokens and API keys are stored only as **SHA-256 hashes**
 (migration `043` hashed legacy plaintext). A row written to `settings` under `security.api_key`
-**overrides** the env `API_KEY` for global admin auth (`auth.ts:567`) — a DB-write path controls
+**overrides** the env `API_KEY` for global admin auth (read at `auth.ts:571`; `resolveActiveApiKey()` head is `:567`) — a DB-write path controls
 auth.
 
 ---
 
 ## What to verify next (upgrades for this doc)
 
-- [ ] Re-read each opzava module repository to upgrade the module-table columns 🔎 → ✅.
+- [x] Re-read each opzava module repository to upgrade the module-table columns — **done (2nd pass)**; all six column sets ✅.
 - [ ] Spot-verify 3-4 inherited table column sets against their migration bodies.
 - [ ] Confirm the `gateways` lazy-creation columns are consistent across the 3 route definitions.

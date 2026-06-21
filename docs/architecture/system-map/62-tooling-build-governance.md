@@ -1,9 +1,9 @@
 # 62 — Tooling · Build · Tests · Governance (deep)
 
 > Zone: `scripts/` (CLI/MCP/TUI + ops), root build/deploy files, `test/` (governance gates), `tests/`
-> (e2e), test configs. Marks: ✅✅ double-verified (F8 had a fresh pass) · 🔎 pass-1 research · ⚠️ flag.
+> (e2e), test configs. Marks: ✅✅ double-verified (F8 had a fresh pass) · 🔎→✅ pass-1 research **confirmed in the second pass** · ⚠️ flag. See [`99-verification-register.md`](./99-verification-register.md).
 
-## Agent control interfaces 🔎
+## Agent control interfaces ✅
 
 All three wrap the same REST API; auth via `x-api-key` (preferred for agents) or session cookie; config from
 `~/.mission-control/profiles/<name>.json` or `MC_URL`/`MC_API_KEY` env.
@@ -22,7 +22,7 @@ external agent ──stdio JSON-RPC──► mc-mcp-server.cjs ──x-api-key�
 human ──► mc-cli.cjs / mc-tui.cjs ──► same REST API
 ```
 
-## Scripts inventory 🔎
+## Scripts inventory ✅
 
 `mc-server.cjs` (standalone wrapper adding `/ws/pty`), `check-node-version.mjs` (Node ≥22 floor, prepended
 to most scripts), `check-api-contract-parity.mjs` (`api:parity`, in CI), `generate-env.sh`,
@@ -30,7 +30,7 @@ to most scripts), `check-api-contract-parity.mjs` (`api:parity`, in CI), `genera
 `agent-heartbeat.sh`, `notification-daemon.sh`, `smoke-staging.mjs`, `take-screenshots.ts`, plus
 `scripts/e2e-openclaw/*` (offline mock-gateway harness).
 
-## Build & deploy 🔎
+## Build & deploy ✅
 
 - `next.config.js`: `output:'standalone'`; ⚠️ `outputFileTracingExcludes` for `.git`/`.data` is load-bearing
   (keeps the self-update endpoint's clean-tree check honest); transpiles ESM `react-markdown`/`remark-gfm`;
@@ -46,7 +46,7 @@ to most scripts), `check-api-contract-parity.mjs` (`api:parity`, in CI), `genera
 - **CI** `.github/workflows/quality-gate.yml`: `api:parity → lint → typecheck → test (vitest) →
   cp .env.test .env → build → playwright → test:e2e`. `docker-publish.yml` fires on a green quality gate.
 
-## Governance gates — golden-principles-as-tests 🔎
+## Governance gates — golden-principles-as-tests ✅
 
 9 `test/*.test.mjs` files run under **node:test**: `branding.test.mjs` (recursive scan of `src/app`,
 `src/components`, `messages` for the forbidden `Mission Control` pattern + required doc headings),
@@ -63,7 +63,7 @@ the folder-structure live check.
 So the branding scan + folder-structure check pass only when run manually, never on merge. See
 [F8](./90-parity-findings.md).
 
-## Test architecture 🔎
+## Test architecture ✅
 
 - **vitest** (unit): jsdom, `include: src/**/*.test.ts(x)` — 248 test files (CLAUDE.md cites 247/1783 tests).
   Coverage scoped to `src/lib/**` only (60% thresholds) — ⚠️ `src/opzava/**` and `src/app/**` are not in the

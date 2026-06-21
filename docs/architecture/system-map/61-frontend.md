@@ -1,12 +1,14 @@
 # 61 — Frontend (deep)
 
 > Zone: `src/app/` (pages), `src/store/` (Zustand, ~1.2k LOC), `src/components/` (44 panels + layout +
-> dashboard). A single-page App-Router shell. Marks: 🔎 pass-1 research · ⚠️ flag.
+> dashboard). A single-page App-Router shell. Marks: ✅ verified (second pass, all claims re-checked
+> vs source) · ⚠️ correction applied this pass. See [`99-verification-register.md`](./99-verification-register.md).
 
-## App shell & routing 🔎
+## App shell & routing ✅
 
-Only 5 `page.tsx` exist: `[[...panel]]/page.tsx` (the **whole SPA** — the optional catch-all matches `/`,
-`/tasks`, `/artifacts`, …), plus `login/`, `setup/`, `docs/`, and root `layout.tsx`.
+Only **4** `page.tsx` exist: `[[...panel]]/page.tsx` (the **whole SPA** — the optional catch-all matches `/`,
+`/tasks`, `/artifacts`, …), plus `login/`, `setup/`, `docs/`. Root `layout.tsx` is a layout, not a page
+(⚠️ pass-1 said "5", conflating `layout.tsx`).
 
 - **URL → tab**: `panelFromUrl = pathname==='/' ? 'overview' : pathname.slice(1)` → `setActiveTab(...)`
   (`sessions` normalized to `chat`). `activeTab` is a single Zustand string.
@@ -23,28 +25,28 @@ Only 5 `page.tsx` exist: `[[...panel]]/page.tsx` (the **whole SPA** — the opti
 ⚠️ Adding a panel means editing **three** places: a `case` in `ContentRouter`, a `NavItem` in `nav-rail.tsx`,
 an import in the shell. No per-panel Next route — one client bundle (aside from plugin panels).
 
-## State — one Zustand store 🔎
+## State — one Zustand store ✅
 
 `useMissionControl = create(subscribeWithSelector(...))` (`src/store/index.ts`). Flat bag of ~30 slices
 (no slice files): mode/boot, `connection:{isConnected (WS), sseConnected (SSE)}`, tasks/agents/activities/
 notifications/comments, sessions/logs/cron/spawn/memory/tokens/models (capped + deduped), chat (optimistic
 helpers), auth/tenant/project (persisted to `localStorage`), exec-approvals queue, persisted UI prefs
-(~12 `mc-*` keys, SSR-guarded).
+(**10** `mc-*` keys, SSR-guarded).
 
 **Live wiring**: SSE (`use-server-events.ts`) calls store reducers directly (`task.created→addTask`, etc.);
 WS (`websocket.ts`) feeds sessions/logs/spawn/cron. ⚠️ **Disjoint ownership**: SSE owns local-DB entities;
 WS owns gateway/session/log/spawn/cron.
 
-## Data flow 🔎
+## Data flow ✅
 
 - `apiFetch<T>` (`api-client.ts`): canonical REST wrapper with centralized 401→`mc:auth-expired`+redirect,
   403/404/5xx typed errors. `AuthExpiredListener` (in layout) handles expiry app-wide.
 - `useSmartPoll`: visibility-aware polling that pauses while WS/SSE connected.
 - ⚠️ **Mixed fetch discipline**: only `ops-failures-panel` + the Dashboard use `apiFetch`; the other opzava
-  panels (team, content-runs, artifacts, ops-costs, campaigns, maintenance) use **raw `fetch`** and only
+  panels (team, content-runs, artifacts, ops-costs, campaigns, maintenance, **approval-queue**) use **raw `fetch`** and only
   handle `res.ok` — so they silently fail-to-error-string on 401 instead of triggering the global redirect.
 
-## Panel inventory 🔎
+## Panel inventory ✅
 
 44 panels in `src/components/panels/`. **8 are opzava-native** (the rest inherited):
 
@@ -64,14 +66,15 @@ These are deliberately **thin, read-mostly** views; orchestration/state-machines
 in both local and full mode. ⚠️ Their TS interfaces (`RunSummary`, `ArtifactDetail`, `CostEvent`, …) are
 **hand-declared local copies** of the server response shapes — they can drift from `@/opzava` contracts.
 
-The largest inherited panels (by size): `agent-detail-tabs` (123KB), `task-board-panel` (114KB), `office-panel`
-(103KB), `cron-management-panel` (73KB), `nav-rail` (71KB).
+The largest inherited panels (by size): `agent-detail-tabs` (124KB), `task-board-panel` (114KB), `office-panel`
+(104KB), `cron-management-panel` (74KB). ⚠️ `nav-rail` (72KB) is **not** a panel — it lives in `layout/`,
+not `panels/`; the largest *panel* proper after the four above is `agent-squad-panel-phase3` (~52KB).
 
-## Layout & shared 🔎
+## Layout & shared ✅
 
 - **NavRail** (`layout/nav-rail.tsx`, the panel registry): 4 nav groups — `core` (overview, agents, team,
-  tasks, chat, channels, skills, memory), `observe` (activity, logs, costs, **failures, costs, approval-queue,
-  content-runs, artifacts**, office, monitor), `automate` (**campaigns**, cron, webhooks, alerts, github),
+  tasks, chat, channels, skills, memory), `observe` (activity, logs, cost-tracker, nodes, exec-approvals,
+  **failures, costs, approval-queue, content-runs, artifacts**, office, monitor), `automate` (**campaigns**, cron, webhooks, alerts, github),
   `admin` (security, users, audit, **maintenance**, gateways, integrations, settings). Collapsible, persisted,
   essential/full toggle, mobile bottom bar. Icons are inline SVG (no icon lib, per project rule).
 - **HeaderBar**: ⌘K command search (`/api/search`), connection/SSE badges, project chip, notifications bell.

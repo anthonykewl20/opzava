@@ -160,25 +160,33 @@ Read in this order. Status reflects how much of each doc is ✅-verified vs 🔎
 
 | # | Document | Covers | Verification depth |
 |---|----------|--------|--------|
-| 00 | [`00-database-ledger.md`](./00-database-ledger.md) | Every SQLite table: inherited schema + migrations + opzava tables | inventory + runner ✅; module cols 🔎 |
+| 00 | [`00-database-ledger.md`](./00-database-ledger.md) | Every SQLite table: inherited schema + migrations + opzava tables | ✅ fully verified (2nd pass) |
 | 10 | [`10-durable-runner.md`](./10-durable-runner.md) | Jobs/attempts/leases/dead-letters/recovery/retention | ✅✅ deep (8 adversarial re-checks) |
 | 11 | [`11-core-contracts.md`](./11-core-contracts.md) | Workflow/StepRun/Artifact/Approval contracts + state machines | ✅✅ deep |
 | 12 | [`12-providers-infra.md`](./12-providers-infra.md) | Provider contract, approval guard, exactly-once, secrets | ✅✅ deep (F1 triple-checked) |
-| 13 | [`13-admin-config-audit-costs.md`](./13-admin-config-audit-costs.md) | Admin settings, secret references, audit, costs | F4/F6 ✅✅; detail 🔎 |
-| 20 | [`20-content-module.md`](./20-content-module.md) | Content contracts/artifacts/steps/workflow/providers/campaign | F1/F3 ✅✅; pipeline 🔎 |
-| 21 | [`21-team-social-va-modules.md`](./21-team-social-va-modules.md) | team / social / general-va modules | F2 ✅✅; detail 🔎 |
-| 50 | [`50-inherited-agent-task.md`](./50-inherited-agent-task.md) | Inherited agent/task/memory/cron/tokens + backbone | scheduler ✅; F2/F7 ✅✅; rest 🔎 |
-| 51 | [`51-inherited-integrations.md`](./51-inherited-integrations.md) | Gateway, CLI bridges, GitHub sync, realtime, webhooks | webhook/poller ✅; rest 🔎 |
-| 60 | [`60-api-layer.md`](./60-api-layer.md) | 165 API routes; deep on opzava-native surfaces | 🔎 |
-| 61 | [`61-frontend.md`](./61-frontend.md) | SPA shell, Zustand store, 44 panels | 🔎 |
-| 62 | [`62-tooling-build-governance.md`](./62-tooling-build-governance.md) | mc CLI/MCP/TUI, Docker/standalone, governance gates | F8 ✅✅; entropy-guard ✅; rest 🔎 |
-| 90 | [`90-parity-findings.md`](./90-parity-findings.md) | Cross-cutting risks & the two-engine divergence (for the audit) | 8 findings, all ✅✅ |
+| 13 | [`13-admin-config-audit-costs.md`](./13-admin-config-audit-costs.md) | Admin settings, secret references, audit, costs | F4/F6 ✅✅; detail ✅ (2nd pass) |
+| 20 | [`20-content-module.md`](./20-content-module.md) | Content contracts/artifacts/steps/workflow/providers/campaign | F1/F3 ✅✅; pipeline ✅ (2nd pass) |
+| 21 | [`21-team-social-va-modules.md`](./21-team-social-va-modules.md) | team / social / general-va modules | F2 ✅✅; detail ✅ (2nd pass) |
+| 50 | [`50-inherited-agent-task.md`](./50-inherited-agent-task.md) | Inherited agent/task/memory/cron/tokens + backbone | scheduler ✅; F2/F7 ✅✅; rest ✅ (2nd pass) |
+| 51 | [`51-inherited-integrations.md`](./51-inherited-integrations.md) | Gateway, CLI bridges, GitHub sync, realtime, webhooks | webhook/poller ✅; rest ✅ (2nd pass, 3 corrections) |
+| 60 | [`60-api-layer.md`](./60-api-layer.md) | 165 API routes; deep on opzava-native surfaces | ✅ (2nd pass; count/auth/v1 confirmed) |
+| 61 | [`61-frontend.md`](./61-frontend.md) | SPA shell, Zustand store, 44 panels | ✅ (2nd pass; 4 corrections) |
+| 62 | [`62-tooling-build-governance.md`](./62-tooling-build-governance.md) | mc CLI/MCP/TUI, Docker/standalone, governance gates | F8 ✅✅; rest ✅ (2nd pass) |
+| 90 | [`90-parity-findings.md`](./90-parity-findings.md) | Cross-cutting risks & the two-engine divergence (for the audit) | 12 findings (F1–F8 ✅✅, F9–F12 ✅) |
 | 99 | [`99-verification-register.md`](./99-verification-register.md) | Corrected agent claims + open questions | living |
 
-> **Current state:** the full map is written — all 15 documents, ~2,100 lines. The opzava namespace
-> (the new product code) is mapped at ✅✅ deep fidelity; the 8 cross-cutting parity findings are all
-> double-verified (two independent passes), three of them triple-verified with a deterministic grep.
-> Inherited-layer detail and the API/UI docs are pass-1 research (🔎) with their highest-stakes claims
-> double-verified. **Remaining work** to reach all-✅: a second pass on the 🔎 inherited-layer and
-> module-detail claims, and consuming the Understand-Anything Tree-sitter graph (once generated) as a
-> fourth deterministic corroboration source.
+> **Current state:** the full map is written and **second-pass verified** — all 15 documents, ~2,100 lines.
+> The opzava namespace is mapped at ✅✅ deep fidelity. The cross-cutting parity findings now number **12**:
+> F1–F8 double-verified (three triple-verified with a deterministic grep), and **F9–F12 promoted** after an
+> independent second pass confirmed the four watchlist observations (orphaned `va-task-review` step, two
+> content orchestrators, `isCronDue` 3/5-field bug, `scripts/` brand residue).
+>
+> The previously-🔎 zones — inherited-layer detail, the API layer (165 routes), and the frontend (44 panels) —
+> were re-checked against source by five independent verification agents and upgraded **🔎 → ✅**, surfacing
+> **~11 factual corrections** (route count 165 ✅, 48 migrations / 030-031 gaps ✅, auth role-floors ✅, all six
+> opzava module-table column sets ✅; corrections logged in
+> [`99-verification-register.md`](./99-verification-register.md)). No F-finding was refuted.
+>
+> **Remaining work** (optional, deferred to the operator): consume the Understand-Anything Tree-sitter
+> knowledge graph — once `/understand` is run — as a fourth deterministic corroboration source. The pass-3
+> deterministic grep cross-check already delivers the structural-corroboration value in the meantime.

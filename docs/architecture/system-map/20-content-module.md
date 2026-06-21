@@ -2,7 +2,7 @@
 
 > Zone: `src/opzava/modules/content/` — the flagship workflow: a human idea → a human-approved,
 > draft-only WordPress request, plus the email-campaign send engine. Marks: ✅✅ = double-verified
-> (F1/F3 had fresh-agent passes); 🔎 = pass-1 research, cross-corroborated by 3 separate zone agents
+> (F1/F3 had fresh-agent passes); 🔎→✅ = pass-1 research **re-checked & confirmed in the second pass**
 > (contracts, steps/workflow, providers/campaign) but not yet a dedicated second pass; ⚠️ = nuance.
 
 ## Shape
@@ -17,7 +17,7 @@ modules/content/
   campaign/    campaign aggregate + repository + scheduler + runner worker
 ```
 
-## The pipeline (11 steps, linear DAG) 🔎
+## The pipeline (11 steps, linear DAG) ✅
 
 Definition `workflow/content-workflow.ts` (`CONTENT_WORKFLOW_ID='content-workflow'`, version 1,
 `entryStepId:'idea-intake'`), validated acyclic by `parseWorkflowDefinition` (core).
@@ -43,7 +43,7 @@ idea-intake ─manual─► keyword-research ─PROVIDER─► source-capture �
 | human-approval | `steps/human-approval-service.ts` | draft + requesterId | `Approval` (approved\|rejected) | decision | **HARD GATE** |
 | wordpress-draft | `steps/wordpress-draft-service.ts` | draft + 4 gate artifacts + granted Approval | `WordpressDraftRequest` (status literal `draft`) | render | enforces approval |
 
-## Quality encoded in the *types* 🔎
+## Quality encoded in the *types* ✅
 
 The 10 contracts (`contracts/`) put quality guarantees in the schema, not just runtime logic:
 - **Provenance is structural**: `ArticleDraft` section requires `supportingSourceIds.min(1)`
@@ -71,7 +71,7 @@ enforced again defensively in `wordpress-draft-service.ts:60`. And `wordpress-dr
 review artifacts only to **exist and be correctly typed** (`artifactType` check, `:45-55`), never to be
 *passed*. So today a `failed` review does not stop a run.
 
-## The provider edge 🔎 / ✅✅
+## The provider edge ✅ / ✅✅
 
 - **Mock-first**: the wired content route (`POST /api/ops/runs`) assembles **mock** adapters
   (`createMockContentWorkflowProviderAdapters`) and an auto-approving mock human-approval — so a run
@@ -87,7 +87,7 @@ review artifacts only to **exist and be correctly typed** (`artifactType` check,
 - ⚠️ **Provider-level idempotency keys are set but never enforced** for the mock content steps and the live
   adapters — the keys exist on requests but nothing looks them up before executing (🔎).
 
-## Orchestration 🔎
+## Orchestration ✅
 
 ⚠️ **Two divergent orchestrators** duplicate the entire step-sequencing logic:
 - `content-workflow-executor.ts` — synchronous, mock providers.
@@ -104,7 +104,7 @@ all-in-one in-process executor — so there is **no durable pause/resume**; a no
 synchronously and 500s the request. Real `blocked→running` workflow pausing is not exercised in production.
 (Theme of [F5](./90-parity-findings.md).)
 
-## Persistence 🔎
+## Persistence ✅
 
 Table `opzava_content_artifacts` (`artifacts/artifact-repository.ts`): `artifact_id` PK · `artifact_type`
 · `source_step_run_id` · `workflow_run_id` · `validation_status` · `record_json` · `created_at`;
@@ -119,7 +119,7 @@ indexes on type/run/created. UPSERT by `artifact_id`; reads re-`parseArtifact` (
 - Each artifact's `sourceStepRunId = content-run:<stepId>`; lineage = upstream artifact ids (the
   artifact-to-artifact DAG).
 
-## Campaign send engine 🔎
+## Campaign send engine ✅
 
 `campaign/` — an email-drip system distinct from the article pipeline:
 - **Aggregate** `Campaign` (`campaignId, name, status, startAt, steps[{subject,html,offsetHours}],

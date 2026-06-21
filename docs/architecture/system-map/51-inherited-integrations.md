@@ -2,15 +2,18 @@
 
 > Zone: `src/lib/` — the upstream OpenClaw external-integration surface: the gateway, agent-CLI session
 > bridges, GitHub sync, realtime transport, webhooks. Much of it is OpenClaw-specific and dormant in a
-> standalone Opzava deployment. Marks: ✅ verified this session · 🔎 pass-1 research · ⚠️ correction.
+> standalone Opzava deployment. Marks: ✅ verified (second pass, re-checked vs source) · ⚠️ correction
+> applied this pass. See [`99-verification-register.md`](./99-verification-register.md).
 
-## Gateway (OpenClaw) 🔎
+## Gateway (OpenClaw) ✅
 
 The "gateway" is an **external OpenClaw process** (default `127.0.0.1:18789`) that owns live agent sessions.
 Opzava is a *client* via two paths:
-- **Server→gateway RPC** (`openclaw-gateway.ts` `callOpenClawGateway`): one-shot `ws` per call, protocol 3/4
-  handshake with operator scopes. Callers: `api/{sessions,spawn,channels,nodes,status,chat,gateways}`,
-  `agent-runtimes`, `task-dispatch`, `super-admin`.
+- **Server→gateway RPC** (`openclaw-gateway.ts` `callOpenClawGateway`): one-shot `ws` per call, **protocol
+  v3-only** server-side (`openclaw-gateway.ts:7,143-144`, `min=max=3`; the 3/4 range is the *browser* path only,
+  in `websocket-utils.ts`). Callers (verified by import): `api/{sessions,sessions/transcript/gateway,
+  sessions/[id]/control,spawn,channels,nodes,chat}` + `task-dispatch`.
+  ⚠️ pass-1 also listed `status`, `gateways`, `agent-runtimes`, `super-admin` — those do **not** import `callOpenClawGateway`.
 - **Browser→gateway WS** (`websocket.ts`, a singleton React hook): Ed25519 device-identity challenge-response
   (`device-identity.ts`), heartbeat, backoff; ingests gateway events into the Zustand store.
 
@@ -19,7 +22,7 @@ Config from the gateway's own `openclaw.json` (`gateway-runtime.ts`) + URL build
 Opzava runs with no gateway and the gateway-dependent UI (live sessions, spawn, exec approvals) stays empty.
 `provisioner-client.ts` is a separate Unix-socket client to a privileged host daemon.
 
-## Agent-CLI session bridges 🔎
+## Agent-CLI session bridges ✅
 
 Read-only disk/SQLite scanners that surface "what's running on this host" — none control or spawn agents:
 `claude-sessions.ts` (scans `~/.claude/projects/**/*.jsonl` → upserts `claude_sessions` table),
@@ -31,9 +34,10 @@ is the one bidirectional bridge (scans agent dirs → upserts `agents` with `sou
 interface + `queryPendingAssignments`), `index.ts`, and near-identical stubs `openclaw.ts`, `generic.ts`,
 `crewai.ts`, `langgraph.ts`, `autogen.ts`, `claude-sdk.ts` — each just maps lifecycle methods onto
 `eventBus.broadcast(...)` with its `framework` label. Duplication is upstream boilerplate; only the label
-differs. Driven by `/api/agents/register`.
+differs. ⚠️ Driven by **`/api/adapters`** (`getAdapter`/`listAdapters`, `route.ts:53,67`), **not**
+`/api/agents/register` (which uses no adapter — raw DB writes + inline `eventBus`).
 
-## GitHub sync 🔎
+## GitHub sync ✅
 
 Bidirectional task↔issue sync using **dedicated columns** on `tasks`/`projects`. `github.ts` (REST client;
 token via `runtime-env` preferring the gateway `.env`; `User-Agent: MissionControl/1.0` — branding residue),
@@ -45,7 +49,7 @@ caller — only its definition + a doc comment). GitHub sync runs **on demand** 
 and **outbound** via `syncTaskOutbound` fired from task mutations (`/api/tasks*`, `task-dispatch`), not via
 the poller.
 
-## Realtime transport 🔎
+## Realtime transport ✅
 
 Three independent channels to the browser:
 1. **SSE — local DB mutations**: `event-bus.ts` (singleton `EventEmitter`) ← DB/scheduler/adapters call
@@ -73,7 +77,7 @@ Google ID token), `receipt-signing.ts` + `mcp-audit.ts` (Ed25519 tamper-evident 
 `provider-subscriptions.ts` (detect Anthropic/OpenAI subscriptions), `openclaw-doctor*.ts`,
 `command.ts` (spawn wrapper for the openclaw/clawdbot CLIs), `transcript-parser.ts`, `plugins.ts`.
 
-## What's dormant in a standalone Opzava deployment 🔎
+## What's dormant in a standalone Opzava deployment ✅
 
 - The **entire gateway path** (gateway RPC/WS, device-identity, tailscale, provisioner) — gated off by
   `NEXT_PUBLIC_GATEWAY_OPTIONAL=true`.

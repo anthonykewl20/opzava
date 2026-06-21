@@ -1,7 +1,7 @@
 # 21 — Team / Social / General-VA Modules (deep)
 
 > Zones: `src/opzava/modules/{team,social,general-va}/`. Marks: ✅✅ = double-verified (F2 had a fresh
-> pass), 🔎 = pass-1 research, ⚠️ = nuance.
+> pass), 🔎→✅ = pass-1 research **confirmed in the second pass**, ⚠️ = nuance.
 
 ## Team module — the org chart
 
@@ -52,7 +52,7 @@ No join, sync, or shared status. They share only the SQLite connection (the `/ap
 but **no default role owns it** — `buildDepartmentPipeline('General VA')` yields a step with `agentId:null`,
 and activity attributes its artifacts to no one. Likely a missing role/ownership entry.
 
-## Social module — a step library 🔎
+## Social module — a step library ✅
 
 `social/` = a typed artifact factory (`social-*` types) + four **pure DI step services**:
 `social-post-draft`, `social-review` (passed\|rejected verdict, issue-validated), `social-approval`
@@ -61,7 +61,7 @@ and activity attributes its artifacts to no one. Likely a missing role/ownership
 status only ever `scheduled|draft` — never "published"). Reuses **core only** (`parseArtifact`,
 `parseApproval`); no runner/repository/providers; **no own tables**.
 
-## General-VA module — a step library 🔎
+## General-VA module — a step library ✅
 
 `general-va/` mirrors social: `va-task-draft`, `va-task-review` (passed\|rejected), `va-approval`
 (terminal `Approval`, `requestedAction:'va-task-complete'`). Same core-only reuse; no tables.
