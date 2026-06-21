@@ -12144,6 +12144,64 @@
         }
       }
     },
+    "/api/ops/admin-settings": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "Get opzava runtime settings",
+        "description": "Returns the opzava admin settings singleton (runner delays, retry policy, provider timeouts, rate/cost limits). Stores SecretReferences, never secret values. Returns defaults at version 0 when none persisted. Admin only.",
+        "operationId": "getOpzavaAdminSettings",
+        "responses": {
+          "200": {
+            "description": "Admin settings record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "settings": { "type": "object" },
+                    "version": { "type": "integer" },
+                    "updatedAt": { "type": ["string", "null"] },
+                    "updatedBy": { "type": ["string", "null"] }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "put": {
+        "tags": ["Ops"],
+        "summary": "Update opzava runtime settings",
+        "description": "Validates and persists the opzava admin settings singleton, bumping the version and recording an audit event. Accepts either a {settings, reason} wrapper or a bare settings object. Admin only.",
+        "operationId": "updateOpzavaAdminSettings",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "settings": { "type": "object" },
+                  "reason": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved admin settings record with audit event",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
     "/api/ops/dead-letters": {
       "get": {
         "tags": ["Ops"],

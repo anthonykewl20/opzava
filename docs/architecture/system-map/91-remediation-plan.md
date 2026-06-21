@@ -166,14 +166,16 @@
 - **Deferred (F2b):** projecting Engine A cost/audit into the opzava read models (the "unified surfaces" half of
   ARD 0007) — noted in engine-boundary.md as future work.
 
-### F6 — Wire `OpzavaAdminSettings` + enforce rate/cost limits
-- **Change:** add an HTTP route that reads/writes the `opzava_admin_settings` singleton via
-  `createAdminSettingsRepository` + `createRuntimeSettingsLoader` (zero callers today); project
-  `requestsPerMinute/burst/usdPerHourLimit/usdPerDayLimit` into `runtime-options.ts:46` and enforce them in the
-  provider-execution layer.
-- **Files:** `app/api/ops/admin-settings/route.ts` (new), `platform/admin-config/*`, `runtime-options.ts`.
-- **Effort:** M-L · **Risk:** med · **Done-gate:** an operator can set a provider timeout/limit from the UI and
-  a run is throttled/blocked when the cost limit is exceeded.
+### F6 — `OpzavaAdminSettings` is now reachable over HTTP ✅
+- **Done:** new admin-only `GET/PUT /api/ops/admin-settings` route reads/writes the `opzava_admin_settings`
+  singleton via the (previously zero-caller) `createAdminSettingsRepository` — validates with
+  `parseOpzavaAdminSettings`, bumps the version, records an audit event, and returns defaults at version 0 when
+  none persisted. The settings store SecretReferences (never secret values), so the payload is safe. Documented
+  in `openapi.json` (parity green) with 4 route tests.
+- **Files:** `app/api/ops/admin-settings/route.ts` (+test), `openapi.json`.
+- **Deferred (F6b):** projecting `requestsPerMinute/burst/usd*Limit` into `runtime-options.ts` and **enforcing**
+  them in the provider-execution layer — ties to the provider execution path (F1b). Operators can now *set* the
+  config; runtime enforcement of the budget/rate limits is the remaining half.
 
 ---
 
