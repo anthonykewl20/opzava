@@ -73,12 +73,12 @@ const settingDefinitions: Record<string, { category: string; description: string
   'onboarding.completed_steps': { category: 'onboarding', description: 'JSON array of completed step IDs', default: '[]' },
   'onboarding.checklist_dismissed': { category: 'onboarding', description: 'Whether the onboarding checklist has been dismissed', default: 'false' },
 
-  // Provider connections (WordPress publishing + Resend email). Secrets are write-only.
+  // Provider connections (WordPress publishing + Resend email). Only non-secret fields are stored
+  // here. Provider secrets are environment-provided (ARD 0008): the WordPress application password
+  // comes from WORDPRESS_APP_PASSWORD and the Resend API key from RESEND_API_KEY — never the DB.
   wordpress_site_url: { category: 'Provider Connections', description: 'WordPress site URL', default: '' },
-  wordpress_app_password: { category: 'Provider Connections', description: 'WordPress application password', default: '', sensitive: true },
   resend_from_address: { category: 'Provider Connections', description: 'Resend default from email address', default: '' },
   resend_from_name: { category: 'Provider Connections', description: 'Resend default from display name', default: '' },
-  resend_api_key: { category: 'Provider Connections', description: 'Resend API key', default: '', sensitive: true },
 }
 
 // Validators for connection setting values (rejected on PUT when non-empty and malformed).

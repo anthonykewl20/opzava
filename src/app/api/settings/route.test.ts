@@ -63,55 +63,36 @@ function request(method: string, body?: unknown) {
   })
 }
 
-describe('/api/settings provider connection secrets', () => {
+describe('/api/settings provider connections', () => {
   beforeEach(() => {
     store.clear()
     logAuditEventMock.mockClear()
   })
 
-  it('redacts sensitive settings and reports configured state on GET', async () => {
-    store.set('resend_api_key', {
-      key: 'resend_api_key',
-      value: 're_secret_123',
-      description: 'Resend API key',
-      category: 'Provider Connections',
-      updated_by: 'admin',
-      updated_at: 1,
-    })
-
+  // ARD 0008: provider secrets are environment-provided. The settings route stores only the
+  // non-secret connection fields; no cleartext secret setting is defined.
+  it('does not define provider secrets as stored settings on GET', async () => {
     const body = await (await GET(request('GET'))).json()
-    const resendApiKey = body.settings.find((setting: { key: string }) => setting.key === 'resend_api_key')
-    const wordpressPassword = body.settings.find((setting: { key: string }) => setting.key === 'wordpress_app_password')
-
-    expect(JSON.stringify(body)).not.toContain('re_secret_123')
-    expect(resendApiKey).toMatchObject({ value: '[redacted]', sensitive: true, configured: true })
-    expect(wordpressPassword).toMatchObject({ value: '', sensitive: true, configured: false })
+    const keys = body.settings.map((s: { key: string }) => s.key)
+    expect(keys).not.toContain('resend_api_key')
+    expect(keys).not.toContain('wordpress_app_password')
+    expect(keys).toContain('wordpress_site_url')
+    expect(keys).toContain('resend_from_address')
   })
 
-  it('stores sensitive settings and ignores empty sensitive updates when already configured', async () => {
-    const createRes = await PUT(request('PUT', {
+  it('stores non-secret provider connection fields', async () => {
+    const res = await PUT(request('PUT', {
       settings: {
         wordpress_site_url: 'https://example.com',
-        wordpress_app_password: 'wp-app-password',
         resend_from_address: 'news@example.com',
-        resend_api_key: 're_secret_123',
-      },
-    }))
-
-    expect(createRes.status).toBe(200)
-    expect(store.get('wordpress_app_password')?.value).toBe('wp-app-password')
-    expect(store.get('resend_api_key')?.value).toBe('re_secret_123')
-
-    const updateRes = await PUT(request('PUT', {
-      settings: {
         resend_from_name: 'News Desk',
-        resend_api_key: '',
       },
     }))
 
-    expect(updateRes.status).toBe(200)
+    expect(res.status).toBe(200)
+    expect(store.get('wordpress_site_url')?.value).toBe('https://example.com')
+    expect(store.get('resend_from_address')?.value).toBe('news@example.com')
     expect(store.get('resend_from_name')?.value).toBe('News Desk')
-    expect(store.get('resend_api_key')?.value).toBe('re_secret_123')
   })
 
   it('rejects malformed provider connection values', async () => {

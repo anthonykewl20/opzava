@@ -16,12 +16,11 @@ interface Props {
 }
 
 // Keys are defined server-side in /api/settings (category 'Provider Connections').
+// Only non-secret fields live here; provider secrets are environment-provided (ARD 0008).
 const KEYS = {
   wpSiteUrl: 'wordpress_site_url',
-  wpAppPassword: 'wordpress_app_password',
   resendFromAddress: 'resend_from_address',
   resendFromName: 'resend_from_name',
-  resendApiKey: 'resend_api_key',
 } as const
 
 function StatusPill({ connected }: { connected: boolean }) {
@@ -61,41 +60,15 @@ const inputClass =
   'w-full rounded-md border border-border/40 bg-surface-1/30 px-2.5 py-1.5 text-sm text-foreground ' +
   'placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-void-cyan/40 focus:border-void-cyan/40'
 
-// A write-only secret input: never prefilled. Shows whether a secret is already stored.
-function SecretField({
-  label,
-  configured,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string
-  configured: boolean
-  value: string
-  onChange: (v: string) => void
-  placeholder: string
-}) {
+// A read-only note explaining that a provider secret is supplied via an environment variable
+// (ARD 0008 — no cleartext secret is stored in the database).
+function EnvSecretNote({ envVar, label }: { envVar: string; label: string }) {
   return (
-    <Field
-      label={label}
-      hint={configured ? 'A secret is saved. Leave blank to keep it, or type a new value to replace.' : undefined}
-    >
-      <div className="relative">
-        <input
-          type="password"
-          autoComplete="new-password"
-          className={inputClass}
-          placeholder={configured ? '•••••••• (saved — leave blank to keep)' : placeholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
-        {configured && (
-          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-medium text-emerald-400">
-            saved
-          </span>
-        )}
-      </div>
-    </Field>
+    <p className="rounded-md border border-border/20 bg-surface-1/20 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+      {label} is provided via the{' '}
+      <code className="rounded bg-surface-1/40 px-1 py-0.5 font-mono text-foreground/90">{envVar}</code>{' '}
+      environment variable — set it in your deployment, not here.
+    </p>
   )
 }
 
@@ -104,13 +77,9 @@ export function ProviderConnectionsSection({ showFeedback }: Props) {
   const [saving, setSaving] = useState(false)
 
   const [wpSiteUrl, setWpSiteUrl] = useState('')
-  const [wpAppPassword, setWpAppPassword] = useState('')
-  const [wpPasswordConfigured, setWpPasswordConfigured] = useState(false)
 
   const [resendFromAddress, setResendFromAddress] = useState('')
   const [resendFromName, setResendFromName] = useState('')
-  const [resendApiKey, setResendApiKey] = useState('')
-  const [resendKeyConfigured, setResendKeyConfigured] = useState(false)
 
   const [testing, setTesting] = useState<'wordpress' | 'resend' | null>(null)
   const [testResult, setTestResult] = useState<{ provider: 'wordpress' | 'resend'; ok: boolean; message: string } | null>(null)
@@ -125,10 +94,8 @@ export function ProviderConnectionsSection({ showFeedback }: Props) {
       const data = await res.json()
       const byKey = new Map<string, SettingItem>((data.settings || []).map((s: SettingItem) => [s.key, s]))
       setWpSiteUrl(byKey.get(KEYS.wpSiteUrl)?.value ?? '')
-      setWpPasswordConfigured(Boolean(byKey.get(KEYS.wpAppPassword)?.configured))
       setResendFromAddress(byKey.get(KEYS.resendFromAddress)?.value ?? '')
       setResendFromName(byKey.get(KEYS.resendFromName)?.value ?? '')
-      setResendKeyConfigured(Boolean(byKey.get(KEYS.resendApiKey)?.configured))
     } catch {
       // ignore — leave fields blank
     } finally {
@@ -143,15 +110,12 @@ export function ProviderConnectionsSection({ showFeedback }: Props) {
   const save = async () => {
     setSaving(true)
     try {
-      // Non-secret fields always sent; secret fields only when the operator typed a new value
-      // (a blank secret is dropped server-side so it never overwrites a saved secret).
+      // Only non-secret connection fields are stored; provider secrets are environment-provided.
       const settings: Record<string, string> = {
         [KEYS.wpSiteUrl]: wpSiteUrl.trim(),
         [KEYS.resendFromAddress]: resendFromAddress.trim(),
         [KEYS.resendFromName]: resendFromName.trim(),
       }
-      if (wpAppPassword) settings[KEYS.wpAppPassword] = wpAppPassword
-      if (resendApiKey) settings[KEYS.resendApiKey] = resendApiKey
 
       const res = await fetch('/api/settings', {
         method: 'PUT',
@@ -163,9 +127,6 @@ export function ProviderConnectionsSection({ showFeedback }: Props) {
         showFeedback(false, body.error || 'Failed to save connections')
         return
       }
-      // Clear the secret inputs and refresh configured flags
-      setWpAppPassword('')
-      setResendApiKey('')
       await load()
       showFeedback(true, 'Provider connections saved')
     } catch {
@@ -204,14 +165,16 @@ export function ProviderConnectionsSection({ showFeedback }: Props) {
     )
   }
 
-  const wpConnected = wpSiteUrl.trim().length > 0 && wpPasswordConfigured
-  const resendConnected = resendFromAddress.trim().length > 0 && resendKeyConfigured
+  // "Connected" reflects the non-secret config being present; the env secret is checked by "Test".
+  const wpConnected = wpSiteUrl.trim().length > 0
+  const resendConnected = resendFromAddress.trim().length > 0
 
   return (
     <div className="p-4 rounded-lg border border-border/30 bg-surface-1/20">
       <h3 className="text-sm font-medium mb-1">Provider Connections</h3>
       <p className="text-xs text-muted-foreground mb-3">
-        Credentials for publishing and email. Secrets are write-only — they are never shown again after saving.
+        Non-secret settings for publishing and email. Provider secrets are supplied via environment
+        variables, never stored here — use Test to verify the deployment secret.
       </p>
 
       <div className="space-y-3">
@@ -243,13 +206,7 @@ export function ProviderConnectionsSection({ showFeedback }: Props) {
               onChange={(e) => setWpSiteUrl(e.target.value)}
             />
           </Field>
-          <SecretField
-            label="Application password"
-            configured={wpPasswordConfigured}
-            value={wpAppPassword}
-            onChange={setWpAppPassword}
-            placeholder="WordPress application password"
-          />
+          <EnvSecretNote envVar="WORDPRESS_APP_PASSWORD" label="Application password" />
         </div>
 
         {/* Resend */}
@@ -291,13 +248,7 @@ export function ProviderConnectionsSection({ showFeedback }: Props) {
               />
             </Field>
           </div>
-          <SecretField
-            label="API key"
-            configured={resendKeyConfigured}
-            value={resendApiKey}
-            onChange={setResendApiKey}
-            placeholder="re_..."
-          />
+          <EnvSecretNote envVar="RESEND_API_KEY" label="API key" />
         </div>
       </div>
 
@@ -314,7 +265,9 @@ export function ProviderConnectionsSection({ showFeedback }: Props) {
       )}
 
       <div className="mt-3 flex items-center justify-between gap-3">
-        <p className="text-[11px] text-muted-foreground">Save before testing — the test checks the saved credentials.</p>
+        <p className="text-[11px] text-muted-foreground">
+          Save the non-secret fields, then Test — the test verifies the environment secret.
+        </p>
         <Button onClick={save} disabled={saving}>
           {saving ? 'Saving…' : 'Save connections'}
         </Button>

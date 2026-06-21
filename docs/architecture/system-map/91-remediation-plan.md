@@ -82,9 +82,11 @@
     record (the campaign approve flow currently flips only the campaign row status and the send hardcodes
     `approvalGranted:true` at `run-approved-campaign.ts:45`). So F1 = default-loader + campaign→Approval mapping
     + guard wiring + adapter credential threading — a small feature, not a one-line rewire.
-  - **Full ARD 0008 rollout (cleartext-at-rest):** the settings route/UI still *stores* `resend_api_key`
-    (and `wordpress_app_password`) cleartext even though the send path ignores it; remove those from the
-    settings/connections UI + `connections/test` so nothing secret is persisted at rest.
+  - ✅ **Full ARD 0008 rollout (cleartext-at-rest) — DONE:** `resend_api_key` and `wordpress_app_password`
+    are removed from the settings route `settingDefinitions` (nothing secret is persisted), the connections UI
+    shows an `EnvSecretNote` instead of secret inputs, and `connections/test` resolves both providers' secrets
+    from the environment via the `SecretReference` boundary (new `resolveWordpressDraftConnection` mirrors the
+    resend one). The DB now stores **no** provider secrets at rest.
 - **Done-gate (live send path met; full F4 pending the rollout above):** ✅ fails closed when the ref can't
   resolve; ✅ key no longer read cleartext on the send path. Pending: redacted audit/cost receipt (lands with
   F1), and removing the key from settings storage.

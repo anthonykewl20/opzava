@@ -275,6 +275,12 @@ export {
   type ResolveResendCampaignConnectionResult,
 } from './providers/resolve-resend-campaign-connection'
 export {
+  resolveWordpressDraftConnection,
+  WORDPRESS_APP_PASSWORD_SECRET_REFERENCE,
+  type ResolveWordpressDraftConnectionDeps,
+  type ResolveWordpressDraftConnectionResult,
+} from './providers/resolve-wordpress-draft-connection'
+export {
   verifyWordpressConnection,
   verifyResendConnection,
   type FetchLike,
