@@ -173,6 +173,7 @@ Read in this order. Status reflects how much of each doc is ✅-verified vs 🔎
 | 61 | [`61-frontend.md`](./61-frontend.md) | SPA shell, Zustand store, 44 panels | ✅ (2nd pass; 4 corrections) |
 | 62 | [`62-tooling-build-governance.md`](./62-tooling-build-governance.md) | mc CLI/MCP/TUI, Docker/standalone, governance gates | F8 ✅✅; rest ✅ (2nd pass) |
 | 90 | [`90-parity-findings.md`](./90-parity-findings.md) | Cross-cutting risks & the two-engine divergence (for the audit) | 12 findings (F1–F8 ✅✅, F9–F12 ✅) |
+| 91 | [`91-remediation-plan.md`](./91-remediation-plan.md) | Sequenced fix plan for F1–F12, phased by blast radius + dependency | plan |
 | 99 | [`99-verification-register.md`](./99-verification-register.md) | Corrected agent claims + open questions | living |
 
 > **Current state:** the full map is written and **second-pass verified** — all 15 documents, ~2,100 lines.
