@@ -202,6 +202,24 @@ describe('wordpress-draft-service', () => {
     expect(content.gateArtifacts.antiSlopReviewId).toBe(p.antiSlopArtifact.artifactId)
   })
 
+  it('refuses to produce a draft when a quality verdict failed (F3)', () => {
+    const p = pipeline()
+    const failedFactCheck = {
+      ...p.factCheckArtifact,
+      content: {
+        schemaVersion: 1,
+        reportId: 'fc-failed',
+        draftId: p.articleDraftArtifact.artifactId,
+        ideaId: 'idea_001',
+        status: 'failed',
+        checks: [{ claim: 'unsupported claim', verdict: 'contradicted', sourceIds: [] }],
+        checkedAt: '2026-06-17T00:00:00.000Z',
+      },
+    } as typeof p.factCheckArtifact
+    const badInput = { ...input(p), factCheckArtifact: failedFactCheck }
+    expect(() => service().run(badInput)).toThrow(/quality gates not passed/)
+  })
+
   it('parses a valid full step input', () => {
     const p = pipeline()
     const parsed = parseWordpressDraftStepInput({

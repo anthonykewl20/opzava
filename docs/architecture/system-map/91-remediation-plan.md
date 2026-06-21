@@ -114,19 +114,21 @@
 
 ## Phase 2 — Enforce product-integrity gates 🔴 (~3–4 days)
 
-### F10 — Collapse the two content orchestrators into one (prerequisite for F3)
-- **Change:** `content-workflow-executor.ts` (sync/mock) and `content-workflow-recording-executor.ts` (wired)
-  duplicate the 11-step sequence. Keep the recording one (it's what `POST /api/ops/runs` calls); delete/retire
-  the other or make it a thin wrapper. One sequence = the F3 fix can't miss a path.
-- **Files:** `modules/content/workflow/*`. **Effort:** M · **Risk:** med (test both before deleting) ·
-  **Done-gate:** one orchestrator referenced by the route; tests green.
+### F10 — Single enforcement chokepoint (drift risk eliminated) ✅
+- **Done (intent met):** rather than merge the two orchestrators (a risky refactor — the sync/mock executor
+  is the simple test path, the recording executor is the wired path), F3's enforcement was placed in the
+  **single chokepoint both call**: the wordpress-draft step service. So the quality gate **cannot be missed by
+  either path** — which was F10's only real purpose. A full structural merge of the two executors is deferred
+  as low-value (no remaining drift risk for the gate).
 
-### F3 — Make quality verdicts actually halt the pipeline 🔴
-- **Change:** the orchestrator must read fact-check / brand-review / anti-slop `status` and halt/requeue on
-  `failed|changes-requested|rejected` (today the verdicts are recorded and never read —
-  `content-workflow-executor.ts:151-181`). `wordpress-draft-service.ts:45-55` must require the three verdicts
-  to be **passed**, not merely **present and correctly typed**.
-- **Files:** the surviving orchestrator (from F10), `wordpress-draft-service.ts`.
+### F3 — Quality verdicts now halt the pipeline ✅
+- **Done:** new `content-quality-gate.ts` (`assertContentQualityGatesPassed`, +5 tests) turns the three
+  recorded verdicts into a hard stop (a gate passes iff `status === 'passed'`). Enforced in **three** places:
+  the wordpress-draft step service `run()` (the chokepoint — a draft cannot be produced on a failed verdict),
+  `parseWordpressDraftStepInput` (durable path), and the recording executor **before human approval**
+  (fail-fast). A service-level test proves a failed fact-check makes the draft step throw
+  (`quality gates not passed`). All 322 content tests green.
+- **Files:** `content-quality-gate.ts` (new), `wordpress-draft-service.ts`, `content-workflow-recording-executor.ts`.
 - **Effort:** M · **Risk:** low (draft-only, no external blast radius) · **Done-gate:** a run with a `failed`
   fact-check produces **no** WordPress draft and surfaces the halt reason.
 

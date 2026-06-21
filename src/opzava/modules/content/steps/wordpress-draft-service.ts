@@ -4,6 +4,7 @@ import { parseWordpressDraftRequest } from '../contracts/wordpress-draft-request
 import { parseApproval, isApprovalGranted, type Approval } from '@/opzava/core/approvals/contracts'
 import { parseArtifact, type Artifact } from '@/opzava/core/artifacts/contracts'
 import { getContentStepOutput } from '../workflow/content-step-outputs'
+import { assertContentQualityGatesPassed } from '../workflow/content-quality-gate'
 import type { ContentStepService } from './step-service'
 import type { WordpressDraftProvider } from './wordpress-draft-provider'
 
@@ -61,6 +62,13 @@ export function parseWordpressDraftStepInput(payload: unknown): WordpressDraftSt
     throw new Error('wordpress-draft requires a granted approval')
   }
 
+  // The three quality verdicts must have PASSED, not merely exist (F3).
+  assertContentQualityGatesPassed({
+    factCheck: factCheckArtifact.content,
+    brandReview: brandReviewArtifact.content,
+    antiSlop: antiSlopArtifact.content,
+  })
+
   return Object.freeze({
     articleDraftArtifact,
     articleDraft: parseArticleDraft(articleDraftArtifact.content),
@@ -83,6 +91,13 @@ export function createWordpressDraftStepService(
   return Object.freeze({
     stepId: 'wordpress-draft',
     run: (input) => {
+      // Single chokepoint: a draft can only be produced when all three quality gates passed (F3).
+      assertContentQualityGatesPassed({
+        factCheck: input.factCheckArtifact.content,
+        brandReview: input.brandReviewArtifact.content,
+        antiSlop: input.antiSlopArtifact.content,
+      })
+
       const rendered = deps.provider({ articleDraft: input.articleDraft })
 
       const request = parseWordpressDraftRequest({
