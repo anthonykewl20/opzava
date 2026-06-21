@@ -267,3 +267,20 @@ branding gate (`test/branding.test.mjs:75-91`) scans only `src/app`, `src/compon
 `scripts/`. Compounds **F8**: the gate is both unwired in CI *and* scoped to miss this residue.
 
 **Audit question:** Do the shared repos scope their brand checks to cover ops/CLI tooling, not just app source?
+
+---
+
+## F14 🟡 Hardcoded model ids/pricing scattered across other inherited sites (follow-up to F7)
+
+F7's four core dispatch/pricing sites (`agent-templates.ts`, `task-dispatch.ts`, `token-pricing.ts`, `agent-runtimes.ts`) have been centralized into `src/lib/model-config.ts` (the single source of truth), and the governance gate `test/no-hardcoded-models.test.mjs` now scans exactly those four files (an explicit allowlist) and fails if any Claude model-id literal remains. The remediation was deliberately **bounded** — a broader `src/**` guard would flag ~11 inherited sites that are out of scope for this pass. The remaining inherited sites still inline model ids and/or pricing literals and are tracked here as debt to fold into `model-config.ts` (and under the gate) later:
+
+- `src/index.ts`
+- `src/lib/models.ts`
+- `src/lib/claude-sessions.ts`
+- `src/lib/framework-templates.ts`
+- `src/app/api/agents/route.ts`
+- `src/components/onboarding/runtime-setup-modal.tsx`
+- `src/components/panels/agent-detail-tabs.tsx`
+- `src/components/panels/cron-management-panel.tsx`
+
+**Audit question:** When the broad guard is eventually enabled, do the shared repos already route every model id/price through one config module, or do they carry the same scatter across UI panels, route handlers, and session/template helpers?

@@ -8,6 +8,7 @@ import { scanForInjection } from './injection-guard'
 import { isHermesInstalled, isHermesGatewayRunning, clearHermesDetectionCache } from './hermes-sessions'
 import { isOpenCodeInstalled, getOpenCodeVersion, scanOpenCodeSessions } from './opencode-sessions'
 import { logger } from './logger'
+import { AI_REVIEW_MODEL } from './model-config'
 
 // ---------------------------------------------------------------------------
 // Security review for downloaded installer scripts
@@ -119,7 +120,7 @@ async function reviewScriptWithAI(script: string, sourceUrl: string): Promise<Sc
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: AI_REVIEW_MODEL,
         max_tokens: 1024,
         messages: [{
           role: 'user',
