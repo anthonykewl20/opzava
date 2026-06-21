@@ -147,23 +147,24 @@
 > inherited 60s scheduler — the two timers coexist, nothing merges.** F2 is now scoped to a boundary + a
 > one-way agent mapping, not a migration.
 
-### F5 — Boot the runner daemon so background work actually progresses
-- **Change:** start `createRuntimeRunnerDaemon` at process boot (e.g. `instrumentation.ts` or alongside the
-  scheduler in `db.ts:84-89`) so `executeExpiredLeaseRecovery`, `pruneRunnerData`, backoff-retry, and drip
-  scheduling run on a timer — today they only run synchronously inside request handlers.
-- **Files:** `instrumentation.ts` (new) or `db.ts`, `platform/runner/*-daemon.ts`.
-- **Effort:** M · **Risk:** med (background loop lifecycle, shutdown) · **Done-gate:** a failed job retries
-  after backoff with no HTTP request in flight; a future-scheduled campaign step (`offsetHours>0`) eventually
-  runs instead of reporting `failed`.
+### F5 — Background runner maintenance now runs on a timer ✅
+- **Done:** new `createRunnerMaintenanceDaemon` (`platform/runner/maintenance-daemon.ts`) runs
+  `executeExpiredLeaseRecovery` + `pruneRunnerData` on an interval; `startRunnerMaintenance`
+  (`maintenance-boot.ts`) is booted in `db.ts` **beside the inherited scheduler**, guarded by
+  `!isBuildPhase && !isTestMode` (ARD 0007 — the two timers coexist). So crashed leases are recovered and old
+  rows pruned without a manual call. 6 unit tests (recovery+retention wiring, loop/maxCycles, abort, error
+  counting). Full suite 253 files / 1823 green.
+- **Files:** `platform/runner/maintenance-daemon.ts` (+test), `maintenance-boot.ts`, `src/lib/db.ts`.
+- **Deferred (F5b):** background *job execution* (draining the queue) — needs per-kind executor deps + resolved
+  secrets; ties to F1b. Sends/content runs still execute inline in their request handlers today.
 
-### F2 — Define the engine boundary + a one-way agent mapping (per ARD 0007)
-- **Change:** do **not** merge `agents` and `opzava_agent_roles`. Document the boundary and add a one-way
-  mapping (opzava role → inherited runtime identity) at the single integration point; keep status vocabularies
-  separate. Begin projecting Engine A cost/audit into the opzava read models (the "unified surfaces" half of
-  ARD 0007) so the dashboard reads one source.
-- **Files:** `modules/team/*` (mapping), a new read-model projection for cost/audit.
-- **Effort:** M · **Risk:** low-med · **Done-gate:** a documented boundary + a test asserting the role→runtime
-  mapping is one-way (no opzava code writes `agents`, no `src/lib` writes `opzava_agent_roles`).
+### F2 — Engine boundary guarded + documented ✅
+- **Done:** governance gate `test/engine-boundary.test.mjs` (3 assertions) statically enforces the one-way
+  boundary — `src/opzava/modules/team` never imports `src/lib` or references the `agents` table; `src/lib`
+  never imports `@/opzava/modules/team` or references `opzava_agent_roles`. `docs/architecture/engine-boundary.md`
+  documents the engines, the role→runtime direction, ownership, and the rule. Negative-controlled.
+- **Deferred (F2b):** projecting Engine A cost/audit into the opzava read models (the "unified surfaces" half of
+  ARD 0007) — noted in engine-boundary.md as future work.
 
 ### F6 — Wire `OpzavaAdminSettings` + enforce rate/cost limits
 - **Change:** add an HTTP route that reads/writes the `opzava_admin_settings` singleton via
