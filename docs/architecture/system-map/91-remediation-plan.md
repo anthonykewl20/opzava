@@ -6,17 +6,17 @@
 > architecture, then hygiene. Each item lists the **change**, **files**, rough **effort**, **risk**, and the
 > **done-gate** (the test/observation that proves it fixed).
 >
-> One item is **decision-gated** — it needs an accepted ARD (`docs/ard/`) before code, per the project's
-> "no hand-waved engineering decisions" doctrine: the **secret-storage** approach for F4 (flagged 🧭). **Q1**
-> (engine convergence) is now **resolved** → [ARD 0007](../../ard/0007-engine-separation-and-surface-unification.md):
-> *separate engines, unified surfaces*.
+> Both formerly decision-gated items are now **resolved by accepted ARDs**: **Q1** (engine convergence) →
+> [ARD 0007](../../ard/0007-engine-separation-and-surface-unification.md) *(separate engines, unified
+> surfaces)*; the **secret-storage approach** (F4) → [ARD 0008](../../ard/0008-secret-storage-and-resolution.md)
+> *(environment-provided secret references; no cleartext at rest)*. No item is decision-gated anymore.
 
 ## At a glance
 
 | Phase | Findings | Theme | Gate before merge |
 |------|----------|-------|-------------------|
 | **0 — Guardrails** ✅ | F8, F11 | Cheap correctness + stop regressions | **DONE** — governance gates in CI; cron bug fixed |
-| **1 — Make the live path safe** 🔴 | F4, F1 | The only live side effect (campaign send) is currently unsafe | live send is approval+idempotency+receipt gated; no cleartext secret on the wire |
+| **1 — Make the live path safe** 🔴 🔄 | F4, F1 | The only live side effect (campaign send) is currently unsafe | live send is approval+idempotency+receipt gated; no cleartext secret on the wire |
 | **2 — Enforce product-integrity gates** 🔴 | F10, F3, F9 | "Anti-slop / fact-check / approval before draft" is currently decorative | a failed quality verdict halts the run; one orchestrator |
 | **3 — Make the durable runner real** 🟠 | F5, F6, F2 | Runner is built but never runs in background; admin config inert | daemon runs; retries/recovery/limits enforced; agent boundary defined |
 | **4 — Hygiene / debt** 🟡 | F7, F12 | Hardcoded models + ungated brand residue | governance tests cover both |
@@ -61,17 +61,20 @@
 > (a) reads `resend_api_key` cleartext from `settings` and (b) calls `adapter.execute()` directly, skipping the
 > built-and-tested approval/reservation/idempotency/cost boundary. Fix both on this shared code path together.
 
-### F4 — Real `SecretResolver` on the live path 🔴 🧭 (needs ARD: secret-storage approach)
-- **Decision first:** how are secrets stored at rest? (env-injected refs · OS keychain · encrypted column ·
-  external KMS). Record in `docs/ard/`. The contract (`SecretReference`, 4-scope) already exists; only a
-  **production resolver** is missing — today it's interface + test doubles only (`credentials-runtime.ts:16`).
-- **Change:** implement a concrete `SecretResolver`; route `resolveProviderCredentialForRequest` on the wired
-  campaign path; stop `connection-settings-resolver.ts` from returning cleartext `resend_api_key` /
-  `wordpress_app_password`. `credentialRef` must resolve, not be a dead literal.
-- **Files:** `platform/providers/credentials-runtime.ts`, `…/connection-settings-resolver.ts`,
-  `app/api/campaigns/[id]/run/route.ts`, `resend-live-sender.ts`.
-- **Effort:** M · **Risk:** med (touches live auth header) · **Done-gate:** secret-redaction test + a test
-  proving the live path fails closed when the ref can't resolve; no cleartext key in logs/artifacts.
+### F4 — Real `SecretResolver` on the live path 🔴 🔄 (ARD 0008 accepted)
+- **Decision:** ✅ [ARD 0008](../../ard/0008-secret-storage-and-resolution.md) — secrets resolve from the
+  environment (`SecretReference.id` names an env var / Docker `_FILE` secret); the DB stores **only
+  references**, never cleartext; resolver is an interface seam (encrypted-column / KMS reachable later).
+- **Done so far:** the missing production resolver is built + tested — `createEnvSecretResolver({ readEnv })`
+  in `platform/providers/env-secret-resolver.ts` (pure; the `process.env` touch stays at the app boundary).
+  Fails closed (`not-found`) when the env secret is absent. 6 unit tests.
+- **Remaining (the route rewire — next change set, paired with F1):** route the campaign send through
+  `createProviderExecutionPreflight({ resolver })` so the Resend API key resolves via the reference; change
+  the Resend adapter to take its credential from the **resolved** secret instead of a cleartext `connection`;
+  stop `campaigns/[id]/run/route.ts:34` / `connection-settings-resolver.ts` from reading `resend_api_key`
+  cleartext (`fromAddress`/`fromName` stay as non-secret settings).
+- **Done-gate:** secret-redaction test + a test proving the live path fails closed when the ref can't
+  resolve; no cleartext key in logs/artifacts.
 
 ### F1 — Route the live send through the approval+idempotency+receipt boundary 🔴
 - **Change:** replace the direct `adapter.execute()` call in the campaign sender with
