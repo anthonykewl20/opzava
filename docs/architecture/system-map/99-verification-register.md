@@ -83,7 +83,7 @@ grep cross-check above already delivers the structural-corroboration value.
 
 | # | Question | Why it matters | Status |
 |---|----------|----------------|--------|
-| Q1 | Are the two orchestration engines (inherited `tasks` board vs opzava `WorkflowRun`/`Job`) meant to converge, or stay as "operator board" vs "worker pipeline"? | Determines whether the duplicate agent/task/cost/audit models are debt or intentional separation. Drives the whole parity story. | ❓ **open — needs a product decision from you** |
+| Q1 | Are the two orchestration engines (inherited `tasks` board vs opzava `WorkflowRun`/`Job`) meant to converge, or stay as "operator board" vs "worker pipeline"? | Determines whether the duplicate agent/task/cost/audit models are debt or intentional separation. Drives the whole parity story. | ✅ **resolved → [ARD 0007](../../ard/0007-engine-separation-and-surface-unification.md)** — *separate engines, unified surfaces*: opzava engine is canonical + single source of truth; inherited board is the operator console; cost/audit/dashboard unified via projection; agent models **bridged, not merged**. The duplication is now intentional. |
 | Q2 | Should the live provider path be approval/receipt-gated? | Mechanics confirmed as finding **F1**; the *decision* is yours. | ✅ verified → F1 |
 | Q3 | Do the governance gates run in CI? | Confirmed NOT on merge → **F8**. | ✅ verified → F8 |
 | Q4 | Is there a production `SecretResolver`? | Confirmed none; cleartext from `settings` → **F4**. | ✅ verified → F4 |

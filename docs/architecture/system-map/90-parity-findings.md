@@ -212,8 +212,10 @@ also leave them as manually-run gates?
    system. **When auditing the shared repos, the key question is "designed vs wired"** — match
    capability to actual call-path, not to file presence.
 2. **Two engines, one DB** (F2, F5): the inherited operator/task board and the opzava
-   worker/workflow engine coexist without integration. Decide (register Q1) whether convergence
-   is the goal before treating the duplication as debt.
+   worker/workflow engine coexist without integration. **Resolved (Q1 → [ARD 0007](../../ard/0007-engine-separation-and-surface-unification.md)):**
+   keep the engines *separate* (opzava engine canonical), unify the cross-cutting *surfaces*
+   (cost/audit/dashboard) via projection, and *bridge* the agent models rather than merging them — so
+   the duplication is intentional, not debt.
 3. **Enforcement gaps** (F3, F4, F7, F8): several of the project's own stated invariants
    (quality gates block, secrets are references, no hardcoded models, governance in CI) are
    documented but not mechanically enforced.

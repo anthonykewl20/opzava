@@ -6,9 +6,10 @@
 > architecture, then hygiene. Each item lists the **change**, **files**, rough **effort**, **risk**, and the
 > **done-gate** (the test/observation that proves it fixed).
 >
-> Two items are **decision-gated** — they need an accepted ARD (`docs/ard/`) before code, per the project's
-> "no hand-waved engineering decisions" doctrine: **Q1** (engine convergence) and the **secret-storage**
-> approach for F4. Those are flagged 🧭.
+> One item is **decision-gated** — it needs an accepted ARD (`docs/ard/`) before code, per the project's
+> "no hand-waved engineering decisions" doctrine: the **secret-storage** approach for F4 (flagged 🧭). **Q1**
+> (engine convergence) is now **resolved** → [ARD 0007](../../ard/0007-engine-separation-and-surface-unification.md):
+> *separate engines, unified surfaces*.
 
 ## At a glance
 
@@ -17,14 +18,14 @@
 | **0 — Guardrails** | F8, F11 | Cheap correctness + stop regressions | governance job green in CI |
 | **1 — Make the live path safe** 🔴 | F4, F1 | The only live side effect (campaign send) is currently unsafe | live send is approval+idempotency+receipt gated; no cleartext secret on the wire |
 | **2 — Enforce product-integrity gates** 🔴 | F10, F3, F9 | "Anti-slop / fact-check / approval before draft" is currently decorative | a failed quality verdict halts the run; one orchestrator |
-| **3 — Make the durable runner real** 🟠🧭 | F5, F6 | Runner is built but never runs in background; admin config inert | daemon runs; retries/recovery/limits enforced |
+| **3 — Make the durable runner real** 🟠 | F5, F6, F2 | Runner is built but never runs in background; admin config inert | daemon runs; retries/recovery/limits enforced; agent boundary defined |
 | **4 — Hygiene / debt** 🟡 | F7, F12 | Hardcoded models + ungated brand residue | governance tests cover both |
 
 > **Sequencing rationale.** F4+F1 are first because the campaign Resend send is the *one shipping live external
 > side effect* and it is unsafe on two axes at once (reads cleartext secrets **and** bypasses the
 > approval/idempotency/cost boundary). F10 precedes F3 so the quality-gate enforcement lands in the *single*
-> orchestrator that actually runs, not one of two divergent copies. Phase 3 is **gated on Q1** — if the two
-> engines are meant to converge, the daemon/settings design changes materially.
+> orchestrator that actually runs, not one of two divergent copies. Phase 3 follows **ARD 0007** (Q1 resolved):
+> the opzava daemon and settings are built opzava-side, *beside* the inherited scheduler — not merged.
 
 ---
 
@@ -108,10 +109,12 @@
 
 ---
 
-## Phase 3 — Make the durable runner real 🟠 🧭 (gated on Q1; ~4–6 days)
+## Phase 3 — Make the durable runner real 🟠 (Q1 resolved → ARD 0007; ~4–6 days)
 
-> **Decide Q1 first** (engine convergence — open in [`99`](./99-verification-register.md)). If the inherited
-> task board and the opzava runner are meant to converge, the daemon + settings design below changes.
+> **Q1 is resolved** ([ARD 0007](../../ard/0007-engine-separation-and-surface-unification.md): *separate
+> engines, unified surfaces*). The opzava runner daemon and admin settings are built **opzava-side, beside the
+> inherited 60s scheduler — the two timers coexist, nothing merges.** F2 is now scoped to a boundary + a
+> one-way agent mapping, not a migration.
 
 ### F5 — Boot the runner daemon so background work actually progresses
 - **Change:** start `createRuntimeRunnerDaemon` at process boot (e.g. `instrumentation.ts` or alongside the
@@ -121,6 +124,15 @@
 - **Effort:** M · **Risk:** med (background loop lifecycle, shutdown) · **Done-gate:** a failed job retries
   after backoff with no HTTP request in flight; a future-scheduled campaign step (`offsetHours>0`) eventually
   runs instead of reporting `failed`.
+
+### F2 — Define the engine boundary + a one-way agent mapping (per ARD 0007)
+- **Change:** do **not** merge `agents` and `opzava_agent_roles`. Document the boundary and add a one-way
+  mapping (opzava role → inherited runtime identity) at the single integration point; keep status vocabularies
+  separate. Begin projecting Engine A cost/audit into the opzava read models (the "unified surfaces" half of
+  ARD 0007) so the dashboard reads one source.
+- **Files:** `modules/team/*` (mapping), a new read-model projection for cost/audit.
+- **Effort:** M · **Risk:** low-med · **Done-gate:** a documented boundary + a test asserting the role→runtime
+  mapping is one-way (no opzava code writes `agents`, no `src/lib` writes `opzava_agent_roles`).
 
 ### F6 — Wire `OpzavaAdminSettings` + enforce rate/cost limits
 - **Change:** add an HTTP route that reads/writes the `opzava_admin_settings` singleton via
@@ -158,7 +170,7 @@ F8 ─┐ (enables CI enforcement for F7, F12)
 F11 ┘ (independent quick fix)
 
 ARD: secret-storage ──► F4 ──► F1            (Phase 1, one change set)
-ARD: Q1 engines ──────► F5, F6               (Phase 3)
+ARD 0007 (Q1 ✓) ──────► F5, F6, F2           (Phase 3; engines stay separate)
 
 F10 ──► F3 ──► (F9 alongside)                (Phase 2)
 F8 ──────────► F7, F12                        (Phase 4)
