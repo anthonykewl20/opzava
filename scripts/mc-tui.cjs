@@ -264,7 +264,7 @@ function renderDashboard() {
   ansi.clear();
 
   // Header
-  const title = ' MISSION CONTROL ';
+  const title = ' OPZAVA ';
   process.stdout.write(ansi.bgBlue(pad(title, cols)) + '\n');
 
   const healthData = state.data.health;

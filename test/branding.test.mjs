@@ -91,3 +91,41 @@ test('primary product-facing app surfaces use Opzava branding', async () => {
     assert.doesNotMatch(source, upstreamBrandPattern, `messages/${file} should not expose upstream branding`);
   }
 });
+
+test('agent-facing scripts declare Opzava as the product identity', async () => {
+  // Narrow, high-value invariant for scripts/, which the broad scans above do not cover.
+  //
+  // Scope (deliberately precise — see CLAUDE.md "Data Directory" / "Agent Control Interfaces"):
+  //   * A bare quoted product name `'mission-control'` / `"mission-control"` is the identity an
+  //     MCP/JSON-RPC server reports to connecting agents (serverInfo.name) and must be `opzava`.
+  //   * A user-visible TUI banner `MISSION CONTROL` (surrounded by spaces) is a display title.
+  //
+  // Intentionally NOT flagged (legitimate inherited functional identifiers):
+  //   * `MISSION_CONTROL_*` env var names (different casing + underscore separators).
+  //   * `mc` / `mc-*.cjs` command and script names (the product's own tooling names).
+  //   * Filesystem paths/filenames (`.mission-control/...`, `mission-control.db`,
+  //     `mission-control-tokens.json`, screenshot `mission-control-*` artifacts) and the docker
+  //     `container_name: mission-control` — all carry extra chars inside the quotes, so the
+  //     anchored patterns below never match them.
+  //   * Upstream attribution in comments.
+  const serverNameProductIdentity = /['"]mission-control['"]/;
+  const tuiDisplayBanner = /\bMISSION CONTROL\b/;
+
+  const scriptFiles = await collectFiles(join(repoRoot, 'scripts'), '');
+  const textScripts = scriptFiles.filter((file) => /\.(cjs|mjs|js|ts|sh)$/.test(file));
+
+  for (const file of textScripts) {
+    const source = await readFile(file, 'utf8');
+    const rel = relative(repoRoot, file);
+    assert.doesNotMatch(
+      source,
+      serverNameProductIdentity,
+      `${rel} declares a bare 'mission-control' product/server name; use 'opzava'`,
+    );
+    assert.doesNotMatch(
+      source,
+      tuiDisplayBanner,
+      `${rel} shows a 'MISSION CONTROL' display banner; use Opzava branding`,
+    );
+  }
+});

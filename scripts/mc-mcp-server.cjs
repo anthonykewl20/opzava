@@ -4,7 +4,7 @@
  - Zero dependencies (Node.js built-ins only)
  - JSON-RPC 2.0 over stdin/stdout
  - Wraps Opzava REST API as MCP tools
- - Add with: claude mcp add mission-control -- node /path/to/mc-mcp-server.cjs
+ - Add with: claude mcp add opzava -- node /path/to/mc-mcp-server.cjs
 
  Environment:
    MC_URL       Base URL (default: http://127.0.0.1:3000)
@@ -731,7 +731,7 @@ for (const tool of TOOLS) {
 // ---------------------------------------------------------------------------
 
 const SERVER_INFO = {
-  name: 'mission-control',
+  name: 'opzava',
   version: '2.0.1',
 };
 
