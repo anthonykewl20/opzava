@@ -65,16 +65,29 @@
 - **Decision:** ✅ [ARD 0008](../../ard/0008-secret-storage-and-resolution.md) — secrets resolve from the
   environment (`SecretReference.id` names an env var / Docker `_FILE` secret); the DB stores **only
   references**, never cleartext; resolver is an interface seam (encrypted-column / KMS reachable later).
-- **Done so far:** the missing production resolver is built + tested — `createEnvSecretResolver({ readEnv })`
-  in `platform/providers/env-secret-resolver.ts` (pure; the `process.env` touch stays at the app boundary).
-  Fails closed (`not-found`) when the env secret is absent. 6 unit tests.
-- **Remaining (the route rewire — next change set, paired with F1):** route the campaign send through
-  `createProviderExecutionPreflight({ resolver })` so the Resend API key resolves via the reference; change
-  the Resend adapter to take its credential from the **resolved** secret instead of a cleartext `connection`;
-  stop `campaigns/[id]/run/route.ts:34` / `connection-settings-resolver.ts` from reading `resend_api_key`
-  cleartext (`fromAddress`/`fromName` stay as non-secret settings).
-- **Done-gate:** secret-redaction test + a test proving the live path fails closed when the ref can't
-  resolve; no cleartext key in logs/artifacts.
+- **Done so far:**
+  1. The missing production resolver is built + tested — `createEnvSecretResolver({ readEnv })` in
+     `platform/providers/env-secret-resolver.ts` (pure; the `process.env` touch stays at the app boundary).
+     Fails closed (`not-found`) when the env secret is absent. 6 unit tests.
+  2. **The live send path no longer reads the API key from cleartext settings.**
+     `resolveResendCampaignConnection` (5 tests, incl. an assertion it never reads `resend_api_key`) sources
+     `from address`/`from name` from settings and the **key from the env-backed resolver**; the campaign run
+     route resolves it and fails closed (`503`) when the secret is absent. Strengthened the governance test to
+     assert the route contains **no** cleartext `resend_api_key` read.
+- **Remaining:**
+  - **F1's guard wiring (the larger half):** route the send through `guardLiveProviderExecutionAfterPreflight`
+    so it is approval-gated, reserve-before-execute / exactly-once, and emits redacted cost + audit + external-
+    call receipts. ⚠️ *Discovered coupling:* the guard's preflight needs a `RuntimeSettingsLoader` (F6 territory
+    — satisfiable now with a default loader from `defaultOpzavaAdminSettings()`) **and** a real `Approval`
+    record (the campaign approve flow currently flips only the campaign row status and the send hardcodes
+    `approvalGranted:true` at `run-approved-campaign.ts:45`). So F1 = default-loader + campaign→Approval mapping
+    + guard wiring + adapter credential threading — a small feature, not a one-line rewire.
+  - **Full ARD 0008 rollout (cleartext-at-rest):** the settings route/UI still *stores* `resend_api_key`
+    (and `wordpress_app_password`) cleartext even though the send path ignores it; remove those from the
+    settings/connections UI + `connections/test` so nothing secret is persisted at rest.
+- **Done-gate (live send path met; full F4 pending the rollout above):** ✅ fails closed when the ref can't
+  resolve; ✅ key no longer read cleartext on the send path. Pending: redacted audit/cost receipt (lands with
+  F1), and removing the key from settings storage.
 
 ### F1 — Route the live send through the approval+idempotency+receipt boundary 🔴
 - **Change:** replace the direct `adapter.execute()` call in the campaign sender with

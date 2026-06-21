@@ -4,12 +4,14 @@ import { getDatabase } from '@/lib/db'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { randomUUID } from 'crypto'
 import {
-  resolveResendLiveConnection,
+  resolveResendCampaignConnection,
+  RESEND_API_KEY_SECRET_REFERENCE,
   createLiveResendProviderAdapter,
   createLiveResendProviderProfile,
   createResendCampaignSender,
   runApprovedCampaign,
 } from '@/opzava/modules/content'
+import { createEnvSecretResolver } from '@/opzava/platform/providers/env-secret-resolver'
 
 export async function POST(
   request: NextRequest,
@@ -31,13 +33,18 @@ export async function POST(
       | { value: string }
       | undefined)?.value
 
-  const connection = resolveResendLiveConnection(read)
-  if (!connection) {
-    return NextResponse.json(
-      { error: 'Resend is not configured' },
-      { status: 400 },
-    )
+  // ARD 0008: the API key resolves from the environment via the SecretReference boundary, never
+  // cleartext from the settings table. The process.env read stays at this app boundary.
+  const resolver = createEnvSecretResolver({ readEnv: (name) => process.env[name] })
+  const resolved = await resolveResendCampaignConnection({ readSetting: read, resolver })
+  if (!resolved.ok) {
+    const error =
+      resolved.reason === 'secret-unavailable'
+        ? 'Resend API key is not available (set the RESEND_API_KEY secret)'
+        : 'Resend is not configured'
+    return NextResponse.json({ error }, { status: resolved.reason === 'secret-unavailable' ? 503 : 400 })
   }
+  const connection = resolved.connection
 
   const now = () => new Date().toISOString()
 
@@ -50,7 +57,7 @@ export async function POST(
   }
 
   const adapter = createLiveResendProviderAdapter({ connection, http, now })
-  const profile = createLiveResendProviderProfile('resend_api_key')
+  const profile = createLiveResendProviderProfile(RESEND_API_KEY_SECRET_REFERENCE.id)
   const workflowRunId = `campaign-run:${id}`
 
   const sender = createResendCampaignSender({

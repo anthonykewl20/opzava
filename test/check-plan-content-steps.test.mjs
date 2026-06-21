@@ -944,10 +944,13 @@ test('case study records run approved campaign progress', async () => {
 });
 
 test('campaign run route sends an approved campaign via resend', async () => {
-  await readFile(new URL('../src/app/api/campaigns/[id]/run/route.ts', import.meta.url), 'utf8');
   const route = await readFile(new URL('../src/app/api/campaigns/[id]/run/route.ts', import.meta.url), 'utf8');
   assert.match(route, /runApprovedCampaign/);
-  assert.match(route, /resolveResendLiveConnection/);
+  // ARD 0008: the Resend API key resolves from the environment through the SecretReference
+  // boundary, never cleartext from the settings table.
+  assert.match(route, /resolveResendCampaignConnection/);
+  assert.match(route, /createEnvSecretResolver/);
+  assert.doesNotMatch(route, /resend_api_key/);
   const panel = await readFile(new URL('../src/components/panels/campaigns-panel.tsx', import.meta.url), 'utf8');
   assert.match(panel, /campaigns\/\$\{id\}\/run/);
   assert.match(panel, /onRun/);

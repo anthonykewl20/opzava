@@ -269,6 +269,12 @@ export {
   type ResendLiveConnection,
 } from './providers/connection-settings-resolver'
 export {
+  resolveResendCampaignConnection,
+  RESEND_API_KEY_SECRET_REFERENCE,
+  type ResolveResendCampaignConnectionDeps,
+  type ResolveResendCampaignConnectionResult,
+} from './providers/resolve-resend-campaign-connection'
+export {
   verifyWordpressConnection,
   verifyResendConnection,
   type FetchLike,
