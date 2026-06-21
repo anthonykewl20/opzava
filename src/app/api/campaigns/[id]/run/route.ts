@@ -90,6 +90,9 @@ export async function POST(
     if (/not found/.test(msg)) {
       return NextResponse.json({ error: msg }, { status: 404 })
     }
+    if (/approval not granted/.test(msg)) {
+      return NextResponse.json({ error: msg }, { status: 403 })
+    }
     if (/not approved/.test(msg)) {
       return NextResponse.json({ error: msg }, { status: 409 })
     }

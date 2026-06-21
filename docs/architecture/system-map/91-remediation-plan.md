@@ -89,16 +89,25 @@
   resolve; ✅ key no longer read cleartext on the send path. Pending: redacted audit/cost receipt (lands with
   F1), and removing the key from settings storage.
 
-### F1 — Route the live send through the approval+idempotency+receipt boundary 🔴
-- **Change:** replace the direct `adapter.execute()` call in the campaign sender with
-  `guardLiveProviderExecutionAfterPreflight → evaluateProviderExecutionApproval →
-  executeApprovedLiveProviderActionOnce → createExternalCallReservation` (all built/tested, zero callers
-  today). Emit `ExternalCallRecord` + `CostEvent` + `AuditEvent`. Replace the hardcoded `approvalGranted:true`
-  (`run-approved-campaign.ts:45`) with a real approval check.
-- **Files:** `campaign-send-executor.ts`, `resend-campaign-sender.ts`, `run-approved-campaign.ts`,
-  `platform/providers/live-approval-runtime.ts`.
-- **Effort:** M · **Risk:** med · **Done-gate:** duplicate-send test proves exactly-once (reservation blocks
-  the second); a `cost` and `external-call` event appear per send; an unapproved campaign cannot send.
+### F1 — Approval-gate the live send + receipts 🔴 🔄
+- **Done (core safety):** the hardcoded `approvalGranted: true` is **gone**. Approving a campaign now mints a
+  real, persisted `Approval` (status `approved`, target `external-action:<campaignId>`, action `campaign.send`)
+  **atomically** with the campaign transition; `runApprovedCampaign` loads it and **refuses to send unless it is
+  granted and targets this campaign** (`isCampaignSendApproved`). The run route returns **403** when no granted
+  approval exists. New `campaign-send-approval.ts` (+5 tests) and a `run-approved-campaign` test proving an
+  approved campaign with **no** approval record sends nothing and stays `approved`. So a send can no longer
+  happen without an explicit, recorded human approval.
+- **Files:** `campaign-send-approval.ts` (new), `run-approved-campaign.ts`, `campaigns/[id]/approve/route.ts`,
+  `campaigns/[id]/run/route.ts`.
+- **Remaining (F1b — receipts / provider-level exactly-once):** route the per-message send through
+  `guardLiveProviderExecutionAfterPreflight` so it emits an `ExternalCallRecord` + `CostEvent` + redacted
+  `AuditEvent` and reserves-before-execute at the provider layer. ⚠️ This needs a `RuntimeSettingsLoader`
+  (default from `defaultOpzavaAdminSettings()` — overlaps **F6**) and the adapter to take its credential from
+  the resolved secret. Job-level enqueue idempotency already exists (`getJobByIdempotencyKey`); the gap is the
+  provider cost/external-call receipt. Lower release urgency: campaign send is post-milestone-1 (the doctrine
+  forbids live auto-send in milestone 1) and is now hard-gated by approval.
+- **Done-gate:** ✅ an unapproved campaign cannot send (recorded approval required). Pending (F1b): a `cost` +
+  `external-call` event per send; duplicate-send proves provider-level exactly-once.
 - **Depends on:** F4 (same code path; do in one change set).
 
 ---

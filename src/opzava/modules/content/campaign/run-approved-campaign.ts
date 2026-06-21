@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3'
+import { createApprovalRepository } from '@/opzava/core/approvals/approval-repository'
 import { createCampaignRepository } from './campaign-repository'
+import { isCampaignSendApproved, campaignSendApprovalId } from './campaign-send-approval'
 import { transitionCampaign, type Campaign } from './campaign'
 import { runCampaignSendWithRepository } from '../workflow/run-campaign-send-with-repository'
 import { createCampaignRunnerWorker } from '../workflow/campaign-runner-worker'
@@ -31,6 +33,11 @@ export async function runApprovedCampaign(
   if (!campaign) throw new Error(`campaign not found: ${input.campaignId}`)
   if (campaign.status !== 'approved') throw new Error(`campaign not approved: ${campaign.status}`)
 
+  // A live send requires a real, persisted, granted approval — not a hardcoded flag (F1).
+  const approval = createApprovalRepository(deps.db).getApprovalById(campaignSendApprovalId(input.campaignId))
+  const sendApproved = isCampaignSendApproved(approval, input.campaignId)
+  if (!sendApproved) throw new Error(`campaign send approval not granted: ${input.campaignId}`)
+
   const sending = transitionCampaign(campaign, 'sending', deps.now())
   repo.saveCampaign(sending)
 
@@ -42,7 +49,7 @@ export async function runApprovedCampaign(
   }
   const enqueue = runCampaignSendWithRepository(
     deps.db,
-    { newId: deps.newId, now: deps.now, workflowRunId: deps.workflowRunId, approvalGranted: true },
+    { newId: deps.newId, now: deps.now, workflowRunId: deps.workflowRunId, approvalGranted: sendApproved },
     planInput
   )
   const total = enqueue.enqueued.length

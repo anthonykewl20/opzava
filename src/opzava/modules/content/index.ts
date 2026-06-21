@@ -404,6 +404,13 @@ export {
 } from './campaign/run-approved-campaign'
 
 export {
+  createCampaignSendApproval,
+  isCampaignSendApproved,
+  campaignSendApprovalId,
+  CAMPAIGN_SEND_REQUESTED_ACTION,
+} from './campaign/campaign-send-approval'
+
+export {
   createCampaignWorkerDaemon,
   type CampaignWorkerDaemonDeps,
   type CampaignWorkerDaemonReport,
