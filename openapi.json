@@ -95,6 +95,18 @@
     {
       "name": "Docs",
       "description": "API documentation"
+    },
+    {
+      "name": "Campaigns",
+      "description": "Opzava email campaign lifecycle and sending"
+    },
+    {
+      "name": "Ops",
+      "description": "Opzava operational surfaces: runs, artifacts, approvals, costs, dead-letters, and maintenance"
+    },
+    {
+      "name": "Team",
+      "description": "Opzava AI team agent roles and status"
     }
   ],
   "paths": {
@@ -11685,6 +11697,757 @@
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
           "409": { "description": "Working tree has uncommitted changes" }
+        }
+      }
+    },
+    "/api/campaigns": {
+      "get": {
+        "tags": ["Campaigns"],
+        "summary": "List campaigns",
+        "description": "Returns all email campaigns. Admin only.",
+        "operationId": "listCampaigns",
+        "responses": {
+          "200": {
+            "description": "Campaign list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "campaigns": {
+                      "type": "array",
+                      "items": { "type": "object" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "tags": ["Campaigns"],
+        "summary": "Create a campaign",
+        "description": "Creates a new draft campaign. The campaign is persisted with status 'draft' and a generated campaignId. Admin only.",
+        "operationId": "createCampaign",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "steps"],
+                "properties": {
+                  "name": { "type": "string", "description": "Campaign name" },
+                  "startAt": { "type": "string", "description": "ISO timestamp for when the campaign should start" },
+                  "steps": {
+                    "type": "array",
+                    "description": "Ordered campaign steps",
+                    "items": { "type": "object" }
+                  },
+                  "audience": { "type": "object", "description": "Audience targeting definition" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Campaign created",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/campaigns/{id}/approve": {
+      "post": {
+        "tags": ["Campaigns"],
+        "summary": "Approve a campaign",
+        "description": "Transitions a campaign to the 'approved' status. Admin only.",
+        "operationId": "approveCampaign",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Campaign identifier",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Approved campaign",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": {
+            "description": "Campaign cannot be approved from its current status",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/campaigns/{id}/run": {
+      "post": {
+        "tags": ["Campaigns"],
+        "summary": "Run an approved campaign",
+        "description": "Sends an approved campaign via the configured live Resend provider. The Resend API key is resolved from the RESEND_API_KEY secret reference, never from cleartext settings. Admin only.",
+        "operationId": "runCampaign",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Campaign identifier",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Campaign run result",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          },
+          "400": {
+            "description": "Resend is not configured",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": {
+            "description": "Campaign is not approved",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": {
+            "description": "Run failed",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Resend API key secret is not available",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connections/test": {
+      "post": {
+        "tags": ["Connections"],
+        "summary": "Test a provider connection",
+        "description": "Verifies a saved provider connection (WordPress or Resend) by performing a lightweight reachability/credential check against the resolved live connection. The stored secret is never returned or logged. Admin only.",
+        "operationId": "testConnection",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["provider"],
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "enum": ["wordpress", "resend"],
+                    "description": "Provider whose saved connection should be tested"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verification result. ok=false with a message is returned when the provider is not configured yet or the credential check fails.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/ops/approvals": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "List approvals",
+        "description": "Returns human-approval records, optionally filtered by status. Admin only.",
+        "operationId": "listApprovals",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by approval status",
+            "schema": {
+              "type": "string",
+              "enum": ["requested", "approved", "rejected", "expired", "cancelled"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Approval list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "approvals": {
+                      "type": "array",
+                      "items": { "type": "object" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/ops/approvals/{id}/decide": {
+      "post": {
+        "tags": ["Ops"],
+        "summary": "Decide an approval",
+        "description": "Records an approve/reject decision against an approval request. The approver is taken from the authenticated user. Admin only.",
+        "operationId": "decideApproval",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Approval identifier",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["decision"],
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": ["approved", "rejected"],
+                    "description": "Decision to record"
+                  },
+                  "decisionReason": {
+                    "type": "string",
+                    "description": "Optional human-readable reason for the decision"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decided approval",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": {
+            "description": "Invalid approval transition for the current status",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/ops/artifacts": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "List artifacts",
+        "description": "Returns workflow artifact summaries, optionally filtered by artifact type and/or workflow run. Admin only.",
+        "operationId": "listArtifacts",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Filter by artifact type",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "run",
+            "in": "query",
+            "description": "Filter by workflow run id",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact summary list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "artifacts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "artifactId": { "type": "string" },
+                          "artifactType": { "type": "string" },
+                          "sourceStepRunId": { "type": "string" },
+                          "validationStatus": { "type": "string" },
+                          "inputArtifactIds": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/ops/artifacts/{id}": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "Get an artifact",
+        "description": "Returns the full artifact record by id. Admin only.",
+        "operationId": "getArtifact",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Artifact identifier",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "artifact": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/ops/costs": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "List cost events",
+        "description": "Returns recent runner cost events with a computed summary. Admin only.",
+        "operationId": "listCostEvents",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of cost events to return",
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cost events and summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": { "type": "object" }
+                    },
+                    "summary": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/ops/dead-letters": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "List dead letters",
+        "description": "Returns recent dead-letter records from the runner. Admin only.",
+        "operationId": "listDeadLetters",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of dead-letter records to return",
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dead-letter list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deadLetters": {
+                      "type": "array",
+                      "items": { "type": "object" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/ops/runs": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "List workflow runs",
+        "description": "Returns recent workflow runs. Admin only.",
+        "operationId": "listWorkflowRuns",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of runs to return",
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workflow run list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "runs": {
+                      "type": "array",
+                      "items": { "type": "object" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "tags": ["Ops"],
+        "summary": "Start a content workflow run",
+        "description": "Starts a content-department workflow run on mock providers (draft-only: the mock human-approval gate and mock WordPress provider never perform a real publish). Admin only.",
+        "operationId": "startContentRun",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title", "topic"],
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 200,
+                    "description": "Content title"
+                  },
+                  "topic": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "Content topic"
+                  },
+                  "targetAudience": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300,
+                    "default": "General audience",
+                    "description": "Target audience"
+                  },
+                  "requestedBy": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "default": "operator@opzava",
+                    "description": "Requester identifier"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Workflow run started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workflowRunId": { "type": "string" },
+                    "ideaId": { "type": "string" },
+                    "artifactIds": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "wordpressDraftRequest": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": {
+            "description": "Content run failed",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ops/maintenance/prune": {
+      "post": {
+        "tags": ["Ops"],
+        "summary": "Prune runner data",
+        "description": "Prunes runner data older than a cutoff. The cutoff is taken from the olderThan ISO timestamp when valid, otherwise computed from retentionDays (default 90). Admin only.",
+        "operationId": "pruneRunnerData",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "olderThan": {
+                    "type": "string",
+                    "description": "ISO timestamp; records older than this are pruned"
+                  },
+                  "retentionDays": {
+                    "type": "number",
+                    "minimum": 0,
+                    "default": 90,
+                    "description": "Used to compute the cutoff when olderThan is absent or invalid"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prune report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "prunedAt": { "type": "string" },
+                    "cutoff": { "type": "string" },
+                    "report": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/team/agents": {
+      "get": {
+        "tags": ["Team"],
+        "summary": "List team agents",
+        "description": "Returns AI team agent roles with activity summaries, grouped by department, plus per-department pipelines. Optionally filtered by department and/or status. Admin only.",
+        "operationId": "listTeamAgents",
+        "parameters": [
+          {
+            "name": "dept",
+            "in": "query",
+            "description": "Filter by department",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by agent status",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team agents, grouped by department, with pipelines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agents": {
+                      "type": "array",
+                      "items": { "type": "object" }
+                    },
+                    "byDepartment": { "type": "object" },
+                    "pipelines": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/team/agents/{id}": {
+      "patch": {
+        "tags": ["Team"],
+        "summary": "Update a team agent status",
+        "description": "Transitions an agent role to 'active' or 'paused'. Admin only.",
+        "operationId": "updateTeamAgentStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Agent identifier",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": ["active", "paused"],
+                    "description": "Target agent status"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agent": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": {
+            "description": "Illegal agent status transition",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "429": { "$ref": "#/components/responses/RateLimited" }
         }
       }
     }
