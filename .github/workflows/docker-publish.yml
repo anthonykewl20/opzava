@@ -34,6 +34,9 @@ jobs:
         github.event.workflow_run.conclusion == 'success'
       )
     runs-on: ubuntu-latest
+    # Safety net only: a legit multi-arch (amd64 + arm64/QEMU) build runs ~15-30 min,
+    # so 45 leaves headroom while capping a stuck build far below GitHub's 6h default.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
