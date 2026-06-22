@@ -1,12 +1,21 @@
-# Session Handoff — Remediation push (paused at Claude limits)
+# Session Handoff — Remediation push → release 2.1.0 cut
 
-**Date paused:** 2026-06-22 · **Branch:** `docs/system-map-ledger` · **PR:** #8 (open, all commits pushed)
+**Date:** 2026-06-22 · **Branch:** `docs/system-map-ledger` · **PR:** #8 (open, CI green, mergeable)
 **Working tree:** clean. Resume by reading this file + `91-remediation-plan.md`.
 
 ## TL;DR
-The system-map audit → ARDs → remediation is **complete for all 11 headline findings (F1–F13)**.
-Every release gate is green. PR #8 is ready to merge; a few clearly-scoped sub-items are deferred
+The system-map audit → ARDs → remediation is **complete for all headline findings (F1–F14)**.
+Every release gate is green and **release 2.1.0 is cut** (version bumped, CHANGELOG dated,
+`docs/releases/2.1.0.md` written — commit `0f40e97`). The only remaining decision is **merging
+PR #8 to `main`** (confirm with the operator first). A few clearly-scoped sub-items are deferred
 (non-blocking, listed below).
+
+## Release 2.1.0 (cut 2026-06-22)
+- `package.json` + MCP `SERVER_INFO` → **2.1.0**.
+- CHANGELOG `[Unreleased]` → `[2.1.0] - 2026-06-22`; fresh empty `[Unreleased]` re-opened.
+- `docs/releases/2.1.0.md` added (highlights + full changelog, matching the 2.0.1 format).
+- Verified before the cut — all GREEN: `pnpm typecheck`, `pnpm lint` (0 errors / 173 pre-existing
+  warnings), `pnpm test:governance` (283), `pnpm api:parity`, `pnpm test` (268 files / 1998), `pnpm build`.
 
 ## Release gates — last run all GREEN
 - `pnpm build` ✅ (exit 0) · `pnpm typecheck` ✅ · `pnpm lint` 0 errors (125 pre-existing warnings)
