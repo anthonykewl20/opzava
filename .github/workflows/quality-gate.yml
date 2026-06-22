@@ -52,7 +52,9 @@ jobs:
         run: pnpm test:governance
 
       - name: Prepare E2E environment
-        run: cp .env.test .env
+        # `.env.test` is intentionally uncommitted; fall back to the tracked
+        # template. Playwright's webServer.env supplies all test-specific values.
+        run: cp .env.test .env 2>/dev/null || cp .env.example .env
 
       - name: Build
         run: pnpm build

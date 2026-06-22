@@ -84,9 +84,10 @@ So the branding scan + folder-structure check pass only when run manually, never
 
 1. **Governance gates orphaned from CI** (F8) — the most valuable structural guards (branding scan,
    folder-structure) aren't enforced on merge.
-2. **CI env file**: `quality-gate.yml` does `cp .env.test .env`, but `.env.test` is **not committed** (only
-   `.env.example` is) — a fresh checkout could fail the e2e copy step. Doc/CI inconsistency on which env file
-   is authoritative (`tests/README.md` says `.env.local`).
+2. ~~**CI env file**: `quality-gate.yml` does `cp .env.test .env`, but `.env.test` is **not committed**~~
+   — **RESOLVED** (2026-06-22): the step now falls back to the tracked `.env.example`
+   (`cp .env.test .env 2>/dev/null || cp .env.example .env`), so a fresh checkout no longer fails the
+   e2e copy step. Playwright's `webServer.env` remains the authoritative source of test-specific values.
 3. **Coverage asymmetry**: only `src/lib/**` is measured; `src/opzava/**` (the new code) has no coverage
    floor — the complexity ratchet + entropy guard are its only automated constraints.
 4. **Inherited-brand residue in `scripts/`** (MCP server self-names `mission-control`) — not covered by the
