@@ -2,6 +2,10 @@
 
 Connect CLI tools (Claude Code, Codex, custom agents) directly to Opzava without a gateway.
 
+> New here? Start with [Connect a Local Agent](connect-local-agents.md) — it explains when to use this
+> direct-connection path versus the MCP server or framework adapters. This page is the detailed
+> `/api/connect` lifecycle reference.
+
 ## Quick Start
 
 ### 1. Register a connection
