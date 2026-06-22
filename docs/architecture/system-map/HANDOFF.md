@@ -13,6 +13,14 @@ Every release gate is green. PR #8 is ready to merge; a few clearly-scoped sub-i
 - `pnpm test` ✅ 255 files / 1832 tests · `pnpm test:governance` ✅ 275 · `pnpm api:parity` ✅
 - Not run here (needs live server + browsers): `pnpm test:e2e` (Playwright) — will run on the PR.
 
+### CI follow-up (2026-06-22): quality-gate was RED, now fixed (commit f4145e7)
+The local gates above were all green, but PR #8's CI `quality-gate` failed on one
+governance test: `test/project-directory-name.test.mjs` hard-coded the local clone
+dir name `anito-opzava`. GitHub checks out the `opzava` repo into a dir named `opzava`
+(the sanctioned machine slug per CONTEXT.md), so the test was environment-coupled and
+red in CI only. Fixed to accept both sanctioned root names. Lesson: run gates assuming
+the CI checkout dir is `opzava`, not the local `anito-opzava`.
+
 ## What was delivered (17 commits on the branch)
 - **Ledger:** `docs/architecture/system-map/` (16 docs) — second verification pass complete; all zones ✅.
 - **Decisions:** `docs/ard/0007` (engine separation, Q1) · `docs/ard/0008` (env-based secrets, F4).
