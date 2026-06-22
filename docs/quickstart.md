@@ -221,13 +221,15 @@ See [CLI Reference](cli-agent-control.md) for the full command list.
 For agents built with Claude Code, the MCP server is the recommended integration:
 
 ```bash
-claude mcp add mission-control -- node /path/to/mission-control/scripts/mc-mcp-server.cjs
+claude mcp add opzava -- node /path/to/opzava/scripts/mc-mcp-server.cjs
 ```
 
-Set `MC_URL` and `MC_API_KEY` in your environment. The MCP server exposes 35+ tools for agents, tasks, sessions, memory, and more. See [CLI Integration](cli-integration.md) for details.
+Set `MC_URL` and `MC_API_KEY` in your environment. The MCP server exposes 35+ tools for agents, tasks, sessions, memory, and more. See [Connect a Local Agent](connect-local-agents.md) for the full picture (MCP vs. direct connection vs. adapters, per client).
 
 ## What's Next?
 
+- **[Connect a Local Agent](connect-local-agents.md)** — Wire Claude Code, Codex, or OpenCode into Opzava
+- **[OpenClaw Gateway Setup](gateway-setup.md)** — Connect Opzava to a gateway for fleet management
 - **[Agent Setup Guide](agent-setup.md)** — Configure SOUL personalities, agent sources, and heartbeat settings
 - **[Orchestration Patterns](orchestration.md)** — Multi-agent workflows, auto-dispatch, quality review gates
 - **[CLI Reference](cli-agent-control.md)** — Full CLI command reference
