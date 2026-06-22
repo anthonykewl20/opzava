@@ -13,6 +13,7 @@
 
 import { AGENT_TEMPLATES, type AgentTemplate } from './agent-templates'
 import { listAdapters } from './adapters'
+import { AI_REVIEW_MODEL } from './model-config'
 
 // ─── Framework Connection Config ────────────────────────────────────────────
 
@@ -271,7 +272,7 @@ await fetch(\`\${MC_URL}/api/adapters\`, {
       agentId: "claude-agent-1",
       name: "Claude Development Agent",
       metadata: {
-        model: "claude-sonnet-4-20250514",
+        model: "${AI_REVIEW_MODEL}",
         tools: ["computer", "text_editor", "bash"]
       }
     }

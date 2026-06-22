@@ -1,5 +1,11 @@
 import type { AdminSettingsRepository } from './repository'
 import { projectRuntimeOptions, type OpzavaRuntimeOptionsProjection } from './runtime-options'
+import { defaultOpzavaAdminSettings } from './settings'
+
+// Stable metadata for the synthesized "defaults" settings a fresh deploy uses before an operator
+// persists any. version 0 marks it as the unconfigured baseline.
+export const DEFAULT_RUNTIME_SETTINGS_UPDATED_AT = '1970-01-01T00:00:00.000Z'
+export const DEFAULT_RUNTIME_SETTINGS_UPDATED_BY = 'system:default'
 
 export type RuntimeSettings = Readonly<{
   version: number
@@ -35,6 +41,44 @@ export function createRuntimeSettingsLoader(options: RuntimeSettingsLoaderOption
         error: Object.freeze({
           kind: 'unavailable',
           reason: 'not_persisted',
+        }),
+      })
+    }
+
+    assertPositiveInteger(record.version, 'version')
+    assertValidDateString(record.updatedAt, 'updatedAt')
+
+    return Object.freeze({
+      ok: true,
+      value: Object.freeze({
+        version: record.version,
+        updatedAt: record.updatedAt,
+        updatedBy: record.updatedBy,
+        options: projectRuntimeOptions(record.settings),
+      }),
+    })
+  }
+
+  return Object.freeze({ loadRuntimeSettings })
+}
+
+/**
+ * Like `createRuntimeSettingsLoader`, but falls back to the built-in `defaultOpzavaAdminSettings()`
+ * (at version 0) when nothing is persisted, instead of reporting `unavailable`. The provider-execution
+ * layer (F1b live send) needs runtime options to exist; this lets a fresh deploy run on the defaults
+ * until an operator persists their own.
+ */
+export function createDefaultingRuntimeSettingsLoader(options: RuntimeSettingsLoaderOptions): RuntimeSettingsLoader {
+  async function loadRuntimeSettings(): Promise<RuntimeSettingsLoadResult> {
+    const record = options.repository.getSettings()
+    if (record === null) {
+      return Object.freeze({
+        ok: true,
+        value: Object.freeze({
+          version: 0,
+          updatedAt: DEFAULT_RUNTIME_SETTINGS_UPDATED_AT,
+          updatedBy: DEFAULT_RUNTIME_SETTINGS_UPDATED_BY,
+          options: projectRuntimeOptions(defaultOpzavaAdminSettings()),
         }),
       })
     }

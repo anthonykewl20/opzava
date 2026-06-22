@@ -151,8 +151,8 @@ const SEED: ReadonlyArray<unknown> = [
     name: 'General VA',
     department: 'General VA',
     status: 'active',
-    ownedStepIds: ['va-task-intake', 'va-task-draft'],
-    responsibilities: 'Handles cross-cutting admin and ad-hoc tasks: intakes a request and drafts a plan.',
+    ownedStepIds: ['va-task-intake', 'va-task-draft', 'va-task-review'],
+    responsibilities: 'Handles cross-cutting admin and ad-hoc tasks: intakes a request, drafts a plan, and reviews its own work.',
   },
 ];
 

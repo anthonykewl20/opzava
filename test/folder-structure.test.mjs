@@ -37,11 +37,13 @@ const allowedTopLevelEntries = new Set([
   'scripts',
   'skills',
   'src',
+  'stryker.conf.json',
   'tailwind.config.js',
   'test',
   'tests',
   'tsconfig.json',
   'vitest.config.ts',
+  'vitest.stryker.config.ts',
   'wiki',
 ]);
 
@@ -53,6 +55,7 @@ const ignoredGeneratedTopLevelEntries = new Set([
   'tsconfig.tsbuildinfo',
   'test-results',
   'playwright-report',
+  'reports',
 ]);
 
 test('folder-structure contract defines allowed roots and placement gates', async () => {

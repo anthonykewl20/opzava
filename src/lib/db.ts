@@ -87,6 +87,18 @@ function initializeSchema() {
         }).catch(() => {
           // Silent - scheduler is optional
         });
+
+        // Start the opzava durable-runner maintenance loop (F5): recovers expired leases and prunes
+        // retention on a timer, beside the inherited scheduler (ARD 0007 — the two engines coexist).
+        import('../opzava/platform/runner/maintenance-boot').then(({ startRunnerMaintenance }) => {
+          startRunnerMaintenance(db!, {
+            onError: (error) => logger.warn(
+              `opzava runner maintenance cycle failed: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+          });
+        }).catch(() => {
+          // Silent - maintenance is best-effort
+        });
       }
     }
 

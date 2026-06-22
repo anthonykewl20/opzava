@@ -269,6 +269,18 @@ export {
   type ResendLiveConnection,
 } from './providers/connection-settings-resolver'
 export {
+  resolveResendCampaignConnection,
+  RESEND_API_KEY_SECRET_REFERENCE,
+  type ResolveResendCampaignConnectionDeps,
+  type ResolveResendCampaignConnectionResult,
+} from './providers/resolve-resend-campaign-connection'
+export {
+  resolveWordpressDraftConnection,
+  WORDPRESS_APP_PASSWORD_SECRET_REFERENCE,
+  type ResolveWordpressDraftConnectionDeps,
+  type ResolveWordpressDraftConnectionResult,
+} from './providers/resolve-wordpress-draft-connection'
+export {
   verifyWordpressConnection,
   verifyResendConnection,
   type FetchLike,
@@ -364,6 +376,12 @@ export {
 } from './workflow/campaign-send-executor'
 
 export {
+  createGuardedCampaignSendExecutor,
+  type GuardedCampaignSendExecutorDeps,
+  type GuardedSendEventIdentity,
+} from './workflow/guarded-campaign-send-executor'
+
+export {
   createJobKindExecutor,
   type JobKindExecutorDeps,
 } from './workflow/job-kind-executor'
@@ -396,6 +414,19 @@ export {
   type RunApprovedCampaignDeps,
   type RunApprovedCampaignResult,
 } from './campaign/run-approved-campaign'
+
+export {
+  createCampaignSendApproval,
+  isCampaignSendApproved,
+  campaignSendApprovalId,
+  CAMPAIGN_SEND_REQUESTED_ACTION,
+  DEFAULT_CAMPAIGN_SEND_APPROVAL_TTL_MS,
+} from './campaign/campaign-send-approval'
+
+export {
+  createGuardedCampaignSendExecutorForCampaign,
+  type GuardedCampaignSendRuntimeDeps,
+} from './campaign/guarded-campaign-send-runtime'
 
 export {
   createCampaignWorkerDaemon,

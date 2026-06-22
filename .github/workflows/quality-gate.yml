@@ -2,6 +2,9 @@ name: Quality Gate
 
 on:
   pull_request:
+    # Defaults (opened, synchronize, reopened) + ready_for_review so marking a
+    # draft ready triggers the gate even without a new push.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
@@ -12,6 +15,11 @@ concurrency:
 jobs:
   quality-gate:
     runs-on: ubuntu-latest
+    # Cap billed minutes: a full run is ~9-10 min, so 20 leaves headroom while
+    # killing any hung run long before GitHub's 6-hour default would bill out.
+    timeout-minutes: 20
+    # Skip work-in-progress (draft) PRs; still always run for push-to-main.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,14 +56,29 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      - name: Governance gates
+        run: pnpm test:governance
+
       - name: Prepare E2E environment
-        run: cp .env.test .env
+        # `.env.test` is intentionally uncommitted; fall back to the tracked
+        # template. Playwright's webServer.env supplies all test-specific values.
+        run: cp .env.test .env 2>/dev/null || cp .env.example .env
 
       - name: Build
         run: pnpm build
 
+      # Cache the browser binaries so we don't re-download every run. Key on the
+      # Playwright version so an upgrade busts the cache automatically.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-1.58.2
+
       - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps
+        # The suite runs a single chromium project, so install only chromium
+        # (skips the firefox + webkit downloads entirely).
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: E2E tests
         run: pnpm test:e2e

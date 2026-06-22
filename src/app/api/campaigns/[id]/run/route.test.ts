@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import Database from 'better-sqlite3'
-import { createCampaignRepository, parseCampaign } from '@/opzava/modules/content'
+import { createCampaignRepository, parseCampaign, createCampaignSendApproval } from '@/opzava/modules/content'
+import { createApprovalRepository } from '@/opzava/core/approvals/approval-repository'
 
 const { dbRef } = vi.hoisted(() => ({
   dbRef: { db: null as any },
@@ -57,6 +58,12 @@ function seedCampaign(db: any, status: string) {
   repo.saveCampaign(c)
 }
 
+function seedSendApproval(db: any, campaignId = 'camp-1') {
+  createApprovalRepository(db).saveApproval(
+    createCampaignSendApproval({ campaignId, approverId: 'admin', now: '2026-07-05T00:00:00.000Z' }),
+  )
+}
+
 function req(id: string) {
   return new NextRequest(
     `http://localhost/api/campaigns/${id}/run`,
@@ -69,6 +76,8 @@ const ctx = (id: string) => ({ params: Promise.resolve({ id }) })
 beforeEach(() => {
   dbRef.db = new Database(':memory:')
   dbRef.db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
+  // ARD 0008: the API key comes from the environment, not the settings table.
+  vi.stubEnv('RESEND_API_KEY', 're_test_123')
   vi.stubGlobal(
     'fetch',
     vi.fn().mockResolvedValue({
@@ -81,6 +90,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 describe('POST /api/campaigns/[id]/run', () => {
@@ -109,9 +119,29 @@ describe('POST /api/campaigns/[id]/run', () => {
     expect(body.error).toMatch(/not approved/)
   })
 
-  it('200 and status sent for an approved campaign', async () => {
+  it('503 (fails closed) when the RESEND_API_KEY secret is unavailable', async () => {
+    vi.stubEnv('RESEND_API_KEY', '') // env secret absent
     seedSettings(dbRef.db)
     seedCampaign(dbRef.db, 'approved')
+    const res = await POST(req('camp-1'), ctx('camp-1'))
+    expect(res.status).toBe(503)
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('403 for an approved campaign with no granted send approval', async () => {
+    seedSettings(dbRef.db)
+    seedCampaign(dbRef.db, 'approved') // campaign row approved, but no Approval record minted
+    const res = await POST(req('camp-1'), ctx('camp-1'))
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error).toMatch(/approval not granted/)
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('200 and status sent for an approved campaign with a granted approval', async () => {
+    seedSettings(dbRef.db)
+    seedCampaign(dbRef.db, 'approved')
+    seedSendApproval(dbRef.db)
     const res = await POST(req('camp-1'), ctx('camp-1'))
     expect(res.status).toBe(200)
     const body = await res.json()

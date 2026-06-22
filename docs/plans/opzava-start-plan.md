@@ -37,6 +37,10 @@ Mission Control base
 - Start narrow but design broad.
 - Build the durable runner first.
 - No auto-publish and no auto-send in the first milestone.
+- Milestone 2 (2026-06-22): approval-gated **live campaign send is enabled** — admin-triggered, gated by a
+  granted+expiring approval and a configured Resend secret, drained through the F1b guard (receipt +
+  provider-level exactly-once) with F6b rate/cost limits enforced. Still never an *auto*-send: the system
+  never sends without an explicit, recorded human approval.
 - No hand-waved engineering decisions. Unknowns require local R&D, measured results, and an accepted ARD before implementation proceeds.
 - Complexity and entropy are product risks. The build must keep module boundaries small, state transitions explicit, and quality gates measurable.
 - Golden principles live in the repo and are enforced continuously, not remembered informally.
@@ -179,7 +183,8 @@ Outreach starts only after the content workflow proves the durable runner, artif
 ## Not Now
 
 - No live auto-publishing.
-- No live auto-sending cold email.
+- No *autonomous* sending — every live send is human-approved (approval-gated live campaign send shipped
+  in milestone 2; see Principles).
 - No full multi-tenant system.
 - No separate n8n, Dify, Flowise, Hatchet, or VoltAgent control plane.
 - No broad agent marketplace work before the first workflow is proven.

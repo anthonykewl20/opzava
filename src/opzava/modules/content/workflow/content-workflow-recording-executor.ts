@@ -16,6 +16,7 @@ import { createBrandReviewStepService } from '../steps/brand-review-service'
 import { createAntiSlopReviewStepService } from '../steps/anti-slop-review-service'
 import { createHumanApprovalStepService } from '../steps/human-approval-service'
 import { createWordpressDraftStepService } from '../steps/wordpress-draft-service'
+import { assertContentQualityGatesPassed } from './content-quality-gate'
 import { parseKeywordResearch } from '../contracts/keyword-research'
 import { parseSourceCapture } from '../contracts/source-capture'
 import { parseSeoBrief } from '../contracts/seo-brief'
@@ -171,6 +172,14 @@ export async function runContentWorkflowWithRecording(
     articleDraft: parseArticleDraft(articleDraft.content),
     sourceStepRunId: sr('anti-slop-review'),
   }).record
+
+  // Enforce the quality gates before spending a human approval or producing any draft (F3).
+  assertContentQualityGatesPassed({
+    factCheck: factCheckReport.content,
+    brandReview: brandReview.content,
+    antiSlop: antiSlopReview.content,
+  })
+
   const approval = createHumanApprovalStepService({ provider: deps.transformProviders.humanApproval, newId: deps.newId, now: deps.now }).run({
     articleDraftArtifact: articleDraft,
     articleDraft: parseArticleDraft(articleDraft.content),

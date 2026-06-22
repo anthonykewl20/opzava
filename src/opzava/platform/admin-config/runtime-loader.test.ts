@@ -7,7 +7,12 @@ import {
   projectRunnerDaemonOptions,
   projectRuntimeOptions,
 } from './runtime-options'
-import { createRuntimeSettingsLoader } from './runtime-loader'
+import {
+  createRuntimeSettingsLoader,
+  createDefaultingRuntimeSettingsLoader,
+  DEFAULT_RUNTIME_SETTINGS_UPDATED_AT,
+  DEFAULT_RUNTIME_SETTINGS_UPDATED_BY,
+} from './runtime-loader'
 import { defaultOpzavaAdminSettings } from './settings'
 
 describe('Opzava runtime settings loader', () => {
@@ -78,6 +83,56 @@ describe('Opzava runtime settings loader', () => {
     const loader = createRuntimeSettingsLoader({ repository })
 
     await expect(loader.loadRuntimeSettings()).rejects.toBe(error)
+  })
+})
+
+describe('Opzava defaulting runtime settings loader', () => {
+  it('falls back to default options at version 0 when nothing is persisted', async () => {
+    const loader = createDefaultingRuntimeSettingsLoader({ repository: fakeRepository(null) })
+
+    await expect(loader.loadRuntimeSettings()).resolves.toEqual({
+      ok: true,
+      value: {
+        version: 0,
+        updatedAt: DEFAULT_RUNTIME_SETTINGS_UPDATED_AT,
+        updatedBy: DEFAULT_RUNTIME_SETTINGS_UPDATED_BY,
+        options: projectRuntimeOptions(defaultOpzavaAdminSettings()),
+      },
+    })
+  })
+
+  it('uses persisted settings when present (same projection as the strict loader)', async () => {
+    const record = storageRecord()
+    const loader = createDefaultingRuntimeSettingsLoader({ repository: fakeRepository(record) })
+
+    await expect(loader.loadRuntimeSettings()).resolves.toEqual({
+      ok: true,
+      value: {
+        version: 3,
+        updatedAt: '2026-06-15T00:00:00.000Z',
+        updatedBy: 'admin:1',
+        options: projectRuntimeOptions(record.settings),
+      },
+    })
+  })
+
+  it('still rejects a corrupt persisted version', async () => {
+    const loader = createDefaultingRuntimeSettingsLoader({
+      repository: fakeRepository({ ...storageRecord(), version: 0 }),
+    })
+    await expect(loader.loadRuntimeSettings()).rejects.toThrow(/version/)
+  })
+
+  it('still rejects a corrupt persisted update timestamp (named in the error)', async () => {
+    const loader = createDefaultingRuntimeSettingsLoader({
+      repository: fakeRepository({ ...storageRecord(), updatedAt: 'not-a-date' }),
+    })
+    await expect(loader.loadRuntimeSettings()).rejects.toThrow(/updatedAt/)
+  })
+
+  it('pins the default metadata sentinels', () => {
+    expect(DEFAULT_RUNTIME_SETTINGS_UPDATED_AT).toBe('1970-01-01T00:00:00.000Z')
+    expect(DEFAULT_RUNTIME_SETTINGS_UPDATED_BY).toBe('system:default')
   })
 })
 

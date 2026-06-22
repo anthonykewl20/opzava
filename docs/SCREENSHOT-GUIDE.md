@@ -17,7 +17,7 @@ Screenshots should be updated when:
 - A new page, panel, or major UI component is added
 - An existing page layout changes noticeably
 - The color scheme or branding updates
-- A GitHub Actions `screenshot-drift` label is applied to a PR (see [automation](#automation))
+- A PR touches UI source under `src/app/`, `src/components/`, or `public/`
 
 ## How to Take New Screenshots
 
@@ -70,15 +70,12 @@ Screenshots should be updated when:
    git commit -m "docs: refresh README screenshots"
    ```
 
-## Automation
+## When to refresh
 
-The repository has a GitHub Actions workflow (`.github/workflows/screenshot-drift.yml`) that:
-
-- Detects changes to files under `src/app/`, `src/components/`, and `public/`
-- Adds a `screenshot-drift` label to the PR as a reminder
-- Posts a checklist comment listing which screenshots may need updating
-
-This does **not** auto-capture screenshots — it just flags the PR so a human can decide whether the change is visually significant enough to warrant a refresh.
+There is no automated drift check (the dedicated workflow was retired to keep CI
+to the highest-priority gate only). Treat any PR that changes files under
+`src/app/`, `src/components/`, or `public/` as a prompt to review whether the
+README screenshots need a refresh — capture is always a manual, human decision.
 
 ## Tips
 

@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { apiFetch, ApiError } from '@/lib/api-client'
+import {
+  DISPATCH_MODEL_DEFAULT,
+  DISPATCH_MODEL_COMPLEX,
+  MODEL_CLAUDE_HAIKU_4_5,
+  MODEL_CLAUDE_SONNET_4_5,
+  MODEL_ANTHROPIC_SONNET_4_6,
+} from '@/lib/model-config'
 
 interface RuntimeSetupModalProps {
   runtime: 'openclaw' | 'hermes' | 'claude' | 'codex' | 'opencode'
@@ -247,7 +254,7 @@ function HermesSetup({ onClose, onComplete }: { onClose: () => void; onComplete:
   const [hermesStatus, setHermesStatus] = useState<any>(null)
   const [providerKey, setProviderKey] = useState('')
   const [providerType, setProviderType] = useState<'anthropic' | 'openai' | 'openrouter' | 'nous' | 'google' | 'xai'>('anthropic')
-  const [selectedModel, setSelectedModel] = useState('claude-sonnet-4-6')
+  const [selectedModel, setSelectedModel] = useState(DISPATCH_MODEL_DEFAULT)
   const [customModel, setCustomModel] = useState('')
   const [authMethod, setAuthMethod] = useState<'api_key' | 'device_code'>('api_key')
   const [oauthBusy, setOauthBusy] = useState(false)
@@ -443,9 +450,9 @@ function HermesSetup({ onClose, onComplete }: { onClose: () => void; onComplete:
 
           {(() => {
             const PROVIDERS = [
-              { id: 'anthropic', label: 'Anthropic', hint: 'Claude', env: 'ANTHROPIC_API_KEY', hermesProvider: 'anthropic', models: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5', 'claude-sonnet-4-5'] },
+              { id: 'anthropic', label: 'Anthropic', hint: 'Claude', env: 'ANTHROPIC_API_KEY', hermesProvider: 'anthropic', models: [DISPATCH_MODEL_DEFAULT, DISPATCH_MODEL_COMPLEX, MODEL_CLAUDE_HAIKU_4_5, MODEL_CLAUDE_SONNET_4_5] },
               { id: 'openai', label: 'OpenAI', hint: 'GPT / o-series / Codex', env: 'OPENAI_API_KEY', hermesProvider: 'openai-codex', oauthHermesProvider: 'openai-codex', supportsDeviceCode: true, models: ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o3', 'o4-mini', 'codex-mini-latest', 'gpt-5.3-codex'] },
-              { id: 'openrouter', label: 'OpenRouter', hint: '200+ models', env: 'OPENROUTER_API_KEY', hermesProvider: 'openrouter', models: ['anthropic/claude-sonnet-4-6', 'openai/gpt-4.1', 'google/gemini-2.5-pro', 'meta-llama/llama-4-maverick', 'deepseek/deepseek-r1'] },
+              { id: 'openrouter', label: 'OpenRouter', hint: '200+ models', env: 'OPENROUTER_API_KEY', hermesProvider: 'openrouter', models: [MODEL_ANTHROPIC_SONNET_4_6, 'openai/gpt-4.1', 'google/gemini-2.5-pro', 'meta-llama/llama-4-maverick', 'deepseek/deepseek-r1'] },
               { id: 'google', label: 'Google AI', hint: 'Gemini', env: 'GOOGLE_API_KEY', hermesProvider: 'google', models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'] },
               { id: 'nous', label: 'Nous Portal', hint: 'Free tier', env: 'NOUS_API_KEY', hermesProvider: 'nous', models: ['hermes-3-llama-3.1-70b', 'hermes-3-llama-3.1-8b', 'deephermes-3-llama-3.3-70b'] },
               { id: 'xai', label: 'xAI', hint: 'Grok', env: 'XAI_API_KEY', hermesProvider: 'xai', models: ['grok-3', 'grok-3-mini', 'grok-2'] },

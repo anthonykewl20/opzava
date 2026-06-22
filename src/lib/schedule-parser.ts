@@ -163,14 +163,16 @@ export function isCronDue(cronExpr: string, nowMs: number, lastSpawnedAtMs: numb
   const parts = cronExpr.split(/\s+/)
   if (parts.length !== 5) return false
 
-  const [minExpr, hourExpr, , , dowExpr] = parts
+  const [minExpr, hourExpr, domExpr, monthExpr, dowExpr] = parts
 
   // Check minute
   if (!matchesCronField(minExpr, now.getMinutes())) return false
   // Check hour
   if (!matchesCronField(hourExpr, now.getHours())) return false
-  // Check day of week
-  if (!matchesCronField(dowExpr, now.getDay())) return false
+  // Check month (cron months are 1-12; Date#getMonth is 0-11)
+  if (!matchesCronField(monthExpr, now.getMonth() + 1)) return false
+  // Check day-of-month + day-of-week together (standard cron OR semantics)
+  if (!matchesCronDay(domExpr, dowExpr, now)) return false
 
   // Prevent duplicate spawn within same minute
   if (lastSpawnedAtMs > 0) {
@@ -187,6 +189,24 @@ export function isCronDue(cronExpr: string, nowMs: number, lastSpawnedAtMs: numb
   }
 
   return true
+}
+
+/**
+ * Day-of-month / day-of-week matching using standard (Vixie) cron semantics:
+ * when BOTH fields are restricted (neither is `*`), the entry is due if EITHER
+ * matches; when only one is restricted, only that one must match; when both are
+ * `*`, any day matches. Mirrors `matchesDay` in cron-occurrences.ts so the
+ * "is it due now" check and the occurrence enumerator agree.
+ */
+function matchesCronDay(domExpr: string, dowExpr: string, now: Date): boolean {
+  const domAny = domExpr === '*'
+  const dowAny = dowExpr === '*'
+  if (domAny && dowAny) return true
+  const domMatch = matchesCronField(domExpr, now.getDate())
+  const dowMatch = matchesCronField(dowExpr, now.getDay())
+  if (domAny) return dowMatch
+  if (dowAny) return domMatch
+  return domMatch || dowMatch
 }
 
 function matchesCronField(expr: string, value: number): boolean {

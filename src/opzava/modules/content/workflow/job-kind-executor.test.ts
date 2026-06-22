@@ -47,6 +47,7 @@ describe('createJobKindExecutor', () => {
     await expect(dispatcher.execute(makeJob(), makeAttempt(), signal)).rejects.toMatchObject({
       name: 'RunnerExecutionError',
       errorClass: 'validation-error',
+      message: 'no executor registered for job kind unknown-kind',
     })
     expect(emailExec.execute).not.toHaveBeenCalled()
   })

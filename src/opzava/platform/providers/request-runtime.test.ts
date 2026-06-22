@@ -224,6 +224,7 @@ function fakeRuntimeOptions(
       multiplier: 2,
       maxDelayMs: 60_000,
     },
+    limits: { requestsPerMinute: 60, burst: 90, usdPerHourLimit: 100, usdPerDayLimit: 1_000 },
     provider: {
       timeoutMs: 30_000,
       retry: {

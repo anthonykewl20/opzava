@@ -549,17 +549,22 @@ test('ard records the email provider and campaign automation decision', async ()
   assert.match(ard, /## Decision/);
 });
 
-test('provider connection settings UI and wizard step exist and secrets are write-only', async () => {
+test('provider connection settings UI and wizard step exist and secrets are env-provided', async () => {
   const route = await readFile(new URL('../src/app/api/settings/route.ts', import.meta.url), 'utf8');
   await readFile(new URL('../src/app/api/settings/route.test.ts', import.meta.url), 'utf8');
-  await readFile(new URL('../src/components/settings/provider-connections-section.tsx', import.meta.url), 'utf8');
+  const section = await readFile(new URL('../src/components/settings/provider-connections-section.tsx', import.meta.url), 'utf8');
   await readFile(new URL('../src/components/settings/setup-connections-step.tsx', import.meta.url), 'utf8');
   const setup = await readFile(new URL('../src/app/setup/page.tsx', import.meta.url), 'utf8');
 
-  // The five provider-connection setting keys + two sensitive (write-only) secrets exist.
+  // The non-secret provider-connection setting keys exist.
   assert.match(route, /wordpress_site_url/);
-  assert.match(route, /resend_api_key/);
-  assert.match(route, /sensitive/);
+  assert.match(route, /resend_from_address/);
+  // ARD 0008: provider secrets are environment-provided — the settings route does NOT store them.
+  assert.doesNotMatch(route, /resend_api_key/);
+  assert.doesNotMatch(route, /wordpress_app_password/);
+  // The connections UI documents the env-provided secret model instead of pasting secrets.
+  assert.match(section, /RESEND_API_KEY/);
+  assert.match(section, /WORDPRESS_APP_PASSWORD/);
   // The wizard wires in the connections step.
   assert.match(setup, /SetupConnectionsStep/);
 });
@@ -944,10 +949,13 @@ test('case study records run approved campaign progress', async () => {
 });
 
 test('campaign run route sends an approved campaign via resend', async () => {
-  await readFile(new URL('../src/app/api/campaigns/[id]/run/route.ts', import.meta.url), 'utf8');
   const route = await readFile(new URL('../src/app/api/campaigns/[id]/run/route.ts', import.meta.url), 'utf8');
   assert.match(route, /runApprovedCampaign/);
-  assert.match(route, /resolveResendLiveConnection/);
+  // ARD 0008: the Resend API key resolves from the environment through the SecretReference
+  // boundary, never cleartext from the settings table.
+  assert.match(route, /resolveResendCampaignConnection/);
+  assert.match(route, /createEnvSecretResolver/);
+  assert.doesNotMatch(route, /resend_api_key/);
   const panel = await readFile(new URL('../src/components/panels/campaigns-panel.tsx', import.meta.url), 'utf8');
   assert.match(panel, /campaigns\/\$\{id\}\/run/);
   assert.match(panel, /onRun/);

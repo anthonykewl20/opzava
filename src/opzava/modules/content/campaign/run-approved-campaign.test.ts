@@ -3,6 +3,8 @@ import Database from 'better-sqlite3'
 import { createCampaignRepository } from './campaign-repository'
 import { parseCampaign, type Campaign } from './campaign'
 import { runApprovedCampaign, type RunApprovedCampaignDeps } from './run-approved-campaign'
+import { createCampaignSendApproval } from './campaign-send-approval'
+import { createApprovalRepository } from '@/opzava/core/approvals/approval-repository'
 import { type CampaignEmailSender } from '../workflow/email-campaign'
 
 function makeDb(): Database.Database {
@@ -71,6 +73,12 @@ function seedCampaign(db: Database.Database, status: Campaign['status']): void {
   repo.saveCampaign(c)
 }
 
+function seedSendApproval(db: Database.Database, campaignId = 'camp-1'): void {
+  createApprovalRepository(db).saveApproval(
+    createCampaignSendApproval({ campaignId, approverId: 'admin', now: NOW_ISO }),
+  )
+}
+
 describe('runApprovedCampaign', () => {
   let db: Database.Database
 
@@ -80,6 +88,7 @@ describe('runApprovedCampaign', () => {
 
   it("drains an approved campaign to 'sent'", async () => {
     seedCampaign(db, 'approved')
+    seedSendApproval(db)
     const sender: CampaignEmailSender = async () => ({ ok: true, messageId: 'm' })
     const deps = makeDeps(db, sender)
     const res = await runApprovedCampaign(deps, { campaignId: 'camp-1' })
@@ -101,6 +110,7 @@ describe('runApprovedCampaign', () => {
 
   it("marks the campaign 'failed' when sends fail", async () => {
     seedCampaign(db, 'approved')
+    seedSendApproval(db)
     const sender: CampaignEmailSender = async () => ({ ok: false, messageId: null })
     const deps = makeDeps(db, sender)
     const res = await runApprovedCampaign(deps, { campaignId: 'camp-1' })
@@ -114,5 +124,19 @@ describe('runApprovedCampaign', () => {
     const sender: CampaignEmailSender = async () => ({ ok: true, messageId: 'm' })
     const deps = makeDeps(db, sender)
     await expect(runApprovedCampaign(deps, { campaignId: 'nope' })).rejects.toThrow(/not found/)
+  })
+
+  it('refuses an approved campaign that has no granted send approval (F1)', async () => {
+    seedCampaign(db, 'approved') // campaign row is approved, but no Approval record was minted
+    let sends = 0
+    const sender: CampaignEmailSender = async () => {
+      sends += 1
+      return { ok: true, messageId: 'm' }
+    }
+    const deps = makeDeps(db, sender)
+    await expect(runApprovedCampaign(deps, { campaignId: 'camp-1' })).rejects.toThrow(/approval not granted/)
+    expect(sends).toBe(0) // nothing was sent
+    // the campaign was not transitioned into 'sending'
+    expect(createCampaignRepository(db).getCampaignById('camp-1')?.status).toBe('approved')
   })
 })

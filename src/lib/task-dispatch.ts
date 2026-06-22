@@ -8,6 +8,11 @@ import { config } from './config'
 import { getAllGatewaySessions } from './sessions'
 import { parseJsonlTranscript, readSessionJsonl, type TranscriptMessage } from './transcript-parser'
 import { syncTaskOutbound } from './github-sync-engine'
+import {
+  DISPATCH_MODEL_COMPLEX,
+  DISPATCH_MODEL_ROUTINE,
+  DISPATCH_MODEL_DEFAULT,
+} from './model-config'
 
 const AGENT_DISPATCH_ACCEPT_TIMEOUT_MS = 60_000
 
@@ -497,16 +502,16 @@ function classifyDirectModel(task: DispatchableTask): string {
     'root cause', 'investigate', 'incident', 'refactor', 'migration',
   ]
   if (priority === 'critical' || complexSignals.some(s => text.includes(s))) {
-    return 'claude-opus-4-6'
+    return DISPATCH_MODEL_COMPLEX
   }
 
   // Size heuristics → Opus for large/complex tasks
   const descLength = (task.description ?? '').length
-  if (descLength > 2000) return 'claude-opus-4-6'
+  if (descLength > 2000) return DISPATCH_MODEL_COMPLEX
   try {
     const db = getDatabase()
     const row = db.prepare('SELECT estimated_hours FROM tasks WHERE id = ?').get(task.id) as { estimated_hours: number | null } | undefined
-    if (row?.estimated_hours && row.estimated_hours >= 4) return 'claude-opus-4-6'
+    if (row?.estimated_hours && row.estimated_hours >= 4) return DISPATCH_MODEL_COMPLEX
   } catch { /* ignore */ }
 
   // Routine → Haiku
@@ -515,11 +520,11 @@ function classifyDirectModel(task: DispatchableTask): string {
     'translate', 'quick ', 'simple ', 'routine ', 'minor ',
   ]
   if (routineSignals.some(s => text.includes(s)) && priority !== 'high' && priority !== 'critical') {
-    return 'claude-haiku-4-5-20251001'
+    return DISPATCH_MODEL_ROUTINE
   }
 
   // Default → Sonnet
-  return 'claude-sonnet-4-6'
+  return DISPATCH_MODEL_DEFAULT
 }
 
 function getAgentSoulContent(task: DispatchableTask): string | null {

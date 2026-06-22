@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildDepartmentPipeline,
   CONTENT_PIPELINE_ORDER,
+  DEPARTMENT_PIPELINE_ORDER,
 } from './department-pipeline';
 import { DEFAULT_AGENT_ROLES } from './agent-role';
 
@@ -69,7 +70,19 @@ describe('buildDepartmentPipeline', () => {
     const p = buildDepartmentPipeline(DEFAULT_AGENT_ROLES, 'General VA');
     expect(p.map((s) => s.stepId)).toEqual(['va-task-intake', 'va-task-draft', 'va-task-review']);
     expect(p.find((s) => s.stepId === 'va-task-draft')?.agentId).toBe('general-va');
-    expect(p.find((s) => s.stepId === 'va-task-review')?.agentId).toBe(null);
+    expect(p.find((s) => s.stepId === 'va-task-review')?.agentId).toBe('general-va');
+  });
+
+  it('every step in every department pipeline is owned by a default role (no orphans)', () => {
+    for (const department of Object.keys(DEPARTMENT_PIPELINE_ORDER)) {
+      const pipeline = buildDepartmentPipeline(DEFAULT_AGENT_ROLES, department);
+      const orphans = pipeline.filter((step) => step.agentId === null);
+      expect(orphans, `orphaned steps in ${department}: ${orphans.map((s) => s.stepId).join(', ')}`).toEqual([]);
+      for (const step of pipeline) {
+        expect(step.agentId, `${department}/${step.stepId} has no owner`).not.toBe(null);
+        expect(step.agentName, `${department}/${step.stepId} has no owner name`).not.toBe(null);
+      }
+    }
   });
 
 });

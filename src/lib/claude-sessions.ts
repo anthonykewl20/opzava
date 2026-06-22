@@ -18,6 +18,7 @@ import { join } from 'path'
 import { config } from './config'
 import { getDatabase } from './db'
 import { logger } from './logger'
+import { DISPATCH_MODEL_COMPLEX, DISPATCH_MODEL_DEFAULT, MODEL_CLAUDE_HAIKU_4_5 } from './model-config'
 
 // Skip JSONL files larger than this to avoid excessive I/O
 const DEFAULT_MAX_SESSION_FILE_BYTES = 50 * 1024 * 1024 // 50 MB
@@ -37,9 +38,9 @@ const MAX_SESSION_FILE_BYTES = getEnvPositiveInt('MC_MAX_SESSION_FILE_BYTES', DE
 // verified 2026-05. Opus 4.5/4.6 = $5/$25, Sonnet 4.6 = $3/$15,
 // Haiku 4.5 = $1/$5 per MTok.
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  'claude-opus-4-6': { input: 5 / 1_000_000, output: 25 / 1_000_000 },
-  'claude-sonnet-4-6': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
-  'claude-haiku-4-5': { input: 1 / 1_000_000, output: 5 / 1_000_000 },
+  [DISPATCH_MODEL_COMPLEX]: { input: 5 / 1_000_000, output: 25 / 1_000_000 },
+  [DISPATCH_MODEL_DEFAULT]: { input: 3 / 1_000_000, output: 15 / 1_000_000 },
+  [MODEL_CLAUDE_HAIKU_4_5]: { input: 1 / 1_000_000, output: 5 / 1_000_000 },
 }
 
 const DEFAULT_PRICING = { input: 3 / 1_000_000, output: 15 / 1_000_000 }

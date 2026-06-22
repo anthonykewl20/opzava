@@ -13,10 +13,21 @@ export type ProviderAdapterDefaultsProjection = Readonly<{
   }>
 }>
 
+// Operator-tunable rate/cost ceilings projected for the provider-execution layer (F6b). `burst` is
+// the token-bucket capacity used by the sub-minute rate limiter (composition layer); the per-minute,
+// hourly, and daily ceilings are enforced by `evaluateProviderLimits`.
+export type ProviderLimitsProjection = Readonly<{
+  requestsPerMinute: number
+  burst: number
+  usdPerHourLimit: number
+  usdPerDayLimit: number
+}>
+
 export type OpzavaRuntimeOptionsProjection = Readonly<{
   runner: RunnerDaemonSettingsProjection
   retry: ExponentialRetryPolicyOptions
   provider: ProviderAdapterDefaultsProjection
+  limits: ProviderLimitsProjection
 }>
 
 export function projectRunnerDaemonOptions(settings: OpzavaAdminSettings): RunnerDaemonSettingsProjection {
@@ -43,10 +54,20 @@ export function projectProviderAdapterDefaults(settings: OpzavaAdminSettings): P
   })
 }
 
+export function projectProviderLimits(settings: OpzavaAdminSettings): ProviderLimitsProjection {
+  return Object.freeze({
+    requestsPerMinute: settings.providers.requestsPerMinute,
+    burst: settings.providers.burst,
+    usdPerHourLimit: settings.providers.usdPerHourLimit,
+    usdPerDayLimit: settings.providers.usdPerDayLimit,
+  })
+}
+
 export function projectRuntimeOptions(settings: OpzavaAdminSettings): OpzavaRuntimeOptionsProjection {
   return Object.freeze({
     runner: projectRunnerDaemonOptions(settings),
     retry: projectRetryPolicyOptions(settings),
     provider: projectProviderAdapterDefaults(settings),
+    limits: projectProviderLimits(settings),
   })
 }
