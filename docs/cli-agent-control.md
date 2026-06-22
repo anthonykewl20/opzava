@@ -155,6 +155,37 @@ Baseline policy in this repo:
 - When you fix a mismatch, remove its line from ignore file in the same PR.
 - Goal is monotonic burn-down to an empty ignore file.
 
+## MCP: full task-card control + attributed comments
+
+A session connected through the MCP server (`scripts/mc-mcp-server.cjs`) can drive a task card
+end-to-end, and everything it writes is attributed back to the client.
+
+**Identifying the client.** Comments posted over MCP are stamped `author_type: 'agent'` plus a
+`source` label so the card shows *who/where* a comment came from. The label resolves as:
+
+1. `MC_CLIENT` (or `MC_AGENT`) environment variable — authoritative; set this per install to get an
+   exact label (e.g. `MC_CLIENT="Codex CLI"` vs `MC_CLIENT="Codex Desktop"`, which the handshake alone
+   can't always distinguish).
+2. otherwise the MCP `initialize` handshake `clientInfo` (name + version),
+3. otherwise `mcp`.
+
+**Task-control tools.**
+
+| Tool | What it does |
+|------|--------------|
+| `mc_update_task` | Set status, priority, assignee, **description (Details)**, **evidence**, **blockers**, **error_message (Errors)**, **resolution**. |
+| `mc_complete_task` | Set status (default `done`) and post your `summary` **verbatim** as a comment on the card (also saved as the resolution); optional `evidence`. Use at session end. |
+| `mc_quality_review` | Record an approve/reject verdict (`approved` → done, `rejected` → in_progress); the verdict is posted as an attributed comment. |
+| `mc_add_comment` | Add a comment (carries the agent/source attribution automatically). |
+
+**Auto-comment on completion.** When a task moves to `done`/`failed` — or whenever an agent supplies a
+completion `summary` — Opzava auto-posts a comment so the result always lands on the card. The agent's
+own write-up (via `mc_complete_task`) is used when present; otherwise the task's resolution/error.
+
+> Note: moving a task to `done` may require an Aegis quality-review approval (deployment policy). If a
+> direct completion is rejected with `403`, complete to `review`/`quality_review` (still posts your
+> summary), then approve via `mc_quality_review`.
+
 ## Next steps
 
 - Promote script to package.json bin entry (`mc`).

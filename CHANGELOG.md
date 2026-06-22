@@ -6,7 +6,18 @@ All notable changes to Opzava are documented in this file.
 
 ## [Unreleased]
 
-_No changes yet._
+### Added
+- **Full task-card control + attributed comments for CLI/MCP sessions.** A connected client (Claude
+  Code, Codex CLI/Desktop, Claude Desktop, opencode) can now drive a task card end-to-end over MCP:
+  - `mc_update_task` extended to set **evidence**, **blockers**, **error_message** (Errors), and
+    **resolution** (new `tasks.evidence` / `tasks.blockers` columns, shown on the task card).
+  - `mc_complete_task` — sets status and posts the agent's completion write-up **verbatim** as a comment
+    on the card; `mc_quality_review` — records an approve/reject verdict (also posted as a comment).
+  - Completing a task (status → done/failed, or any agent-supplied summary) **auto-posts a comment**, so
+    a CLI session's result always lands on the card.
+  - **Attribution:** comments now carry `author_type` ('human' | 'agent' | 'system') and a `source`
+    client label, rendered as a badge so you can see *who/where* a comment came from. The MCP server
+    derives the label from `MC_CLIENT`/`MC_AGENT` (authoritative) or the MCP `clientInfo` handshake.
 
 ## [2.1.0] - 2026-06-22
 

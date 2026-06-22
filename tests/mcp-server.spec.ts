@@ -102,6 +102,8 @@ test.describe('MCP Server Integration', () => {
     expect(names).toContain('mc_read_memory')
     expect(names).toContain('mc_write_memory')
     expect(names).toContain('mc_add_comment')
+    expect(names).toContain('mc_complete_task')
+    expect(names).toContain('mc_quality_review')
     expect(names).toContain('mc_health')
   })
 
@@ -227,6 +229,65 @@ test.describe('MCP Server Integration', () => {
 
       const { isError } = await mcpTool('mc_list_comments', { id: task.id })
       expect(isError).toBe(false)
+    })
+
+    test('mc_add_comment attributes the comment to an agent + source', async ({ request }) => {
+      const task = await createTestTask(request)
+      taskIds.push(task.id)
+
+      await mcpTool('mc_add_comment', { id: task.id, content: 'ATTRIBUTED-COMMENT-XYZ' })
+      const { content } = await mcpTool('mc_list_comments', { id: task.id })
+      const comments = (content?.comments || []) as any[]
+      const mine = comments.find((c) => c.content?.includes('ATTRIBUTED-COMMENT-XYZ'))
+      expect(mine).toBeTruthy()
+      expect(mine.author_type).toBe('agent')
+      expect(typeof mine.source).toBe('string')
+      expect(mine.source.length).toBeGreaterThan(0)
+    })
+
+    test('mc_update_task sets evidence and blockers on the card', async ({ request }) => {
+      const task = await createTestTask(request)
+      taskIds.push(task.id)
+
+      const { isError } = await mcpTool('mc_update_task', {
+        id: task.id, evidence: 'EVIDENCE-XYZ', blockers: 'BLOCKER-XYZ',
+      })
+      expect(isError).toBe(false)
+      const { content } = await mcpTool('mc_get_task', { id: task.id })
+      const t = content?.task || content
+      expect(t.evidence).toBe('EVIDENCE-XYZ')
+      expect(t.blockers).toBe('BLOCKER-XYZ')
+    })
+
+    test('mc_complete_task posts an attributed completion comment', async ({ request }) => {
+      const task = await createTestTask(request)
+      taskIds.push(task.id)
+
+      const { isError } = await mcpTool('mc_complete_task', {
+        id: task.id, summary: 'COMPLETION-SUMMARY-XYZ', status: 'review',
+      })
+      expect(isError).toBe(false)
+      const { content } = await mcpTool('mc_list_comments', { id: task.id })
+      const comments = (content?.comments || []) as any[]
+      const done = comments.find((c) => c.content?.includes('COMPLETION-SUMMARY-XYZ'))
+      expect(done).toBeTruthy()
+      expect(done.author_type).toBe('agent')
+      expect(done.content).toMatch(/completed/i)
+    })
+
+    test('mc_quality_review records a verdict as an attributed comment', async ({ request }) => {
+      const task = await createTestTask(request)
+      taskIds.push(task.id)
+
+      const { isError } = await mcpTool('mc_quality_review', {
+        task_id: task.id, status: 'approved', notes: 'REVIEW-NOTES-XYZ',
+      })
+      expect(isError).toBe(false)
+      const { content } = await mcpTool('mc_list_comments', { id: task.id })
+      const comments = (content?.comments || []) as any[]
+      const review = comments.find((c) => c.content?.includes('REVIEW-NOTES-XYZ'))
+      expect(review).toBeTruthy()
+      expect(review.source).toBe('quality-review')
     })
   })
 
