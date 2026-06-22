@@ -6,9 +6,12 @@ All notable changes to Opzava are documented in this file.
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [2.1.0] - 2026-06-22
+
 System-map audit → ARDs → remediation of the opzava product layer, then **milestone 2**: the live
-campaign send path is turned on behind the safety boundary. All changes are backward-compatible
-(recommended version: **2.1.0**).
+campaign send path is turned on behind the safety boundary. All changes are backward-compatible.
 
 ### Added
 - **Approval-gated live campaign email send** (Resend). An admin-triggered run drains the send queue

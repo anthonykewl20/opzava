@@ -732,7 +732,7 @@ for (const tool of TOOLS) {
 
 const SERVER_INFO = {
   name: 'opzava',
-  version: '2.0.1',
+  version: '2.1.0',
 };
 
 const CAPABILITIES = {
