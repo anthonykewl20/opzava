@@ -229,6 +229,7 @@ Set `MC_URL` and `MC_API_KEY` in your environment. The MCP server exposes 35+ to
 ## What's Next?
 
 - **[Connect a Local Agent](connect-local-agents.md)** — Wire Claude Code, Codex, or OpenCode into Opzava
+- **[OpenClaw Gateway Setup](gateway-setup.md)** — Connect Opzava to a gateway for fleet management
 - **[Agent Setup Guide](agent-setup.md)** — Configure SOUL personalities, agent sources, and heartbeat settings
 - **[Orchestration Patterns](orchestration.md)** — Multi-agent workflows, auto-dispatch, quality review gates
 - **[CLI Reference](cli-agent-control.md)** — Full CLI command reference

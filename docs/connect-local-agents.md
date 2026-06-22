@@ -204,7 +204,7 @@ not give you the adapter's heartbeat/assignment plumbing.)
 When agents are managed by an **OpenClaw gateway**, Opzava connects to the gateway over WebSocket and
 spawns/controls sessions through it (`POST /api/spawn`). Config syncs via `openclaw.json`. This is the
 multi-host fleet path; for a single local CLI, prefer §1 or §2. Gateway connectivity *is* health-checked
-(§5). See [docs/agent-setup.md](agent-setup.md) and [docs/deployment.md](deployment.md).
+(§5). Full walkthrough in [docs/gateway-setup.md](gateway-setup.md).
 
 ---
 
