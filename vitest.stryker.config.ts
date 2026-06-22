@@ -16,6 +16,7 @@ export default defineConfig(async () => {
       setupFiles: ['src/test/setup.ts'],
       include: [
         'src/lib/__tests__/token-pricing.test.ts',
+        'src/lib/__tests__/model-config.test.ts',
         'src/lib/__tests__/schedule-parser.test.ts',
         'src/opzava/modules/content/workflow/content-quality-gate.test.ts',
         'src/opzava/modules/content/campaign/campaign-send-approval.test.ts',
