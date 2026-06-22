@@ -63,6 +63,9 @@ describe('createEnvSecretResolver', () => {
     const bad = { kind: 'SecretReference', id: '', scope: 'provider-credential', purpose: 'x' }
     const result = await resolver.resolveSecret(bad as never)
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error.code).toBe('invalid-reference')
+    if (!result.ok) {
+      expect(result.error.code).toBe('invalid-reference')
+      expect(result.error.message).toContain('valid SecretReference')
+    }
   })
 })

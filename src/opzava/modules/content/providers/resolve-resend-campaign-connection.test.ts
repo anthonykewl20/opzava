@@ -19,7 +19,39 @@ const envWithKey = createEnvSecretResolver({
 })
 const envWithoutKey = createEnvSecretResolver({ readEnv: () => undefined })
 
+describe('RESEND_API_KEY_SECRET_REFERENCE', () => {
+  it('names the RESEND_API_KEY env var as a provider credential', () => {
+    expect(RESEND_API_KEY_SECRET_REFERENCE.id).toBe('RESEND_API_KEY')
+    expect(RESEND_API_KEY_SECRET_REFERENCE.scope).toBe('provider-credential')
+    expect(RESEND_API_KEY_SECRET_REFERENCE.purpose).toBe('Resend API key for campaign sends')
+  })
+})
+
 describe('resolveResendCampaignConnection', () => {
+  it('trims surrounding whitespace from the from-address and from-name', async () => {
+    const { read } = settingsReader({
+      resend_from_address: '  team@opzava.dev  ',
+      resend_from_name: '  Opzava  ',
+    })
+    const result = await resolveResendCampaignConnection({ readSetting: read, resolver: envWithKey })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.connection.fromAddress).toBe('team@opzava.dev')
+      expect(result.connection).toMatchObject({ fromName: 'Opzava' })
+    }
+  })
+
+  it('rejects an address whose junk is anchored outside the email (start/end anchors)', async () => {
+    // `@a@b.co` only matches if the `^` anchor is dropped; `a@b.co@x` only matches if `$` is dropped.
+    for (const bad of ['@a@b.co', 'a@b.co@x']) {
+      const result = await resolveResendCampaignConnection({
+        readSetting: settingsReader({ resend_from_address: bad }).read,
+        resolver: envWithKey,
+      })
+      expect(result.ok === false && result.reason).toBe('from-address-missing')
+    }
+  })
+
   it('builds a connection from non-secret settings + the env-resolved API key', async () => {
     const { read } = settingsReader({
       resend_from_address: 'team@opzava.dev',

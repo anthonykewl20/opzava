@@ -20,7 +20,44 @@ const envWithSecret = createEnvSecretResolver({
 })
 const envWithoutSecret = createEnvSecretResolver({ readEnv: () => undefined })
 
+describe('WORDPRESS_APP_PASSWORD_SECRET_REFERENCE', () => {
+  it('names the WORDPRESS_APP_PASSWORD env var as a provider credential', () => {
+    expect(WORDPRESS_APP_PASSWORD_SECRET_REFERENCE.id).toBe('WORDPRESS_APP_PASSWORD')
+    expect(WORDPRESS_APP_PASSWORD_SECRET_REFERENCE.scope).toBe('provider-credential')
+    expect(WORDPRESS_APP_PASSWORD_SECRET_REFERENCE.purpose).toBe('WordPress application password')
+  })
+})
+
 describe('resolveWordpressDraftConnection', () => {
+  it('accepts a plain http (not just https) site URL', async () => {
+    const { read } = settingsReader({ wordpress_site_url: 'http://blog.example.com' })
+    const result = await resolveWordpressDraftConnection({ readSetting: read, resolver: envWithSecret })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.connection.siteUrl).toBe('http://blog.example.com')
+  })
+
+  it('rejects a parseable non-http(s) URL scheme', async () => {
+    // `ftp://host` parses as a URL but is not an allowed protocol — must fail closed.
+    const result = await resolveWordpressDraftConnection({
+      readSetting: settingsReader({ wordpress_site_url: 'ftp://blog.example.com' }).read,
+      resolver: envWithSecret,
+    })
+    expect(result.ok === false && result.reason).toBe('site-url-missing')
+  })
+
+  it('trims surrounding whitespace from the site URL and default author', async () => {
+    const { read } = settingsReader({
+      wordpress_site_url: '  https://blog.example.com  ',
+      wordpress_default_author: '  Opzava  ',
+    })
+    const result = await resolveWordpressDraftConnection({ readSetting: read, resolver: envWithSecret })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.connection.siteUrl).toBe('https://blog.example.com')
+      expect(result.connection).toMatchObject({ defaultAuthor: 'Opzava' })
+    }
+  })
+
   it('builds a connection from non-secret settings + the env-resolved app password', async () => {
     const { read } = settingsReader({
       wordpress_site_url: 'https://blog.example.com',
