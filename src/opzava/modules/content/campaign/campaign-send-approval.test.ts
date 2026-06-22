@@ -34,6 +34,40 @@ describe('campaign send approval', () => {
     expect(isCampaignSendApproved(approval, 'camp-1')).toBe(false)
   })
 
+  it('rejects a granted approval for a different requested action', () => {
+    const wrongAction = parseApproval({
+      schemaVersion: 1,
+      approvalId: campaignSendApprovalId('camp-1'),
+      requestedAction: 'campaign.publish',
+      target: { kind: 'external-action', id: 'camp-1' },
+      status: 'approved',
+      requesterId: 'admin',
+      approverId: 'admin',
+      decisionReason: 'ok',
+      requestedAt: NOW,
+      decidedAt: NOW,
+      expiresAt: null,
+    })
+    expect(isCampaignSendApproved(wrongAction, 'camp-1')).toBe(false)
+  })
+
+  it('rejects a granted approval whose target is not an external action', () => {
+    const wrongKind = parseApproval({
+      schemaVersion: 1,
+      approvalId: campaignSendApprovalId('camp-1'),
+      requestedAction: CAMPAIGN_SEND_REQUESTED_ACTION,
+      target: { kind: 'artifact', id: 'camp-1' },
+      status: 'approved',
+      requesterId: 'admin',
+      approverId: 'admin',
+      decisionReason: 'ok',
+      requestedAt: NOW,
+      decidedAt: NOW,
+      expiresAt: null,
+    })
+    expect(isCampaignSendApproved(wrongKind, 'camp-1')).toBe(false)
+  })
+
   it('rejects a non-granted approval (e.g. rejected)', () => {
     const rejected = parseApproval({
       schemaVersion: 1,
