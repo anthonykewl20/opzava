@@ -6,19 +6,20 @@
  * model-id literals and the USD/MTok pricing table that were previously inlined
  * across the inherited `src/lib` dispatch/pricing/template sites.
  *
- * Scope (finding F7, bounded): this file is the SoT for the FOUR core
- * dispatch/pricing sites only —
+ * Scope: this file is the SoT for the four core dispatch/pricing sites (F7) —
  *   - `src/lib/agent-templates.ts`  (template primaries + fallback arrays)
  *   - `src/lib/task-dispatch.ts`    (classifyDirectModel routing)
  *   - `src/lib/token-pricing.ts`    (MODEL_PRICING table)
  *   - `src/lib/agent-runtimes.ts`   (AI security-review model)
- * Other inherited sites that still inline model ids/pricing are tracked as debt
- * in `docs/architecture/system-map/90-parity-findings.md` (finding F14) and are
- * intentionally NOT folded in here yet.
+ * — and, after the F14 follow-up, the remaining inherited sites too: the model
+ * catalogs (`src/lib/models.ts`, `src/index.ts`), session pricing
+ * (`claude-sessions.ts`), framework-template snippets, the agent-profile API
+ * default, and the onboarding / agent-detail / cron UI pickers. See the
+ * "Catalog / UI model ids" section below for the ids those sites consume.
  *
- * The governance gate `test/no-hardcoded-models.test.mjs` scans those four files
- * (an explicit allowlist) for Claude model-id literals and fails if any remain,
- * proving they were all moved here. This file is the SoT and is not scanned.
+ * The governance gate `test/no-hardcoded-models.test.mjs` scans all of those
+ * files (an explicit allowlist) for Claude model-id literals and fails if any
+ * remain, proving they were all moved here. This file is the SoT and is not scanned.
  *
  * IMPORTANT: values here are byte-identical to the literals they replaced — this
  * is a pure refactor. Do not change ids or prices without updating the pricing
@@ -68,6 +69,25 @@ export const HAIKU_FALLBACKS = [
   'ollama/qwen2.5-coder:14b',
   'openai/codex-mini-latest',
 ]
+
+// ---------------------------------------------------------------------------
+// Catalog / UI model ids (finding F14)
+// ---------------------------------------------------------------------------
+// Additional Claude ids referenced by the inherited model catalogs
+// (`src/lib/models.ts`, `src/index.ts`), the session pricing map
+// (`claude-sessions.ts`), the runtime-setup onboarding UI, and the agent-detail
+// model picker. They are kept here so no call site inlines a Claude model id.
+// Some intentionally differ in version from the dispatch/template ids above —
+// the inherited sites use these exact strings, and F14 preserves their values
+// verbatim (it is a centralization pass, not a version bump). Where a catalog id
+// matches an existing constant above, callers reuse that constant rather than a
+// duplicate (e.g. `claude-sonnet-4-6` → DISPATCH_MODEL_DEFAULT,
+// `anthropic/claude-haiku-4-5` → TEMPLATE_PRIMARY_HAIKU).
+export const MODEL_CLAUDE_HAIKU_4_5 = 'claude-haiku-4-5'
+export const MODEL_CLAUDE_SONNET_4_5 = 'claude-sonnet-4-5'
+export const MODEL_ANTHROPIC_SONNET_4_6 = 'anthropic/claude-sonnet-4-6'
+export const MODEL_ANTHROPIC_OPUS_4_6 = 'anthropic/claude-opus-4-6'
+export const MODEL_ANTHROPIC_HAIKU_3_5_LATEST = 'anthropic/claude-3-5-haiku-latest'
 
 // ---------------------------------------------------------------------------
 // Pricing table — token-pricing.ts MODEL_PRICING source of truth

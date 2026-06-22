@@ -1,3 +1,9 @@
+import {
+  TEMPLATE_PRIMARY_HAIKU,
+  MODEL_ANTHROPIC_SONNET_4_6,
+  MODEL_ANTHROPIC_OPUS_4_6,
+} from './model-config'
+
 export interface ModelConfig {
   alias: string
   name: string
@@ -8,9 +14,9 @@ export interface ModelConfig {
 
 export const MODEL_CATALOG: ModelConfig[] = [
   // Anthropic
-  { alias: 'haiku', name: 'anthropic/claude-haiku-4-5', provider: 'anthropic', description: 'Ultra-cheap, simple tasks', costPer1k: 0.25 },
-  { alias: 'sonnet', name: 'anthropic/claude-sonnet-4-6', provider: 'anthropic', description: 'Standard workhorse', costPer1k: 3.0 },
-  { alias: 'opus', name: 'anthropic/claude-opus-4-6', provider: 'anthropic', description: 'Premium quality', costPer1k: 15.0 },
+  { alias: 'haiku', name: TEMPLATE_PRIMARY_HAIKU, provider: 'anthropic', description: 'Ultra-cheap, simple tasks', costPer1k: 0.25 },
+  { alias: 'sonnet', name: MODEL_ANTHROPIC_SONNET_4_6, provider: 'anthropic', description: 'Standard workhorse', costPer1k: 3.0 },
+  { alias: 'opus', name: MODEL_ANTHROPIC_OPUS_4_6, provider: 'anthropic', description: 'Premium quality', costPer1k: 15.0 },
   // OpenAI
   { alias: 'gpt-4.1', name: 'openai/gpt-4.1', provider: 'openai', description: 'GPT-4.1 flagship', costPer1k: 2.0 },
   { alias: 'gpt-4.1-mini', name: 'openai/gpt-4.1-mini', provider: 'openai', description: 'GPT-4.1 Mini, fast + cheap', costPer1k: 0.4 },

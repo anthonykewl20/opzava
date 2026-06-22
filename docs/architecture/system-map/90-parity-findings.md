@@ -270,17 +270,19 @@ branding gate (`test/branding.test.mjs:75-91`) scans only `src/app`, `src/compon
 
 ---
 
-## F14 🟡 Hardcoded model ids/pricing scattered across other inherited sites (follow-up to F7)
+## F14 ✅ Hardcoded model ids/pricing scattered across other inherited sites (follow-up to F7) — DONE
 
-F7's four core dispatch/pricing sites (`agent-templates.ts`, `task-dispatch.ts`, `token-pricing.ts`, `agent-runtimes.ts`) have been centralized into `src/lib/model-config.ts` (the single source of truth), and the governance gate `test/no-hardcoded-models.test.mjs` now scans exactly those four files (an explicit allowlist) and fails if any Claude model-id literal remains. The remediation was deliberately **bounded** — a broader `src/**` guard would flag ~11 inherited sites that are out of scope for this pass. The remaining inherited sites still inline model ids and/or pricing literals and are tracked here as debt to fold into `model-config.ts` (and under the gate) later:
+F7's four core dispatch/pricing sites were centralized into `src/lib/model-config.ts` first. **F14 (2026-06-22) folded the remaining eight inherited sites** into the same SoT and **widened** the governance gate `test/no-hardcoded-models.test.mjs` to enforce all twelve files (no Claude model-id literal may remain in their executable code):
 
-- `src/index.ts`
-- `src/lib/models.ts`
-- `src/lib/claude-sessions.ts`
-- `src/lib/framework-templates.ts`
-- `src/app/api/agents/route.ts`
-- `src/components/onboarding/runtime-setup-modal.tsx`
-- `src/components/panels/agent-detail-tabs.tsx`
-- `src/components/panels/cron-management-panel.tsx`
+- `src/index.ts` (CLI model catalog)
+- `src/lib/models.ts` (`MODEL_CATALOG`)
+- `src/lib/claude-sessions.ts` (per-token session pricing keys → computed from model-config ids)
+- `src/lib/framework-templates.ts` (the Claude-SDK example snippet model, interpolated)
+- `src/app/api/agents/route.ts` (agent-profile default model)
+- `src/components/onboarding/runtime-setup-modal.tsx` (provider/model picker)
+- `src/components/panels/agent-detail-tabs.tsx` (`DEFAULT_MODEL_BY_TIER` + placeholder)
+- `src/components/panels/cron-management-panel.tsx` (model-input placeholder)
 
-**Audit question:** When the broad guard is eventually enabled, do the shared repos already route every model id/price through one config module, or do they carry the same scatter across UI panels, route handlers, and session/template helpers?
+Five new id constants were added to `model-config.ts` (`MODEL_CLAUDE_HAIKU_4_5`, `MODEL_CLAUDE_SONNET_4_5`, `MODEL_ANTHROPIC_SONNET_4_6`, `MODEL_ANTHROPIC_OPUS_4_6`, `MODEL_ANTHROPIC_HAIKU_3_5_LATEST`) for ids the catalogs/UI use that differ in version from the dispatch/template ids; values were preserved byte-identical (centralization, not a version bump). **Done-gate:** ✅ the widened gate is green (283 governance tests); build + 1919 unit tests pass.
+
+**Answer to the original audit question:** the inherited sites carried the same scatter (UI pickers, route handlers, session/template helpers each inlined ids); they now all route through the one config module.

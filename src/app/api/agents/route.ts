@@ -10,6 +10,7 @@ import { logger } from '@/lib/logger';
 import { validateBody, createAgentSchema } from '@/lib/validation';
 import { runOpenClaw } from '@/lib/command';
 import { config as appConfig } from '@/lib/config';
+import { DISPATCH_MODEL_DEFAULT } from '@/lib/model-config';
 import { resolveWithin } from '@/lib/paths';
 import path from 'node:path';
 
@@ -282,7 +283,7 @@ export async function POST(request: NextRequest) {
         if (!fsExists(profileDir)) {
           mkdirSync(profileDir, { recursive: true })
           // Write config.yaml with model from agent config or default
-          const model = finalConfig.model || 'claude-sonnet-4-6'
+          const model = finalConfig.model || DISPATCH_MODEL_DEFAULT
           const provider = finalConfig.provider || 'anthropic'
           writeFileSync(
             path.join(profileDir, 'config.yaml'),

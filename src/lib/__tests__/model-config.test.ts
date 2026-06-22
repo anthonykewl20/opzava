@@ -11,6 +11,11 @@ import {
   OPUS_FALLBACKS,
   HAIKU_FALLBACKS,
   MODEL_PRICING,
+  MODEL_CLAUDE_HAIKU_4_5,
+  MODEL_CLAUDE_SONNET_4_5,
+  MODEL_ANTHROPIC_SONNET_4_6,
+  MODEL_ANTHROPIC_OPUS_4_6,
+  MODEL_ANTHROPIC_HAIKU_3_5_LATEST,
 } from '@/lib/model-config'
 
 // model-config.ts is the source of truth for the four F7 dispatch/pricing sites.
@@ -32,6 +37,14 @@ describe('model-config dispatch + template ids', () => {
     expect(TEMPLATE_PRIMARY_OPUS).toBe('anthropic/claude-opus-4-5')
     expect(TEMPLATE_PRIMARY_SONNET).toBe('anthropic/claude-sonnet-4-20250514')
     expect(TEMPLATE_PRIMARY_HAIKU).toBe('anthropic/claude-haiku-4-5')
+  })
+
+  it('pins the F14 catalog/UI model ids (folded from inherited sites)', () => {
+    expect(MODEL_CLAUDE_HAIKU_4_5).toBe('claude-haiku-4-5')
+    expect(MODEL_CLAUDE_SONNET_4_5).toBe('claude-sonnet-4-5')
+    expect(MODEL_ANTHROPIC_SONNET_4_6).toBe('anthropic/claude-sonnet-4-6')
+    expect(MODEL_ANTHROPIC_OPUS_4_6).toBe('anthropic/claude-opus-4-6')
+    expect(MODEL_ANTHROPIC_HAIKU_3_5_LATEST).toBe('anthropic/claude-3-5-haiku-latest')
   })
 
   it('pins the per-tier fallback chains (order matters)', () => {

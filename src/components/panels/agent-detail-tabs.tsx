@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
 import { createClientLogger } from '@/lib/client-logger'
 import { apiFetch, ApiError } from '@/lib/api-client'
+import { TEMPLATE_PRIMARY_OPUS, TEMPLATE_PRIMARY_SONNET, TEMPLATE_PRIMARY_HAIKU } from '@/lib/model-config'
 import Link from 'next/link'
 
 const log = createClientLogger('AgentDetailTabs')
@@ -843,9 +844,9 @@ const MODEL_TIER_LABELS: Record<string, string> = {
 }
 
 const DEFAULT_MODEL_BY_TIER: Record<'opus' | 'sonnet' | 'haiku', string> = {
-  opus: 'anthropic/claude-opus-4-5',
-  sonnet: 'anthropic/claude-sonnet-4-20250514',
-  haiku: 'anthropic/claude-haiku-4-5',
+  opus: TEMPLATE_PRIMARY_OPUS,
+  sonnet: TEMPLATE_PRIMARY_SONNET,
+  haiku: TEMPLATE_PRIMARY_HAIKU,
 }
 
 // Enhanced Create Agent Modal with Template Wizard
@@ -1684,7 +1685,7 @@ export function ConfigTab({
                     value={modelPrimary}
                     onChange={(e) => updateModelConfig((current) => ({ ...current, primary: e.target.value }))}
                     list="agent-model-suggestions"
-                    placeholder="anthropic/claude-sonnet-4-20250514"
+                    placeholder={TEMPLATE_PRIMARY_SONNET}
                     className="w-full bg-surface-1 text-foreground rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
                   />
                   <datalist id="agent-model-suggestions">

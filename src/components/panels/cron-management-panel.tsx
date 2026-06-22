@@ -7,6 +7,7 @@ import { Loader } from '@/components/ui/loader'
 import { useMissionControl, CronJob } from '@/store'
 import { createClientLogger } from '@/lib/client-logger'
 import { apiFetch, ApiError } from '@/lib/api-client'
+import { TEMPLATE_PRIMARY_SONNET } from '@/lib/model-config'
 const log = createClientLogger('CronManagement')
 import { buildDayKey, getCronOccurrences } from '@/lib/cron-occurrences'
 import { describeCronFrequency } from '@/lib/cron-utils'
@@ -1504,7 +1505,7 @@ export function CronManagementPanel() {
                   value={newJob.model}
                   onChange={(e) => setNewJob(prev => ({ ...prev, model: e.target.value }))}
                   list="cron-model-suggestions"
-                  placeholder="anthropic/claude-sonnet-4-20250514"
+                  placeholder={TEMPLATE_PRIMARY_SONNET}
                   className={`w-full px-3 py-2 border rounded-md bg-background text-foreground font-mono text-sm ${formErrors.model ? 'border-red-500' : 'border-border'}`}
                 />
                 <datalist id="cron-model-suggestions">
