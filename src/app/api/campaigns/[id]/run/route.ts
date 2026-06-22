@@ -8,10 +8,12 @@ import {
   RESEND_API_KEY_SECRET_REFERENCE,
   createLiveResendProviderAdapter,
   createLiveResendProviderProfile,
-  createResendCampaignSender,
+  createGuardedCampaignSendExecutorForCampaign,
+  campaignSendApprovalId,
   runApprovedCampaign,
 } from '@/opzava/modules/content'
 import { createEnvSecretResolver } from '@/opzava/platform/providers/env-secret-resolver'
+import { createApprovalRepository } from '@/opzava/core/approvals/approval-repository'
 
 export async function POST(
   request: NextRequest,
@@ -60,19 +62,26 @@ export async function POST(
   const profile = createLiveResendProviderProfile(RESEND_API_KEY_SECRET_REFERENCE.id)
   const workflowRunId = `campaign-run:${id}`
 
-  const sender = createResendCampaignSender({
+  // F1b: drain the live send through the guarded executor — every send leaves an external-call
+  // receipt + redacted audit and is provider-level exactly-once. The granted, bounded approval is
+  // re-checked at the provider layer (defence in depth).
+  const approval = createApprovalRepository(db).getApprovalById(campaignSendApprovalId(id))
+  const sendExecutor = createGuardedCampaignSendExecutorForCampaign({
+    db,
     adapter,
     profile,
-    workflowRunId,
+    resolver,
+    approval,
+    campaignId: id,
     newId: () => randomUUID(),
-    now,
+    clock: { now: () => new Date(), nowIso: now },
   })
 
   try {
     const result = await runApprovedCampaign(
       {
         db,
-        sender,
+        sendExecutor,
         newId: () => randomUUID(),
         now,
         workflowRunId,

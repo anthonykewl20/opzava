@@ -20,6 +20,20 @@ describe('campaign send approval', () => {
     expect(approval.decidedAt).toBe(NOW)
   })
 
+  it('mints a bounded expiry (default 7 days from now), required by the live-provider guard', () => {
+    const approval = createCampaignSendApproval({ campaignId: 'camp-1', approverId: 'admin', now: NOW })
+    expect(approval.expiresAt).toBe('2026-07-12T00:00:00.000Z') // NOW + 7 days
+  })
+
+  it('honours an explicit expiry and a custom ttl', () => {
+    expect(
+      createCampaignSendApproval({ campaignId: 'c', approverId: 'a', now: NOW, expiresAt: '2026-08-01T00:00:00.000Z' }).expiresAt,
+    ).toBe('2026-08-01T00:00:00.000Z')
+    expect(
+      createCampaignSendApproval({ campaignId: 'c', approverId: 'a', now: NOW, ttlMs: 60 * 60 * 1000 }).expiresAt,
+    ).toBe('2026-07-05T01:00:00.000Z') // NOW + 1 hour
+  })
+
   it('accepts a granted approval that targets the campaign', () => {
     const approval = createCampaignSendApproval({ campaignId: 'camp-1', approverId: 'admin', now: NOW })
     expect(isCampaignSendApproved(approval, 'camp-1')).toBe(true)

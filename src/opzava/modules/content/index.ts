@@ -420,7 +420,13 @@ export {
   isCampaignSendApproved,
   campaignSendApprovalId,
   CAMPAIGN_SEND_REQUESTED_ACTION,
+  DEFAULT_CAMPAIGN_SEND_APPROVAL_TTL_MS,
 } from './campaign/campaign-send-approval'
+
+export {
+  createGuardedCampaignSendExecutorForCampaign,
+  type GuardedCampaignSendRuntimeDeps,
+} from './campaign/guarded-campaign-send-runtime'
 
 export {
   createCampaignWorkerDaemon,

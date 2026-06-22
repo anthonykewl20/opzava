@@ -111,10 +111,14 @@
   `RuntimeSettingsLoader` + `SecretResolver` + the secret-resolved Resend connection (credential never read from
   the DB). Atomic reserve-before-execute remains a documented follow-up (the runner's atomic job lease keeps
   same-job execution sequential until then).
-- **Remaining (composition only):** wire this executor into `run-approved-campaign` with a repository-backed
-  event sink + `createExternalCallIdempotencyLookup`. Intentionally NOT flipped on by default: campaign live
-  auto-send is **post-milestone-1** (doctrine forbids it in milestone 1), so the boundary ships ready-to-compose
-  rather than enabled.
+- **Composition DONE + ENABLED (milestone 2, 2026-06-22):** `createGuardedCampaignSendExecutorForCampaign`
+  assembles the guarded executor (defaulting runtime loader + env secret resolver + repository event sink +
+  `createExternalCallIdempotencyLookup`) and `run-approved-campaign` drains through it (new optional
+  `sendExecutor`). `POST /api/campaigns/[id]/run` now routes every live send through the guard — receipt +
+  redacted audit + provider-level exactly-once. The campaign send approval now carries a bounded expiry
+  (the guard requires it). End-to-end integration test proves an approved campaign drains to `sent` with a
+  receipt per send and that no approval ⇒ no adapter call. Still human-gated (admin trigger + granted approval
+  + configured Resend secret); the system never sends on its own.
 - **Done-gate:** ✅ an unapproved campaign cannot send (recorded approval required); ✅ the guarded executor
   emits an external-call receipt per send and a duplicate (prior succeeded external call) does **not** re-send
   — provider-level exactly-once, proven by `guarded-campaign-send-executor.test.ts`.
@@ -172,10 +176,11 @@
   (`createJobKindExecutor` — routes a leased job to the executor registered for its kind, else a
   `validation-error`) all exist and are wired by `createCampaignRunnerWorker`. The router is now in the scoped
   Stryker harness at **100% mutation** (9/9). So background job execution is real for the campaign-send kind.
-- **Remaining (composition only, post-milestone-1):** swap the campaign-send executor for F1b's
-  `createGuardedCampaignSendExecutor` (receipts + exactly-once) inside the routed worker, and boot the drain
-  daemon in `db.ts` beside the maintenance daemon. Gated like F1b/F6b — campaign live auto-send is forbidden in
-  milestone 1 — so the primitives ship ready-to-compose. Content runs still execute inline today.
+- **Composition DONE (milestone 2, 2026-06-22):** the routed campaign worker now takes the guarded executor
+  (via `createCampaignRunnerWorker`'s optional `sendExecutor`), so background job execution drains the campaign
+  queue **through the receipt + exactly-once boundary**. The drain runs synchronously in the run request (the
+  admin sees the result); a standalone background daemon was intentionally NOT booted to avoid double-processing
+  the same queue. Content runs still execute inline today.
 
 ### F2 — Engine boundary guarded + documented ✅
 - **Done:** governance gate `test/engine-boundary.test.mjs` (3 assertions) statically enforces the one-way
@@ -205,9 +210,12 @@
   wins (rate → hourly → daily), returning the breached `limit` + `observed`. **100% mutation score**
   (limit-enforcement 24/24, runtime-options 11/11); both added to the scoped Stryker harness. `burst` is
   projected for the sub-minute token-bucket (composition layer).
-- **Remaining (composition only):** feed a live `ProviderUsageSnapshot` (requests-in-window + USD spent,
-  read from the cost/external-call store) into `evaluateProviderLimits` at the provider preflight, and reject
-  the request on a breach. The decision + projection are ready-to-compose, mirroring F1b.
+- **Composition DONE (milestone 2, 2026-06-22):** `createProviderUsageReader` reads the live
+  `ProviderUsageSnapshot` (external calls in the trailing minute + USD spent this hour/day) from the
+  operational-event store, and `createProviderLimitExecutor` decorates the guarded send executor — each live
+  send first runs `evaluateProviderLimits` and a breach throws a `permission-error` (no send). Limits come from
+  the same defaulting runtime loader. The decorator is 100% mutation; the reader is integration-tested. So the
+  operator's rate/cost ceilings are now **enforced**, not merely settable.
 
 ---
 

@@ -6,10 +6,14 @@ import { transitionCampaign, type Campaign } from './campaign'
 import { runCampaignSendWithRepository } from '../workflow/run-campaign-send-with-repository'
 import { createCampaignRunnerWorker } from '../workflow/campaign-runner-worker'
 import { type CampaignEmailSender } from '../workflow/email-campaign'
+import { type RunnerExecutor } from '@/opzava/platform/runner/worker'
 
 export type RunApprovedCampaignDeps = Readonly<{
   db: Database.Database
-  sender: CampaignEmailSender
+  /** Plain sender (legacy/unguarded path). Provide this OR `sendExecutor`. */
+  sender?: CampaignEmailSender
+  /** F1b guarded executor — when supplied, sends drain through the receipt + exactly-once boundary. */
+  sendExecutor?: RunnerExecutor
   newId: () => string
   now: () => string
   workflowRunId: string
@@ -57,6 +61,7 @@ export async function runApprovedCampaign(
   const worker = createCampaignRunnerWorker({
     db: deps.db,
     sender: deps.sender,
+    sendExecutor: deps.sendExecutor,
     workerId: `campaign:${sending.campaignId}`,
     clock: deps.clock,
     ids: deps.ids,

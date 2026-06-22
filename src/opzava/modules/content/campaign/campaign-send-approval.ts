@@ -7,6 +7,11 @@ import { parseApproval, isApprovalGranted, type Approval } from '@/opzava/core/a
  */
 export const CAMPAIGN_SEND_REQUESTED_ACTION = 'campaign.send'
 
+// A live send is gated by the provider guard, which requires every approval for a live action to
+// carry a bounded expiry (an eternal send approval is a standing liability). 7 days is the default
+// window from approval; the approver may override it.
+export const DEFAULT_CAMPAIGN_SEND_APPROVAL_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
 export function campaignSendApprovalId(campaignId: string): string {
   return `campaign-send:${campaignId}`
 }
@@ -16,9 +21,18 @@ export type CreateCampaignSendApprovalInput = Readonly<{
   approverId: string
   now: string
   decisionReason?: string
+  /** Explicit expiry; defaults to `now + ttlMs`. */
+  expiresAt?: string
+  ttlMs?: number
 }>
 
+function defaultExpiry(now: string, ttlMs: number): string {
+  return new Date(new Date(now).getTime() + ttlMs).toISOString()
+}
+
 export function createCampaignSendApproval(input: CreateCampaignSendApprovalInput): Approval {
+  const expiresAt =
+    input.expiresAt ?? defaultExpiry(input.now, input.ttlMs ?? DEFAULT_CAMPAIGN_SEND_APPROVAL_TTL_MS)
   return parseApproval({
     schemaVersion: 1,
     approvalId: campaignSendApprovalId(input.campaignId),
@@ -30,7 +44,7 @@ export function createCampaignSendApproval(input: CreateCampaignSendApprovalInpu
     decisionReason: input.decisionReason ?? 'campaign approved for sending',
     requestedAt: input.now,
     decidedAt: input.now,
-    expiresAt: null,
+    expiresAt,
   })
 }
 

@@ -63,13 +63,18 @@ Run: `pnpm exec stryker run`.
 - **Centralized logging** ✅ — log shipping to an external aggregator (env-gated, fail-open, 100%/99% mutation).
 - All new logic added to the scoped Stryker harness; every batch CI-green.
 
-**Still open — require the milestone-2 decision to enable live campaign sending (doctrine forbids live
-auto-send in milestone 1), so NOT flipped on unilaterally:**
-1. **F1b composition** — wire the guarded executor into `run-approved-campaign` (repo-backed sink + idempotency).
-2. **F5b composition** — swap in the guarded executor + boot the drain daemon in `db.ts`.
-3. **F6b composition** — feed a live `ProviderUsageSnapshot` into `evaluateProviderLimits` at the preflight.
-   All three live on the live-provider send path; the boundaries/logic ship ready-to-compose.
-4. **Optional / operator-only:** Understand-Anything tree-sitter cross-check (needs interactive `/understand`).
+**Milestone 2 (2026-06-22) — live campaign send ENABLED (approval-gated), all CI-green:**
+- **F1b composition** ✅ — `POST /api/campaigns/[id]/run` drains every live send through the guarded executor
+  (`createGuardedCampaignSendExecutorForCampaign`): receipt + redacted audit + provider-level exactly-once.
+  Campaign send approvals now carry a bounded expiry (the guard requires it). End-to-end integration test.
+- **F5b composition** ✅ — the routed campaign worker takes the guarded executor (`sendExecutor`); the queue
+  drains through the boundary synchronously in the run request (no double-processing daemon).
+- **F6b composition** ✅ — `createProviderLimitExecutor` + `createProviderUsageReader` enforce the operator's
+  rate/cost ceilings before each live send (breach ⇒ permission-error, no send). Decorator 100% mutation.
+- A `createDefaultingRuntimeSettingsLoader` lets a fresh deploy run on default settings (100% mutation).
+- Still human-gated: admin trigger + granted bounded approval + configured `RESEND_API_KEY`. Never autonomous.
+
+**Only remaining: operator-only Understand-Anything tree-sitter cross-check (needs interactive `/understand`).**
 
 ## To resume next session
 1. `git checkout docs/system-map-ledger && git pull`.
