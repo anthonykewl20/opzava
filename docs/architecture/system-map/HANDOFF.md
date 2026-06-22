@@ -53,25 +53,23 @@ Run: `pnpm exec stryker run`.
 ## Deferred sub-items (NOT blocking release — all documented in 91-remediation-plan.md)
 
 **Closed since this handoff (2026-06-22):**
-- **F9** ✅ — the orphaned `va-task-review` step is owned by the General VA role; a no-orphans test
-  asserts every pipeline step has an owner. (Ledger marker was stale; corrected.)
-- **F14** ✅ — all 8 remaining inherited model-id sites folded into `src/lib/model-config.ts` and the
-  `no-hardcoded-models` gate widened to all 12 files (governance 283 green).
-- **F1b** ✅ (boundary) — `createGuardedCampaignSendExecutor` routes a send through
-  `guardLiveProviderExecutionAfterPreflight` (external-call receipt + redacted audit + provider-level
-  exactly-once; +5 tests). **Composition** into `run-approved-campaign` is intentionally NOT flipped on
-  (campaign live auto-send is post-milestone-1); the boundary ships ready-to-compose.
+- **F9** ✅ — orphan `va-task-review` step owned by the General VA role; no-orphans test.
+- **F14** ✅ — all 8 inherited model-id sites folded into `model-config.ts`; gate widened to 12 files.
+- **F1b** ✅ (boundary) — `createGuardedCampaignSendExecutor` (receipt + redacted audit + exactly-once).
+- **F6b** ✅ (logic) — `evaluateProviderLimits` fail-closed gate + `projectProviderLimits` (100% mutation).
+- **F5b** ✅ (primitives) — per-kind executor router under mutation (100%); drain loop + worker exist.
+- **F2b** ✅ (DONE) — unified **cost** (`GET /api/ops/costs`) **and audit** (`GET /api/audit`) surfaces merge
+  both engines; pure projections + readers all 100% mutation. ARD 0007 "unified surfaces" fully shipped.
+- **Centralized logging** ✅ — log shipping to an external aggregator (env-gated, fail-open, 100%/99% mutation).
+- All new logic added to the scoped Stryker harness; every batch CI-green.
 
-**Still open (larger, post-milestone-1 — all tie to the provider-execution path):**
-1. **F5b** — background *job execution* (draining the runner queue). Needs per-kind executor deps +
-   resolved secrets. Today sends/content-runs execute inline in their request handlers. (F1b's guarded
-   executor is the campaign-send half of this.)
-2. **F6b** — *enforce* the rate/cost limits (`requestsPerMinute/burst/usd*Limit`) in the
-   provider-execution layer + project them into `runtime-options.ts`. Operators can already *set* them.
-3. **F2b** — project Engine A (inherited) cost/audit into the opzava read models (the "unified surfaces"
-   half of ARD 0007). Noted in `docs/architecture/engine-boundary.md`.
-4. **Optional:** Understand-Anything tree-sitter cross-check of the ledger (needs interactive
-   `/understand` — operator-only).
+**Still open — require the milestone-2 decision to enable live campaign sending (doctrine forbids live
+auto-send in milestone 1), so NOT flipped on unilaterally:**
+1. **F1b composition** — wire the guarded executor into `run-approved-campaign` (repo-backed sink + idempotency).
+2. **F5b composition** — swap in the guarded executor + boot the drain daemon in `db.ts`.
+3. **F6b composition** — feed a live `ProviderUsageSnapshot` into `evaluateProviderLimits` at the preflight.
+   All three live on the live-provider send path; the boundaries/logic ship ready-to-compose.
+4. **Optional / operator-only:** Understand-Anything tree-sitter cross-check (needs interactive `/understand`).
 
 ## To resume next session
 1. `git checkout docs/system-map-ledger && git pull`.
