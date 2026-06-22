@@ -58,9 +58,16 @@ The `agents`-table check is intentionally narrow (SQL clause position + word bou
 common word "agents" and the substring inside `opzava_agent_roles` never produce false
 positives.
 
-## Deferred future work
+## Unified surfaces (F2b)
 
 ARD 0007 also calls for **unifying cross-cutting surfaces** by projecting Engine A's cost and
-audit data into the opzava read models (one dashboard, one source of truth). That projection
-work is **out of scope here and deferred** — this change only formalizes and guards the
-boundary; it does not build the cost/audit read-model bridge.
+audit data into the opzava read models (one dashboard, one source of truth). The **cost half is
+built** (2026-06-22): `platform/costs/unified-cost-summary.ts` owns the pure projection
+(`projectUnifiedCostSummary`) that merges the opzava `CostSummary` (cents) with an Engine-A
+contribution, plus the USD→cents normaliser (`usdToCents` / `engineACostFromUsd`). Crucially it does
+this **without crossing the engine boundary**: the composition layer reads Engine A's spend from
+`src/lib` and hands it in normalised, so the engines stay separate and only the surface unifies.
+100% mutation score (8/8), in the scoped Stryker harness.
+
+**Remaining:** feed the live Engine-A USD total + count into `engineACostFromUsd` at the dashboard
+composition layer, and extend the same pattern to the audit stream. The projection is ready-to-compose.

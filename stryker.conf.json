@@ -24,6 +24,7 @@
     "src/opzava/platform/runner/maintenance-daemon.ts",
     "src/opzava/platform/providers/limit-enforcement.ts",
     "src/opzava/platform/admin-config/runtime-options.ts",
-    "src/opzava/modules/content/workflow/job-kind-executor.ts"
+    "src/opzava/modules/content/workflow/job-kind-executor.ts",
+    "src/opzava/platform/costs/unified-cost-summary.ts"
   ]
 }

@@ -182,8 +182,11 @@
   boundary — `src/opzava/modules/team` never imports `src/lib` or references the `agents` table; `src/lib`
   never imports `@/opzava/modules/team` or references `opzava_agent_roles`. `docs/architecture/engine-boundary.md`
   documents the engines, the role→runtime direction, ownership, and the rule. Negative-controlled.
-- **Deferred (F2b):** projecting Engine A cost/audit into the opzava read models (the "unified surfaces" half of
-  ARD 0007) — noted in engine-boundary.md as future work.
+- **F2b — cost projection built ✅ (2026-06-22):** `platform/costs/unified-cost-summary.ts` merges the opzava
+  `CostSummary` with a normalised Engine-A contribution into one `UnifiedCostSummary` — a pure projection fed by
+  both engines at the composition layer, so neither engine imports the other (ARD 0007: separate engines,
+  unified surfaces). 100% mutation (8/8). Remaining: feed the live Engine-A USD total at the dashboard layer and
+  extend the pattern to the audit stream (see `engine-boundary.md`).
 
 ### F6 — `OpzavaAdminSettings` is now reachable over HTTP ✅
 - **Done:** new admin-only `GET/PUT /api/ops/admin-settings` route reads/writes the `opzava_admin_settings`

@@ -29,6 +29,7 @@ export default defineConfig(async () => {
         'src/opzava/platform/providers/limit-enforcement.test.ts',
         'src/opzava/platform/admin-config/runtime-options.test.ts',
         'src/opzava/modules/content/workflow/job-kind-executor.test.ts',
+        'src/opzava/platform/costs/unified-cost-summary.test.ts',
       ],
     },
   }
