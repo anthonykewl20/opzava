@@ -111,6 +111,36 @@ describe('runner maintenance', () => {
     expect(result.errors).toBe(2)
   })
 
+  it('runs unbounded (maxCycles undefined) and stops the instant a cycle aborts, without sleeping again', async () => {
+    const db = makeDb()
+    const controller = new AbortController()
+    const sleeps: number[] = []
+    const daemon = createRunnerMaintenanceDaemon({
+      ...deps(db),
+      intervalMs: 60_000,
+      signal: controller.signal,
+      sleep: async (ms) => { sleeps.push(ms) },
+      onCycle: () => { controller.abort() }, // abort mid-loop, after the first cycle
+    })
+    const result = await daemon.run() // no maxCycles → relies on the undefined-guard to even start
+    expect(result.cycles).toBe(1) // started (kills maxCycles===undefined → false)
+    expect(sleeps).toEqual([]) // broke before sleeping (kills the mid-loop abort guard)
+  })
+
+  it('treats onCycle as optional — a successful cycle with no onCycle does not error', async () => {
+    const db = makeDb()
+    const daemon = createRunnerMaintenanceDaemon({
+      ...deps(db),
+      intervalMs: 60_000,
+      signal: new AbortController().signal,
+      sleep: async () => {},
+      // no onCycle supplied
+    })
+    const result = await daemon.run({ maxCycles: 1 })
+    expect(result.cycles).toBe(1)
+    expect(result.errors).toBe(0) // optional-chaining intact (mutant would call undefined and throw)
+  })
+
   it('rejects a non-positive interval', () => {
     const db = makeDb()
     expect(() =>
