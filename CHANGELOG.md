@@ -6,6 +6,44 @@ All notable changes to Opzava are documented in this file.
 
 ## [Unreleased]
 
+System-map audit → ARDs → remediation of the opzava product layer, then **milestone 2**: the live
+campaign send path is turned on behind the safety boundary. All changes are backward-compatible
+(recommended version: **2.1.0**).
+
+### Added
+- **Approval-gated live campaign email send** (Resend). An admin-triggered run drains the send queue
+  through the provider guard: each send leaves an **external-call receipt + redacted audit event** and
+  is **provider-level exactly-once** (idempotency lookup + atomic reserve-before-execute). It is never
+  autonomous — a send requires a granted, **bounded-expiry** approval and a configured `RESEND_API_KEY`.
+- **Provider rate/cost limit enforcement** on the live send path — `requestsPerMinute` and hourly/daily
+  USD budgets are now enforced (fail-closed), not merely settable.
+- **Unified cross-engine surfaces** (ARD 0007): `GET /api/ops/costs` and `GET /api/audit` now return a
+  `unified` summary merging opzava and inherited (Engine A) cost/audit.
+- **Admin runtime settings API** — `GET/PUT /api/ops/admin-settings` (validated, versioned, audited;
+  stores SecretReferences, never secret values).
+- **Background runner maintenance** (lease recovery + data retention) on a timer.
+- **Centralized log shipping** to an external aggregator — `LOG_SHIP_ENABLED` / `LOG_SHIP_ENDPOINT` /
+  `LOG_SHIP_MIN_LEVEL` (off by default, fail-open).
+- **Content quality gates** — a WordPress draft can only be produced when the fact-check, brand-review,
+  and anti-slop verdicts all *passed*.
+
+### Changed
+- **Provider credentials are environment-only** (ARD 0008) — resolved from `process.env` via
+  `SecretReference`s; no cleartext provider secrets at rest.
+- **Model ids/pricing centralized** into `src/lib/model-config.ts` (single source of truth), enforced by
+  the `no-hardcoded-models` governance gate across 12 files.
+
+### Fixed
+- Campaign send is hard-gated by a recorded, bounded approval (no hardcoded send flag).
+- Natural-language cron parser honours all five cron fields.
+- CI quality gate hardened: resilient E2E env prep, governance gates enforced on merge, dir-name and
+  MCP-brand assertions corrected, GitHub Actions trimmed for cost.
+
+### Internal
+- System-map architecture ledger (`docs/architecture/system-map/`) + ARDs 0007 (engine separation) and
+  0008 (env-based secrets); engine-boundary governance gate.
+- Scoped mutation-testing harness (Stryker) over the safety-critical units.
+
 ---
 
 ## [2.0.1] - 2026-03-18
