@@ -94,6 +94,21 @@ So the branding scan + folder-structure check pass only when run manually, never
    branding gate, which scans only `src/` + `messages/`.
 5. **`api:parity` ignore file** lets routes/openapi diverge silently for listed entries.
 
+## Centralized log shipping (observability)
+
+The central pino `logger` (`src/lib/logger.ts`) writes to stdout. Centralized **log shipping/aggregation**
+(2026-06-22) lets every stdout record ALSO be forwarded to an external aggregator for one view across runs.
+The policy + buffer live in `src/opzava/platform/observability/`:
+
+- `log-shipping.ts` — pure policy: `resolveLogShippingConfig(env)`, `shouldShipLogRecord`, `buildLogShipEnvelope`.
+- `log-shipper.ts` — buffered, **fail-open** shipper (a flaky aggregator can never break the app that logs).
+- `log-ship-transport.ts` — HTTP transport (injected `fetch`) + `createLogShipperFromConfig`.
+- `log-ship-destination.ts` — adapts the shipper into a pino multistream destination; `logger.ts` attaches it.
+
+**Config (env, never hard-coded):** `LOG_SHIP_ENABLED` (off by default), `LOG_SHIP_ENDPOINT` (required to enable),
+`LOG_SHIP_MIN_LEVEL` (default `info`). Disabled and the dev pretty-print path are byte-for-byte unchanged. The
+policy/buffer/transport are in the scoped Stryker harness (shipper + transport 100%, shipping 98.8% — 1 equivalent).
+
 ## Subtleties for parity comparison
 
 1. The project has a sophisticated **governance-as-code** system — but its two code-policing gates are not
