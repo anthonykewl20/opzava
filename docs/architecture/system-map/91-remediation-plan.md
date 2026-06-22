@@ -187,8 +187,9 @@
   both engines at the composition layer, so neither engine imports the other (ARD 0007: separate engines,
   unified surfaces). 100% mutation (8/8). **Composition DONE (2026-06-22):** `unified-cost-reader.ts` reads
   Engine A's `token_usage` total + opzava cost events and the unified summary is exposed on `GET /api/ops/costs`
-  (`unified` field; openapi + api:parity green; reader 100% mutation). Remaining: extend the pattern to the
-  audit stream.
+  (`unified` field; openapi + api:parity green; reader 100% mutation). **Audit half DONE too:**
+  `unified-audit.ts` merges opzava audit operational events + Engine A `audit_log` on `GET /api/audit`
+  (100% mutation). **F2b is fully complete** — both unified surfaces (cost + audit) ship.
 
 ### F6 — `OpzavaAdminSettings` is now reachable over HTTP ✅
 - **Done:** new admin-only `GET/PUT /api/ops/admin-settings` route reads/writes the `opzava_admin_settings`

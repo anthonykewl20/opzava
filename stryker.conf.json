@@ -27,6 +27,7 @@
     "src/opzava/modules/content/workflow/job-kind-executor.ts",
     "src/opzava/platform/costs/unified-cost-summary.ts",
     "src/opzava/platform/costs/unified-cost-reader.ts",
+    "src/opzava/platform/audit/unified-audit.ts",
     "src/opzava/platform/observability/log-shipping.ts",
     "src/opzava/platform/observability/log-shipper.ts",
     "src/opzava/platform/observability/log-ship-transport.ts"

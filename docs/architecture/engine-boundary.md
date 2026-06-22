@@ -73,4 +73,9 @@ this **without crossing the engine boundary**: the composition layer reads Engin
 spend from `token_usage` (degrading to zero when the table is absent), reads opzava's runner cost
 events, and merges them via `projectUnifiedCostSummary`. It is exposed on `GET /api/ops/costs` as a
 `unified` field (openapi + api:parity green), so one dashboard shows both engines. The reader is in
-the scoped Stryker harness at 100%. **Remaining:** extend the same one-way pattern to the audit stream.
+the scoped Stryker harness at 100%.
+
+**Audit surface — DONE (2026-06-22):** `platform/audit/unified-audit.ts` applies the same one-way pattern
+to audit events: it counts opzava audit operational events + Engine A's `audit_log` (each degrading to
+zero when its table is absent) and merges them via `projectUnifiedAuditSummary`, exposed as a `unified`
+field on `GET /api/audit`. 100% mutation. **F2b's unified surfaces (cost + audit) are complete.**

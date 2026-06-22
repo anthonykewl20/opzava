@@ -2046,6 +2046,10 @@
                     },
                     "total": {
                       "type": "integer"
+                    },
+                    "unified": {
+                      "type": "object",
+                      "description": "Unified audit-event counts across both engines (opzava + inherited) — F2b."
                     }
                   }
                 }

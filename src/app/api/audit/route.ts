@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { readUnifiedAuditSummary } from '@/opzava/platform/audit/unified-audit'
 
 function safeParseJson(str: string): any {
   try { return JSON.parse(str) } catch { return str }
@@ -54,6 +55,9 @@ export async function GET(request: NextRequest) {
     LIMIT ? OFFSET ?
   `).all(...params, limit, offset)
 
+  // F2b: the unified audit summary counts audit events across both engines (opzava + inherited).
+  const unified = readUnifiedAuditSummary(db)
+
   return NextResponse.json({
     events: rows.map((row: any) => ({
       ...row,
@@ -62,5 +66,6 @@ export async function GET(request: NextRequest) {
     total,
     limit,
     offset,
+    unified,
   })
 }

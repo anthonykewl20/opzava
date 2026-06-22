@@ -31,6 +31,7 @@ export default defineConfig(async () => {
         'src/opzava/modules/content/workflow/job-kind-executor.test.ts',
         'src/opzava/platform/costs/unified-cost-summary.test.ts',
         'src/opzava/platform/costs/unified-cost-reader.test.ts',
+        'src/opzava/platform/audit/unified-audit.test.ts',
         'src/opzava/platform/observability/log-shipping.test.ts',
         'src/opzava/platform/observability/log-shipper.test.ts',
         'src/opzava/platform/observability/log-ship-transport.test.ts',
