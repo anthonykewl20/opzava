@@ -132,6 +132,7 @@ function fakeRuntimeOptions(): OpzavaRuntimeOptionsProjection {
     runner: { idleDelayMs: 100, errorDelayMs: 500 },
     retry: { initialDelayMs: 1_000, multiplier: 2, maxDelayMs: 60_000 },
     provider: { timeoutMs: 30_000, retry: { maxAttempts: 3 } },
+    limits: { requestsPerMinute: 60, burst: 90, usdPerHourLimit: 100, usdPerDayLimit: 1_000 },
   }
 }
 

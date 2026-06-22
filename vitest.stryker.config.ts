@@ -26,6 +26,8 @@ export default defineConfig(async () => {
         'src/opzava/modules/content/steps/wordpress-draft-service.test.ts',
         'src/opzava/platform/providers/env-secret-resolver.test.ts',
         'src/opzava/platform/runner/maintenance-daemon.test.ts',
+        'src/opzava/platform/providers/limit-enforcement.test.ts',
+        'src/opzava/platform/admin-config/runtime-options.test.ts',
       ],
     },
   }

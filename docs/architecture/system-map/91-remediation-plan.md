@@ -185,9 +185,16 @@
   none persisted. The settings store SecretReferences (never secret values), so the payload is safe. Documented
   in `openapi.json` (parity green) with 4 route tests.
 - **Files:** `app/api/ops/admin-settings/route.ts` (+test), `openapi.json`.
-- **Deferred (F6b):** projecting `requestsPerMinute/burst/usd*Limit` into `runtime-options.ts` and **enforcing**
-  them in the provider-execution layer — ties to the provider execution path (F1b). Operators can now *set* the
-  config; runtime enforcement of the budget/rate limits is the remaining half.
+- **F6b — limits projection + enforcement: built ✅ (2026-06-22).** `projectProviderLimits`
+  (`runtime-options.ts`) projects `requestsPerMinute/burst/usdPerHourLimit/usdPerDayLimit` into the loaded
+  runtime options, and the pure `evaluateProviderLimits` (`platform/providers/limit-enforcement.ts`) turns them
+  into a fail-closed pre-execution gate: it denies as soon as a window is at/over its ceiling, first breach
+  wins (rate → hourly → daily), returning the breached `limit` + `observed`. **100% mutation score**
+  (limit-enforcement 24/24, runtime-options 11/11); both added to the scoped Stryker harness. `burst` is
+  projected for the sub-minute token-bucket (composition layer).
+- **Remaining (composition only):** feed a live `ProviderUsageSnapshot` (requests-in-window + USD spent,
+  read from the cost/external-call store) into `evaluateProviderLimits` at the provider preflight, and reject
+  the request on a breach. The decision + projection are ready-to-compose, mirroring F1b.
 
 ---
 

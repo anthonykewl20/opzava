@@ -5,6 +5,7 @@ import { createRunnerDaemon } from '../runner/daemon'
 import { defaultOpzavaAdminSettings, parseOpzavaAdminSettings } from './settings'
 import {
   projectProviderAdapterDefaults,
+  projectProviderLimits,
   projectRetryPolicyOptions,
   projectRunnerDaemonOptions,
   projectRuntimeOptions,
@@ -78,8 +79,9 @@ describe('Opzava admin settings runtime option projections', () => {
       runner: projectRunnerDaemonOptions(settings),
       retry: projectRetryPolicyOptions(settings),
       provider: projectProviderAdapterDefaults(settings),
+      limits: projectProviderLimits(settings),
     })
-    expect(Object.keys(projectRuntimeOptions(settings))).toEqual(['runner', 'retry', 'provider'])
+    expect(Object.keys(projectRuntimeOptions(settings))).toEqual(['runner', 'retry', 'provider', 'limits'])
     expect(JSON.stringify(settings)).toBe(before)
   })
 

@@ -21,6 +21,8 @@
     "src/opzava/modules/content/providers/resolve-wordpress-draft-connection.ts",
     "src/opzava/modules/content/steps/wordpress-draft-service.ts",
     "src/opzava/platform/providers/env-secret-resolver.ts",
-    "src/opzava/platform/runner/maintenance-daemon.ts"
+    "src/opzava/platform/runner/maintenance-daemon.ts",
+    "src/opzava/platform/providers/limit-enforcement.ts",
+    "src/opzava/platform/admin-config/runtime-options.ts"
   ]
 }
