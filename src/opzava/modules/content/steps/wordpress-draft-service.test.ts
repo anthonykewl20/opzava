@@ -259,19 +259,34 @@ describe('wordpress-draft-service', () => {
     ).toThrow(/granted approval/)
   })
 
-  it('rejects a wrong gate artifact type', () => {
+  it('exposes the wordpress-draft step id on the service and its result', () => {
     const p = pipeline()
+    const svc = service()
+    expect(svc.stepId).toBe('wordpress-draft')
+    expect(svc.run(input(p)).stepId).toBe('wordpress-draft')
+  })
 
-    expect(() =>
-      parseWordpressDraftStepInput({
-        articleDraftArtifact: p.articleDraftArtifact,
-        sourceCaptureArtifact: p.factCheckArtifact,
-        factCheckArtifact: p.factCheckArtifact,
-        brandReviewArtifact: p.brandReviewArtifact,
-        antiSlopArtifact: p.antiSlopArtifact,
-        approval: p.approval,
-        sourceStepRunId: 's1',
-      })
-    ).toThrow()
+  // Each artifact slot must reject a foreign artifact type with its own message.
+  // The checks short-circuit in order, so every other slot is kept valid and only
+  // the slot under test gets a wrong-typed (but valid) artifact substituted in.
+  it.each([
+    ['articleDraftArtifact', 'sourceCaptureArtifact', /article-draft artifact/],
+    ['sourceCaptureArtifact', 'articleDraftArtifact', /source-capture artifact/],
+    ['factCheckArtifact', 'brandReviewArtifact', /fact-check-report artifact/],
+    ['brandReviewArtifact', 'antiSlopArtifact', /brand-review artifact/],
+    ['antiSlopArtifact', 'factCheckArtifact', /anti-slop-review artifact/],
+  ] as const)('rejects a foreign artifact in the %s slot', (slot, foreign, message) => {
+    const p = pipeline()
+    const payload = {
+      articleDraftArtifact: p.articleDraftArtifact,
+      sourceCaptureArtifact: p.sourceCaptureArtifact,
+      factCheckArtifact: p.factCheckArtifact,
+      brandReviewArtifact: p.brandReviewArtifact,
+      antiSlopArtifact: p.antiSlopArtifact,
+      approval: p.approval,
+      sourceStepRunId: 's1',
+      [slot]: p[foreign],
+    }
+    expect(() => parseWordpressDraftStepInput(payload)).toThrow(message)
   })
 })
