@@ -33,6 +33,52 @@ Role floor per route is noted in each section (viewer < operator < admin).
 
 ---
 
+## LLM install prompt (copy-paste)
+
+The fastest path: paste the block below into your agent (Claude Code, Codex, OpenCode, or any
+tool-using LLM), fill in the three `<…>` placeholders, and let it wire itself in. It uses only the
+APIs documented in the rest of this page.
+
+```text
+You are connecting yourself to Opzava, a self-hosted AI operations control plane.
+
+Connection details (I have filled these in):
+- Opzava URL:  <MC_URL>          (e.g. http://127.0.0.1:3000)
+- API key:     <MC_API_KEY>      (Opzava → Settings → API Key)
+- Opzava repo: <OPZAVA_PATH>     (absolute path to the opzava checkout; only needed for MCP)
+
+Do these steps in order and report the result of each:
+
+1. MCP tools (skip if you can't register MCP servers):
+   Register Opzava's MCP server so you gain its tools, ensuring MC_URL and MC_API_KEY are set in
+   the environment the server runs in.
+   - Claude Code:  claude mcp add opzava -- node <OPZAVA_PATH>/scripts/mc-mcp-server.cjs
+   - Codex / other MCP clients: add that same command + args under your mcp_servers config,
+     with env MC_URL=<MC_URL> and MC_API_KEY=<MC_API_KEY>.
+   Then call the `mc_health` tool, then `mc_dashboard`, and report what they return.
+   If a tool call fails it's almost always MC_URL/MC_API_KEY not visible to the MCP subprocess,
+   or Opzava not running.
+
+2. Register yourself as a live agent (so Opzava can assign you work):
+   POST <MC_URL>/api/connect
+     header: Authorization: Bearer <MC_API_KEY>
+     body:   {"tool_name":"<claude-code|codex|opencode>","agent_name":"<pick-a-name>","agent_role":"developer"}
+   Save the returned connection_id and agent_id.
+
+3. Heartbeat every ~30 seconds while you work (this also delivers your assigned tasks/mentions):
+   POST <MC_URL>/api/agents/<agent_id>/heartbeat
+     header: Authorization: Bearer <MC_API_KEY>
+     body:   {"connection_id":"<connection_id>"}
+
+4. Confirm: GET <MC_URL>/api/status?action=health and check that "Direct Connections" is healthy.
+
+Surface any errors verbatim and tell me which steps succeeded.
+```
+
+Prefer to do it by hand, or want the detail behind each step? Read on.
+
+---
+
 ## 1. MCP server (recommended for Claude Code)
 
 The MCP server (`scripts/mc-mcp-server.cjs`) exposes Opzava's REST API as MCP tools (agents, tasks,
