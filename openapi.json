@@ -12111,7 +12111,7 @@
       "get": {
         "tags": ["Ops"],
         "summary": "List cost events",
-        "description": "Returns recent runner cost events with a computed summary. Admin only.",
+        "description": "Returns recent runner cost events with a computed summary plus a unified summary that merges opzava and inherited (Engine A) spend (F2b). Admin only.",
         "operationId": "listCostEvents",
         "parameters": [
           {
@@ -12123,7 +12123,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Cost events and summary",
+            "description": "Cost events, the opzava summary, and the unified cross-engine summary",
             "content": {
               "application/json": {
                 "schema": {
@@ -12133,7 +12133,8 @@
                       "type": "array",
                       "items": { "type": "object" }
                     },
-                    "summary": { "type": "object" }
+                    "summary": { "type": "object" },
+                    "unified": { "type": "object" }
                   }
                 }
               }

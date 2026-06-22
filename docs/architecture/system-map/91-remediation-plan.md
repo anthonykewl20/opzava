@@ -185,8 +185,10 @@
 - **F2b — cost projection built ✅ (2026-06-22):** `platform/costs/unified-cost-summary.ts` merges the opzava
   `CostSummary` with a normalised Engine-A contribution into one `UnifiedCostSummary` — a pure projection fed by
   both engines at the composition layer, so neither engine imports the other (ARD 0007: separate engines,
-  unified surfaces). 100% mutation (8/8). Remaining: feed the live Engine-A USD total at the dashboard layer and
-  extend the pattern to the audit stream (see `engine-boundary.md`).
+  unified surfaces). 100% mutation (8/8). **Composition DONE (2026-06-22):** `unified-cost-reader.ts` reads
+  Engine A's `token_usage` total + opzava cost events and the unified summary is exposed on `GET /api/ops/costs`
+  (`unified` field; openapi + api:parity green; reader 100% mutation). Remaining: extend the pattern to the
+  audit stream.
 
 ### F6 — `OpzavaAdminSettings` is now reachable over HTTP ✅
 - **Done:** new admin-only `GET/PUT /api/ops/admin-settings` route reads/writes the `opzava_admin_settings`

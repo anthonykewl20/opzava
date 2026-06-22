@@ -81,4 +81,15 @@ describe('GET /api/ops/costs', () => {
     const body = await (await GET(req('?limit=2'))).json()
     expect(body.events.length).toBe(2)
   })
+
+  it('returns a unified summary merging opzava and inherited (Engine A) spend (F2b)', async () => {
+    seed(dbRef.db, 'c1', '2026-07-01T00:00:00.000Z', 50, 40)
+    dbRef.db.exec('CREATE TABLE token_usage (id INTEGER PRIMARY KEY, model TEXT, cost_usd REAL)')
+    dbRef.db.prepare('INSERT INTO token_usage (model, cost_usd) VALUES (?, ?)').run('m', 3.0) // $3 -> 300c
+    const body = await (await GET(req())).json()
+    expect(body.unified.opzava).toEqual({ count: 1, estimatedCostCents: 50, actualCostCents: 40 })
+    expect(body.unified.inherited).toEqual({ count: 1, costCents: 300 })
+    expect(body.unified.totalCount).toBe(2)
+    expect(body.unified.totalCostCents).toBe(340) // 40 opzava actual + 300 inherited
+  })
 })

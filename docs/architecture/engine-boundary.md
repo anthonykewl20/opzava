@@ -69,5 +69,8 @@ this **without crossing the engine boundary**: the composition layer reads Engin
 `src/lib` and hands it in normalised, so the engines stay separate and only the surface unifies.
 100% mutation score (8/8), in the scoped Stryker harness.
 
-**Remaining:** feed the live Engine-A USD total + count into `engineACostFromUsd` at the dashboard
-composition layer, and extend the same pattern to the audit stream. The projection is ready-to-compose.
+**Cost surface — DONE (2026-06-22):** `platform/costs/unified-cost-reader.ts` reads Engine A's priced
+spend from `token_usage` (degrading to zero when the table is absent), reads opzava's runner cost
+events, and merges them via `projectUnifiedCostSummary`. It is exposed on `GET /api/ops/costs` as a
+`unified` field (openapi + api:parity green), so one dashboard shows both engines. The reader is in
+the scoped Stryker harness at 100%. **Remaining:** extend the same one-way pattern to the audit stream.
