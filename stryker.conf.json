@@ -17,6 +17,7 @@
     "src/opzava/modules/content/workflow/content-quality-gate.ts",
     "src/opzava/modules/content/campaign/campaign-send-approval.ts",
     "src/opzava/modules/content/campaign/run-approved-campaign.ts",
+    "src/opzava/modules/content/workflow/guarded-campaign-send-executor.ts",
     "src/opzava/modules/content/providers/resolve-resend-campaign-connection.ts",
     "src/opzava/modules/content/providers/resolve-wordpress-draft-connection.ts",
     "src/opzava/modules/content/steps/wordpress-draft-service.ts",

@@ -21,6 +21,7 @@ export default defineConfig(async () => {
         'src/opzava/modules/content/workflow/content-quality-gate.test.ts',
         'src/opzava/modules/content/campaign/campaign-send-approval.test.ts',
         'src/opzava/modules/content/campaign/run-approved-campaign.test.ts',
+        'src/opzava/modules/content/workflow/guarded-campaign-send-executor.test.ts',
         'src/opzava/modules/content/providers/resolve-resend-campaign-connection.test.ts',
         'src/opzava/modules/content/providers/resolve-wordpress-draft-connection.test.ts',
         'src/opzava/modules/content/steps/wordpress-draft-service.test.ts',

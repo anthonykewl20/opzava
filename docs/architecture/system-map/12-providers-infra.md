@@ -151,17 +151,18 @@ the lookup's `json_extract`) and `opzava_runner_external_call_reservations` (INS
 ## The dormancy finding ✅✅✅ (triple-checked)
 
 `guardLiveProviderExecutionAfterPreflight`, `executeApprovedLiveProviderActionOnce`,
-`createExternalCallIdempotencyLookup`, and `createExternalCallReservation` are referenced **only by test
-files** (pass-1 research + pass-2 deep-dive + deterministic grep all agree). The single **wired** path is
-the *mock* path: content module executors call `executeProviderAdapterWithEvents` directly and emit cost +
-audit themselves. So the entire approval/reservation/exactly-once boundary is **dormant infrastructure** —
-see [F1](./90-parity-findings.md).
+~~`createExternalCallIdempotencyLookup`, and `createExternalCallReservation` are referenced only by test
+files~~ — **NO LONGER (2026-06-22):** the milestone-2 live campaign send wires the **whole boundary** into
+the call path. `POST /api/campaigns/[id]/run` → `createGuardedCampaignSendExecutorForCampaign` →
+`guardLiveProviderExecutionAfterPreflight` with the live Resend adapter, the idempotency lookup AND the
+reservation. So the approval/reservation/exactly-once boundary is **live, not dormant** — see
+[F1/F1b](./90-parity-findings.md) and [`91`](./91-remediation-plan.md).
 
 ## Subtleties for parity comparison
 
-1. The provider safety boundary is real, correct, and **unreachable** — capability ≠ call-path.
-2. Exactly-once is *designed* (lookup + reservation) but only the lookup is wired into the guard, and even
-   that is unreachable; the practical guarantee today is the runner job lease.
+1. The provider safety boundary is real, correct, and — since milestone 2 — **wired into the live send path**.
+2. Exactly-once is *designed* (lookup + reservation) and now **both are wired into the guard** on the live
+   campaign send; the runner job lease is the additional same-job serialization.
 3. `unknown` errorClass means abort specifically; a generic adapter throw is `provider-error`.
 4. Mock profiles *may* legally carry a (valid) `credentialRef`; the "no credentialRef on mock" rule is
    convention, not schema.

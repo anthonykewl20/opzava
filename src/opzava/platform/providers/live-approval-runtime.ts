@@ -11,6 +11,7 @@ import {
 } from './live-execution-runtime'
 import { createProviderPreflightFailureOperationalEvent } from './preflight-events'
 import { createProviderExecutionPreflight, type ProviderExecutionPreflightError, type ProviderExecutionPreflightOptions } from './preflight-runtime'
+import type { ExternalCallReservation } from './external-call-reservation'
 
 type ApprovedLiveProviderExecutionError = Extract<ApprovedLiveProviderExecutionResult, { ok: false }>['error']
 
@@ -44,6 +45,9 @@ export type LiveProviderExecutionHandoff = Readonly<{
   signal: AbortSignal
   clock?: ProviderExecutionClock
   recordedAudit?: LiveProviderExecutionAuditIdentity
+  // Optional atomic reserve-before-execute. When supplied, the boundary reserves the idempotency key
+  // before running the adapter, so two concurrent callers cannot both execute (true exactly-once).
+  reservation?: Readonly<{ reserve: ExternalCallReservation, reservedAt: string }>
 }>
 
 export type LiveProviderExecutionGuardOptions = ProviderExecutionPreflightOptions & Readonly<{
@@ -146,6 +150,7 @@ export async function guardLiveProviderExecutionAfterPreflight(
     eventSink: options.eventSink,
     signal: options.liveExecution.signal,
     idempotency: options.liveExecution.idempotency,
+    reservation: options.liveExecution.reservation,
     clock: options.liveExecution.clock,
   })
 
@@ -169,8 +174,8 @@ export async function guardLiveProviderExecutionAfterPreflight(
     })
   }
 
-  // Unreachable while the guard injects no reservation, but forwarded so a future slice can wire
-  // reservation into the guard without changing this mapping.
+  // Reachable when a reservation is supplied and another caller won the idempotency key: the adapter
+  // never ran here, so report it as a no-op outcome (the winner owns the single execution).
   if (execution.outcome === 'reserved-elsewhere') {
     return Object.freeze({ ok: true, outcome: 'reserved-elsewhere' })
   }

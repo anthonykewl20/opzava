@@ -2,9 +2,11 @@ import Database from 'better-sqlite3'
 
 import type { RunnerExecutor } from '@/opzava/platform/runner/worker'
 import { createRunnerRepository } from '@/opzava/platform/runner/repository'
+import { applyOpzavaExternalCallReservationSchema } from '@/opzava/platform/runner/migrations'
 import { createDefaultingRuntimeSettingsLoader } from '@/opzava/platform/admin-config/runtime-loader'
 import { createAdminSettingsRepository } from '@/opzava/platform/admin-config/repository'
 import { createExternalCallIdempotencyLookup } from '@/opzava/platform/providers/external-call-lookup'
+import { createExternalCallReservation } from '@/opzava/platform/providers/external-call-reservation'
 import { createProviderLimitExecutor } from '@/opzava/platform/providers/provider-limit-executor'
 import { createProviderUsageReader } from '@/opzava/platform/providers/provider-usage-reader'
 import type { ProviderAdapter, ProviderProfile } from '@/opzava/platform/providers/contracts'
@@ -44,8 +46,14 @@ export function createGuardedCampaignSendExecutorForCampaign(
 ): RunnerExecutor {
   const repository = createRunnerRepository(deps.db)
   repository.ensureSchema()
+  // The reservation table is added by a later runner migration; ensure it here too so the guarded
+  // path is self-contained (the atomic reserve-before-execute needs it) wherever it is assembled.
+  applyOpzavaExternalCallReservationSchema(deps.db)
   const loader = createDefaultingRuntimeSettingsLoader({ repository: createAdminSettingsRepository(deps.db) })
   const idempotency = createExternalCallIdempotencyLookup(deps.db)
+  // Atomic reserve-before-execute closes the lookup's race (two callers both reading null): the
+  // reservation table PK admits exactly one writer per idempotency key.
+  const reservation = createExternalCallReservation(deps.db)
 
   const eventIdentity = (): GuardedSendEventIdentity => ({
     recordId: deps.newId(),
@@ -60,6 +68,7 @@ export function createGuardedCampaignSendExecutorForCampaign(
     adapter: deps.adapter,
     providerProfile: deps.profile,
     idempotency,
+    reservation,
     eventSink: { appendOperationalEvent: repository.appendOperationalEvent },
     approval: deps.approval,
     campaignId: deps.campaignId,

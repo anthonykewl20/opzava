@@ -3,6 +3,7 @@ import { type Job, type Attempt } from '@/opzava/platform/runner/contracts'
 import type { Approval } from '@/opzava/core/approvals/contracts'
 import type { ProviderAdapter, ProviderProfile } from '@/opzava/platform/providers/contracts'
 import type { ExistingExternalCallLookup } from '@/opzava/platform/providers/live-execution-runtime'
+import type { ExternalCallReservation } from '@/opzava/platform/providers/external-call-reservation'
 import type { ProviderExecutionEventSink } from '@/opzava/platform/providers/execution'
 import type { RuntimeSettingsLoader } from '@/opzava/platform/admin-config/runtime-loader'
 import type { SecretResolver } from '@/opzava/platform/providers/credentials-runtime'
@@ -46,6 +47,8 @@ export type GuardedCampaignSendExecutorDeps = Readonly<{
   providerProfile: ProviderProfile
   /** Repository-backed lookup so exactly-once survives across worker restarts. */
   idempotency: ExistingExternalCallLookup
+  /** Optional atomic reserve-before-execute for true concurrent exactly-once (defence beyond the lease). */
+  reservation?: ExternalCallReservation
   eventSink: ProviderExecutionEventSink
   /** The persisted, granted campaign-send approval (F1). */
   approval: Approval | null
@@ -124,6 +127,9 @@ export function createGuardedCampaignSendExecutor(deps: GuardedCampaignSendExecu
           externalCallId: deps.ids.externalCallId(),
           signal,
           recordedAudit: deps.ids.recordedAudit(),
+          ...(deps.reservation
+            ? { reservation: { reserve: deps.reservation, reservedAt: deps.clock.nowIso() } }
+            : {}),
         },
       })
 

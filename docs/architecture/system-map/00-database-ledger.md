@@ -127,9 +127,10 @@ filtered by `kind`) — a scaling risk. 🔎
 ```
 idempotency_key TEXT PRIMARY KEY NOT NULL · external_call_id TEXT NOT NULL · reserved_at TEXT NOT NULL
 ```
-⚠️ DDL lives in the runner, but the table is read/written by
-`platform/providers/external-call-reservation.ts`, which **currently has no wired caller**
-(reserve-before-execute is built but not invoked on the live path — see register Q2). 🔎
+DDL lives in the runner; the table is read/written by `platform/providers/external-call-reservation.ts`.
+✅ **Wired (2026-06-22):** the guarded campaign send path (`guarded-campaign-send-runtime.ts`) injects
+`createExternalCallReservation` into the guard, so each live send now reserves-before-execute — atomic
+exactly-once for concurrent callers, beyond the runner's job lease.
 
 ---
 

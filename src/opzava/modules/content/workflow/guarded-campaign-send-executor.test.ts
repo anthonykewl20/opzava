@@ -203,12 +203,15 @@ describe('createGuardedCampaignSendExecutor', () => {
     const key = 'wf-1:step:s1:to:a@x.com'
     const adapter = succeedingAdapter()
     const sink = eventSink()
-    const deps = makeDeps({ adapter, eventSink: sink, idempotency: idempotencyLookup(priorExternalCall(key)) })
+    const onSent = vi.fn()
+    const deps = makeDeps({ adapter, eventSink: sink, onSent, idempotency: idempotencyLookup(priorExternalCall(key)) })
 
     await createGuardedCampaignSendExecutor(deps).execute(job(key), attempt, new AbortController().signal)
 
     expect(adapter.execute).toHaveBeenCalledTimes(0) // the message already went out
     expect(sink.records.map((r) => r.kind)).toEqual(['audit']) // only the approval decision, no new receipt
+    // already-executed still reports the prior receipt's external-call id to onSent
+    expect(onSent).toHaveBeenCalledWith(expect.objectContaining({ jobId: 'job-1', externalCallId: 'external_call_prior_send_001' }))
   })
 
   it('never runs the adapter when the campaign send approval is absent (F1 holds at the provider layer)', async () => {
@@ -217,7 +220,7 @@ describe('createGuardedCampaignSendExecutor', () => {
 
     await expect(
       createGuardedCampaignSendExecutor(deps).execute(job(), attempt, new AbortController().signal),
-    ).rejects.toMatchObject({ name: 'RunnerExecutionError', errorClass: 'permission-error' })
+    ).rejects.toMatchObject({ name: 'RunnerExecutionError', errorClass: 'permission-error', message: expect.stringMatching(/denied/) })
     expect(adapter.execute).toHaveBeenCalledTimes(0)
   })
 
@@ -231,6 +234,28 @@ describe('createGuardedCampaignSendExecutor', () => {
     expect(adapter.execute).toHaveBeenCalledTimes(1) // it ran, but the send failed
   })
 
+  it('executes when it wins the reservation', async () => {
+    const adapter = succeedingAdapter()
+    const reserve = { reserveExternalCall: vi.fn(() => ({ ok: true as const, outcome: 'reserved' as const })), releaseExternalCall: vi.fn() }
+    await createGuardedCampaignSendExecutor(makeDeps({ adapter, reservation: reserve })).execute(job(), attempt, new AbortController().signal)
+    expect(reserve.reserveExternalCall).toHaveBeenCalledTimes(1)
+    expect(adapter.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not send (retryable) when another caller already holds the reservation', async () => {
+    const adapter = succeedingAdapter()
+    // already-reserved + no completed external call ⇒ reserved-elsewhere ⇒ the adapter never runs here
+    const reserve = { reserveExternalCall: vi.fn(() => ({ ok: true as const, outcome: 'already-reserved' as const })), releaseExternalCall: vi.fn() }
+    await expect(
+      createGuardedCampaignSendExecutor(makeDeps({ adapter, reservation: reserve, idempotency: idempotencyLookup(null) })).execute(
+        job(),
+        attempt,
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ name: 'RunnerExecutionError', errorClass: 'provider-error', message: expect.stringMatching(/reserved/) })
+    expect(adapter.execute).toHaveBeenCalledTimes(0)
+  })
+
   it('rejects an invalid payload as a validation error', async () => {
     const deps = makeDeps()
     const badJob = { jobId: 'job-x', workflowRunId: 'wf-1', idempotencyKey: 'k', payload: { not: 'a message' } } as unknown as Job
@@ -238,5 +263,36 @@ describe('createGuardedCampaignSendExecutor', () => {
     await expect(
       createGuardedCampaignSendExecutor(deps).execute(badJob, attempt, new AbortController().signal),
     ).rejects.toMatchObject({ name: 'RunnerExecutionError', errorClass: 'validation-error' })
+  })
+
+  it.each([
+    ['missing to', { subject: 'S', html: 'H' }],
+    ['missing subject', { to: 'a@x.com', html: 'H' }],
+    ['missing html', { to: 'a@x.com', subject: 'S' }],
+    ['null', null],
+  ])('rejects a payload %s as a validation error', async (_label, payload) => {
+    const badJob = { jobId: 'j', workflowRunId: 'wf-1', idempotencyKey: 'k', payload } as unknown as Job
+    await expect(
+      createGuardedCampaignSendExecutor(makeDeps()).execute(badJob, attempt, new AbortController().signal),
+    ).rejects.toMatchObject({ name: 'RunnerExecutionError', errorClass: 'validation-error' })
+  })
+
+  it('maps a preflight failure (unresolvable secret) to a retryable provider-error', async () => {
+    const resolver: SecretResolver = {
+      resolveSecret: vi.fn(async () => ({
+        ok: false as const,
+        error: {
+          kind: 'SecretResolutionFailure' as const,
+          code: 'not-found' as const,
+          reference: createSecretReference({ id: CREDENTIAL_ID, scope: 'provider-credential', purpose: 'Resend API key' }),
+          message: 'no secret',
+        },
+      })),
+    }
+    const adapter = succeedingAdapter()
+    await expect(
+      createGuardedCampaignSendExecutor(makeDeps({ resolver, adapter })).execute(job(), attempt, new AbortController().signal),
+    ).rejects.toMatchObject({ name: 'RunnerExecutionError', errorClass: 'provider-error', message: expect.stringMatching(/preflight failed/) })
+    expect(adapter.execute).toHaveBeenCalledTimes(0) // never reached the adapter
   })
 })
