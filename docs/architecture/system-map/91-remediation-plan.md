@@ -167,8 +167,15 @@
   rows pruned without a manual call. 6 unit tests (recovery+retention wiring, loop/maxCycles, abort, error
   counting). Full suite 253 files / 1823 green.
 - **Files:** `platform/runner/maintenance-daemon.ts` (+test), `maintenance-boot.ts`, `src/lib/db.ts`.
-- **Deferred (F5b):** background *job execution* (draining the queue) — needs per-kind executor deps + resolved
-  secrets; ties to F1b. Sends/content runs still execute inline in their request handlers today.
+- **F5b — queue-drain primitives built ✅ (2026-06-22).** The drain loop (`createCampaignWorkerDaemon`),
+  the single-executor worker (`createRunnerWorker`), and the **per-kind executor router**
+  (`createJobKindExecutor` — routes a leased job to the executor registered for its kind, else a
+  `validation-error`) all exist and are wired by `createCampaignRunnerWorker`. The router is now in the scoped
+  Stryker harness at **100% mutation** (9/9). So background job execution is real for the campaign-send kind.
+- **Remaining (composition only, post-milestone-1):** swap the campaign-send executor for F1b's
+  `createGuardedCampaignSendExecutor` (receipts + exactly-once) inside the routed worker, and boot the drain
+  daemon in `db.ts` beside the maintenance daemon. Gated like F1b/F6b — campaign live auto-send is forbidden in
+  milestone 1 — so the primitives ship ready-to-compose. Content runs still execute inline today.
 
 ### F2 — Engine boundary guarded + documented ✅
 - **Done:** governance gate `test/engine-boundary.test.mjs` (3 assertions) statically enforces the one-way

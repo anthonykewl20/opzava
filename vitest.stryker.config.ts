@@ -28,6 +28,7 @@ export default defineConfig(async () => {
         'src/opzava/platform/runner/maintenance-daemon.test.ts',
         'src/opzava/platform/providers/limit-enforcement.test.ts',
         'src/opzava/platform/admin-config/runtime-options.test.ts',
+        'src/opzava/modules/content/workflow/job-kind-executor.test.ts',
       ],
     },
   }
