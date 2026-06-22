@@ -43,7 +43,7 @@ All confirmed. Full write-up in [`90-parity-findings.md`](./90-parity-findings.m
 
 | # | Finding | Both passes |
 |---|---------|-------------|
-| F1 | Live-provider guard (approval/reservation/exactly-once) has zero non-test callers; campaign Resend send bypasses it; no provider cost/external-call event on the live path. | ✅✅ |
+| F1 | Live-provider guard (approval/reservation/exactly-once) has zero non-test callers; campaign Resend send bypasses it; no provider cost/external-call event on the live path. | ✅✅ → **RESOLVED (milestone 2, 2026-06-22):** the campaign send now drains through the guard with the idempotency lookup AND reservation; a receipt + audit is emitted per send. |
 | F2 | Two unreconciled agent models (`agents` vs `opzava_agent_roles`); no bridge. | ✅✅ |
 | F3 | Content review gates (fact-check/brand/anti-slop) recorded but not enforced; only human-approval halts. | ✅✅ |
 | F4 | No production `SecretResolver`; live secrets read cleartext from `settings`; `credentialRef` is a dead literal. | ✅✅ |
