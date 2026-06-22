@@ -376,6 +376,12 @@ export {
 } from './workflow/campaign-send-executor'
 
 export {
+  createGuardedCampaignSendExecutor,
+  type GuardedCampaignSendExecutorDeps,
+  type GuardedSendEventIdentity,
+} from './workflow/guarded-campaign-send-executor'
+
+export {
   createJobKindExecutor,
   type JobKindExecutorDeps,
 } from './workflow/job-kind-executor'

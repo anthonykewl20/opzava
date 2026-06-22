@@ -101,15 +101,23 @@
   happen without an explicit, recorded human approval.
 - **Files:** `campaign-send-approval.ts` (new), `run-approved-campaign.ts`, `campaigns/[id]/approve/route.ts`,
   `campaigns/[id]/run/route.ts`.
-- **Remaining (F1b — receipts / provider-level exactly-once):** route the per-message send through
-  `guardLiveProviderExecutionAfterPreflight` so it emits an `ExternalCallRecord` + `CostEvent` + redacted
-  `AuditEvent` and reserves-before-execute at the provider layer. ⚠️ This needs a `RuntimeSettingsLoader`
-  (default from `defaultOpzavaAdminSettings()` — overlaps **F6**) and the adapter to take its credential from
-  the resolved secret. Job-level enqueue idempotency already exists (`getJobByIdempotencyKey`); the gap is the
-  provider cost/external-call receipt. Lower release urgency: campaign send is post-milestone-1 (the doctrine
-  forbids live auto-send in milestone 1) and is now hard-gated by approval.
-- **Done-gate:** ✅ an unapproved campaign cannot send (recorded approval required). Pending (F1b): a `cost` +
-  `external-call` event per send; duplicate-send proves provider-level exactly-once.
+- **F1b — receipts / provider-level exactly-once: boundary built ✅ (2026-06-22).**
+  New `createGuardedCampaignSendExecutor` (`workflow/guarded-campaign-send-executor.ts`, +5 tests) routes a
+  per-message send through `guardLiveProviderExecutionAfterPreflight`: given a granted approval it runs the
+  live Resend adapter through the idempotent boundary, emitting an **external-call receipt + redacted audit**,
+  and **refuses to run the adapter a second time** when a succeeded external call already exists for the job's
+  idempotency key. A denied/absent approval surfaces a `permission-error` and the adapter never runs (F1 holds
+  at the provider layer too); a rejected provider send is a retryable `provider-error`. It composes the existing
+  `RuntimeSettingsLoader` + `SecretResolver` + the secret-resolved Resend connection (credential never read from
+  the DB). Atomic reserve-before-execute remains a documented follow-up (the runner's atomic job lease keeps
+  same-job execution sequential until then).
+- **Remaining (composition only):** wire this executor into `run-approved-campaign` with a repository-backed
+  event sink + `createExternalCallIdempotencyLookup`. Intentionally NOT flipped on by default: campaign live
+  auto-send is **post-milestone-1** (doctrine forbids it in milestone 1), so the boundary ships ready-to-compose
+  rather than enabled.
+- **Done-gate:** ✅ an unapproved campaign cannot send (recorded approval required); ✅ the guarded executor
+  emits an external-call receipt per send and a duplicate (prior succeeded external call) does **not** re-send
+  — provider-level exactly-once, proven by `guarded-campaign-send-executor.test.ts`.
 - **Depends on:** F4 (same code path; do in one change set).
 
 ---

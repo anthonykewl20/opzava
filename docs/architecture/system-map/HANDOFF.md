@@ -51,20 +51,26 @@ Run: `pnpm exec stryker run`.
   5-field fix (F11), openapi parity (F13).
 
 ## Deferred sub-items (NOT blocking release — all documented in 91-remediation-plan.md)
-1. **F1b** — provider-level cost/external-call *receipt* + exactly-once via
-   `guardLiveProviderExecutionAfterPreflight` on the campaign send. Needs a `RuntimeSettingsLoader`
-   (default from `defaultOpzavaAdminSettings()`) + the Resend adapter to take its credential from the
-   resolved secret. The send is already approval-gated; campaign send is post-milestone-1.
-2. **F5b** — background *job execution* (draining the runner queue). Needs per-kind executor deps +
-   resolved secrets. Today sends/content-runs execute inline in their request handlers.
-3. **F6b** — *enforce* the rate/cost limits (`requestsPerMinute/burst/usd*Limit`) in the
+
+**Closed since this handoff (2026-06-22):**
+- **F9** ✅ — the orphaned `va-task-review` step is owned by the General VA role; a no-orphans test
+  asserts every pipeline step has an owner. (Ledger marker was stale; corrected.)
+- **F14** ✅ — all 8 remaining inherited model-id sites folded into `src/lib/model-config.ts` and the
+  `no-hardcoded-models` gate widened to all 12 files (governance 283 green).
+- **F1b** ✅ (boundary) — `createGuardedCampaignSendExecutor` routes a send through
+  `guardLiveProviderExecutionAfterPreflight` (external-call receipt + redacted audit + provider-level
+  exactly-once; +5 tests). **Composition** into `run-approved-campaign` is intentionally NOT flipped on
+  (campaign live auto-send is post-milestone-1); the boundary ships ready-to-compose.
+
+**Still open (larger, post-milestone-1 — all tie to the provider-execution path):**
+1. **F5b** — background *job execution* (draining the runner queue). Needs per-kind executor deps +
+   resolved secrets. Today sends/content-runs execute inline in their request handlers. (F1b's guarded
+   executor is the campaign-send half of this.)
+2. **F6b** — *enforce* the rate/cost limits (`requestsPerMinute/burst/usd*Limit`) in the
    provider-execution layer + project them into `runtime-options.ts`. Operators can already *set* them.
-4. **F2b** — project Engine A (inherited) cost/audit into the opzava read models (the "unified surfaces"
+3. **F2b** — project Engine A (inherited) cost/audit into the opzava read models (the "unified surfaces"
    half of ARD 0007). Noted in `docs/architecture/engine-boundary.md`.
-5. **F14** — 8 other inherited model-id/pricing sites still inline literals (src/index.ts, src/lib/models.ts,
-   claude-sessions.ts, framework-templates.ts, app/api/agents/route.ts, 3 components). Listed in
-   `90-parity-findings.md` (F14). Fold into `src/lib/model-config.ts` + widen the F7 gate.
-6. **Optional:** Understand-Anything tree-sitter cross-check of the ledger (needs interactive
+4. **Optional:** Understand-Anything tree-sitter cross-check of the ledger (needs interactive
    `/understand` — operator-only).
 
 ## To resume next session
