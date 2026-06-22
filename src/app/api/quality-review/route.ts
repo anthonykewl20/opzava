@@ -5,6 +5,7 @@ import { validateBody, qualityReviewSchema } from '@/lib/validation'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { eventBus } from '@/lib/event-bus'
+import { appendTaskCompletionComment, appendAttributedComment } from '@/lib/task-completion-comment'
 
 export async function GET(request: NextRequest) {
   const auth = requireRole(request, 'viewer')
@@ -104,10 +105,15 @@ export async function POST(request: NextRequest) {
       workspaceId
     )
 
-    // Auto-advance task based on review outcome
+    // Auto-advance task based on review outcome, and reflect the verdict as an
+    // attributed comment on the task card (source = quality-review).
     if (status === 'approved') {
       db.prepare('UPDATE tasks SET status = ?, updated_at = unixepoch() WHERE id = ? AND workspace_id = ?')
         .run('done', taskId, workspaceId)
+      appendTaskCompletionComment(db, {
+        taskId, workspaceId, status: 'done', author: reviewer, authorType: 'agent',
+        source: 'quality-review', summary: notes,
+      })
       eventBus.broadcast('task.status_changed', {
         id: taskId,
         status: 'done',
@@ -118,6 +124,10 @@ export async function POST(request: NextRequest) {
       // Rejected: push back to in_progress with the rejection notes as error_message
       db.prepare('UPDATE tasks SET status = ?, error_message = ?, updated_at = unixepoch() WHERE id = ? AND workspace_id = ?')
         .run('in_progress', `Quality review rejected by ${reviewer}: ${notes}`, taskId, workspaceId)
+      appendAttributedComment(db, {
+        taskId, workspaceId, author: reviewer, authorType: 'agent', source: 'quality-review',
+        content: `⚠️ Quality review rejected.\n\n${notes}`,
+      })
       eventBus.broadcast('task.status_changed', {
         id: taskId,
         status: 'in_progress',

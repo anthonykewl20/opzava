@@ -6,6 +6,7 @@ import { mutationLimiter } from '@/lib/rate-limit';
 import { logger } from '@/lib/logger';
 import { resolveMentionRecipients } from '@/lib/mentions';
 import { requireAgentTaskAccess, requireWorkspaceId } from '@/lib/enforcement/workspace-scope';
+import { normalizeAuthorType, sanitizeSource } from '@/lib/task-attribution';
 
 /**
  * GET /api/tasks/[id]/comments - Get all comments for a task
@@ -119,6 +120,9 @@ export async function POST(
     if ('error' in result) return result.error;
     const { content: rawContent, parent_id } = result.data;
     const author = auth.user.display_name || auth.user.username || 'system';
+    // Attribution: who-kind + originating client. Defaults to a human-authored UI comment.
+    const authorType = normalizeAuthorType(result.data.author_type);
+    const source = sanitizeSource(result.data.source);
 
     // Normalize agent payload JSON — extract text from OpenClaw result format
     let content = rawContent;
@@ -175,13 +179,15 @@ export async function POST(
     
     // Insert comment
     const stmt = db.prepare(`
-      INSERT INTO comments (task_id, author, content, created_at, parent_id, mentions, workspace_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO comments (task_id, author, author_type, source, content, created_at, parent_id, mentions, workspace_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    
+
     const insertResult = stmt.run(
       taskId,
       author,
+      authorType,
+      source,
       content,
       now,
       parent_id || null,

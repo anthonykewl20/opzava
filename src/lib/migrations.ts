@@ -1428,6 +1428,36 @@ const migrations: Migration[] = [
       db.exec(`ALTER TABLE mcp_call_log ADD COLUMN signature TEXT DEFAULT NULL`)
       db.exec(`ALTER TABLE mcp_call_log ADD COLUMN public_key TEXT DEFAULT NULL`)
     }
+  },
+  {
+    id: '051_comment_attribution',
+    up(db: Database.Database) {
+      // Attribution for comments authored by a client/agent over the API/MCP.
+      // author_type: who kind of actor wrote it ('human' | 'agent' | 'system')
+      // source: the originating tool/client label (e.g. 'Claude Code', 'Codex CLI', 'opencode')
+      const cols = db.prepare(`PRAGMA table_info(comments)`).all() as Array<{ name: string }>
+      if (!cols.some(c => c.name === 'author_type')) {
+        db.exec(`ALTER TABLE comments ADD COLUMN author_type TEXT NOT NULL DEFAULT 'human'`)
+      }
+      if (!cols.some(c => c.name === 'source')) {
+        db.exec(`ALTER TABLE comments ADD COLUMN source TEXT DEFAULT NULL`)
+      }
+    }
+  },
+  {
+    id: '052_task_evidence_blockers',
+    up(db: Database.Database) {
+      // First-class task-card fields a CLI/MCP session can drive directly.
+      // evidence: free-text proof/links the agent attaches to the task
+      // blockers: free-text description of what is blocking the task
+      const cols = db.prepare(`PRAGMA table_info(tasks)`).all() as Array<{ name: string }>
+      if (!cols.some(c => c.name === 'evidence')) {
+        db.exec(`ALTER TABLE tasks ADD COLUMN evidence TEXT DEFAULT NULL`)
+      }
+      if (!cols.some(c => c.name === 'blockers')) {
+        db.exec(`ALTER TABLE tasks ADD COLUMN blockers TEXT DEFAULT NULL`)
+      }
+    }
   }
 ]
 

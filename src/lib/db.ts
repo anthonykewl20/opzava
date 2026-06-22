@@ -224,6 +224,8 @@ export interface Task {
   feedback_notes?: string;
   retry_count?: number;
   completed_at?: number;
+  evidence?: string;
+  blockers?: string;
   tags?: string; // JSON string
   metadata?: string; // JSON string
 }
@@ -246,6 +248,8 @@ export interface Comment {
   id: number;
   task_id: number;
   author: string;
+  author_type?: 'human' | 'agent' | 'system';
+  source?: string; // originating tool/client label, e.g. 'Claude Code'
   content: string;
   created_at: number;
   parent_id?: number;
