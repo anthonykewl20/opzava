@@ -14,7 +14,7 @@ import { detectProviderSubscriptions, getPrimarySubscription } from '@/lib/provi
 import { APP_VERSION } from '@/lib/version'
 import { isHermesInstalled, scanHermesSessions } from '@/lib/hermes-sessions'
 import { registerMcAsDashboard } from '@/lib/gateway-runtime'
-import { evaluateDirectConnectionHealth, evaluateProviderReadiness } from '@/lib/connectivity-health'
+import { evaluateDirectConnectionHealth, evaluateProviderReadiness, type HealthCheckEntry } from '@/lib/connectivity-health'
 import { resolveResendCampaignConnection, resolveWordpressDraftConnection } from '@/opzava/modules/content'
 import { createEnvSecretResolver } from '@/opzava/platform/providers/env-secret-resolver'
 
@@ -462,6 +462,52 @@ async function getAvailableModels() {
   return models
 }
 
+/**
+ * Health of the active direct CLI connections (agents connected via POST /api/connect).
+ * Cheap DB read; surfaces agents that registered but stopped heart-beating. Fails soft.
+ */
+function checkDirectConnections(): HealthCheckEntry {
+  try {
+    const db = getDatabase()
+    const tableExists = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='direct_connections'"
+    ).get() as { name?: string } | undefined
+    if (!tableExists?.name) {
+      return { name: 'Direct Connections', status: 'healthy', message: 'No active direct connections' }
+    }
+    const rows = db.prepare(
+      "SELECT status, last_heartbeat FROM direct_connections WHERE status = 'connected'"
+    ).all() as Array<{ status: string; last_heartbeat: number | null }>
+    return evaluateDirectConnectionHealth(rows, Math.floor(Date.now() / 1000))
+  } catch {
+    return { name: 'Direct Connections', status: 'error', message: 'Failed to check direct connections' }
+  }
+}
+
+/**
+ * Outbound provider connectivity *readiness* (Resend / WordPress): configured + secret resolvable.
+ * Deliberately NOT a live network probe — this endpoint is anonymous and frequently polled, so it
+ * must never make billable external calls. Live reachability stays at POST /api/connections/test.
+ */
+async function checkProviderReadiness(): Promise<HealthCheckEntry> {
+  try {
+    const db = getDatabase()
+    const readSetting = (key: string) =>
+      (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value
+    const resolver = createEnvSecretResolver({ readEnv: (name) => process.env[name] })
+    const [resend, wordpress] = await Promise.all([
+      resolveResendCampaignConnection({ readSetting, resolver }),
+      resolveWordpressDraftConnection({ readSetting, resolver }),
+    ])
+    return evaluateProviderReadiness([
+      { provider: 'resend', ok: resend.ok, reason: resend.ok ? undefined : resend.reason },
+      { provider: 'wordpress', ok: wordpress.ok, reason: wordpress.ok ? undefined : wordpress.reason },
+    ])
+  } catch {
+    return { name: 'Provider Connectivity', status: 'error', message: 'Failed to check provider connectivity' }
+  }
+}
+
 async function performHealthCheck() {
   const health: any = {
     status: 'healthy',
@@ -546,45 +592,10 @@ async function performHealthCheck() {
     })
   }
 
-  // Check direct CLI connections (agents connected via POST /api/connect).
-  // Cheap DB read; surfaces agents that registered but stopped heart-beating.
-  try {
-    const db = getDatabase()
-    const tableExists = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='direct_connections'"
-    ).get() as { name?: string } | undefined
-    if (tableExists?.name) {
-      const rows = db.prepare(
-        "SELECT status, last_heartbeat FROM direct_connections WHERE status = 'connected'"
-      ).all() as Array<{ status: string; last_heartbeat: number | null }>
-      health.checks.push(evaluateDirectConnectionHealth(rows, Math.floor(Date.now() / 1000)))
-    } else {
-      health.checks.push({ name: 'Direct Connections', status: 'healthy', message: 'No active direct connections' })
-    }
-  } catch (error) {
-    health.checks.push({ name: 'Direct Connections', status: 'error', message: 'Failed to check direct connections' })
-  }
-
-  // Check outbound provider connectivity *readiness* (Resend / WordPress):
-  // configured + secret resolvable. Deliberately NOT a live network probe — this
-  // endpoint is anonymous and frequently polled, so it must never make billable
-  // external calls. Live reachability stays on-demand at POST /api/connections/test.
-  try {
-    const db = getDatabase()
-    const readSetting = (key: string) =>
-      (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value
-    const resolver = createEnvSecretResolver({ readEnv: (name) => process.env[name] })
-    const [resend, wordpress] = await Promise.all([
-      resolveResendCampaignConnection({ readSetting, resolver }),
-      resolveWordpressDraftConnection({ readSetting, resolver }),
-    ])
-    health.checks.push(evaluateProviderReadiness([
-      { provider: 'resend', ok: resend.ok, reason: resend.ok ? undefined : resend.reason },
-      { provider: 'wordpress', ok: wordpress.ok, reason: wordpress.ok ? undefined : wordpress.reason },
-    ]))
-  } catch (error) {
-    health.checks.push({ name: 'Provider Connectivity', status: 'error', message: 'Failed to check provider connectivity' })
-  }
+  // Connectivity surfaces (direct CLI connections + outbound provider readiness).
+  // Extracted into helpers so this function stays flat; each fails soft to a single check entry.
+  health.checks.push(checkDirectConnections())
+  health.checks.push(await checkProviderReadiness())
 
   // Check disk space (cross-platform: use df -h / and parse capacity column)
   try {
