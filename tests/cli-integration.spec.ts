@@ -58,6 +58,26 @@ test.describe('CLI Integration', () => {
     expect(parsed.data?.status || parsed.status).toBeDefined()
   })
 
+  test('health endpoint reports every check including connectivity surfaces', async ({ request }) => {
+    const res = await request.get('/api/status?action=health')
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+
+    // Overall status is one of the known states and every check carries a status.
+    expect(['healthy', 'warning', 'degraded', 'unhealthy']).toContain(body.status)
+    expect(Array.isArray(body.checks)).toBeTruthy()
+    for (const check of body.checks) {
+      expect(check.name).toBeTruthy()
+      expect(check.status).toBeTruthy()
+    }
+
+    // Infra + gateway + the connectivity surfaces are all present.
+    const names = body.checks.map((c: { name: string }) => c.name)
+    for (const expected of ['Database', 'Gateway', 'Direct Connections', 'Provider Connectivity']) {
+      expect(names).toContain(expected)
+    }
+  })
+
   test('status overview returns system info', async () => {
     const { parsed, exitCode } = await mc('status', 'overview')
     expect(exitCode).toBe(0)
