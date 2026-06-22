@@ -36,6 +36,24 @@ function loadConfig() {
 }
 
 // ---------------------------------------------------------------------------
+// Client attribution — who/where a comment came from
+// ---------------------------------------------------------------------------
+// The MCP `initialize` handshake provides the client's name/version; an explicit
+// MC_CLIENT (or MC_AGENT) env overrides it — the only reliable way to separate
+// otherwise-indistinguishable clients (e.g. Codex CLI vs Codex Desktop). Comments
+// posted by this server are stamped author_type='agent' + source=<this label>.
+let clientInfo = null;
+
+function resolveClientLabel() {
+  const envLabel = (process.env.MC_CLIENT || process.env.MC_AGENT || '').trim();
+  if (envLabel) return envLabel;
+  if (clientInfo && clientInfo.name) {
+    return clientInfo.version ? `${clientInfo.name} ${clientInfo.version}` : String(clientInfo.name);
+  }
+  return 'mcp';
+}
+
+// ---------------------------------------------------------------------------
 // HTTP client (same pattern as mc-cli.cjs)
 // ---------------------------------------------------------------------------
 
@@ -352,7 +370,7 @@ const TOOLS = [
   },
   {
     name: 'mc_update_task',
-    description: 'Update an existing task (status, priority, assigned_to, title, description, etc.)',
+    description: 'Update a task card: status, priority, assigned_to, title, description, evidence, blockers, error_message (Errors), resolution. Updates are attributed to this client.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -361,11 +379,18 @@ const TOOLS = [
         priority: { type: 'string', description: 'New priority' },
         assigned_to: { type: 'string', description: 'New assignee agent name' },
         title: { type: 'string', description: 'New title' },
-        description: { type: 'string', description: 'New description' },
+        description: { type: 'string', description: 'New description (Details)' },
+        evidence: { type: 'string', description: 'Evidence/proof/links for the task card' },
+        blockers: { type: 'string', description: 'What is blocking the task' },
+        error_message: { type: 'string', description: 'Error details (Errors section)' },
+        resolution: { type: 'string', description: 'How the task was resolved' },
       },
       required: ['id'],
     },
-    handler: async ({ id, ...fields }) => api('PUT', `/api/tasks/${id}`, fields),
+    // Stamp attribution so any completion comment triggered by this update is
+    // marked as agent-authored from this client (harmless on non-completing updates).
+    handler: async ({ id, ...fields }) =>
+      api('PUT', `/api/tasks/${id}`, { ...fields, author_type: 'agent', source: resolveClientLabel() }),
   },
   {
     name: 'mc_poll_task_queue',
@@ -422,9 +447,53 @@ const TOOLS = [
       required: ['id', 'content'],
     },
     handler: async ({ id, content, parent_id }) => {
-      const body = { content };
+      const body = { content, author_type: 'agent', source: resolveClientLabel() };
       if (parent_id) body.parent_id = parent_id;
       return api('POST', `/api/tasks/${id}/comments`, body);
+    },
+  },
+  {
+    name: 'mc_complete_task',
+    description: 'Complete a task: set its status (default "done") and post your completion write-up as an attributed comment on the task card. Optionally attach evidence. Use this at the end of a session so the result lands on the card identifying this client.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: ['string', 'number'], description: 'Task ID' },
+        summary: { type: 'string', description: 'Completion write-up — posted verbatim as a comment and saved as the task resolution' },
+        evidence: { type: 'string', description: 'Optional evidence/links to attach to the task card' },
+        status: { type: 'string', description: "Target status (default 'done'; use 'review'/'quality_review' if completion needs approval, or 'failed')" },
+      },
+      required: ['id', 'summary'],
+    },
+    handler: async ({ id, summary, evidence, status }) => {
+      const body = {
+        status: status || 'done',
+        summary,
+        resolution: summary,
+        author_type: 'agent',
+        source: resolveClientLabel(),
+      };
+      if (evidence !== undefined) body.evidence = evidence;
+      return api('PUT', `/api/tasks/${id}`, body);
+    },
+  },
+  {
+    name: 'mc_quality_review',
+    description: 'Record a quality review for a task. "approved" advances it to done; "rejected" returns it to in_progress. The verdict is posted as an attributed comment on the card.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: { type: ['string', 'number'], description: 'Task ID' },
+        status: { type: 'string', description: "'approved' or 'rejected'" },
+        notes: { type: 'string', description: 'Review notes (required)' },
+        reviewer: { type: 'string', description: "Reviewer name (default 'aegis')" },
+      },
+      required: ['task_id', 'status', 'notes'],
+    },
+    handler: async ({ task_id, status, notes, reviewer }) => {
+      const body = { taskId: Number(task_id), status, notes };
+      if (reviewer) body.reviewer = reviewer;
+      return api('POST', '/api/quality-review', body);
     },
   },
 
@@ -577,7 +646,7 @@ const TOOLS = [
     name: 'mc_list_cron',
     description: 'List all cron jobs',
     inputSchema: { type: 'object', properties: {}, required: [] },
-    handler: async () => api('GET', '/api/cron'),
+    handler: async () => api('GET', '/api/cron?action=list'),
   },
 
   // --- Status ---
@@ -758,6 +827,9 @@ async function handleMessage(msg) {
 
   switch (method) {
     case 'initialize':
+      if (params && params.clientInfo && typeof params.clientInfo === 'object') {
+        clientInfo = { name: params.clientInfo.name, version: params.clientInfo.version };
+      }
       return makeResponse(id, {
         protocolVersion: '2024-11-05',
         serverInfo: SERVER_INFO,
@@ -825,20 +897,30 @@ async function main() {
   const readline = require('node:readline');
   const rl = readline.createInterface({ input: process.stdin, terminal: false });
 
-  rl.on('line', async (line) => {
+  // Track in-flight handlers so a client that pipes input and immediately closes
+  // stdin still gets every response + side effect (each handler awaits a REST call).
+  const inFlight = new Set();
+
+  rl.on('line', (line) => {
     const trimmed = line.trim();
     if (!trimmed) return;
 
-    try {
-      const msg = JSON.parse(trimmed);
-      const response = await handleMessage(msg);
-      send(response);
-    } catch (err) {
-      send(makeError(null, -32700, `Parse error: ${err?.message || 'invalid JSON'}`));
-    }
+    const pending = (async () => {
+      try {
+        const msg = JSON.parse(trimmed);
+        const response = await handleMessage(msg);
+        send(response);
+      } catch (err) {
+        send(makeError(null, -32700, `Parse error: ${err?.message || 'invalid JSON'}`));
+      }
+    })();
+    inFlight.add(pending);
+    pending.finally(() => inFlight.delete(pending));
   });
 
-  rl.on('close', () => {
+  rl.on('close', async () => {
+    // Drain in-flight handlers before exiting (don't drop their responses).
+    await Promise.allSettled([...inFlight]);
     process.exit(0);
   });
 
