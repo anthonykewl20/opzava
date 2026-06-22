@@ -134,11 +134,13 @@
 - **Effort:** M · **Risk:** low (draft-only, no external blast radius) · **Done-gate:** a run with a `failed`
   fact-check produces **no** WordPress draft and surfaces the halt reason.
 
-### F9 — Resolve the orphaned `va-task-review` step 🟡
-- **Change:** either give an owning role the `va-task-review` step id (`team/agent-role.ts:154`) or remove it
-  from `GENERAL_VA_PIPELINE_ORDER` (`team/department-pipeline.ts:21`). Today it renders with `agentId:null`.
-- **Files:** `modules/team/*`, `modules/general-va/*`. **Effort:** S · **Done-gate:** no pipeline step has a
-  null owner (assert in a module test).
+### F9 — Resolve the orphaned `va-task-review` step ✅
+- **Done:** the General VA role now owns the step — `team/agent-role.ts:154` lists
+  `ownedStepIds: ['va-task-intake', 'va-task-draft', 'va-task-review']`, so `va-task-review` renders with
+  `agentId:'general-va'`, not null.
+- **Files:** `modules/team/agent-role.ts`. **Done-gate:** ✅ met — `department-pipeline.test.ts` asserts
+  *"every step in every department pipeline is owned by a default role (no orphans)"* across all departments
+  (plus a `va-task-review → general-va` case). Suite green.
 
 ---
 
