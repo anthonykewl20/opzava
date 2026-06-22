@@ -44,6 +44,26 @@ describe('runner maintenance', () => {
     expect(report.retention.operationalEvents).toBe(1)
   })
 
+  it('retains operational events newer than the retention window', () => {
+    const db = makeDb()
+    const insert = db.prepare(
+      `INSERT INTO opzava_runner_operational_events (record_id, kind, workflow_run_id, occurred_at, record_json)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    // retentionMs is 1000ms; cutoff is NOW - 1s. An event 500ms before NOW is
+    // inside the window and must survive — this pins the cutoff's sign (a
+    // getTime() + retentionMs mutant would prune it too).
+    insert.run('ev-old', 'audit', 'wf-old', '2000-01-01T00:00:00.000Z', '{}')
+    insert.run('ev-recent', 'audit', 'wf-recent', '2026-07-04T23:59:59.500Z', '{}')
+    const report = runRunnerMaintenanceOnce(deps(db))
+    expect(report.retention.operationalEvents).toBe(1)
+    const remaining = db
+      .prepare(`SELECT record_id FROM opzava_runner_operational_events ORDER BY record_id`)
+      .all()
+      .map((r) => (r as { record_id: string }).record_id)
+    expect(remaining).toEqual(['ev-recent'])
+  })
+
   it('loops maxCycles times, sleeping between cycles', async () => {
     const db = makeDb()
     const controller = new AbortController()
