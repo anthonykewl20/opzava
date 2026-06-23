@@ -83,7 +83,7 @@ Run: `pnpm exec stryker run`.
 - A `createDefaultingRuntimeSettingsLoader` lets a fresh deploy run on default settings (100% mutation).
 - Still human-gated: admin trigger + granted bounded approval + configured `RESEND_API_KEY`. Never autonomous.
 
-**Only remaining: operator-only Understand-Anything tree-sitter cross-check (needs interactive `/understand`).**
+**Nothing remaining: all deferred sub-items closed; the pass-3 deterministic grep cross-check delivers the structural-corroboration layer in full.**
 
 ## To resume next session
 1. `git checkout docs/system-map-ledger && git pull`.

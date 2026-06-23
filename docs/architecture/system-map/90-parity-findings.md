@@ -234,6 +234,11 @@ also leave them as manually-run gates?
 (`team/agent-role.ts:154`) — no default role owns `va-task-review`. `buildDepartmentPipeline('General VA')`
 yields it with `agentId:null`; its artifacts are attributed to no one.
 
+> **✅ Resolved (post-audit):** remediation added the ownership entry — `agent-role.ts:154` now reads
+> `['va-task-intake','va-task-draft','va-task-review']`, so `general-va` owns the step,
+> `buildDepartmentPipeline('General VA')` yields `agentId:'general-va'`, and a no-orphans test guards it
+> (`department-pipeline.test.ts:73`). The paragraph above is the as-found finding (the cited line has since changed).
+
 **Audit question:** Do the shared repos have pipeline steps with no owning role/agent?
 
 ---

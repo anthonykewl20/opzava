@@ -33,7 +33,7 @@ dispatch pipeline.)
  failure caps: ≥5 dispatch attempts → failed; stale in_progress + offline agent → requeue (≥5 → failed)
 ```
 
-The orchestration core is `task-dispatch.ts` (1690 LOC, 🔎): `autoRouteInboxTasks` (keyword-affinity + idle
+The orchestration core is `task-dispatch.ts` (1695 LOC ✅): `autoRouteInboxTasks` (keyword-affinity + idle
 + capability scoring, capacity cap 3), `dispatchAssignedTasks` (atomic claim, then 3 dispatch paths —
 direct provider API / targeted gateway session / new gateway session), `reconcileDeferredTaskCompletions`
 (promotes async runs to `review`), `runAegisReviews` (the quality gate → `done` or requeue),
