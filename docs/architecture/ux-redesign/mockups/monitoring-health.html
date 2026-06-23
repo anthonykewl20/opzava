@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitoring — Opzava</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <style>
+    /* Page-specific layout only — no color, font-size, shadow, or radius overrides */
+    .monitor-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr;
+      gap: var(--space-4);
+      align-items: start;
+    }
+    .page-stack {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+    .service-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      min-height: 44px;
+      padding: 0 var(--space-5);
+      border-bottom: 1px solid var(--border);
+    }
+    .service-row:last-child {
+      border-bottom: 0;
+    }
+    .service-name {
+      flex: 1;
+      min-width: 0;
+    }
+    .service-latency {
+      min-width: 64px;
+      text-align: right;
+    }
+    .alert-row {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-5);
+      border-bottom: 1px solid var(--border);
+    }
+    .alert-row:last-child {
+      border-bottom: 0;
+    }
+    .alert-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .alert-time {
+      font-family: var(--font-mono);
+      white-space: nowrap;
+      flex: none;
+    }
+    .sparkline-wrap {
+      margin-top: var(--space-3);
+    }
+    .stat-with-spark {
+      display: flex;
+      flex-direction: column;
+    }
+    .stat-header-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-2);
+    }
+    .notif-btn-wrap {
+      position: relative;
+    }
+    .notif-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: var(--radius-full);
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      font-weight: var(--fw-semibold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .header-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--surface-3);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      flex: none;
+      cursor: pointer;
+      font-weight: var(--fw-semibold);
+    }
+    .nav-section-gap {
+      margin-top: var(--space-2);
+    }
+    .conn-state-line {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+    }
+    .log-area {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      line-height: 1.6;
+      max-height: 180px;
+      overflow-y: auto;
+      padding: var(--space-3) var(--space-5);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .log-line {
+      display: flex;
+      gap: var(--space-3);
+      align-items: baseline;
+    }
+    .log-ts {
+      color: var(--fg-subtle);
+      flex: none;
+      min-width: 72px;
+    }
+    .log-level-info  { color: var(--info); }
+    .log-level-warn  { color: var(--warning); }
+    .log-level-error { color: var(--danger); }
+    .log-level-ok    { color: var(--success); }
+  </style>
+</head>
+<body>
+
+<!-- App-level ARIA live region for critical alerts -->
+<div role="alert" aria-live="assertive" class="u-sr-only" id="critical-announcer"></div>
+<div role="status" aria-live="polite" aria-atomic="false" class="u-sr-only" id="status-announcer"></div>
+
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       NAVIGATION RAIL — copied verbatim from shell-overview.html;
+       "Monitoring" set to active, "Overview" made inactive.
+  ══════════════════════════════════════════════════════════════════ -->
+  <aside class="rail" aria-label="Main navigation">
+
+    <!-- Logo / wordmark -->
+    <div class="rail-head">
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
+        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
+      </svg>
+      <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);letter-spacing:-.01em;">Opzava</span>
+      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
+    </div>
+
+    <!-- Nav groups -->
+    <nav class="rail-nav" aria-label="Application sections">
+      <a href="orchestrator-chat.html" class="rail-item" style="margin-bottom:4px;">
+        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
+        Ask Opzava
+        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
+      </a>
+      <div class="section-label">Operate</div>
+      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
+      <a href="agent-detail.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
+      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
+      <a href="messages-slack.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
+      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
+      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
+      <div class="section-label nav-section-gap">Observe</div>
+      <a href="monitoring-health.html" class="rail-item" aria-current="page"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
+      <a href="#" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
+      <a href="#" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
+      <div class="section-label nav-section-gap">Govern</div>
+      <a href="notifications-alerts.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
+      <a href="settings.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
+      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+    </nav>
+
+    <!-- Rail footer: ⌘K quick jump -->
+    <div class="rail-foot">
+      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (⌘K)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-subtle u-grow">Jump to…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIN COLUMN
+  ══════════════════════════════════════════════════════════════════ -->
+  <div class="main-col">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="header">
+
+      <!-- Sidebar collapse -->
+      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <!-- Search -->
+      <div class="search" role="search">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-grow u-subtle">Search agents, tasks, runs…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </div>
+
+      <!-- Spacer -->
+      <div class="u-grow"></div>
+
+      <!-- Health pill — global aggregate; links to this very page -->
+      <div class="health-pill" aria-label="System health: All systems operational">
+        <span class="dot dot-success" aria-hidden="true"></span>
+        All systems operational
+      </div>
+
+      <!-- Live indicator -->
+      <div style="display:inline-flex;align-items:center;gap:var(--space-2);font-size:var(--text-xs);color:var(--fg-muted);" aria-label="Live connection active">
+        <span class="dot dot-success live" aria-hidden="true"></span>
+        <span>Live</span>
+      </div>
+
+      <!-- Notifications -->
+      <div class="notif-btn-wrap">
+        <button type="button" class="btn btn-ghost btn-icon" aria-label="Notifications, 2 unread">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </button>
+        <span class="notif-badge" aria-hidden="true">2</span>
+        <span class="u-sr-only">2 unread notifications</span>
+      </div>
+
+      <!-- Avatar -->
+      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu — Anthony G.">AG</div>
+
+    </header>
+
+    <!-- ── Main content ────────────────────────────────────────── -->
+    <main class="main">
+      <div class="page">
+        <div class="page-stack">
+
+          <!-- ── Page header ──────────────────────────────────────────── -->
+          <div class="page-header">
+            <div>
+              <h1>Monitoring</h1>
+              <!-- Connection state line: live dot + text + offline affordance -->
+              <div class="conn-state-line" style="margin-top:var(--space-2);" aria-live="polite" aria-atomic="true">
+                <span class="dot dot-success live" aria-hidden="true"></span>
+                <span style="font-size:var(--text-sm);color:var(--fg-muted);">
+                  <span class="u-accent" style="font-weight:var(--fw-medium);">Live</span>
+                  <span aria-hidden="true"> · </span>
+                  <span class="u-subtle">updated 2s ago</span>
+                </span>
+                <!-- Offline affordance — visible when disconnected; shown here as ghost button -->
+                <button type="button" class="btn btn-ghost btn-sm" aria-label="Reconnect to live stream">
+                  Reconnect
+                </button>
+              </div>
+            </div>
+            <!-- One primary action per region -->
+            <button type="button" class="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+              Export report
+            </button>
+          </div>
+
+          <!-- ── Live metrics — stat grid ──────────────────────────────── -->
+          <section aria-labelledby="metrics-heading">
+            <h2 class="u-sr-only" id="metrics-heading">Live metrics</h2>
+            <div class="stat-grid">
+
+              <!-- CPU % -->
+              <div class="stat stat-with-spark" role="region" aria-label="CPU usage">
+                <div class="stat-label">CPU Usage</div>
+                <div class="stat-header-row">
+                  <div class="stat-value u-tnum">34%</div>
+                </div>
+                <div class="stat-delta down" aria-label="Down 4 percent from last interval">
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                    <path d="M5 2v6M2 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  −4% last 5 min
+                </div>
+                <div class="sparkline-wrap" aria-hidden="true">
+                  <svg width="100%" height="36" viewBox="0 0 120 36" preserveAspectRatio="none" role="presentation">
+                    <polyline
+                      points="0,28 15,24 30,20 45,26 60,22 75,18 90,16 105,20 120,13"
+                      fill="none"
+                      stroke="var(--accent)"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      opacity="0.7"
+                    />
+                  </svg>
+                </div>
+                <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Last sync: now</div>
+              </div>
+
+              <!-- Memory -->
+              <div class="stat stat-with-spark" role="region" aria-label="Memory usage">
+                <div class="stat-label">Memory</div>
+                <div class="stat-value u-tnum">1.2 GB</div>
+                <div class="stat-delta up" aria-label="Up 80 megabytes from last interval">
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                    <path d="M5 8V2M2 5l3-3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  +80 MB last 5 min
+                </div>
+                <div class="sparkline-wrap" aria-hidden="true">
+                  <svg width="100%" height="36" viewBox="0 0 120 36" preserveAspectRatio="none" role="presentation">
+                    <polyline
+                      points="0,30 15,28 30,26 45,24 60,22 75,20 90,18 105,16 120,14"
+                      fill="none"
+                      stroke="var(--chart-2)"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      opacity="0.7"
+                    />
+                  </svg>
+                </div>
+                <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Last sync: now</div>
+              </div>
+
+              <!-- Events/sec — skeleton state to demonstrate async loading -->
+              <div class="stat stat-with-spark" role="region" aria-label="Events per second — loading">
+                <div class="stat-label">Events / sec</div>
+                <!-- Skeleton loading block -->
+                <div class="skeleton" style="width:80px;height:36px;border-radius:var(--radius-md);margin-top:6px;" aria-label="Loading metric value"></div>
+                <div class="skeleton sk-line" style="width:60%;margin-top:var(--space-2);"></div>
+                <div class="sparkline-wrap" aria-hidden="true">
+                  <div class="skeleton" style="width:100%;height:36px;border-radius:var(--radius-sm);margin-top:var(--space-3);"></div>
+                </div>
+                <div class="u-subtle" style="font-size:var(--text-xs);margin-top:var(--space-2);">Syncing…</div>
+              </div>
+
+              <!-- p95 latency -->
+              <div class="stat stat-with-spark" role="region" aria-label="p95 latency">
+                <div class="stat-label">p95 Latency</div>
+                <div class="stat-value u-tnum">148 <span style="font-size:var(--text-lg);font-weight:var(--fw-regular);">ms</span></div>
+                <div class="stat-delta up" aria-label="Up 12 milliseconds from last interval">
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                    <path d="M5 8V2M2 5l3-3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  +12 ms last 5 min
+                </div>
+                <div class="sparkline-wrap" aria-hidden="true">
+                  <svg width="100%" height="36" viewBox="0 0 120 36" preserveAspectRatio="none" role="presentation">
+                    <polyline
+                      points="0,20 15,18 30,22 45,16 60,24 75,14 90,20 105,18 120,16"
+                      fill="none"
+                      stroke="var(--chart-4)"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      opacity="0.7"
+                    />
+                  </svg>
+                </div>
+                <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Last sync: now</div>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- ── Health summary + Recent alerts — two-column ──────────── -->
+          <div class="monitor-grid">
+
+            <!-- Health summary card -->
+            <section aria-labelledby="health-summary-heading">
+              <div class="card">
+                <div class="card-header">
+                  <h2 class="card-title" id="health-summary-heading">Service health</h2>
+                  <span class="badge badge-success">
+                    <span class="dot dot-success" aria-hidden="true" style="width:6px;height:6px;"></span>
+                    5 / 5 healthy
+                  </span>
+                </div>
+
+                <!-- Service rows: dot + name + status text + latency -->
+                <div role="list" aria-label="Service health statuses">
+
+                  <!-- API -->
+                  <div class="service-row" role="listitem">
+                    <span class="dot dot-success" aria-hidden="true"></span>
+                    <span class="service-name">API server</span>
+                    <span style="font-size:var(--text-sm);">Operational</span>
+                    <span class="service-latency u-subtle u-tnum" style="font-size:var(--text-xs);">42 ms</span>
+                  </div>
+
+                  <!-- Gateway -->
+                  <div class="service-row" role="listitem">
+                    <span class="dot dot-success" aria-hidden="true"></span>
+                    <span class="service-name">Gateway</span>
+                    <span style="font-size:var(--text-sm);">Operational</span>
+                    <span class="service-latency u-subtle u-tnum" style="font-size:var(--text-xs);">38 ms</span>
+                  </div>
+
+                  <!-- Database -->
+                  <div class="service-row" role="listitem">
+                    <span class="dot dot-success" aria-hidden="true"></span>
+                    <span class="service-name">Database</span>
+                    <span style="font-size:var(--text-sm);">Operational</span>
+                    <span class="service-latency u-subtle u-tnum" style="font-size:var(--text-xs);">9 ms</span>
+                  </div>
+
+                  <!-- Memory store — slightly elevated latency, still OK -->
+                  <div class="service-row" role="listitem">
+                    <span class="dot dot-warning" aria-hidden="true"></span>
+                    <span class="service-name">Memory store</span>
+                    <span style="font-size:var(--text-sm);color:var(--warning);">Slow</span>
+                    <span class="service-latency u-tnum" style="font-size:var(--text-xs);color:var(--warning);">380 ms</span>
+                  </div>
+
+                  <!-- Event queue -->
+                  <div class="service-row" role="listitem">
+                    <span class="dot dot-success" aria-hidden="true"></span>
+                    <span class="service-name">Event queue</span>
+                    <span style="font-size:var(--text-sm);">Operational</span>
+                    <span class="service-latency u-subtle u-tnum" style="font-size:var(--text-xs);">55 ms</span>
+                  </div>
+
+                </div>
+
+                <!-- Memory store warning callout -->
+                <div class="card-footer">
+                  <div class="banner banner-warning" role="status" aria-label="Memory store latency elevated">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--warning);">
+                      <path d="M8 2L1.5 13.5h13L8 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                      <path d="M8 6v4M8 11.5v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    <span>Memory store p95 latency is elevated (380 ms). Expected &lt;100 ms.</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Recent alerts card -->
+            <section aria-labelledby="alerts-heading" aria-live="polite">
+              <div class="card">
+                <div class="card-header">
+                  <h2 class="card-title" id="alerts-heading">Recent alerts</h2>
+                  <a href="notifications-alerts.html" class="btn btn-ghost btn-sm">View all</a>
+                </div>
+
+                <!-- Alert rows: severity badge + message + time -->
+                <div role="list" aria-label="Recent system alerts">
+
+                  <!-- Critical -->
+                  <div class="alert-row" style="border-left:3px solid var(--danger);" role="listitem">
+                    <div class="alert-body">
+                      <div class="u-row" style="gap:var(--space-2);margin-bottom:4px;">
+                        <span class="badge badge-danger" role="status">
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true" style="flex:none;">
+                            <path d="M5 2L1 8.5h8L5 2z" fill="currentColor"/>
+                          </svg>
+                          Critical
+                        </span>
+                        <span class="u-grow" style="font-weight:var(--fw-medium);">Echo went offline</span>
+                      </div>
+                      <p class="u-muted" style="font-size:var(--text-sm);">Agent Echo (Content dept) — gateway timeout after 3 retries.</p>
+                    </div>
+                    <div class="u-col" style="align-items:flex-end;gap:var(--space-2);flex:none;">
+                      <span class="alert-time u-subtle" style="font-size:var(--text-xs);">10:41:20</span>
+                      <a href="agent-detail.html" class="btn btn-ghost btn-sm">View agent</a>
+                    </div>
+                  </div>
+
+                  <!-- Warning -->
+                  <div class="alert-row" style="border-left:3px solid var(--warning);" role="listitem">
+                    <div class="alert-body">
+                      <div class="u-row" style="gap:var(--space-2);margin-bottom:4px;">
+                        <span class="badge badge-warning" role="status">
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true" style="flex:none;">
+                            <path d="M5 1L1.5 8.5h7L5 1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                          </svg>
+                          Warning
+                        </span>
+                        <span class="u-grow" style="font-weight:var(--fw-medium);">Budget at 80%</span>
+                      </div>
+                      <p class="u-muted" style="font-size:var(--text-sm);">$40.20 of $50.00 daily budget consumed. Review campaign spend.</p>
+                    </div>
+                    <div class="u-col" style="align-items:flex-end;gap:var(--space-2);flex:none;">
+                      <span class="alert-time u-subtle" style="font-size:var(--text-xs);">10:38:00</span>
+                      <a href="#" class="btn btn-ghost btn-sm">View costs</a>
+                    </div>
+                  </div>
+
+                  <!-- Warning: memory store -->
+                  <div class="alert-row" style="border-left:3px solid var(--warning);" role="listitem">
+                    <div class="alert-body">
+                      <div class="u-row" style="gap:var(--space-2);margin-bottom:4px;">
+                        <span class="badge badge-warning" role="status">
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true" style="flex:none;">
+                            <path d="M5 1L1.5 8.5h7L5 1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                          </svg>
+                          Warning
+                        </span>
+                        <span class="u-grow" style="font-weight:var(--fw-medium);">Memory store latency elevated</span>
+                      </div>
+                      <p class="u-muted" style="font-size:var(--text-sm);">p95 = 380 ms, above 100 ms threshold. Cache invalidation in progress.</p>
+                    </div>
+                    <div class="u-col" style="align-items:flex-end;gap:var(--space-2);flex:none;">
+                      <span class="alert-time u-subtle" style="font-size:var(--text-xs);">10:29:44</span>
+                      <button type="button" class="btn btn-ghost btn-sm">Dismiss</button>
+                    </div>
+                  </div>
+
+                  <!-- Info -->
+                  <div class="alert-row" style="border-left:3px solid var(--info);" role="listitem">
+                    <div class="alert-body">
+                      <div class="u-row" style="gap:var(--space-2);margin-bottom:4px;">
+                        <span class="badge badge-info" role="status">
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true" style="flex:none;">
+                            <circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.2"/>
+                            <path d="M5 4.5v3M5 3h.01" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                          </svg>
+                          Info
+                        </span>
+                        <span class="u-grow" style="font-weight:var(--fw-medium);">Opzava v2.1.4 available</span>
+                      </div>
+                      <p class="u-muted" style="font-size:var(--text-sm);">New features: improved cost tracking, SSE stability improvements.</p>
+                    </div>
+                    <div class="u-col" style="align-items:flex-end;gap:var(--space-2);flex:none;">
+                      <span class="alert-time u-subtle" style="font-size:var(--text-xs);">10:20:00</span>
+                      <button type="button" class="btn btn-ghost btn-sm">Update</button>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </section>
+
+          </div>
+
+          <!-- ── Health endpoints table ──────────────────────────────── -->
+          <section aria-labelledby="endpoints-heading">
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="endpoints-heading">Health endpoints</h2>
+                <span class="u-subtle" style="font-size:var(--text-xs);">Polled every 30s</span>
+              </div>
+              <div style="overflow-x:auto;">
+                <table class="table" aria-label="Health endpoint status">
+                  <caption class="u-sr-only">Health endpoint status — last checked 10:42:08</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Endpoint</th>
+                      <th scope="col">Status</th>
+                      <th scope="col" class="num">Latency (ms)</th>
+                      <th scope="col">Last checked</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code style="font-size:var(--text-sm);color:var(--fg-muted);">/api/health</code></td>
+                      <td>
+                        <span class="u-row" aria-label="Status: OK">
+                          <span class="dot dot-success" aria-hidden="true"></span>
+                          OK
+                        </span>
+                      </td>
+                      <td class="num u-tnum">42</td>
+                      <td class="u-subtle u-mono" style="font-size:var(--text-xs);">10:42:08</td>
+                    </tr>
+                    <tr>
+                      <td><code style="font-size:var(--text-sm);color:var(--fg-muted);">/api/gateways/health</code></td>
+                      <td>
+                        <span class="u-row" aria-label="Status: OK">
+                          <span class="dot dot-success" aria-hidden="true"></span>
+                          OK
+                        </span>
+                      </td>
+                      <td class="num u-tnum">38</td>
+                      <td class="u-subtle u-mono" style="font-size:var(--text-xs);">10:42:07</td>
+                    </tr>
+                    <!-- Warning row: slightly elevated background -->
+                    <tr style="background:var(--warning-soft);">
+                      <td><code style="font-size:var(--text-sm);color:var(--fg-muted);">/api/memory/health</code></td>
+                      <td>
+                        <span class="u-row" aria-label="Status: Slow">
+                          <span class="dot dot-warning" aria-hidden="true"></span>
+                          <span style="color:var(--warning);">Slow</span>
+                        </span>
+                      </td>
+                      <td class="num u-tnum" style="color:var(--warning);">380</td>
+                      <td class="u-subtle u-mono" style="font-size:var(--text-xs);">10:42:06</td>
+                    </tr>
+                    <tr>
+                      <td><code style="font-size:var(--text-sm);color:var(--fg-muted);">/api/status</code></td>
+                      <td>
+                        <span class="u-row" aria-label="Status: OK">
+                          <span class="dot dot-success" aria-hidden="true"></span>
+                          OK
+                        </span>
+                      </td>
+                      <td class="num u-tnum">55</td>
+                      <td class="u-subtle u-mono" style="font-size:var(--text-xs);">10:42:08</td>
+                    </tr>
+                    <tr>
+                      <td><code style="font-size:var(--text-sm);color:var(--fg-muted);">/api/agents/health</code></td>
+                      <td>
+                        <span class="u-row" aria-label="Status: OK">
+                          <span class="dot dot-success" aria-hidden="true"></span>
+                          OK
+                        </span>
+                      </td>
+                      <td class="num u-tnum">61</td>
+                      <td class="u-subtle u-mono" style="font-size:var(--text-xs);">10:42:08</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── System log — collapsible ─────────────────────────────── -->
+          <section aria-labelledby="syslog-heading">
+            <div class="card">
+              <details>
+                <summary style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-4) var(--space-5);cursor:pointer;list-style:none;user-select:none;" aria-controls="syslog-body">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle);transition:transform var(--dur-fast);">
+                    <path d="M4 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <h2 class="card-title" id="syslog-heading" style="font-size:var(--text-base);">System log</h2>
+                  <span class="u-subtle" style="font-size:var(--text-xs);margin-left:var(--space-1);">last 50 events</span>
+                  <span class="badge" style="margin-left:auto;">50 entries</span>
+                </summary>
+
+                <div id="syslog-body">
+                  <hr style="margin:0;">
+                  <div class="log-area" role="log" aria-label="System log — historical events" aria-live="off">
+                    <div class="log-line">
+                      <span class="log-ts">10:42:08</span>
+                      <span class="log-level-ok">[INFO ]</span>
+                      <span>Health poll completed — 4/5 OK, 1 slow</span>
+                    </div>
+                    <div class="log-line">
+                      <span class="log-ts">10:42:06</span>
+                      <span class="log-level-warn">[WARN ]</span>
+                      <span>memory-store: p95=380ms exceeds threshold=100ms</span>
+                    </div>
+                    <div class="log-line">
+                      <span class="log-ts">10:41:55</span>
+                      <span class="log-level-ok">[INFO ]</span>
+                      <span>agent:Iris heartbeat received — status=idle</span>
+                    </div>
+                    <div class="log-line">
+                      <span class="log-ts">10:41:44</span>
+                      <span class="log-level-warn">[WARN ]</span>
+                      <span>sse: reconnected after 3s gap (client: 192.168.1.12)</span>
+                    </div>
+                    <div class="log-line">
+                      <span class="log-ts">10:41:20</span>
+                      <span class="log-level-error">[ERROR]</span>
+                      <span>agent:Echo gateway timeout — retries exhausted after 3 attempts</span>
+                    </div>
+                    <div class="log-line">
+                      <span class="log-ts">10:40:58</span>
+                      <span class="log-level-ok">[INFO ]</span>
+                      <span>agent:Atlas-7 approval requested — task:run-deploy-script</span>
+                    </div>
+                    <div class="log-line">
+                      <span class="log-ts">10:40:44</span>
+                      <span class="log-level-ok">[INFO ]</span>
+                      <span>cost-checkpoint: $14.20 / $50.00 (28.4% of daily budget)</span>
+                    </div>
+                    <div class="log-line">
+                      <span class="log-ts">10:38:00</span>
+                      <span class="log-level-warn">[WARN ]</span>
+                      <span>budget-alert: daily spend reached 80% threshold</span>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+<!-- Toast stack — persistent warning for Echo offline -->
+<div class="toast-stack" aria-label="System notifications">
+  <div class="toast toast-danger" role="alert">
+    <div class="u-col-2 u-grow">
+      <div class="u-row">
+        <span class="dot dot-danger" aria-hidden="true"></span>
+        <span class="toast-title">Agent offline — Echo</span>
+        <button type="button" class="btn btn-ghost btn-icon btn-sm u-right" aria-label="Dismiss notification" style="height:24px;width:24px;padding:0;">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <p class="toast-msg">Gateway timeout at 10:41:20 after 3 retries.</p>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

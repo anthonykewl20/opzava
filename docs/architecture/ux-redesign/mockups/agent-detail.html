@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Atlas-7 — Agent Detail — Opzava</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <style>
+    /* Page-specific layout only — no color, font-size, shadow, or radius overrides */
+    .agent-hero {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-5);
+      flex-wrap: wrap;
+    }
+    .agent-avatar {
+      width: 52px;
+      height: 52px;
+      border-radius: var(--radius-lg);
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: var(--fw-semibold);
+      color: var(--accent);
+      flex: none;
+    }
+    .agent-identity {
+      flex: 1;
+      min-width: 0;
+    }
+    .agent-meta-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+      margin-top: var(--space-4);
+      padding-top: var(--space-4);
+      border-top: 1px solid var(--border);
+    }
+    .agent-stat-pair {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .agent-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      flex: none;
+      margin-left: auto;
+    }
+    .tabs-section {
+      margin-top: var(--space-5);
+    }
+    .tab-panel {
+      margin-top: var(--space-5);
+    }
+    .overview-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-4);
+    }
+    .overview-grid-full {
+      grid-column: 1 / -1;
+    }
+    .run-table-wrap {
+      overflow: hidden;
+    }
+    .notif-btn-wrap {
+      position: relative;
+    }
+    .notif-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: var(--radius-full);
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      font-weight: var(--fw-semibold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .header-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--surface-3);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      flex: none;
+      cursor: pointer;
+      font-weight: var(--fw-semibold);
+    }
+    .nav-section-gap {
+      margin-top: var(--space-2);
+    }
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+    }
+    .disclosure-summary {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      cursor: pointer;
+      list-style: none;
+      padding: var(--space-4) var(--space-5);
+      border-radius: var(--radius-md);
+    }
+    .disclosure-summary::-webkit-details-marker { display: none; }
+    .disclosure-summary::marker { display: none; }
+    .disclosure-chevron {
+      width: 16px;
+      height: 16px;
+      flex: none;
+      color: var(--fg-subtle);
+      transition: transform var(--dur-fast);
+    }
+    details[open] .disclosure-chevron {
+      transform: rotate(90deg);
+    }
+    .disclosure-body {
+      padding: 0 var(--space-5) var(--space-5);
+    }
+    .adv-config-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-4);
+    }
+    .task-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      min-height: 44px;
+      padding: var(--space-3) var(--space-5);
+      border-bottom: 1px solid var(--border);
+    }
+    .task-item:last-child {
+      border-bottom: 0;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       NAVIGATION RAIL — verbatim from shell-overview.html,
+       with Agents set active and Overview cleared
+  ══════════════════════════════════════════════════════════════════ -->
+  <aside class="rail" aria-label="Main navigation">
+
+    <!-- Logo / wordmark -->
+    <div class="rail-head">
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
+        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
+      </svg>
+      <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);letter-spacing:-.01em;">Opzava</span>
+      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
+    </div>
+
+    <!-- Nav groups -->
+    <nav class="rail-nav" aria-label="Application sections">
+      <a href="orchestrator-chat.html" class="rail-item" style="margin-bottom:4px;">
+        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
+        Ask Opzava
+        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
+      </a>
+      <div class="section-label">Operate</div>
+      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
+      <a href="agent-detail.html" class="rail-item" aria-current="page"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
+      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
+      <a href="messages-slack.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
+      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
+      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
+      <div class="section-label nav-section-gap">Observe</div>
+      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
+      <a href="#" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
+      <a href="#" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
+      <div class="section-label nav-section-gap">Govern</div>
+      <a href="notifications-alerts.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
+      <a href="settings.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
+      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+    </nav>
+
+    <!-- Rail footer: ⌘K quick jump -->
+    <div class="rail-foot">
+      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (⌘K)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-subtle u-grow">Jump to…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIN COLUMN
+  ══════════════════════════════════════════════════════════════════ -->
+  <div class="main-col">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="header">
+
+      <!-- Sidebar collapse -->
+      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <!-- Breadcrumb / search -->
+      <div class="search" role="search">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-grow u-subtle">Search agents, tasks, runs…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </div>
+
+      <!-- Spacer -->
+      <div class="u-grow"></div>
+
+      <!-- Health pill -->
+      <div class="health-pill" aria-label="System health: All systems healthy">
+        <span class="dot dot-success" aria-hidden="true"></span>
+        All systems healthy
+      </div>
+
+      <!-- Live indicator -->
+      <div class="live-indicator" aria-label="Live connection active">
+        <span class="dot dot-success live" aria-hidden="true"></span>
+        <span>Live</span>
+      </div>
+
+      <!-- Notifications -->
+      <div class="notif-btn-wrap">
+        <button type="button" class="btn btn-ghost btn-icon" aria-label="Notifications, 2 unread">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </button>
+        <span class="notif-badge" aria-hidden="true">2</span>
+        <span class="u-sr-only">2 unread notifications</span>
+      </div>
+
+      <!-- Avatar -->
+      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu — Anthony G.">AG</div>
+
+    </header>
+
+    <!-- ── Main content ────────────────────────────────────────── -->
+    <main class="main">
+      <div class="page">
+
+        <!-- ── Agent page header ───────────────────────────────── -->
+        <div class="card" style="margin-bottom:var(--space-5);">
+          <div class="card-body">
+
+            <!-- Back crumb -->
+            <div style="margin-bottom:var(--space-4);">
+              <a href="shell-overview.html" class="u-subtle" style="font-size:var(--text-xs);text-decoration:none;display:inline-flex;align-items:center;gap:var(--space-1);">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path d="M7.5 2.5L4 6l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Agents
+              </a>
+            </div>
+
+            <!-- Hero row: avatar + identity + actions -->
+            <div class="agent-hero">
+
+              <!-- Avatar -->
+              <div class="agent-avatar" aria-hidden="true" style="font-size:var(--text-base);">A7</div>
+
+              <!-- Identity -->
+              <div class="agent-identity">
+                <div class="u-row u-wrap" style="gap:var(--space-3);">
+                  <h1 style="font-size:var(--text-xl);">Atlas-7</h1>
+                  <span class="badge badge-success">
+                    <span class="dot dot-success" aria-hidden="true"></span>
+                    Running
+                  </span>
+                  <span class="badge">Content dept</span>
+                </div>
+                <p class="u-muted" style="margin-top:var(--space-1);font-size:var(--text-sm);">
+                  Senior content research &amp; drafting agent — claude-opus-4 · MCP enabled
+                </p>
+              </div>
+
+              <!-- Primary actions -->
+              <div class="agent-actions">
+                <button type="button" class="btn btn-ghost">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <rect x="3" y="3" width="4" height="10" rx="1" fill="currentColor" opacity=".8"/>
+                    <rect x="9" y="3" width="4" height="10" rx="1" fill="currentColor" opacity=".8"/>
+                  </svg>
+                  Pause
+                </button>
+                <button type="button" class="btn btn-primary">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  </svg>
+                  Assign task
+                </button>
+              </div>
+
+            </div>
+
+            <!-- Inline key stats row -->
+            <div class="agent-meta-row">
+
+              <div class="agent-stat-pair">
+                <span class="u-caps">Tasks running</span>
+                <span style="font-weight:var(--fw-semibold);font-variant-numeric:tabular-nums;">2</span>
+              </div>
+
+              <div style="width:1px;height:28px;background:var(--border);flex:none;" aria-hidden="true"></div>
+
+              <div class="agent-stat-pair">
+                <span class="u-caps">Cost today</span>
+                <span class="u-mono" style="font-weight:var(--fw-semibold);">$1.42</span>
+              </div>
+
+              <div style="width:1px;height:28px;background:var(--border);flex:none;" aria-hidden="true"></div>
+
+              <div class="agent-stat-pair">
+                <span class="u-caps">Uptime</span>
+                <span style="font-weight:var(--fw-semibold);">2h 14m</span>
+              </div>
+
+              <div style="width:1px;height:28px;background:var(--border);flex:none;" aria-hidden="true"></div>
+
+              <div class="agent-stat-pair">
+                <span class="u-caps">Last seen</span>
+                <span class="u-muted" style="font-size:var(--text-sm);">10:42:01</span>
+              </div>
+
+              <div class="u-grow"></div>
+
+              <span class="u-subtle" style="font-size:var(--text-xs);">ID: agent_atlas7_c8f2a</span>
+
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ── Tab bar ─────────────────────────────────────────── -->
+        <div class="tabs-section">
+          <div class="tabs" role="tablist" aria-label="Agent sections">
+            <button type="button" class="tab active" role="tab" id="tab-overview" aria-selected="true" aria-controls="panel-overview">
+              Overview
+            </button>
+            <button type="button" class="tab" role="tab" id="tab-activity" aria-selected="false" aria-controls="panel-activity" tabindex="-1">
+              Activity
+            </button>
+            <button type="button" class="tab" role="tab" id="tab-tasks" aria-selected="false" aria-controls="panel-tasks" tabindex="-1">
+              Tasks
+            </button>
+            <button type="button" class="tab" role="tab" id="tab-memory" aria-selected="false" aria-controls="panel-memory" tabindex="-1">
+              Memory
+            </button>
+            <button type="button" class="tab" role="tab" id="tab-settings" aria-selected="false" aria-controls="panel-settings" tabindex="-1">
+              Settings
+            </button>
+          </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════
+             OVERVIEW TAB PANEL (active)
+        ═══════════════════════════════════════════════════════ -->
+        <div class="tab-panel" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
+          <div class="overview-grid">
+
+            <!-- ── Card 1: Current task with progress ─────────── -->
+            <section aria-labelledby="current-task-heading">
+              <div class="card" style="height:100%;">
+                <div class="card-header">
+                  <h2 class="card-title" id="current-task-heading">Current task</h2>
+                  <span class="badge badge-accent">
+                    <span class="dot dot-accent" aria-hidden="true"></span>
+                    In progress
+                  </span>
+                </div>
+                <div class="card-body u-col-4">
+
+                  <!-- Task title + meta -->
+                  <div>
+                    <p style="font-weight:var(--fw-semibold);">Summarize Q2 earnings for board deck</p>
+                    <p class="u-muted" style="font-size:var(--text-sm);margin-top:var(--space-1);">
+                      #TASK-441 · Due 25 Jun 2026
+                    </p>
+                  </div>
+
+                  <!-- Progress bar + label -->
+                  <div>
+                    <div class="u-between" style="margin-bottom:var(--space-2);">
+                      <span class="u-subtle" style="font-size:var(--text-xs);">Step 3 of 5 — Drafting summary</span>
+                      <span class="u-mono u-muted" style="font-size:var(--text-xs);">60%</span>
+                    </div>
+                    <div class="progress" role="progressbar" aria-valuenow="60" aria-valuemin="0" aria-valuemax="100" aria-label="Task progress: 60%">
+                      <i style="width:60%;"></i>
+                    </div>
+                  </div>
+
+                  <!-- Second active task -->
+                  <hr style="margin:0;">
+
+                  <div>
+                    <p style="font-weight:var(--fw-semibold);font-size:var(--text-sm);">Draft LinkedIn post series — Q2 results</p>
+                    <p class="u-muted" style="font-size:var(--text-xs);margin-top:var(--space-1);">
+                      #TASK-447 · Due 26 Jun 2026
+                    </p>
+                  </div>
+                  <div>
+                    <div class="u-between" style="margin-bottom:var(--space-2);">
+                      <span class="u-subtle" style="font-size:var(--text-xs);">Step 1 of 4 — Research</span>
+                      <span class="u-mono u-muted" style="font-size:var(--text-xs);">18%</span>
+                    </div>
+                    <div class="progress" role="progressbar" aria-valuenow="18" aria-valuemin="0" aria-valuemax="100" aria-label="Task progress: 18%">
+                      <i style="width:18%;"></i>
+                    </div>
+                  </div>
+
+                  <!-- Link to full task board -->
+                  <a href="task-board.html" style="font-size:var(--text-sm);display:inline-flex;align-items:center;gap:var(--space-1);">
+                    View all in Task Board
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                      <path d="M2.5 6h7M6 2.5l3.5 3.5L6 9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </a>
+
+                </div>
+              </div>
+            </section>
+
+            <!-- ── Card 2: Today's stats ───────────────────────── -->
+            <section aria-labelledby="todays-stats-heading">
+              <div class="card" style="height:100%;">
+                <div class="card-header">
+                  <h2 class="card-title" id="todays-stats-heading">Today's stats</h2>
+                  <span class="u-subtle" style="font-size:var(--text-xs);">Mon 23 Jun</span>
+                </div>
+                <div class="card-body">
+
+                  <div class="stat-grid" style="grid-template-columns:1fr 1fr;">
+
+                    <div class="stat" style="border:0;padding:var(--space-3) 0;border-radius:0;border-bottom:1px solid var(--border);">
+                      <div class="stat-label">Tasks completed</div>
+                      <div class="stat-value" style="font-size:var(--text-2xl);">4</div>
+                      <div class="stat-delta up" aria-label="Up 2 versus yesterday">
+                        <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M5 8V2M2 5l3-3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        +2 vs yesterday
+                      </div>
+                    </div>
+
+                    <div class="stat" style="border:0;padding:var(--space-3) 0 var(--space-3) var(--space-4);border-radius:0;border-bottom:1px solid var(--border);border-left:1px solid var(--border);">
+                      <div class="stat-label">Tool calls</div>
+                      <div class="stat-value" style="font-size:var(--text-2xl);">23</div>
+                      <div class="stat-delta u-subtle" aria-label="No change versus yesterday">— stable</div>
+                    </div>
+
+                    <div class="stat" style="border:0;padding:var(--space-3) 0 0;border-radius:0;">
+                      <div class="stat-label">Cost today</div>
+                      <div class="stat-value u-mono" style="font-size:var(--text-2xl);">$1.42</div>
+                      <div class="stat-delta down" aria-label="Down 12% versus 7-day average">
+                        <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M5 2v6M2 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        −12% vs 7d avg
+                      </div>
+                    </div>
+
+                    <div class="stat" style="border:0;padding:var(--space-3) 0 0 var(--space-4);border-radius:0;border-left:1px solid var(--border);">
+                      <div class="stat-label">Tokens used</div>
+                      <div class="stat-value u-mono" style="font-size:var(--text-2xl);">84k</div>
+                      <div class="stat-delta u-subtle" aria-label="Roughly consistent with daily average">≈ daily avg</div>
+                    </div>
+
+                  </div>
+
+                  <div style="margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--border);">
+                    <div class="u-between">
+                      <span class="u-muted" style="font-size:var(--text-sm);">Weekly spend</span>
+                      <span class="u-mono" style="font-weight:var(--fw-semibold);">$9.80</span>
+                    </div>
+                    <a href="#" style="font-size:var(--text-sm);margin-top:var(--space-2);display:inline-flex;align-items:center;gap:var(--space-1);">
+                      View cost breakdown
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                        <path d="M2.5 6h7M6 2.5l3.5 3.5L6 9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </a>
+                  </div>
+
+                </div>
+              </div>
+            </section>
+
+            <!-- ── Card 3: Recent runs table (full width) ──────── -->
+            <section class="overview-grid-full" aria-labelledby="recent-runs-heading">
+              <div class="card">
+                <div class="card-header">
+                  <h2 class="card-title" id="recent-runs-heading">Recent runs</h2>
+                  <div class="u-row">
+                    <span class="u-subtle" style="font-size:var(--text-xs);">Last 10 executions</span>
+                    <button type="button" class="btn btn-ghost btn-sm">View all</button>
+                  </div>
+                </div>
+                <div class="run-table-wrap">
+                  <table class="table table-compact" aria-label="Recent agent task runs">
+                    <caption class="u-sr-only">Recent runs for Atlas-7</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Task</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Model</th>
+                        <th scope="col" class="num">Duration</th>
+                        <th scope="col" class="num">Cost</th>
+                        <th scope="col" class="num">Finished</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>
+                          <a href="#" class="u-truncate" style="max-width:260px;display:block;">
+                            Summarize Q2 earnings report for board deck
+                          </a>
+                        </td>
+                        <td>
+                          <span class="badge badge-accent">
+                            <span class="dot dot-accent" aria-hidden="true"></span>
+                            Running
+                          </span>
+                        </td>
+                        <td class="u-mono u-subtle" style="font-size:var(--text-xs);">claude-opus-4</td>
+                        <td class="num u-mono">14m 32s</td>
+                        <td class="num u-mono">$0.68</td>
+                        <td class="num u-subtle" style="font-size:var(--text-xs);">—</td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <a href="#" class="u-truncate" style="max-width:260px;display:block;">
+                            Draft partner outreach email — Venture Labs
+                          </a>
+                        </td>
+                        <td>
+                          <span class="badge badge-success">
+                            <span class="dot dot-success" aria-hidden="true"></span>
+                            Completed
+                          </span>
+                        </td>
+                        <td class="u-mono u-subtle" style="font-size:var(--text-xs);">claude-opus-4</td>
+                        <td class="num u-mono">4m 11s</td>
+                        <td class="num u-mono">$0.19</td>
+                        <td class="num u-subtle" style="font-size:var(--text-xs);">10:30</td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <a href="#" class="u-truncate" style="max-width:260px;display:block;">
+                            Research AI competitive landscape 2026
+                          </a>
+                        </td>
+                        <td>
+                          <span class="badge badge-success">
+                            <span class="dot dot-success" aria-hidden="true"></span>
+                            Completed
+                          </span>
+                        </td>
+                        <td class="u-mono u-subtle" style="font-size:var(--text-xs);">claude-opus-4</td>
+                        <td class="num u-mono">8m 47s</td>
+                        <td class="num u-mono">$0.31</td>
+                        <td class="num u-subtle" style="font-size:var(--text-xs);">09:58</td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <a href="#" class="u-truncate" style="max-width:260px;display:block;">
+                            Generate blog post — Q1 product updates
+                          </a>
+                        </td>
+                        <td>
+                          <span class="badge badge-warning">
+                            <span class="dot dot-warning" aria-hidden="true"></span>
+                            Approval needed
+                          </span>
+                        </td>
+                        <td class="u-mono u-subtle" style="font-size:var(--text-xs);">claude-opus-4</td>
+                        <td class="num u-mono">6m 02s</td>
+                        <td class="num u-mono">$0.24</td>
+                        <td class="num u-subtle" style="font-size:var(--text-xs);">09:21</td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <a href="#" class="u-truncate" style="max-width:260px;display:block;">
+                            Proofread and edit investor memo
+                          </a>
+                        </td>
+                        <td>
+                          <span class="badge">
+                            <span class="dot" aria-hidden="true" style="background:var(--danger);"></span>
+                            Failed
+                          </span>
+                        </td>
+                        <td class="u-mono u-subtle" style="font-size:var(--text-xs);">claude-opus-4</td>
+                        <td class="num u-mono">1m 38s</td>
+                        <td class="num u-mono">$0.07</td>
+                        <td class="num u-subtle" style="font-size:var(--text-xs);">Yesterday</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Skeleton loading state (demo — hidden by default) -->
+                <div aria-label="Loading runs" style="display:none;" class="card-body">
+                  <div class="skeleton sk-line" style="width:100%"></div>
+                  <div class="skeleton sk-line" style="width:88%"></div>
+                  <div class="skeleton sk-line" style="width:94%"></div>
+                </div>
+
+                <!-- Empty state (demo — hidden by default) -->
+                <div style="display:none;" class="empty" aria-label="No runs yet">
+                  <div class="empty-icon" aria-hidden="true">▷</div>
+                  <p class="empty-title">No runs yet</p>
+                  <p class="empty-desc">Assign this agent a task to see execution history here.</p>
+                  <div class="empty-cta">
+                    <button type="button" class="btn btn-primary">Assign task</button>
+                  </div>
+                </div>
+
+              </div>
+            </section>
+
+            <!-- ── Advanced configuration (collapsed disclosure) ── -->
+            <section class="overview-grid-full" aria-labelledby="adv-config-heading">
+              <details>
+                <summary class="disclosure-summary" style="border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);">
+                  <svg class="disclosure-chevron" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span id="adv-config-heading" style="font-weight:var(--fw-semibold);">Advanced configuration</span>
+                  <span class="badge" style="margin-left:var(--space-2);">6 sections</span>
+                  <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">Model, tools, channels, schedule, files, prompts</span>
+                </summary>
+
+                <div class="disclosure-body" style="border:1px solid var(--border);border-top:0;border-radius:0 0 var(--radius-lg) var(--radius-lg);background:var(--surface);">
+
+                  <div class="adv-config-grid" style="margin-top:var(--space-4);">
+
+                    <!-- Model & Inference -->
+                    <div class="card">
+                      <div class="card-header">
+                        <h3 class="card-title">Model &amp; Inference</h3>
+                        <button type="button" class="btn btn-ghost btn-sm">Edit</button>
+                      </div>
+                      <div class="card-body u-col-2">
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">Model</span>
+                          <span class="u-mono" style="font-size:var(--text-sm);">claude-opus-4</span>
+                        </div>
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">Max tokens</span>
+                          <span class="u-mono" style="font-size:var(--text-sm);">8,192</span>
+                        </div>
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">Temperature</span>
+                          <span class="u-mono" style="font-size:var(--text-sm);">0.7</span>
+                        </div>
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">Extended thinking</span>
+                          <span class="badge badge-success" style="height:20px;">On</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Tools & Permissions -->
+                    <div class="card">
+                      <div class="card-header">
+                        <h3 class="card-title">Tools &amp; Permissions</h3>
+                        <button type="button" class="btn btn-ghost btn-sm">Edit</button>
+                      </div>
+                      <div class="card-body u-col-2">
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">MCP server</span>
+                          <span class="badge badge-success" style="height:20px;">Connected</span>
+                        </div>
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">Web search</span>
+                          <span class="badge badge-success" style="height:20px;">Enabled</span>
+                        </div>
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">File write</span>
+                          <span class="badge badge-warning" style="height:20px;">Approval needed</span>
+                        </div>
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">Code execution</span>
+                          <span class="badge" style="height:20px;">Disabled</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Channels -->
+                    <div class="card">
+                      <div class="card-header">
+                        <h3 class="card-title">Channels</h3>
+                        <button type="button" class="btn btn-ghost btn-sm">Edit</button>
+                      </div>
+                      <div class="card-body u-col-2">
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">Slack output</span>
+                          <span class="badge badge-success" style="height:20px;">#content-team</span>
+                        </div>
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">Email delivery</span>
+                          <span class="badge" style="height:20px;">Disabled</span>
+                        </div>
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">WordPress post</span>
+                          <span class="badge badge-warning" style="height:20px;">Draft only</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Schedule / Cron -->
+                    <div class="card">
+                      <div class="card-header">
+                        <h3 class="card-title">Schedule / Cron</h3>
+                        <button type="button" class="btn btn-ghost btn-sm">Edit</button>
+                      </div>
+                      <div class="card-body u-col-2">
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">Heartbeat</span>
+                          <span class="u-mono" style="font-size:var(--text-xs);">every 30s</span>
+                        </div>
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">Auto-restart</span>
+                          <span class="badge badge-success" style="height:20px;">Enabled</span>
+                        </div>
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">Daily digest</span>
+                          <span class="u-mono" style="font-size:var(--text-xs);">09:00 UTC</span>
+                        </div>
+                        <div class="u-between">
+                          <span class="u-muted" style="font-size:var(--text-sm);">Idle timeout</span>
+                          <span class="u-mono" style="font-size:var(--text-xs);">15 min</span>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  <div style="margin-top:var(--space-4);" class="u-row">
+                    <button type="button" class="btn btn-ghost btn-sm">View all config →</button>
+                    <button type="button" class="btn btn-ghost btn-sm u-muted">Export JSON</button>
+                  </div>
+
+                </div>
+              </details>
+            </section>
+
+          </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════
+             OTHER TAB PANELS (hidden — behind tabs)
+        ═══════════════════════════════════════════════════════ -->
+        <div id="panel-activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
+          <div class="tab-panel empty" aria-label="Activity panel not shown">
+            <div class="empty-icon" aria-hidden="true">▦</div>
+            <p class="empty-title">Activity log</p>
+            <p class="empty-desc">Full event history, tool calls, and SSE stream — shown when this tab is active.</p>
+          </div>
+        </div>
+
+        <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks" hidden>
+          <div class="tab-panel empty">
+            <div class="empty-icon" aria-hidden="true">☑</div>
+            <p class="empty-title">All tasks</p>
+            <p class="empty-desc">Complete task list with status filters, kanban link, and bulk actions.</p>
+          </div>
+        </div>
+
+        <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" hidden>
+          <div class="tab-panel empty">
+            <div class="empty-icon" aria-hidden="true">◈</div>
+            <p class="empty-title">Memory</p>
+            <p class="empty-desc">Persistent memory keys, embeddings, and context window for this agent.</p>
+          </div>
+        </div>
+
+        <div id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+          <div class="tab-panel empty">
+            <div class="empty-icon" aria-hidden="true">⚙</div>
+            <p class="empty-title">Agent settings</p>
+            <p class="empty-desc">Full configuration editor — all fields with labels and validation.</p>
+          </div>
+        </div>
+
+      </div><!-- /.page -->
+    </main>
+
+  </div><!-- /.main-col -->
+</div><!-- /.app -->
+
+<!-- ══════════════════════════════════════════════════════════════
+     Toast stack (demo — task completed notification)
+═══════════════════════════════════════════════════════════════ -->
+<div class="toast-stack" aria-label="Notifications">
+  <div class="toast toast-success" role="status">
+    <div class="u-col-2 u-grow">
+      <div class="u-row">
+        <span class="dot dot-success" aria-hidden="true"></span>
+        <span class="toast-title">Task completed</span>
+        <button type="button" class="btn btn-ghost btn-icon btn-sm u-right" aria-label="Dismiss notification" style="height:24px;width:24px;padding:0;">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <p class="toast-msg">"Draft partner outreach email" finished at 10:30.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Minimal tab keyboard navigation -->
+<script>
+  (function () {
+    const tablist = document.querySelector('[role="tablist"]');
+    if (!tablist) return;
+    const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
+
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        // Deactivate all
+        tabs.forEach(function (t) {
+          t.classList.remove('active');
+          t.setAttribute('aria-selected', 'false');
+          t.setAttribute('tabindex', '-1');
+          var panel = document.getElementById(t.getAttribute('aria-controls'));
+          if (panel) panel.hidden = true;
+        });
+        // Activate clicked
+        tab.classList.add('active');
+        tab.setAttribute('aria-selected', 'true');
+        tab.removeAttribute('tabindex');
+        var activePanel = document.getElementById(tab.getAttribute('aria-controls'));
+        if (activePanel) activePanel.hidden = false;
+        tab.focus();
+      });
+    });
+
+    tablist.addEventListener('keydown', function (e) {
+      var idx = tabs.indexOf(document.activeElement);
+      if (idx === -1) return;
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        tabs[(idx + 1) % tabs.length].focus();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        tabs[(idx + tabs.length - 1) % tabs.length].focus();
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        tabs[0].focus();
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        tabs[tabs.length - 1].focus();
+      }
+    });
+  })();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Discovery</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <style>
+    /* Calm "Discovery" idea board — the board is the page; AI + research are one click away. */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .bc-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-6) var(--space-6) var(--space-16); }
+    .ava { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* Header — one primary surface, one calm banner */
+    .disc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin: var(--space-5) 0 var(--space-3); }
+    .disc-title { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; }
+    .scope-note { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--fg); margin-bottom: var(--space-6); }
+    .scope-note .spark { color: var(--accent); flex: none; }
+
+    /* Board — full width, the workspace */
+    .ct-board { display: flex; gap: var(--space-4); align-items: flex-start; overflow-x: auto; padding-bottom: var(--space-3); }
+    .ct-board[hidden] { display: none; }   /* the inactive group view is truly hidden (attr alone is overridden by display:flex) */
+    .ct-col { flex: 0 0 264px; display: flex; flex-direction: column; gap: var(--space-3); }
+    .ct-col-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-1); }
+    .ct-col-label { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+    .ct-col-count { font-size: var(--text-xs); font-weight: var(--fw-medium); color: var(--fg-subtle); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 1px 8px; }
+
+    /* Idea card — a BRAINSTORMING note: the idea text is the hero (sticky-note model),
+       an affinity #tag groups it, and quiet converge (👍) + build-on (💬) sit in the foot. */
+    .idea { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); box-shadow: var(--shadow-sm); transition: box-shadow var(--dur-fast) var(--ease-standard); }
+    .idea:hover { box-shadow: var(--shadow-md); }
+    .idea-tag { align-self: flex-start; font-size: var(--text-xs); color: var(--fg-subtle); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 1px 9px; }
+    .idea-text { font-size: var(--text-md); font-weight: var(--fw-medium); color: var(--fg); line-height: var(--lh-snug); text-decoration: none; }    /* the idea = the content */
+    .idea-text:hover { color: var(--accent); text-decoration: underline; }
+    .idea-foot { display: flex; align-items: center; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border); }
+    .idea-author { font-size: var(--text-xs); color: var(--fg-muted); white-space: nowrap; }
+    .cons-chip { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--fg-muted); white-space: nowrap; }   /* quiet "✦ N agree" — the AI panel's consensus, surfaced on the card */
+    .idea-actions { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+    .vote { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; font: inherit; font-size: var(--text-xs); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); cursor: pointer; font-variant-numeric: tabular-nums; }
+    .vote.is-on { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: var(--fw-semibold); }
+    .build { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; font: inherit; font-size: var(--text-xs); color: var(--fg-muted); background: none; border: 1px solid var(--border); border-radius: var(--radius-full); cursor: pointer; }
+    .build:hover { background: var(--surface-2); color: var(--fg); }
+    .idea-decide { display: flex; align-items: center; gap: var(--space-2); }
+    .add-idea { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: var(--space-3); border: 1px dashed var(--border-strong); border-radius: var(--radius-md); background: none; color: var(--fg-subtle); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+    .add-idea:hover { background: var(--surface-2); color: var(--fg-muted); }
+
+    /* Group toggle — by Status (lifecycle) or by Themes (affinity-diagram view) */
+    .group-toggle { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-4); }
+    .gt-btn { height: 30px; padding: 0 var(--space-3); font: inherit; font-size: var(--text-sm); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer; }
+    .gt-btn.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-border); font-weight: var(--fw-medium); }
+    /* in the Themes view the column is the #tag, so the card shows its status as a small chip */
+    .status-chip { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-xs); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 1px 9px; }
+
+    /* Build-on — a tiny inline "add a related idea" thread, opened from 💬 (build on each other's thinking) */
+    .build-thread { display: none; flex-direction: column; gap: var(--space-2); margin-top: var(--space-1); padding-top: var(--space-3); border-top: 1px dashed var(--border); }
+    .build-thread.open { display: flex; }
+    .bt-reply { font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-snug); }
+    .bt-who { font-weight: var(--fw-semibold); color: var(--fg); margin-right: 5px; }
+    .bt-add { display: flex; align-items: center; gap: var(--space-2); }
+    .bt-add input { flex: 1; min-width: 0; height: 32px; padding: 0 var(--space-3); font: inherit; font-size: var(--text-sm); color: var(--fg); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-md); outline: none; }
+    .bt-add input:focus { border-color: var(--accent); background: var(--surface); }
+    .bt-add input::placeholder { color: var(--fg-subtle); }
+
+    /* Parked — collapsed to a chip (Tesler: absorb the low-utility state) */
+    .ct-col--parked { flex: 0 0 auto; }
+    .parked-head { display: inline-flex; align-items: center; gap: var(--space-2); height: 34px; padding: 0 var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--surface-2); color: var(--fg-muted); font: inherit; font-size: var(--text-sm); cursor: pointer; white-space: nowrap; }
+    .parked-head:hover { background: var(--surface-3); color: var(--fg); }
+    .parked-cards { display: none; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3); width: 264px; }
+    .ct-col--parked.open .parked-cards { display: flex; }
+    .ct-col--parked.open .parked-head .caret { transform: rotate(90deg); }
+    .parked-head .caret { transition: transform var(--dur-fast); }
+
+    /* Research & notes — a collapsed footer bar (progressive disclosure) */
+    .src-bar { display: flex; align-items: center; gap: var(--space-2); width: 100%; margin-top: var(--space-6); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--fg-muted); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+    .src-bar:hover { background: var(--surface-2); color: var(--fg); }
+    .src-bar .caret { margin-left: auto; transition: transform var(--dur-fast); }
+    .src-bar[aria-expanded="true"] .caret { transform: rotate(180deg); }
+    .src-panel { display: none; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
+    .src-panel.open { display: flex; }
+    .src-tile { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+    .src-fav { width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--surface-2); display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); color: var(--fg-muted); flex: none; }
+
+    /* ✦ Ask Atlas slide-over — hidden until invoked (AI available, not present) */
+    .ai-scrim { position: fixed; inset: 0; z-index: var(--z-modal); background: hsl(240 30% 8% / .4); display: none; justify-content: flex-end; }
+    .ai-scrim.open { display: flex; }
+    .ai-panel { width: 400px; max-width: 92vw; height: 100%; background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; }
+    .ai-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
+    .ai-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); }
+    .ai-bubble { padding: 10px var(--space-4); border-radius: var(--radius-lg); font-size: var(--text-sm); line-height: var(--lh-normal); }
+    .ai-bubble--you { background: var(--accent-soft); align-self: flex-end; max-width: 80%; }
+    .ai-bubble--atlas { background: var(--surface-2); border: 1px solid var(--border); }
+    .ai-card { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
+    .ai-card-row { display: flex; align-items: center; gap: var(--space-2); }
+    .ai-foot { padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: var(--space-3); }
+    .ai-tools { display: flex; gap: var(--space-2); }
+    .composer { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-2); }
+    .composer:focus-within { border-color: var(--accent); background: var(--surface); }
+    .composer input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font: inherit; font-size: var(--text-sm); color: var(--fg); padding: var(--space-2) 0; }
+    .composer input::placeholder { color: var(--fg-subtle); }
+
+    /* Mobile: board becomes a vertical stack; slide-over is full width */
+    @media (max-width: 640px) {
+      .topnav { display: none; }
+      .disc-head { flex-direction: column; }
+      .ct-board { flex-direction: column; }
+      .ct-col, .parked-cards { flex: 1 1 auto; width: 100%; }
+      .ai-panel { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bc">
+
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="#">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <button class="btn btn-primary" type="button"><span aria-hidden="true">＋</span> New project</button>
+      <button class="btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></button>
+      <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+    </header>
+
+    <main>
+      <div class="bc-wrap">
+
+        <!-- Breadcrumb -->
+        <a href="essential-project.html" class="u-row u-muted" style="text-decoration:none;font-size:var(--text-sm);display:inline-flex">
+          <span aria-hidden="true">←</span> Q2 Content Push
+        </a>
+
+        <!-- Header — board-level actions only (no Cards▾, no New-project-on-board) -->
+        <div class="disc-head">
+          <h1 class="disc-title">💡 Discovery</h1>
+          <div class="u-row" style="gap:var(--space-2)">
+            <button class="btn" type="button"><span aria-hidden="true">＋</span> Add an idea</button>
+            <button class="btn btn-primary" type="button" id="askAtlasBtn"><span aria-hidden="true">✦</span> Ask Atlas</button>
+          </div>
+        </div>
+
+        <!-- ONE calm banner -->
+        <div class="scope-note">
+          <span class="spark" aria-hidden="true">✦</span>
+          <span>This is where you and Atlas shape what's next on this project — capture ideas, gather research, decide, then <strong>connect the winner to a project</strong>.</span>
+        </div>
+
+        <!-- Group by Status (lifecycle) or Themes (affinity-diagram view) -->
+        <div class="group-toggle">
+          <span class="u-subtle" style="font-size:var(--text-sm)">Group by</span>
+          <button class="gt-btn active" id="gtStatus" type="button" aria-pressed="true">Status</button>
+          <button class="gt-btn" id="gtThemes" type="button" aria-pressed="false">Themes</button>
+        </div>
+
+        <!-- Board A — by STATUS (lifecycle) -->
+        <div class="ct-board" id="boardStatus" role="region" aria-label="Ideas by status">
+
+          <section class="ct-col" aria-label="New ideas">
+            <div class="ct-col-head"><h2 class="ct-col-label">New</h2><span class="ct-col-count">2</span></div>
+            <div class="idea">
+              <span class="idea-tag">#format</span>
+              <a href="essential-idea.html" class="idea-text">Add a “founder voice” memo to the newsletter</a>
+              <div class="idea-foot"><span class="idea-author">You · 3d</span><span class="idea-actions"><button class="vote" type="button" aria-label="Vote, 4">👍 <span>4</span></button><button class="build" type="button" aria-label="2 replies — build on this">💬 2</button></span></div>
+              <div class="build-thread">
+                <div class="bt-reply"><span class="bt-who">Maria</span>Could pair it with a short audio clip from the founder.</div>
+                <div class="bt-reply"><span class="bt-who"><span class="u-accent" aria-hidden="true">✦</span> Atlas</span>I can draft the first memo from the standup notes.</div>
+                <div class="bt-add"><input type="text" placeholder="Build on this idea…" aria-label="Build on this idea"><button class="btn btn-sm" type="button">Add</button></div>
+              </div>
+            </div>
+            <div class="idea">
+              <span class="idea-tag">#engagement</span>
+              <a href="essential-idea.html" class="idea-text">A monthly reader poll on next month’s theme</a>
+              <div class="idea-foot"><span class="idea-author"><span class="u-accent" aria-hidden="true">✦</span> Atlas · 2d</span><span class="idea-actions"><button class="vote" type="button" aria-label="Vote, 2">👍 <span>2</span></button><button class="build" type="button" aria-label="build on this">💬 0</button></span></div>
+              <div class="build-thread"><div class="bt-add"><input type="text" placeholder="Build on this idea…" aria-label="Build on this idea"><button class="btn btn-sm" type="button">Add</button></div></div>
+            </div>
+            <button class="add-idea" type="button"><span aria-hidden="true">＋</span> Add an idea</button>
+          </section>
+
+          <section class="ct-col" aria-label="Exploring">
+            <div class="ct-col-head"><h2 class="ct-col-label">Exploring</h2><span class="ct-col-count">2</span></div>
+            <div class="idea">
+              <span class="idea-tag">#format</span>
+              <a href="essential-idea.html" class="idea-text">Weekly founder AMA series</a>
+              <div class="idea-foot"><span class="idea-author">You · 5d</span><span class="cons-chip" title="3 assistants — consensus: recommend"><span class="u-accent" aria-hidden="true">✦</span> 3 agree</span><span class="idea-actions"><button class="vote is-on" type="button" aria-label="Voted, 6">👍 <span>6</span></button><button class="build" type="button" aria-label="5 replies — build on this">💬 5</button></span></div>
+              <div class="build-thread">
+                <div class="bt-reply"><span class="bt-who">Dev</span>Bi-weekly to start would lower the production load.</div>
+                <div class="bt-reply"><span class="bt-who"><span class="u-accent" aria-hidden="true">✦</span> Atlas</span>Agreed — I’ll line up 3 founders for the first run.</div>
+                <div class="bt-add"><input type="text" placeholder="Build on this idea…" aria-label="Build on this idea"><button class="btn btn-sm" type="button">Add</button></div>
+              </div>
+            </div>
+            <div class="idea">
+              <span class="idea-tag">#partnerships</span>
+              <a href="essential-idea.html" class="idea-text">Partner spotlight swap with a complementary brand</a>
+              <div class="idea-foot"><span class="idea-author"><span class="u-accent" aria-hidden="true">✦</span> Iris · 4d</span><span class="idea-actions"><button class="vote" type="button" aria-label="Vote, 3">👍 <span>3</span></button><button class="build" type="button" aria-label="1 reply — build on this">💬 1</button></span></div>
+              <div class="build-thread">
+                <div class="bt-reply"><span class="bt-who">You</span>Let’s shortlist 2–3 brands with a similar audience first.</div>
+                <div class="bt-add"><input type="text" placeholder="Build on this idea…" aria-label="Build on this idea"><button class="btn btn-sm" type="button">Add</button></div>
+              </div>
+            </div>
+            <button class="add-idea" type="button"><span aria-hidden="true">＋</span> Add an idea</button>
+          </section>
+
+          <section class="ct-col" aria-label="Decided">
+            <div class="ct-col-head"><h2 class="ct-col-label">Decided</h2><span class="ct-col-count">1</span></div>
+            <div class="idea">
+              <span class="idea-tag">#growth</span>
+              <a href="essential-idea.html" class="idea-text">Launch a referral program</a>
+              <div class="idea-foot"><span class="idea-author">Decided · 1d</span><span class="idea-actions"><span class="badge badge-success" style="height:22px"><span class="dot dot-success" aria-hidden="true"></span> Kept</span><button class="vote is-on" type="button" aria-label="Voted, 9">👍 <span>9</span></button></span></div>
+              <div class="idea-decide">
+                <a class="btn btn-primary btn-sm" href="essential-home.html" role="button">→ Connect to a project</a>
+                <a class="btn btn-ghost btn-sm" href="essential-todos.html" role="button">Turn into a to-do</a>
+              </div>
+            </div>
+          </section>
+
+          <section class="ct-col ct-col--parked" id="parkedCol" aria-label="Parked">
+            <button class="parked-head" type="button" id="parkedToggle" aria-expanded="false">
+              <span aria-hidden="true">💤</span> Parked <span class="ct-col-count">1</span> <span class="caret" aria-hidden="true">▸</span>
+            </button>
+            <div class="parked-cards">
+              <div class="idea" style="opacity:.78">
+                <span class="idea-tag">#print</span>
+                <a href="essential-idea.html" class="idea-text">A printed zine</a>
+                <div class="idea-foot"><span class="idea-author">Parked · cost too high</span><span class="idea-actions"><button class="vote" type="button" aria-label="Vote, 1">👍 <span>1</span></button></span></div>
+              </div>
+            </div>
+          </section>
+
+        </div><!-- /#boardStatus -->
+
+        <!-- Board B — by THEMES (affinity), hidden by default; the column IS the #tag -->
+        <div class="ct-board" id="boardThemes" role="region" aria-label="Ideas by theme" hidden>
+          <section class="ct-col" aria-label="format theme">
+            <div class="ct-col-head"><h2 class="ct-col-label">#format</h2><span class="ct-col-count">2</span></div>
+            <div class="idea">
+              <span class="status-chip">New</span>
+              <a href="essential-idea.html" class="idea-text">Add a “founder voice” memo to the newsletter</a>
+              <div class="idea-foot"><span class="idea-author">You · 3d</span><span class="idea-actions"><button class="vote" type="button" aria-label="Vote, 4">👍 <span>4</span></button></span></div>
+            </div>
+            <div class="idea">
+              <span class="status-chip">Exploring</span>
+              <a href="essential-idea.html" class="idea-text">Weekly founder AMA series</a>
+              <div class="idea-foot"><span class="idea-author">You · 5d</span><span class="idea-actions"><button class="vote is-on" type="button" aria-label="Voted, 6">👍 <span>6</span></button></span></div>
+            </div>
+          </section>
+          <section class="ct-col" aria-label="engagement theme">
+            <div class="ct-col-head"><h2 class="ct-col-label">#engagement</h2><span class="ct-col-count">1</span></div>
+            <div class="idea">
+              <span class="status-chip">New</span>
+              <a href="essential-idea.html" class="idea-text">A monthly reader poll on next month’s theme</a>
+              <div class="idea-foot"><span class="idea-author"><span class="u-accent" aria-hidden="true">✦</span> Atlas · 2d</span><span class="idea-actions"><button class="vote" type="button" aria-label="Vote, 2">👍 <span>2</span></button></span></div>
+            </div>
+          </section>
+          <section class="ct-col" aria-label="partnerships theme">
+            <div class="ct-col-head"><h2 class="ct-col-label">#partnerships</h2><span class="ct-col-count">1</span></div>
+            <div class="idea">
+              <span class="status-chip">Exploring</span>
+              <a href="essential-idea.html" class="idea-text">Partner spotlight swap with a complementary brand</a>
+              <div class="idea-foot"><span class="idea-author"><span class="u-accent" aria-hidden="true">✦</span> Iris · 4d</span><span class="idea-actions"><button class="vote" type="button" aria-label="Vote, 3">👍 <span>3</span></button></span></div>
+            </div>
+          </section>
+          <section class="ct-col" aria-label="growth theme">
+            <div class="ct-col-head"><h2 class="ct-col-label">#growth</h2><span class="ct-col-count">1</span></div>
+            <div class="idea">
+              <span class="status-chip"><span class="dot dot-success" aria-hidden="true"></span> Decided</span>
+              <a href="essential-idea.html" class="idea-text">Launch a referral program</a>
+              <div class="idea-foot"><span class="idea-author">Kept · 1d</span><span class="idea-actions"><button class="vote is-on" type="button" aria-label="Voted, 9">👍 <span>9</span></button></span></div>
+            </div>
+          </section>
+          <section class="ct-col" aria-label="print theme">
+            <div class="ct-col-head"><h2 class="ct-col-label">#print</h2><span class="ct-col-count">1</span></div>
+            <div class="idea" style="opacity:.78">
+              <span class="status-chip">Parked</span>
+              <a href="essential-idea.html" class="idea-text">A printed zine</a>
+              <div class="idea-foot"><span class="idea-author">cost too high</span><span class="idea-actions"><button class="vote" type="button" aria-label="Vote, 1">👍 <span>1</span></button></span></div>
+            </div>
+          </section>
+        </div><!-- /#boardThemes -->
+
+        <!-- Research & notes — collapsed footer bar -->
+        <button class="src-bar" type="button" id="srcToggle" aria-expanded="false" aria-controls="srcPanel">
+          <span aria-hidden="true">🔗</span> Research &amp; notes <span class="u-subtle">· 3</span>
+          <span class="caret" aria-hidden="true">▾</span>
+        </button>
+        <div class="src-panel" id="srcPanel">
+          <div class="src-tile"><span class="src-fav" aria-hidden="true">S</span><div class="u-grow"><strong style="font-size:var(--text-sm)">stripe.com</strong> <span class="u-muted" style="font-size:var(--text-sm)">— “Referral program benchmarks”</span></div><span class="u-subtle" style="font-size:var(--text-xs)">added by You</span></div>
+          <div class="src-tile"><span class="src-fav" aria-hidden="true">F</span><div class="u-grow"><strong style="font-size:var(--text-sm)">figma.com</strong> <span class="u-muted" style="font-size:var(--text-sm)">— newsletter layout explorations</span></div><span class="u-subtle" style="font-size:var(--text-xs)"><span class="u-accent">✦</span> Atlas</span></div>
+          <div class="src-tile"><span class="src-fav" aria-hidden="true">✎</span><div class="u-grow"><span class="u-muted" style="font-size:var(--text-sm)">Note: keep the zine idea parked until print costs drop.</span></div><span class="u-subtle" style="font-size:var(--text-xs)">added by You</span></div>
+          <button class="add-idea" type="button" style="border-radius:var(--radius-md)"><span aria-hidden="true">＋</span> Paste a link or write a note</button>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ✦ Ask Atlas slide-over (hidden until invoked) -->
+  <div class="ai-scrim" id="aiScrim" role="dialog" aria-modal="true" aria-label="Ask Atlas to brainstorm">
+    <aside class="ai-panel">
+      <div class="ai-head">
+        <span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-1)" aria-hidden="true">At</span>
+        <strong style="font-size:var(--text-sm)">Atlas</strong>
+        <span class="sb-badge sb-badge--accent">✦ AI</span>
+        <span class="u-grow"></span>
+        <button class="btn-icon btn-ghost" type="button" id="aiClose" aria-label="Close">✕</button>
+      </div>
+      <div class="ai-body">
+        <div class="ai-bubble ai-bubble--you">Give me 5 angles for the Q2 newsletter.</div>
+        <div class="ai-bubble ai-bubble--atlas">Here are a few — add the ones you like:</div>
+        <div class="ai-card">
+          <div><span class="u-accent" aria-hidden="true">✦</span> <strong style="font-size:var(--text-sm)">“Behind the build” diary</strong></div>
+          <div class="ai-card-row"><button class="btn btn-primary btn-sm" type="button">Add to board</button><button class="btn btn-ghost btn-sm" type="button">Dismiss</button></div>
+        </div>
+        <div class="ai-card">
+          <div><span class="u-accent" aria-hidden="true">✦</span> <strong style="font-size:var(--text-sm)">“5-minute reads” series</strong></div>
+          <div class="ai-card-row"><button class="btn btn-primary btn-sm" type="button">Add to board</button><button class="btn btn-ghost btn-sm" type="button">Dismiss</button></div>
+        </div>
+        <div class="u-subtle" style="font-size:var(--text-sm)">…3 more &nbsp; <a href="#" class="u-accent">Add all</a></div>
+      </div>
+      <div class="ai-foot">
+        <div class="ai-tools"><button class="btn btn-sm btn-ghost" type="button">Cluster these</button><button class="btn btn-sm btn-ghost" type="button">Summarize</button></div>
+        <div class="composer"><input type="text" placeholder="Ask Atlas to brainstorm…" aria-label="Ask Atlas to brainstorm"><button class="btn btn-primary btn-sm" type="button">Send</button></div>
+        <span class="u-subtle" style="font-size:var(--text-xs)">Atlas works on this project.</span>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    (function () {
+      var scrim = document.getElementById('aiScrim');
+      function openAi(){ scrim.classList.add('open'); }
+      function closeAi(){ scrim.classList.remove('open'); }
+      document.getElementById('askAtlasBtn').addEventListener('click', openAi);
+      document.getElementById('aiClose').addEventListener('click', closeAi);
+      scrim.addEventListener('click', function (e) { if (e.target === scrim) closeAi(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAi(); });
+
+      var srcBtn = document.getElementById('srcToggle'), srcPanel = document.getElementById('srcPanel');
+      srcBtn.addEventListener('click', function () {
+        var open = srcPanel.classList.toggle('open');
+        srcBtn.setAttribute('aria-expanded', String(open));
+      });
+
+      var parked = document.getElementById('parkedCol'), parkedBtn = document.getElementById('parkedToggle');
+      parkedBtn.addEventListener('click', function () {
+        var open = parked.classList.toggle('open');
+        parkedBtn.setAttribute('aria-expanded', String(open));
+      });
+
+      document.querySelectorAll('.vote').forEach(function (v) {
+        v.addEventListener('click', function () { v.classList.toggle('is-on'); });
+      });
+
+      // Group toggle: Status (lifecycle) <-> Themes (affinity)
+      var bStatus = document.getElementById('boardStatus'), bThemes = document.getElementById('boardThemes');
+      var gtS = document.getElementById('gtStatus'), gtT = document.getElementById('gtThemes');
+      function setGroup(themes) {
+        bStatus.hidden = themes; bThemes.hidden = !themes;
+        gtT.classList.toggle('active', themes); gtS.classList.toggle('active', !themes);
+        gtT.setAttribute('aria-pressed', String(themes)); gtS.setAttribute('aria-pressed', String(!themes));
+      }
+      gtS.addEventListener('click', function () { setGroup(false); });
+      gtT.addEventListener('click', function () { setGroup(true); });
+
+      // Build-on: toggle the inline "add a related idea" thread on a card
+      document.querySelectorAll('.build').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var card = b.closest('.idea'); if (!card) return;
+          var t = card.querySelector('.build-thread'); if (t) t.classList.toggle('open');
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
