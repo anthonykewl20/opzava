@@ -50,7 +50,16 @@ async function login(page: Page) {
   // navigation. (We're testing the task card render, not the login form / cookie
   // policy.) The server sets it SameSite=Strict, which Chrome withholds on a
   // script-initiated first navigation from about:blank.
-  const res = await page.request.post('/api/auth/login', { data: { username: USER, password: PASS } })
+  // loginLimiter is 5/min/IP and security-critical (so NOT bypassed by
+  // MC_DISABLE_RATE_LIMIT). Earlier specs share this window/IP — rate-limiting.spec.ts
+  // deliberately saturates it — so a legitimate login here can transiently 429 until
+  // the fixed 60s window rolls over. Retry past it (the window always clears).
+  let res = await page.request.post('/api/auth/login', { data: { username: USER, password: PASS } })
+  const loginDeadline = Date.now() + 75_000
+  while (res.status() === 429 && Date.now() < loginDeadline) {
+    await page.waitForTimeout(3_000)
+    res = await page.request.post('/api/auth/login', { data: { username: USER, password: PASS } })
+  }
   expect(res.status(), await res.text()).toBe(200)
   const sess = (await page.context().cookies()).find((c) => c.name === 'mc-session')
   expect(sess, 'no mc-session cookie after login').toBeTruthy()
