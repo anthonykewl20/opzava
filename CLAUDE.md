@@ -52,7 +52,7 @@ Path alias `@/*` → `./src/*`. New product code goes under `src/opzava/modules/
 ## Data & agent control
 
 - Data dir: `MISSION_CONTROL_DATA_DIR` (default `.data/`, gitignored); DB: `MISSION_CONTROL_DB_PATH` or `<data-dir>/mission-control.db`. (Env names inherited from upstream.)
-- Agent interfaces: **MCP** (`claude mcp add opzava -- node scripts/mc-mcp-server.cjs`; env `MC_URL`/`MC_API_KEY`), **CLI** (`pnpm mc ...`), **REST** (`openapi.json`, docs at `/docs`; Opzava surfaces under `/api/ops/*`, `/api/campaigns/*`, `/api/team/*`). See `docs/cli-agent-control.md`.
+- Agent interfaces: **MCP** (`claude mcp add opzava -- node /path/to/opzava/scripts/mc-mcp-server.cjs`; absolute path required — Claude runs this outside the repo; env `MC_URL`/`MC_API_KEY`), **CLI** (`pnpm mc ...`), **REST** (`openapi.json`, docs at `/docs`; Opzava surfaces under `/api/ops/*`, `/api/campaigns/*`, `/api/team/*`). See `docs/cli-agent-control.md`.
 
 ## Pitfalls
 
