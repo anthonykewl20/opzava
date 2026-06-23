@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Q2 Content Push</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <style>
+    /* Basecamp-style Essential: warm, calm, content-first, generous whitespace,
+       a TOP nav (not a dark sidebar), larger readable type. Layout-only here. */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .bc-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+    .ava { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+    .ava-row { display: flex; align-items: center; }
+    .ava-row .ava { margin-left: -8px; border: 2px solid var(--surface); }
+    .ava-row .ava:first-child { margin-left: 0; }
+    /* Project header band */
+    .proj-band { display: flex; align-items: flex-start; gap: var(--space-5); padding: var(--space-8) 0 var(--space-8); border-bottom: 1px solid var(--border); margin-bottom: var(--space-8); }
+    .proj-band-dot { width: 14px; height: 14px; border-radius: 50%; flex: none; margin-top: 7px; background: var(--chart-1); }
+    .proj-band-body { flex: 1 1 auto; min-width: 0; }
+    .proj-band-title { font-size: var(--text-2xl); font-weight: var(--fw-semibold); margin-bottom: var(--space-2); letter-spacing: -.02em; }
+    .proj-band-desc { font-size: var(--text-md); color: var(--fg-muted); margin-bottom: var(--space-5); }
+    .proj-band-meta { display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap; }
+    .proj-band-actions { display: flex; align-items: center; gap: var(--space-3); flex: none; padding-top: var(--space-1); }
+    /* Persona label under avatar */
+    .ava-person { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .ava-person span { font-size: var(--text-xs); color: var(--fg-muted); white-space: nowrap; }
+    .ava-team-row { display: flex; align-items: flex-end; gap: var(--space-4); }
+    /* Tool tiles grid */
+    .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(288px, 1fr)); gap: var(--space-5); margin-bottom: var(--space-8); }
+    .tile { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-6); text-decoration: none; color: inherit; transition: box-shadow var(--dur-fast) var(--ease-standard), transform var(--dur-fast) var(--ease-standard); }
+    .tile:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); text-decoration: none; }
+    .tile-glyph { font-size: 2rem; line-height: 1; }
+    .tile-name { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); text-decoration: none; }
+    .tile-name:hover { text-decoration: underline; color: var(--accent); }
+    .tile-preview { font-size: var(--text-sm); color: var(--fg-muted); line-height: var(--lh-snug); }
+    .tile-foot { display: flex; align-items: center; gap: var(--space-2); margin-top: auto; padding-top: var(--space-3); border-top: 1px solid var(--border); }
+    /* Activity feed */
+    .feed { display: flex; flex-direction: column; gap: 0; }
+    .feed-item { display: flex; align-items: baseline; gap: var(--space-4); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
+    .feed-item:last-child { border-bottom: 0; }
+    .feed-ava { width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; align-self: flex-start; margin-top: 2px; }
+    .feed-body { flex: 1 1 auto; min-width: 0; line-height: var(--lh-normal); }
+    .feed-time { font-size: var(--text-xs); color: var(--fg-subtle); white-space: nowrap; flex: none; align-self: flex-start; margin-top: 3px; }
+  </style>
+</head>
+<body>
+  <div class="bc">
+    <!-- Basecamp-style top bar: a few plain destinations, not a technical sidebar. -->
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="#">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <button class="btn btn-primary" type="button"><span aria-hidden="true">＋</span> New project</button>
+      <button class="btn btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></button>
+      <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+    </header>
+
+    <main>
+      <div class="bc-wrap">
+
+        <!-- ── Project header band ─────────────────────────────────────────── -->
+        <div class="proj-band">
+          <span class="proj-band-dot" aria-hidden="true"></span>
+          <div class="proj-band-body">
+            <div style="position:relative;display:inline-flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2)">
+              <h1 class="proj-band-title" style="margin-bottom:0">Q2 Content Push</h1>
+              <button class="btn btn-ghost btn-icon" id="projSwitchBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Switch to another project" aria-label="Switch project" style="height:34px;width:34px;font-size:var(--text-md)">▾</button>
+              <div class="sb-menu" id="projSwitchMenu" role="menu" aria-label="Switch project" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:var(--z-dropdown);min-width:300px">
+                <div style="padding:6px 8px 8px"><input class="input" type="text" placeholder="Find a project…" aria-label="Find a project" style="height:36px"></div>
+                <div class="sb-menu-label">Recent projects</div>
+                <a class="sb-menu-item" href="essential-project.html" role="menuitem"><span aria-hidden="true" style="width:9px;height:9px;border-radius:50%;background:var(--chart-1);display:inline-block"></span> Q2 Content Push <span class="sb-shortcut">current</span></a>
+                <a class="sb-menu-item" href="essential-card-table.html" role="menuitem"><span aria-hidden="true" style="width:9px;height:9px;border-radius:50%;background:var(--chart-2);display:inline-block"></span> Series B Outreach</a>
+                <a class="sb-menu-item" href="essential-project.html" role="menuitem"><span aria-hidden="true" style="width:9px;height:9px;border-radius:50%;background:var(--chart-4);display:inline-block"></span> Customer Support</a>
+                <a class="sb-menu-item" href="essential-project.html" role="menuitem"><span aria-hidden="true" style="width:9px;height:9px;border-radius:50%;background:var(--chart-5);display:inline-block"></span> Website Refresh</a>
+                <div class="sb-menu-sep"></div>
+                <a class="sb-menu-item" href="essential-home.html" role="menuitem"><span aria-hidden="true">▦</span> Browse all projects (Home)</a>
+              </div>
+            </div>
+            <p class="proj-band-desc">Blog posts, newsletters &amp; social content for the quarter — Atlas and Iris are handling the drafts.</p>
+            <div class="proj-band-meta">
+              <div class="ava-team-row" aria-label="People on this project">
+                <div class="ava-person">
+                  <span class="ava" style="background:var(--chart-1)" title="Atlas">At</span>
+                  <span>Atlas</span>
+                </div>
+                <div class="ava-person">
+                  <span class="ava" style="background:var(--chart-3)" title="Iris">Ir</span>
+                  <span>Iris</span>
+                </div>
+              </div>
+              <span class="badge badge-success"><span class="dot dot-success" aria-hidden="true"></span> 2 active</span>
+              <span class="u-subtle" style="font-size:var(--text-sm)">Updated 2 hours ago</span>
+            </div>
+          </div>
+          <div class="proj-band-actions">
+            <button class="btn btn-primary" type="button"><span aria-hidden="true">＋</span> New to-do</button>
+            <a class="btn btn-ghost" href="project-assistant.html" role="button"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask your assistant</a>
+          </div>
+        </div>
+
+        <!-- ── Tool tiles ──────────────────────────────────────────────────── -->
+        <div class="tool-grid">
+
+          <!-- To-dos -->
+          <div class="card tile">
+            <span class="tile-glyph" aria-hidden="true">✓</span>
+            <a href="essential-todos.html" class="tile-name">To-dos</a>
+            <p class="tile-preview">8 to-dos open · 3 due this week. Atlas is working through the newsletter checklist now.</p>
+            <div class="tile-foot">
+              <span class="badge badge-warning"><span class="dot dot-warning" aria-hidden="true"></span> 3 due soon</span>
+              <span class="u-grow"></span>
+              <span class="u-subtle" style="font-size:var(--text-xs)">8 open</span>
+            </div>
+          </div>
+
+          <!-- Board -->
+          <div class="card tile">
+            <span class="tile-glyph" aria-hidden="true">▦</span>
+            <a href="essential-card-table.html" class="tile-name">Board</a>
+            <p class="tile-preview">Triage 3 · In progress 2 · Ready to publish 1. Move cards as pieces get finished.</p>
+            <div class="tile-foot">
+              <span class="badge badge-info"><span class="dot dot-accent" aria-hidden="true"></span> In progress 2</span>
+              <span class="u-grow"></span>
+              <span class="u-subtle" style="font-size:var(--text-xs)">6 cards</span>
+            </div>
+          </div>
+
+          <!-- ✦ Ask your assistant (T2 — per-project AI). A distinct tile from the human Team. -->
+          <div class="card tile" style="border-top:2px solid var(--accent-border)">
+            <span class="tile-glyph" aria-hidden="true" style="color:var(--accent)">✦</span>
+            <a href="project-assistant.html" class="tile-name">Ask your assistant</a>
+            <p class="tile-preview">Atlas is your AI assistant on this project. Ask it to draft, schedule, or explain — and approve its work inline.</p>
+            <div class="tile-foot">
+              <span class="sb-badge sb-badge--accent">✦ Atlas</span>
+              <span class="u-grow"></span>
+              <span class="u-subtle" style="font-size:var(--text-xs)">working now</span>
+            </div>
+          </div>
+
+          <!-- Team (T3 — humans only). The people-to-people room, separate from the AI. -->
+          <div class="card tile">
+            <span class="tile-glyph" aria-hidden="true">💬</span>
+            <a href="essential-team-room.html" class="tile-name">Team</a>
+            <p class="tile-preview">Talk to the people on this project. Maria left a note about the social calendar — 2 new messages.</p>
+            <div class="tile-foot">
+              <span class="badge badge-accent"><span class="dot dot-accent" aria-hidden="true"></span> 2 new</span>
+              <span class="u-grow"></span>
+              <span class="u-subtle" style="font-size:var(--text-xs)">3 people</span>
+            </div>
+          </div>
+
+          <!-- Docs & Files -->
+          <div class="card tile">
+            <span class="tile-glyph" aria-hidden="true">📄</span>
+            <a href="#" class="tile-name">Docs &amp; Files</a>
+            <p class="tile-preview">12 files — brand guidelines, draft articles, social copy templates, and the editorial calendar.</p>
+            <div class="tile-foot">
+              <span class="badge"><span class="dot" aria-hidden="true"></span> Up to date</span>
+              <span class="u-grow"></span>
+              <span class="u-subtle" style="font-size:var(--text-xs)">12 files</span>
+            </div>
+          </div>
+
+          <!-- Schedule -->
+          <div class="card tile">
+            <span class="tile-glyph" aria-hidden="true">📅</span>
+            <a href="#" class="tile-name">Schedule</a>
+            <p class="tile-preview">Next up: June newsletter, due Friday. Then the end-of-quarter blog post on 28 June.</p>
+            <div class="tile-foot">
+              <span class="badge badge-warning"><span class="dot dot-warning" aria-hidden="true"></span> Due Fri</span>
+              <span class="u-grow"></span>
+              <span class="u-subtle" style="font-size:var(--text-xs)">4 upcoming</span>
+            </div>
+          </div>
+
+          <!-- Updates -->
+          <div class="card tile">
+            <span class="tile-glyph" aria-hidden="true">⌁</span>
+            <a href="#" class="tile-name">Updates</a>
+            <p class="tile-preview">Daily summary runs at 5:00 pm. Yesterday's: Atlas drafted 2 articles, Iris finished all social captions.</p>
+            <div class="tile-foot">
+              <span class="badge badge-success"><span class="dot dot-success" aria-hidden="true"></span> Running</span>
+              <span class="u-grow"></span>
+              <span class="u-subtle" style="font-size:var(--text-xs)">Daily · 5:00 pm</span>
+            </div>
+          </div>
+
+          <!-- Discovery — research & shape a new product/feature WITH AI, then "Connect to a project" (sits after Updates) -->
+          <div class="card tile" style="border-top:2px solid var(--accent-border)">
+            <span class="tile-glyph" aria-hidden="true">💡</span>
+            <a href="essential-discovery.html" class="tile-name">Discovery</a>
+            <p class="tile-preview">Research and shape a new feature or product with Atlas — capture ideas, gather research, vote, then <strong>connect it to a project</strong>.</p>
+            <div class="tile-foot">
+              <span class="sb-badge sb-badge--accent">✦ Atlas</span>
+              <span class="u-grow"></span>
+              <span class="u-subtle" style="font-size:var(--text-xs)">6 ideas</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ── Latest activity ─────────────────────────────────────────────── -->
+        <div class="card" style="margin-bottom:var(--space-8)">
+          <div class="card-header">
+            <span class="card-title">Latest activity</span>
+            <a href="#" class="u-accent" style="font-size:var(--text-sm);font-weight:var(--fw-medium)">See all</a>
+          </div>
+          <div class="feed">
+
+            <div class="feed-item">
+              <span class="feed-ava" style="background:var(--chart-1)" aria-hidden="true">At</span>
+              <div class="feed-body">
+                <strong>Atlas</strong> finished the first draft of the <a href="#">June newsletter</a> and moved it to "Ready to review."
+              </div>
+              <span class="feed-time">2h ago</span>
+            </div>
+
+            <div class="feed-item">
+              <span class="feed-ava" style="background:var(--chart-3)" aria-hidden="true">Ir</span>
+              <div class="feed-body">
+                <strong>Iris</strong> uploaded <a href="#">social-captions-week-26.txt</a> to Docs &amp; Files.
+              </div>
+              <span class="feed-time">3h ago</span>
+            </div>
+
+            <div class="feed-item">
+              <span class="feed-ava" style="background:var(--chart-3)" aria-hidden="true">Ir</span>
+              <div class="feed-body">
+                <strong>Iris</strong> posted a message: <a href="#">"Social calendar — heads up on timing"</a> on the Messages.
+              </div>
+              <span class="feed-time">4h ago</span>
+            </div>
+
+            <div class="feed-item">
+              <span class="feed-ava" style="background:var(--chart-1)" aria-hidden="true">At</span>
+              <div class="feed-body">
+                <strong>Atlas</strong> marked <a href="#">"Outline the end-of-quarter blog post"</a> as done.
+              </div>
+              <span class="feed-time">Yesterday</span>
+            </div>
+
+            <div class="feed-item">
+              <span class="feed-ava" style="background:var(--chart-1)" aria-hidden="true">At</span>
+              <div class="feed-body">
+                <strong>Atlas</strong> moved <a href="#">"Partner spotlight feature"</a> from Triage to In Progress on the Board.
+              </div>
+              <span class="feed-time">Yesterday</span>
+            </div>
+
+            <div class="feed-item">
+              <span class="feed-ava" style="background:var(--chart-3)" aria-hidden="true">Ir</span>
+              <div class="feed-body">
+                <strong>Iris</strong> completed the daily check-in: 2 captions written, 1 thread scheduled for Thursday.
+              </div>
+              <span class="feed-time">Yesterday · 5:01 pm</span>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+  <script>
+    (function () {
+      var btn = document.getElementById('projSwitchBtn'), menu = document.getElementById('projSwitchMenu');
+      if (!btn || !menu) return;
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var open = menu.style.display === 'block';
+        menu.style.display = open ? 'none' : 'block';
+        btn.setAttribute('aria-expanded', String(!open));
+      });
+      document.addEventListener('click', function () { menu.style.display = 'none'; btn.setAttribute('aria-expanded', 'false'); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { menu.style.display = 'none'; btn.setAttribute('aria-expanded', 'false'); } });
+    })();
+  </script>
+</body>
+</html>

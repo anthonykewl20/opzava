@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Idea · Weekly founder AMA series</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <style>
+    /* An IDEA opened — research/brainstorm detail. NOT a task card: no Quality Review,
+       no AI-Run terminal, no execution evidence. Just the idea, votes, build-on, research, decide. */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .bc-wrap { max-width: 760px; margin: 0 auto; padding: var(--space-6) var(--space-6) var(--space-16); }
+
+    .id-tags { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-5) 0 var(--space-3); }
+    .idea-tag { font-size: var(--text-xs); color: var(--fg-subtle); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 1px 9px; }
+    .status-chip { display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-xs); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 1px 9px; }
+    .id-title { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; line-height: var(--lh-tight); }
+    .id-meta { margin-top: var(--space-2); font-size: var(--text-sm); color: var(--fg-muted); }
+    .id-actions { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-4) 0 var(--space-5); flex-wrap: wrap; }
+    .vote { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 var(--space-4); font: inherit; font-size: var(--text-sm); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-md); cursor: pointer; font-variant-numeric: tabular-nums; }
+    .vote.is-on { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: var(--fw-medium); }
+
+    .id-desc { font-size: var(--text-md); color: var(--fg); line-height: var(--lh-normal); padding-bottom: var(--space-5); border-bottom: 1px solid var(--border); }
+    .id-sec { font-size: var(--text-md); font-weight: var(--fw-semibold); margin: var(--space-6) 0 var(--space-3); }
+
+    /* Build on it — a flat, one-level discussion (build on each other's thinking) */
+    .reply { display: flex; gap: var(--space-3); padding: var(--space-3) 0; }
+    .reply-body { flex: 1; min-width: 0; }
+    .reply-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: 3px; }
+    .reply-who { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+    .reply-time { font-size: var(--text-xs); color: var(--fg-subtle); }
+    .reply-text { font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-normal); }
+    .reply-composer { display: flex; align-items: flex-start; gap: var(--space-3); margin-top: var(--space-3); }
+    .reply-composer .textarea { min-height: 64px; }
+
+    /* Research & notes for this idea (paste a link) */
+    .src-tile { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); margin-bottom: var(--space-2); }
+    .src-fav { width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--surface-2); display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); color: var(--fg-muted); flex: none; }
+    .add-row { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: var(--space-3); border: 1px dashed var(--border-strong); border-radius: var(--radius-md); background: none; color: var(--fg-subtle); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+    .add-row:hover { background: var(--surface-2); color: var(--fg-muted); }
+
+    /* Decision hint — what converging unlocks (the hand-off) */
+    .decide-note { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-8); padding: var(--space-4) var(--space-5); background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--radius-md); font-size: var(--text-sm); }
+
+    /* Contributors — multiple people + multiple AI assistants on one idea */
+    .id-people { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-3) 0 var(--space-1); flex-wrap: wrap; }
+
+    /* AI Consensus — a panel of assistants weighs in and synthesises a recommendation */
+    .consensus { padding: var(--space-4) var(--space-5); }
+    .cons-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+    .cons-verdict { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+    .cons-meter { display: inline-flex; gap: 3px; }
+    .cons-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+    .cons-dot.caveat { background: var(--warning); }
+    .cons-row { display: flex; align-items: flex-start; gap: var(--space-2); padding: var(--space-3) 0; border-top: 1px solid var(--border); font-size: var(--text-sm); }
+    .cons-who { display: inline-flex; align-items: center; gap: 6px; min-width: 96px; font-weight: var(--fw-semibold); color: var(--fg); flex: none; }
+    .cons-stance { color: var(--fg-muted); line-height: var(--lh-snug); }
+    .cons-tag { font-size: var(--text-xs); font-weight: var(--fw-semibold); }
+    .cons-summary { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-normal); }
+    .cons-foot { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-3); flex-wrap: wrap; }
+
+    @media (max-width: 640px) { .topnav { display: none; } .cons-row { flex-direction: column; gap: 4px; } .cons-who { min-width: 0; } }
+  </style>
+</head>
+<body>
+  <div class="bc">
+
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="#">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <button class="btn btn-primary" type="button"><span aria-hidden="true">＋</span> New project</button>
+      <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+    </header>
+
+    <main>
+      <div class="bc-wrap">
+
+        <!-- Breadcrumb -->
+        <nav class="sb-breadcrumb" aria-label="Breadcrumb">
+          <a href="essential-home.html">Home</a><span class="sep" aria-hidden="true">›</span>
+          <a href="essential-project.html">Q2 Content Push</a><span class="sep" aria-hidden="true">›</span>
+          <a href="essential-discovery.html">Discovery</a><span class="sep" aria-hidden="true">›</span>
+          <span class="current">Weekly founder AMA series</span>
+        </nav>
+
+        <!-- The idea (hero) -->
+        <div class="id-tags">
+          <span class="idea-tag">#format</span>
+          <span class="status-chip">Exploring</span>
+        </div>
+        <h1 class="id-title">Weekly founder AMA series</h1>
+        <div class="id-meta">Suggested by <strong>You</strong> · 5 days ago · in Discovery</div>
+
+        <!-- Contributors: multiple people AND multiple AI assistants on this idea -->
+        <div class="id-people">
+          <span class="u-subtle" style="font-size:var(--text-xs)">On this idea</span>
+          <span class="sb-avatar-group" aria-label="People and assistants on this idea">
+            <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" title="You">AG</span>
+            <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" title="Maria">M</span>
+            <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" title="Dev">D</span>
+            <span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-1)" title="Atlas (AI)">At</span>
+            <span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-5)" title="Iris (AI)">Ir</span>
+          </span>
+          <span class="u-subtle" style="font-size:var(--text-xs)">3 people · 2 assistants</span>
+          <button class="btn btn-ghost btn-sm" type="button"><span aria-hidden="true">＋</span> Invite</button>
+        </div>
+
+        <div class="id-actions">
+          <button class="vote is-on" type="button" id="voteBtn">👍 <span>6</span> votes</button>
+          <button class="btn btn-primary" type="button">⭐ Make this the decision</button>
+          <button class="btn btn-ghost" type="button">Move to ▾</button>
+        </div>
+
+        <!-- What it is -->
+        <p class="id-desc">A recurring live AMA with a founder, repurposed into the newsletter plus short social clips. Low production cost, high engagement — it could anchor the Q2 content calendar and give the “founder voice” idea a home.</p>
+
+        <!-- AI CONSENSUS — several assistants weigh in, then synthesise a recommendation (multi-AI; you decide) -->
+        <h2 class="id-sec"><span class="u-accent" aria-hidden="true">✦</span> AI consensus</h2>
+        <div class="card consensus">
+          <div class="cons-head">
+            <span class="cons-verdict"><span class="u-accent" aria-hidden="true">✦</span> Recommend</span>
+            <span class="cons-meter" aria-hidden="true"><span class="cons-dot"></span><span class="cons-dot"></span><span class="cons-dot caveat"></span></span>
+            <span class="u-subtle" style="font-size:var(--text-xs)">2 recommend · 1 caveat</span>
+            <span class="u-grow"></span>
+            <button class="btn btn-sm" type="button">Ask the panel again</button>
+          </div>
+          <div class="cons-row"><span class="cons-who"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-1)" aria-hidden="true">At</span> Atlas</span><span class="cons-stance"><span class="cons-tag u-accent">Recommend</span> — low production cost; one AMA repurposes into a newsletter, clips and a blog recap.</span></div>
+          <div class="cons-row"><span class="cons-who"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-5)" aria-hidden="true">Ir</span> Iris</span><span class="cons-stance"><span class="cons-tag u-accent">Recommend</span> — strong fit with our subscriber base; AMAs over-index on opens in our segment.</span></div>
+          <div class="cons-row"><span class="cons-who"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-6)" aria-hidden="true">E</span> Echo</span><span class="cons-stance"><span class="cons-tag" style="color:var(--warning)">Caveat</span> — yes, but cap the first run at 4 founders so the scope stays manageable.</span></div>
+          <p class="cons-summary"><strong>Consensus:</strong> start <strong>bi-weekly with 3–4 founders</strong>, then revisit the cadence after a month — which also matches Dev’s note in the discussion below.</p>
+          <div class="cons-foot">
+            <button class="btn btn-ghost btn-sm" type="button"><span aria-hidden="true">＋</span> Add an assistant</button>
+            <span class="u-subtle" style="font-size:var(--text-xs)">Synthesised from 3 assistants · you make the call</span>
+          </div>
+        </div>
+
+        <!-- Build on it — flat discussion (build on each other's thinking) -->
+        <h2 class="id-sec">Build on it <span class="u-subtle" style="font-weight:var(--fw-regular)">· 5</span></h2>
+
+        <div class="reply">
+          <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span>
+          <div class="reply-body">
+            <div class="reply-head"><span class="reply-who">Maria</span><span class="reply-time">4 days ago</span></div>
+            <p class="reply-text">Could pair it with a short audio clip from the founder for the newsletter.</p>
+          </div>
+        </div>
+        <div class="reply">
+          <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" aria-hidden="true">D</span>
+          <div class="reply-body">
+            <div class="reply-head"><span class="reply-who">Dev</span><span class="reply-time">3 days ago</span></div>
+            <p class="reply-text">Bi-weekly to start would lower the production load and let us test interest.</p>
+          </div>
+        </div>
+        <div class="reply">
+          <span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-1)" aria-hidden="true">At</span>
+          <div class="reply-body">
+            <div class="reply-head"><span class="reply-who">Atlas</span><span class="sb-badge sb-badge--accent">✦ AI</span><span class="reply-time">3 days ago</span></div>
+            <p class="reply-text">Agreed on bi-weekly. I can line up 3 founders for the first run and draft the promo copy.</p>
+          </div>
+        </div>
+        <div class="reply">
+          <span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-5)" aria-hidden="true">Ir</span>
+          <div class="reply-body">
+            <div class="reply-head"><span class="reply-who">Iris</span><span class="sb-badge sb-badge--accent">✦ AI</span><span class="reply-time">2 days ago</span></div>
+            <p class="reply-text">I added 2 audience-fit sources in Research below to back the recommendation.</p>
+          </div>
+        </div>
+
+        <div class="reply-composer">
+          <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+          <div class="u-grow u-col-2">
+            <textarea class="textarea" rows="2" placeholder="Build on this idea…" aria-label="Build on this idea"></textarea>
+            <div><button class="btn btn-primary" type="button">Add</button></div>
+          </div>
+        </div>
+
+        <!-- Research & notes for THIS idea -->
+        <h2 class="id-sec">Research &amp; notes <span class="u-subtle" style="font-weight:var(--fw-regular)">· 2</span></h2>
+        <div class="src-tile"><span class="src-fav" aria-hidden="true">F</span><div class="u-grow"><strong style="font-size:var(--text-sm)">figma.com</strong> <span class="u-muted" style="font-size:var(--text-sm)">— AMA promo layout explorations</span></div><span class="u-subtle" style="font-size:var(--text-xs)"><span class="u-accent">✦</span> Atlas</span></div>
+        <div class="src-tile"><span class="src-fav" aria-hidden="true">▶</span><div class="u-grow"><strong style="font-size:var(--text-sm)">youtube.com</strong> <span class="u-muted" style="font-size:var(--text-sm)">— a founder AMA we liked</span></div><span class="u-subtle" style="font-size:var(--text-xs)">added by You</span></div>
+        <button class="add-row" type="button"><span aria-hidden="true">＋</span> Paste a link or write a note</button>
+
+        <!-- What deciding unlocks (the hand-off) -->
+        <div class="decide-note">
+          <span aria-hidden="true" style="color:var(--accent)">★</span>
+          <span>When you <strong>make this the decision</strong>, it moves to <strong>Decided</strong> — and you can <strong>→ Connect it to a project</strong> or turn it into a to-do. No quality gates here; this is research, not work yet.</span>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      var v = document.getElementById('voteBtn');
+      v.addEventListener('click', function () { v.classList.toggle('is-on'); });
+    })();
+  </script>
+</body>
+</html>

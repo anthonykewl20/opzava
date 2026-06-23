@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Messages — Opzava</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <style>
+    /* ── Page-specific layout only — no color/font/radius overrides ── */
+
+    /* Slack 3-pane grid inside .main */
+    .msg-shell {
+      display: flex;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* LEFT: channel/DM list */
+    .msg-sidebar {
+      width: 252px;
+      flex: none;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      background: var(--surface-1);
+    }
+    .msg-sidebar-head {
+      padding: var(--space-3) var(--space-4);
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      border-bottom: 1px solid var(--border);
+      font-weight: var(--fw-semibold);
+    }
+    .msg-section {
+      padding: var(--space-3) 0 var(--space-1);
+    }
+    .msg-section-label {
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+      padding: 0 var(--space-4);
+      margin-bottom: var(--space-1);
+      font-size: var(--text-xs);
+      font-weight: var(--fw-semibold);
+      color: var(--fg-subtle);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .msg-section-label .add-btn {
+      margin-left: auto;
+      color: var(--fg-subtle);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      border: none;
+      background: none;
+      padding: 0;
+    }
+    .msg-section-label .add-btn:hover { color: var(--fg); }
+
+    /* .chan already in app.css — extend with .msg-chan for layout */
+    .msg-chan {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: 2px var(--space-4);
+      height: 30px;
+      cursor: pointer;
+      border-radius: 0;
+      text-decoration: none;
+      color: var(--fg-muted);
+      font-size: var(--text-sm);
+    }
+    .msg-chan:hover { background: var(--surface-2); color: var(--fg); }
+    .msg-chan.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: var(--fw-medium);
+    }
+    .msg-chan .gly {
+      color: var(--fg-subtle);
+      font-size: 15px;
+      flex: none;
+    }
+    .msg-chan.active .gly { color: var(--accent); }
+    .msg-chan .chan-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .msg-chan .count {
+      flex: none;
+      font-size: var(--text-xs);
+      font-weight: var(--fw-semibold);
+      background: var(--accent);
+      color: var(--accent-fg);
+      border-radius: var(--radius-full);
+      padding: 0 5px;
+      height: 17px;
+      display: flex;
+      align-items: center;
+    }
+    .msg-chan.has-unread .chan-name { color: var(--fg); font-weight: var(--fw-medium); }
+
+    /* presence dot in DM list */
+    .presence-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex: none;
+      border: 1.5px solid var(--surface-1);
+    }
+    .presence-dot.is-online { background: var(--success); }
+    .presence-dot.is-away   { background: var(--warning); }
+    .presence-dot.is-offline { background: var(--fg-subtle); }
+
+    /* CENTER: message pane */
+    .msg-center {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .msg-chan-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      padding: 0 var(--space-5);
+      height: 52px;
+      border-bottom: 1px solid var(--border);
+      flex: none;
+    }
+    .msg-chan-header .chan-title {
+      font-weight: var(--fw-semibold);
+      font-size: var(--text-base);
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .msg-chan-header .chan-meta {
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+    }
+    .msg-chan-header .header-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+    }
+    .msg-chan-header .search-inline {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: 0 var(--space-3);
+      height: 30px;
+      border-radius: var(--radius-full);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      cursor: pointer;
+    }
+    .msg-chan-header .search-inline:hover { border-color: var(--border-strong); color: var(--fg); }
+
+    .msg-feed {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--space-4) 0 var(--space-2);
+    }
+    .msg-divider {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      margin: var(--space-4) var(--space-5);
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+    }
+    .msg-divider::before,
+    .msg-divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* message row */
+    .msg {
+      display: flex;
+      gap: var(--space-3);
+      padding: var(--space-1) var(--space-5);
+      position: relative;
+    }
+    .msg:hover { background: var(--surface-1); }
+    .msg-avatar-col { flex: none; width: 36px; display: flex; flex-direction: column; align-items: center; padding-top: 2px; }
+    .msg-body { flex: 1; min-width: 0; }
+    .msg-head {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-2);
+      margin-bottom: 2px;
+    }
+    .msg-author { font-weight: var(--fw-semibold); font-size: var(--text-sm); }
+    .msg-time { font-size: var(--text-xs); color: var(--fg-subtle); font-family: var(--font-mono); }
+    .msg-text { font-size: var(--text-sm); line-height: 1.55; color: var(--fg); }
+
+    /* app bot badge in human room */
+    .msg-app-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+      margin-left: var(--space-1);
+    }
+
+    /* reaction row */
+    .reaction-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-1);
+      margin-top: var(--space-1);
+    }
+    .reaction {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      height: 24px;
+      padding: 0 var(--space-2);
+      border-radius: var(--radius-full);
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      cursor: pointer;
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+    }
+    .reaction:hover { border-color: var(--border-strong); color: var(--fg); }
+    .reaction.is-on {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: var(--fw-medium);
+    }
+
+    /* thread count link */
+    .thread-link {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      font-size: var(--text-xs);
+      color: var(--accent);
+      cursor: pointer;
+      margin-top: var(--space-1);
+      text-decoration: none;
+      font-weight: var(--fw-medium);
+    }
+    .thread-link:hover { text-decoration: underline; }
+
+    /* hover actions (pin / reply / react) */
+    .msg-hover-actions {
+      display: none;
+      align-items: center;
+      gap: var(--space-1);
+      position: absolute;
+      right: var(--space-4);
+      top: 4px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 2px var(--space-1);
+    }
+    .msg:hover .msg-hover-actions { display: flex; }
+    .msg-hover-actions button {
+      background: none;
+      border: none;
+      padding: 4px 6px;
+      cursor: pointer;
+      color: var(--fg-subtle);
+      font-size: 14px;
+      border-radius: var(--radius-sm);
+    }
+    .msg-hover-actions button:hover { background: var(--surface-2); color: var(--fg); }
+
+    /* composer */
+    .msg-composer {
+      flex: none;
+      padding: var(--space-3) var(--space-5) var(--space-4);
+      border-top: 1px solid var(--border);
+    }
+    .composer-box {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      padding: var(--space-2) var(--space-3);
+      background: var(--surface-1);
+      transition: border-color .15s;
+    }
+    .composer-box:focus-within { border-color: var(--accent); }
+    .composer-input {
+      flex: 1;
+      background: none;
+      border: none;
+      outline: none;
+      font-size: var(--text-sm);
+      color: var(--fg);
+      min-width: 0;
+    }
+    .composer-input::placeholder { color: var(--fg-subtle); }
+    .composer-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+      flex: none;
+    }
+    .composer-ghost {
+      background: none;
+      border: none;
+      padding: 4px 6px;
+      cursor: pointer;
+      color: var(--fg-subtle);
+      font-size: 16px;
+      border-radius: var(--radius-sm);
+    }
+    .composer-ghost:hover { background: var(--surface-2); color: var(--fg); }
+
+    /* RIGHT: thread drawer */
+    .msg-drawer {
+      width: 320px;
+      flex: none;
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .drawer-head {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: 0 var(--space-4);
+      height: 52px;
+      border-bottom: 1px solid var(--border);
+      flex: none;
+      font-weight: var(--fw-semibold);
+    }
+    .drawer-close {
+      margin-left: auto;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--fg-subtle);
+      font-size: 18px;
+      padding: 4px;
+      border-radius: var(--radius-sm);
+    }
+    .drawer-close:hover { background: var(--surface-2); color: var(--fg); }
+    .drawer-feed {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--space-3) 0;
+    }
+    .drawer-parent {
+      padding: var(--space-2) var(--space-4) var(--space-3);
+      border-bottom: 1px solid var(--border);
+      margin-bottom: var(--space-3);
+    }
+    .drawer-reply-count {
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+      padding: 0 var(--space-4);
+      margin-bottom: var(--space-2);
+    }
+    .drawer-composer {
+      flex: none;
+      padding: var(--space-3) var(--space-4);
+      border-top: 1px solid var(--border);
+    }
+
+    /* nav section gap util used in rail */
+    .nav-section-gap { margin-top: var(--space-2); }
+
+    /* ── Async states ── */
+    /* .empty, .skeleton, .banner-danger already in app.css */
+    /* SSE-dropped banner (hidden by default, toggled in demo) */
+    .sse-banner {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: var(--space-2) var(--space-5);
+      background: var(--warning-soft);
+      border-bottom: 1px solid var(--warning);
+      font-size: var(--text-xs);
+      color: var(--warning);
+    }
+    .sse-banner.u-hidden { display: none; }
+
+    /* ── Mobile collapse ── */
+    /* Under 640px: stack to one column.
+       Left sidebar hidden, drawer hidden, only center pane shown.
+       A "back" affordance (not wired) would show the sidebar. */
+    @media (max-width: 640px) {
+      .msg-shell { flex-direction: column; height: auto; overflow: visible; }
+      .msg-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
+      .msg-center { height: auto; }
+      .msg-feed { overflow-y: visible; height: auto; min-height: 300px; }
+      .msg-drawer { width: 100%; border-left: none; border-top: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       CANONICAL NAVIGATION RAIL — active = Messages
+  ══════════════════════════════════════════════════════════════════ -->
+  <aside class="rail" aria-label="Main navigation">
+    <div class="rail-head">
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
+        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
+      </svg>
+      <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);letter-spacing:-.01em;">Opzava</span>
+      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
+    </div>
+    <nav class="rail-nav" aria-label="Application sections">
+      <a href="orchestrator-chat.html" class="rail-item" style="margin-bottom:4px;">
+        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
+        Ask Opzava
+        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
+      </a>
+      <div class="section-label">Operate</div>
+      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
+      <a href="agent-detail.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
+      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
+      <a href="messages-slack.html" class="rail-item" aria-current="page"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
+      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
+      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
+      <div class="section-label nav-section-gap">Observe</div>
+      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
+      <a href="#" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
+      <a href="#" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
+      <div class="section-label nav-section-gap">Govern</div>
+      <a href="notifications-alerts.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
+      <a href="settings.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
+      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+    </nav>
+    <div class="rail-foot">
+      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (Cmd K)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)"><circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <span class="u-subtle u-grow">Jump to…</span><kbd class="kbd">⌘K</kbd>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIN COLUMN
+  ══════════════════════════════════════════════════════════════════ -->
+  <div class="main-col">
+
+    <!-- Full header -->
+    <header class="header">
+      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/><rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/><rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/></svg>
+      </button>
+      <nav class="sb-breadcrumb" aria-label="Breadcrumb">
+        <a href="#">Opzava</a>
+        <span class="sep">›</span>
+        <span class="current">Messages</span>
+      </nav>
+      <div class="u-grow"></div>
+      <div class="health-pill"><span class="dot dot-success" aria-hidden="true"></span> All systems healthy</div>
+      <div class="live-indicator" style="display:inline-flex;align-items:center;gap:var(--space-2);font-size:var(--text-xs);color:var(--fg-muted);">
+        <span class="dot dot-success live" aria-hidden="true"></span><span>Live</span>
+      </div>
+      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu" style="width:32px;height:32px;border-radius:var(--radius-full);background:var(--surface-3);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;font-size:var(--text-xs);color:var(--fg-muted);font-weight:var(--fw-semibold);cursor:pointer;">AG</div>
+    </header>
+
+    <!-- ── SSE-dropped banner (async state: offline/reconnecting; hidden by default) ── -->
+    <!-- Toggle class .u-hidden to show/hide in a real implementation -->
+    <div class="sse-banner u-hidden" role="alert" aria-live="polite" id="sse-banner">
+      <span aria-hidden="true">⚠</span>
+      <span>Real-time connection lost — messages may be delayed.</span>
+      <button class="btn btn-sm btn-ghost" style="margin-left:auto;" onclick="document.getElementById('sse-banner').classList.add('u-hidden')">Reconnect</button>
+    </div>
+
+    <main class="main" style="padding:0;overflow:hidden;">
+
+      <!-- ══════════════════════════════════════════════════════════
+           SLACK 3-PANE SHELL
+      ══════════════════════════════════════════════════════════════ -->
+      <div class="msg-shell">
+
+        <!-- ──────────────────────────────
+             LEFT: Channel / DM list
+             Slack sidebar equivalent
+        ────────────────────────────── -->
+        <aside class="msg-sidebar" aria-label="Channels and direct messages">
+
+          <!-- Workspace name + new-message shortcut -->
+          <div class="msg-sidebar-head">
+            <svg width="14" height="14" viewBox="0 0 18 18" fill="none" aria-hidden="true" style="color:var(--fg-subtle)"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            <span style="font-size:var(--text-sm);color:var(--fg-muted);">Opzava workspace</span>
+            <button class="btn btn-ghost btn-icon btn-sm" style="margin-left:auto;" aria-label="New message" title="New message">
+              <!-- compose glyph -->
+              <svg width="15" height="15" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 15l1.5-4 9-9 2.5 2.5-9 9L3 15z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M11.5 3.5l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+
+          <!-- CHANNELS section (seeded 1:1 from projects) -->
+          <div class="msg-section">
+            <div class="msg-section-label">
+              <span>Channels</span>
+              <button class="add-btn" aria-label="Add channel" title="Add channel">＋</button>
+            </div>
+            <!-- # general — 2 unread -->
+            <a href="#" class="msg-chan has-unread" aria-label="general, 2 unread messages" onclick="switchChannel(event,'general')">
+              <span class="gly" aria-hidden="true">#</span>
+              <span class="chan-name">general</span>
+              <span class="count" aria-label="2 unread">2</span>
+            </a>
+            <!-- # q2-content-push — 2 unread, ACTIVE -->
+            <a href="#" class="msg-chan has-unread active" aria-current="true" aria-label="q2-content-push, 2 unread messages" onclick="switchChannel(event,'q2-content-push')">
+              <span class="gly" aria-hidden="true">#</span>
+              <span class="chan-name">q2-content-push</span>
+              <span class="count" aria-label="2 unread">2</span>
+            </a>
+            <!-- # series-b — no unread -->
+            <a href="#" class="msg-chan" aria-label="series-b" onclick="switchChannel(event,'series-b')">
+              <span class="gly" aria-hidden="true">#</span>
+              <span class="chan-name">series-b</span>
+            </a>
+          </div>
+
+          <!-- DIRECT MESSAGES section — presence dots for humans only -->
+          <div class="msg-section">
+            <div class="msg-section-label">
+              <span>Direct Messages</span>
+              <button class="add-btn" aria-label="Open direct message" title="Open DM">＋</button>
+            </div>
+            <!-- Maria — online ● -->
+            <a href="#" class="msg-chan" aria-label="Maria, online" onclick="switchChannel(event,'dm-maria')">
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3);width:20px;height:20px;font-size:var(--text-xs);" aria-hidden="true">M</span>
+              <!-- presence dot: human only, never on AI -->
+              <span class="presence-dot is-online" aria-label="Online" title="Online"></span>
+              <span class="chan-name">Maria</span>
+            </a>
+            <!-- Dev — away ○ -->
+            <a href="#" class="msg-chan" aria-label="Dev, away" onclick="switchChannel(event,'dm-dev')">
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4);width:20px;height:20px;font-size:var(--text-xs);" aria-hidden="true">D</span>
+              <!-- presence dot: away -->
+              <span class="presence-dot is-away" aria-label="Away" title="Away"></span>
+              <span class="chan-name">Dev</span>
+            </a>
+          </div>
+
+          <!-- ── Loading skeleton (async state; hidden when data loads) ── -->
+          <!--
+          <div class="msg-section u-hidden" aria-hidden="true" id="sidebar-skeleton">
+            <div class="sk-line" style="width:70%;margin:4px 16px;"></div>
+            <div class="sk-line" style="width:85%;margin:4px 16px;"></div>
+            <div class="sk-line" style="width:60%;margin:4px 16px;"></div>
+          </div>
+          -->
+
+        </aside>
+
+        <!-- ──────────────────────────────
+             CENTER: Message pane
+             Slack message/composer area
+        ────────────────────────────── -->
+        <section class="msg-center" aria-label="Messages in #q2-content-push">
+
+          <!-- Channel header — Slack: channel name + meta + actions + quick-switcher -->
+          <div class="msg-chan-header">
+            <div>
+              <div class="chan-title">
+                <span aria-hidden="true" style="color:var(--fg-subtle);">#</span>
+                q2-content-push
+                <span class="chan-meta">· 3 people</span>
+              </div>
+            </div>
+            <!-- Slack: pin + canvas/details + quick-switcher -->
+            <div class="header-actions">
+              <!-- ⌘K Find in messages — Slack quick-switcher affordance -->
+              <button class="search-inline" aria-label="Find in messages (Cmd K)" onclick="alert('⌘K — message search (requires FTS5 backend, R-T3.6)')">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                Find in messages <kbd class="kbd" style="font-size:var(--text-xs);padding:1px 4px;">⌘K</kbd>
+              </button>
+              <button class="btn btn-ghost btn-icon btn-sm" title="Pinned messages (⟲ pin)" aria-label="Pinned messages">⟲</button>
+              <button class="btn btn-ghost btn-icon btn-sm" title="Channel details (☰)" aria-label="Channel details">☰</button>
+            </div>
+          </div>
+
+          <!-- SSE-dropped: shown inline if connection dropped — see banner above too -->
+
+          <!-- Message feed -->
+          <div class="msg-feed" id="msg-feed" role="log" aria-live="polite" aria-label="Message history">
+
+            <!-- ── Day divider — Slack: date separator ── -->
+            <div class="msg-divider" role="separator" aria-label="Tuesday, June 23">Tue, Jun 23</div>
+
+            <!-- ── Message group: AG Anthony (human) ── -->
+            <!-- Slack: author-grouped consecutive messages from same sender -->
+            <div class="msg" aria-label="Message from Anthony at 10:02">
+              <div class="msg-avatar-col">
+                <!-- Human sender — plain initials chip, no ✦ -->
+                <span class="sb-avatar" style="background:var(--chart-2);width:36px;height:36px;" aria-hidden="true">AG</span>
+              </div>
+              <div class="msg-body">
+                <div class="msg-head">
+                  <span class="msg-author">Anthony</span>
+                  <span class="msg-time">10:02</span>
+                </div>
+                <div class="msg-text">Can we ship the partner email today? The Series B deck is waiting on the signed NDA copy — just need the send confirmed.</div>
+              </div>
+              <!-- Slack: hover action strip — reply / react / pin -->
+              <div class="msg-hover-actions" aria-label="Message actions">
+                <button title="Add reaction" aria-label="Add reaction">😀</button>
+                <button title="Reply in thread" aria-label="Reply in thread" onclick="openThread(this)">↩</button>
+                <button title="Pin message" aria-label="Pin message">⟲</button>
+              </div>
+            </div>
+
+            <!-- ── Message: Maria (human) — with thread-count + reaction ── -->
+            <div class="msg" aria-label="Message from Maria at 10:04">
+              <div class="msg-avatar-col">
+                <span class="sb-avatar" style="background:var(--chart-3);width:36px;height:36px;" aria-hidden="true">M</span>
+              </div>
+              <div class="msg-body">
+                <div class="msg-head">
+                  <span class="msg-author">Maria</span>
+                  <span class="msg-time">10:04</span>
+                </div>
+                <div class="msg-text">Yes — draft is in Approvals, needs your ok before we send. I already cc'd Dev on the legal review thread.</div>
+                <!-- Slack: reaction row — one .is-on (self-reacted) -->
+                <div class="reaction-row">
+                  <button class="reaction is-on" aria-label="Thumbs up reaction, 1, you reacted" title="Remove 👍 reaction">👍 <span>1</span></button>
+                  <button class="reaction" aria-label="Add a reaction" title="Add reaction" style="font-size:15px;">＋</button>
+                </div>
+                <!-- Slack: thread count link — clicking opens right drawer -->
+                <a href="#" class="thread-link" aria-label="2 replies in thread" onclick="openThreadDrawer(event)">
+                  ↩ 2 replies
+                  <span style="color:var(--fg-subtle);font-weight:400;">· Last reply 10:18</span>
+                </a>
+              </div>
+              <div class="msg-hover-actions" aria-label="Message actions">
+                <button title="Add reaction" aria-label="Add reaction">😀</button>
+                <button title="Reply in thread" aria-label="Reply in thread" onclick="openThreadDrawer(event)">↩</button>
+                <button title="Pin message" aria-label="Pin message">⟲</button>
+              </div>
+            </div>
+
+            <!-- ── Message: Dev (human) ── -->
+            <div class="msg" aria-label="Message from Dev at 10:09">
+              <div class="msg-avatar-col">
+                <span class="sb-avatar" style="background:var(--chart-4);width:36px;height:36px;" aria-hidden="true">D</span>
+              </div>
+              <div class="msg-body">
+                <div class="msg-head">
+                  <span class="msg-author">Dev</span>
+                  <span class="msg-time">10:09</span>
+                </div>
+                <div class="msg-text">Legal signed off on the NDA wording — no changes needed. Safe to proceed whenever Anthony approves the send.</div>
+              </div>
+              <div class="msg-hover-actions" aria-label="Message actions">
+                <button title="Add reaction" aria-label="Add reaction">😀</button>
+                <button title="Reply in thread" aria-label="Reply in thread" onclick="openThread(this)">↩</button>
+                <button title="Pin message" aria-label="Pin message">⟲</button>
+              </div>
+            </div>
+
+            <!-- ── AI app posting into the human room ──
+                 Slack: APP badge on bot messages.
+                 Rule: sb-avatar--ai + ✦ corner glyph + sb-badge--accent "✦ APP".
+                 AI-vs-human is GLYPH + LABEL, NEVER a second hue.
+            ── -->
+            <div class="msg" aria-label="App post from Iris assistant at 10:14">
+              <div class="msg-avatar-col">
+                <!-- AI sender — rounded square + auto ✦ corner (via sb-avatar--ai class) -->
+                <span class="sb-avatar sb-avatar--ai" style="background:var(--chart-1);width:36px;height:36px;" aria-hidden="true">IR</span>
+              </div>
+              <div class="msg-body">
+                <div class="msg-head">
+                  <span class="msg-author">Iris</span>
+                  <!-- APP badge — unmistakable AI-in-human-room marker -->
+                  <span class="sb-badge sb-badge--accent" style="font-size:var(--text-xs);height:17px;padding:0 6px;" aria-label="AI assistant">✦ APP</span>
+                  <span class="msg-time">10:14</span>
+                </div>
+                <div class="msg-text">
+                  📄 <strong>Partner email ready for approval.</strong> I've finalised the June newsletter send — subject line "Q2 Partner Update", 312 words, UTM params attached. Waiting on <strong>@Anthony</strong> to approve in <a href="#" style="color:var(--accent);text-decoration:none;">Approvals →</a>
+                </div>
+                <!-- No presence dot for AI; no human-style reaction "is-on" by default -->
+                <div class="reaction-row">
+                  <button class="reaction" aria-label="Add a reaction" title="Add reaction" style="font-size:15px;">＋</button>
+                </div>
+              </div>
+              <div class="msg-hover-actions" aria-label="Message actions">
+                <button title="Add reaction" aria-label="Add reaction">😀</button>
+                <button title="Reply in thread" aria-label="Reply in thread" onclick="openThread(this)">↩</button>
+                <button title="Pin message" aria-label="Pin message">⟲</button>
+              </div>
+            </div>
+
+            <!-- ── Empty state (async state: no messages in channel) — hidden when feed has content ── -->
+            <!--
+            <div class="empty" id="feed-empty" style="display:none;" aria-live="polite">
+              <div class="empty-icon" aria-hidden="true">#</div>
+              <div class="empty-title">No messages yet in #q2-content-push</div>
+              <div class="empty-desc">Be the first to say something to the team.</div>
+            </div>
+            -->
+
+            <!-- ── Error state (async state: DB/gateway unreachable) — hidden unless error ── -->
+            <!--
+            <div class="sb-alert sb-alert--destructive" id="feed-error" style="display:none;margin:var(--space-4) var(--space-5);" role="alert">
+              <span class="ico" aria-hidden="true">⚠</span>
+              <div>
+                <div class="sb-alert-title">Couldn't load messages</div>
+                <div class="sb-alert-desc">The message service is unreachable. <button class="btn btn-ghost btn-sm" onclick="retryLoad()">Retry</button></div>
+              </div>
+            </div>
+            -->
+
+          </div>
+
+          <!-- ── Composer — Slack: message input + @mention + emoji + Send ── -->
+          <div class="msg-composer">
+            <form class="composer-box" onsubmit="sendMessage(event)" aria-label="Compose a message to #q2-content-push">
+              <!-- The input -->
+              <input
+                class="composer-input"
+                type="text"
+                placeholder="Message #q2-content-push…"
+                aria-label="Message #q2-content-push"
+                id="composer-input"
+                autocomplete="off"
+              >
+              <div class="composer-actions">
+                <!-- @mention — ghost action -->
+                <button type="button" class="composer-ghost" aria-label="Mention a person" title="@mention">@</button>
+                <!-- emoji — ghost action -->
+                <button type="button" class="composer-ghost" aria-label="Add emoji" title="Emoji">😀</button>
+                <!-- Send — the ONE accent primary action in this region -->
+                <button type="submit" class="btn btn-primary btn-sm" aria-label="Send message">Send</button>
+              </div>
+            </form>
+          </div>
+
+        </section>
+
+        <!-- ──────────────────────────────
+             RIGHT: Thread drawer
+             Slack: "Reply in Thread" side pane
+             Shown open by default in this mockup.
+        ────────────────────────────── -->
+        <aside class="msg-drawer" id="thread-drawer" aria-label="Thread: Maria's message">
+
+          <div class="drawer-head">
+            <span>Thread</span>
+            <span style="font-size:var(--text-xs);color:var(--fg-subtle);">· #q2-content-push</span>
+            <button class="drawer-close" aria-label="Close thread" onclick="closeThreadDrawer()">×</button>
+          </div>
+
+          <div class="drawer-feed">
+            <!-- Parent message replicated in thread pane — Slack convention -->
+            <div class="drawer-parent">
+              <div class="msg" style="padding:0;" aria-label="Original message from Maria">
+                <div class="msg-avatar-col">
+                  <span class="sb-avatar" style="background:var(--chart-3);width:32px;height:32px;font-size:var(--text-xs);" aria-hidden="true">M</span>
+                </div>
+                <div class="msg-body">
+                  <div class="msg-head">
+                    <span class="msg-author" style="font-size:var(--text-sm);">Maria</span>
+                    <span class="msg-time">10:04</span>
+                  </div>
+                  <div class="msg-text" style="font-size:var(--text-sm);">Yes — draft is in Approvals, needs your ok before we send.</div>
+                  <div class="reaction-row">
+                    <button class="reaction is-on" aria-label="Thumbs up, 1" style="font-size:var(--text-xs);height:22px;">👍 1</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slack: reply count summary line -->
+            <div class="drawer-reply-count" aria-label="2 replies">2 replies</div>
+
+            <!-- Thread reply 1: Anthony (human) -->
+            <div class="msg" aria-label="Reply from Anthony at 10:11">
+              <div class="msg-avatar-col">
+                <span class="sb-avatar" style="background:var(--chart-2);width:32px;height:32px;font-size:var(--text-xs);" aria-hidden="true">AG</span>
+              </div>
+              <div class="msg-body">
+                <div class="msg-head">
+                  <span class="msg-author" style="font-size:var(--text-sm);">Anthony</span>
+                  <span class="msg-time">10:11</span>
+                </div>
+                <div class="msg-text" style="font-size:var(--text-sm);">Just checked the copy — looks good. I'll approve in Approvals now. @Dev can you confirm the send domain is off the blocklist?</div>
+              </div>
+            </div>
+
+            <!-- Thread reply 2: Dev (human) -->
+            <div class="msg" aria-label="Reply from Dev at 10:18">
+              <div class="msg-avatar-col">
+                <span class="sb-avatar" style="background:var(--chart-4);width:32px;height:32px;font-size:var(--text-xs);" aria-hidden="true">D</span>
+              </div>
+              <div class="msg-body">
+                <div class="msg-head">
+                  <span class="msg-author" style="font-size:var(--text-sm);">Dev</span>
+                  <span class="msg-time">10:18</span>
+                </div>
+                <div class="msg-text" style="font-size:var(--text-sm);">Confirmed — sender domain cleared by Resend, SPF + DKIM pass. You're good to go.</div>
+                <div class="reaction-row">
+                  <button class="reaction" aria-label="Add a reaction" title="Add reaction" style="font-size:var(--text-xs);height:22px;">＋</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Thread composer -->
+          <div class="drawer-composer">
+            <form class="composer-box" onsubmit="sendThreadReply(event)" aria-label="Reply in thread">
+              <input
+                class="composer-input"
+                type="text"
+                placeholder="Reply to thread…"
+                aria-label="Reply in thread"
+                id="thread-composer-input"
+                autocomplete="off"
+              >
+              <div class="composer-actions">
+                <button type="button" class="composer-ghost" aria-label="Mention" title="@mention">@</button>
+                <button type="submit" class="btn btn-primary btn-sm" aria-label="Send reply">Send</button>
+              </div>
+            </form>
+          </div>
+
+        </aside>
+
+      </div><!-- /.msg-shell -->
+
+    </main>
+  </div><!-- /.main-col -->
+</div><!-- /.app -->
+
+<!-- ══════════════════════════════════════════════════════════════
+     INLINE SCRIPT — tab/drawer/collapse toggles only (no data fetching)
+══════════════════════════════════════════════════════════════════ -->
+<script>
+  // Channel switcher — updates active state in sidebar
+  function switchChannel(event, channel) {
+    event.preventDefault();
+    document.querySelectorAll('.msg-chan').forEach(function(el) {
+      el.classList.remove('active');
+      el.removeAttribute('aria-current');
+    });
+    event.currentTarget.classList.add('active');
+    event.currentTarget.setAttribute('aria-current', 'true');
+    // Remove unread badge when activated
+    var badge = event.currentTarget.querySelector('.count');
+    if (badge) badge.remove();
+    event.currentTarget.classList.remove('has-unread');
+  }
+
+  // Open thread drawer from hover action or thread-count link
+  function openThreadDrawer(event) {
+    if (event) event.preventDefault();
+    var drawer = document.getElementById('thread-drawer');
+    if (drawer) {
+      drawer.style.display = 'flex';
+      drawer.removeAttribute('hidden');
+    }
+  }
+
+  // Alias for hover reply button
+  function openThread(btn) {
+    openThreadDrawer(null);
+    var input = document.getElementById('thread-composer-input');
+    if (input) input.focus();
+  }
+
+  // Close thread drawer
+  function closeThreadDrawer() {
+    var drawer = document.getElementById('thread-drawer');
+    if (drawer) {
+      drawer.style.display = 'none';
+    }
+  }
+
+  // Send message — appends a new message row to the feed
+  function sendMessage(event) {
+    event.preventDefault();
+    var input = document.getElementById('composer-input');
+    var text = input ? input.value.trim() : '';
+    if (!text) return;
+    var feed = document.getElementById('msg-feed');
+    if (feed) {
+      var row = document.createElement('div');
+      row.className = 'msg';
+      row.setAttribute('aria-label', 'Message from Anthony just now');
+      row.innerHTML = [
+        '<div class="msg-avatar-col">',
+          '<span class="sb-avatar" style="background:var(--chart-2);width:36px;height:36px;" aria-hidden="true">AG</span>',
+        '</div>',
+        '<div class="msg-body">',
+          '<div class="msg-head">',
+            '<span class="msg-author">Anthony</span>',
+            '<span class="msg-time">now</span>',
+          '</div>',
+          '<div class="msg-text">' + escapeHtml(text) + '</div>',
+        '</div>',
+      ].join('');
+      feed.appendChild(row);
+      row.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+    input.value = '';
+  }
+
+  // Send thread reply
+  function sendThreadReply(event) {
+    event.preventDefault();
+    var input = document.getElementById('thread-composer-input');
+    var text = input ? input.value.trim() : '';
+    if (!text) return;
+    var feed = document.querySelector('.drawer-feed');
+    if (feed) {
+      var row = document.createElement('div');
+      row.className = 'msg';
+      row.setAttribute('aria-label', 'Thread reply from Anthony just now');
+      row.innerHTML = [
+        '<div class="msg-avatar-col">',
+          '<span class="sb-avatar" style="background:var(--chart-2);width:32px;height:32px;font-size:var(--text-xs);" aria-hidden="true">AG</span>',
+        '</div>',
+        '<div class="msg-body">',
+          '<div class="msg-head">',
+            '<span class="msg-author" style="font-size:var(--text-sm);">Anthony</span>',
+            '<span class="msg-time">now</span>',
+          '</div>',
+          '<div class="msg-text" style="font-size:var(--text-sm);">' + escapeHtml(text) + '</div>',
+        '</div>',
+      ].join('');
+      var drawerComposer = document.querySelector('.drawer-composer');
+      feed.insertBefore(row, drawerComposer);
+      row.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+    input.value = '';
+  }
+
+  // Minimal HTML escape for user-typed content
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // Demo: show the SSE-dropped banner after 8 seconds to illustrate the offline async state
+  // (In production this would be driven by EventSource.onerror)
+  // Uncomment to demo:
+  // setTimeout(function() {
+  //   document.getElementById('sse-banner').classList.remove('u-hidden');
+  // }, 8000);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — UX Redesign Mockups</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <style>
+    .wrap { max-width: 1140px; margin: 0 auto; padding: var(--space-12) var(--space-6) var(--space-16); }
+    .hero { max-width: 760px; margin-bottom: var(--space-8); }
+    .hero h1 { font-size: var(--text-2xl); margin-bottom: var(--space-3); }
+    .sec-title { display: flex; align-items: baseline; gap: var(--space-3); margin: var(--space-10) 0 var(--space-2); flex-wrap: wrap; }
+    .sec-title h2 { font-size: var(--text-lg); }
+    .sec-note { margin: 0 0 var(--space-4); color: var(--fg-muted); line-height: var(--lh-normal); max-width: 820px; }
+    .navline { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: var(--radius-full); background: var(--surface-2); border: 1px solid var(--border); font-size: var(--text-xs); color: var(--fg-muted); white-space: nowrap; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--space-5); }
+    .g-card { display: flex; flex-direction: column; overflow: hidden; text-decoration: none; color: inherit; transition: box-shadow var(--dur-fast) var(--ease-standard), border-color var(--dur-fast); }
+    .g-card:hover { text-decoration: none; box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+    .g-thumb { aspect-ratio: 16 / 10; overflow: hidden; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+    .g-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+    .g-body { padding: var(--space-4) var(--space-5) var(--space-5); display: flex; flex-direction: column; gap: 6px; }
+    .g-body h3 { font-size: var(--text-base); }
+    .g-step { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--radius-full); background: var(--accent-soft); color: var(--accent); font-size: var(--text-xs); font-weight: var(--fw-semibold); margin-right: 6px; }
+    .prin td, .prin th { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); vertical-align: top; text-align: left; }
+    .prin th { width: 34%; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1>Opzava — the overall UI/UX</h1>
+      <p class="u-muted" style="line-height:var(--lh-normal)">
+        Interactive HTML proofs of the proposed redesign, organised as the two experiences a person actually lives in.
+        Pick the audience and walk the whole thing — each world has <strong>one consistent navigation</strong> and never
+        bleeds into the other. Audience model in <a href="../07-essential-vs-admin.md">07</a>; the three conversational
+        surfaces (orchestrator / per-project assistant / human messages) in
+        <a href="../09-chat-collab-nav-audit.md">09</a>. Every screen holds the 15&nbsp;px floor, one accent, WCAG&nbsp;AA, and explicit loading / empty / error states.
+      </p>
+    </header>
+
+    <!-- ════════════════════ ESSENTIAL ════════════════════ -->
+    <div class="sec-title">
+      <h2>Essential — the everyday experience</h2>
+      <span class="badge badge-success">calm · light · jargon-free</span>
+    </div>
+    <p class="sec-note">
+      What a normal, non-technical user sees. <strong>One calm top bar on every page</strong> — never the dark sidebar:
+      <span class="navline">◆ Opzava&nbsp;·&nbsp;Home&nbsp;·&nbsp;My stuff&nbsp;·&nbsp;Messages ③&nbsp;·&nbsp;Activity ②&nbsp;·&nbsp;<span style="color:var(--accent)">✦ Ask Opzava</span>&nbsp;·&nbsp;Find…</span>
+      A calm adaptation of Basecamp, with a per-project AI <em>assistant</em>, a human <em>Team</em> room, a Slack-style <strong>Messages</strong> hub for all your chats, and one cross-project <em>Ask Opzava</em>.
+      <strong>Activity</strong> is where every @mention and call-out — from <em>every</em> project — collects, so a tag is never missed. Quick project switching is the <strong>▾</strong> beside a project title (plus Find…) — no permanent sidebar, keeping it Basecamp-calm.
+      <strong>Full / admin view is reserved for admins</strong> — everyday users stay here in Essential. Walk it in order:
+    </p>
+    <div class="grid">
+      <a href="essential-home.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-home.png" alt="Essential home — projects" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">1</span>Home · Your projects</h3><p class="u-muted">The Lineup — every project as a calm card, a cross-project “needs you” rollup, and an Ask Opzava entry. Warm, content-first.</p></div>
+      </a>
+      <a href="essential-project.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-project.png" alt="Essential project workspace" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">2</span>A project workspace</h3><p class="u-muted">Tool tiles — To-dos, Board, <strong>✦ Ask your assistant</strong>, <strong>Team</strong>, Docs, Schedule, Updates. The project title has a <strong>▾</strong> to quick-switch projects.</p></div>
+      </a>
+      <a href="project-assistant.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/project-assistant.png" alt="Per-project AI assistant chat" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">3</span>Ask your assistant</h3><p class="u-muted">The per-project <strong>AI</strong> chat — inline steps, artifact and approval cards, with a back-link up to Ask Opzava.</p></div>
+      </a>
+      <a href="essential-team-room.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-team-room.png" alt="Essential per-project Team room" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">4</span>Team room</h3><p class="u-muted">The per-project <strong>human</strong> room (Campfire-lite) — one calm thread, the sibling of the Assistant tab. People, not AI.</p></div>
+      </a>
+      <a href="essential-messages.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-messages.png" alt="Essential Slack-style Messages" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">5</span>Messages · Slack-style</h3><p class="u-muted">All your team chats in one calm place — project rooms + direct messages on the left, the open conversation on the right. The Slack feel, kept calm. Humans only.</p></div>
+      </a>
+      <a href="essential-ask-opzava.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-ask-opzava.png" alt="Essential Ask Opzava cross-project chat" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">6</span>Ask Opzava</h3><p class="u-muted">The cross-project <strong>AI</strong> in the calm view — opens on a status digest across every project and acts inline. Same nav, no dark sidebar.</p></div>
+      </a>
+      <a href="essential-todos.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-todos.png" alt="Essential to-dos" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">7</span>To-dos</h3><p class="u-muted">Checklists with a progress bar — each item shows the AI on it (✦), a live status (Working… / Draft ready · review), comment counts, and due date. Glanceable like the Board cards.</p></div>
+      </a>
+      <a href="essential-card-table.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-card-table.png" alt="Essential board swim lanes" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">8</span>Board · swim lanes</h3><p class="u-muted">Triage → In progress → Done. Rich cards (ID, label, steps bar, due, ✦ AI, status, 💬/📎). A <strong>board switcher</strong> (“Customer Support ▾”) jumps between projects’ boards.</p></div>
+      </a>
+      <a href="essential-boards.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-boards.png" alt="Boards summary across all projects" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">9</span>Boards · all projects</h3><p class="u-muted">A PM’s cross-project board summary — every project’s lanes (Triage / In progress / On hold / Done) as a stacked bar, what needs you, severity-sorted. “Open board →” to dive in.</p></div>
+      </a>
+      <a href="essential-discovery.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-discovery.png" alt="Discovery idea board with AI brainstorm" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">10</span>Discovery</h3><p class="u-muted">Shape a new feature/product with Atlas — a <strong>calm</strong> idea board (New → Exploring → Decided, Parked tucked away), a quiet 👍 to converge, AI on demand via <strong>✦ Ask Atlas</strong>, then <strong>Connect to a project</strong>. Calmed by an MMX-vision + UX-law + creativity-psychology consensus (see <a href="../10-research-brainstorm-board.md">10 §8</a>). Project tab after Updates.</p></div>
+      </a>
+      <a href="essential-idea.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-idea.png" alt="An idea opened — research detail with AI consensus" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">11</span>An idea, opened</h3><p class="u-muted">A Discovery idea opened — the <strong>research</strong> detail (no quality-review / task machinery): the idea, votes, a flat <strong>build-on</strong> discussion, research sources, and an <strong>✦ AI consensus</strong> panel where several assistants weigh in. Multiple people + multiple AIs; converge → Connect to a project.</p></div>
+      </a>
+      <a href="essential-card.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-card.png" alt="A card opened" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">12</span>A card, opened</h3><p class="u-muted">Steps, assignee, due date, evidence/files, a quality-review approval, and a human↔AI comment thread.</p></div>
+      </a>
+      <a href="essential-my-stuff.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-my-stuff.png" alt="Essential my stuff" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">13</span>My stuff</h3><p class="u-muted">Everything across projects that needs you or that you’re following — adapted for human-in-the-loop.</p></div>
+      </a>
+      <a href="mention-inbox.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/mention-inbox.png" alt="Activity inbox" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">14</span>Activity · your inbox</h3><p class="u-muted">Every @mention and call-out from <strong>every project</strong>, plus AI hand-offs and approvals — one cross-project inbox so a tag is never missed. Source by glyph, never colour.</p></div>
+      </a>
+      <a href="essential-blank-slates.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/essential-blank-slates.png" alt="Essential blank slates and states" loading="lazy"></div>
+        <div class="g-body"><h3><span class="g-step">15</span>Blank slates &amp; states</h3><p class="u-muted">Empty + error states as first-class screens, in plain words — no error codes for everyday users.</p></div>
+      </a>
+    </div>
+
+    <!-- ════════════════════ FULL / ADMIN ════════════════════ -->
+    <div class="sec-title">
+      <h2>Full / admin — the control plane</h2>
+      <span class="badge badge-accent">technical · dark · sidebar</span>
+    </div>
+    <p class="sec-note">
+      What a technical admin sees. <strong>One dark sidebar on every page</strong> — never the calm top bar:
+      <span class="navline">◆&nbsp;·&nbsp;<span style="color:var(--accent)">✦ Ask Opzava</span>&nbsp;·&nbsp;Operate&nbsp;·&nbsp;Projects ▾&nbsp;·&nbsp;Observe&nbsp;·&nbsp;Govern</span>
+      with Ask Opzava pinned at the top and a persistent Projects switcher. Same surfaces as Essential, with the technical depth exposed. The <strong>↩ Essential view</strong> link at the foot of the rail switches back.
+    </p>
+    <div class="grid">
+      <a href="style-guide.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/style-guide.png" alt="Design system style guide" loading="lazy"></div>
+        <div class="g-body"><h3>Design system</h3><p class="u-muted">Every token, component, and state — the living inventory all screens draw from.</p></div>
+      </a>
+      <a href="shell-overview.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/shell-overview.png" alt="Shell and overview dashboard" loading="lazy"></div>
+        <div class="g-body"><h3>Shell + Overview</h3><p class="u-muted">The dark rail (Ask Opzava + Operate + Projects + Observe + Govern), global health pill, KPI row, and a live activity feed.</p></div>
+      </a>
+      <a href="orchestrator-chat.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/orchestrator-chat.png" alt="Ask Opzava orchestrator chat (dark)" loading="lazy"></div>
+        <div class="g-body"><h3>Ask Opzava · orchestrator</h3><p class="u-muted">Cross-project AI in the control plane — a per-project status digest, tool-call cards, and inline actions.</p></div>
+      </a>
+      <a href="messages-slack.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/messages-slack.png" alt="Slack-style human Messages" loading="lazy"></div>
+        <div class="g-body"><h3>Messages · Slack-style</h3><p class="u-muted">Human team chat — channels + DMs with presence, author-grouped messages, reactions, and a thread drawer.</p></div>
+      </a>
+      <a href="nav-project-switcher.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/nav-project-switcher.png" alt="Navigation and Cmd-K palette" loading="lazy"></div>
+        <div class="g-body"><h3>Navigation &amp; ⌘K</h3><p class="u-muted">The persistent Projects rail + a projects-first ⌘K palette + an always-visible breadcrumb.</p></div>
+      </a>
+      <a href="project-status-table.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/project-status-table.png" alt="Per-project status table" loading="lazy"></div>
+        <div class="g-body"><h3>Project status table</h3><p class="u-muted">An “Everything OK?” rollup + a severity-first per-project status table with AI owners.</p></div>
+      </a>
+      <a href="task-board.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/task-board.png" alt="Task board" loading="lazy"></div>
+        <div class="g-body"><h3>Task board</h3><p class="u-muted">Neutral kanban headers (was four-colour), clean cards, progressive disclosure.</p></div>
+      </a>
+      <a href="agent-detail.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/agent-detail.png" alt="Agent detail" loading="lazy"></div>
+        <div class="g-body"><h3>Agent detail</h3><p class="u-muted">The 2,992-line panel restructured: summary-first header, 5 tabs, advanced config collapsed.</p></div>
+      </a>
+      <a href="monitoring-health.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/monitoring-health.png" alt="Monitoring and health" loading="lazy"></div>
+        <div class="g-body"><h3>Monitoring &amp; health</h3><p class="u-muted">Realtime metric cards, a health-endpoint table, and explicit connection state (SSE).</p></div>
+      </a>
+      <a href="notifications-alerts.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/notifications-alerts.png" alt="Notifications and alerts" loading="lazy"></div>
+        <div class="g-body"><h3>Notifications &amp; alerts</h3><p class="u-muted">Severity-tiered inbox, alert rules, accessible toggles, and a live toast stack.</p></div>
+      </a>
+      <a href="settings.html" class="g-card card">
+        <div class="g-thumb"><img src="thumbs/settings.png" alt="Settings" loading="lazy"></div>
+        <div class="g-body"><h3>Settings</h3><p class="u-muted">Searchable section nav + readable, properly-labelled forms (was one long scroll).</p></div>
+      </a>
+    </div>
+
+    <!-- ── Principles ──────────────────────────────────────────────────────── -->
+    <div class="sec-title"><h2>Principles applied</h2></div>
+    <div class="card"><div class="card-body" style="padding-top:0;padding-bottom:0">
+      <table class="prin" style="width:100%;border-collapse:collapse" aria-label="Principles and the laws behind them">
+        <tbody>
+          <tr><th><span class="u-row"><span class="dot dot-accent"></span><strong>Two worlds, one nav each</strong></span></th><td class="u-muted">Essential is calm top-nav end-to-end; Full is the dark sidebar end-to-end. No screen mixes them and no link crosses over — you always know which world you’re in. <code>07</code> / <code>09</code>.</td></tr>
+          <tr><th><span class="u-row"><span class="dot dot-success"></span><strong>Three conversations, never confused</strong></span></th><td class="u-muted">Cross-project <strong>Ask Opzava</strong> (AI) · per-project <strong>Ask your assistant</strong> (AI) · human <strong>Messages/Team</strong> — different homes; AI vs human is glyph + label (✦ / initials), never colour. <code>09</code>.</td></tr>
+          <tr><th><span class="u-row"><span class="dot dot-success"></span><strong>Essential = Basecamp</strong></span></th><td class="u-muted">Projects as calm workspaces, To-dos, a Board, plain copy, generous whitespace — proven patterns (Jakob’s Law), not novelty. <code>08</code>.</td></tr>
+          <tr><th><span class="u-row"><span class="dot dot-success"></span><strong>15px text floor</strong></span></th><td class="u-muted">Body never below 15px (WCAG 1.4.4); 13px only for tertiary metadata; the old 10px token is retired.</td></tr>
+          <tr><th><span class="u-row"><span class="dot dot-accent"></span><strong>One accent</strong></span></th><td class="u-muted">A single saturated hue per view (cyan in Full, indigo in Essential); semantics desaturated; one primary action per region.</td></tr>
+          <tr><th><span class="u-row"><span class="dot dot-warning"></span><strong>≤9 destinations + disclosure</strong></span></th><td class="u-muted">Hick / Miller / Tesler — collapse the 32-item nav; progressive disclosure; advanced behind accordions.</td></tr>
+          <tr style="border-bottom:0"><th><span class="u-row"><span class="dot dot-accent"></span><strong>All four async states</strong></span></th><td class="u-muted">Loading (skeleton) · Loaded · Empty (with a next action) · Error (role="alert" + retry). No silent dead-ends.</td></tr>
+        </tbody>
+      </table>
+    </div></div>
+
+    <footer style="margin-top:var(--space-10);padding-top:var(--space-6);border-top:1px solid var(--border)">
+      <p class="u-subtle" style="font-size:var(--text-xs)">Opzava UX Redesign · interactive mockups · 15px floor, WCAG AA · Essential adapted from Basecamp (37signals) · 2026</p>
+    </footer>
+  </div>
+</body>
+</html>

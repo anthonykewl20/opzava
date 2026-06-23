@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Essential · Blank slates &amp; states</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <style>
+    /* Layout shell — mirrors essential-home.html exactly */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .bc-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+    .ava { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; }
+
+    /* Demo block layout */
+    .demo-block { margin-bottom: var(--space-10); }
+    .demo-block + .demo-block { padding-top: var(--space-10); border-top: 1px solid var(--border); }
+    .demo-label { margin-bottom: var(--space-3); }
+
+    /* Ghost project card (what-you're-building-toward preview) */
+    .ghost-preview { pointer-events: none; opacity: 0.45; margin-top: var(--space-6); }
+    .proj-ghost { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-5); border-top: 3px solid var(--chart-1); }
+    .proj-name { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); }
+    .tool-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+    .tool { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: var(--radius-full); background: var(--surface-2); color: var(--fg-muted); font-size: var(--text-xs); font-weight: var(--fw-medium); }
+    .proj-foot { display: flex; align-items: center; gap: var(--space-3); margin-top: auto; padding-top: var(--space-3); border-top: 1px solid var(--border); }
+
+    /* Mini card-table board */
+    .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+    .board-col { display: flex; flex-direction: column; gap: var(--space-2); }
+    .board-col-head { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-muted); text-transform: uppercase; letter-spacing: var(--tracking-caps); padding: var(--space-2) var(--space-3); border-bottom: 2px solid var(--border-strong); margin-bottom: var(--space-1); }
+    .board-card { padding: var(--space-3) var(--space-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--fg); }
+
+    /* Error state additions */
+    .error-state { padding: var(--space-10) var(--space-6); text-align: center; }
+    .error-icon { font-size: 28px; opacity: .55; margin-bottom: var(--space-3); }
+    .error-title { font-size: var(--text-base); font-weight: var(--fw-semibold); color: var(--fg); margin-bottom: 6px; }
+    .error-desc { font-size: var(--text-sm); color: var(--fg-muted); margin-bottom: var(--space-5); max-width: 400px; margin-left: auto; margin-right: auto; }
+    .error-actions { display: flex; align-items: center; justify-content: center; gap: var(--space-3); }
+    .error-details { margin-top: var(--space-6); text-align: left; max-width: 480px; margin-left: auto; margin-right: auto; }
+    .error-details summary { font-size: var(--text-xs); color: var(--fg-subtle); cursor: pointer; padding: var(--space-2) var(--space-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); list-style: none; display: flex; align-items: center; gap: var(--space-2); }
+    .error-details summary::-webkit-details-marker { display: none; }
+    .error-details summary::before { content: '▸'; font-size: 10px; }
+    details[open] .error-details summary::before { content: '▾'; }
+    .error-details-body { font-size: var(--text-xs); color: var(--fg-subtle); padding: var(--space-3); background: var(--surface-2); border: 1px solid var(--border); border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); font-family: var(--font-mono); line-height: 1.6; }
+
+    /* Page intro */
+    .page-intro { margin-bottom: var(--space-10); padding-bottom: var(--space-8); border-bottom: 1px solid var(--border); }
+    .page-intro p { margin-top: var(--space-2); font-size: var(--text-md); color: var(--fg-muted); max-width: 680px; line-height: var(--lh-normal); }
+
+    /* To-do empty variant */
+    .todo-container { padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); }
+    .todo-list-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: var(--space-4); border-bottom: 1px solid var(--border); }
+    .todo-list-title { font-size: var(--text-base); font-weight: var(--fw-semibold); }
+
+    @media (max-width: 640px) {
+      .board { grid-template-columns: 1fr; }
+      .bc-wrap { padding: var(--space-6) var(--space-4) var(--space-12); }
+    }
+  </style>
+</head>
+<body>
+  <div class="bc">
+
+    <!-- Top bar — exact copy from essential-home.html, no nav item active -->
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="#">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <button class="btn btn-primary" type="button"><span aria-hidden="true">＋</span> New project</button>
+      <button class="btn btn-icon btn-ghost" type="button" aria-label="Notifications" style="position:relative"><span aria-hidden="true">🔔</span></button>
+      <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+    </header>
+
+    <main>
+      <div class="bc-wrap">
+
+        <!-- Page header -->
+        <div class="page-intro">
+          <h1>Blank slates &amp; states</h1>
+          <p>Basecamp insists the empty state is the most important screen — new users see it first. Here are Opzava Essential's.</p>
+        </div>
+
+        <!-- ── 1. HOME — NO PROJECTS YET ────────────────────────────────────── -->
+        <div class="demo-block">
+          <p class="u-caps demo-label">Home — no projects yet</p>
+          <div class="card">
+
+            <!-- The actual empty state -->
+            <div class="empty">
+              <div class="empty-icon" aria-hidden="true">🌱</div>
+              <div class="empty-title">Your assistants are ready</div>
+              <p class="empty-desc">They do the work — you organize it into projects. Start with one thing you'd like done.</p>
+              <div class="empty-cta">
+                <button class="btn btn-primary" type="button"><span aria-hidden="true">＋</span> Create your first project</button>
+              </div>
+            </div>
+
+            <!-- Ghost preview: what the user is building toward -->
+            <div class="ghost-preview" aria-hidden="true">
+              <div style="padding: 0 var(--space-6) var(--space-5);">
+                <p style="font-size:var(--text-xs);color:var(--fg-subtle);text-align:center;margin-bottom:var(--space-4);">— Your projects will look something like this —</p>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--space-4);">
+                  <div class="card proj-ghost">
+                    <div class="proj-name">Q2 Content Push</div>
+                    <p class="u-muted" style="font-size:var(--text-sm)">Blog posts, newsletters &amp; social for the quarter.</p>
+                    <div class="tool-row">
+                      <span class="tool">✓ To-dos <strong>8</strong></span>
+                      <span class="tool">▦ Board</span>
+                      <span class="tool">✉ Messages</span>
+                    </div>
+                    <div class="proj-foot">
+                      <span class="badge badge-success"><span class="dot dot-success" aria-hidden="true"></span> 3 running</span>
+                    </div>
+                  </div>
+                  <div class="card proj-ghost" style="border-top-color:var(--chart-2)">
+                    <div class="proj-name">Series B Outreach</div>
+                    <p class="u-muted" style="font-size:var(--text-sm)">Investor emails, follow-ups &amp; the data room.</p>
+                    <div class="tool-row">
+                      <span class="tool">✓ To-dos <strong>5</strong></span>
+                      <span class="tool">▦ Board</span>
+                    </div>
+                    <div class="proj-foot">
+                      <span class="badge badge-warning"><span class="dot dot-warning" aria-hidden="true"></span> Needs review</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ── 2. A TO-DO LIST — EMPTY ───────────────────────────────────────── -->
+        <div class="demo-block">
+          <p class="u-caps demo-label">A to-do list — empty</p>
+          <div class="card">
+            <div class="todo-container">
+              <div class="todo-list-head">
+                <span class="todo-list-title">This week's tasks</span>
+                <!-- No primary action here — the empty state owns it -->
+              </div>
+              <div class="empty" style="padding:var(--space-8) var(--space-6)">
+                <div class="empty-icon" aria-hidden="true">✓</div>
+                <div class="empty-title">No to-dos yet</div>
+                <p class="empty-desc">Add the first thing you want done in this project.</p>
+                <div class="empty-cta">
+                  <button class="btn" type="button"><span aria-hidden="true">＋</span> Add a to-do</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── 3. CARD TABLE — EMPTY TRIAGE ─────────────────────────────────── -->
+        <div class="demo-block">
+          <p class="u-caps demo-label">Card table — empty triage</p>
+          <div class="card" style="padding:var(--space-5)">
+
+            <div class="board">
+
+              <!-- Triage column — empty state -->
+              <div class="board-col">
+                <div class="board-col-head">Triage</div>
+                <div class="empty" style="padding:var(--space-6) var(--space-4);background:var(--surface-2);border-radius:var(--radius-md)">
+                  <div class="empty-icon" aria-hidden="true">📥</div>
+                  <div class="empty-title" style="font-size:var(--text-sm)">Nothing in Triage</div>
+                  <p class="empty-desc" style="font-size:var(--text-xs)">New requests land here automatically. Drag them right as work moves along.</p>
+                </div>
+              </div>
+
+              <!-- In progress column — has cards to show contrast -->
+              <div class="board-col">
+                <div class="board-col-head">In progress</div>
+                <div class="board-card">
+                  <div style="font-weight:var(--fw-medium);margin-bottom:4px">Draft partner outreach email</div>
+                  <div class="u-row" style="gap:var(--space-2);margin-top:var(--space-2)">
+                    <span class="badge badge-accent" style="font-size:var(--text-xs)">Cipher</span>
+                    <span class="u-subtle" style="font-size:var(--text-xs)">Due Friday</span>
+                  </div>
+                </div>
+                <div class="board-card">
+                  <div style="font-weight:var(--fw-medium);margin-bottom:4px">Competitor scan — Series B</div>
+                  <div class="u-row" style="gap:var(--space-2);margin-top:var(--space-2)">
+                    <span class="badge" style="font-size:var(--text-xs)">Nexus</span>
+                    <span class="u-subtle" style="font-size:var(--text-xs)">In review</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Done column -->
+              <div class="board-col">
+                <div class="board-col-head">Done</div>
+                <div class="board-card" style="opacity:0.6">
+                  <div style="font-weight:var(--fw-medium);margin-bottom:4px;text-decoration:line-through">Weekly report sent</div>
+                  <div class="u-row" style="gap:var(--space-2);margin-top:var(--space-2)">
+                    <span class="badge badge-success" style="font-size:var(--text-xs)"><span class="dot dot-success" aria-hidden="true"></span> Done</span>
+                    <span class="u-subtle" style="font-size:var(--text-xs)">Yesterday</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- ── 4. SOMETHING WENT WRONG (ERROR STATE) ─────────────────────────── -->
+        <div class="demo-block">
+          <p class="u-caps demo-label">Something went wrong (error state)</p>
+          <div class="card">
+            <div class="error-state" role="alert" aria-live="assertive">
+              <div class="error-icon" aria-hidden="true">🌧</div>
+              <div class="error-title">We couldn't reach your assistants right now</div>
+              <p class="error-desc">Your work is safe — try again in a moment.</p>
+              <div class="error-actions">
+                <button class="btn btn-primary" type="button">Try again</button>
+              </div>
+              <!-- Raw technical detail is admin-gated and collapsed by default -->
+              <details class="error-details">
+                <summary>Technical details (for admins)</summary>
+                <div class="error-details-body">
+                  Service unavailable — connection could not be established.<br>
+                  Contact your administrator if this persists.
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — Opzava</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <style>
+    /* Page-specific layout only — no color, font-size, shadow, or radius overrides */
+    .settings-layout {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: var(--space-6);
+      align-items: start;
+    }
+    .settings-nav {
+      position: sticky;
+      top: var(--space-6);
+    }
+    .settings-nav-search {
+      margin-bottom: var(--space-3);
+    }
+    .settings-nav-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .settings-content {
+      max-width: 640px;
+    }
+    .settings-fields {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-5);
+    }
+    .field-switch-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-4);
+    }
+    .field-switch-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .card-footer-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+    }
+    .advanced-details summary {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      cursor: pointer;
+      padding: var(--space-3) 0;
+      border-top: 1px solid var(--border);
+    }
+    .advanced-details summary::-webkit-details-marker { display: none; }
+    .advanced-details summary .chevron {
+      transition: transform var(--dur-base) var(--ease-standard);
+      flex: none;
+    }
+    .advanced-details[open] summary .chevron {
+      transform: rotate(90deg);
+    }
+    .advanced-body {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-5);
+      padding-top: var(--space-4);
+    }
+    .nav-section-gap {
+      margin-top: var(--space-2);
+    }
+    .header-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--surface-3);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      flex: none;
+      cursor: pointer;
+      font-weight: var(--fw-semibold);
+    }
+    .notif-btn-wrap {
+      position: relative;
+    }
+    .notif-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: var(--radius-full);
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      font-weight: var(--fw-semibold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       NAVIGATION RAIL  — copied verbatim from shell-overview.html
+  ══════════════════════════════════════════════════════════════════ -->
+  <aside class="rail" aria-label="Main navigation">
+
+    <!-- Logo / wordmark -->
+    <div class="rail-head">
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
+        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
+      </svg>
+      <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);letter-spacing:-.01em;">Opzava</span>
+      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
+    </div>
+
+    <!-- Nav groups -->
+    <nav class="rail-nav" aria-label="Application sections">
+      <a href="orchestrator-chat.html" class="rail-item" style="margin-bottom:4px;">
+        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
+        Ask Opzava
+        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
+      </a>
+      <div class="section-label">Operate</div>
+      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
+      <a href="agent-detail.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
+      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
+      <a href="messages-slack.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
+      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
+      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
+      <div class="section-label nav-section-gap">Observe</div>
+      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
+      <a href="#" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
+      <a href="#" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
+      <div class="section-label nav-section-gap">Govern</div>
+      <a href="notifications-alerts.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
+      <a href="settings.html" class="rail-item" aria-current="page"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
+      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+    </nav>
+
+    <!-- Rail footer: ⌘K quick jump -->
+    <div class="rail-foot">
+      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (⌘K)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-subtle u-grow">Jump to…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIN COLUMN
+  ══════════════════════════════════════════════════════════════════ -->
+  <div class="main-col">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="header">
+
+      <!-- Sidebar collapse -->
+      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <!-- Search -->
+      <div class="search" role="search">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-grow u-subtle">Search agents, tasks, runs…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </div>
+
+      <!-- Spacer -->
+      <div class="u-grow"></div>
+
+      <!-- Health pill -->
+      <div class="health-pill" aria-label="System health: All systems healthy">
+        <span class="dot dot-success" aria-hidden="true"></span>
+        All systems healthy
+      </div>
+
+      <!-- Live indicator -->
+      <div class="live-indicator" aria-label="Live connection active">
+        <span class="dot dot-success live" aria-hidden="true"></span>
+        <span>Live</span>
+      </div>
+
+      <!-- Notifications -->
+      <div class="notif-btn-wrap">
+        <button type="button" class="btn btn-ghost btn-icon" aria-label="Notifications, 2 unread">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </button>
+        <span class="notif-badge" aria-hidden="true">2</span>
+        <span class="u-sr-only">2 unread notifications</span>
+      </div>
+
+      <!-- Avatar -->
+      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu — Anthony G.">AG</div>
+
+    </header>
+
+    <!-- ── Main content ────────────────────────────────────────── -->
+    <main class="main">
+      <div class="page">
+
+        <!-- Page header -->
+        <div class="page-header">
+          <div>
+            <h1>Settings</h1>
+            <p class="page-sub">Workspace configuration and preferences</p>
+          </div>
+          <button type="button" class="btn btn-primary">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M13 3H6L3 6v7h10V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <path d="M10 3v4H6V3" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <path d="M5 10h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M5 12.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            Save changes
+          </button>
+        </div>
+
+        <!-- Two-column settings layout -->
+        <div class="settings-layout">
+
+          <!-- ── Left: Section navigation ──────────────────────── -->
+          <nav class="settings-nav" aria-label="Settings sections">
+
+            <!-- Inline search -->
+            <div class="settings-nav-search">
+              <label for="settings-search" class="u-sr-only">Search settings</label>
+              <div class="search" style="max-width:none;width:100%;">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+                  <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                <input
+                  id="settings-search"
+                  type="search"
+                  placeholder="Search settings…"
+                  style="background:none;border:0;outline:0;color:var(--fg);font:inherit;font-size:var(--text-sm);flex:1;min-width:0;"
+                  aria-label="Search settings"
+                />
+              </div>
+            </div>
+
+            <!-- Nav items -->
+            <div class="settings-nav-list" role="list">
+
+              <a href="#general" class="rail-item active" aria-current="page" role="listitem">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/>
+                  <circle cx="9" cy="9" r="2.5" fill="currentColor" opacity=".6"/>
+                </svg>
+                General
+              </a>
+
+              <a href="#agents" class="rail-item" role="listitem">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Agents
+              </a>
+
+              <a href="#connections" class="rail-item" role="listitem">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <circle cx="4.5" cy="9" r="2" stroke="currentColor" stroke-width="1.5"/>
+                  <circle cx="13.5" cy="9" r="2" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M6.5 9h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Connections
+              </a>
+
+              <a href="#security" class="rail-item" role="listitem">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M9 2L3 5v5c0 3.5 2.5 6.5 6 7.5 3.5-1 6-4 6-7.5V5L9 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                </svg>
+                Security
+              </a>
+
+              <a href="#notifications" class="rail-item" role="listitem">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                  <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+                Notifications
+              </a>
+
+              <a href="#billing" class="rail-item" role="listitem">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <rect x="2" y="5" width="14" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M2 8.5h14" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M5 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Billing
+              </a>
+
+              <a href="#advanced" class="rail-item" role="listitem">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M3 6h12M3 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  <circle cx="6" cy="6" r="1.5" fill="currentColor"/>
+                  <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+                </svg>
+                Advanced
+              </a>
+
+            </div>
+          </nav>
+
+          <!-- ── Right: General section content ────────────────── -->
+          <section class="settings-content" aria-labelledby="general-heading" id="general">
+
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="general-heading">General</h2>
+                <span class="badge badge-accent">Active</span>
+              </div>
+
+              <div class="card-body">
+                <div class="settings-fields">
+
+                  <!-- Organization name -->
+                  <div class="field">
+                    <label class="label" for="org-name">Organization name</label>
+                    <span class="hint" id="org-name-hint">Displayed in the header, exports, and team invitations.</span>
+                    <input
+                      class="input"
+                      id="org-name"
+                      type="text"
+                      value="Opzava Internal"
+                      aria-describedby="org-name-hint"
+                      autocomplete="organization"
+                    />
+                  </div>
+
+                  <!-- Default model -->
+                  <div class="field">
+                    <label class="label" for="default-model">Default model</label>
+                    <span class="hint" id="default-model-hint">Used for new agents unless overridden in their config.</span>
+                    <select class="select" id="default-model" aria-describedby="default-model-hint">
+                      <option value="claude-opus-4" selected>Claude Opus 4 (recommended)</option>
+                      <option value="claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                      <option value="claude-haiku-3-5">Claude Haiku 3.5</option>
+                      <option value="gpt-4o">GPT-4o</option>
+                      <option value="gpt-4o-mini">GPT-4o Mini</option>
+                    </select>
+                  </div>
+
+                  <!-- Timezone -->
+                  <div class="field">
+                    <label class="label" for="timezone">Timezone</label>
+                    <span class="hint" id="timezone-hint">Affects task scheduling, log timestamps, and report dates.</span>
+                    <select class="select" id="timezone" aria-describedby="timezone-hint">
+                      <option value="utc">UTC +0:00 (Coordinated Universal Time)</option>
+                      <option value="est" selected>UTC −5:00 (Eastern Time)</option>
+                      <option value="pst">UTC −8:00 (Pacific Time)</option>
+                      <option value="cet">UTC +1:00 (Central European Time)</option>
+                      <option value="jst">UTC +9:00 (Japan Standard Time)</option>
+                    </select>
+                  </div>
+
+                  <hr>
+
+                  <!-- Switch: Auto-pause on error -->
+                  <div class="field-switch-row" role="group" aria-labelledby="autopause-label">
+                    <div class="field-switch-info">
+                      <span class="label" id="autopause-label">Auto-pause agents on error</span>
+                      <p class="hint" id="autopause-hint">Automatically pauses an agent when it encounters a runtime error, preventing runaway cost.</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked="true"
+                      aria-labelledby="autopause-label"
+                      aria-describedby="autopause-hint"
+                      class="switch on"
+                    >
+                      <span class="u-sr-only">Enabled</span>
+                    </button>
+                  </div>
+
+                  <!-- Switch: Usage telemetry -->
+                  <div class="field-switch-row" role="group" aria-labelledby="telemetry-label">
+                    <div class="field-switch-info">
+                      <span class="label" id="telemetry-label">Send anonymous usage telemetry</span>
+                      <p class="hint" id="telemetry-hint">Helps improve Opzava. No prompt content or PII is ever transmitted. <a href="#" style="font-size:inherit;">Privacy policy</a></p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked="false"
+                      aria-labelledby="telemetry-label"
+                      aria-describedby="telemetry-hint"
+                      class="switch"
+                    >
+                      <span class="u-sr-only">Disabled</span>
+                    </button>
+                  </div>
+
+                  <hr>
+
+                  <!-- Advanced disclosure -->
+                  <details class="advanced-details" id="advanced">
+                    <summary>
+                      <svg class="chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                        <path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                      <span style="font-size:var(--text-sm);font-weight:var(--fw-medium);color:var(--fg-muted);">Advanced settings</span>
+                      <span class="badge u-right">3 options</span>
+                    </summary>
+
+                    <div class="advanced-body">
+
+                      <!-- Date format -->
+                      <div class="field">
+                        <label class="label" for="date-format">Date format</label>
+                        <span class="hint" id="date-format-hint">Controls how dates appear in the UI, exports, and reports.</span>
+                        <select class="select" id="date-format" aria-describedby="date-format-hint">
+                          <option value="iso" selected>YYYY-MM-DD (ISO 8601)</option>
+                          <option value="us">MM/DD/YYYY</option>
+                          <option value="eu">DD/MM/YYYY</option>
+                        </select>
+                      </div>
+
+                      <!-- Max concurrent tasks -->
+                      <div class="field">
+                        <label class="label" for="max-concurrent">Max concurrent tasks per agent</label>
+                        <span class="hint" id="max-concurrent-hint">Hard limit applied to every agent. Individual agents may set a lower limit in their config.</span>
+                        <input
+                          class="input"
+                          id="max-concurrent"
+                          type="number"
+                          min="1"
+                          max="20"
+                          value="5"
+                          aria-describedby="max-concurrent-hint"
+                          style="max-width:120px;"
+                        />
+                      </div>
+
+                      <!-- Switch: Debug mode -->
+                      <div class="field-switch-row" role="group" aria-labelledby="debugmode-label">
+                        <div class="field-switch-info">
+                          <span class="label" id="debugmode-label">Debug mode</span>
+                          <p class="hint" id="debugmode-hint">Enables verbose logging and exposes internal tool call traces in the activity feed. Not recommended for production.</p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked="false"
+                          aria-labelledby="debugmode-label"
+                          aria-describedby="debugmode-hint"
+                          class="switch"
+                        >
+                          <span class="u-sr-only">Disabled</span>
+                        </button>
+                      </div>
+
+                    </div>
+                  </details>
+
+                </div>
+              </div>
+
+              <!-- Card footer: save actions -->
+              <div class="card-footer">
+                <div class="card-footer-actions">
+                  <button type="button" class="btn btn-primary">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M13 3H6L3 6v7h10V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                      <path d="M10 3v4H6V3" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                    </svg>
+                    Save changes
+                  </button>
+                  <button type="button" class="btn btn-ghost">Discard</button>
+                  <span class="u-subtle hint u-right">Last saved 3 minutes ago</span>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Unsaved-changes banner (demo: shown) -->
+            <div class="banner banner-info" style="margin-top:var(--space-4);" role="status" aria-live="polite">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--info);">
+                <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M8 5v1M8 8v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              <span>You have unsaved changes. Save or discard before navigating away.</span>
+            </div>
+
+            <!-- Other sections: not yet rendered (progressive disclosure pattern) -->
+            <div class="empty" style="margin-top:var(--space-6);" aria-label="Other settings sections">
+              <div class="empty-icon" aria-hidden="true">⚙</div>
+              <p class="empty-title">Select a section to configure</p>
+              <p class="empty-desc">Use the navigation on the left to switch between Agents, Connections, Security, Notifications, Billing, and Advanced settings.</p>
+            </div>
+
+          </section>
+
+        </div><!-- /.settings-layout -->
+
+      </div><!-- /.page -->
+    </main>
+
+  </div><!-- /.main-col -->
+</div><!-- /.app -->
+
+<!-- ── Inline JS: switch toggle demo ──────────────────────── -->
+<script>
+  document.querySelectorAll('[role="switch"]').forEach(function(sw) {
+    sw.addEventListener('click', function() {
+      var checked = this.getAttribute('aria-checked') === 'true';
+      this.setAttribute('aria-checked', String(!checked));
+      this.querySelector('.u-sr-only').textContent = checked ? 'Disabled' : 'Enabled';
+      if (!checked) {
+        this.classList.add('on');
+      } else {
+        this.classList.remove('on');
+      }
+    });
+  });
+</script>
+
+</body>
+</html>

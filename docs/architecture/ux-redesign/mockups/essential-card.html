@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — CS-1042 · Card</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <style>
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); }
+    .bc-wrap { max-width: 1080px; margin: 0 auto; padding: var(--space-6) var(--space-6) var(--space-16); }
+    .id-chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: var(--text-sm); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 3px 4px 3px 9px; }
+    .id-copy { border: 0; background: none; color: var(--fg-subtle); font: inherit; font-size: var(--text-xs); cursor: pointer; padding: 2px 6px; border-radius: var(--radius-sm); }
+    .id-copy:hover { background: var(--surface-3); color: var(--fg); }
+    .meta-grid { display: flex; flex-wrap: wrap; gap: var(--space-6); padding: var(--space-4) 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: var(--space-5) 0; }
+    .meta b { display: block; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); margin-bottom: 6px; }
+    .sec-h { font-size: var(--text-md); font-weight: var(--fw-semibold); margin: var(--space-6) 0 var(--space-3); }
+    .step { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+    .step:last-child { border-bottom: 0; }
+    .step.done .step-text { color: var(--fg-subtle); text-decoration: line-through; }
+    .comment { display: flex; gap: var(--space-3); padding: var(--space-4) 0; border-top: 1px solid var(--border); }
+    .comment.ai { padding-left: var(--space-3); border-left: 2px solid var(--accent-soft); }
+    .bmeta { display: flex; align-items: center; gap: var(--space-2); margin-bottom: 4px; }
+    .read { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: var(--text-xs); color: var(--fg-subtle); }
+    .rdot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+    .read.unread .rdot { background: var(--border-strong); }
+    .typing { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; }
+    .dots { display: inline-flex; gap: 4px; align-items: flex-end; height: 14px; }
+    .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: typ 1.2s infinite ease-in-out; }
+    .dots.human i { background: var(--info); }
+    .dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
+    @keyframes typ { 0%,70%,100% { transform: translateY(0); opacity: .4; } 35% { transform: translateY(-5px); opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .dots i { animation: none; opacity: .7; } }
+    /* evidence */
+    .ev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-3); }
+    .ev-thumb { aspect-ratio: 16/10; border-radius: var(--radius-md); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 26px; color: #fff; position: relative; overflow: hidden; }
+    .ev-cap { padding: 8px 2px 0; font-size: var(--text-xs); color: var(--fg-muted); }
+    .ev-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+    .ftype { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; background: var(--surface-2); color: var(--fg-muted); font-size: var(--text-xs); font-weight: 700; flex: none; }
+    .tabpanel[hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <div class="bc">
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="sb-avatar sb-avatar--sm" style="background:var(--accent);color:var(--accent-fg);border-radius:var(--radius-md)" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="#">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <button class="btn btn-primary" type="button"><span aria-hidden="true">＋</span> New project</button>
+      <button class="btn-icon btn-ghost" type="button" aria-label="Notifications"><span aria-hidden="true">🔔</span></button>
+      <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+    </header>
+
+    <main>
+      <div class="bc-wrap">
+        <!-- Breadcrumb (shadcn) -->
+        <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+          <a href="essential-home.html">Home</a><span class="sep" aria-hidden="true">›</span>
+          <a href="essential-project.html">Customer Support</a><span class="sep" aria-hidden="true">›</span>
+          <a href="essential-card-table.html">Board</a><span class="sep" aria-hidden="true">›</span>
+          <span class="current">CS-1042</span>
+        </nav>
+
+        <article class="card" style="border-top:3px solid var(--chart-1)">
+          <div class="card-body" style="padding:var(--space-6)">
+
+            <!-- Global card ID + actions -->
+            <div class="u-between" style="gap:var(--space-3);margin-bottom:var(--space-3)">
+              <div class="u-row u-wrap" style="gap:var(--space-3)">
+                <span class="id-chip"><span class="u-subtle">#</span>CS-1042 <button class="id-copy" id="copyId" type="button" aria-label="Copy CS-1042">Copy</button></span>
+                <div style="position:relative">
+                  <button class="btn btn-sm btn-ghost" id="idInfo" type="button" aria-label="About this ID">What's this ID? <span aria-hidden="true">▾</span></button>
+                  <div class="sb-popover" id="idPop" style="display:none;position:absolute;top:calc(100% + 6px);left:0;width:300px;z-index:var(--z-dropdown)">
+                    <strong style="font-size:var(--text-sm)">Standardized global ID</strong>
+                    <p class="u-muted" style="font-size:var(--text-sm);margin-top:6px;line-height:var(--lh-normal)">Every card has a stable <code>PREFIX-N</code> handle (CS = Customer Support). Agents and people refer to it the same way in chat, the API and the CLI — e.g. <em>"work CS-1042"</em>.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="u-row" style="gap:var(--space-2)">
+                <button class="btn btn-primary" id="doneBtn" type="button"><span aria-hidden="true">✓</span> Mark done</button>
+                <div style="position:relative">
+                  <button class="btn-icon btn" id="menuBtn" type="button" aria-label="Card actions" aria-haspopup="menu"><span aria-hidden="true">⋯</span></button>
+                  <div class="sb-menu" id="cardMenu" style="display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:var(--z-dropdown)" role="menu">
+                    <div class="sb-menu-label">Card</div>
+                    <button class="sb-menu-item" type="button"><span aria-hidden="true">🔗</span> Copy link <span class="sb-shortcut">⌘L</span></button>
+                    <button class="sb-menu-item" type="button"><span aria-hidden="true">👤</span> Re-assign…</button>
+                    <button class="sb-menu-item" type="button"><span aria-hidden="true">⇄</span> Move to column…</button>
+                    <button class="sb-menu-item" type="button"><span aria-hidden="true">⏸</span> Put on hold</button>
+                    <div class="sb-menu-sep"></div>
+                    <button class="sb-menu-item sb-menu-item--danger" type="button"><span aria-hidden="true">🗑</span> Archive card</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <h1 style="font-size:var(--text-xl)">Login keeps failing — 2FA error</h1>
+            <div class="u-row u-wrap" style="gap:var(--space-2);margin-top:var(--space-3)">
+              <span class="sb-badge sb-badge--secondary">In progress</span>
+              <span class="sb-badge sb-badge--outline">Customer-facing</span>
+              <span class="sb-badge sb-badge--warning"><span class="dot dot-warning" aria-hidden="true"></span> Due Friday</span>
+            </div>
+
+            <!-- Meta strip -->
+            <div class="meta-grid">
+              <div class="meta"><b>Assigned to</b>
+                <span class="sb-hc">
+                  <span class="u-row" tabindex="0" style="cursor:default"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-5)">E</span>&nbsp;Echo&nbsp;<span class="sb-badge sb-badge--accent">✦ AI</span></span>
+                  <span class="sb-hovercard sb-popover">
+                    <span class="u-row" style="gap:var(--space-3)"><span class="sb-avatar sb-avatar--ai" style="background:var(--chart-5)">E</span><span><strong>Echo</strong><br><span class="u-subtle" style="font-size:var(--text-xs)">AI assistant · Customer Support</span></span></span>
+                    <p class="u-muted" style="font-size:var(--text-sm);margin-top:var(--space-3)">Handles triage and drafts replies. Today: 5 cards worked, 4 replies drafted, avg 3m each.</p>
+                  </span>
+                </span>
+              </div>
+              <div class="meta"><b>Added</b><span>2 days ago, from a customer email</span></div>
+              <div class="meta"><b>Watching</b>
+                <span class="sb-avatar-group" aria-label="Watchers: You, Echo, Maria">
+                  <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)">AG</span>
+                  <span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-5)">E</span>
+                  <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)">M</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Tabs separate the concerns: easy to digest + navigate -->
+            <div class="sb-tabs" role="tablist" aria-label="Card sections">
+              <button class="sb-tab" role="tab" data-panel="p-overview" aria-selected="true">Overview</button>
+              <button class="sb-tab" role="tab" data-panel="p-airun" aria-selected="false">AI Run</button>
+              <button class="sb-tab" role="tab" data-panel="p-evidence" aria-selected="false">Evidence &amp; Files <span class="sb-badge sb-badge--secondary" style="height:18px;margin-left:4px">5</span></button>
+              <button class="sb-tab" role="tab" data-panel="p-quality" aria-selected="false">Quality Review</button>
+            </div>
+
+            <!-- ── Overview ─────────────────────────────────────────────────── -->
+            <section class="tabpanel" id="p-overview" role="tabpanel" style="margin-top:var(--space-5)">
+              <p style="line-height:var(--lh-normal)">A customer can't finish signing in: after entering their 2-factor code the page shows "invalid token". Echo reproduced it on a test account — the code seems to expire a few seconds early.</p>
+
+              <h2 class="sec-h">Steps <span class="u-subtle" style="font-size:var(--text-xs);font-weight:400">· 2 of 4 done</span></h2>
+              <div class="step done"><input class="sb-check" type="checkbox" checked aria-label="Reproduce the issue"><span class="step-text u-grow">Reproduce the issue on a test account</span><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-5);width:22px;height:22px" aria-hidden="true">E</span></div>
+              <div class="step done"><input class="sb-check" type="checkbox" checked aria-label="Check the code timing window"><span class="step-text u-grow">Check the 2-factor code timing window</span><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-4);width:22px;height:22px" aria-hidden="true">N</span></div>
+              <div class="step"><input class="sb-check" type="checkbox" aria-label="Draft a reply"><span class="step-text u-grow">Draft a friendly reply for the customer</span><span class="u-row u-subtle" style="font-size:var(--text-xs);gap:6px"><span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span> Echo working…</span></div>
+              <div class="step"><input class="sb-check" type="checkbox" aria-label="Confirm fix with engineering"><span class="step-text u-grow">Confirm the fix with the engineering team</span></div>
+
+              <h2 class="sec-h">Comments</h2>
+              <div class="comment ai">
+                <span class="sb-avatar sb-avatar--ai" style="background:var(--chart-5)" aria-hidden="true">E</span>
+                <div class="u-grow"><div class="bmeta"><strong>Echo</strong><span class="sb-badge sb-badge--accent">✦ AI</span><span class="u-subtle" style="font-size:var(--text-xs)">2 hours ago</span></div>
+                  <p style="line-height:var(--lh-normal)">I drafted a reply explaining the code-timing issue and asking them to try again — ready for your review before it goes out.</p></div>
+              </div>
+              <div class="comment">
+                <span class="sb-avatar" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+                <div class="u-grow"><div class="bmeta"><strong>You</strong><span class="sb-badge sb-badge--secondary">You</span><span class="u-subtle" style="font-size:var(--text-xs)">1 hour ago</span></div>
+                  <p style="line-height:var(--lh-normal)">Looks good — please add a line apologising for the trouble, then send it.</p>
+                  <span class="read"><span class="u-row" style="gap:3px" aria-hidden="true"><span class="rdot"></span><span class="rdot"></span></span> Read by Echo</span></div>
+              </div>
+              <div class="comment">
+                <span class="sb-avatar" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+                <div class="u-grow"><div class="bmeta"><strong>You</strong><span class="sb-badge sb-badge--secondary">You</span><span class="u-subtle" style="font-size:var(--text-xs)">just now</span></div>
+                  <p style="line-height:var(--lh-normal)">Also — can we offer them a small credit for the hassle?</p>
+                  <span class="read unread"><span class="u-row" style="gap:3px" aria-hidden="true"><span class="rdot"></span><span class="rdot"></span></span> Sent · not read yet</span></div>
+              </div>
+              <!-- AI replying, realtime -->
+              <div class="typing" role="status" aria-live="polite"><span class="sb-avatar sb-avatar--ai" style="background:var(--chart-5)" aria-hidden="true">E</span><span class="u-muted"><strong>Echo</strong> <span class="sb-badge sb-badge--accent">✦ AI</span> is replying</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
+              <!-- Human presence, realtime -->
+              <div class="typing" id="mate" role="status" aria-live="polite"><span class="sb-avatar" style="background:var(--chart-3)" aria-hidden="true">M</span><span class="u-muted"><strong>Maria</strong> is typing a comment</span><span class="dots human" aria-hidden="true"><i></i><i></i><i></i></span></div>
+
+              <div class="u-row" style="gap:var(--space-3);align-items:flex-start;margin-top:var(--space-4)">
+                <span class="sb-avatar" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+                <div class="u-grow u-col-2">
+                  <label for="c" class="u-sr-only">Add a comment</label>
+                  <textarea id="c" class="textarea" rows="2" placeholder="Write a comment… Echo sees it in realtime"></textarea>
+                  <div class="typing" id="you" style="display:none;padding:0"><span class="u-subtle">You're typing</span><span class="dots human" aria-hidden="true"><i></i><i></i><i></i></span></div>
+                  <div><button class="btn btn-primary" type="button">Post comment</button></div>
+                </div>
+              </div>
+            </section>
+
+            <!-- ── AI Run (terminal-style trace) ────────────────────────────── -->
+            <section class="tabpanel" id="p-airun" role="tabpanel" hidden style="margin-top:var(--space-5)">
+              <div class="u-between" style="margin-bottom:var(--space-3)">
+                <p class="u-muted" style="font-size:var(--text-sm)">How <strong>Echo</strong> worked this card — its thinking, searches and tool calls, like a terminal. For both people and agents to audit.</p>
+                <span class="u-row u-subtle" style="font-size:var(--text-xs);gap:6px"><span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span> live · 2m 14s</span>
+              </div>
+              <div class="sb-term" role="log" aria-label="AI run trace">
+                <div class="ln"><span class="tag t-cmd">$</span><span class="t-cmd">opzava run CS-1042 · assistant=Echo · model=claude-opus · attempt 1</span></div>
+                <div class="ln"><span class="tag t-think">think</span><span>Customer reports 2FA "invalid token". Likely clock skew or too-tight code window. Plan: reproduce → inspect timing → reply.</span></div>
+                <div class="ln"><span class="tag t-search">search</span><span>web: "TOTP invalid token clock skew tolerance" → 6 results</span></div>
+                <div class="ln"><span class="tag t-tool">tool</span><span>reproduce_login(account=test) → <span class="t-warn">✗ invalid_token</span> (code rejected 4s before its TTL)</span></div>
+                <div class="ln"><span class="tag t-think">think</span><span>Code is rejected ~4s early. Validation window is 30s with 0s drift allowance — too strict.</span></div>
+                <div class="ln"><span class="tag t-tool">tool</span><span>inspect_token_window() → { window: 30s, drift_allowance: 0s }</span></div>
+                <div class="ln"><span class="tag t-think">think</span><span>Recommend ±15s drift allowance. Meanwhile draft a friendly customer reply and flag the fix.</span></div>
+                <div class="ln"><span class="tag t-tool">tool</span><span>draft_reply(tone=friendly, apology=true) → 138 words → <span class="t-out">attached: reply-draft.md</span></span></div>
+                <div class="ln"><span class="tag t-ok">done</span><span class="t-ok">Reply drafted &amp; attached · fix flagged to engineering · awaiting human review.</span></div>
+              </div>
+            </section>
+
+            <!-- ── Evidence & Files ─────────────────────────────────────────── -->
+            <section class="tabpanel" id="p-evidence" role="tabpanel" hidden style="margin-top:var(--space-5)">
+              <h2 class="sec-h" style="margin-top:0">Screenshots &amp; video</h2>
+              <div class="ev-grid">
+                <div><div class="ev-thumb" style="background:linear-gradient(135deg,var(--chart-1),var(--chart-6))"><span aria-hidden="true">🖼</span></div><div class="ev-cap">error-screen.png · 1440×900 · 240 KB</div></div>
+                <div><div class="ev-thumb" style="background:linear-gradient(135deg,var(--chart-2),var(--chart-4))"><span aria-hidden="true">🖼</span></div><div class="ev-cap">token-timing.png · 1440×900 · 188 KB</div></div>
+                <div><div class="ev-thumb" style="background:#11131c;color:#cbd5e1"><span aria-hidden="true">▶</span></div><div class="ev-cap">repro-recording.mp4 · 0:42 · 3.1 MB</div></div>
+              </div>
+              <h2 class="sec-h">Files</h2>
+              <div class="u-col-2">
+                <div class="ev-row"><span class="ftype">MD</span><div class="u-grow"><strong style="font-size:var(--text-sm)">reply-draft.md</strong><div class="u-subtle" style="font-size:var(--text-xs)">Drafted by Echo · 138 words · 2 KB</div></div><button class="btn btn-sm btn-ghost" type="button">Open</button></div>
+                <div class="ev-row"><span class="ftype">PDF</span><div class="u-grow"><strong style="font-size:var(--text-sm)">error-trace.pdf</strong><div class="u-subtle" style="font-size:var(--text-xs)">Attached from the customer ticket · 240 KB</div></div><button class="btn btn-sm btn-ghost" type="button">Open</button></div>
+                <div class="ev-row"><span class="ftype">JSON</span><div class="u-grow"><strong style="font-size:var(--text-sm)">token-window-config.json</strong><div class="u-subtle" style="font-size:var(--text-xs)">Captured by Echo · 2 KB</div></div><button class="btn btn-sm btn-ghost" type="button">Open</button></div>
+              </div>
+              <h2 class="sec-h">Links</h2>
+              <div class="u-col-2">
+                <a class="ev-row" href="#" style="text-decoration:none;color:inherit"><span class="ftype">🔗</span><div class="u-grow"><strong style="font-size:var(--text-sm)">Customer ticket #4821</strong><div class="u-subtle" style="font-size:var(--text-xs)">support.acme.com</div></div><span class="u-subtle" aria-hidden="true">↗</span></a>
+                <a class="ev-row" href="#" style="text-decoration:none;color:inherit"><span class="ftype">🔗</span><div class="u-grow"><strong style="font-size:var(--text-sm)">Related issue · TOTP drift</strong><div class="u-subtle" style="font-size:var(--text-xs)">github.com/opzava/app#2210</div></div><span class="u-subtle" aria-hidden="true">↗</span></a>
+              </div>
+            </section>
+
+            <!-- ── Quality Review ───────────────────────────────────────────── -->
+            <section class="tabpanel" id="p-quality" role="tabpanel" hidden style="margin-top:var(--space-5)">
+              <div class="sb-alert sb-alert--warning" role="status">
+                <span class="ico" aria-hidden="true">⚠</span>
+                <span class="sb-alert-title">Changes requested before this goes to the customer</span>
+                <span class="sb-alert-desc">The AI pre-check passed, but your review asked for an apology line and a goodwill credit. 1 item left.</span>
+              </div>
+
+              <h2 class="sec-h">Checks</h2>
+              <div class="u-col-2">
+                <div class="ev-row"><input class="sb-check" type="checkbox" checked disabled aria-label="No sensitive data"><span class="u-grow">No sensitive data in the reply</span><span class="sb-badge sb-badge--accent">✦ AI pre-check</span></div>
+                <div class="ev-row"><input class="sb-check" type="checkbox" checked disabled aria-label="Reply is accurate"><span class="u-grow">Reply matches the diagnosed cause</span><span class="sb-badge sb-badge--accent">✦ AI pre-check</span></div>
+                <div class="ev-row"><input class="sb-check" type="checkbox" checked aria-label="Tone is friendly"><span class="u-grow">Tone is friendly &amp; on-brand</span><span class="sb-badge sb-badge--secondary">You</span></div>
+                <div class="ev-row"><input class="sb-check" type="checkbox" aria-label="Apology + credit added"><span class="u-grow">Apology line + goodwill credit added</span><span class="sb-badge sb-badge--secondary">You</span></div>
+              </div>
+
+              <h2 class="sec-h">Reviewers</h2>
+              <div class="u-row" style="gap:var(--space-5);flex-wrap:wrap">
+                <span class="u-row" style="gap:var(--space-2)"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-5)">E</span> Echo <span class="sb-badge sb-badge--success">Pre-check passed</span></span>
+                <span class="u-row" style="gap:var(--space-2)"><span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)">AG</span> You <span class="sb-badge sb-badge--warning">Changes requested</span></span>
+              </div>
+              <div style="margin-top:var(--space-5)"><button class="btn btn-primary" type="button">Approve &amp; send to customer</button></div>
+            </section>
+
+          </div>
+        </article>
+      </div>
+    </main>
+  </div>
+
+  <!-- Alert-dialog: confirm Mark done -->
+  <div class="sb-overlay" id="doneDlg" role="alertdialog" aria-modal="true" aria-labelledby="dlgT">
+    <div class="sb-dialog">
+      <div class="sb-dialog-title" id="dlgT">Mark CS-1042 as done?</div>
+      <div class="sb-dialog-desc">This moves the card to <strong>Done</strong> and notifies the watchers. Echo's draft reply hasn't been sent yet — you can still send it from Quality Review.</div>
+      <div class="sb-dialog-footer">
+        <button class="btn" type="button" data-close>Cancel</button>
+        <button class="btn btn-primary" type="button" data-close>Yes, mark done</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      // Tabs
+      document.querySelectorAll('.sb-tab').forEach(function (t) {
+        t.addEventListener('click', function () {
+          document.querySelectorAll('.sb-tab').forEach(function (x) { x.setAttribute('aria-selected', 'false'); });
+          document.querySelectorAll('.tabpanel').forEach(function (p) { p.hidden = true; });
+          t.setAttribute('aria-selected', 'true');
+          document.getElementById(t.dataset.panel).hidden = false;
+        });
+      });
+      // Copy ID
+      var ci = document.getElementById('copyId');
+      ci.addEventListener('click', function () { try { navigator.clipboard.writeText('CS-1042'); } catch (e) {} var o = ci.textContent; ci.textContent = 'Copied ✓'; setTimeout(function () { ci.textContent = o; }, 1200); });
+      // toggle helpers
+      function toggle(btn, pop) {
+        btn.addEventListener('click', function (e) { e.stopPropagation(); var open = pop.style.display === 'block'; document.querySelectorAll('.sb-menu,.sb-popover').forEach(function (x) { if (x !== pop) x.style.display = 'none'; }); pop.style.display = open ? 'none' : 'block'; });
+      }
+      toggle(document.getElementById('idInfo'), document.getElementById('idPop'));
+      toggle(document.getElementById('menuBtn'), document.getElementById('cardMenu'));
+      document.addEventListener('click', function () { document.querySelectorAll('.sb-menu,.sb-popover').forEach(function (x) { x.style.display = 'none'; }); });
+      // Right-click anywhere on the card opens the actions menu (context-menu)
+      var menu = document.getElementById('cardMenu');
+      document.querySelector('.card').addEventListener('contextmenu', function (e) {
+        e.preventDefault(); menu.style.display = 'block';
+      });
+      // Alert-dialog
+      var dlg = document.getElementById('doneDlg');
+      document.getElementById('doneBtn').addEventListener('click', function () { dlg.classList.add('open'); });
+      dlg.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', function () { dlg.classList.remove('open'); }); });
+      dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.classList.remove('open'); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') dlg.classList.remove('open'); });
+      // Live "you're typing…"
+      var ta = document.getElementById('c'), you = document.getElementById('you'), mate = document.getElementById('mate');
+      ta.addEventListener('input', function () { you.style.display = ta.value.trim() ? 'flex' : 'none'; if (mate && ta.value.trim()) mate.style.display = 'none'; });
+    })();
+  </script>
+</body>
+</html>
