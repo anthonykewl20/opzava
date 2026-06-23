@@ -9,7 +9,7 @@
 ## Admin config — `OpzavaAdminSettings`
 
 A single versioned `.strict()` settings singleton (`admin-config/settings.ts`, `schemaVersion:1`). Groups
-(🔎 line-cited by the F6 agent):
+(✅ line-cited by the F6 agent):
 - **`runner`** (`settings.ts:14-18`): `idleDelayMs`, `errorDelayMs` (1e3..8.64e7), `shutdownGraceMs` (100..3e4).
 - **`retry`** (`:20-29`): `initialDelayMs`, `multiplier` (1.000001..10), `maxDelayMs`, `maxAttempts` (1..20);
   refine `maxDelayMs ≥ initialDelayMs`.
@@ -20,10 +20,10 @@ A single versioned `.strict()` settings singleton (`admin-config/settings.ts`, `
   value through `isSecretReference` and transforms via `secretReferenceSchema.parse`, so credentials can
   **only** be references, never cleartext.
 
-Defaults (`defaultOpzavaAdminSettings()`, `:76-100`, 🔎): 1s/5s/10s runner; 60s/×2/10min/3-attempt retry;
+Defaults (`defaultOpzavaAdminSettings()`, `:76-100` ✅): 1s/5s/10s runner; 60s/×2/10min/3-attempt retry;
 30s timeout; 60 rpm burst 60; $100/hr $1000/day; empty selection/credentials.
 
-**Storage** (`admin-config/repository.ts`, 🔎): table `opzava_admin_settings` (singleton row id
+**Storage** (`admin-config/repository.ts` ✅): table `opzava_admin_settings` (singleton row id
 `'singleton'`; `version`, `updated_at`, `updated_by`, `record_json`). `saveSettings` runs in a transaction:
 reads previous → `versionAfter = prev+1` → diffs via `diffOpzavaAdminSettings` → writes an `AuditEvent`
 (`admin.settings.updated`, summary = changed *paths* only, never values) into
@@ -44,11 +44,11 @@ returns `{ok:false, error:'not_persisted'}` when no row exists, else projects vi
 
 ## Secret references & redaction
 
-**`SecretReference`** (`admin-config/contracts.ts:6-13`, 🔎): `.strict()` `{kind:'SecretReference', id,
+**`SecretReference`** (`admin-config/contracts.ts:6-13` ✅): `.strict()` `{kind:'SecretReference', id,
 scope ∈ {provider-credential, webhook-secret, gateway-credential, operator-secret}, purpose}`. A pointer —
 no value. `isSecretReference` (`:80-82`) is the guard used everywhere ("credentials must be references").
 `AdminConfigRecord` (`:42-66`) carries a `superRefine`: `sensitivity==='secret'` ⇒ `value` must be a
-`SecretReference`. (🔎 This generic record type has **no table/repository** — a contract for a future
+`SecretReference`. (✅ This generic record type has **no table/repository** — a contract for a future
 generic store, unused at runtime.)
 
 **Secret-resolution boundary** ✅✅ (F4-verified): `resolveProviderCredentialForRequest`
@@ -60,28 +60,29 @@ actual live path, secrets are read **cleartext** from the inherited `settings` t
 called on any wired path. The `credentialRef` on a live profile is a dead literal (e.g.
 `createLiveResendProviderProfile('resend_api_key')`). → See [F4](./90-parity-findings.md).
 
-**Redaction** (🔎): a `redact*ForAudit` family collapses secret fields to `` `[secret-reference:<scope>]` ``
-(`redactAdminConfigRecordForAudit`, `redactSecretResolutionFailureForAudit` — used live in
-`providers/preflight-events.ts`, `redactOpzavaAdminSettingsForAudit`, the connection-config redactors).
+**Redaction** ✅: a `redact*ForAudit` family collapses secret fields to `` `[secret-reference:<scope>]` ``
+(`redactAdminConfigRecordForAudit`, `redactOpzavaAdminSettingsForAudit` — defined but currently test-only;
+`redactSecretResolutionFailureForAudit` is the one used live, in `providers/preflight-events.ts:80`). There
+are no separate connection-config redactors.
 Belt-and-braces: `auditEventSchema.superRefine` (`audit/contracts.ts:34-38`) **rejects at parse time** any
 audit event whose summaries contain a `SecretReference` — so even an un-redacted summary can't be persisted.
 
 ## Audit — `AuditEvent`
 
-`audit/contracts.ts:21-38` (🔎), `.strict()`, `schemaVersion:1`: `{auditEventId, actorId, action, target:
+`audit/contracts.ts:21-38` (✅), `.strict()`, `schemaVersion:1`: `{auditEventId, actorId, action, target:
 {kind,id}, beforeSummary, afterSummary, correlationId, occurredAt}`. Summaries are nullable JSON guarded by
 the no-secret-reference refine. Writers: admin-settings mutations (`admin.settings.updated`); provider
 executions (`provider.execution.recorded`, allow-listed summary); provider preflight failures (redacted
 cause); runner-internal audits (`runner/repository.ts`, deterministic content-derived id).
 
-⚠️ **Two parallel audit systems** (🔎): opzava `AuditEvent` (operational events + the admin-settings audit
+⚠️ **Two parallel audit systems** (✅): opzava `AuditEvent` (operational events + the admin-settings audit
 table) vs the **inherited** `audit_log` table written by `logAuditEvent` (`src/lib/db.ts`) and surfaced by
 the Audit Trail panel via `/api/audit`. They share **no** storage; opzava admin-settings audits do not
 appear in the product Audit Trail panel today.
 
 ## Costs — `CostEvent`
 
-`costs/contracts.ts:6-19` (🔎), `.strict()`, `schemaVersion:1`: `{costEventId, workflowRunId,
+`costs/contracts.ts:6-19` (✅), `.strict()`, `schemaVersion:1`: `{costEventId, workflowRunId,
 stepRunId|null, externalCallId|null, providerId, operation, units:Record<string,int≥0>,
 estimatedCostCents:int≥0, actualCostCents:int≥0|null, currency:len3, recordedAt}`. Writer:
 `providers/cost-events.ts` wraps a `CostEvent` into a `kind:'cost'` operational event (caller-driven — see
@@ -89,7 +90,7 @@ estimatedCostCents:int≥0, actualCostCents:int≥0|null, currency:len3, recorde
 `listRecentCostEvents` (`SELECT … WHERE kind='cost' ORDER BY occurred_at DESC LIMIT ≤200`) +
 `summarizeCostEvents` (sums estimated + actual). Surfaced via `GET /api/ops/costs` → `ops-costs-panel`.
 
-⚠️ `summarizeCostEvents` silently skips null `actualCostCents` (🔎): an estimate-only run reports
+⚠️ `summarizeCostEvents` silently skips null `actualCostCents` (✅): an estimate-only run reports
 `actualCostCents:0`, which can mislead a dashboard if not labelled "estimated only."
 
 ## Persistence (this zone)
@@ -107,8 +108,8 @@ values live entirely outside, behind the (unimplemented) `SecretResolver` interf
 
 - **F4** ✅✅ — no production `SecretResolver`; live secrets cleartext from `settings`; `credentialRef` decorative.
 - **F6** ✅✅ — `OpzavaAdminSettings` unwired; rate/cost limits not projected → inert.
-- Two parallel audit systems (opzava `AuditEvent` vs inherited `audit_log`) with no shared storage — 🔎.
-- `AdminConfigRecord` generic config-cell type has no table/repository — dead-code-adjacent contract — 🔎.
+- Two parallel audit systems (opzava `AuditEvent` vs inherited `audit_log`) with no shared storage — ✅.
+- `AdminConfigRecord` generic config-cell type has no table/repository — dead-code-adjacent contract — ✅.
 
 ## Subtleties for parity comparison
 

@@ -98,8 +98,14 @@ export const updateTaskSchema = z.object({
   feedback_notes: taskFields.feedback_notes.optional(),
   retry_count: taskFields.retry_count.optional(),
   completed_at: taskFields.completed_at.optional(),
+  evidence: z.string().max(20000).optional(),
+  blockers: z.string().max(20000).optional(),
   tags: taskFields.tags.optional(),
   metadata: taskFields.metadata.optional(),
+  // Drives the auto completion comment (not persisted as a column) + its attribution.
+  summary: z.string().max(20000).optional(),
+  source: z.string().max(120).optional(),
+  author_type: z.enum(['human', 'agent', 'system']).optional(),
 })
 
 export const createAgentSchema = z.object({
@@ -179,6 +185,10 @@ export const createCommentSchema = z.object({
   content: z.string().min(1, 'Comment content is required'),
   author: z.string().optional(),
   parent_id: z.number().optional(),
+  // Attribution (additive): the kind of actor and the originating tool/client.
+  // `author` stays server-derived; these only label where the comment came from.
+  author_type: z.enum(['human', 'agent', 'system']).optional(),
+  source: z.string().max(120).optional(),
 })
 
 export const createMessageSchema = z.object({

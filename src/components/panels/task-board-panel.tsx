@@ -35,6 +35,8 @@ interface Task {
   actual_hours?: number
   error_message?: string
   resolution?: string
+  evidence?: string
+  blockers?: string
   tags?: string[]
   metadata?: any
   aegisApproved?: boolean
@@ -69,6 +71,8 @@ interface Comment {
   id: number
   task_id: number
   author: string
+  author_type?: 'human' | 'agent' | 'system'
+  source?: string
   content: string
   created_at: number
   parent_id?: number
@@ -1406,6 +1410,14 @@ function TaskDetailModal({
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             <span className="font-medium text-foreground/80">{comment.author}</span>
+            {comment.author_type && comment.author_type !== 'human' && (
+              <span
+                className="px-1.5 py-0.5 rounded bg-primary/15 text-[10px] text-primary"
+                title={`Authored by ${comment.author_type}${comment.source ? ` via ${comment.source}` : ''}`}
+              >
+                {comment.author_type === 'agent' ? '🤖' : '⚙️'} {comment.source || comment.author_type}
+              </span>
+            )}
             {meta && (
               <span className="px-1.5 py-0.5 rounded bg-secondary text-[10px] text-muted-foreground">
                 {meta.model}{meta.tokens ? ` · ${meta.tokens.toLocaleString()} tok` : ''}{meta.durationMs ? ` · ${(meta.durationMs / 1000).toFixed(1)}s` : ''}
@@ -1619,6 +1631,28 @@ function TaskDetailModal({
                   </div>
                   <div className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-red-100/90">
                     {task.error_message}
+                  </div>
+                </div>
+              )}
+
+              {task.blockers && (
+                <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
+                  <div className="text-[10px] font-medium uppercase tracking-wider text-amber-400/80">
+                    Blockers
+                  </div>
+                  <div className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-amber-100/90">
+                    {task.blockers}
+                  </div>
+                </div>
+              )}
+
+              {task.evidence && (
+                <div className="rounded-lg border border-border/40 bg-secondary/30 p-3">
+                  <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+                    Evidence
+                  </div>
+                  <div className="mt-2 text-xs leading-relaxed text-foreground/90 prose prose-invert prose-sm max-w-none">
+                    <MarkdownRenderer content={task.evidence} />
                   </div>
                 </div>
               )}

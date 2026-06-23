@@ -12,6 +12,8 @@ import { syncTaskOutbound } from '@/lib/github-sync-engine';
 import { removeTaskFromGnap } from '@/lib/gnap-sync';
 import { config } from '@/lib/config';
 import { requireAgentTaskAccess, requireWorkspaceId } from '@/lib/enforcement/workspace-scope';
+import { normalizeAuthorType, sanitizeSource } from '@/lib/task-attribution';
+import { appendTaskCompletionComment } from '@/lib/task-completion-comment';
 
 function formatTicketRef(prefix?: string | null, num?: number | null): string | undefined {
   if (!prefix || typeof num !== 'number' || !Number.isFinite(num) || num <= 0) return undefined
@@ -151,8 +153,13 @@ export async function PUT(
       feedback_notes,
       retry_count,
       completed_at,
+      evidence,
+      blockers,
       tags,
-      metadata
+      metadata,
+      summary,
+      source,
+      author_type,
     } = body;
     const normalizedStatus = normalizeTaskUpdateStatus({
       currentStatus: currentTask.status,
@@ -278,6 +285,14 @@ export async function PUT(
       fieldsToUpdate.push('completed_at = ?');
       updateParams.push(now);
     }
+    if (evidence !== undefined) {
+      fieldsToUpdate.push('evidence = ?');
+      updateParams.push(evidence);
+    }
+    if (blockers !== undefined) {
+      fieldsToUpdate.push('blockers = ?');
+      updateParams.push(blockers);
+    }
     if (tags !== undefined) {
       fieldsToUpdate.push('tags = ?');
       updateParams.push(JSON.stringify(tags));
@@ -400,6 +415,32 @@ export async function PUT(
       );
     }
     
+    // Auto-post an attributed completion comment when a task is finished
+    // (status → done/failed) or when an agent reports a completion summary. The
+    // comment is the agent's own write-up when provided (mc_complete_task), else
+    // the task's resolution/error. Manual UI completions get a human-attributed one.
+    const finishedTerminal =
+      (normalizedStatus === 'done' || normalizedStatus === 'failed') &&
+      normalizedStatus !== currentTask.status;
+    const hasSummary = typeof summary === 'string' && summary.trim().length > 0;
+    if (finishedTerminal || hasSummary) {
+      try {
+        appendTaskCompletionComment(db, {
+          taskId,
+          workspaceId,
+          status: normalizedStatus === 'failed' ? 'failed' : 'done',
+          author: auth.user.display_name || auth.user.username || 'system',
+          authorType: normalizeAuthorType(author_type),
+          source: sanitizeSource(source),
+          summary,
+          resolution,
+          errorMessage: error_message,
+        });
+      } catch (err) {
+        logger.error({ err }, 'Failed to post task completion comment');
+      }
+    }
+
     // Fetch updated task
     const updatedTask = db.prepare(`
       SELECT t.*, p.name as project_name, p.ticket_prefix as project_prefix

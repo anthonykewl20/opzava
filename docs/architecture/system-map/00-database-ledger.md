@@ -59,7 +59,7 @@ migration-managed table and a lazily-provisioned one.
 | **Lazy (NOT in migrations)** | `gateways` | ⚠️ created by API routes on demand: `api/gateways/route.ts:24`, `health/route.ts:7`, `connect/route.ts:104` |
 
 > ⚠️ `gateways` being created by 3 separate routes (not a migration) means migration `013`'s
-> `tenant_owner_gateway` backfill can run before the table exists, falling back to a default. 🔎
+> `tenant_owner_gateway` backfill can run before the table exists, falling back to a default. ✅
 
 ### Engine B — opzava (11 tables, `src/opzava`)
 
@@ -121,7 +121,7 @@ INDEX (workflow_run_id, occurred_at, record_id)
 This one table backs `/api/ops/runs`, `/api/ops/costs`, and provider audit/idempotency. The
 external-call record nests at `$.event` of `record_json`; idempotency lookup uses
 `json_extract(record_json,'$.event.idempotencyKey')` with **no functional index** (full scan
-filtered by `kind`) — a scaling risk. 🔎
+filtered by `kind`) — a scaling risk. ✅
 
 **`opzava_runner_external_call_reservations`** — atomic exactly-once lock for live provider calls.
 ```
@@ -145,7 +145,7 @@ exactly-once for concurrent callers, beyond the runner's job lease.
 | `opzava_admin_settings` | `settings_id` PK (`'singleton'`) · `version` · `updated_at` · `updated_by` · `record_json` | — |
 | `opzava_admin_settings_audit_events` | `audit_event_id` PK · `occurred_at` · `record_json` | occurred_at |
 
-Common pattern (🔎): each opzava table denormalizes a few filter/sort columns out of an
+Common pattern (✅): each opzava table denormalizes a few filter/sort columns out of an
 authoritative `record_json` blob; every read re-parses the JSON through the Zod contract, so a
 corrupt row throws on read rather than silently returning bad data. Writes are UPSERT
 (`ON CONFLICT(<pk>) DO UPDATE`).
@@ -166,24 +166,24 @@ tags(JSON) · metadata(JSON)
   github_issue_number/repo/synced_at/branch/pr_number/pr_state (028); project_id, project_ticket_no
   (024); dispatch_attempts (045); workspace_id (021)
 ```
-Status vocabulary (runtime, `db.ts:194`): `backlog | inbox | assigned | awaiting_owner |
-in_progress | review | quality_review | done | failed`. 🔎
+Status vocabulary (runtime, `db.ts:206`): `backlog | inbox | assigned | awaiting_owner |
+in_progress | review | quality_review | done | failed`. ✅
 
 **`agents`** ✅ base shape (`schema.sql:23-35`): `id` PK · `name` UNIQUE · `role` · `session_key`
 UNIQUE · `soul_content` · `status DEFAULT 'offline'` · `last_seen` · `last_activity` · `config`
 (JSON). Runtime status enum: `offline | idle | busy | error`. Migrations add `source`,
-`content_hash`, `workspace_path`, `hidden`, `working_memory`, `runtime_type`. 🔎
+`content_hash`, `workspace_path`, `hidden`, `working_memory`, `runtime_type`. ✅
 
 > **Two agent models.** This inherited `agents` table (int PK, `offline/idle/busy/error`,
 > OpenClaw/runtime-coupled) is a *different* table from opzava `opzava_agent_roles` (string slug
 > PK, `active/planned/paused`, owns workflow step ids). Nothing joins them. Top parity finding —
 > see [`90-parity-findings.md`](./90-parity-findings.md).
 
-**Workspace scoping invariant** 🔎: migrations 021/022/023 add `workspace_id` (default 1) to ~19
+**Workspace scoping invariant** ✅: migrations 021/022/023 add `workspace_id` (default 1) to ~19
 tables; the default workspace row `id=1` always exists. Sessions/api-keys also carry `tenant_id`.
 **All opzava tables are single-workspace** (no tenant column) — a tenant-isolation gap to audit.
 
-**Secrets-in-DB invariant** 🔎: session tokens and API keys are stored only as **SHA-256 hashes**
+**Secrets-in-DB invariant** ✅: session tokens and API keys are stored only as **SHA-256 hashes**
 (migration `043` hashed legacy plaintext). A row written to `settings` under `security.api_key`
 **overrides** the env `API_KEY` for global admin auth (read at `auth.ts:571`; `resolveActiveApiKey()` head is `:567`) — a DB-write path controls
 auth.

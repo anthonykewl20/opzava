@@ -249,6 +249,20 @@ if (!fs.existsSync(buildIdPath)) {
 
 const standaloneServerPath = findStandaloneServer(repoRoot)
 
+// Next.js standalone output does not bundle static assets. Copy them next to the
+// standalone server so the browser can load /_next/static (JS/CSS) and /public.
+// Without this the SPA never hydrates (assets 404 → served as HTML, MIME-rejected),
+// so any browser-level e2e fails on a blank shell. API-only e2e is unaffected.
+if (standaloneServerPath && fs.existsSync(standaloneServerPath)) {
+  const standaloneRoot = path.dirname(standaloneServerPath)
+  for (const [src, dest] of [
+    [path.join(repoRoot, '.next', 'static'), path.join(standaloneRoot, '.next', 'static')],
+    [path.join(repoRoot, 'public'), path.join(standaloneRoot, 'public')],
+  ]) {
+    if (fs.existsSync(src)) fs.cpSync(src, dest, { recursive: true, force: true })
+  }
+}
+
 app = standaloneServerPath && fs.existsSync(standaloneServerPath)
   ? spawn('node', [standaloneServerPath], {
       cwd: repoRoot,

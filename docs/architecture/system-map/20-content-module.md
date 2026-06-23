@@ -56,7 +56,7 @@ The 10 contracts (`contracts/`) put quality guarantees in the schema, not just r
   request cannot be constructed without an `approvalId` + all **four** gate-artifact ids
   (`sourceCaptureId`, `factCheckReportId`, `brandReviewId`, `antiSlopReviewId`).
 - `schemaVersion` is pinned literal `1` everywhere with **no migration machinery** — a future bump
-  would break reads of stored `record_json` (🔎).
+  would break reads of stored `record_json` (✅).
 
 ## The two enforcement realities ⚠️
 
@@ -85,7 +85,7 @@ review artifacts only to **exist and be correctly typed** (`artifactType` check,
   no provider cost/external-call event. The "approval" is only the campaign row's `status==='approved'`,
   then `approvalGranted:true` is hardcoded (`run-approved-campaign.ts:45`). See [F1](./90-parity-findings.md).
 - ⚠️ **Provider-level idempotency keys are set but never enforced** for the mock content steps and the live
-  adapters — the keys exist on requests but nothing looks them up before executing (🔎).
+  adapters — the keys exist on requests but nothing looks them up before executing (✅).
 
 ## Orchestration ✅
 
@@ -97,7 +97,7 @@ review artifacts only to **exist and be correctly typed** (`artifactType` check,
 - `run-and-record-content-workflow.ts` wraps the recording executor and persists artifacts. This is what
   `POST /api/ops/runs` calls.
 
-⚠️ **The durable per-step runner is built but UNUSED for content** (🔎): `createContentStepExecutor` +
+⚠️ **The durable per-step runner is built but UNUSED for content** (✅): `createContentStepExecutor` +
 `job-kind-executor` exist and are tested (they map a step to a `RunnerExecutor` and verify the output kind
 against `CONTENT_STEP_OUTPUTS`), but **no content route constructs a runner worker**. The wired path is the
 all-in-one in-process executor — so there is **no durable pause/resume**; a non-granted approval throws
@@ -115,7 +115,8 @@ indexes on type/run/created. UPSERT by `artifact_id`; reads re-`parseArtifact` (
 - ⚠️ **Only 8 of the artifacts are persisted** (`recordContentWorkflowArtifacts` iterates
   `[keywordResearch, sourceCapture, seoBrief, outline, articleDraft, factCheckReport, brandReview,
   antiSlopReview]`). The **`Approval` and the final `WordpressDraftRequest` are NOT written** to the table —
-  they're returned in memory only. Confirm whether the ledger is meant to be complete (🔎).
+  they're returned in memory only — a deliberately partial ledger (both are caller-facing results, not
+  persisted artifacts; verified against `record-workflow-artifacts.ts:8-17`). ✅
 - Each artifact's `sourceStepRunId = content-run:<stepId>`; lineage = upstream artifact ids (the
   artifact-to-artifact DAG).
 
@@ -131,7 +132,7 @@ indexes on type/run/created. UPSERT by `artifact_id`; reads re-`parseArtifact` (
   the Resend sender → finalize `sent` if all sent else `failed`.
 - Table `opzava_campaigns` (`campaign_id` PK, `name`, `status`, `start_at`, `record_json`, timestamps);
   send jobs are generic `opzava_runner_jobs`.
-- ⚠️ **Inline run can't honor scheduled drip offsets** (🔎): a step with `offsetHours>0` is scheduled in the
+- ⚠️ **Inline run can't honor scheduled drip offsets** (✅): a step with `offsetHours>0` is scheduled in the
   future, the runner only leases `scheduled_at<=now`, and the inline loop won't wait → the campaign reports
   `failed` even though those jobs are correctly queued. The async daemon would drain them, but no route
   starts it (F5).

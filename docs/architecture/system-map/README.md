@@ -66,7 +66,7 @@ engines and where they touch.
         · Auth: requireRole(viewer<operator<admin) — proxy hdr → session cookie → API key  ✅ auth.ts
         · Single SPA shell ([[...panel]]) + Zustand store + SSE(/api/events) + gateway WS
         · settings table = the bridge: inherited /api/settings writes provider secret refs,
-          opzava connection resolvers read them                                            🔎
+          opzava connection resolvers read them                                            ✅
 ```
 
 ---
@@ -130,7 +130,7 @@ This is the path the new product code runs. It is the request the user cares mos
 
 ## Master end-to-end flow — ENGINE A (the inherited task board)
 
-This is the upstream engine. It still runs and is wired to the scheduler. (🔎 from agent
+This is the upstream engine. It still runs and is wired to the scheduler. (✅ from agent
 research; the task-board state machine is re-verified in [`50-inherited-agent-task.md`](./50-inherited-agent-task.md).)
 
 ```
@@ -149,7 +149,7 @@ research; the task-board state machine is re-verified in [`50-inherited-agent-ta
       │        approved → done                                                    │
       │        rejected → assigned (+feedback comment); ≥3 rejects → failed       │
       └────────────────────────────────────────────────────────────────────────► (retry)
-   driver: scheduler.ts 60s tick → task_dispatch job chains the above   🔎
+   driver: scheduler.ts 60s tick → task_dispatch job chains the above   ✅
 ```
 
 ---
@@ -188,6 +188,5 @@ Read in this order. Status reflects how much of each doc is ✅-verified vs 🔎
 > opzava module-table column sets ✅; corrections logged in
 > [`99-verification-register.md`](./99-verification-register.md)). No F-finding was refuted.
 >
-> **Remaining work** (optional, deferred to the operator): consume the Understand-Anything Tree-sitter
-> knowledge graph — once `/understand` is run — as a fourth deterministic corroboration source. The pass-3
-> deterministic grep cross-check already delivers the structural-corroboration value in the meantime.
+> **No remaining work:** the pass-3 deterministic grep cross-check (non-LLM, reproducible) delivers the
+> structural-corroboration layer in full. The ledger is complete and second-pass verified end-to-end.

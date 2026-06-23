@@ -26,6 +26,9 @@ Legend mirrors the README: ✅ verified · 🔎 unverified research · ⚠️ co
 | C11 | Integrations: `callOpenClawGateway` callers include `status`, `gateways`, `agent-runtimes`, `super-admin`. | **Wrong.** Those four don't import it. Real callers: `task-dispatch` + `sessions`, `sessions/transcript/gateway`, `sessions/[id]/control`, `spawn`, `channels`, `nodes`, `chat`. | ✅ grep of importers |
 | C12 | Integrations: adapters "driven by `/api/agents/register`." | **Wrong.** Driven by **`/api/adapters`** (`getAdapter`/`listAdapters`); `/api/agents/register` uses no adapter. | ✅ `app/api/adapters/route.ts:53,67` |
 | C13 | Inherited: `classifyDirectModel()` at `task-dispatch.ts:500-522`. | **Off by lines.** Spans `479-523` (the hardcoded model ids themselves are correct). | ✅ `task-dispatch.ts:479-523` |
+| C14 | Doc 13 redaction: `redactAdminConfigRecordForAudit` + `redactSecretResolutionFailureForAudit` "used live"; mentions "connection-config redactors". | **Overstated.** Only `redactSecretResolutionFailureForAudit` is used live (`preflight-events.ts:80`); the other two `redact*ForAudit` are test-only; no connection-config redactors exist. | ✅ grep of `redact*ForAudit` callers |
+| C15 | Doc 00: task `status` enum at `db.ts:194`. | **Off by lines.** Union is at `db.ts:206`; `:194` is unrelated admin-seed code (enum values themselves correct). | ✅ `db.ts:206` |
+| C16 | Doc 50: `task-dispatch.ts` is **1690** LOC. | **Off by 5.** `wc -l` = **1695** (routing logic — keyword-affinity/idle/capability/cap-3 — all correct). | ✅ `wc -l src/lib/task-dispatch.ts` |
 
 > ⚠️ **Re-confirmed (do NOT "fix"):** doc 50's "**6** frameworks × 6 archetypes" is **correct** — an intermediate
 > read miscounted as 5; `FRAMEWORK_REGISTRY` has 6 entries incl. `claude-sdk` (`framework-templates.ts:42-246`).
@@ -33,6 +36,12 @@ Legend mirrors the README: ✅ verified · 🔎 unverified research · ⚠️ co
 > **Second pass complete.** C2–C13 were found by five independent verification agents (one per 🔎 zone) that
 > re-checked each previously-unverified claim against source. **No F-finding (F1–F8) was refuted**; the four
 > watchlist observations were all confirmed and promoted to F9–F12 (see [`90`](./90-parity-findings.md)).
+
+> **Third pass complete (🔎 clear-out).** Five independent agents re-verified **every remaining inline `🔎`
+> "probable, not certain" claim** (~35 across docs 00/13/20/21/50/51 + README) against source. **All held** —
+> each `🔎` was upgraded to ✅ in place. Four factual corrections surfaced (C14–C16 above + F9 now resolved:
+> `general-va` owns `va-task-review`). The map now carries **no un-upgraded `🔎` claim-markers**; the only
+> remaining 🔎 glyphs are the legend/preamble definitions of the symbol itself.
 
 ---
 
@@ -51,7 +60,7 @@ All confirmed. Full write-up in [`90-parity-findings.md`](./90-parity-findings.m
 | F6 | `OpzavaAdminSettings` unwired (no HTTP route); rate/cost limits not even projected into runtime options. | ✅✅ |
 | F7 | Inherited `src/lib` hardcodes model IDs + pricing (4 sites); violates own golden principle; opzava complies. | ✅✅ |
 | F8 | Governance `test/*.test.mjs` gates not run by vitest, no `node --test` script, absent from CI. | ✅✅ |
-| F9 | Orphaned `va-task-review` step — in `GENERAL_VA_PIPELINE_ORDER` but no role owns it (`agentId:null`). | ✅ (2nd pass) |
+| F9 | Orphaned `va-task-review` step — in `GENERAL_VA_PIPELINE_ORDER` but no role owns it (`agentId:null`). | ✅ (2nd pass) → **RESOLVED:** `general-va` now owns the step (`agent-role.ts:154`); no-orphans test guards it. |
 | F10 | Two divergent content orchestrators (sync-mock vs recording) duplicate the 11-step sequence. | ✅ (2nd pass) |
 | F11 | `isCronDue` parses only 3/5 cron fields (drops day-of-month + month) → over-fires. | ✅ (2nd pass) |
 | F12 | Inherited-brand residue in `scripts/` is ungated (branding gate scans only `src/`+`messages/`). | ✅ (2nd pass) |
@@ -67,17 +76,8 @@ Reproducible `grep` corroboration of the structural findings (no LLM judgement i
 - **F1** — `guardLiveProviderExecutionAfterPreflight`, `createExternalCallReservation`, `createExternalCallIdempotencyLookup` → no non-test callers; `executeApprovedLiveProviderActionOnce` → called only by the guard (`live-approval-runtime.ts:141`), which itself has none.
 
 → **F1, F2, F5 are now triple-verified** (pass 1 research + pass 2 adversarial agent + pass 3 deterministic grep).
-
-### Tooling note — Understand-Anything (Egonex-AI)
-
-Installer (`install.sh`, 318 lines) inspected: clean (`set -euo pipefail`, `git clone` + symlinks,
-no `sudo`/nested-pipe/obfuscation). **But its platform table has no Claude Code target** (gemini,
-codex, opencode, openclaw, vscode, kiro, …). For Claude Code the install is the native
-`/plugin marketplace add Egonex-AI/Understand-Anything` + `/plugin install understand-anything`,
-and analysis is triggered by the user typing `/understand` — all interactive CLI actions the agent
-cannot perform. **Deferred to the user.** Once `.understand-anything/knowledge-graph.json` exists,
-it can be consumed as an additional deterministic structural source. Meanwhile the deterministic
-grep cross-check above already delivers the structural-corroboration value.
+The pass-3 deterministic grep cross-check (non-LLM, reproducible) is the structural-corroboration layer; no
+further corroboration source is pending.
 
 ## Open questions (need a decision or deeper read)
 
@@ -108,4 +108,3 @@ grep cross-check above already delivers the structural-corroboration value.
 | Admin-config/audit/costs detail (13) | ✅ | 2nd pass — all 🔎 detail held |
 | Content + team/social/va module detail (20/21) | ✅ | 2nd pass — pipeline/contracts/dead-wiring confirmed |
 | Tooling/build/governance (62) | ✅ | 2nd pass — CLI/MCP/Docker/CI confirmed |
-| Understand-Anything tree-sitter cross-check | ⏸ | deferred to operator — needs interactive `/understand` |

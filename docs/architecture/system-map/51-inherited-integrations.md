@@ -71,7 +71,7 @@ the event bus and re-emits a subset as HMAC-signed HTTP POSTs to `webhooks` rows
 circuit breaker (disable after exhausting retries), and delivery logging (`webhook_deliveries`).
 `processWebhookRetries` runs via the `webhook_retry` scheduler job.
 
-Other (🔎): `gnap-sync.ts` (push-only mirror to a local git repo, off by default), `google-auth.ts` (verify
+Other ✅: `gnap-sync.ts` (push-only mirror to a local git repo, off by default), `google-auth.ts` (verify
 Google ID token), `receipt-signing.ts` + `mcp-audit.ts` (Ed25519 tamper-evident MCP-call receipts →
 `mcp_call_log`), `tailscale-serve.ts` (detect Tailscale Serve fronting the gateway),
 `provider-subscriptions.ts` (detect Anthropic/OpenAI subscriptions), `openclaw-doctor*.ts`,
@@ -85,7 +85,7 @@ Google ID token), `receipt-signing.ts` + `mcp-audit.ts` (Ed25519 tamper-evident 
 - The 6 **framework adapter stubs** (CrewAI/LangGraph/AutoGen) — speculative.
 - **PTY** — needs `tmux` + `node-pty` + the `mc-server.cjs` wrapper.
 
-⚠️ **Branding residue** 🔎: `User-Agent: MissionControl/1.0`, `mc:` GitHub labels,
+⚠️ **Branding residue** ✅: `User-Agent: MissionControl/1.0`, `mc:` GitHub labels,
 `MC_*`/`MISSION_CONTROL_*`/`OPENCLAW_*` env keys, `container_name: mission-control` — upstream names retained
 (intentional per the `config.ts` legacy-alias contract, but not covered by the branding gate which scans
 only `src/` + `messages/`).

@@ -7,12 +7,12 @@
 
 The only one of the three with its own table and HTTP surface.
 
-**Agent role contract** (`team/agent-role.ts`, 🔎): `.strict()` Zod, `schemaVersion:1`,
+**Agent role contract** (`team/agent-role.ts` ✅): `.strict()` Zod, `schemaVersion:1`,
 `agentId` slug `/^[a-z0-9-]+$/`, `name`, `department`, `status ∈ {active, planned, paused}`,
 `ownedStepIds[]`, `responsibilities`. `superRefine`: an `active` role must own ≥1 step; `ownedStepIds`
 unique. **12 default roles** across 4 departments (Content Marketing ×8, Email ×1, Social ×2, General VA ×1).
 
-**Status state machine** (`team/agent-status.ts`, 🔎):
+**Status state machine** (`team/agent-status.ts` ✅):
 ```
 active ⇄ paused          planned: (no transitions — inert)
 ```
@@ -20,19 +20,19 @@ active ⇄ paused          planned: (no transitions — inert)
 no-step role to `active` would throw the `active⇒owns≥1` refine). The PATCH route only allows
 `active`/`paused`; `planned` is unreachable via API.
 
-**Profiles** (`team/agent-profile.ts`, 🔎): optional display layer (`displayName`, `avatarEmoji`, `charter`,
+**Profiles** (`team/agent-profile.ts` ✅): optional display layer (`displayName`, `avatarEmoji`, `charter`,
 `preferredModel ∈ {opus,sonnet,haiku}`). Import-time guard throws if a profile's `agentId` isn't a known
 role — profiles are a strict subset of roles.
 
-**Repository** (`team/agent-role-repository.ts`, 🔎): table `opzava_agent_roles`
+**Repository** (`team/agent-role-repository.ts` ✅): table `opzava_agent_roles`
 (`agent_id` PK · `name` · `department` · `status` · `record_json`; indexes department/status). UPSERT;
 `seedDefaults()` inserts the 12 defaults only when the table is empty.
 
-**Activity** (`team/agent-activity.ts`, 🔎): `summarizeAgentActivity` reads the **content** artifact table
+**Activity** (`team/agent-activity.ts` ✅): `summarizeAgentActivity` reads the **content** artifact table
 (`opzava_content_artifacts`) and attributes artifact counts to roles by `ownedStepIds → artifactType`
 (identity map except `fact-check → fact-check-report`). So "activity" = artifact-count-by-owned-step.
 
-**Department pipeline** (`team/department-pipeline.ts`, 🔎): static per-department step orderings mapped to
+**Department pipeline** (`team/department-pipeline.ts` ✅): static per-department step orderings mapped to
 `{stepId, agentId|null, agentName|null}`; unowned steps surface `agentId:null`.
 
 ### F2 — two unreconciled agent models ✅✅ (triple-checked: pass1 + fresh agent + grep)
@@ -48,9 +48,11 @@ No join, sync, or shared status. They share only the SQLite connection (the `/ap
 `getDatabase()` into the opzava repo, which reads only `opzava_agent_roles` + `opzava_content_artifacts`).
 → Top parity item; see [F2](./90-parity-findings.md). Decision Q1 (converge or not) is yours.
 
-⚠️ **Orphaned step `va-task-review`** 🔎: it has an artifact type and sits in `GENERAL_VA_PIPELINE_ORDER`,
-but **no default role owns it** — `buildDepartmentPipeline('General VA')` yields a step with `agentId:null`,
-and activity attributes its artifacts to no one. Likely a missing role/ownership entry.
+✅ **`va-task-review` ownership** (was **F9**, now resolved): it has an artifact type and sits in
+`GENERAL_VA_PIPELINE_ORDER`; the `general-va` default role now owns it (`agent-role.ts:154`), so
+`buildDepartmentPipeline('General VA')` yields the step with `agentId:'general-va'` and activity attributes
+its artifacts to that role. The earlier orphan (no owner → `agentId:null`) was the F9 finding; remediation
+added the ownership entry and a no-orphans test guards it (`department-pipeline.test.ts:73`).
 
 ## Social module — a step library ✅
 
@@ -75,7 +77,7 @@ the team `department-pipeline` references their step ids only as **strings** for
 
 ⚠️ Both modules' approval steps mint **terminal** approvals (`approved`/`rejected`) directly rather than
 creating a `requested` row and transitioning it — so they bypass the approval state machine's
-`requested→…` lifecycle (relevant if a human-in-the-loop UI expects pending approvals). 🔎
+`requested→…` lifecycle (relevant if a human-in-the-loop UI expects pending approvals). ✅
 
 ## Persistence
 
@@ -101,4 +103,4 @@ social/VA → core artifacts + approvals only.
 2. Social + General-VA are coherent step libraries that **nothing executes** — designed feature surface
    ahead of wiring.
 3. Approval gates here emit terminal approvals directly, sidestepping the `requested` lifecycle.
-4. `va-task-review` is an orphaned step (no owner).
+4. `va-task-review` was an orphaned step (F9); the `general-va` role now owns it — resolved.
