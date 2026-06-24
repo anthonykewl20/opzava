@@ -11,6 +11,8 @@
   <script src="tools-bar.js"></script>
   <script src="notify-bell.js"></script>
   <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
   <style>
     /* ── Shell (Basecamp-style Essential: calm, warm, top nav, layout-only) ── */
     .bc { min-height: 100vh; font-size: var(--text-base); }
@@ -820,6 +822,75 @@
         </div>
       </div>
 
+      <!-- Variant C: to-do / report due -->
+      <div id="dwrTodo" style="display:none">
+        <div class="dwr-head-row">
+          <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span>
+          <div style="min-width:0">
+            <p class="dwr-eyebrow">To-do · due date</p>
+            <h2 class="dwr-title">Refresh help-centre FAQ</h2>
+          </div>
+          <button class="dwr-close" type="button" data-close-drawer aria-label="Close">×</button>
+        </div>
+        <div class="dwr">
+          <span class="sb-statusline" aria-label="Status: Upcoming"><span class="sl-glyph" aria-hidden="true">◦</span> <span class="sl-label">Upcoming</span> <span class="sl-meta">· due Fri Jun 12</span></span>
+          <dl class="kv">
+            <dt>Due</dt><dd>Fri · Jun 12 · all day</dd>
+            <dt>Owner</dt><dd><span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span> Maria</dd>
+            <dt>Project</dt><dd>Customer Support</dd>
+            <dt>Linked to</dt><dd><a href="essential-todos.html" style="color:var(--accent);text-decoration:none">Support to-dos</a></dd>
+          </dl>
+          <p class="dwr-notes">A dated to-do shows on the Schedule automatically. Update the date or owner from the to-do itself.</p>
+          <div class="dwr-sep"></div>
+          <div class="dwr-people">
+            <span aria-hidden="true">👥</span>
+            <span class="dwr-people-label">People involved (notified):</span>
+            <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span>
+            <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+          </div>
+          <p class="dwr-reminder">We'll remind the owner 1 day before it's due.</p>
+          <div class="dwr-actions">
+            <a href="essential-todos.html" class="btn btn-ghost">Open the to-do →</a>
+            <button class="btn btn-ghost" type="button">Mark done</button>
+            <button class="btn btn-ghost" type="button">Reschedule</button>
+          </div>
+          <div class="dwr-sep"></div>
+          <p class="cal-rail-head" style="margin-bottom:var(--space-2)">Comments</p>
+          <div class="dwr-composer">
+            <textarea class="textarea" placeholder="Add a comment…" aria-label="Add a comment"></textarea>
+            <button class="btn btn-ghost" type="button">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Variant D: goal deadline / check-in -->
+      <div id="dwrGoal" style="display:none">
+        <div class="dwr-head-row">
+          <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span>
+          <div style="min-width:0">
+            <p class="dwr-eyebrow">Goal · check-in</p>
+            <h2 class="dwr-title">Cut first-response time to under 2 hours</h2>
+          </div>
+          <button class="dwr-close" type="button" data-close-drawer aria-label="Close">×</button>
+        </div>
+        <div class="dwr">
+          <span class="sb-statusline" aria-label="Status: On track"><span class="sl-glyph" aria-hidden="true">◴</span> <span class="sl-label">On track</span> <span class="sl-meta">· 76% there</span></span>
+          <dl class="kv">
+            <dt>Measure</dt><dd>3h 10m → under 2h · <strong>2h 18m</strong> now</dd>
+            <dt>Check-in</dt><dd>Monthly · next Tue · Jun 24 · ↻ recurring</dd>
+            <dt>Deadline</dt><dd>◷ Sep 30 · 98 days left</dd>
+            <dt>Owner</dt><dd><span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span> ✦ Atlas (AI)</dd>
+          </dl>
+          <p class="dwr-notes">Atlas drafts the monthly check-in from the support metrics and posts it for your sign-off. The goal stays on the Schedule until it's achieved.</p>
+          <div class="dwr-sep"></div>
+          <p class="dwr-reminder">We'll remind you the day before each check-in is due.</p>
+          <div class="dwr-actions">
+            <a href="essential-goals.html" class="btn btn-ghost">Open the goal →</a>
+            <button class="btn btn-ghost" type="button">Reschedule check-in</button>
+          </div>
+        </div>
+      </div>
+
     </aside>
   </div>
 
@@ -879,21 +950,31 @@
 
     /* ── Single-event drawer (Level 3) ────────────────────────────── */
     var scrim = document.getElementById('eventScrim');
-    var dwrMeeting = document.getElementById('dwrMeeting');
-    var dwrAgent = document.getElementById('dwrAgent');
+    var VARIANTS = { meeting: 'dwrMeeting', agent: 'dwrAgent', todo: 'dwrTodo', goal: 'dwrGoal' };
     function openDrawer(variant) {
       if (!scrim) return;
-      var isAgent = variant === 'agent';
-      dwrMeeting.style.display = isAgent ? 'none' : 'block';
-      dwrAgent.style.display = isAgent ? 'block' : 'none';
+      if (!VARIANTS[variant]) variant = 'meeting';
+      Object.keys(VARIANTS).forEach(function (k) {
+        var el = document.getElementById(VARIANTS[k]); if (el) el.style.display = (k === variant) ? 'block' : 'none';
+      });
       scrim.classList.add('is-open');
     }
     function closeDrawer() { if (scrim) scrim.classList.remove('is-open'); }
-    document.querySelectorAll('[data-open-drawer]').forEach(function (el) {
+    // Derive the right detail from an explicit data-open-drawer, else the chip's type class.
+    function variantOf(el) {
+      var v = el.getAttribute('data-open-drawer'); if (v) return v;
+      var c = el.closest('.cal-chip') || el;
+      if (c.classList.contains('cal-chip--ai')) return 'agent';
+      if (c.classList.contains('cal-chip--goal')) return 'goal';
+      if (c.classList.contains('cal-chip--todo')) return 'todo';
+      return 'meeting';
+    }
+    // EVERY calendar item opens a detail: chips, day-detail rows, rail items.
+    document.querySelectorAll('.cal-chip[role="button"], [data-open-drawer]').forEach(function (el) {
       el.addEventListener('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
-        openDrawer(el.getAttribute('data-open-drawer'));
+        openDrawer(variantOf(el));
       });
     });
     document.querySelectorAll('[data-close-drawer]').forEach(function (el) {

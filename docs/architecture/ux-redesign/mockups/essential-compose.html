@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
   <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
   <script src="tools-bar.js"></script>
   <style>
     /* Basecamp-style Essential calm shell — layout only, no colour/font overrides */
@@ -51,6 +53,7 @@
     .dest-tab[aria-selected="true"] { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
 
     /* "To" — a field that holds selected-people chips + a quiet find hint */
+    .to-wrap { position: relative; }
     .to-field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 44px; padding: 6px var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
     .to-field:focus-within { border-color: var(--accent); }
     .to-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 4px; font-size: var(--text-sm); color: var(--fg); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); }
@@ -58,6 +61,18 @@
     .to-chip-x:hover { background: var(--surface-3); color: var(--fg); }
     .to-input { flex: 1 1 90px; min-width: 90px; border: 0; background: none; font-size: var(--text-base); color: var(--fg); outline: none; font-family: inherit; padding: 3px 2px; }
     .to-input::placeholder { color: var(--fg-subtle); }
+
+    /* live suggestion dropdown of people + project rooms (filtered as you type) */
+    .to-pop { position: absolute; left: 0; right: 0; top: calc(100% + var(--space-1)); z-index: var(--z-dropdown); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); padding: 6px; max-height: 264px; overflow-y: auto; }
+    .to-pop[hidden] { display: none; }
+    .to-hd { font-size: var(--text-xs); color: var(--fg-subtle); text-transform: uppercase; letter-spacing: var(--tracking-caps); font-weight: var(--fw-semibold); padding: 6px 8px 4px; }
+    .to-hd + .to-hd, .to-item + .to-hd { margin-top: 2px; }
+    .to-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: 0; background: none; border-radius: var(--radius-sm); cursor: pointer; font: inherit; text-align: left; color: var(--fg); }
+    .to-item:hover, .to-item.active { background: var(--surface-2); }
+    .to-nm { font-size: var(--text-sm); font-weight: var(--fw-medium); }
+    .to-sub { font-size: var(--text-xs); color: var(--fg-subtle); margin-left: auto; }
+    .to-room-glyph { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--surface-3); color: var(--fg-muted); font-size: var(--text-sm); flex: none; }
+    .to-empty { padding: 10px 8px; font-size: var(--text-sm); color: var(--fg-subtle); }
 
     /* room select — only shown on the project-room destination */
     .room-block { margin-top: var(--space-3); }
@@ -127,21 +142,24 @@
           <button class="dest-tab" role="tab" aria-selected="false" type="button" data-dest="room">Post in a project room</button>
         </div>
 
-        <!-- To — selected people chips + a quiet find hint (shown for DM) -->
+        <!-- To — selected people chips + a live find-as-you-type suggestion list -->
         <div class="field" id="toField">
           <label class="label" for="toInput">To</label>
-          <div class="to-field">
-            <span class="to-chip">
-              <span class="sb-avatar sb-avatar--xs" style="background:var(--chart-3)" aria-hidden="true">M</span>
-              Maria
-              <button class="to-chip-x" type="button" aria-label="Remove Maria">✕</button>
-            </span>
-            <span class="to-chip">
-              <span class="sb-avatar sb-avatar--xs" style="background:var(--chart-4)" aria-hidden="true">D</span>
-              Dan
-              <button class="to-chip-x" type="button" aria-label="Remove Dan">✕</button>
-            </span>
-            <input class="to-input" id="toInput" type="text" placeholder="Find people…" aria-label="Find people to message">
+          <div class="to-wrap">
+            <div class="to-field" id="toFieldBox">
+              <span class="to-chip" data-name="Maria">
+                <span class="sb-avatar sb-avatar--xs" style="background:var(--chart-3)" aria-hidden="true">M</span>
+                Maria
+                <button class="to-chip-x" type="button" aria-label="Remove Maria">✕</button>
+              </span>
+              <span class="to-chip" data-name="Dan">
+                <span class="sb-avatar sb-avatar--xs" style="background:var(--chart-4)" aria-hidden="true">D</span>
+                Dan
+                <button class="to-chip-x" type="button" aria-label="Remove Dan">✕</button>
+              </span>
+              <input class="to-input" id="toInput" type="text" placeholder="Find people…" aria-label="Find people to message" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="toPop" autocomplete="off">
+            </div>
+            <div class="to-pop" id="toPop" role="listbox" aria-label="People and project rooms" hidden></div>
           </div>
         </div>
 
@@ -198,10 +216,150 @@
         toField.hidden = room;
         roomField.hidden = !room;
       });
-      // Remove a recipient chip
-      toField.addEventListener('click', function (e) {
+    })();
+
+    // Recipient "To" search — live-filtered suggestions of people + project rooms.
+    // Typing filters the list; clicking (or Enter) adds a recipient chip; the ✕
+    // removes one. AI teammates carry ✦ via .sb-avatar--ai (never a second hue);
+    // status is a label, never a traffic-light colour.
+    (function () {
+      var box   = document.getElementById('toFieldBox');
+      var input = document.getElementById('toInput');
+      var pop   = document.getElementById('toPop');
+
+      // Hardcoded but realistic directory. kind: person | room. ai marks assistants.
+      var DIR = [
+        { name: 'Maria', kind: 'person', initial: 'M', bg: 'var(--chart-3)', sub: '● online' },
+        { name: 'Dan',   kind: 'person', initial: 'D', bg: 'var(--chart-4)', sub: 'away' },
+        { name: 'Atlas', kind: 'person', initial: 'A', bg: 'var(--chart-5)', ai: true, sub: '✦ assistant' },
+        { name: 'Iris',  kind: 'person', initial: 'I', bg: 'var(--chart-6)', ai: true, sub: '✦ assistant' },
+        { name: 'Q3 Launch',          kind: 'room', sub: 'project room' },
+        { name: 'Customer Support',   kind: 'room', sub: 'project room' },
+        { name: 'Brand Refresh',      kind: 'room', sub: 'project room' },
+        { name: 'Onboarding Revamp',  kind: 'room', sub: 'project room' }
+      ];
+
+      function chosen() {
+        return Array.prototype.map.call(
+          box.querySelectorAll('.to-chip'),
+          function (c) { return c.getAttribute('data-name'); }
+        );
+      }
+      function isChosen(name) { return chosen().indexOf(name) !== -1; }
+
+      // Render the filtered, grouped suggestion list. Returns count shown.
+      function render(q) {
+        q = (q || '').trim().toLowerCase();
+        var matches = DIR.filter(function (d) {
+          return !isChosen(d.name) && d.name.toLowerCase().indexOf(q) !== -1;
+        });
+        pop.innerHTML = '';
+        if (!matches.length) {
+          var empty = document.createElement('div');
+          empty.className = 'to-empty';
+          empty.textContent = q ? 'No people or rooms match “' + (input.value.trim()) + '”' : 'Everyone is already added.';
+          pop.appendChild(empty);
+          return 0;
+        }
+        ['person', 'room'].forEach(function (kind) {
+          var group = matches.filter(function (d) { return d.kind === kind; });
+          if (!group.length) return;
+          var hd = document.createElement('div');
+          hd.className = 'to-hd';
+          hd.textContent = kind === 'person' ? 'People' : 'Project rooms';
+          pop.appendChild(hd);
+          group.forEach(function (d) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'to-item';
+            b.setAttribute('role', 'option');
+            b.setAttribute('data-name', d.name);
+            var av;
+            if (d.kind === 'room') {
+              av = '<span class="to-room-glyph" aria-hidden="true">#</span>';
+            } else {
+              av = '<span class="sb-avatar sb-avatar--sm' + (d.ai ? ' sb-avatar--ai' : '') +
+                   '" style="background:' + d.bg + '" aria-hidden="true">' + d.initial + '</span>';
+            }
+            b.innerHTML = av +
+              '<span class="to-nm">' + d.name + '</span>' +
+              '<span class="to-sub">' + d.sub + '</span>';
+            pop.appendChild(b);
+          });
+        });
+        var first = pop.querySelector('.to-item');
+        if (first) first.classList.add('active');
+        return matches.length;
+      }
+
+      function open()  { pop.hidden = false; input.setAttribute('aria-expanded', 'true'); }
+      function close() { pop.hidden = true;  input.setAttribute('aria-expanded', 'false'); }
+
+      // Add a chip for `name` matching the existing chip markup, then reset input.
+      function add(name) {
+        if (!name || isChosen(name)) return;
+        var d = DIR.filter(function (x) { return x.name === name; })[0];
+        var chip = document.createElement('span');
+        chip.className = 'to-chip';
+        chip.setAttribute('data-name', name);
+        var av;
+        if (!d || d.kind === 'room') {
+          av = '<span class="sb-avatar sb-avatar--xs" style="background:var(--chart-5)" aria-hidden="true">#</span>';
+        } else {
+          av = '<span class="sb-avatar sb-avatar--xs' + (d.ai ? ' sb-avatar--ai' : '') +
+               '" style="background:' + d.bg + '" aria-hidden="true">' + d.initial + '</span>';
+        }
+        chip.innerHTML = av + ' ' + name +
+          ' <button class="to-chip-x" type="button" aria-label="Remove ' + name + '">✕</button>';
+        box.insertBefore(chip, input);
+        input.value = '';
+        render('');
+        close();
+        input.focus();
+      }
+
+      function move(dir) {
+        var items = Array.prototype.slice.call(pop.querySelectorAll('.to-item'));
+        if (!items.length) return;
+        var i = items.findIndex(function (it) { return it.classList.contains('active'); });
+        items.forEach(function (it) { it.classList.remove('active'); });
+        i = (i + dir + items.length) % items.length;
+        items[i].classList.add('active');
+        items[i].scrollIntoView({ block: 'nearest' });
+      }
+
+      input.addEventListener('input', function () { render(input.value); open(); });
+      input.addEventListener('focus', function () { render(input.value); open(); });
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); if (pop.hidden) { render(input.value); open(); } else move(1); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+        else if (e.key === 'Enter') {
+          var act = pop.querySelector('.to-item.active') || pop.querySelector('.to-item');
+          if (act && !pop.hidden) { e.preventDefault(); add(act.getAttribute('data-name')); }
+        } else if (e.key === 'Escape') { if (!pop.hidden) { e.preventDefault(); close(); } }
+        else if (e.key === 'Backspace' && input.value === '') {
+          var last = box.querySelector('.to-chip:last-of-type');
+          if (last) { last.remove(); render(input.value); }
+        }
+      });
+
+      // Click a suggestion → add it as a recipient chip.
+      pop.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      pop.addEventListener('click', function (e) {
+        var it = e.target.closest('.to-item');
+        if (it) add(it.getAttribute('data-name'));
+      });
+
+      // Remove a recipient chip via its ✕.
+      box.addEventListener('click', function (e) {
         var x = e.target.closest('.to-chip-x');
-        if (x) x.closest('.to-chip').remove();
+        if (x) { x.closest('.to-chip').remove(); render(input.value); }
+        else if (e.target === box) input.focus();
+      });
+
+      // Outside click closes the menu cleanly.
+      document.addEventListener('click', function (e) {
+        if (!pop.hidden && !e.target.closest('.to-wrap')) close();
       });
     })();
   </script>

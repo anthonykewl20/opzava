@@ -11,23 +11,8 @@
   <script src="tools-bar.js"></script>
   <script src="notify-bell.js"></script>
   <script src="avatar-card.js"></script>
-  <script>
-    // Account menu — the durable "Your tools" doorway (doc 12 §3.1d).
-    // (This script is in <head>, so defer until the header is parsed.)
-    document.addEventListener('DOMContentLoaded', function () {
-      var btn = document.getElementById('acctBtn'), menu = document.getElementById('acctMenu');
-      if (!btn || !menu) return;
-      function close() { menu.style.display = 'none'; btn.setAttribute('aria-expanded', 'false'); }
-      btn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        var open = menu.style.display !== 'none';
-        menu.style.display = open ? 'none' : 'block';
-        btn.setAttribute('aria-expanded', open ? 'false' : 'true');
-      });
-      document.addEventListener('click', function (e) { if (!menu.contains(e.target) && e.target !== btn) close(); });
-      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
-    });
-  </script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
   <style>
     /* Basecamp-style Essential: warm, calm, content-first, generous whitespace,
        a TOP nav (not a dark sidebar), larger readable type. Layout-only here. */
@@ -71,17 +56,7 @@
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></a>
-      <div style="position:relative">
-        <button class="ava" id="acctBtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" style="background:var(--chart-2);border:0;cursor:pointer">AG</button>
-        <div class="sb-menu" id="acctMenu" role="menu" aria-label="Account" style="display:none;position:absolute;top:calc(100% + 8px);right:0;z-index:var(--z-dropdown);min-width:230px">
-          <div class="sb-menu-label">Anthony Garces</div>
-          <a class="sb-menu-item" href="essential-tools.html" role="menuitem"><span aria-hidden="true" style="width:18px;display:inline-block">🔗</span> Your tools <span class="sb-shortcut">5 / 7</span></a>
-          <a class="sb-menu-item" href="#" role="menuitem"><span aria-hidden="true" style="width:18px;display:inline-block">⚙</span> Settings</a>
-          <a class="sb-menu-item" href="#" role="menuitem"><span aria-hidden="true" style="width:18px;display:inline-block">◐</span> Theme</a>
-          <div class="sb-menu-sep"></div>
-          <a class="sb-menu-item" href="#" role="menuitem"><span aria-hidden="true" style="width:18px;display:inline-block">↪</span> Sign out</a>
-        </div>
-      </div>
+      <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
 
     <main class="bc-main">
@@ -111,7 +86,7 @@
 
         <div class="u-between" style="margin-bottom:var(--space-4)">
           <h2>Your projects</h2>
-          <a href="#" class="u-accent" style="font-weight:var(--fw-medium)">View all (9)</a>
+          <a href="essential-projects.html" class="u-accent" style="font-weight:var(--fw-medium)">View all (9)</a>
         </div>
 
         <div class="proj-grid">
