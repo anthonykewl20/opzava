@@ -4,6 +4,21 @@
 > Each task = one tiny Conventional Commit, verified (`pnpm typecheck` + the task's tests green) before commit.
 > **Status legend:** ✅ done+tested · 🟡 in progress · ⏸ blocked (reason noted) · ⬜ not started
 
+## Session summary (2026-06-25, autonomous run)
+
+**Handoff gate: `pnpm test` 2306/2306 ✅ · `pnpm test:governance` 315/315 ✅ · `pnpm typecheck` ✅ — zero regressions.**
+
+Commits (branch `feat/orchestration-hardening`, oldest→newest):
+- `6956d69` A0 — wal_checkpoint scheduler task + durability decision (✅)
+- `a8459e2` A1 — migration 055 (counters/lease/client_request_id) + migration-ids-unique governance test (✅)
+- `c0f8ab2` B1a — principal-binding authz (agents/soul/bulk-tasks/exec-approvals) (✅ partial: 2 gateway-keyed routes deferred)
+- `6047c60` B3 — /api/connect admin-gate + self-binding + name allowlist + profile 0o600 (✅ partial: hermes/registerAuthResolver deferred)
+- `96c0a61` B4 — IPv4-mapped IPv6 SSRF bypass closed (verify-don't-assume: the bulk was already implemented) (✅)
+- `6b7ee00` G1 — leader-election advisory-lock primitive + 8 tests (🟡 foundation; scheduler gating + workspace-threading deferred)
+- `acf3bd2` A2 — client_request_id idempotency on task creation (🟡 partial; tx-wrap deferred on a db_helpers broadcast/write coupling)
+
+**Why the rest wasn't blindly pushed (no half-baked):** remaining tasks are either core-path refactors (A2 tx-wrap, A3 counters, A5 lease, B2 gate) needing the full suite + review, or concurrency/architecture tasks (G1 scheduler gating, D3 rotation race) needing multi-replica/live validation the user should witness. Each deferral carries its precise blocker below. Recommended next: A2-tx-wrap (decouple db_helpers broadcast-from-write first) → A3 → A5 → B2, then the D-track.
+
 ## P0
 
 | Task | Title | Status | Commit | Verified |
