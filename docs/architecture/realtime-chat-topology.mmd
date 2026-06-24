@@ -1,0 +1,110 @@
+%%{
+  init: {
+    "theme": "base",
+    "themeVariables": {
+      "primaryColor": "#0f172a",
+      "primaryTextColor": "#f8fafc",
+      "primaryBorderColor": "#38bdf8",
+      "lineColor": "#64748b",
+      "secondaryColor": "#1e293b",
+      "tertiaryColor": "#0b1220",
+      "fontSize": "13px"
+    }
+  }
+}%%
+%% Opzava Realtime Chat — FINAL topology (Phase-1 spine + Phase-2/3 scale track).
+%% Canonical transport contract: HTTP POST writes + ONE multiplexed SSE stream.
+%% Reliability lives in the SQLite outbox + BEGIN IMMEDIATE write tx.
+%% The in-process eventBus is a best-effort fanout ACCELERATOR, NOT a reliability layer.
+%% Event/endpoint/table/constant names are authoritative (copy verbatim).
+%% RENDERING CONVENIENCE ONLY: the single source of truth is the ASCII diagram in
+%% docs/architecture/realtime-chat-architecture.md §3 (Target Topology). This .mmd
+%% MUST NOT be edited independently of that file.
+%% Companion docs: ledger + verbatim contract tables = docs/architecture/realtime-chat-ledger.md;
+%% ops/logging/doctor/health registry = docs/architecture/realtime-chat-inventory.md;
+%% audit of record = docs/architecture/realtime-chat-production-review.md;
+%% ratifying ARD = docs/ard/0009-realtime-user-chat-transport-and-fanout.md.
+flowchart LR
+
+  classDef browser fill:#0b1220,stroke:#38bdf8,color:#e2e8f0
+  classDef edge fill:#0f172a,stroke:#22d3ee,color:#e2e8f0
+  classDef app fill:#111827,stroke:#34d399,color:#e2e8f0
+  classDef durable fill:#1e1b2e,stroke:#a78bfa,color:#e2e8f0
+  classDef broker fill:#1a1518,stroke:#f59e0b,color:#e2e8f0
+  classDef control stroke-dasharray:4 3,fill:#0b1220,stroke:#f43f5e,color:#e2e8f0
+
+  %% ---------------------------------------------------------------- Browser
+  subgraph Browser["Browser / Desktop WebView"]
+    UI["Chat UI<br/>optimistic temp bubble<br/>reconciled by client_message_id"]
+    POST["POST /api/chat/messages<br/>client_message_id UUID per send"]
+    SSE["GET /api/events<br/>ONE EventSource<br/>Last-Event-ID cursor"]
+    STORE["Zustand store<br/>id dedupe (real numbers only)<br/>dispatches resync.required + replay.complete"]
+  end
+
+  %% ---------------------------------------------------------------- Edge
+  subgraph Edge["Reverse proxy — SSE-safe"]
+    H2["HTTP/2 preferred<br/>NO buffering for SSE<br/>X-Accel-Buffering: no honored"]
+  end
+
+  %% ---------------------------------------------------------------- App instance A (writer)
+  subgraph AppA["Next.js app instance A — writer"]
+    AUTHA["requireRole + workspace_id<br/>from resolved server-side<br/>(body.from NOT honored)"]
+    PREAD["Membership predicate @sendEvent + replay<br/>chat.* drops unless<br/>viewer==from_agent OR ==to_agent<br/>OR role operator/admin"]
+    WRITEA["POST /api/chat/messages<br/>broadcast originator BEFORE<br/>coordinator replies"]
+    TXA["ONE db.transaction<br/>BEGIN IMMEDIATE<br/>message + activity + notification<br/>+ realtime_events outbox"]
+    BUSA["eventBus broadcast<br/>AFTER commit — best-effort<br/>ephemeral guard skips DB row"]
+    SSEA["SSE stream<br/>retry: 3000 + random(0,4000)<br/>heartbeat 15s<br/>highWaterMark 256<br/>resync.required + replay.complete"]
+  end
+
+  %% ---------------------------------------------------------------- App instance B (cross-process reader)
+  subgraph AppB["Next.js app instance B — cross-process reader"]
+    POLLB["1s outbox poll bridge<br/>setInterval replayFromStore SSE_POLL_MS=1000<br/>monotonic WHERE id GT cursor<br/>never coalesce/drop"]
+    BUSB["eventBus (local)"]
+    SSEB["SSE stream<br/>same browser contract"]
+  end
+
+  %% ---------------------------------------------------------------- Durable state
+  subgraph Durable["Durable state — SQLite single-writer (better-sqlite3, WAL)"]
+    MSG["messages<br/>client_message_id TEXT<br/>partial UNIQUE idx_messages_client_message_id<br/>ORDER BY created_at ASC, id ASC"]
+    OUTBOX["realtime_events<br/>id INTEGER PK AUTOINCREMENT<br/>= SSE Last-Event-ID cursor<br/>retention 7d / 50000 rows"]
+    PRAGMA["PRAGMA block db.ts<br/>busy_timeout 5000<br/>cache_size -65536<br/>temp_store MEMORY<br/>wal_autocheckpoint 1000"]
+    CONV2["chat_conversations<br/>chat_participants<br/>chat_read_states<br/>presence_heartbeats<br/>Deferred to Phase-2"]
+    CONSUMERS["realtime_event_consumers<br/>(consumer_id, partition_key,<br/>last_processed_event_number)<br/>Deferred to Phase-3"]
+  end
+
+  %% ---------------------------------------------------------------- Scale adapter (broker track)
+  subgraph Broker["Scale adapter"]
+    LOCAL["Local adapter — NOW"]
+    REDIS["Redis Streams<br/>+ consumer-offset table<br/>BEFORE multi-instance"]
+    PGN["Postgres LISTEN/NOTIFY<br/>wakeup only — AFTER migration"]
+    NATS["NATS JetStream<br/>deferred event fabric"]
+  end
+
+  %% ---------------------------------------------------------------- Happy path
+  UI --> POST --> H2 --> AUTHA
+  AUTHA --> PREAD --> WRITEA --> TXA
+  TXA -->|commit| MSG
+  TXA -->|commit| OUTBOX
+  TXA -.->|governs| PRAGMA
+  TXA -->|after commit| BUSA
+  BUSA --> SSEA --> H2 --> SSE --> STORE --> UI
+
+  %% ---------------------------------------------------------------- Cross-process: now vs future
+  OUTBOX --> POLLB --> BUSB --> SSEB
+  OUTBOX --> LOCAL --> BUSA
+  OUTBOX -. before multi-instance .-> REDIS -. broker fanout .-> BUSA
+  REDIS -. broker fanout .-> BUSB
+  OUTBOX -. after Postgres migration .-> PGN -. wakeup only .-> BUSA
+  OUTBOX -. Phase-3 .-> NATS -. replayable subjects .-> BUSA
+  REDIS -. reads via .-> CONSUMERS
+
+  %% ---------------------------------------------------------------- Control invariants (no data flow)
+  SSE -.->|resync.required when lastSentId LT min(id) — NO id, NO partial replay| STORE
+  SSE -.->|replay.complete after Last-Event-ID replay finishes| STORE
+  SSE -.->|chat.typing.* / presence.updated EPHEMERAL: never persisted, never replayed, never advance cursor| STORE
+
+  class Browser browser
+  class Edge edge
+  class AppA,AppB app
+  class Durable durable
+  class Broker broker
