@@ -8,8 +8,8 @@
 
 | Task | Title | Status | Commit | Verified |
 |------|-------|--------|--------|----------|
-| A0 | Durability decision + mandatory wal_checkpoint | ✅ | _pending_ | typecheck + scheduler-registry (7/7) |
-| A1 | Migration 055: counters + claimed_at + client_request_id + governance test | ⬜ | | |
+| A0 | Durability decision + mandatory wal_checkpoint | ✅ | 6956d69 | typecheck + scheduler-registry (7/7) |
+| A1 | Migration 055: counters + claimed_at + client_request_id + governance test | ✅ | _pending_ | migration-ids-unique (2/2) + migrations apply (3/3) + typecheck |
 | B1a | Principal-binding authz | ⬜ | | |
 | B3 | /api/connect admin-gate + name allowlist + hygiene | ⬜ | | |
 | B4 | SSRF protection on webhooks | ⬜ | | |

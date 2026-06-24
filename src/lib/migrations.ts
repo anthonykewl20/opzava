@@ -1495,6 +1495,42 @@ const migrations: Migration[] = [
           WHERE client_message_id IS NOT NULL
       `)
     }
+  },
+  {
+    id: '055_task_counters_lease_idempotency',
+    up(db: Database.Database) {
+      // Split the single shared dispatch_attempts counter into independent budgets
+      // (A3) + arm the lease (A5) + idempotent task capture (A2). dispatch_attempts
+      // already exists (045) and is repurposed as the dispatch-failure budget (cap 5);
+      // review_attempts is the Aegis-rejection budget (cap 3); aegis_error_count +
+      // aegis_error_not_before back a bounded 'aegis_unavailable' terminal (A3).
+      // claimed_at is the lease timestamp stamped at every claim site (A5).
+      // client_request_id + its partial unique index make POST /api/tasks idempotent
+      // (A2), mirroring the chat client_message_id precedent (054).
+      const cols = db.prepare(`PRAGMA table_info(tasks)`).all() as Array<{ name: string }>
+      const addIntDefaultZero = (name: string) => {
+        if (!cols.some(c => c.name === name)) {
+          db.exec(`ALTER TABLE tasks ADD COLUMN ${name} INTEGER NOT NULL DEFAULT 0`)
+        }
+      }
+      const addNullable = (name: string, type: 'INTEGER' | 'TEXT') => {
+        if (!cols.some(c => c.name === name)) {
+          db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`)
+        }
+      }
+      addIntDefaultZero('review_attempts')
+      addIntDefaultZero('aegis_error_count')
+      addNullable('aegis_error_not_before', 'INTEGER')
+      addNullable('claimed_at', 'INTEGER')
+      addNullable('client_request_id', 'TEXT')
+      // Partial unique index: only rows that carry a client_request_id are constrained,
+      // so legacy captures (NULL) are unaffected. Scoped per workspace.
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_client_request_id
+          ON tasks(workspace_id, client_request_id)
+          WHERE client_request_id IS NOT NULL
+      `)
+    }
   }
 ]
 
