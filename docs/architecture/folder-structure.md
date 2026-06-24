@@ -29,6 +29,12 @@ After Mission Control is imported, allowed top-level roots are the inherited ups
 - `tests/`: integration, API, workflow, and end-to-end style tests.
 - `wiki/`: inherited documentation if retained.
 
+Allowed top-level operational files include the root `Dockerfile`, `docker-compose*.yml` variants,
+`Makefile`, `playwright*.config.ts`, installer scripts, package/toolchain config, `AGENTS.md` agent
+instructions, and the explicit `OPZAVA-DOCKER-HANDOFF.md` operator handoff. These files are root-level
+because Docker, Dokploy, Playwright, package managers, agent tools, and operator handoff workflows discover
+them there; new variants must be narrowly named for a real deployment/test mode, not a vague experiment.
+
 New top-level folders require an ARD and an update to this contract before any files are added.
 
 ## Source Layout
@@ -54,7 +60,7 @@ All substantial new `opzava` product logic belongs under `src/opzava/` unless th
 Allowed `src/opzava/` folders:
 
 - `core/`: framework-independent primitives, IDs, result types, errors, base contracts, state-machine helpers, and shared validation utilities.
-- `platform/`: cross-feature infrastructure such as durable runner, database repositories, migrations, provider registry, admin config, secret references, audit, costs, logging, and redaction.
+- `platform/`: cross-feature infrastructure such as the durable runner, provider execution engine, admin config, secret references, audit, costs, observability, and redaction.
 - `modules/`: product feature modules. Each module owns one business capability and its contracts, application services, workflow steps, UI, tests, and fixtures.
 - `testing/`: cross-module test harness helpers and fake platform services only. Feature-specific fixtures stay with the feature module.
 
@@ -72,26 +78,25 @@ Do not add new `src/lib/utils.ts`, `src/lib/helpers.ts`, `src/lib/services.ts`, 
 
 Allowed `src/opzava/platform/` folders:
 
-- `db/`: database connection wrappers, repositories shared across modules, and migration helpers.
-- `runner/`: durable runner, jobs, attempts, retries, locks, replay, and dead letters.
-- `providers/`: provider registry, provider contracts, shared retry/timeout/idempotency plumbing, and mock/live adapter wiring.
 - `admin-config/`: admin settings schema, typed config validation, secret references, secret resolution boundary, and redaction.
-- `audit/`: audit-event writing and audit queries.
-- `costs/`: cost-event writing and usage accounting.
-- `logging/`: structured logging, correlation IDs, and redaction utilities.
-- `module-registry/`: module registration and service composition.
+- `runner/`: durable runner — jobs, attempts, leases, retries, replay, dead letters, retention, and the operational-event store.
+- `providers/`: provider contracts and the live/mock execution engine (preflight → credentials → approval → limits → adapter call), plus shared retry/timeout/idempotency plumbing and mock/live adapter wiring.
+- `audit/`: audit-event contract and the unified audit read surface.
+- `costs/`: cost-event contract and the unified cost read surface.
+- `observability/`: centralized log shipping to an external aggregator (pure policy core + IO shipper). Structured logging itself is the inherited `pino` logger in `src/lib/logger.ts`.
+
+There is no `platform/db/` folder (the database connection lives in the inherited `src/lib/db.ts`; repositories are per-module or in `runner/`), no `platform/logging/` folder, and no `platform/module-registry/` folder (composition is call-site — see *Module Registry And Composition*).
 
 Do not add `platform` folders without updating this contract.
 
 ## Module Registry And Composition
 
-The module registry is the composition layer. It wires feature modules into the app without forcing modules to import each other's internals.
+There is no registry indirection in `src/opzava`. Composition is **call-site**: route handlers, panels, the runner worker, and daemons construct services by importing a module's public `index.ts` and the relevant `platform/` factories, then wiring them together at the point of use. The canonical example is `src/opzava/modules/content/campaign/guarded-campaign-send-runtime.ts`, which composes the runner repository, the provider live-execution runtime, and the runtime-settings loader.
 
-- Feature modules register public capabilities through their `index.ts`.
-- `src/opzava/platform/module-registry/` may import public module APIs.
-- `src/opzava/platform/module-registry/` must not import module internals such as `data/`, `steps/`, `providers/`, or private UI files.
-- Route handlers, pages, panels, and runner code use composed services from the registry or a module public API.
-- Cross-module behavior must go through public module APIs, shared `core` contracts, or platform composition. It must not use deep relative imports.
+- Feature modules expose public capabilities only through their `index.ts`.
+- Route handlers, pages, panels, and runner code use composed services from a module public API or a `platform/` factory.
+- Cross-module behavior must go through public module APIs, shared `core` contracts, or platform composition. It must **not** use deep relative imports into another module's internals.
+- `src/opzava/platform/` must not depend on feature modules.
 - Breaking a public module API requires updating dependent tests and documenting the change in the module README or an ARD when the impact is architectural.
 
 ## Path Alias Policy
@@ -111,23 +116,25 @@ Do not use deep relative imports such as `../../../modules/content/data/...` acr
 
 Feature modules are the default unit of growth. A new product capability belongs under `src/opzava/modules/<feature>/` unless it is truly cross-feature infrastructure.
 
-Initial feature modules:
+Feature modules that exist today:
 
-- `src/opzava/modules/content/`: content workflow, SEO briefs, outlines, article drafts, source provenance, fact-check reports, brand reviews, anti-slop reviews, and WordPress draft requests.
-- `src/opzava/modules/outreach/`: deferred until the content workflow proves the runner, artifacts, approvals, audit, admin config, and integration contracts.
+- `src/opzava/modules/content/`: the SEO content pipeline (idea → keyword research → source capture → SEO brief → outline → article draft → fact-check → brand review → anti-slop review → human approval → WordPress draft) plus the email-campaign send engine. The largest module.
+- `src/opzava/modules/team/`: agent roles, statuses, profiles, per-agent activity, and the cross-department pipeline ordering. The only module with its own table (`opzava_agent_roles`) and the only one that couples (via string step-ids) to the other three.
+- `src/opzava/modules/social/`: social-media workflow step library (brief → post draft → review → schedule request). Step library only — no tables, no live providers.
+- `src/opzava/modules/general-va/`: general-VA workflow step library (task intake → draft → review). Step library only — no tables, no live providers.
 
 Allowed folders inside `src/opzava/modules/<feature>/`:
 
 - `contracts/`: feature artifact schemas, state machines, DTOs, and validation.
-- `application/`: feature use cases and application services. This is where route handlers and UI actions call into the feature.
-- `workflows/`: workflow definitions and orchestration-facing feature configuration.
-- `steps/`: workflow step implementations.
-- `data/`: feature repositories, persistence mappers, and feature-owned queries.
-- `providers/`: feature-specific provider adapters or provider mappers. Shared provider plumbing stays in `src/opzava/platform/`.
-- `ui/`: feature UI components. Client islands must be small and explicit.
-- `testing/`: feature fixtures, fake adapters, builders, and test harness helpers.
+- `artifacts/`: feature artifact factories and the feature's artifact repository.
+- `workflow/`: workflow definitions and orchestration-facing configuration (singular `workflow/`, as in `content/workflow/`).
+- `steps/`: workflow step services — one `*-service.ts` per step, plus the step-executor factory.
+- `providers/`: feature-specific provider adapters and execution. Shared provider plumbing stays in `src/opzava/platform/`.
+- `campaign/`: a feature's campaign/send orchestration subsystem (only `content` has this today).
 - `index.ts`: the module's public API.
-- `README.md`: required when a module has more than one folder or any non-obvious boundary.
+- `README.md` / `MODULE.md`: required when a module has more than one folder or any non-obvious boundary. `MODULE.md` is the richer per-module context doc for editing agents (see `docs/architecture/module-doc-template.md`).
+
+A module uses only the folders it needs: `team` is flat files with no subfolders; `social` and `general-va` use only `artifacts/` + `steps/`; `content` is the fullest. The Next.js-conventional folders `application/`, `data/`, `ui/`, and `testing/` are permitted only when a real boundary warrants them — none of the current modules use them. Feature fixtures stay colocated as `*.test.ts` siblings or under `src/opzava/testing/`.
 
 Modules expose public APIs through `index.ts`. Other modules must not import from another module's internals.
 

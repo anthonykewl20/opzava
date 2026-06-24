@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
   <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
   <script>
     // Account menu — the durable "Your tools" doorway (doc 12 §3.1d).
     // (This script is in <head>, so defer until the header is parsed.)
@@ -64,11 +66,11 @@
         <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
         <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
         <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
-        <a href="#">Find…</a>
+        <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-      <button class="btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></button>
+      <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></a>
       <div style="position:relative">
         <button class="ava" id="acctBtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" style="background:var(--chart-2);border:0;cursor:pointer">AG</button>
         <div class="sb-menu" id="acctMenu" role="menu" aria-label="Account" style="display:none;position:absolute;top:calc(100% + 8px);right:0;z-index:var(--z-dropdown);min-width:230px">

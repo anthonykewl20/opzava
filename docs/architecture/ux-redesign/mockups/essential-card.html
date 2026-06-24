@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
   <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
   <style>
     .bc { min-height: 100vh; font-size: var(--text-base); }
     .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -60,11 +62,11 @@
         <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
         <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
         <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
-        <a href="#">Find…</a>
+        <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-      <button class="btn-icon btn-ghost" type="button" aria-label="Notifications"><span aria-hidden="true">🔔</span></button>
+      <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications"><span aria-hidden="true">🔔</span></a>
       <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
 
@@ -182,8 +184,27 @@
               <div class="u-row" style="gap:var(--space-3);align-items:flex-start;margin-top:var(--space-4)">
                 <span class="sb-avatar" style="background:var(--chart-2)" aria-hidden="true">AG</span>
                 <div class="u-grow u-col-2">
+                  <style>
+                    .mention-pop { position:absolute; left:0; top:calc(100% - 2px); z-index:var(--z-dropdown); width:320px; max-width:calc(100vw - 32px); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); padding:6px; }
+                    .mention-pop[hidden] { display:none; }
+                    .mention-hd { font-size:var(--text-xs); color:var(--fg-subtle); text-transform:uppercase; letter-spacing:var(--tracking-caps); font-weight:var(--fw-semibold); padding:6px 8px 4px; }
+                    .mention-item { display:flex; align-items:center; gap:8px; width:100%; padding:7px 8px; border:0; background:none; border-radius:var(--radius-sm); cursor:pointer; font:inherit; text-align:left; color:var(--fg); }
+                    .mention-item:hover, .mention-item.active { background:var(--surface-2); }
+                    .mention-nm { font-size:var(--text-sm); font-weight:var(--fw-medium); }
+                    .mention-sub { font-size:var(--text-xs); color:var(--fg-subtle); margin-left:auto; }
+                    .mention-at { width:26px; height:26px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:var(--surface-3); color:var(--fg-muted); font-size:var(--text-sm); flex:none; }
+                  </style>
                   <label for="c" class="u-sr-only">Add a comment</label>
-                  <textarea id="c" class="textarea" rows="2" placeholder="Write a comment… Echo sees it in realtime"></textarea>
+                  <div style="position:relative">
+                    <textarea id="c" class="textarea" rows="2" placeholder="Write a comment… type @ to mention · Echo sees it in realtime"></textarea>
+                    <div class="mention-pop" id="mentionPop" role="listbox" aria-label="Mention someone" hidden>
+                      <div class="mention-hd">Mention</div>
+                      <button class="mention-item active" role="option" type="button" data-name="Echo" data-ai="1"><span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-5)" aria-hidden="true">E</span><span class="mention-nm">Echo</span><span class="mention-sub">✦ on this card</span></button>
+                      <button class="mention-item" role="option" type="button" data-name="Maria"><span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span><span class="mention-nm">Maria</span><span class="mention-sub">● online</span></button>
+                      <button class="mention-item" role="option" type="button" data-name="Anthony"><span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span><span class="mention-nm">Anthony</span><span class="mention-sub">you</span></button>
+                      <button class="mention-item" role="option" type="button" data-name="Atlas" data-ai="1"><span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-6)" aria-hidden="true">A</span><span class="mention-nm">Atlas</span><span class="mention-sub">✦ project lead</span></button>
+                    </div>
+                  </div>
                   <div class="typing" id="you" style="display:none;padding:0"><span class="u-subtle">You're typing</span><span class="dots human" aria-hidden="true"><i></i><i></i><i></i></span></div>
                   <div><button class="btn btn-primary" type="button">Post comment</button></div>
                 </div>
@@ -307,6 +328,64 @@
       // Live "you're typing…"
       var ta = document.getElementById('c'), you = document.getElementById('you'), mate = document.getElementById('mate');
       ta.addEventListener('input', function () { you.style.display = ta.value.trim() ? 'flex' : 'none'; if (mate && ta.value.trim()) mate.style.display = 'none'; });
+    })();
+  </script>
+  <!-- @-mention autocomplete in the comment box — type "@" to tag a teammate or AI -->
+  <script>
+    (function () {
+      var inp = document.getElementById('c'),
+          pop = document.getElementById('mentionPop'),
+          items = pop ? Array.prototype.slice.call(pop.querySelectorAll('.mention-item')) : [];
+      if (!inp || !pop) return;
+
+      function open()  { pop.hidden = false; }
+      function close() { pop.hidden = true; }
+      function isOpen() { return !pop.hidden; }
+
+      function filter(q) {
+        q = (q || '').toLowerCase();
+        var shown = [];
+        items.forEach(function (it) {
+          var match = it.dataset.name.toLowerCase().indexOf(q) === 0;
+          it.style.display = match ? 'flex' : 'none';
+          it.classList.remove('active');
+          if (match) shown.push(it);
+        });
+        if (shown.length) shown[0].classList.add('active');
+        return shown.length;
+      }
+      function insert(name) {
+        if (/@\w*$/.test(inp.value)) inp.value = inp.value.replace(/@\w*$/, '@' + name + ' ');
+        else inp.value += (inp.value && !/\s$/.test(inp.value) ? ' ' : '') + '@' + name + ' ';
+        close(); inp.focus();
+      }
+
+      inp.addEventListener('input', function () {
+        var m = inp.value.match(/(?:^|\s)@(\w*)$/);
+        if (m) { (filter(m[1]) ? open() : close()); } else close();
+      });
+      inp.addEventListener('keydown', function (e) {
+        if (!isOpen()) return;
+        var vis = items.filter(function (i) { return i.style.display !== 'none'; }),
+            cur = vis.findIndex(function (i) { return i.classList.contains('active'); });
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (cur >= 0) vis[cur].classList.remove('active');
+          var nx = e.key === 'ArrowDown' ? (cur + 1) % vis.length : (cur <= 0 ? vis.length - 1 : cur - 1);
+          vis[nx].classList.add('active');
+        } else if ((e.key === 'Enter' || e.key === 'Tab') && cur >= 0) {
+          e.preventDefault(); insert(vis[cur].dataset.name);
+        } else if (e.key === 'Escape') { close(); }
+      });
+      pop.addEventListener('click', function (e) {
+        var it = e.target.closest('.mention-item'); if (it) insert(it.dataset.name);
+      });
+      document.addEventListener('click', function (e) {
+        if (isOpen() && !pop.contains(e.target) && e.target !== inp) close();
+      });
+
+      // Screenshot-ready: #mention-open shows the picker mid-type.
+      if (location.hash === '#mention-open') { inp.value = 'Looks great — flagging @'; filter(''); open(); inp.focus(); }
     })();
   </script>
 </body>

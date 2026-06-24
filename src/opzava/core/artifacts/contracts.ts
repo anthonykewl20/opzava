@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { isSecretReference } from '../../platform/admin-config/contracts'
+import { isSecretReference } from '../secrets/contracts'
 
 export const ARTIFACT_CONTRACT_SCHEMA_VERSION = 1 as const
 

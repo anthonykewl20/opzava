@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Find</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <style>
+    /* Basecamp-style Essential: warm, calm, content-first. Layout-only here.
+       This page IS the shadcn Command (⌘K) palette, shown OPEN over a faded Home. */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .bc-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+    .ava { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* Faded hint of Home behind the dim — purely decorative, non-interactive */
+    .home-hint { filter: blur(2px); opacity: .5; pointer-events: none; user-select: none; }
+    .home-hint .proj-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-5); margin-bottom: var(--space-4); }
+    .home-hint .proj-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+    .home-hint h2 { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; margin-bottom: var(--space-5); }
+
+    /* ── The Command palette card (over .sb-overlay) ─────────────────────── */
+    .cmd { width: 620px; max-width: calc(100vw - 32px); max-height: 76vh; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+    /* Search row */
+    .cmd-search { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
+    .cmd-glyph { font-size: var(--text-xl); line-height: 1; color: var(--fg-subtle); flex: none; }
+    .cmd-input { flex: 1 1 auto; min-width: 0; height: auto; padding: 0; border: 0; background: none; box-shadow: none; font-size: var(--text-xl); font-weight: var(--fw-medium); color: var(--fg); caret-color: var(--accent); }
+    .cmd-input:focus { outline: none; border: 0; box-shadow: none; }
+    .cmd-input::placeholder { color: var(--fg-subtle); font-weight: var(--fw-regular); }
+    .cmd-esc { flex: none; }
+    /* Results */
+    .cmd-results { padding: var(--space-2) 0 var(--space-3); overflow-y: auto; flex: 1 1 auto; }
+    .cmd-group { padding: var(--space-3) var(--space-5) var(--space-1); }
+    .cmd-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-5); text-decoration: none; color: var(--fg); border-left: 2px solid transparent; }
+    .cmd-row:hover { background: var(--surface-2); text-decoration: none; }
+    .cmd-row.is-selected { background: var(--accent-soft); border-left-color: var(--accent); }
+    .cmd-row-glyph { flex: none; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-md); color: var(--fg-muted); }
+    .cmd-row.is-selected .cmd-row-glyph { color: var(--accent); }
+    .cmd-row-name { flex: 1 1 auto; min-width: 0; font-size: var(--text-base); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cmd-row-meta { flex: none; font-size: var(--text-xs); color: var(--fg-subtle); }
+    .cmd-row .cmd-enter { flex: none; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--accent); }
+    .cmd-row-ava { flex: none; width: 26px; height: 26px; }
+    .cmd-row-add { color: var(--accent); }
+    .cmd-sep { height: 1px; background: var(--border); margin: var(--space-2) 0; }
+    /* Footer */
+    .cmd-foot { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border); font-size: var(--text-xs); color: var(--fg-subtle); }
+    .cmd-foot kbd { font-family: var(--font-mono); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 1px 5px; background: var(--surface-2); color: var(--fg-muted); }
+    .cmd-hint { display: inline-flex; align-items: center; gap: 5px; }
+  </style>
+</head>
+<body>
+  <div class="bc">
+    <!-- Basecamp-style top bar: a few plain destinations, not a technical sidebar. -->
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="#" class="active" aria-current="page">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></a>
+      <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+    </header>
+
+    <!-- ── Faded hint of Home behind the dim (decorative only) ───────────── -->
+    <main class="home-hint" aria-hidden="true">
+      <div class="bc-wrap">
+        <h2>Good afternoon, Anthony</h2>
+        <div class="card proj-row"><span class="proj-dot" style="background:var(--chart-1)"></span><strong>Q3 Launch Campaign</strong></div>
+        <div class="card proj-row"><span class="proj-dot" style="background:var(--chart-4)"></span><strong>Customer Support</strong></div>
+        <div class="card proj-row"><span class="proj-dot" style="background:var(--chart-2)"></span><strong>Q2 Content Push</strong></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       FIND — the shadcn Command palette, shown OPEN. Calm Essential skin.
+  ══════════════════════════════════════════════════════════════════════ -->
+  <div class="sb-overlay open" id="findOverlay" role="dialog" aria-modal="true" aria-label="Find">
+    <div class="cmd" id="findCard" role="combobox" aria-expanded="true" aria-haspopup="listbox">
+
+      <!-- Search row -->
+      <div class="cmd-search">
+        <span class="cmd-glyph" aria-hidden="true">🔍</span>
+        <input class="cmd-input input" id="findInput" type="text" value="launch"
+               placeholder="Search projects, to-dos, people, files…"
+               aria-label="Search projects, to-dos, people, files" autocomplete="off">
+        <span class="kbd cmd-esc" aria-hidden="true">⌘K · Esc</span>
+      </div>
+
+      <!-- Results -->
+      <div class="cmd-results" role="listbox" aria-label="Results">
+
+        <!-- Projects -->
+        <div class="cmd-group u-caps">Projects</div>
+        <a href="essential-project.html" class="cmd-row is-selected" role="option" aria-selected="true">
+          <span class="cmd-row-glyph" aria-hidden="true">▦</span>
+          <span class="cmd-row-name">Q3 Launch Campaign</span>
+          <span class="cmd-row-meta">Project</span>
+          <span class="cmd-enter" aria-hidden="true">↵</span>
+        </a>
+        <a href="essential-project.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="cmd-row-glyph" aria-hidden="true">▦</span>
+          <span class="cmd-row-name">Customer Support</span>
+          <span class="cmd-row-meta">Project</span>
+        </a>
+        <a href="essential-project.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="cmd-row-glyph" aria-hidden="true">▦</span>
+          <span class="cmd-row-name">Q2 Content Push</span>
+          <span class="cmd-row-meta">Project</span>
+        </a>
+
+        <div class="cmd-sep" role="separator"></div>
+
+        <!-- To-dos -->
+        <div class="cmd-group u-caps">To-dos</div>
+        <a href="essential-todos.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="cmd-row-glyph" aria-hidden="true">✓</span>
+          <span class="cmd-row-name">Write the Q3 launch announcement</span>
+          <span class="cmd-row-meta">Customer Support</span>
+        </a>
+        <a href="essential-todos.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="cmd-row-glyph" aria-hidden="true">✓</span>
+          <span class="cmd-row-name">Rewrite top-20 reply templates</span>
+          <span class="cmd-row-meta">To-do</span>
+        </a>
+
+        <div class="cmd-sep" role="separator"></div>
+
+        <!-- People -->
+        <div class="cmd-group u-caps">People</div>
+        <a href="essential-team-room.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="sb-avatar sb-avatar--sm cmd-row-ava" style="background:var(--chart-3)" aria-hidden="true">Ma</span>
+          <span class="cmd-row-name">Maria</span>
+          <span class="cmd-row-meta">Person · Marketing</span>
+        </a>
+        <a href="essential-team-room.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="sb-avatar sb-avatar--sm cmd-row-ava" style="background:var(--chart-5)" aria-hidden="true">Dn</span>
+          <span class="cmd-row-name">Dan</span>
+          <span class="cmd-row-meta">Person · Support</span>
+        </a>
+        <a href="project-assistant.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="sb-avatar sb-avatar--sm sb-avatar--ai cmd-row-ava" style="background:var(--chart-1)" aria-label="Atlas, AI assistant">At</span>
+          <span class="cmd-row-name">Atlas <span class="u-subtle" style="font-size:var(--text-xs)">✦ AI assistant</span></span>
+          <span class="cmd-row-meta">Assistant</span>
+        </a>
+
+        <div class="cmd-sep" role="separator"></div>
+
+        <!-- Files & docs -->
+        <div class="cmd-group u-caps">Files &amp; docs</div>
+        <a href="essential-mkt-assets.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="cmd-row-glyph" aria-hidden="true">📄</span>
+          <span class="cmd-row-name">launch-email.html</span>
+          <span class="cmd-row-meta">File · Q3 Launch Campaign</span>
+        </a>
+        <a href="essential-mkt-assets.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="cmd-row-glyph" aria-hidden="true">📄</span>
+          <span class="cmd-row-name">brand-voice.md</span>
+          <span class="cmd-row-meta">Doc · Q2 Content Push</span>
+        </a>
+
+        <div class="cmd-sep" role="separator"></div>
+
+        <!-- Actions -->
+        <div class="cmd-group u-caps">Actions</div>
+        <a href="essential-new-project.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="cmd-row-glyph cmd-row-add" aria-hidden="true">＋</span>
+          <span class="cmd-row-name">New project</span>
+          <span class="cmd-row-meta">Action</span>
+        </a>
+        <a href="essential-campaign-new.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="cmd-row-glyph cmd-row-add" aria-hidden="true">＋</span>
+          <span class="cmd-row-name">New campaign</span>
+          <span class="cmd-row-meta">Action</span>
+        </a>
+        <a href="essential-goal-create.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="cmd-row-glyph" aria-hidden="true">🎯</span>
+          <span class="cmd-row-name">Add a goal</span>
+          <span class="cmd-row-meta">Action</span>
+        </a>
+        <a href="essential-add-card.html" class="cmd-row" role="option" aria-selected="false">
+          <span class="cmd-row-glyph cmd-row-add" aria-hidden="true">＋</span>
+          <span class="cmd-row-name">Add a card</span>
+          <span class="cmd-row-meta">Action</span>
+        </a>
+
+      </div>
+
+      <!-- Footer hints -->
+      <div class="cmd-foot">
+        <span class="cmd-hint"><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+        <span class="cmd-hint"><kbd>↵</kbd> open</span>
+        <span class="cmd-hint"><kbd>esc</kbd> close</span>
+        <span class="u-grow"></span>
+        <a href="essential-ask-opzava.html" class="u-accent" style="font-weight:var(--fw-medium)"><span aria-hidden="true">✦</span> Ask Opzava instead →</a>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var input = document.getElementById('findInput');
+      var rows  = Array.prototype.slice.call(document.querySelectorAll('.cmd-row'));
+
+      function close() { window.location.href = 'essential-home.html'; }
+
+      // Esc closes the palette (links back to Home).
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { e.preventDefault(); close(); }
+      });
+
+      // Clicking the dim (outside the card) closes too.
+      document.getElementById('findOverlay').addEventListener('click', function (e) {
+        if (e.target === this) close();
+      });
+
+      // ↑/↓ move the keyboard selection (accent-soft highlight); ↵ follows it.
+      function select(next) {
+        var cur = document.querySelector('.cmd-row.is-selected');
+        if (cur) { cur.classList.remove('is-selected'); cur.setAttribute('aria-selected', 'false'); }
+        next.classList.add('is-selected'); next.setAttribute('aria-selected', 'true');
+        next.scrollIntoView({ block: 'nearest' });
+      }
+      document.addEventListener('keydown', function (e) {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
+        var cur = document.querySelector('.cmd-row.is-selected');
+        var idx = rows.indexOf(cur);
+        if (e.key === 'ArrowDown') { e.preventDefault(); select(rows[(idx + 1) % rows.length]); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); select(rows[(idx - 1 + rows.length) % rows.length]); }
+        else if (e.key === 'Enter' && cur) { e.preventDefault(); window.location.href = cur.getAttribute('href'); }
+      });
+
+      if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+    })();
+  </script>
+</body>
+</html>

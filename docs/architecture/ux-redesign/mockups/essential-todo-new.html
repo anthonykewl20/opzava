@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — New to-do</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="tools-bar.js"></script>
+  <style>
+    /* Basecamp-style Essential calm shell — layout only, no colour/font overrides */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .ava { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* ── Faded To-dos list behind the dim (subtle hint only) ──────────────── */
+    .bc-wrap { max-width: 760px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+    .proj-head { display: flex; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-6); }
+    .proj-title { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; }
+    .proj-sub { font-size: var(--text-sm); color: var(--fg-muted); }
+    .td-list { display: flex; flex-direction: column; gap: var(--space-2); }
+    .td-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
+    .td-row .td-text { font-size: var(--text-md); color: var(--fg); }
+    .td-row.is-done .td-text { color: var(--fg-subtle); text-decoration: line-through; }
+    .td-row .u-grow { flex: 1 1 auto; }
+    .td-meta { font-size: var(--text-xs); color: var(--fg-subtle); }
+    .td-add { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border: 1px dashed var(--border-strong); border-radius: var(--radius-md); color: var(--fg-subtle); font-size: var(--text-sm); }
+
+    /* ── The Add-a-to-do DIALOG (reuses .sb-overlay dim + .wiz frame) ─────── */
+    .wiz { width: 540px; max-width: 100%; margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); overflow: hidden; max-height: 92vh; display: flex; flex-direction: column; }
+    .wiz-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) var(--space-6) var(--space-4); border-bottom: 1px solid var(--border); }
+    .wiz-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); flex: 1 1 auto; }
+    .wiz-x { width: 30px; height: 30px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font-size: 17px; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+    .wiz-x:hover { background: var(--surface-2); color: var(--fg); }
+    .wiz-body { padding: var(--space-5) var(--space-6); overflow-y: auto; }
+    .wiz-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); }
+
+    /* Field rhythm */
+    .field + .field-block, .field-block + .field-block { margin-top: var(--space-5); }
+    .field-block { margin-top: var(--space-5); }
+    .field-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+
+    /* Assign-to avatar picker — ✦ Atlas (AI shape, never colour) or a person */
+    .assign-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+    .assign-pick { position: relative; display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--surface); cursor: pointer; font-size: var(--text-sm); color: var(--fg); }
+    .assign-pick:hover { border-color: var(--border-strong); background: var(--surface-2); }
+    .assign-pick[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .assign-pick .spark { color: var(--accent); }
+    .assign-gloss { font-size: var(--text-sm); color: var(--fg-muted); margin-top: var(--space-2); line-height: var(--lh-relaxed); }
+
+    /* Atlas calm note — shown when ✦ Atlas is the assignee */
+    .atlas-note { display: none; align-items: center; gap: var(--space-2); margin-top: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-relaxed); }
+    .atlas-note .spark { color: var(--accent); flex: none; }
+    .atlas-note.is-on { display: flex; }
+
+    /* Optional sub-steps disclosure */
+    .disc-d { margin-top: var(--space-5); border-top: 1px solid var(--border); padding-top: var(--space-4); }
+    .disc-d > summary { font-size: var(--text-sm); color: var(--fg-muted); cursor: pointer; list-style: none; font-weight: var(--fw-medium); }
+    .disc-d > summary::-webkit-details-marker { display: none; }
+    .disc-d[open] > summary { margin-bottom: var(--space-3); }
+    .disc-hint { font-size: var(--text-xs); color: var(--fg-subtle); margin-bottom: var(--space-2); }
+
+    @media (max-width: 640px) {
+      .topnav { display: none; }
+      .field-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ════════ Faded To-dos list behind the dim (subtle hint) ════════ -->
+  <div class="bc" aria-hidden="true">
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages</a>
+        <a href="mention-inbox.html">Activity</a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <span class="ava" style="background:var(--chart-2)">AG</span>
+    </header>
+
+    <div class="bc-wrap">
+      <div class="proj-head">
+        <span class="proj-title">To-dos</span>
+        <span class="proj-sub">· Customer Support · 8 of 14 done</span>
+      </div>
+      <div class="td-list">
+        <div class="td-row is-done"><span aria-hidden="true">☑</span><span class="td-text">Reply to the Acme escalation</span><span class="u-grow"></span><span class="td-meta">Maria</span></div>
+        <div class="td-row"><span aria-hidden="true">☐</span><span class="td-text">Draft the Q3 launch announcement</span><span class="u-grow"></span><span class="td-meta">Fri · ✦ Atlas</span></div>
+        <div class="td-row"><span aria-hidden="true">☐</span><span class="td-text">Review the help-centre rewrite</span><span class="u-grow"></span><span class="td-meta">Dan</span></div>
+        <div class="td-add"><span aria-hidden="true">＋</span> Add a to-do</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ Add-a-to-do DIALOG (open over the dimmed page) ════════ -->
+  <div class="sb-overlay open" role="dialog" aria-modal="true" aria-labelledby="newTodoTitle">
+    <div class="wiz">
+
+      <div class="wiz-head">
+        <span class="wiz-title" id="newTodoTitle">Add a to-do</span>
+        <a class="wiz-x" href="essential-todos.html" aria-label="Close">✕</a>
+      </div>
+
+      <div class="wiz-body">
+
+        <!-- To-do text -->
+        <div class="field">
+          <label class="label" for="td-text">To-do</label>
+          <input class="input" id="td-text" type="text" value="Write the Q3 launch announcement post" aria-label="To-do">
+        </div>
+
+        <!-- Assign to — avatar picker: ✦ Atlas (AI) or a person -->
+        <div class="field-block">
+          <div class="label" style="margin-bottom:var(--space-2)">Assign to</div>
+          <div class="assign-row" role="radiogroup" aria-label="Assign to">
+            <span class="assign-pick" id="pick-atlas" role="radio" aria-checked="true" tabindex="0" data-atlas="true">
+              <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-1)" aria-hidden="true">A</span>
+              <span class="spark" aria-hidden="true">✦</span> Atlas
+            </span>
+            <span class="assign-pick" role="radio" aria-checked="false" tabindex="-1" data-atlas="false">
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span> You
+            </span>
+            <span class="assign-pick" role="radio" aria-checked="false" tabindex="-1" data-atlas="false">
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span> Maria
+            </span>
+            <span class="assign-pick" role="radio" aria-checked="false" tabindex="-1" data-atlas="false">
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" aria-hidden="true">D</span> Dan
+            </span>
+          </div>
+          <p class="assign-gloss" id="assignGloss">Atlas will do it and bring it back for review.</p>
+
+          <!-- Calm note — shown when ✦ Atlas is the assignee -->
+          <div class="atlas-note is-on" id="atlasNote">
+            <span class="spark" aria-hidden="true">✦</span>
+            <span>Atlas starts right away; you approve the result.</span>
+          </div>
+        </div>
+
+        <!-- Due · List -->
+        <div class="field-block">
+          <div class="field-2">
+            <div class="field">
+              <label class="label" for="td-due">Due</label>
+              <input class="input" id="td-due" type="text" value="Fri" placeholder="Fri" aria-label="Due date">
+            </div>
+            <div class="field">
+              <label class="label" for="td-list">List</label>
+              <select class="select" id="td-list" aria-label="List">
+                <option selected>To-dos</option>
+                <option>Launch checklist</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Optional details / sub-steps -->
+        <details class="disc-d">
+          <summary>▸ Add details / sub-steps</summary>
+          <p class="disc-hint">One sub-step per line — they become a small checklist on the to-do.</p>
+          <textarea class="textarea" aria-label="Sub-steps checklist" placeholder="☐ Draft the headline &amp; key points
+☐ Pull the launch date and CTA
+☐ Bring it back for review"></textarea>
+        </details>
+
+      </div>
+
+      <div class="wiz-foot">
+        <a class="btn btn-ghost" href="essential-todos.html">Cancel</a>
+        <a class="btn btn-primary" href="essential-todos.html">Add to-do</a>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // Calm radiogroup: pick an assignee, mark it, and show the Atlas note only
+    // when ✦ Atlas (the AI) is the one doing it — drafted-then-human-approved.
+    (function () {
+      var group = document.querySelector('.assign-row');
+      var gloss = document.getElementById('assignGloss');
+      var note = document.getElementById('atlasNote');
+      function select(pick) {
+        group.querySelectorAll('.assign-pick').forEach(function (p) {
+          var on = p === pick;
+          p.setAttribute('aria-checked', on ? 'true' : 'false');
+          p.setAttribute('tabindex', on ? '0' : '-1');
+        });
+        var isAtlas = pick.getAttribute('data-atlas') === 'true';
+        note.classList.toggle('is-on', isAtlas);
+        gloss.textContent = isAtlas
+          ? 'Atlas will do it and bring it back for review.'
+          : pick.textContent.trim() + ' is on it.';
+        pick.focus();
+      }
+      group.addEventListener('click', function (e) {
+        var pick = e.target.closest('.assign-pick');
+        if (pick) select(pick);
+      });
+      group.addEventListener('keydown', function (e) {
+        var pick = e.target.closest('.assign-pick');
+        if (pick && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); select(pick); }
+      });
+    })();
+  </script>
+</body>
+</html>

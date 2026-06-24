@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
   <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
   <style>
     /* Calm "Discovery" idea board — the board is the page; AI + research are one click away. */
     .bc { min-height: 100vh; font-size: var(--text-base); }
@@ -131,11 +133,11 @@
         <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
         <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
         <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
-        <a href="#">Find…</a>
+        <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-      <button class="btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></button>
+      <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
 
@@ -151,7 +153,7 @@
         <div class="disc-head">
           <h1 class="disc-title">💡 Discovery</h1>
           <div class="u-row" style="gap:var(--space-2)">
-            <button class="btn" type="button"><span aria-hidden="true">＋</span> Add an idea</button>
+            <a href="essential-idea-new.html" class="btn"><span aria-hidden="true">＋</span> Add an idea</a>
             <button class="btn btn-primary" type="button" id="askAtlasBtn"><span aria-hidden="true">✦</span> Ask Atlas</button>
           </div>
         </div>
@@ -190,7 +192,7 @@
               <div class="idea-foot"><span class="idea-author"><span class="u-accent" aria-hidden="true">✦</span> Atlas · 2d</span><span class="idea-actions"><button class="vote" type="button" aria-label="Vote, 2">👍 <span>2</span></button><button class="build" type="button" aria-label="build on this">💬 0</button></span></div>
               <div class="build-thread"><div class="bt-add"><input type="text" placeholder="Build on this idea…" aria-label="Build on this idea"><button class="btn btn-sm" type="button">Add</button></div></div>
             </div>
-            <button class="add-idea" type="button"><span aria-hidden="true">＋</span> Add an idea</button>
+            <a href="essential-idea-new.html" class="add-idea"><span aria-hidden="true">＋</span> Add an idea</a>
           </section>
 
           <section class="ct-col" aria-label="Exploring">
@@ -214,7 +216,7 @@
                 <div class="bt-add"><input type="text" placeholder="Build on this idea…" aria-label="Build on this idea"><button class="btn btn-sm" type="button">Add</button></div>
               </div>
             </div>
-            <button class="add-idea" type="button"><span aria-hidden="true">＋</span> Add an idea</button>
+            <a href="essential-idea-new.html" class="add-idea"><span aria-hidden="true">＋</span> Add an idea</a>
           </section>
 
           <section class="ct-col" aria-label="Decided">

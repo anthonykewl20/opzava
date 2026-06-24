@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
   <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
   <style>
     /* ── page layout only — no color/font/radius overrides ─────────────── */
     .bc { min-height: 100vh; font-size: var(--text-base); }
@@ -164,14 +166,14 @@
         <a href="essential-messages.html" class="active" aria-current="page">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
         <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
         <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
-        <a href="#">Find…</a>
+        <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-      <button class="btn btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative">
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative">
         <span aria-hidden="true">🔔</span>
         <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span>
-      </button>
+      </a>
       <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-label="Account menu (Anthony Garces)" role="button" tabindex="0">AG</span>
     </header>
 
@@ -315,7 +317,7 @@
                 </a>
 
                 <!-- + New message -->
-                <a href="#" class="mx-new">
+                <a href="essential-compose.html" class="mx-new">
                   <span aria-hidden="true" style="font-size:var(--text-md)">＋</span>
                   <span>New message</span>
                 </a>
@@ -380,7 +382,7 @@
                       <span class="msg-author">Maria</span>
                       <span class="msg-time">10:04</span>
                     </div>
-                    <p class="msg-text">Draft's waiting for your ok in <a href="#" class="msg-link">Approvals →</a></p>
+                    <p class="msg-text">Draft's waiting for your ok in <a href="essential-mkt-approvals.html" class="msg-link">Approvals →</a></p>
                     <div class="reaction-row">
                       <button class="reaction is-on" type="button" id="likeBtn" aria-pressed="true" aria-label="You gave a thumbs up. 1 reaction. Click to remove.">
                         <span class="reaction-glyph" aria-hidden="true">👍</span>
@@ -420,7 +422,25 @@
             </div><!-- /room-body -->
 
             <!-- ── Sticky composer ────────────────────────────────────────── -->
-            <div class="composer-wrap">
+            <div class="composer-wrap" style="position:sticky">
+              <style>
+                .mention-pop { position:absolute; left:0; bottom:calc(100% - var(--space-1)); z-index:var(--z-dropdown); width:320px; max-width:calc(100vw - 32px); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); padding:6px; }
+                .mention-pop[hidden] { display:none; }
+                .mention-hd { font-size:var(--text-xs); color:var(--fg-subtle); text-transform:uppercase; letter-spacing:var(--tracking-caps); font-weight:var(--fw-semibold); padding:6px 8px 4px; }
+                .mention-item { display:flex; align-items:center; gap:8px; width:100%; padding:7px 8px; border:0; background:none; border-radius:var(--radius-sm); cursor:pointer; font:inherit; text-align:left; color:var(--fg); }
+                .mention-item:hover, .mention-item.active { background:var(--surface-2); }
+                .mention-nm { font-size:var(--text-sm); font-weight:var(--fw-medium); }
+                .mention-sub { font-size:var(--text-xs); color:var(--fg-subtle); margin-left:auto; }
+                .mention-at { width:26px; height:26px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:var(--surface-3); color:var(--fg-muted); font-size:var(--text-sm); flex:none; }
+              </style>
+              <div class="mention-pop" id="mentionPop" role="listbox" aria-label="Mention picker" hidden>
+                <div class="mention-hd">Mention</div>
+                <button class="mention-item active" role="option" type="button" data-name="Atlas" data-ai="1"><span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-5)" aria-hidden="true">A</span><span class="mention-nm">Atlas</span><span class="mention-sub">✦ assistant</span></button>
+                <button class="mention-item" role="option" type="button" data-name="Maria"><span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span><span class="mention-nm">Maria</span><span class="mention-sub">● online</span></button>
+                <button class="mention-item" role="option" type="button" data-name="Dan"><span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" aria-hidden="true">D</span><span class="mention-nm">Dan</span><span class="mention-sub">away</span></button>
+                <button class="mention-item" role="option" type="button" data-name="Iris" data-ai="1"><span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-6)" aria-hidden="true">I</span><span class="mention-nm">Iris</span><span class="mention-sub">✦ assistant</span></button>
+                <button class="mention-item" role="option" type="button" data-name="channel"><span class="mention-at" aria-hidden="true">@</span><span class="mention-nm">channel</span><span class="mention-sub">everyone here</span></button>
+              </div>
               <div class="composer" role="form" aria-label="Write to Q2 Content Push">
                 <label for="roomMsg" class="u-sr-only">Write to #q2-content-push</label>
                 <input
@@ -541,6 +561,59 @@
       window.addEventListener('online',  function () { setOffline(false); });
       if (!navigator.onLine) setOffline(true);
 
+    })();
+  </script>
+  <!-- @-mention autocomplete in the message composer -->
+  <script>
+    (function () {
+      var inp = document.getElementById('roomMsg'),
+          pop = document.getElementById('mentionPop'),
+          items = pop ? Array.prototype.slice.call(pop.querySelectorAll('.mention-item')) : [],
+          atBtn = document.querySelector('.composer [aria-label="Mention someone"]');
+      if (!inp || !pop) return;
+      function open()  { pop.hidden = false; }
+      function close() { pop.hidden = true; }
+      function isOpen() { return !pop.hidden; }
+      function filter(q) {
+        q = (q || '').toLowerCase(); var shown = [];
+        items.forEach(function (it) {
+          var match = it.dataset.name.toLowerCase().indexOf(q) === 0;
+          it.style.display = match ? 'flex' : 'none'; it.classList.remove('active');
+          if (match) shown.push(it);
+        });
+        if (shown.length) shown[0].classList.add('active');
+        return shown.length;
+      }
+      function insert(name) {
+        if (/@\w*$/.test(inp.value)) inp.value = inp.value.replace(/@\w*$/, '@' + name + ' ');
+        else inp.value += (inp.value && !/\s$/.test(inp.value) ? ' ' : '') + '@' + name + ' ';
+        close(); inp.focus();
+      }
+      inp.addEventListener('input', function () {
+        var m = inp.value.match(/(?:^|\s)@(\w*)$/);
+        if (m) { (filter(m[1]) ? open() : close()); } else close();
+      });
+      inp.addEventListener('keydown', function (e) {
+        if (!isOpen()) return;
+        var vis = items.filter(function (i) { return i.style.display !== 'none'; }),
+            cur = vis.findIndex(function (i) { return i.classList.contains('active'); });
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault(); if (cur >= 0) vis[cur].classList.remove('active');
+          var nx = e.key === 'ArrowDown' ? (cur + 1) % vis.length : (cur <= 0 ? vis.length - 1 : cur - 1);
+          vis[nx].classList.add('active');
+        } else if ((e.key === 'Enter' || e.key === 'Tab') && cur >= 0) { e.preventDefault(); insert(vis[cur].dataset.name); }
+        else if (e.key === 'Escape') { close(); }
+      });
+      pop.addEventListener('click', function (e) { var it = e.target.closest('.mention-item'); if (it) insert(it.dataset.name); });
+      if (atBtn) atBtn.addEventListener('click', function () {
+        if (isOpen()) { close(); return; }
+        if (!/@$/.test(inp.value)) inp.value += (inp.value && !/\s$/.test(inp.value) ? ' @' : '@');
+        filter(''); open(); inp.focus();
+      });
+      document.addEventListener('click', function (e) {
+        if (isOpen() && !pop.contains(e.target) && e.target !== inp && !(atBtn && atBtn.contains(e.target))) close();
+      });
+      if (location.hash === '#mention-open') { inp.value = 'Can you take this one @'; filter(''); open(); }
     })();
   </script>
 </body>

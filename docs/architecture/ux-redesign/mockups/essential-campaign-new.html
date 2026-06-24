@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — New campaign</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="tools-bar.js"></script>
+  <style>
+    /* Basecamp-style Essential calm shell — layout only, no colour/font overrides */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .ava { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* ── Faded Campaigns board behind the dim (subtle hint only) ──────────── */
+    .bc-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-6) var(--space-6) var(--space-16); }
+    .proj-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6); }
+    .proj-title { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; }
+    .proj-sub { font-size: var(--text-sm); color: var(--fg-muted); }
+    .hint-board { display: flex; gap: var(--space-4); align-items: flex-start; overflow: hidden; }
+    .hint-col { flex: 0 0 248px; display: flex; flex-direction: column; gap: var(--space-3); }
+    .hint-col-head { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); padding: var(--space-1); }
+    .hint-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); box-shadow: var(--shadow-sm); }
+    .hint-card-name { font-size: var(--text-md); font-weight: var(--fw-semibold); color: var(--fg); }
+    .hint-card-meta { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: var(--space-2); }
+
+    /* ── The New-campaign DIALOG (reuses .sb-overlay dim + .wiz frame) ─────── */
+    .wiz { width: 580px; max-width: 100%; margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); overflow: hidden; max-height: 92vh; display: flex; flex-direction: column; }
+    .wiz-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) var(--space-6) var(--space-4); border-bottom: 1px solid var(--border); }
+    .wiz-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); flex: 1 1 auto; }
+    .wiz-x { width: 30px; height: 30px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font-size: 17px; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+    .wiz-x:hover { background: var(--surface-2); color: var(--fg); }
+    .wiz-body { padding: var(--space-5) var(--space-6); overflow-y: auto; }
+    .wiz-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); }
+
+    /* ── ✦ Atlas assist offer (accent-soft, NOT the primary action) ────────── */
+    .atlas-offer { border: 1px solid var(--accent-border); background: var(--accent-soft); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-5); }
+    .atlas-offer-cap { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--fg); margin-bottom: var(--space-3); }
+    .atlas-offer-cap .spark { color: var(--accent); flex: none; }
+    .atlas-row { display: flex; align-items: center; gap: var(--space-2); }
+    .atlas-row .input { flex: 1 1 auto; min-width: 0; background: var(--surface); }
+    .atlas-row .btn { flex: none; }
+
+    /* Atlas inline proposal — reuses .ai-card markup from essential-discovery.html */
+    .ai-card { border: 1px solid var(--accent-border); border-radius: var(--radius-md); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); background: var(--surface); margin-top: var(--space-3); }
+    .ai-card-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+    .ai-quote { font-size: var(--text-md); font-weight: var(--fw-medium); color: var(--fg); line-height: var(--lh-snug); }
+    .ai-spec { font-size: var(--text-sm); color: var(--fg-muted); line-height: var(--lh-relaxed); }
+    .ai-spec strong { color: var(--fg); font-weight: var(--fw-semibold); }
+    .ai-stages { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: 2px; }
+
+    /* Manual fields */
+    .field + .field { margin-top: var(--space-4); }
+    .field-block { margin-top: var(--space-5); }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-top: var(--space-4); }
+    .help { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: var(--space-2); }
+    .help a { color: var(--accent); text-decoration: none; }
+
+    /* Channel multi-select chips */
+    .chip-grid { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+    .chan-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); cursor: pointer; }
+    .chan-chip[aria-checked="true"] { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: var(--fw-medium); }
+    .chan-chip .g { font-size: var(--text-sm); }
+
+    /* Owner avatar picker */
+    .own-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+    .own-pick { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--surface); cursor: pointer; font-size: var(--text-sm); color: var(--fg); }
+    .own-pick[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+    @media (max-width: 640px) {
+      .topnav { display: none; }
+      .field-row { grid-template-columns: 1fr; }
+      .atlas-row { flex-direction: column; align-items: stretch; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ════════ Faded Campaigns board behind the dim (subtle hint) ════════ -->
+  <div class="bc" aria-hidden="true">
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages</a>
+        <a href="mention-inbox.html">Activity</a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <span class="ava" style="background:var(--chart-2)">AG</span>
+    </header>
+
+    <div class="bc-wrap">
+      <div class="proj-head">
+        <span class="proj-title">Q3 Launch Campaign</span>
+        <span class="proj-sub">· Campaigns · Plan → Measure</span>
+      </div>
+      <div class="hint-board">
+        <div class="hint-col">
+          <div class="hint-col-head">Plan</div>
+          <div class="hint-card"><div class="hint-card-name">Influencer seeding</div><div class="hint-card-meta">Maria · due Jul 8</div></div>
+        </div>
+        <div class="hint-col">
+          <div class="hint-col-head">Create</div>
+          <div class="hint-card"><div class="hint-card-name">Launch teaser reel</div><div class="hint-card-meta">Dan · in progress</div></div>
+        </div>
+        <div class="hint-col">
+          <div class="hint-col-head">Approve</div>
+          <div class="hint-card"><div class="hint-card-name">Paid search copy</div><div class="hint-card-meta">✦ Atlas drafted · needs you</div></div>
+        </div>
+        <div class="hint-col">
+          <div class="hint-col-head">Publish</div>
+          <div class="hint-card"><div class="hint-card-name">Welcome email</div><div class="hint-card-meta">Maria · scheduled</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ New-campaign DIALOG (open over the dimmed page) ════════ -->
+  <div class="sb-overlay open" role="dialog" aria-modal="true" aria-labelledby="newCampTitle">
+    <div class="wiz">
+
+      <div class="wiz-head">
+        <span class="wiz-title" id="newCampTitle">New campaign</span>
+        <a class="wiz-x" href="essential-mkt-campaigns.html" aria-label="Close">✕</a>
+      </div>
+
+      <div class="wiz-body">
+
+        <!-- ✦ Atlas assist (an offer, accent-soft, NOT the primary action) -->
+        <div class="atlas-offer">
+          <div class="atlas-offer-cap"><span class="spark" aria-hidden="true">✦</span> Atlas can draft a campaign brief from a sentence — you review.</div>
+          <div class="atlas-row">
+            <input class="input" type="text" value="email push to drive launch-day signups" placeholder="Describe the campaign in a sentence…" aria-label="Describe the campaign in a sentence">
+            <button class="btn btn-ghost" type="button" style="color:var(--accent)"><span aria-hidden="true">✦</span> Draft a brief with Atlas</button>
+          </div>
+
+          <!-- Atlas inline proposal (reuses .ai-card markup) -->
+          <div class="ai-card" aria-label="Atlas draft">
+            <div class="ai-card-row">
+              <span class="sb-badge sb-badge--accent"><span aria-hidden="true">✦</span> Atlas</span>
+              <span class="u-subtle" style="font-size:var(--text-xs)">drafted — you review</span>
+            </div>
+            <p class="ai-quote">“June Launch email push”</p>
+            <p class="ai-spec"><strong>Objective:</strong> drive 500 launch-day signups via a 4-email warm-up sequence to the existing list, reinforced by a paid social retargeting layer.</p>
+            <p class="ai-spec"><strong>Suggested channels:</strong> email · social · paid</p>
+            <p class="ai-stages">Runs through the 5 stages: Plan · Create · Approve · Publish · Measure.</p>
+            <div class="ai-card-row">
+              <button class="btn btn-primary btn-sm" type="button">Use this</button>
+              <button class="btn btn-ghost btn-sm" type="button">Tweak</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Campaign name -->
+        <div class="field">
+          <label class="label" for="c-name">Campaign name</label>
+          <input class="input" id="c-name" type="text" value="June Launch email push" aria-label="Campaign name">
+        </div>
+
+        <!-- Channels — multi-select chips -->
+        <div class="field-block">
+          <div class="label" style="margin-bottom:var(--space-2)">Channels</div>
+          <div class="chip-grid" role="group" aria-label="Channels">
+            <span class="chan-chip" role="checkbox" aria-checked="true"><span class="g" aria-hidden="true">✉</span> email</span>
+            <span class="chan-chip" role="checkbox" aria-checked="false"><span class="g" aria-hidden="true">◷</span> social</span>
+            <span class="chan-chip" role="checkbox" aria-checked="false"><span class="g" aria-hidden="true">◎</span> paid</span>
+            <span class="chan-chip" role="checkbox" aria-checked="false"><span class="g" aria-hidden="true">▤</span> blog</span>
+          </div>
+        </div>
+
+        <!-- Goal / success -->
+        <div class="field-block">
+          <label class="label" for="c-goal">Goal — what success looks like</label>
+          <input class="input" id="c-goal" type="text" value="500 signups by launch day" aria-label="Goal — what success looks like">
+          <p class="help">Ties to a measurable target. <a href="essential-goal-create.html"><span aria-hidden="true">🎯</span> Link a goal →</a></p>
+        </div>
+
+        <!-- Owner — avatar picker -->
+        <div class="field-block">
+          <div class="label" style="margin-bottom:var(--space-2)">Owner</div>
+          <div class="own-row" role="radiogroup" aria-label="Owner">
+            <span class="own-pick" role="radio" aria-checked="true">
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span> You
+            </span>
+            <span class="own-pick" role="radio" aria-checked="false">
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span> Maria
+            </span>
+            <span class="own-pick" role="radio" aria-checked="false">
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">D</span> Dan
+            </span>
+            <span class="own-pick" role="radio" aria-checked="false">
+              <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-1)" aria-hidden="true">A</span> <span aria-hidden="true" style="color:var(--accent)">✦</span> Atlas
+            </span>
+          </div>
+        </div>
+
+        <!-- Launch date · Stage (side by side) -->
+        <div class="field-row">
+          <div class="field" style="margin-top:0">
+            <label class="label" for="c-date">Launch date</label>
+            <input class="input" id="c-date" type="date" value="2026-06-30" aria-label="Launch date">
+          </div>
+          <div class="field" style="margin-top:0">
+            <label class="label" for="c-stage">Stage</label>
+            <select class="select" id="c-stage" aria-label="Stage">
+              <option selected>Plan</option>
+              <option>Create</option>
+              <option>Approve</option>
+              <option>Publish</option>
+              <option>Measure</option>
+            </select>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="wiz-foot">
+        <a class="btn btn-ghost" href="essential-mkt-campaigns.html">Cancel</a>
+        <a class="btn btn-primary" href="essential-mkt-campaigns.html">Create campaign</a>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // Calm chip / radio toggles — selection state only; the single primary
+    // button always lands on the Campaigns board. AI vs human stays glyph-coded.
+    (function () {
+      document.querySelectorAll('.chan-chip[role="checkbox"]').forEach(function (chip) {
+        chip.addEventListener('click', function () {
+          chip.setAttribute('aria-checked', chip.getAttribute('aria-checked') === 'true' ? 'false' : 'true');
+        });
+      });
+      var owners = document.querySelectorAll('.own-pick[role="radio"]');
+      owners.forEach(function (o) {
+        o.addEventListener('click', function () {
+          owners.forEach(function (x) { x.setAttribute('aria-checked', x === o ? 'true' : 'false'); });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

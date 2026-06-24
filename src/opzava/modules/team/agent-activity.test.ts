@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import Database from 'better-sqlite3'
-import { createArtifactRepository } from '../content/artifacts/artifact-repository'
+import { createArtifactRepository } from '@/opzava/modules/content'
 import { summarizeAgentActivity, stepToArtifactType } from './agent-activity'
 import { DEFAULT_AGENT_ROLES } from './agent-role'
 

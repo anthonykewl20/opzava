@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — New idea</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="tools-bar.js"></script>
+  <style>
+    /* Basecamp-style Essential calm shell — layout only, no colour/font overrides */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .ava { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* ── Faded Discovery board behind the dim (subtle hint only) ──────────── */
+    .bc-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-6) var(--space-6) var(--space-16); }
+    .disc-head { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-5) 0 var(--space-6); }
+    .disc-title { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; }
+    .disc-sub { font-size: var(--text-sm); color: var(--fg-muted); }
+    .ct-board { display: flex; gap: var(--space-4); align-items: flex-start; overflow-x: hidden; }
+    .ct-col { flex: 0 0 264px; display: flex; flex-direction: column; gap: var(--space-3); }
+    .ct-col-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-1); }
+    .ct-col-label { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+    .ct-col-count { font-size: var(--text-xs); font-weight: var(--fw-medium); color: var(--fg-subtle); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 1px 8px; }
+    .idea { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); box-shadow: var(--shadow-sm); }
+    .idea-tag { align-self: flex-start; font-size: var(--text-xs); color: var(--fg-subtle); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 1px 9px; }
+    .idea-text { font-size: var(--text-md); font-weight: var(--fw-medium); color: var(--fg); line-height: var(--lh-snug); }
+
+    /* ── New-idea DIALOG (reuses .sb-overlay dim + .wiz frame) ────────────── */
+    .wiz { width: 560px; max-width: 100%; margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); overflow: hidden; max-height: 92vh; display: flex; flex-direction: column; }
+    .wiz-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) var(--space-6) var(--space-4); border-bottom: 1px solid var(--border); }
+    .wiz-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); flex: 1 1 auto; }
+    .wiz-x { width: 30px; height: 30px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font-size: 17px; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+    .wiz-x:hover { background: var(--surface-2); color: var(--fg); }
+    .wiz-body { padding: var(--space-5) var(--space-6); overflow-y: auto; }
+    .wiz-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); }
+
+    /* Form fields */
+    .field + .field { margin-top: var(--space-5); }
+    .label { display: block; font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg); margin-bottom: var(--space-2); }
+
+    /* HERO: the sticky-note idea textarea is the content */
+    .idea-hero { min-height: 96px; font-size: var(--text-md); line-height: var(--lh-relaxed); }
+
+    /* Suggested affinity #tag chips */
+    .tag-suggest { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+    .tag-chip { display: inline-flex; align-items: center; padding: 3px var(--space-3); font: inherit; font-size: var(--text-sm); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); cursor: pointer; }
+    .tag-chip:hover { color: var(--fg); border-color: var(--border-strong); }
+    .tag-chip[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: var(--fw-medium); }
+
+    /* ✦ Atlas offer — reuses .ai-card markup from essential-discovery.html */
+    .ai-card { border: 1px solid var(--accent-border); border-radius: var(--radius-md); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); background: var(--accent-soft); }
+    .ai-card-row { display: flex; align-items: center; gap: var(--space-2); }
+    .ai-offer { font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-snug); }
+    .ai-exp { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
+    .ai-exp-text { flex: 1 1 auto; min-width: 0; font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-snug); }
+    .ai-exp-text .g { color: var(--accent); margin-right: 5px; }
+
+    /* Quiet "ideas are for thinking" note */
+    .quiet-note { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--fg-muted); }
+    .quiet-note .g { flex: none; }
+
+    @media (max-width: 640px) {
+      .topnav { display: none; }
+      .ct-board { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ════════ Faded Discovery board behind the dim (subtle hint) ════════ -->
+  <div class="bc" aria-hidden="true">
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages</a>
+        <a href="mention-inbox.html">Activity</a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <span class="ava" style="background:var(--chart-2)">AG</span>
+    </header>
+
+    <div class="bc-wrap">
+      <div class="disc-head">
+        <span class="disc-title">💡 Discovery</span>
+        <span class="disc-sub">· Q2 Content Push</span>
+      </div>
+      <div class="ct-board">
+        <div class="ct-col">
+          <div class="ct-col-head"><span class="ct-col-label">New</span><span class="ct-col-count">2</span></div>
+          <div class="idea"><span class="idea-tag">#format</span><span class="idea-text">Add a “founder voice” memo to the newsletter</span></div>
+          <div class="idea"><span class="idea-tag">#engagement</span><span class="idea-text">A monthly reader poll on next month’s theme</span></div>
+        </div>
+        <div class="ct-col">
+          <div class="ct-col-head"><span class="ct-col-label">Exploring</span><span class="ct-col-count">2</span></div>
+          <div class="idea"><span class="idea-tag">#format</span><span class="idea-text">Weekly founder AMA series</span></div>
+          <div class="idea"><span class="idea-tag">#partnerships</span><span class="idea-text">Partner spotlight swap with a complementary brand</span></div>
+        </div>
+        <div class="ct-col">
+          <div class="ct-col-head"><span class="ct-col-label">Decided</span><span class="ct-col-count">1</span></div>
+          <div class="idea"><span class="idea-tag">#growth</span><span class="idea-text">Launch a referral program</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ New-idea DIALOG (open over the dimmed page) ════════ -->
+  <div class="sb-overlay open" role="dialog" aria-modal="true" aria-labelledby="newIdeaTitle">
+    <div class="wiz">
+
+      <div class="wiz-head">
+        <span class="wiz-title" id="newIdeaTitle">New idea</span>
+        <a class="wiz-x" href="essential-discovery.html" aria-label="Close">✕</a>
+      </div>
+
+      <div class="wiz-body">
+
+        <!-- HERO: the sticky-note idea -->
+        <div class="field">
+          <label class="label" for="idea-text">What's the idea?</label>
+          <textarea class="textarea idea-hero" id="idea-text" placeholder="What's the idea? Write it like a sticky note.">A referral program — let happy users invite friends for a perk.</textarea>
+        </div>
+
+        <!-- Affinity #tag + suggested chips -->
+        <div class="field">
+          <label class="label" for="idea-tag">Tag <span class="u-subtle" style="font-weight:var(--fw-regular)">— groups related ideas</span></label>
+          <input class="input" id="idea-tag" type="text" value="growth" aria-label="Tag">
+          <div class="tag-suggest" aria-label="Suggested tags">
+            <button class="tag-chip" type="button" aria-pressed="true">growth</button>
+            <button class="tag-chip" type="button" aria-pressed="false">onboarding</button>
+            <button class="tag-chip" type="button" aria-pressed="false">retention</button>
+          </div>
+        </div>
+
+        <!-- Column / status -->
+        <div class="field">
+          <label class="label" for="idea-col">Add to</label>
+          <select class="select" id="idea-col" aria-label="Add to column">
+            <option selected>New</option>
+            <option>Exploring</option>
+            <option>Decided</option>
+            <option>Parked</option>
+          </select>
+        </div>
+
+        <!-- ✦ Atlas offer (an offer, not the primary action) -->
+        <div class="field">
+          <div class="ai-card" aria-label="Atlas offer">
+            <div class="ai-card-row">
+              <span class="sb-badge sb-badge--accent"><span aria-hidden="true">✦</span> Atlas</span>
+              <span class="u-subtle" style="font-size:var(--text-xs)">drafted — you choose</span>
+            </div>
+            <p class="ai-offer">Atlas can expand this, find similar ideas, or suggest research. Add any you like:</p>
+
+            <div class="ai-exp">
+              <span class="ai-exp-text"><span class="g" aria-hidden="true">✦</span> Tiered perks — bigger reward as a friend stays active past 30 days.</span>
+              <button class="btn btn-ghost btn-sm" type="button">Add</button>
+              <button class="btn btn-ghost btn-sm" type="button" aria-label="Dismiss">Dismiss</button>
+            </div>
+            <div class="ai-exp">
+              <span class="ai-exp-text"><span class="g" aria-hidden="true">✦</span> Similar idea on the board: “Partner spotlight swap” under <strong>#partnerships</strong>.</span>
+              <button class="btn btn-ghost btn-sm" type="button">Add</button>
+              <button class="btn btn-ghost btn-sm" type="button" aria-label="Dismiss">Dismiss</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="wiz-foot">
+        <a class="btn btn-ghost" href="essential-discovery.html">Cancel</a>
+        <span class="quiet-note"><span class="g" aria-hidden="true">💡</span> Ideas are for thinking — no owners or due dates here.</span>
+        <a class="btn btn-primary" href="essential-discovery.html"><span aria-hidden="true">＋</span> Add idea</a>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // Suggested-tag chips: tap a chip to fill the #tag field (single affinity tag).
+    (function () {
+      var tagInput = document.getElementById('idea-tag');
+      document.querySelectorAll('.tag-chip').forEach(function (chip) {
+        chip.addEventListener('click', function () {
+          document.querySelectorAll('.tag-chip').forEach(function (c) {
+            c.setAttribute('aria-pressed', c === chip ? 'true' : 'false');
+          });
+          tagInput.value = chip.textContent.trim();
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

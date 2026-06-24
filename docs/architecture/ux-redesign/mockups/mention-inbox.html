@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
   <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
   <style>
     /* ── Essential calm layout. Layout geometry only — no colour or size tokens overridden. ── */
     .bc { min-height: 100vh; font-size: var(--text-base); }
@@ -111,11 +113,11 @@
         <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
         <a href="mention-inbox.html" class="active" aria-current="page">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
         <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
-        <a href="#">Find…</a>
+        <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-      <button class="btn btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></button>
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></a>
       <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
 
@@ -276,7 +278,7 @@
                 <!-- time + action -->
                 <div class="inbox-meta">
                   <span class="inbox-time u-mono">1h</span>
-                  <a href="#" class="btn btn-sm btn-ghost" type="button">Open</a>
+                  <a href="essential-team-room.html" class="btn btn-sm btn-ghost">Open</a>
                 </div>
               </div>
 
@@ -305,7 +307,7 @@
                 </div>
                 <div class="inbox-meta">
                   <span class="inbox-time u-mono">3h</span>
-                  <a href="#" class="btn btn-sm btn-ghost" type="button">Open</a>
+                  <a href="essential-team-room.html" class="btn btn-sm btn-ghost">Open</a>
                 </div>
               </div>
 
@@ -327,7 +329,7 @@
                 </div>
                 <div class="inbox-meta">
                   <span class="inbox-time u-mono">5h</span>
-                  <a href="#" class="btn btn-sm btn-ghost" type="button">Review</a>
+                  <a href="essential-card.html" class="btn btn-sm btn-ghost">Review</a>
                 </div>
               </div>
 

@@ -5,6 +5,8 @@ export {
   type CreateSocialArtifactInput,
 } from './artifacts/social-artifact'
 
+export { SOCIAL_STEP_IDS } from './workflow/social-steps'
+
 export {
   createSocialPostDraftStepService,
   createMockSocialPostDraftProvider,
