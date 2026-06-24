@@ -1458,6 +1458,23 @@ const migrations: Migration[] = [
         db.exec(`ALTER TABLE tasks ADD COLUMN blockers TEXT DEFAULT NULL`)
       }
     }
+  },
+  {
+    id: '053_realtime_events',
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS realtime_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          type TEXT NOT NULL,
+          data TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          workspace_id INTEGER DEFAULT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_realtime_events_id ON realtime_events(id);
+        CREATE INDEX IF NOT EXISTS idx_realtime_events_workspace_id ON realtime_events(workspace_id, id);
+        CREATE INDEX IF NOT EXISTS idx_realtime_events_timestamp ON realtime_events(timestamp);
+      `)
+    }
   }
 ]
 
