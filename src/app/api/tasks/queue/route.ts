@@ -114,9 +114,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Atomic claim: single UPDATE with subquery to eliminate SELECT-UPDATE race condition.
+    // A5: stamps claimed_at so the lease can reclaim a task abandoned by a crashed agent.
     const claimed = db.prepare(`
       UPDATE tasks
-      SET status = 'in_progress', assigned_to = ?, updated_at = ?
+      SET status = 'in_progress', assigned_to = ?, updated_at = ?, claimed_at = ?
       WHERE id = (
         SELECT id FROM tasks
         WHERE workspace_id = ?
@@ -126,7 +127,7 @@ export async function GET(request: NextRequest) {
         LIMIT 1
       )
       RETURNING *
-    `).get(agent, now, workspaceId, agent) as any | undefined
+    `).get(agent, now, now, workspaceId, agent) as any | undefined
 
     if (claimed) {
       return NextResponse.json({

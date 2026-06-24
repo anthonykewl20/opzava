@@ -1010,8 +1010,8 @@ export async function runAegisReviews(deps: TaskDispatchDeps): Promise<{ ok: boo
     // two concurrent runAegisReviews passes can't both process the same task
     // (exactly one UPDATE reports changes=1; the loser skips). Mirrors the
     // dispatchAssignedTasks claim guard (PR #698).
-    const claim = db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ? AND status = ?')
-      .run('quality_review', deps.clock.now(), task.id, 'review')
+    const claim = db.prepare('UPDATE tasks SET status = ?, updated_at = ?, claimed_at = ? WHERE id = ? AND status = ?')
+      .run('quality_review', deps.clock.now(), deps.clock.now(), task.id, 'review')
     if (claim.changes === 0) continue
 
     deps.broadcast('task.status_changed', {
@@ -1171,6 +1171,36 @@ export async function requeueStaleTasks(deps: TaskDispatchDeps): Promise<{ ok: b
   const now = deps.clock.now()
   const staleThreshold = now - 10 * 60 // 10 minutes
   const maxDispatchRetries = 5
+  let requeued = 0
+  let failed = 0
+
+  // A5: reclaim quality_review tasks stranded past the lease (a crashed/hung Aegis
+  // model call left them in quality_review, which is invisible to every other worker —
+  // runAegisReviews selects 'review' and the in_progress loop below selects
+  // 'in_progress', so without this a stranded task is stuck forever). Flip back to
+  // 'review' so Aegis re-evaluates it. Uses claimed_at when armed (A5), else updated_at.
+  // Run FIRST so the in_progress early-return below cannot skip it.
+  const strandedReviews = db
+    .prepare(
+      `SELECT id FROM tasks WHERE status = 'quality_review' AND COALESCE(claimed_at, updated_at) < ?`,
+    )
+    .all(staleThreshold) as Array<{ id: number }>
+  for (const s of strandedReviews) {
+    const reclaimed = db
+      .prepare(
+        "UPDATE tasks SET status = 'review', claimed_at = NULL, updated_at = ? WHERE id = ? AND status = 'quality_review'",
+      )
+      .run(now, s.id)
+    if (reclaimed.changes > 0) {
+      deps.broadcast('task.status_changed', {
+        id: s.id,
+        status: 'review',
+        previous_status: 'quality_review',
+        reason: 'quality_review_lease_expired',
+      })
+      requeued++
+    }
+  }
 
   const staleTasks = db.prepare(`
     SELECT t.id, t.title, t.assigned_to, t.dispatch_attempts, t.workspace_id,
@@ -1185,11 +1215,9 @@ export async function requeueStaleTasks(deps: TaskDispatchDeps): Promise<{ ok: b
   }>
 
   if (staleTasks.length === 0) {
+    if (requeued > 0) return { ok: true, message: `Reclaimed ${requeued} stranded quality_review task(s)` }
     return { ok: true, message: 'No stale tasks found' }
   }
-
-  let requeued = 0
-  let failed = 0
 
   // When MC runs in direct-API mode (no gateway), the agent has no heartbeat
   // and stays "offline" by design — but tasks still get dispatched via the
@@ -1294,8 +1322,8 @@ export async function dispatchAssignedTasks(deps: TaskDispatchDeps): Promise<{ o
     // multiple workers polling), exactly one UPDATE reports changes=1 and the
     // loser skips this task — preventing double-dispatch (issue/PR #698).
     const claim = db
-      .prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ? AND status = 'assigned'")
-      .run('in_progress', now, task.id)
+      .prepare("UPDATE tasks SET status = ?, updated_at = ?, claimed_at = ? WHERE id = ? AND status = 'assigned'")
+      .run('in_progress', now, now, task.id)
 
     if (claim.changes === 0) {
       // Another dispatcher won the race (or the task was cancelled between

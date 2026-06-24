@@ -61,14 +61,18 @@ vi.mock('../db', () => ({
       if (sql.includes('FROM gateways') && sql.includes('COUNT(*)')) {
         return { get: () => ({ c: 1 }) }
       }
-      // Matches both the plain status update and the atomic claim variant
-      // (UPDATE ... WHERE id = ? AND status = 'assigned') introduced in #698.
+      // Matches the plain status update and the atomic claim variants
+      // (UPDATE ... WHERE id = ? AND status = 'assigned', introduced in #698; the
+      // claimed_at-armed claim from A5). id is always the last bound parameter.
       if (
         sql === 'UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?' ||
-        sql === "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ? AND status = 'assigned'"
+        sql === "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ? AND status = 'assigned'" ||
+        sql === "UPDATE tasks SET status = ?, updated_at = ?, claimed_at = ? WHERE id = ? AND status = 'assigned'"
       ) {
         return {
-          run: (status: string, _updatedAt: number, taskId: number) => {
+          run: (...args: any[]) => {
+            const status = args[0]
+            const taskId = args[args.length - 1]
             mockDbState.statusUpdates.push({ status, taskId })
             return { changes: 1 }
           },
