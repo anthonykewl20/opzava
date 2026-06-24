@@ -73,6 +73,28 @@ function importsTeamModule(source) {
   );
 }
 
+// Any import/require of the opzava namespace from Engine A — alias (@/opzava/)
+// or a relative climb into an opzava/ segment, in static `from`, dynamic
+// import(), or require() form. ARD 0007 keeps the engines separate; only the
+// sanctioned read/registration/maintenance seams below may cross A->B.
+function importsOpzava(source) {
+  const alias = /(?:from\s+|import\(\s*|require\(\s*)['"][^'"]*@\/opzava\//;
+  const relative = /(?:from\s+|import\(\s*|require\(\s*)['"][^'"]*(?:\.\.\/)+opzava\//;
+  return alias.test(source) || relative.test(source);
+}
+
+// The explicit, reviewed set of src/lib files permitted to import @/opzava.
+// Each is a sanctioned Engine-A->Engine-B seam (read-only or coexistence):
+//   - status-actions.ts: health-action provider-readiness (content resolvers + env secret resolver)
+//   - logger.ts: log shipping into opzava observability
+//   - db.ts: opzava runner migration registration + maintenance-boot bridge (ARD 0007 coexistence)
+// Adding a new crossing requires a deliberate entry here so the boundary stays machine-checkable.
+const SANCTIONED_LIB_OPZAVA_IMPORTERS = new Set([
+  'src/lib/status-actions.ts',
+  'src/lib/logger.ts',
+  'src/lib/db.ts',
+]);
+
 // SQL references to the inherited `agents` table. The word "agents" appears widely in
 // prose, identifiers, and other table names (e.g. `opzava_agent_roles`), so we only flag
 // it when it sits in a SQL clause position immediately after FROM / INTO / UPDATE / JOIN
@@ -131,6 +153,7 @@ test('inherited engine (Engine A, src/lib) does not reach into the opzava team m
 
   const teamImportViolations = [];
   const opzavaRolesViolations = [];
+  const unsanctionedOpzavaImports = [];
 
   for (const file of files) {
     const source = await readFile(file, 'utf8');
@@ -141,6 +164,10 @@ test('inherited engine (Engine A, src/lib) does not reach into the opzava team m
     }
     if (referencesOpzavaAgentRolesTable(source)) {
       opzavaRolesViolations.push(rel);
+    }
+    // Any src/lib -> @/opzava crossing must be an explicitly sanctioned seam.
+    if (importsOpzava(source) && !SANCTIONED_LIB_OPZAVA_IMPORTERS.has(rel)) {
+      unsanctionedOpzavaImports.push(rel);
     }
   }
 
@@ -153,6 +180,11 @@ test('inherited engine (Engine A, src/lib) does not reach into the opzava team m
     opzavaRolesViolations,
     [],
     `src/lib must not reference the \`opzava_agent_roles\` table (it belongs to Engine B); offenders: ${opzavaRolesViolations.join(', ')}`,
+  );
+  assert.deepEqual(
+    unsanctionedOpzavaImports,
+    [],
+    `src/lib may import @/opzava only via the sanctioned seams (SANCTIONED_LIB_OPZAVA_IMPORTERS = status-actions, logger, db); unsanctioned offenders: ${unsanctionedOpzavaImports.join(', ')}`,
   );
 });
 
