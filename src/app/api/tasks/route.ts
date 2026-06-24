@@ -208,7 +208,8 @@ async function handlePost(request: NextRequest) {
       retry_count = 0,
       completed_at,
       tags = [],
-      metadata = {}
+      metadata = {},
+      client_request_id
     } = body;
 
     // Auto-route unassigned tasks to the configured coordinator agent, if any
@@ -232,6 +233,25 @@ async function handlePost(request: NextRequest) {
 
     const resolvedCompletedAt = completed_at ?? (normalizedStatus === 'done' ? now : null)
 
+    // A2 idempotency: if a client_request_id is supplied, short-circuit a duplicate POST
+    // to the first committed task (partial unique index idx_tasks_client_request_id).
+    const fetchTaskRow = (id: number) => db.prepare(`
+      SELECT t.*, p.name as project_name, p.ticket_prefix as project_prefix
+      FROM tasks t
+      LEFT JOIN projects p
+        ON p.id = t.project_id AND p.workspace_id = t.workspace_id
+      WHERE t.id = ? AND t.workspace_id = ?
+    `).get(id, workspaceId) as Task
+    const respondIdempotent = (id: number) =>
+      NextResponse.json({ task: mapTaskRow(fetchTaskRow(id)), idempotent: true }, { status: 201 })
+
+    if (client_request_id) {
+      const existing = db.prepare(`
+        SELECT id FROM tasks WHERE workspace_id = ? AND client_request_id = ?
+      `).get(workspaceId, client_request_id) as { id: number } | undefined
+      if (existing) return respondIdempotent(existing.id)
+    }
+
     const createTaskTx = db.transaction(() => {
       db.prepare(`
         UPDATE projects
@@ -249,8 +269,8 @@ async function handlePost(request: NextRequest) {
           title, description, status, priority, project_id, project_ticket_no, assigned_to, created_by,
           created_at, updated_at, due_date, estimated_hours, actual_hours,
           outcome, error_message, resolution, feedback_rating, feedback_notes, retry_count, completed_at,
-          tags, metadata, workspace_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          tags, metadata, workspace_id, client_request_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
 
       const dbResult = insertStmt.run(
@@ -276,13 +296,27 @@ async function handlePost(request: NextRequest) {
         resolvedCompletedAt,
         JSON.stringify(tags),
         JSON.stringify(metadata),
-        workspaceId
+        workspaceId,
+        client_request_id ?? null
       )
       return Number(dbResult.lastInsertRowid)
     })
 
-    const taskId = createTaskTx()
-    
+    let taskId: number
+    try {
+      taskId = createTaskTx()
+    } catch (err: any) {
+      // A2: concurrent duplicate — two POSTs with the same client_request_id raced past
+      // the pre-check SELECT; the partial unique index idx_tasks_client_request_id rejected
+      // ours. Resolve to the winner instead of returning a 500.
+      if (client_request_id && /UNIQUE/i.test(String(err?.message || ''))) {
+        const winner = db.prepare('SELECT id FROM tasks WHERE workspace_id = ? AND client_request_id = ?')
+          .get(workspaceId, client_request_id) as { id: number } | undefined
+        if (winner) return respondIdempotent(winner.id)
+      }
+      throw err
+    }
+
     // Log activity
     db_helpers.logActivity('task_created', 'task', taskId, actor, `Created task: ${title}`, {
       title,

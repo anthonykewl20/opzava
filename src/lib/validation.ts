@@ -78,6 +78,10 @@ export const createTaskSchema = z.object({
   completed_at: taskFields.completed_at.optional(),
   tags: taskFields.tags.default([] as string[]),
   metadata: taskFields.metadata.default({} as Record<string, unknown>),
+  // A2 idempotency: an optional client-supplied key; a retried POST with the same
+  // (workspace, client_request_id) short-circuits to the first committed task instead
+  // of creating a duplicate (mirrors the chat client_message_id precedent).
+  client_request_id: z.string().min(1).max(200).optional(),
 })
 
 // Every field optional, NO defaults — see comment above on `taskFields`.
