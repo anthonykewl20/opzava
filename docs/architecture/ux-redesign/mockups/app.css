@@ -194,4 +194,37 @@
   .presence-dot.is-online { background: var(--success); border-color: var(--success); }
   .presence-dot.is-away { background: var(--warning); border-color: var(--warning); }
   .presence-dot.is-offline { background: transparent; border-color: var(--fg-subtle); }
+
+  /* ── Measurable bar (promoted from the Performance page; shared by goals) ──── */
+  /* One accent for every bar — health is read from the number + status word +
+     trend glyph, NEVER from a bar hue. The fill is ALWAYS var(--accent). */
+  .perf-bar { display: flex; align-items: center; gap: var(--space-3); }
+  .perf-bar-track { flex: 1 1 120px; height: 6px; background: var(--surface-3); border-radius: var(--radius-full); overflow: hidden; min-width: 80px; }
+  .perf-bar-fill { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width 0.3s var(--ease-standard); }
+  .perf-pct { font-size: var(--text-sm); color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 3.5ch; }
+  .trend-up   { color: var(--fg); font-size: var(--text-base); font-weight: var(--fw-semibold); }
+  .trend-down { color: var(--fg-muted); font-size: var(--text-base); }
+
+  /* ── SMART Goal (doc 13) ───────────────────────────────────────────────────── */
+  /* The primary-goal banner pinned under the project header (the share-upfront
+     north star). A .card; only the ONE goal that needs you takes the accent edge. */
+  .proj-goal { display: block; margin-bottom: var(--space-6); }
+  .proj-goal--needs { border-left: 3px solid var(--accent); }
+  .goal-mrow { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+  .goal-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .goal-val .cur { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); }
+  .goal-val .tgt { font-size: var(--text-sm); color: var(--fg-muted); }
+  /* Goal-card footer disclosure (calm, the Discovery collapsed-footer pattern) */
+  .goal-more { font-size: var(--text-sm); color: var(--fg-muted); cursor: pointer; list-style: none; }
+  .goal-more::-webkit-details-marker { display: none; }
+
+  /* ── Add-a-card tile (doc 13 consensus) ────────────────────────────────────── */
+  /* The shared, always-visible dashed tile that is the FINAL child of every
+     project workspace's primary .tool-grid — opens the add-a-card picker. A quiet
+     ghost (no fill, dashed, --fg-muted) so it spends ZERO accent budget; the
+     header's solid "＋ New {item}" pill is a different altitude + form. align-self:
+     stretch matches sibling card height even under .tool-grid{align-items:start}.
+     Use as <a class="card tile--add" href="essential-add-card.html">. */
+  .tile--add { display: flex; align-items: center; justify-content: center; gap: var(--space-2); align-self: stretch; min-height: 118px; border: 1px dashed var(--border-strong); background: none; color: var(--fg-muted); font-weight: var(--fw-medium); text-decoration: none; transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard); }
+  .tile--add:hover { background: var(--surface-2); color: var(--fg); border-color: var(--fg-subtle); }
 }
