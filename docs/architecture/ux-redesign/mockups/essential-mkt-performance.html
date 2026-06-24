@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Performance · Q3 Launch Campaign</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <style>
+    /* ── Shell ─────────────────────────────────────────────────────────── */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); font-size: var(--text-sm); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+
+    .bc-wrap { max-width: 980px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+
+    /* ── Page header ──────────────────────────────────────────────────── */
+    .pg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-6); }
+    .pg-title { font-size: var(--text-xl); font-weight: var(--fw-semibold); color: var(--fg); line-height: var(--lh-tight); display: flex; align-items: center; gap: var(--space-2); }
+    .pg-sub { font-size: var(--text-sm); color: var(--fg-muted); margin-top: var(--space-1); max-width: 60ch; line-height: var(--lh-relaxed); }
+
+    /* ── Progress bar (thin, like ct-steps-bar) ───────────────────────── */
+    .perf-bar { display: flex; align-items: center; gap: var(--space-3); }
+    .perf-bar-track { flex: 1 1 120px; height: 6px; background: var(--surface-3); border-radius: var(--radius-full); overflow: hidden; min-width: 80px; max-width: 160px; }
+    /* One accent for every bar — health is read from the % + trend glyph + the
+       "needs attention" label, never from a bar hue (spec §4.5: a single thin bar). */
+    .perf-bar-fill { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width 0.3s var(--ease-standard); }
+    .perf-bar-fill.is-over { background: var(--accent); }
+    .perf-bar-fill.is-low { background: var(--accent); }
+    .perf-pct { font-size: var(--text-sm); color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 3.5ch; }
+
+    /* ── Trend glyph — direction carries the signal, not colour ───────── */
+    .trend-up   { color: var(--fg); font-size: var(--text-base); font-weight: var(--fw-semibold); }
+    .trend-down { color: var(--fg-muted); font-size: var(--text-base); }
+
+    /* ── Table overrides: tabular nums for number cols ───────────────── */
+    .table td.num, .table th.num { font-variant-numeric: tabular-nums; }
+    .table td { vertical-align: middle; }
+    .table th { white-space: nowrap; }
+
+    /* ── Campaign name link ───────────────────────────────────────────── */
+    .camp-link { color: var(--fg); text-decoration: none; font-weight: var(--fw-medium); }
+    .camp-link:hover { color: var(--accent); text-decoration: underline; }
+
+    /* ── Ended badge ──────────────────────────────────────────────────── */
+    .ended-label { font-size: var(--text-xs); color: var(--fg-subtle); margin-left: 6px; }
+
+    /* ── Attention line ───────────────────────────────────────────────── */
+    .attention-line { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-4); padding: var(--space-3) var(--space-4); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--fg-muted); }
+    .attention-glyph { font-size: var(--text-base); flex: none; }
+
+    /* ── Loading / empty async states ────────────────────────────────── */
+    .state-loading { display: none; }   /* toggle .state-loading { display: block } to show skeleton */
+    .state-empty   { display: none; }   /* toggle to show empty state */
+
+    /* ── Date filter control ──────────────────────────────────────────── */
+    .filter-row { display: flex; align-items: center; gap: var(--space-3); }
+
+    /* ── Mobile collapse ──────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      /* topnav collapses to a scrollable row; filter row stacks */
+      .topnav { gap: 0; overflow-x: auto; }
+      .topnav a { padding: 0 var(--space-2); font-size: var(--text-xs); }
+      .pg-head { flex-direction: column; }
+      .filter-row { flex-wrap: wrap; }
+      /* progress bar gets narrower on mobile */
+      .perf-bar-track { min-width: 56px; max-width: 100px; }
+      /* hide the trend column on very small screens — shown as text below if needed */
+      .col-trend { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="bc">
+
+  <!-- ── Canonical calm Essential topbar ──────────────────────────────── -->
+  <header class="topbar">
+    <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+      <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+      <strong style="font-size:var(--text-md)">Opzava</strong>
+    </a>
+    <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="#">Find…</a>
+      </nav>
+    <span class="u-grow"></span>
+    <button class="btn btn-primary" type="button"><span aria-hidden="true">＋</span> New project</button>
+    <button class="btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative">
+      <span aria-hidden="true">🔔</span>
+      <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span>
+    </button>
+    <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+  </header>
+
+  <div class="bc-wrap">
+
+    <!-- ── Breadcrumb ─────────────────────────────────────────────────── -->
+    <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+      <a href="essential-marketing.html">← Q3 Launch Campaign</a>
+      <span class="sep">›</span>
+      <span class="current">Performance</span>
+    </nav>
+
+    <!-- ── Page header ────────────────────────────────────────────────── -->
+    <div class="pg-head">
+      <div>
+        <div class="pg-title">
+          <span aria-hidden="true">📈</span> Performance
+        </div>
+        <p class="pg-sub">Goal vs. actual for live and recent campaigns. One number that matters each.</p>
+      </div>
+
+      <!-- Date-range filter -->
+      <div class="filter-row">
+        <div style="position:relative;display:inline-flex;align-items:center;">
+          <select class="select" id="date-range-filter" aria-label="Date range" style="padding-right:var(--space-6);appearance:none;cursor:pointer;font-size:var(--text-sm);">
+            <option selected>This quarter</option>
+            <option>Last quarter</option>
+            <option>Last 30 days</option>
+            <option>Last 90 days</option>
+            <option>All time</option>
+          </select>
+          <span aria-hidden="true" style="position:absolute;right:var(--space-3);pointer-events:none;color:var(--fg-muted);font-size:var(--text-xs);">▾</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Loading skeleton (hidden by default; toggle display:block to show) ── -->
+    <!-- async state: loading -->
+    <div class="state-loading" aria-live="polite" aria-label="Loading performance data">
+      <div class="skeleton" style="height:44px;border-radius:var(--radius-md);margin-bottom:var(--space-2);"></div>
+      <div class="skeleton" style="height:56px;border-radius:var(--radius-md);margin-bottom:var(--space-2);"></div>
+      <div class="skeleton" style="height:56px;border-radius:var(--radius-md);margin-bottom:var(--space-2);"></div>
+      <div class="skeleton" style="height:56px;border-radius:var(--radius-md);"></div>
+    </div>
+
+    <!-- ── Empty state (hidden by default; toggle display:block to show) ── -->
+    <!-- async state: empty — shown when no campaigns have tracked results yet -->
+    <div class="state-empty">
+      <div class="empty" style="padding:var(--space-16) 0;">
+        <div class="empty-icon" aria-hidden="true">📈</div>
+        <div class="empty-title">No results yet</div>
+        <div class="empty-desc">Campaign results will appear here once a campaign moves to the Publish or Measure stage.</div>
+        <a href="essential-mkt-campaigns.html" class="btn btn-ghost empty-cta">Go to Campaigns</a>
+      </div>
+    </div>
+
+    <!-- ── Main results table ─────────────────────────────────────────── -->
+    <div style="overflow-x:auto;">
+      <table class="table" aria-label="Campaign performance results">
+        <thead>
+          <tr>
+            <th style="min-width:200px;">Campaign</th>
+            <th>Goal</th>
+            <th class="num">Target</th>
+            <th class="num">Actual</th>
+            <th style="min-width:200px;">Progress</th>
+            <th class="col-trend" style="text-align:center;">Trend</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <!-- Row 1 — June Launch: Leads, 86%, trending up -->
+          <tr>
+            <td>
+              <a href="essential-card.html" class="camp-link">June Launch</a>
+              <span class="sb-badge" style="margin-left:var(--space-2)">Live</span>
+            </td>
+            <td style="color:var(--fg-muted);font-size:var(--text-sm);">Leads</td>
+            <td class="num">500</td>
+            <td class="num">430</td>
+            <td>
+              <div class="perf-bar" aria-label="86% of target">
+                <div class="perf-bar-track">
+                  <i class="perf-bar-fill" style="width:86%;" role="presentation"></i>
+                </div>
+                <span class="perf-pct">86%</span>
+              </div>
+            </td>
+            <td class="col-trend" style="text-align:center;" aria-label="Trending up">
+              <span class="trend-up" aria-hidden="true">↑</span>
+            </td>
+          </tr>
+
+          <!-- Row 2 — Webinar promo: Registrations, 104%, trending up (over target) -->
+          <tr>
+            <td>
+              <a href="essential-card.html" class="camp-link">Webinar promo</a>
+              <span class="sb-badge" style="margin-left:var(--space-2)">Live</span>
+            </td>
+            <td style="color:var(--fg-muted);font-size:var(--text-sm);">Registrations</td>
+            <td class="num">300</td>
+            <td class="num">312</td>
+            <td>
+              <div class="perf-bar" aria-label="104% of target">
+                <div class="perf-bar-track">
+                  <!-- capped at 100% visually; percent label shows true value -->
+                  <i class="perf-bar-fill is-over" style="width:100%;" role="presentation"></i>
+                </div>
+                <span class="perf-pct">104%</span>
+              </div>
+            </td>
+            <td class="col-trend" style="text-align:center;" aria-label="Trending up">
+              <span class="trend-up" aria-hidden="true">↑</span>
+            </td>
+          </tr>
+
+          <!-- Row 3 — Spring teaser (ended): Reach, 82%, trending down -->
+          <tr style="opacity:0.85;">
+            <td>
+              <span class="camp-link" style="color:var(--fg-muted);">Spring teaser</span>
+              <span class="ended-label">(ended)</span>
+            </td>
+            <td style="color:var(--fg-muted);font-size:var(--text-sm);">Reach</td>
+            <td class="num" style="color:var(--fg-muted);">50,000</td>
+            <td class="num" style="color:var(--fg-muted);">41,200</td>
+            <td>
+              <div class="perf-bar" aria-label="82% of target">
+                <div class="perf-bar-track">
+                  <i class="perf-bar-fill is-low" style="width:82%;" role="presentation"></i>
+                </div>
+                <span class="perf-pct">82%</span>
+              </div>
+            </td>
+            <td class="col-trend" style="text-align:center;" aria-label="Trending down">
+              <span class="trend-down" aria-hidden="true">↓</span>
+            </td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── Needs attention — a calm label, never a red alert wall ─────── -->
+    <div class="attention-line" role="status" aria-live="polite">
+      <span class="attention-glyph" aria-hidden="true">▸</span>
+      <span>
+        <strong>Needs attention:</strong>
+        Spring teaser reach 18% below target.
+        <a href="essential-card.html" style="color:var(--accent);text-decoration:none;margin-left:var(--space-2);">View campaign →</a>
+      </span>
+    </div>
+
+    <!-- ── Footer nav: back to other marketing tiles ──────────────────── -->
+    <nav style="display:flex;gap:var(--space-4);flex-wrap:wrap;margin-top:var(--space-10);padding-top:var(--space-6);border-top:1px solid var(--border);" aria-label="Marketing workspace tiles">
+      <a href="essential-mkt-campaigns.html"  style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">▣ Campaigns</a>
+      <a href="essential-mkt-calendar.html"   style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">📅 Calendar</a>
+      <a href="essential-mkt-approvals.html"  style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">✓◷ Approvals</a>
+      <a href="essential-mkt-assets.html"     style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">📎 Assets</a>
+      <span style="color:var(--accent);font-size:var(--text-sm);font-weight:var(--fw-medium);">📈 Performance</span>
+      <a href="project-assistant.html"        style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">✦ Ask your assistant</a>
+      <a href="essential-team-room.html"      style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">💬 Team</a>
+    </nav>
+
+  </div><!-- /.bc-wrap -->
+</div><!-- /.bc -->
+</body>
+</html>

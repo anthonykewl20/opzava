@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — ✓◷ Approvals · Q3 Launch Campaign</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <style>
+    /* ── Shell ─────────────────────────────────────────────────────────────── */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .bc-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+
+    /* ── Approvals list layout ─────────────────────────────────────────────── */
+    .apr-section { margin-bottom: var(--space-6); }
+    .apr-section-head {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      margin-bottom: 2px;
+      font-size: var(--text-sm);
+      font-weight: var(--fw-semibold);
+      color: var(--fg);
+      user-select: none;
+    }
+    .apr-section-count {
+      font-size: var(--text-xs);
+      font-weight: var(--fw-medium);
+      color: var(--fg-subtle);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-full);
+      padding: 1px 9px;
+    }
+    .apr-section-toggle {
+      margin-left: auto;
+      background: none;
+      border: none;
+      font: inherit;
+      color: var(--fg-subtle);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      font-size: var(--text-sm);
+      transition: background var(--dur-fast);
+    }
+    .apr-section-toggle:hover { background: var(--surface-3); color: var(--fg); }
+
+    /* Individual approval row — NOTE: div not <a> because it has inner links/buttons */
+    .apr-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      padding: var(--space-3) var(--space-4);
+      border: 1px solid var(--border);
+      border-top: none;
+      background: var(--surface);
+      transition: background var(--dur-fast);
+    }
+    .apr-row:first-of-type { border-top: 1px solid var(--border); }
+    .apr-row:last-of-type { border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+    .apr-row:hover { background: var(--surface-2); }
+
+    /* Sections that contain rows — connect visually below the head */
+    .apr-rows-wrap { border-radius: 0 0 var(--radius-lg) var(--radius-lg); overflow: hidden; }
+    /* First row in a section has no top border since the head covers it */
+    .apr-rows-wrap .apr-row:first-child { border-top: none; }
+
+    .apr-name {
+      flex: 1 1 220px;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .apr-name-link {
+      font-size: var(--text-base);
+      font-weight: var(--fw-medium);
+      color: var(--fg);
+      text-decoration: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .apr-name-link:hover { text-decoration: underline; color: var(--accent); }
+    .apr-ai-glyph { color: var(--accent); font-size: var(--text-sm); flex: none; }
+
+    .apr-version {
+      flex: none;
+      font-size: var(--text-xs);
+      font-weight: var(--fw-semibold);
+      color: var(--fg-subtle);
+      font-family: var(--font-mono);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 1px 6px;
+    }
+    .apr-campaign { flex: none; }
+    .apr-reviewer { flex: none; display: flex; align-items: center; gap: var(--space-2); }
+    .apr-age {
+      flex: none;
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .apr-note {
+      flex: 1 1 auto;
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      font-style: italic;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .apr-actions { flex: none; display: flex; align-items: center; gap: var(--space-2); }
+
+    /* Avatar helpers */
+    .ava-sm {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: var(--fw-semibold);
+      color: #fff;
+      flex: none;
+    }
+    .ava-sm--ai {
+      border-radius: var(--radius-sm);
+      position: relative;
+    }
+    .ava-sm--ai::after {
+      content: '✦';
+      position: absolute;
+      bottom: -3px;
+      right: -4px;
+      font-size: 8px;
+      color: var(--accent);
+      line-height: 1;
+      background: var(--surface);
+      border-radius: 2px;
+      padding: 0 1px;
+    }
+    .reviewer-label {
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+    }
+
+    /* Changes-requested row gets a subtle left accent — the one accent marks
+       "needs you", never a status hue (status is carried by the group label). */
+    .apr-row--changes {
+      border-left: 3px solid var(--accent);
+    }
+
+    /* Approved rows (collapsed) — slightly muted */
+    .apr-approved-group { display: none; }
+    .apr-approved-group.is-open { display: block; }
+    .apr-approved-group .apr-row { opacity: 0.78; }
+
+    /* Filter bar */
+    .apr-bar {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      margin-bottom: var(--space-6);
+    }
+
+    /* Empty state (async) */
+    .apr-empty { display: none; }
+
+    /* Loading skeleton (async — shown when relevant) */
+    .apr-loading { display: none; }
+
+    /* Page header */
+    .apr-page-head {
+      margin-bottom: var(--space-6);
+    }
+
+    /* Mobile collapse */
+    @media (max-width: 640px) {
+      /* Each row stacks: name fills width, meta wraps below, actions push to new line */
+      .apr-row {
+        flex-wrap: wrap;
+        gap: var(--space-3);
+      }
+      .apr-name { flex: 1 1 100%; }
+      .apr-version { order: 2; }
+      .apr-campaign { order: 3; }
+      .apr-reviewer { order: 4; }
+      .apr-age { order: 5; }
+      .apr-note { order: 6; flex: 1 1 100%; }
+      .apr-actions { order: 7; flex: 1 1 100%; justify-content: flex-end; }
+      /* Hide topnav on tiny screens */
+      .topnav { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bc">
+
+    <!-- ── Topbar ────────────────────────────────────────────────────────── -->
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="#">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <button class="btn btn-primary" type="button"><span aria-hidden="true">＋</span> New project</button>
+      <button class="btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative">
+        <span aria-hidden="true">🔔</span>
+        <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span>
+      </button>
+      <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-label="Anthony Garces">AG</span>
+    </header>
+
+    <main>
+      <div class="bc-wrap">
+
+        <!-- ── Breadcrumb ─────────────────────────────────────────────────── -->
+        <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-6)">
+          <a href="essential-marketing.html">← Q3 Launch Campaign</a>
+          <span class="sep">›</span>
+          <span class="current">Approvals</span>
+        </nav>
+
+        <!-- ── Page header ────────────────────────────────────────────────── -->
+        <div class="apr-page-head">
+          <div class="u-between" style="margin-bottom:var(--space-2)">
+            <h1 style="font-size:var(--text-xl);font-weight:var(--fw-semibold);display:flex;align-items:center;gap:var(--space-3)">
+              <span aria-hidden="true">✓◷</span> Approvals
+            </h1>
+            <div class="apr-bar" style="margin-bottom:0">
+              <!-- Filter -->
+              <div style="position:relative">
+                <button class="btn btn-ghost" type="button" id="filterBtn" aria-haspopup="menu" aria-expanded="false" style="gap:6px">
+                  All <span aria-hidden="true">▾</span>
+                </button>
+                <div class="sb-menu" id="filterMenu" role="menu" aria-label="Filter approvals" style="display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:var(--z-dropdown);min-width:200px">
+                  <div class="sb-menu-label">Filter by status</div>
+                  <button class="sb-menu-item" role="menuitem" type="button">All</button>
+                  <button class="sb-menu-item" role="menuitem" type="button">Needs review</button>
+                  <button class="sb-menu-item" role="menuitem" type="button">Changes requested</button>
+                  <button class="sb-menu-item" role="menuitem" type="button">Approved</button>
+                  <div class="sb-menu-sep"></div>
+                  <div class="sb-menu-label">Filter by campaign</div>
+                  <button class="sb-menu-item" role="menuitem" type="button">June Launch</button>
+                  <button class="sb-menu-item" role="menuitem" type="button">Webinar promo</button>
+                </div>
+              </div>
+              <!-- Primary action -->
+              <button class="btn btn-primary" type="button" aria-label="Send an asset for review">
+                <span aria-hidden="true">＋</span> Send for review
+              </button>
+            </div>
+          </div>
+          <p class="u-muted" style="font-size:var(--text-sm)">
+            Everything waiting on a sign-off. Oldest first.
+          </p>
+        </div>
+
+        <!-- ── Loading skeleton (async — hidden by default; toggle to show) ── -->
+        <!--
+          ASYNC STATE: loading
+          Toggle display to 'block' to show skeleton rows while the list loads.
+        -->
+        <div class="apr-loading" aria-busy="true" aria-label="Loading approvals">
+          <div class="apr-section-head" style="pointer-events:none">
+            <div class="sk-line" style="width:160px;height:14px;border-radius:4px"></div>
+          </div>
+          <div class="apr-rows-wrap">
+            <div class="apr-row"><div class="sk-line" style="width:100%;height:18px;border-radius:4px"></div></div>
+            <div class="apr-row"><div class="sk-line" style="width:80%;height:18px;border-radius:4px"></div></div>
+          </div>
+        </div>
+
+        <!-- ── Empty state (async — hidden when there are items) ──────────── -->
+        <!--
+          ASYNC STATE: empty
+          Toggle display to 'flex' to show when the approvals queue is clear.
+        -->
+        <div class="apr-empty empty" role="status" style="display:none">
+          <div class="empty-icon" aria-hidden="true">✓</div>
+          <p class="empty-title">Queue is clear</p>
+          <p class="empty-desc">No assets are waiting on a sign-off right now.</p>
+          <button class="btn btn-primary empty-cta" type="button"><span aria-hidden="true">＋</span> Send for review</button>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             GROUP 1: Needs review · 3
+             Rows are DIVs (not anchors) because each row has inner <a> and <button>.
+        ════════════════════════════════════════════════════════════════════════ -->
+        <section class="apr-section" aria-label="Needs review">
+          <div class="apr-section-head">
+            <span aria-hidden="true">◷</span>
+            Needs review
+            <span class="apr-section-count" aria-label="3 items">3</span>
+          </div>
+
+          <div class="apr-rows-wrap" role="list">
+
+            <!-- Row 1: Webinar banner — oldest (2 days), reviewer Maria -->
+            <div class="apr-row" role="listitem" aria-label="Webinar banner v2, June Launch, needs review, Maria, 2 days ago">
+              <div class="apr-name">
+                <a href="essential-mkt-assets.html" class="apr-name-link">Webinar banner</a>
+              </div>
+              <span class="apr-version" aria-label="Version 2">v2</span>
+              <span class="ct-label apr-campaign">June Launch</span>
+              <div class="apr-reviewer" aria-label="Reviewer: Maria">
+                <span class="ava-sm" style="background:var(--chart-3)" aria-hidden="true">M</span>
+                <span class="reviewer-label">Maria</span>
+              </div>
+              <span class="apr-age" aria-label="2 days ago">
+                <span aria-hidden="true">◷</span> 2 days
+              </span>
+              <div class="apr-actions">
+                <button class="btn btn-primary btn-sm" type="button" aria-label="Approve Webinar banner v2">Approve</button>
+                <button class="btn btn-ghost btn-sm" type="button" aria-label="Request changes on Webinar banner v2">Request changes</button>
+              </div>
+            </div>
+
+            <!-- Row 2: Launch email hero — 4 hrs, reviewer You -->
+            <div class="apr-row" role="listitem" aria-label="Launch email hero v1, June Launch, needs review, You, 4 hours ago">
+              <div class="apr-name">
+                <a href="essential-mkt-assets.html" class="apr-name-link">Launch email — hero</a>
+              </div>
+              <span class="apr-version" aria-label="Version 1">v1</span>
+              <span class="ct-label apr-campaign">June Launch</span>
+              <div class="apr-reviewer" aria-label="Reviewer: You">
+                <span class="ava-sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+                <span class="reviewer-label">You</span>
+              </div>
+              <span class="apr-age" aria-label="4 hours ago">
+                <span aria-hidden="true">◷</span> 4 hrs
+              </span>
+              <div class="apr-actions">
+                <button class="btn btn-primary btn-sm" type="button" aria-label="Approve Launch email hero v1">Approve</button>
+                <button class="btn btn-ghost btn-sm" type="button" aria-label="Request changes on Launch email hero v1">Request changes</button>
+              </div>
+            </div>
+
+            <!-- Row 3: ✦ Paid ad copy set — Atlas-flagged, 1 hr, reviewer Atlas → You -->
+            <div class="apr-row" role="listitem" aria-label="Paid ad copy set v1, flagged by Atlas for compliance, June Launch, needs review, Atlas assigned to You, 1 hour ago">
+              <div class="apr-name">
+                <span class="apr-ai-glyph" aria-label="Atlas-flagged">✦</span>
+                <a href="essential-mkt-assets.html" class="apr-name-link">Paid ad copy set</a>
+                <span class="sb-badge sb-badge--accent" style="font-size:var(--text-xs);padding:1px 7px;height:20px;flex:none">✦ Atlas</span>
+              </div>
+              <span class="apr-version" aria-label="Version 1">v1</span>
+              <span class="ct-label apr-campaign">June Launch</span>
+              <div class="apr-reviewer" aria-label="Flagged by Atlas, assigned to You">
+                <!-- AI avatar (rounded square + ✦ corner) -->
+                <span class="ava-sm ava-sm--ai" style="background:var(--chart-1)" aria-hidden="true">A</span>
+                <span class="reviewer-label" aria-hidden="true">→</span>
+                <span class="ava-sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+                <span class="reviewer-label">You</span>
+              </div>
+              <span class="apr-age" aria-label="1 hour ago">
+                <span aria-hidden="true">◷</span> 1 hr
+              </span>
+              <div class="apr-actions">
+                <button class="btn btn-primary btn-sm" type="button" aria-label="Approve Paid ad copy set v1">Approve</button>
+                <button class="btn btn-ghost btn-sm" type="button" aria-label="Request changes on Paid ad copy set v1">Request changes</button>
+              </div>
+            </div>
+
+          </div><!-- /.apr-rows-wrap -->
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             GROUP 2: Changes requested · 1
+        ════════════════════════════════════════════════════════════════════════ -->
+        <section class="apr-section" aria-label="Changes requested">
+          <div class="apr-section-head">
+            <span aria-hidden="true">↩</span>
+            Changes requested
+            <span class="apr-section-count" aria-label="1 item">1</span>
+          </div>
+
+          <div class="apr-rows-wrap" role="list">
+
+            <!-- Row: Social carousel — changes requested, note from Maria -->
+            <div class="apr-row apr-row--changes" role="listitem" aria-label="Social carousel v2, Webinar promo, changes requested by Maria, note: tighten CTA">
+              <div class="apr-name">
+                <a href="essential-mkt-assets.html" class="apr-name-link">Social carousel</a>
+              </div>
+              <span class="apr-version" aria-label="Version 2">v2</span>
+              <span class="ct-label apr-campaign">Webinar promo</span>
+              <div class="apr-reviewer" aria-label="Reviewer: Maria">
+                <span class="ava-sm" style="background:var(--chart-3)" aria-hidden="true">M</span>
+                <span class="reviewer-label">Maria</span>
+              </div>
+              <span class="apr-note" aria-label="Note: tighten CTA">"tighten CTA"</span>
+              <div class="apr-actions">
+                <a href="essential-mkt-assets.html" class="btn btn-ghost btn-sm" style="text-decoration:none" aria-label="Open Social carousel asset">Open asset →</a>
+              </div>
+            </div>
+
+          </div><!-- /.apr-rows-wrap -->
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             GROUP 3: Approved · 2 — collapsed toggle
+        ════════════════════════════════════════════════════════════════════════ -->
+        <section class="apr-section" aria-label="Approved">
+          <div class="apr-section-head" id="approvedHead" style="cursor:default">
+            <span aria-hidden="true">✓</span>
+            Approved
+            <span class="apr-section-count" aria-label="2 items">2</span>
+            <button
+              class="apr-section-toggle"
+              type="button"
+              id="approvedToggle"
+              aria-expanded="false"
+              aria-controls="approvedGroup"
+              aria-label="Show approved items"
+              title="Show/hide approved items"
+            >▸ Show</button>
+          </div>
+
+          <div class="apr-approved-group" id="approvedGroup" role="list" aria-label="Approved items">
+
+            <!-- Approved row 1: June newsletter header -->
+            <div class="apr-row" role="listitem" aria-label="June newsletter header v1, June Launch, approved by You">
+              <div class="apr-name">
+                <a href="essential-mkt-assets.html" class="apr-name-link">June newsletter header</a>
+              </div>
+              <span class="apr-version" aria-label="Version 1">v1</span>
+              <span class="ct-label apr-campaign">June Launch</span>
+              <div class="apr-reviewer" aria-label="Approved by You">
+                <span class="ava-sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+                <span class="reviewer-label">You</span>
+              </div>
+              <span class="apr-age" aria-label="Approved 1 day ago">
+                <span aria-hidden="true">◷</span> 1 day
+              </span>
+              <div class="apr-actions">
+                <span class="sb-badge" style="font-size:var(--text-xs)">✓ Approved</span>
+              </div>
+            </div>
+
+            <!-- Approved row 2: Brand logo pack -->
+            <div class="apr-row" role="listitem" aria-label="Brand logo pack v3, all campaigns, approved by Maria">
+              <div class="apr-name">
+                <a href="essential-mkt-assets.html" class="apr-name-link">Brand logo pack</a>
+              </div>
+              <span class="apr-version" aria-label="Version 3">v3</span>
+              <span class="ct-label apr-campaign">All campaigns</span>
+              <div class="apr-reviewer" aria-label="Approved by Maria">
+                <span class="ava-sm" style="background:var(--chart-3)" aria-hidden="true">M</span>
+                <span class="reviewer-label">Maria</span>
+              </div>
+              <span class="apr-age" aria-label="Approved 3 days ago">
+                <span aria-hidden="true">◷</span> 3 days
+              </span>
+              <div class="apr-actions">
+                <span class="sb-badge" style="font-size:var(--text-xs)">✓ Approved</span>
+              </div>
+            </div>
+
+          </div><!-- /#approvedGroup -->
+        </section>
+
+      </div><!-- /.bc-wrap -->
+    </main>
+
+  </div><!-- /.bc -->
+
+  <script>
+    // ── Filter menu toggle ─────────────────────────────────────────────────
+    (function () {
+      var btn = document.getElementById('filterBtn');
+      var menu = document.getElementById('filterMenu');
+      if (!btn || !menu) return;
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var open = menu.style.display === 'block';
+        menu.style.display = open ? 'none' : 'block';
+        btn.setAttribute('aria-expanded', String(!open));
+      });
+      document.addEventListener('click', function () {
+        menu.style.display = 'none';
+        btn.setAttribute('aria-expanded', 'false');
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+          menu.style.display = 'none';
+          btn.setAttribute('aria-expanded', 'false');
+        }
+      });
+    })();
+
+    // ── Approved group collapse/expand toggle ──────────────────────────────
+    (function () {
+      var toggle = document.getElementById('approvedToggle');
+      var group = document.getElementById('approvedGroup');
+      if (!toggle || !group) return;
+      toggle.addEventListener('click', function () {
+        var open = group.classList.contains('is-open');
+        if (open) {
+          group.classList.remove('is-open');
+          toggle.textContent = '▸ Show';
+          toggle.setAttribute('aria-expanded', 'false');
+          toggle.setAttribute('aria-label', 'Show approved items');
+        } else {
+          group.classList.add('is-open');
+          toggle.textContent = '▾ Hide';
+          toggle.setAttribute('aria-expanded', 'true');
+          toggle.setAttribute('aria-label', 'Hide approved items');
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
