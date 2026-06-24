@@ -93,7 +93,6 @@ function parseStoredEvent(row: {
 
 export function recordServerEvent(input: Omit<ServerEvent, 'id' | 'workspace_id'>): StoredServerEvent {
   const db = getDatabase()
-  pruneRealtimeEvents()
   const workspaceId = workspaceIdFromData(input.type, input.data)
   const result = db.prepare(`
     INSERT INTO realtime_events (type, data, timestamp, workspace_id)
@@ -127,6 +126,26 @@ export function pruneRealtimeEvents(now: number = Date.now()): void {
   if (typeof threshold?.id === 'number') {
     db.prepare('DELETE FROM realtime_events WHERE id < ?').run(threshold.id)
   }
+}
+
+let prunerHandle: ReturnType<typeof setInterval> | null = null
+
+/**
+ * Prune the realtime_events retention window on a periodic timer, OFF the broadcast
+ * hot path. recordServerEvent no longer prunes inline (P3-4), so publishing never pays
+ * the DELETE + COUNT while a caller holds a write lock. Idempotent: one timer/process.
+ */
+export function startRealtimePruner(): void {
+  if (prunerHandle) return
+  const tick = () => {
+    try {
+      pruneRealtimeEvents()
+    } catch {
+      // best-effort; a failed prune must not down the process
+    }
+  }
+  tick()
+  prunerHandle = setInterval(tick, SSE_PRUNE_INTERVAL_MS)
 }
 
 export function readServerEventsAfter(input: {

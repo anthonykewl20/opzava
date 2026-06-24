@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
     const lastMsgStmt = db.prepare(`
       SELECT * FROM messages
       WHERE conversation_id = ? AND workspace_id = ?
-      ORDER BY created_at DESC
+      ORDER BY created_at DESC, id DESC
       LIMIT 1
     `);
 

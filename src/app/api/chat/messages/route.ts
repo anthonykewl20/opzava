@@ -301,7 +301,7 @@ export async function GET(request: NextRequest) {
       params.push(parseInt(since))
     }
 
-    query += ' ORDER BY created_at ASC LIMIT ? OFFSET ?'
+    query += ' ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?'
     params.push(limit, offset)
 
     const messages = db.prepare(query).all(...params) as Message[]

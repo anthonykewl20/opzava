@@ -99,6 +99,15 @@ function initializeSchema() {
         }).catch(() => {
           // Silent - maintenance is best-effort
         });
+
+        // Prune the realtime_events retention window on a timer, OFF the broadcast hot
+        // path (P3-4): recordServerEvent no longer prunes inline, so publishing never
+        // pays the DELETE+COUNT while a caller holds a BEGIN IMMEDIATE write lock.
+        import('./realtime-events').then(({ startRealtimePruner }) => {
+          startRealtimePruner();
+        }).catch(() => {
+          // Silent - pruner is best-effort
+        });
       }
     }
 
@@ -471,6 +480,7 @@ export const db_helpers = {
         status,
         last_seen: now,
         last_activity: activity || null,
+        workspace_id: workspaceId,
       });
     }
 
