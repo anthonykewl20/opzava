@@ -8,6 +8,24 @@
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
+  <script src="tools-bar.js"></script>
+  <script>
+    // Account menu — the durable "Your tools" doorway (doc 12 §3.1d).
+    // (This script is in <head>, so defer until the header is parsed.)
+    document.addEventListener('DOMContentLoaded', function () {
+      var btn = document.getElementById('acctBtn'), menu = document.getElementById('acctMenu');
+      if (!btn || !menu) return;
+      function close() { menu.style.display = 'none'; btn.setAttribute('aria-expanded', 'false'); }
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var open = menu.style.display !== 'none';
+        menu.style.display = open ? 'none' : 'block';
+        btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+      });
+      document.addEventListener('click', function (e) { if (!menu.contains(e.target) && e.target !== btn) close(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+    });
+  </script>
   <style>
     /* Basecamp-style Essential: warm, calm, content-first, generous whitespace,
        a TOP nav (not a dark sidebar), larger readable type. Layout-only here. */
@@ -51,7 +69,17 @@
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <button class="btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></button>
-      <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+      <div style="position:relative">
+        <button class="ava" id="acctBtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" style="background:var(--chart-2);border:0;cursor:pointer">AG</button>
+        <div class="sb-menu" id="acctMenu" role="menu" aria-label="Account" style="display:none;position:absolute;top:calc(100% + 8px);right:0;z-index:var(--z-dropdown);min-width:230px">
+          <div class="sb-menu-label">Anthony Garces</div>
+          <a class="sb-menu-item" href="essential-tools.html" role="menuitem"><span aria-hidden="true" style="width:18px;display:inline-block">🔗</span> Your tools <span class="sb-shortcut">5 / 7</span></a>
+          <a class="sb-menu-item" href="#" role="menuitem"><span aria-hidden="true" style="width:18px;display:inline-block">⚙</span> Settings</a>
+          <a class="sb-menu-item" href="#" role="menuitem"><span aria-hidden="true" style="width:18px;display:inline-block">◐</span> Theme</a>
+          <div class="sb-menu-sep"></div>
+          <a class="sb-menu-item" href="#" role="menuitem"><span aria-hidden="true" style="width:18px;display:inline-block">↪</span> Sign out</a>
+        </div>
+      </div>
     </header>
 
     <main class="bc-main">
@@ -65,6 +93,13 @@
           <div class="u-grow"><strong>2 projects need you · 1 blocked</strong><span class="u-muted"> — Approve the partner outreach email for Series&nbsp;B, and Weekly Ops is waiting on a connection.</span></div>
           <a class="btn" href="mention-inbox.html" role="button">Show me</a>
         </div>
+        <!-- Your tools — linked-tools health glance (doc 12). Healthy/factual = neutral; a blocking tool would flip to a left-accent + "needs you". -->
+        <a href="essential-tools.html" class="card" style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);margin-bottom:var(--space-4);text-decoration:none">
+          <span aria-hidden="true" style="font-size:17px">🔗</span>
+          <div class="u-grow" style="color:var(--fg)"><strong>Your tools</strong><span class="u-muted"> — 5 of 7 connected, nothing needs you. Claude Code is running a task now.</span></div>
+          <span class="badge u-tnum" aria-hidden="true">5 / 7</span>
+          <span class="u-subtle" aria-hidden="true">→</span>
+        </a>
         <!-- T1 — Ask Opzava: the one cross-project assistant. Distinct from any single project's assistant. -->
         <a href="essential-ask-opzava.html" class="card" style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);margin-bottom:var(--space-8);text-decoration:none">
           <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">O</span>
