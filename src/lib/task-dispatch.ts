@@ -998,9 +998,13 @@ export async function runAegisReviews(deps: TaskDispatchDeps): Promise<{ ok: boo
   const results: Array<{ id: number; verdict: string; error?: string }> = []
 
   for (const task of tasks) {
-    // Move to quality_review to prevent re-processing
-    db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
-      .run('quality_review', deps.clock.now(), task.id)
+    // Atomically claim review→quality_review: only flip if still 'review', so
+    // two concurrent runAegisReviews passes can't both process the same task
+    // (exactly one UPDATE reports changes=1; the loser skips). Mirrors the
+    // dispatchAssignedTasks claim guard (PR #698).
+    const claim = db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ? AND status = ?')
+      .run('quality_review', deps.clock.now(), task.id, 'review')
+    if (claim.changes === 0) continue
 
     deps.broadcast('task.status_changed', {
       id: task.id,
@@ -1194,8 +1198,12 @@ export async function requeueStaleTasks(deps: TaskDispatchDeps): Promise<{ ok: b
     const newAttempts = (task.dispatch_attempts ?? 0) + 1
 
     if (newAttempts >= maxDispatchRetries) {
-      db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
-        .run('failed', `Task stuck in_progress ${newAttempts} times — agent "${task.assigned_to}" offline. Moved to failed.`, newAttempts, now, task.id)
+      // Guard the flip with AND status='in_progress': a task reconcile is
+      // concurrently promoting in_progress→review must not be failed/requeued
+      // underneath us. Skip on a lost claim (mirrors the dispatch claim guard).
+      const claim = db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ? AND status = ?')
+        .run('failed', `Task stuck in_progress ${newAttempts} times — agent "${task.assigned_to}" offline. Moved to failed.`, newAttempts, now, task.id, 'in_progress')
+      if (claim.changes === 0) continue
 
       deps.broadcast('task.status_changed', {
         id: task.id,
@@ -1208,8 +1216,9 @@ export async function requeueStaleTasks(deps: TaskDispatchDeps): Promise<{ ok: b
       syncAndEscalateIfFailed(deps, task as any, 'failed', `Task stuck in_progress ${newAttempts} times`, newAttempts)
       failed++
     } else {
-      db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
-        .run('assigned', `Requeued: agent "${task.assigned_to}" went offline while task was in_progress`, newAttempts, now, task.id)
+      const claim = db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ? AND status = ?')
+        .run('assigned', `Requeued: agent "${task.assigned_to}" went offline while task was in_progress`, newAttempts, now, task.id, 'in_progress')
+      if (claim.changes === 0) continue
 
       // Add a comment explaining the requeue
       db.prepare(`

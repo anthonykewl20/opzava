@@ -568,7 +568,22 @@ export function getSchedulerStatus() {
 export async function triggerTask(taskId: string): Promise<{ ok: boolean; message: string }> {
   const spec = SCHEDULED_TASKS.find(s => s.id === taskId)
   if (!spec) return { ok: false, message: `Unknown task: ${taskId}` }
-  return spec.handler({ manual: true })
+  const task = tasks.get(taskId)
+  // Respect the same overlap guard tick() uses: never run a handler twice
+  // concurrently (a manual POST must not race an in-flight tick). Also mirror
+  // tick's try/catch so a rejecting handler returns the {ok:false} contract
+  // instead of an unhandled rejection.
+  if (task?.running) return { ok: false, message: `${taskId} is already running` }
+  if (task) task.running = true
+  try {
+    const result = await spec.handler({ manual: true })
+    if (task) task.lastResult = { ...result, timestamp: Date.now() }
+    return result
+  } catch (err: any) {
+    return { ok: false, message: err?.message ?? String(err) }
+  } finally {
+    if (task) task.running = false
+  }
 }
 
 /** Stop the scheduler */
