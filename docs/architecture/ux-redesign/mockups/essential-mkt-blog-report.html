@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
   <script src="tools-bar.js"></script>
   <script src="notify-bell.js"></script>
   <script src="avatar-card.js"></script>
@@ -25,7 +26,7 @@
 
     /* ── Page header ──────────────────────────────────────────────────── */
     .pg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-6); }
-    .pg-title { font-size: var(--text-xl); font-weight: var(--fw-semibold); color: var(--fg); line-height: var(--lh-tight); display: flex; align-items: center; gap: var(--space-2); }
+    .pg-title { font-size: var(--text-xl); font-weight: var(--fw-semibold); color: var(--fg); line-height: var(--lh-tight); display: flex; align-items: center; gap: var(--space-2);  margin: 0;}
     .pg-sub { font-size: var(--text-sm); color: var(--fg-muted); margin-top: var(--space-1); max-width: 64ch; line-height: var(--lh-relaxed); }
 
     /* ── Summary stats — numbers + trend glyph, NO chart wall ─────────── */
@@ -87,7 +88,7 @@
     </nav>
     <span class="u-grow"></span>
     <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-    <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></a>
+    <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
     <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
   </header>
 
@@ -103,7 +104,7 @@
     <!-- ── Page header ────────────────────────────────────────────────── -->
     <div class="pg-head">
       <div>
-        <div class="pg-title"><span aria-hidden="true">📝</span> Blog Report</div>
+        <h1 class="pg-title"><span aria-hidden="true">📝</span> Blog Report</h1>
         <p class="pg-sub">How your content performs — traffic, engagement, signups — and Atlas's read on what to write next.</p>
       </div>
       <div class="filter-row">

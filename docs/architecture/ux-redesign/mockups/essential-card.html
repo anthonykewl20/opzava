@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
   <script src="tools-bar.js"></script>
   <script src="notify-bell.js"></script>
   <script src="avatar-card.js"></script>
@@ -144,10 +145,10 @@
 
             <!-- Tabs separate the concerns: easy to digest + navigate -->
             <div class="sb-tabs" role="tablist" aria-label="Card sections">
-              <button class="sb-tab" role="tab" data-panel="p-overview" aria-selected="true">Overview</button>
-              <button class="sb-tab" role="tab" data-panel="p-airun" aria-selected="false">AI Run</button>
-              <button class="sb-tab" role="tab" data-panel="p-evidence" aria-selected="false">Evidence &amp; Files <span class="sb-badge sb-badge--secondary" style="height:18px;margin-left:4px">5</span></button>
-              <button class="sb-tab" role="tab" data-panel="p-quality" aria-selected="false">Quality Review</button>
+              <button type="button" class="sb-tab" role="tab" data-panel="p-overview" aria-selected="true">Overview</button>
+              <button type="button" class="sb-tab" role="tab" data-panel="p-airun" aria-selected="false">AI Run</button>
+              <button type="button" class="sb-tab" role="tab" data-panel="p-evidence" aria-selected="false">Evidence &amp; Files <span class="sb-badge sb-badge--secondary" style="height:18px;margin-left:4px">5</span></button>
+              <button type="button" class="sb-tab" role="tab" data-panel="p-quality" aria-selected="false">Quality Review</button>
             </div>
 
             <!-- ── Overview ─────────────────────────────────────────────────── -->

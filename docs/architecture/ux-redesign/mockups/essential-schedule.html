@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
   <script src="tools-bar.js"></script>
   <script src="notify-bell.js"></script>
   <script src="avatar-card.js"></script>
@@ -192,7 +193,7 @@
     </nav>
     <span class="u-grow"></span>
     <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-    <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></a>
+    <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
     <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
   </header>
 
@@ -294,8 +295,8 @@
             <button class="btn btn-ghost btn-sm" type="button" aria-label="Jump to today" style="margin-left:var(--space-2)">Today</button>
             <span class="u-grow"></span>
             <div class="view-pill sb-tabs" role="tablist" aria-label="Calendar view">
-              <button class="sb-tab" role="tab" id="tab-week" aria-selected="false" style="border-radius:var(--radius-full)">Week</button>
-              <button class="sb-tab" role="tab" id="tab-month" aria-selected="true" style="border-radius:var(--radius-full)">Month</button>
+              <button type="button" class="sb-tab" role="tab" id="tab-week" aria-selected="false" style="border-radius:var(--radius-full)">Week</button>
+              <button type="button" class="sb-tab" role="tab" id="tab-month" aria-selected="true" style="border-radius:var(--radius-full)">Month</button>
             </div>
           </div>
 

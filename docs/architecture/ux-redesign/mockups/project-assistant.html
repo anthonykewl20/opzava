@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
   <script src="tools-bar.js"></script>
   <script src="notify-bell.js"></script>
   <script src="avatar-card.js"></script>
@@ -146,9 +147,9 @@
       </nav>
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-      <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative">
+      <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative">
         <span aria-hidden="true">🔔</span>
-        <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span>
+        <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span>
       </a>
       <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -199,12 +200,12 @@
         <!-- ── Project workspace tab-bar ──────────────────────────────── -->
         <div class="ws-tabs-wrap">
           <div class="sb-tabs" role="tablist" aria-label="Project sections">
-            <button class="sb-tab" role="tab" aria-selected="false" data-href="essential-todos.html">To-dos</button>
-            <button class="sb-tab" role="tab" aria-selected="false" data-href="essential-card-table.html">Board</button>
-            <button class="sb-tab" role="tab" aria-selected="true" id="tab-asst">✦ Ask your assistant</button>
-            <button class="sb-tab" role="tab" aria-selected="false">Outputs</button>
-            <button class="sb-tab" role="tab" aria-selected="false">Team <span class="sb-badge sb-badge--secondary" style="height:18px;margin-left:4px">2</span></button>
-            <button class="sb-tab" role="tab" aria-selected="false">More ▾</button>
+            <button type="button" class="sb-tab" role="tab" aria-selected="false" data-href="essential-todos.html">To-dos</button>
+            <button type="button" class="sb-tab" role="tab" aria-selected="false" data-href="essential-card-table.html">Board</button>
+            <button type="button" class="sb-tab" role="tab" aria-selected="true" id="tab-asst">✦ Ask your assistant</button>
+            <button type="button" class="sb-tab" role="tab" aria-selected="false">Outputs</button>
+            <button type="button" class="sb-tab" role="tab" aria-selected="false">Team <span class="sb-badge sb-badge--secondary" style="height:18px;margin-left:4px">2</span></button>
+            <button type="button" class="sb-tab" role="tab" aria-selected="false">More ▾</button>
           </div>
         </div>
 
