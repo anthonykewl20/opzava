@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { getStatusAction } from '@/lib/status-actions'
+import { withRequestContext } from '@/lib/request-context'
 
 /**
  * GET /api/status — thin HTTP adapter over the status-action registry.
@@ -14,7 +15,7 @@ import { getStatusAction } from '@/lib/status-actions'
  *
  * Add or change a surface by editing the registry, not this route.
  */
-export async function GET(request: NextRequest) {
+async function handleStatusGet(request: NextRequest) {
   const action = new URL(request.url).searchParams.get('action') || 'overview'
   const handler = getStatusAction(action)
 
@@ -43,3 +44,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+
+// Correlate status/health log + audit lines to the request via x-request-id.
+export const GET = withRequestContext(handleStatusGet)
