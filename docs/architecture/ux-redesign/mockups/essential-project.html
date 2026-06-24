@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
   <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
   <style>
     /* Basecamp-style Essential: warm, calm, content-first, generous whitespace,
        a TOP nav (not a dark sidebar), larger readable type. Layout-only here. */
@@ -67,11 +69,11 @@
         <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
         <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
         <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
-        <a href="#">Find…</a>
+        <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-      <button class="btn btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></button>
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
 
@@ -113,7 +115,7 @@
             </div>
           </div>
           <div class="proj-band-actions">
-            <button class="btn btn-primary" type="button"><span aria-hidden="true">＋</span> New to-do</button>
+            <a href="essential-todo-new.html" class="btn btn-primary"><span aria-hidden="true">＋</span> New to-do</a>
             <a class="btn btn-ghost" href="project-assistant.html" role="button"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask your assistant</a>
           </div>
         </div>
@@ -137,7 +139,7 @@
             <a href="essential-goals.html" class="tile-name">Goals</a>
             <p class="tile-preview">3 SMART goals. Response-time satisfaction at 76% of target — Atlas keeps progress in sync with the work.</p>
             <div class="tile-foot">
-              <span class="sb-statusline" aria-label="On track"><span class="sl-glyph" aria-hidden="true">◴</span> <span class="sl-label">On track</span></span>
+              <span class="sb-statusline quick" role="button" tabindex="0" data-quick="On track|Response-time satisfaction 82% → 90% · 76% there|◷ 18 days left · on pace" data-qlink="essential-goals.html" data-qlabel="Open Goals" aria-label="On track"><span class="sl-glyph" aria-hidden="true">◴</span> <span class="sl-label">On track</span></span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">3 goals</span>
             </div>
@@ -149,7 +151,7 @@
             <a href="essential-todos.html" class="tile-name">To-dos</a>
             <p class="tile-preview">8 to-dos open · 3 due this week. Atlas is working through the newsletter checklist now.</p>
             <div class="tile-foot">
-              <span class="badge badge-warning"><span class="dot dot-warning" aria-hidden="true"></span> 3 due soon</span>
+              <span class="badge badge-warning quick" role="button" tabindex="0" data-quick="Due soon · 3|◷ Write the Q3 announcement — Fri|◷ Rewrite reply templates — Fri|◷ Train the team on the flow — Mon" data-qlink="essential-todos.html" data-qlabel="Open To-dos"><span class="dot dot-warning" aria-hidden="true"></span> 3 due soon</span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">8 open</span>
             </div>
@@ -161,7 +163,7 @@
             <a href="essential-card-table.html" class="tile-name">Board</a>
             <p class="tile-preview">Triage 3 · In progress 2 · Ready to publish 1. Move cards as pieces get finished.</p>
             <div class="tile-foot">
-              <span class="badge badge-info"><span class="dot dot-accent" aria-hidden="true"></span> In progress 2</span>
+              <span class="badge badge-info quick" role="button" tabindex="0" data-quick="In progress · 2|▦ Triage workflow rewrite — Maria|▦ Reply templates — ✦ Atlas" data-qlink="essential-card-table.html" data-qlabel="Open Board"><span class="dot dot-accent" aria-hidden="true"></span> In progress 2</span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">6 cards</span>
             </div>
@@ -185,7 +187,7 @@
             <a href="essential-team-room.html" class="tile-name">Team</a>
             <p class="tile-preview">Talk to the people on this project. Maria left a note about the social calendar — 2 new messages.</p>
             <div class="tile-foot">
-              <span class="badge badge-accent"><span class="dot dot-accent" aria-hidden="true"></span> 2 new</span>
+              <span class="badge badge-accent quick" role="button" tabindex="0" data-quick="New messages · 2|Maria — note on the social calendar|Dan — scheduled 3 LinkedIn posts" data-qlink="essential-team-room.html" data-qlabel="Open Team"><span class="dot dot-accent" aria-hidden="true"></span> 2 new</span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">3 people</span>
             </div>
@@ -194,10 +196,10 @@
           <!-- Docs & Files -->
           <div class="card tile">
             <span class="tile-glyph" aria-hidden="true">📄</span>
-            <a href="#" class="tile-name">Docs &amp; Files</a>
+            <a href="essential-docs.html" class="tile-name">Docs &amp; Files</a>
             <p class="tile-preview">12 files — brand guidelines, draft articles, social copy templates, and the editorial calendar.</p>
             <div class="tile-foot">
-              <span class="badge"><span class="dot" aria-hidden="true"></span> Up to date</span>
+              <span class="badge quick" role="button" tabindex="0" data-quick="Docs & Files · 12|Up to date — last edit 2h ago|✦ Atlas drafted the support playbook" data-qlink="essential-docs.html" data-qlabel="Open Docs"><span class="dot" aria-hidden="true"></span> Up to date</span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">12 files</span>
             </div>
@@ -206,10 +208,10 @@
           <!-- Schedule -->
           <div class="card tile">
             <span class="tile-glyph" aria-hidden="true">📅</span>
-            <a href="#" class="tile-name">Schedule</a>
+            <a href="essential-schedule.html" class="tile-name">Schedule</a>
             <p class="tile-preview">Next up: June newsletter, due Friday. Then the end-of-quarter blog post on 28 June.</p>
             <div class="tile-foot">
-              <span class="badge badge-warning"><span class="dot dot-warning" aria-hidden="true"></span> Due Fri</span>
+              <span class="badge badge-warning quick" role="button" tabindex="0" data-quick="Coming up|◦ June newsletter — due Fri|◦ End-of-quarter blog post — Jun 28" data-qlink="essential-schedule.html" data-qlabel="Open Schedule"><span class="dot dot-warning" aria-hidden="true"></span> Due Fri</span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">4 upcoming</span>
             </div>
@@ -218,10 +220,10 @@
           <!-- Updates -->
           <div class="card tile">
             <span class="tile-glyph" aria-hidden="true">⌁</span>
-            <a href="#" class="tile-name">Updates</a>
+            <a href="essential-updates.html" class="tile-name">Updates</a>
             <p class="tile-preview">Daily summary runs at 5:00 pm. Yesterday's: Atlas drafted 2 articles, Iris finished all social captions.</p>
             <div class="tile-foot">
-              <span class="badge badge-success"><span class="dot dot-success" aria-hidden="true"></span> Running</span>
+              <span class="badge badge-success quick" role="button" tabindex="0" data-quick="Updates · running|Daily summary at 5:00 pm|Last run — 2 articles drafted, captions done" data-qlink="essential-updates.html" data-qlabel="Open Updates"><span class="dot dot-success" aria-hidden="true"></span> Running</span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">Daily · 5:00 pm</span>
             </div>
@@ -321,6 +323,28 @@
       document.addEventListener('click', function () { menu.style.display = 'none'; btn.setAttribute('aria-expanded', 'false'); });
       document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { menu.style.display = 'none'; btn.setAttribute('aria-expanded', 'false'); } });
     })();
+  </script>
+
+  <style>
+    .quick{cursor:pointer}
+    .qp{position:fixed;z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);padding:var(--space-3) var(--space-4);font-size:var(--text-sm)}
+    .qp-hd{font-size:var(--text-xs);color:var(--fg-subtle);text-transform:uppercase;letter-spacing:var(--tracking-caps);font-weight:var(--fw-semibold);margin-bottom:6px}
+    .qp-row{padding:3px 0;color:var(--fg);line-height:var(--lh-snug)}
+    .qp-link{display:block;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--fg-muted);text-decoration:none;font-weight:var(--fw-medium)}
+    .qp-link:hover{color:var(--accent)}
+  </style>
+  <script>
+    (function(){var pop;function close(){if(pop){pop.remove();pop=null;}}
+    document.addEventListener('click',function(e){var t=e.target.closest('.quick');if(!t){close();return;}e.stopPropagation();close();
+      var parts=(t.dataset.quick||'').split('|');var hd=parts.shift();
+      var rows=parts.map(function(r){return '<div class="qp-row">'+r+'</div>';}).join('');
+      var link=t.dataset.qlink?'<a class="qp-link" href="'+t.dataset.qlink+'">'+(t.dataset.qlabel||'Open')+' →</a>':'';
+      pop=document.createElement('div');pop.className='qp sb-popover';pop.setAttribute('role','dialog');
+      pop.innerHTML='<div class="qp-hd">'+hd+'</div>'+rows+link;document.body.appendChild(pop);
+      var r=t.getBoundingClientRect(),w=270,left=Math.max(12,Math.min(r.left,window.innerWidth-w-12));
+      pop.style.left=left+'px';pop.style.top=(r.bottom+8)+'px';pop.style.width=w+'px';});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape')close();});
+    document.addEventListener('click',function(e){if(pop&&!pop.contains(e.target)&&!e.target.closest('.quick'))close();});})();
   </script>
 </body>
 </html>

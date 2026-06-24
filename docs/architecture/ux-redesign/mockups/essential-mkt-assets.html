@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
   <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
   <style>
     /* Layout only — no color/font/radius overrides */
     .bc { min-height: 100vh; font-size: var(--text-base); }
@@ -89,14 +91,14 @@
         <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
         <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
         <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
-        <a href="#">Find…</a>
+        <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-      <button class="btn btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative">
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative">
         <span aria-hidden="true">🔔</span>
         <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span>
-      </button>
+      </a>
       <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
 
@@ -149,7 +151,7 @@
           </div>
           <span class="u-subtle" style="font-size:var(--text-xs)">24 files · 18 approved · 6 in review</span>
           <span class="u-grow"></span>
-          <button class="btn btn-primary btn-sm" type="button"><span aria-hidden="true">＋</span> Upload</button>
+          <a href="essential-upload.html" class="btn btn-primary btn-sm"><span aria-hidden="true">＋</span> Upload</a>
         </div>
 
         <!-- ── Recently approved strip ────────────────────────────────────── -->
@@ -184,7 +186,7 @@
           <span class="empty-icon" aria-hidden="true">📎</span>
           <p class="empty-title">No files yet</p>
           <p class="empty-desc">Upload the first asset for this campaign and it will appear here.</p>
-          <button class="btn btn-primary empty-cta" type="button"><span aria-hidden="true">＋</span> Upload a file</button>
+          <a href="essential-upload.html" class="btn btn-primary empty-cta"><span aria-hidden="true">＋</span> Upload a file</a>
         </div>
 
         <div class="asset-grid" id="assetGrid" aria-label="Asset files">

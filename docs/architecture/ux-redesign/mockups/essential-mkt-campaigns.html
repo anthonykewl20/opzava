@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
   <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
   <style>
     /* ── Shell ───────────────────────────────────────────────────────────────── */
     .bc { min-height: 100vh; font-size: var(--text-base); }
@@ -83,11 +85,11 @@
         <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
         <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
         <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
-        <a href="#">Find…</a>
+        <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-      <button class="btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></button>
+      <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></a>
       <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
 
@@ -114,7 +116,7 @@
             <button class="btn btn-ghost" type="button" style="gap:6px;color:var(--accent);border-color:var(--accent-border)">
               <span aria-hidden="true">✦</span> Draft a brief
             </button>
-            <button class="btn btn-primary" type="button" id="newCampaignBtn"><span aria-hidden="true">＋</span> New campaign</button>
+            <a href="essential-campaign-new.html" class="btn btn-primary" id="newCampaignBtn"><span aria-hidden="true">＋</span> New campaign</a>
           </div>
         </div>
         <p class="u-muted" style="font-size:var(--text-sm);margin-bottom:var(--space-7)">
@@ -138,7 +140,7 @@
             <div class="empty-title">No campaigns yet</div>
             <div class="empty-desc">Add your first campaign to start tracking the Plan → Measure lifecycle.</div>
             <div class="empty-cta">
-              <button class="btn btn-primary" type="button">＋ New campaign</button>
+              <a href="essential-campaign-new.html" class="btn btn-primary">＋ New campaign</a>
               <button class="btn btn-ghost" type="button" style="color:var(--accent)">✦ Draft a brief with Atlas</button>
             </div>
           </div>
@@ -189,7 +191,7 @@
               </div>
             </div>
 
-            <button class="ct-add" type="button" aria-label="Add a campaign to Plan stage"><span aria-hidden="true">＋</span> Add campaign</button>
+            <a href="essential-campaign-new.html" class="ct-add" aria-label="Add a campaign to Plan stage"><span aria-hidden="true">＋</span> Add campaign</a>
           </section>
 
           <!-- ── CREATE ② ───────────────────────────────────────────────── -->
@@ -237,7 +239,7 @@
               </div>
             </div>
 
-            <button class="ct-add" type="button" aria-label="Add a campaign to Create stage"><span aria-hidden="true">＋</span> Add campaign</button>
+            <a href="essential-campaign-new.html" class="ct-add" aria-label="Add a campaign to Create stage"><span aria-hidden="true">＋</span> Add campaign</a>
           </section>
 
           <!-- ── APPROVE ① ───────────────────────────────────────────────── -->
@@ -265,7 +267,7 @@
               </div>
             </div>
 
-            <button class="ct-add" type="button" aria-label="Add a campaign to Approve stage"><span aria-hidden="true">＋</span> Add campaign</button>
+            <a href="essential-campaign-new.html" class="ct-add" aria-label="Add a campaign to Approve stage"><span aria-hidden="true">＋</span> Add campaign</a>
           </section>
 
           <!-- ── PUBLISH ① ───────────────────────────────────────────────── -->
@@ -292,7 +294,7 @@
               </div>
             </div>
 
-            <button class="ct-add" type="button" aria-label="Add a campaign to Publish stage"><span aria-hidden="true">＋</span> Add campaign</button>
+            <a href="essential-campaign-new.html" class="ct-add" aria-label="Add a campaign to Publish stage"><span aria-hidden="true">＋</span> Add campaign</a>
           </section>
 
           <!-- ── MEASURE ① ───────────────────────────────────────────────── -->
@@ -319,7 +321,7 @@
               </div>
             </div>
 
-            <button class="ct-add" type="button" aria-label="Add a campaign to Measure stage"><span aria-hidden="true">＋</span> Add campaign</button>
+            <a href="essential-campaign-new.html" class="ct-add" aria-label="Add a campaign to Measure stage"><span aria-hidden="true">＋</span> Add campaign</a>
           </section>
 
         </div><!-- /.ct-board -->

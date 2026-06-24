@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
   <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
   <style>
     /* ── Shell ─────────────────────────────────────────────────────────────── */
     .bc { min-height: 100vh; font-size: var(--text-base); }
@@ -228,14 +230,14 @@
         <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
         <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
         <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
-        <a href="#">Find…</a>
+        <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-      <button class="btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative">
+      <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative">
         <span aria-hidden="true">🔔</span>
         <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span>
-      </button>
+      </a>
       <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-label="Anthony Garces">AG</span>
     </header>
 
@@ -274,9 +276,9 @@
                 </div>
               </div>
               <!-- Primary action -->
-              <button class="btn btn-primary" type="button" aria-label="Send an asset for review">
+              <a href="essential-send-review.html" class="btn btn-primary" aria-label="Send an asset for review">
                 <span aria-hidden="true">＋</span> Send for review
-              </button>
+              </a>
             </div>
           </div>
           <p class="u-muted" style="font-size:var(--text-sm)">
@@ -308,7 +310,7 @@
           <div class="empty-icon" aria-hidden="true">✓</div>
           <p class="empty-title">Queue is clear</p>
           <p class="empty-desc">No assets are waiting on a sign-off right now.</p>
-          <button class="btn btn-primary empty-cta" type="button"><span aria-hidden="true">＋</span> Send for review</button>
+          <a href="essential-send-review.html" class="btn btn-primary empty-cta"><span aria-hidden="true">＋</span> Send for review</a>
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
