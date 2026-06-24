@@ -82,6 +82,11 @@
     .trace-toggle:hover { color: var(--fg); }
     .trace-body { display: none; margin-top: var(--space-3); }
     .trace-body.open { display: block; }
+    /* Plain-language "how Atlas worked" steps — jargon-free Essential (no CLI/filenames/scores) */
+    .trace-steps { list-style: none; margin: 0; padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+    .trace-step { display: flex; align-items: flex-start; gap: var(--space-3); font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-normal); }
+    .trace-step .ts-g { flex: none; width: 18px; text-align: center; color: var(--fg-muted); }
+    .trace-step strong { font-weight: var(--fw-semibold); color: var(--fg); }
 
     /* Approval hand-off card */
     .approval-card { border: 1px solid var(--warning); border-radius: var(--radius-lg); background: var(--warning-soft); overflow: hidden; margin-top: var(--space-3); }
@@ -281,16 +286,12 @@
                   <span aria-hidden="true" id="traceChevron">▸</span> See how Atlas worked
                 </button>
                 <div class="trace-body" id="traceBody" aria-hidden="true">
-                  <div class="sb-term" role="log" aria-label="Atlas raw run trace">
-                    <div class="ln"><span class="tag t-cmd">$</span><span class="t-cmd">opzava run · project=Q2ContentPush · assistant=Atlas · task=june-newsletter</span></div>
-                    <div class="ln"><span class="tag t-think">think</span><span>Need to write a June newsletter draft. Reference: brand-guide.md, last month's tone, 100–150 word target.</span></div>
-                    <div class="ln"><span class="tag t-tool">tool</span><span>read_file(brand-guide.md) → 420 words · tone: warm, direct, one idea per sentence</span></div>
-                    <div class="ln"><span class="tag t-tool">tool</span><span>read_file(newsletter-may.md) → 142 words · reference loaded</span></div>
-                    <div class="ln"><span class="tag t-think">think</span><span>Drafting June newsletter. Subject: summer momentum, two product wins, one CTA.</span></div>
-                    <div class="ln"><span class="tag t-tool">tool</span><span>write_file(newsletter-june.md, 138 words) → <span class="t-out">saved to Outputs</span></span></div>
-                    <div class="ln"><span class="tag t-tool">tool</span><span>check_tone(newsletter-june.md, brand-guide.md) → <span class="t-ok">✓ match · score 94/100</span></span></div>
-                    <div class="ln"><span class="tag t-ok">done</span><span class="t-ok">Draft complete · tone passed · awaiting schedule confirmation.</span></div>
-                  </div>
+                  <ol class="trace-steps" role="list" aria-label="How Atlas worked, step by step">
+                    <li class="trace-step" data-step="understand"><span class="ts-g" aria-hidden="true">✦</span><span>Read your <strong>brand guide</strong> and last month's newsletter to match the tone — warm, direct, one idea per sentence.</span></li>
+                    <li class="trace-step" data-step="draft"><span class="ts-g" aria-hidden="true">✏️</span><span>Drafted the June newsletter — summer momentum, two product wins, one call to action (138 words).</span></li>
+                    <li class="trace-step" data-step="check"><span class="ts-g" aria-hidden="true">✓</span><span>Checked it against your brand guide — the tone matches.</span></li>
+                    <li class="trace-step" data-step="handoff"><span class="ts-g" aria-hidden="true">◷</span><span>Saved the draft to <strong>Outputs</strong> and paused for your go-ahead before scheduling.</span></li>
+                  </ol>
                 </div>
               </div>
             </div>
