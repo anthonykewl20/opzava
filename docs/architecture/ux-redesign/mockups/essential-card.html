@@ -217,20 +217,24 @@
             <!-- ── AI Run (terminal-style trace) ────────────────────────────── -->
             <section class="tabpanel" id="p-airun" role="tabpanel" hidden style="margin-top:var(--space-5)">
               <div class="u-between" style="margin-bottom:var(--space-3)">
-                <p class="u-muted" style="font-size:var(--text-sm)">How <strong>Echo</strong> worked this card — its thinking, searches and tool calls, like a terminal. For both people and agents to audit.</p>
+                <p class="u-muted" style="font-size:var(--text-sm)">How <strong>Echo</strong> worked this card, step by step — so you and other agents can audit what it did.</p>
                 <span class="u-row u-subtle" style="font-size:var(--text-xs);gap:6px"><span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span> live · 2m 14s</span>
               </div>
-              <div class="sb-term" role="log" aria-label="AI run trace">
-                <div class="ln"><span class="tag t-cmd">$</span><span class="t-cmd">opzava run CS-1042 · assistant=Echo · model=claude-opus · attempt 1</span></div>
-                <div class="ln"><span class="tag t-think">think</span><span>Customer reports 2FA "invalid token". Likely clock skew or too-tight code window. Plan: reproduce → inspect timing → reply.</span></div>
-                <div class="ln"><span class="tag t-search">search</span><span>web: "TOTP invalid token clock skew tolerance" → 6 results</span></div>
-                <div class="ln"><span class="tag t-tool">tool</span><span>reproduce_login(account=test) → <span class="t-warn">✗ invalid_token</span> (code rejected 4s before its TTL)</span></div>
-                <div class="ln"><span class="tag t-think">think</span><span>Code is rejected ~4s early. Validation window is 30s with 0s drift allowance — too strict.</span></div>
-                <div class="ln"><span class="tag t-tool">tool</span><span>inspect_token_window() → { window: 30s, drift_allowance: 0s }</span></div>
-                <div class="ln"><span class="tag t-think">think</span><span>Recommend ±15s drift allowance. Meanwhile draft a friendly customer reply and flag the fix.</span></div>
-                <div class="ln"><span class="tag t-tool">tool</span><span>draft_reply(tone=friendly, apology=true) → 138 words → <span class="t-out">attached: reply-draft.md</span></span></div>
-                <div class="ln"><span class="tag t-ok">done</span><span class="t-ok">Reply drafted &amp; attached · fix flagged to engineering · awaiting human review.</span></div>
-              </div>
+              <style>
+                /* Plain-language run steps — auditable by humans AND AI agents:
+                   semantic <ol>/<li> + a per-step data-step the markup can be asserted on. */
+                #p-airun .run-steps { list-style: none; margin: 0; padding: var(--space-4) var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+                #p-airun .run-step { display: flex; align-items: flex-start; gap: var(--space-3); font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-normal); }
+                #p-airun .run-step .rs-g { flex: none; width: 18px; text-align: center; color: var(--fg-muted); }
+                #p-airun .run-step strong { font-weight: var(--fw-semibold); color: var(--fg); }
+              </style>
+              <ol class="run-steps" role="list" aria-label="How Echo worked this card, step by step">
+                <li class="run-step" data-step="understand"><span class="rs-g" aria-hidden="true">✦</span><span>Read the problem — the customer's <strong>2-factor code</strong> is rejected as "invalid," most likely a clock-timing issue.</span></li>
+                <li class="run-step" data-step="research"><span class="rs-g" aria-hidden="true">🔍</span><span>Looked up how teams handle 2-factor timing drift.</span></li>
+                <li class="run-step" data-step="reproduce"><span class="rs-g" aria-hidden="true">✗</span><span>Reproduced it — the code was rejected about <strong>4 seconds before it expired</strong>. The login allows only a 30-second window with no timing leeway, which is too strict.</span></li>
+                <li class="run-step" data-step="draft"><span class="rs-g" aria-hidden="true">✏️</span><span>Drafted a friendly reply for the customer and flagged the fix to engineering — allow <strong>±15 seconds</strong> of leeway.</span></li>
+                <li class="run-step" data-step="handoff"><span class="rs-g" aria-hidden="true">◷</span><span>Paused for your review before the reply goes out.</span></li>
+              </ol>
             </section>
 
             <!-- ── Evidence & Files ─────────────────────────────────────────── -->
