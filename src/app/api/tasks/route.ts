@@ -7,7 +7,7 @@ import { logger } from '@/lib/logger';
 import { validateBody, createTaskSchema, bulkUpdateTaskStatusSchema } from '@/lib/validation';
 import { resolveMentionRecipients } from '@/lib/mentions';
 import { normalizeTaskCreateStatus, resolveTaskAssignee } from '@/lib/task-status';
-import { reconcileDeferredTaskCompletions } from '@/lib/task-dispatch';
+import { reconcileDeferredTaskCompletions, makeDefaultDeps } from '@/lib/task-dispatch';
 import { pushTaskToGitHub, syncTaskOutbound } from '@/lib/github-sync-engine';
 import { pushTaskToGnap } from '@/lib/gnap-sync';
 import { config } from '@/lib/config';
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0');
 
     try {
-      await reconcileDeferredTaskCompletions({ workspaceId, limit: 5 })
+      await reconcileDeferredTaskCompletions(makeDefaultDeps(), { workspaceId, limit: 5 })
     } catch (err) {
       logger.warn({ err }, 'Deferred task reconciliation failed during task list read')
     }
@@ -434,6 +434,7 @@ export async function PUT(request: NextRequest) {
         id: task.id,
         status: task.status,
         updated_at: Math.floor(Date.now() / 1000),
+        workspace_id: workspaceId,
       });
 
       // Fire-and-forget outbound sync (GitHub + GNAP)

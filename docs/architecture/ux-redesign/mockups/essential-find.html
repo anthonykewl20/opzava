@@ -11,6 +11,8 @@
   <script src="tools-bar.js"></script>
   <script src="notify-bell.js"></script>
   <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
   <style>
     /* Basecamp-style Essential: warm, calm, content-first. Layout-only here.
        This page IS the shadcn Command (⌘K) palette, shown OPEN over a faded Home. */
@@ -219,10 +221,93 @@
 
   <script>
     (function () {
-      var input = document.getElementById('findInput');
-      var rows  = Array.prototype.slice.call(document.querySelectorAll('.cmd-row'));
+      var input    = document.getElementById('findInput');
+      var results  = document.querySelector('.cmd-results');
+      var rows     = Array.prototype.slice.call(document.querySelectorAll('.cmd-row'));
+      var groups   = Array.prototype.slice.call(document.querySelectorAll('.cmd-group'));
+      var seps     = Array.prototype.slice.call(document.querySelectorAll('.cmd-sep'));
 
       function close() { window.location.href = 'essential-home.html'; }
+
+      // ── Live empty state ("No results for '…'") — created once, reused. ──
+      var empty = document.createElement('div');
+      empty.id = 'findEmpty';
+      empty.className = 'cmd-group';
+      empty.setAttribute('role', 'status');
+      empty.hidden = true;
+      empty.style.color = 'var(--fg-subtle)';
+      empty.style.padding = 'var(--space-6) var(--space-5)';
+      empty.style.fontSize = 'var(--text-base)';
+      if (results) results.appendChild(empty);
+
+      // For each group heading, collect the .cmd-row siblings that follow it
+      // (up to the next .cmd-group), so we can hide a heading once its rows hide.
+      var groupOf = groups.map(function (g) {
+        var members = [];
+        var n = g.nextElementSibling;
+        while (n && !n.classList.contains('cmd-group')) {
+          if (n.classList.contains('cmd-row')) members.push(n);
+          n = n.nextElementSibling;
+        }
+        return { head: g, rows: members };
+      });
+
+      function rowText(row) {
+        return (row.textContent || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      }
+
+      // Currently-visible rows, in DOM order — drives keyboard nav + selection.
+      function visibleRows() {
+        return rows.filter(function (r) { return !r.hidden; });
+      }
+
+      function setSelected(next) {
+        var cur = document.querySelector('.cmd-row.is-selected');
+        if (cur) { cur.classList.remove('is-selected'); cur.setAttribute('aria-selected', 'false'); }
+        if (next) {
+          next.classList.add('is-selected'); next.setAttribute('aria-selected', 'true');
+          if (next.scrollIntoView) next.scrollIntoView({ block: 'nearest' });
+        }
+      }
+
+      // ── Live filter: hide non-matching rows, empty group headings, orphaned
+      //    separators; show the calm empty state when nothing matches. ──
+      function filter() {
+        var q = (input ? input.value : '').toLowerCase().replace(/\s+/g, ' ').trim();
+        var anyVisible = false;
+
+        rows.forEach(function (r) {
+          var match = !q || rowText(r).indexOf(q) !== -1;
+          r.hidden = !match;
+          if (match) anyVisible = true;
+        });
+
+        // Hide a group heading when all its rows are hidden.
+        groupOf.forEach(function (g) {
+          var shown = g.rows.some(function (r) { return !r.hidden; });
+          g.head.hidden = !shown;
+        });
+
+        // Hide every separator while filtering; a single search list reads
+        // calmer ungrouped. Restore them only when the query is cleared.
+        seps.forEach(function (s) { s.hidden = !!q; });
+
+        // Empty state.
+        if (!anyVisible) {
+          empty.textContent = q ? ('No results for “' + (input ? input.value.trim() : '') + '”') : 'No results';
+          empty.hidden = false;
+        } else {
+          empty.hidden = true;
+        }
+
+        // Re-seat the keyboard selection on the first visible row so ↑/↓/↵
+        // never act on a hidden item.
+        var vis = visibleRows();
+        var cur = document.querySelector('.cmd-row.is-selected');
+        if (!cur || cur.hidden) setSelected(vis[0] || null);
+      }
+
+      input && input.addEventListener('input', filter);
 
       // Esc closes the palette (links back to Home).
       document.addEventListener('keydown', function (e) {
@@ -234,22 +319,21 @@
         if (e.target === this) close();
       });
 
-      // ↑/↓ move the keyboard selection (accent-soft highlight); ↵ follows it.
-      function select(next) {
-        var cur = document.querySelector('.cmd-row.is-selected');
-        if (cur) { cur.classList.remove('is-selected'); cur.setAttribute('aria-selected', 'false'); }
-        next.classList.add('is-selected'); next.setAttribute('aria-selected', 'true');
-        next.scrollIntoView({ block: 'nearest' });
-      }
+      // ↑/↓ move the keyboard selection (accent-soft highlight) across the
+      // VISIBLE rows only; ↵ follows it.
       document.addEventListener('keydown', function (e) {
         if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
+        var vis = visibleRows();
+        if (!vis.length) { if (e.key !== 'Enter') e.preventDefault(); return; }
         var cur = document.querySelector('.cmd-row.is-selected');
-        var idx = rows.indexOf(cur);
-        if (e.key === 'ArrowDown') { e.preventDefault(); select(rows[(idx + 1) % rows.length]); }
-        else if (e.key === 'ArrowUp') { e.preventDefault(); select(rows[(idx - 1 + rows.length) % rows.length]); }
-        else if (e.key === 'Enter' && cur) { e.preventDefault(); window.location.href = cur.getAttribute('href'); }
+        var idx = vis.indexOf(cur);
+        if (e.key === 'ArrowDown') { e.preventDefault(); setSelected(vis[(idx + 1 + vis.length) % vis.length]); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); setSelected(vis[(idx - 1 + vis.length) % vis.length]); }
+        else if (e.key === 'Enter' && cur && !cur.hidden) { e.preventDefault(); window.location.href = cur.getAttribute('href'); }
       });
 
+      // Apply the initial (pre-filled) query, then focus.
+      filter();
       if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
     })();
   </script>

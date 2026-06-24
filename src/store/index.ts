@@ -2,6 +2,7 @@
 
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
+import type { StoreApi } from 'zustand'
 import { MODEL_CATALOG } from '@/lib/models'
 
 export type JsonPrimitive = string | number | boolean | null
@@ -605,588 +606,682 @@ interface MissionControlStore {
   setHeaderDensity: (mode: 'focus' | 'compact') => void
 }
 
-export const useMissionControl = create<MissionControlStore>()(
-  subscribeWithSelector((set, get) => ({
-    // Dashboard Mode
-    dashboardMode: 'local' as const,
-    gatewayAvailable: false,
-    localSessionsAvailable: false,
-    bannerDismissed: false,
-    capabilitiesChecked: false,
-    bootComplete: false,
-    subscription: null,
-    defaultOrgName: 'Default',
-    setDashboardMode: (mode) => set({ dashboardMode: mode }),
-    setGatewayAvailable: (available) => set({ gatewayAvailable: available }),
-    setLocalSessionsAvailable: (available) => set({ localSessionsAvailable: available }),
-    dismissBanner: () => set({ bannerDismissed: true }),
-    setCapabilitiesChecked: (checked) => set({ capabilitiesChecked: checked }),
-    setBootComplete: () => set({ bootComplete: true }),
-    setSubscription: (sub) => set({ subscription: sub }),
-    setDefaultOrgName: (name) => set({ defaultOrgName: name }),
+/**
+ * GAP C: the store is composed from cohesive domain slices. Each slice creator
+ * is a plain function of (set, get) returning its slice of state+actions; they
+ * are spread into one `create()` call below. The PUBLIC API
+ * (`useMissionControl` + its `MissionControlStore` interface) is unchanged —
+ * this is a pure internal deepening, so none of the 44 importing panels change.
+ */
+// Each slice creator is a plain helper of (set, get) returning its partial of
+// state+actions; they are spread into one create() call below. Typed against the
+// store's setState/getState so `set({ ... })` (partial merge) and `set(state => ...)`
+// both type-check; the composed object is cast to the full store at the create() call
+// (TS cannot prove 23 partials cover every required field — runtime guarantees it).
+type StoreCreator = (
+  set: StoreApi<MissionControlStore>['setState'],
+  get: StoreApi<MissionControlStore>['getState'],
+) => Partial<MissionControlStore>
 
-    // Onboarding
-    showOnboarding: false,
-    setShowOnboarding: (show) => set({ showOnboarding: show }),
+const createDashboardSlice: StoreCreator = (set) => ({
+  // Dashboard Mode
+  dashboardMode: 'local' as const,
+  gatewayAvailable: false,
+  localSessionsAvailable: false,
+  bannerDismissed: false,
+  capabilitiesChecked: false,
+  bootComplete: false,
+  subscription: null,
+  defaultOrgName: 'Default',
+  setDashboardMode: (mode) => set({ dashboardMode: mode }),
+  setGatewayAvailable: (available) => set({ gatewayAvailable: available }),
+  setLocalSessionsAvailable: (available) => set({ localSessionsAvailable: available }),
+  dismissBanner: () => set({ bannerDismissed: true }),
+  setCapabilitiesChecked: (checked) => set({ capabilitiesChecked: checked }),
+  setBootComplete: () => set({ bootComplete: true }),
+  setSubscription: (sub) => set({ subscription: sub }),
+  setDefaultOrgName: (name) => set({ defaultOrgName: name }),
 
-    // Update availability
-    updateAvailable: null,
-    updateDismissedVersion: (() => {
-      if (typeof window === 'undefined') return null
-      try { return localStorage.getItem('mc-update-dismissed-version') } catch { return null }
-    })(),
-    setUpdateAvailable: (info) => set({ updateAvailable: info }),
-    dismissUpdate: (version) => {
-      try { localStorage.setItem('mc-update-dismissed-version', version) } catch {}
-      set({ updateDismissedVersion: version })
-    },
+  // Onboarding
+  showOnboarding: false,
+  setShowOnboarding: (show) => set({ showOnboarding: show }),
+})
 
-    // OpenClaw update availability
-    openclawUpdate: null,
-    openclawUpdateDismissedVersion: (() => {
-      if (typeof window === 'undefined') return null
-      try { return localStorage.getItem('mc-openclaw-update-dismissed') } catch { return null }
-    })(),
-    setOpenclawUpdate: (info) => set({ openclawUpdate: info }),
-    dismissOpenclawUpdate: (version) => {
-      try { localStorage.setItem('mc-openclaw-update-dismissed', version) } catch {}
-      set({ openclawUpdateDismissedVersion: version })
-    },
+const createUpdatesSlice: StoreCreator = (set) => ({
+  // Update availability
+  updateAvailable: null,
+  updateDismissedVersion: (() => {
+    if (typeof window === 'undefined') return null
+    try { return localStorage.getItem('mc-update-dismissed-version') } catch { return null }
+  })(),
+  setUpdateAvailable: (info) => set({ updateAvailable: info }),
+  dismissUpdate: (version) => {
+    try { localStorage.setItem('mc-update-dismissed-version', version) } catch {}
+    set({ updateDismissedVersion: version })
+  },
 
-    // OpenClaw Doctor banner dismiss
-    doctorDismissedAt: (() => {
-      if (typeof window === 'undefined') return null
-      try {
-        const raw = localStorage.getItem('mc-doctor-dismissed-at')
-        return raw ? Number(raw) : null
-      } catch { return null }
-    })(),
-    dismissDoctor: () => {
-      const now = Date.now()
-      try { localStorage.setItem('mc-doctor-dismissed-at', String(now)) } catch {}
-      set({ doctorDismissedAt: now })
-    },
+  // OpenClaw update availability
+  openclawUpdate: null,
+  openclawUpdateDismissedVersion: (() => {
+    if (typeof window === 'undefined') return null
+    try { return localStorage.getItem('mc-openclaw-update-dismissed') } catch { return null }
+  })(),
+  setOpenclawUpdate: (info) => set({ openclawUpdate: info }),
+  dismissOpenclawUpdate: (version) => {
+    try { localStorage.setItem('mc-openclaw-update-dismissed', version) } catch {}
+    set({ openclawUpdateDismissedVersion: version })
+  },
 
-    // Connection state
-    connection: {
-      isConnected: false,
-      url: '',
-      reconnectAttempts: 0
-    },
-    lastMessage: null,
-    setConnection: (connection) =>
-      set((state) => ({ 
-        connection: { ...state.connection, ...connection } 
-      })),
-    setLastMessage: (message) => set({ lastMessage: message }),
+  // OpenClaw Doctor banner dismiss
+  doctorDismissedAt: (() => {
+    if (typeof window === 'undefined') return null
+    try {
+      const raw = localStorage.getItem('mc-doctor-dismissed-at')
+      return raw ? Number(raw) : null
+    } catch { return null }
+  })(),
+  dismissDoctor: () => {
+    const now = Date.now()
+    try { localStorage.setItem('mc-doctor-dismissed-at', String(now)) } catch {}
+    set({ doctorDismissedAt: now })
+  },
+})
 
-    // Sessions
-    sessions: [],
-    selectedSession: null,
-    setSessions: (sessions) => set({ sessions }),
-    setSelectedSession: (sessionId) => set({ selectedSession: sessionId }),
-    updateSession: (sessionId, updates) =>
-      set((state) => ({
-        sessions: state.sessions.map((session) =>
-          session.id === sessionId ? { ...session, ...updates } : session
-        ),
-      })),
+const createConnectionSlice: StoreCreator = (set) => ({
+  // Connection state
+  connection: {
+    isConnected: false,
+    url: '',
+    reconnectAttempts: 0
+  },
+  lastMessage: null,
+  setConnection: (connection) =>
+    set((state) => ({
+      connection: { ...state.connection, ...connection }
+    })),
+  setLastMessage: (message) => set({ lastMessage: message }),
+})
 
-    // Logs
-    logs: [],
-    logFilters: {},
-    addLog: (log) =>
-      set((state) => {
-        // Check if log already exists to prevent duplicates
-        const existingLogIndex = state.logs.findIndex(existingLog => existingLog.id === log.id)
-        if (existingLogIndex !== -1) {
-          // Update existing log
-          const updatedLogs = [...state.logs]
-          updatedLogs[existingLogIndex] = log
-          return { logs: updatedLogs }
-        }
-        // Add new log at the beginning (newest first)
-        return {
-          logs: [log, ...state.logs].slice(0, 1000), // Keep last 1000 logs
-        }
-      }),
-    setLogFilters: (filters) =>
-      set((state) => ({
-        logFilters: { ...state.logFilters, ...filters },
-      })),
-    clearLogs: () => set({ logs: [] }),
+const createSessionsSlice: StoreCreator = (set) => ({
+  // Sessions
+  sessions: [],
+  selectedSession: null,
+  setSessions: (sessions) => set({ sessions }),
+  setSelectedSession: (sessionId) => set({ selectedSession: sessionId }),
+  updateSession: (sessionId, updates) =>
+    set((state) => ({
+      sessions: state.sessions.map((session) =>
+        session.id === sessionId ? { ...session, ...updates } : session
+      ),
+    })),
+})
 
-    // Agent Spawning
-    spawnRequests: [],
-    addSpawnRequest: (request) =>
-      set((state) => ({
-        spawnRequests: [request, ...state.spawnRequests].slice(0, 500),
-      })),
-    updateSpawnRequest: (id, updates) =>
-      set((state) => ({
-        spawnRequests: state.spawnRequests.map((req) =>
-          req.id === id ? { ...req, ...updates } : req
-        ),
-      })),
-
-    // Cron Management
-    cronJobs: [],
-    setCronJobs: (jobs) => set({ cronJobs: jobs }),
-    updateCronJob: (name, updates) =>
-      set((state) => ({
-        cronJobs: state.cronJobs.map((job) =>
-          job.name === name ? { ...job, ...updates } : job
-        ),
-      })),
-
-    // Memory Browser
-    memoryFiles: [],
-    selectedMemoryFile: null,
-    memoryContent: null,
-    memoryFileLinks: null,
-    memoryHealth: null,
-    setMemoryFiles: (files) => set({ memoryFiles: files }),
-    setSelectedMemoryFile: (path) => set({ selectedMemoryFile: path }),
-    setMemoryContent: (content) => set({ memoryContent: content }),
-    setMemoryFileLinks: (links) => set({ memoryFileLinks: links }),
-    setMemoryHealth: (health) => set({ memoryHealth: health }),
-
-    // Token Usage
-    tokenUsage: [],
-    addTokenUsage: (usage) =>
-      set((state) => ({
-        tokenUsage: [...state.tokenUsage, usage].slice(-2000),
-      })),
-    getUsageByModel: (timeframe) => {
-      const { tokenUsage } = get()
-      const now = new Date()
-      let cutoff: Date
-
-      switch (timeframe) {
-        case 'day':
-          cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-          break
-        case 'week':
-          cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-          break
-        case 'month':
-          cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-          break
-        default:
-          cutoff = new Date(0)
+const createLogsSlice: StoreCreator = (set) => ({
+  // Logs
+  logs: [],
+  logFilters: {},
+  addLog: (log) =>
+    set((state) => {
+      // Check if log already exists to prevent duplicates
+      const existingLogIndex = state.logs.findIndex(existingLog => existingLog.id === log.id)
+      if (existingLogIndex !== -1) {
+        // Update existing log
+        const updatedLogs = [...state.logs]
+        updatedLogs[existingLogIndex] = log
+        return { logs: updatedLogs }
       }
-
-      return tokenUsage
-        .filter((usage) => new Date(usage.date) >= cutoff)
-        .reduce((acc, usage) => {
-          acc[usage.model] = (acc[usage.model] || 0) + usage.totalTokens
-          return acc
-        }, {} as Record<string, number>)
-    },
-    getTotalCost: (timeframe) => {
-      const { tokenUsage } = get()
-      const now = new Date()
-      let cutoff: Date
-
-      switch (timeframe) {
-        case 'day':
-          cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-          break
-        case 'week':
-          cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-          break
-        case 'month':
-          cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-          break
-        default:
-          cutoff = new Date(0)
+      // Add new log at the beginning (newest first)
+      return {
+        logs: [log, ...state.logs].slice(0, 1000), // Keep last 1000 logs
       }
+    }),
+  setLogFilters: (filters) =>
+    set((state) => ({
+      logFilters: { ...state.logFilters, ...filters },
+    })),
+  clearLogs: () => set({ logs: [] }),
+})
 
-      return tokenUsage
-        .filter((usage) => new Date(usage.date) >= cutoff)
-        .reduce((acc, usage) => acc + usage.cost, 0)
-    },
+const createSpawnSlice: StoreCreator = (set) => ({
+  // Agent Spawning
+  spawnRequests: [],
+  addSpawnRequest: (request) =>
+    set((state) => ({
+      spawnRequests: [request, ...state.spawnRequests].slice(0, 500),
+    })),
+  updateSpawnRequest: (id, updates) =>
+    set((state) => ({
+      spawnRequests: state.spawnRequests.map((req) =>
+        req.id === id ? { ...req, ...updates } : req
+      ),
+    })),
+})
 
-    // Model Configuration
-    availableModels: [...MODEL_CATALOG],
-    setAvailableModels: (models) => set({ availableModels: models }),
+const createCronSlice: StoreCreator = (set) => ({
+  // Cron Management
+  cronJobs: [],
+  setCronJobs: (jobs) => set({ cronJobs: jobs }),
+  updateCronJob: (name, updates) =>
+    set((state) => ({
+      cronJobs: state.cronJobs.map((job) =>
+        job.name === name ? { ...job, ...updates } : job
+      ),
+    })),
+})
 
-    // Auth
-    currentUser: null,
-    setCurrentUser: (user) => set({ currentUser: user }),
+const createMemorySlice: StoreCreator = (set) => ({
+  // Memory Browser
+  memoryFiles: [],
+  selectedMemoryFile: null,
+  memoryContent: null,
+  memoryFileLinks: null,
+  memoryHealth: null,
+  setMemoryFiles: (files) => set({ memoryFiles: files }),
+  setSelectedMemoryFile: (path) => set({ selectedMemoryFile: path }),
+  setMemoryContent: (content) => set({ memoryContent: content }),
+  setMemoryFileLinks: (links) => set({ memoryFileLinks: links }),
+  setMemoryHealth: (health) => set({ memoryHealth: health }),
+})
 
-    // Tenant / Organization context
-    activeTenant: (() => {
-      if (typeof window === 'undefined') return null
-      try {
-        const raw = localStorage.getItem('mc-active-tenant')
-        return raw ? JSON.parse(raw) as Tenant : null
-      } catch { return null }
-    })(),
-    tenants: [],
-    osUsers: [],
-    setActiveTenant: (tenant) => {
-      try {
-        if (tenant) {
-          localStorage.setItem('mc-active-tenant', JSON.stringify(tenant))
-        } else {
-          localStorage.removeItem('mc-active-tenant')
-        }
-      } catch {}
-      set({ activeTenant: tenant })
-    },
-    setTenants: (tenants) => set({ tenants }),
-    fetchTenants: async () => {
-      try {
-        const res = await fetch('/api/super/tenants', { cache: 'no-store' })
-        if (!res.ok) return
-        const data = await res.json()
-        const tenantList = Array.isArray(data?.tenants) ? data.tenants : []
-        set({ tenants: tenantList })
-      } catch {}
-    },
-    fetchOsUsers: async () => {
-      try {
-        const res = await fetch('/api/super/os-users', { cache: 'no-store' })
-        if (!res.ok) return
-        const data = await res.json()
-        set({ osUsers: Array.isArray(data?.users) ? data.users : [] })
-      } catch {}
-    },
+const createTokenUsageSlice: StoreCreator = (set, get) => ({
+  // Token Usage
+  tokenUsage: [],
+  addTokenUsage: (usage) =>
+    set((state) => ({
+      tokenUsage: [...state.tokenUsage, usage].slice(-2000),
+    })),
+  getUsageByModel: (timeframe) => {
+    const { tokenUsage } = get()
+    const now = new Date()
+    let cutoff: Date
 
-    // Project context
-    activeProject: (() => {
-      if (typeof window === 'undefined') return null
-      try {
-        const raw = localStorage.getItem('mc-active-project')
-        return raw ? JSON.parse(raw) as Project : null
-      } catch { return null }
-    })(),
-    projects: [],
-    setActiveProject: (project) => {
-      try {
-        if (project) {
-          localStorage.setItem('mc-active-project', JSON.stringify(project))
-        } else {
-          localStorage.removeItem('mc-active-project')
-        }
-      } catch {}
-      set({ activeProject: project })
-    },
-    setProjects: (projects) => set({ projects }),
-    fetchProjects: async () => {
-      try {
-        const res = await fetch('/api/projects', { cache: 'no-store' })
-        if (!res.ok) return
-        const data = await res.json()
-        const projectList = Array.isArray(data?.projects) ? data.projects : []
-        set({ projects: projectList })
-      } catch {}
-    },
+    switch (timeframe) {
+      case 'day':
+        cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+        break
+      case 'week':
+        cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        break
+      case 'month':
+        cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        break
+      default:
+        cutoff = new Date(0)
+    }
 
-    // Project Manager Modal (global)
-    showProjectManagerModal: false,
-    setShowProjectManagerModal: (show) => set({ showProjectManagerModal: show }),
+    return tokenUsage
+      .filter((usage) => new Date(usage.date) >= cutoff)
+      .reduce((acc, usage) => {
+        acc[usage.model] = (acc[usage.model] || 0) + usage.totalTokens
+        return acc
+      }, {} as Record<string, number>)
+  },
+  getTotalCost: (timeframe) => {
+    const { tokenUsage } = get()
+    const now = new Date()
+    let cutoff: Date
 
-    // Exec Approvals
-    execApprovals: [],
-    setExecApprovals: (approvals) => set({ execApprovals: approvals }),
-    addExecApproval: (approval) =>
-      set((state) => {
-        if (state.execApprovals.some(a => a.id === approval.id)) return state
-        return { execApprovals: [approval, ...state.execApprovals].slice(0, 200) }
-      }),
-    updateExecApproval: (id, updates) =>
-      set((state) => ({
-        execApprovals: state.execApprovals.map(a => a.id === id ? { ...a, ...updates } : a),
-      })),
+    switch (timeframe) {
+      case 'day':
+        cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+        break
+      case 'week':
+        cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        break
+      case 'month':
+        cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        break
+      default:
+        cutoff = new Date(0)
+    }
 
-    // Skills
-    skillsList: null,
-    skillGroups: null,
-    skillsTotal: 0,
-    setSkillsData: (skills, groups, total) => set({ skillsList: skills, skillGroups: groups, skillsTotal: total }),
+    return tokenUsage
+      .filter((usage) => new Date(usage.date) >= cutoff)
+      .reduce((acc, usage) => acc + usage.cost, 0)
+  },
 
-    // Memory Graph
-    memoryGraphAgents: null,
-    setMemoryGraphAgents: (agents) => set({ memoryGraphAgents: agents }),
+  // Model Configuration
+  availableModels: [...MODEL_CATALOG],
+  setAvailableModels: (models) => set({ availableModels: models }),
+})
 
-    // Security Posture
-    securityPosture: undefined,
-    setSecurityPosture: (posture) => set({ securityPosture: posture }),
+const createAuthSlice: StoreCreator = (set) => ({
+  // Auth
+  currentUser: null,
+  setCurrentUser: (user) => set({ currentUser: user }),
+})
 
-    // Dashboard Layout
-    dashboardLayout: (() => {
-      if (typeof window === 'undefined') return null
-      try {
-        const raw = localStorage.getItem('mc-dashboard-layout')
-        return raw ? JSON.parse(raw) as string[] : null
-      } catch { return null }
-    })(),
-    setDashboardLayout: (layoutOrUpdater) => {
-      const currentLayout = get().dashboardLayout
-      const layout = typeof layoutOrUpdater === 'function'
-        ? layoutOrUpdater(currentLayout)
-        : layoutOrUpdater
-      try {
-        if (layout) {
-          localStorage.setItem('mc-dashboard-layout', JSON.stringify(layout))
-        } else {
-          localStorage.removeItem('mc-dashboard-layout')
-        }
-      } catch {}
-      set({ dashboardLayout: layout })
-    },
+const createTenantSlice: StoreCreator = (set) => ({
+  // Tenant / Organization context
+  activeTenant: (() => {
+    if (typeof window === 'undefined') return null
+    try {
+      const raw = localStorage.getItem('mc-active-tenant')
+      return raw ? JSON.parse(raw) as Tenant : null
+    } catch { return null }
+  })(),
+  tenants: [],
+  osUsers: [],
+  setActiveTenant: (tenant) => {
+    try {
+      if (tenant) {
+        localStorage.setItem('mc-active-tenant', JSON.stringify(tenant))
+      } else {
+        localStorage.removeItem('mc-active-tenant')
+      }
+    } catch {}
+    set({ activeTenant: tenant })
+  },
+  setTenants: (tenants) => set({ tenants }),
+  fetchTenants: async () => {
+    try {
+      const res = await fetch('/api/super/tenants', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      const tenantList = Array.isArray(data?.tenants) ? data.tenants : []
+      set({ tenants: tenantList })
+    } catch {}
+  },
+  fetchOsUsers: async () => {
+    try {
+      const res = await fetch('/api/super/os-users', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      set({ osUsers: Array.isArray(data?.users) ? data.users : [] })
+    } catch {}
+  },
+})
 
-    // Interface Mode
-    interfaceMode: 'essential' as const,
-    setInterfaceMode: (mode) => set({ interfaceMode: mode }),
+const createProjectSlice: StoreCreator = (set) => ({
+  // Project context
+  activeProject: (() => {
+    if (typeof window === 'undefined') return null
+    try {
+      const raw = localStorage.getItem('mc-active-project')
+      return raw ? JSON.parse(raw) as Project : null
+    } catch { return null }
+  })(),
+  projects: [],
+  setActiveProject: (project) => {
+    try {
+      if (project) {
+        localStorage.setItem('mc-active-project', JSON.stringify(project))
+      } else {
+        localStorage.removeItem('mc-active-project')
+      }
+    } catch {}
+    set({ activeProject: project })
+  },
+  setProjects: (projects) => set({ projects }),
+  fetchProjects: async () => {
+    try {
+      const res = await fetch('/api/projects', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      const projectList = Array.isArray(data?.projects) ? data.projects : []
+      set({ projects: projectList })
+    } catch {}
+  },
 
-    // UI State — sidebar & layout persistence
-    activeTab: 'overview',
-    sidebarExpanded: (() => {
-      if (typeof window === 'undefined') return false
-      try { return localStorage.getItem('mc-sidebar-expanded') === 'true' } catch { return false }
-    })(),
-    collapsedGroups: (() => {
-      if (typeof window === 'undefined') return [] as string[]
-      try {
-        const raw = localStorage.getItem('mc-sidebar-groups')
-        return raw ? JSON.parse(raw) as string[] : []
-      } catch { return [] as string[] }
-    })(),
-    liveFeedOpen: (() => {
-      if (typeof window === 'undefined') return true
-      try { return localStorage.getItem('mc-livefeed-open') !== 'false' } catch { return true }
-    })(),
-    headerDensity: (() => {
-      if (typeof window === 'undefined') return 'focus' as const
-      try {
-        const raw = localStorage.getItem('mc-header-density')
-        return raw === 'compact' ? 'compact' : 'focus'
-      } catch { return 'focus' as const }
-    })(),
-    setActiveTab: (tab) => set({ activeTab: tab }),
-    toggleSidebar: () =>
-      set((state) => {
-        const next = !state.sidebarExpanded
-        try { localStorage.setItem('mc-sidebar-expanded', String(next)) } catch {}
-        return { sidebarExpanded: next }
-      }),
-    setSidebarExpanded: (expanded) => {
-      try { localStorage.setItem('mc-sidebar-expanded', String(expanded)) } catch {}
-      set({ sidebarExpanded: expanded })
-    },
-    toggleGroup: (groupId) =>
-      set((state) => {
-        const next = state.collapsedGroups.includes(groupId)
-          ? state.collapsedGroups.filter(g => g !== groupId)
-          : [...state.collapsedGroups, groupId]
-        try { localStorage.setItem('mc-sidebar-groups', JSON.stringify(next)) } catch {}
-        return { collapsedGroups: next }
-      }),
-    toggleLiveFeed: () =>
-      set((state) => {
-        const next = !state.liveFeedOpen
-        try { localStorage.setItem('mc-livefeed-open', String(next)) } catch {}
-        return { liveFeedOpen: next }
-      }),
-    setHeaderDensity: (mode) => {
-      try { localStorage.setItem('mc-header-density', mode) } catch {}
-      set({ headerDensity: mode })
-    },
+  // Project Manager Modal (global)
+  showProjectManagerModal: false,
+  setShowProjectManagerModal: (show) => set({ showProjectManagerModal: show }),
+})
 
-    // Opzava Phase 2 - Tasks
-    tasks: [],
-    selectedTask: null,
-    setTasks: (tasks) => set({ tasks }),
-    setSelectedTask: (task) => set({ selectedTask: task }),
-    addTask: (task) =>
-      set((state) => ({
-        tasks: [task, ...state.tasks]
-      })),
-    updateTask: (taskId, updates) =>
-      set((state) => ({
-        tasks: state.tasks.map((task) =>
-          task.id === taskId ? { ...task, ...updates } : task
-        ),
-        selectedTask: state.selectedTask?.id === taskId
-          ? { ...state.selectedTask, ...updates }
-          : state.selectedTask
-      })),
-    deleteTask: (taskId) =>
-      set((state) => ({
-        tasks: state.tasks.filter((task) => task.id !== taskId),
-        selectedTask: state.selectedTask?.id === taskId ? null : state.selectedTask
-      })),
+const createExecApprovalsSlice: StoreCreator = (set) => ({
+  // Exec Approvals
+  execApprovals: [],
+  setExecApprovals: (approvals) => set({ execApprovals: approvals }),
+  addExecApproval: (approval) =>
+    set((state) => {
+      if (state.execApprovals.some(a => a.id === approval.id)) return state
+      return { execApprovals: [approval, ...state.execApprovals].slice(0, 200) }
+    }),
+  updateExecApproval: (id, updates) =>
+    set((state) => ({
+      execApprovals: state.execApprovals.map(a => a.id === id ? { ...a, ...updates } : a),
+    })),
+})
 
-    // Opzava Phase 2 - Agents
-    agents: [],
-    selectedAgent: null,
-    setAgents: (agents) => set({ agents }),
-    setSelectedAgent: (agent) => set({ selectedAgent: agent }),
-    addAgent: (agent) =>
-      set((state) => ({
-        agents: [agent, ...state.agents]
-      })),
-    updateAgent: (agentId, updates) =>
-      set((state) => ({
-        agents: state.agents.map((agent) =>
-          agent.id === agentId ? { ...agent, ...updates } : agent
-        ),
-        selectedAgent: state.selectedAgent?.id === agentId
-          ? { ...state.selectedAgent, ...updates }
-          : state.selectedAgent
-      })),
-    deleteAgent: (agentId) =>
-      set((state) => ({
-        agents: state.agents.filter((agent) => agent.id !== agentId),
-        selectedAgent: state.selectedAgent?.id === agentId ? null : state.selectedAgent
-      })),
+const createSkillsSlice: StoreCreator = (set) => ({
+  // Skills
+  skillsList: null,
+  skillGroups: null,
+  skillsTotal: 0,
+  setSkillsData: (skills, groups, total) => set({ skillsList: skills, skillGroups: groups, skillsTotal: total }),
 
-    // Opzava Phase 2 - Activities
-    activities: [],
-    setActivities: (activities) => set({ activities }),
-    addActivity: (activity) =>
-      set((state) => ({
-        activities: [activity, ...state.activities].slice(0, 1000) // Keep last 1000
-      })),
+  // Memory Graph
+  memoryGraphAgents: null,
+  setMemoryGraphAgents: (agents) => set({ memoryGraphAgents: agents }),
 
-    // Opzava Phase 2 - Notifications
-    notifications: [],
-    unreadNotificationCount: 0,
-    setNotifications: (notifications) =>
-      set({
-        notifications,
-        unreadNotificationCount: notifications.filter(n => !n.read_at).length
-      }),
-    addNotification: (notification) =>
-      set((state) => ({
+  // Security Posture
+  securityPosture: undefined,
+  setSecurityPosture: (posture) => set({ securityPosture: posture }),
+})
+
+const createUiSlice: StoreCreator = (set, get) => ({
+  // Dashboard Layout
+  dashboardLayout: (() => {
+    if (typeof window === 'undefined') return null
+    try {
+      const raw = localStorage.getItem('mc-dashboard-layout')
+      return raw ? JSON.parse(raw) as string[] : null
+    } catch { return null }
+  })(),
+  setDashboardLayout: (layoutOrUpdater) => {
+    const currentLayout = get().dashboardLayout
+    const layout = typeof layoutOrUpdater === 'function'
+      ? layoutOrUpdater(currentLayout)
+      : layoutOrUpdater
+    try {
+      if (layout) {
+        localStorage.setItem('mc-dashboard-layout', JSON.stringify(layout))
+      } else {
+        localStorage.removeItem('mc-dashboard-layout')
+      }
+    } catch {}
+    set({ dashboardLayout: layout })
+  },
+
+  // Interface Mode
+  interfaceMode: 'essential' as const,
+  setInterfaceMode: (mode) => set({ interfaceMode: mode }),
+
+  // UI State — sidebar & layout persistence
+  activeTab: 'overview',
+  sidebarExpanded: (() => {
+    if (typeof window === 'undefined') return false
+    try { return localStorage.getItem('mc-sidebar-expanded') === 'true' } catch { return false }
+  })(),
+  collapsedGroups: (() => {
+    if (typeof window === 'undefined') return [] as string[]
+    try {
+      const raw = localStorage.getItem('mc-sidebar-groups')
+      return raw ? JSON.parse(raw) as string[] : []
+    } catch { return [] as string[] }
+  })(),
+  liveFeedOpen: (() => {
+    if (typeof window === 'undefined') return true
+    try { return localStorage.getItem('mc-livefeed-open') !== 'false' } catch { return true }
+  })(),
+  headerDensity: (() => {
+    if (typeof window === 'undefined') return 'focus' as const
+    try {
+      const raw = localStorage.getItem('mc-header-density')
+      return raw === 'compact' ? 'compact' : 'focus'
+    } catch { return 'focus' as const }
+  })(),
+  setActiveTab: (tab) => set({ activeTab: tab }),
+  toggleSidebar: () =>
+    set((state) => {
+      const next = !state.sidebarExpanded
+      try { localStorage.setItem('mc-sidebar-expanded', String(next)) } catch {}
+      return { sidebarExpanded: next }
+    }),
+  setSidebarExpanded: (expanded) => {
+    try { localStorage.setItem('mc-sidebar-expanded', String(expanded)) } catch {}
+    set({ sidebarExpanded: expanded })
+  },
+  toggleGroup: (groupId) =>
+    set((state) => {
+      const next = state.collapsedGroups.includes(groupId)
+        ? state.collapsedGroups.filter(g => g !== groupId)
+        : [...state.collapsedGroups, groupId]
+      try { localStorage.setItem('mc-sidebar-groups', JSON.stringify(next)) } catch {}
+      return { collapsedGroups: next }
+    }),
+  toggleLiveFeed: () =>
+    set((state) => {
+      const next = !state.liveFeedOpen
+      try { localStorage.setItem('mc-livefeed-open', String(next)) } catch {}
+      return { liveFeedOpen: next }
+    }),
+  setHeaderDensity: (mode) => {
+    try { localStorage.setItem('mc-header-density', mode) } catch {}
+    set({ headerDensity: mode })
+  },
+
+  // Terminal split panes + attention
+  splitPanes: [],
+  setSplitPanes: (panes) => set({ splitPanes: panes }),
+  addSplitPane: (sessionId, sessionKind, sessionName) =>
+    set((state) => {
+      if (state.splitPanes.length >= 4) return state
+      if (state.splitPanes.some((p) => p.sessionId === sessionId)) return state
+      return {
+        splitPanes: [
+          ...state.splitPanes,
+          { id: `pane-${Date.now()}`, sessionId, sessionKind, sessionName },
+        ],
+      }
+    }),
+  removeSplitPane: (paneId) =>
+    set((state) => ({
+      splitPanes: state.splitPanes.filter((p) => p.id !== paneId),
+    })),
+  clearSplitPanes: () => set({ splitPanes: [] }),
+  sessionAttention: {},
+  setSessionAttention: (sessionId, level) =>
+    set((state) => {
+      if (!level) {
+        const next = { ...state.sessionAttention }
+        delete next[sessionId]
+        return { sessionAttention: next }
+      }
+      return { sessionAttention: { ...state.sessionAttention, [sessionId]: level } }
+    }),
+})
+
+const createTasksSlice: StoreCreator = (set) => ({
+  // Opzava Phase 2 - Tasks
+  tasks: [],
+  selectedTask: null,
+  setTasks: (tasks) => set({ tasks }),
+  setSelectedTask: (task) => set({ selectedTask: task }),
+  addTask: (task) =>
+    set((state) => {
+      if (state.tasks.some((item) => item.id === task.id)) return state
+      return { tasks: [task, ...state.tasks] }
+    }),
+  updateTask: (taskId, updates) =>
+    set((state) => ({
+      tasks: state.tasks.map((task) =>
+        task.id === taskId ? { ...task, ...updates } : task
+      ),
+      selectedTask: state.selectedTask?.id === taskId
+        ? { ...state.selectedTask, ...updates }
+        : state.selectedTask
+    })),
+  deleteTask: (taskId) =>
+    set((state) => ({
+      tasks: state.tasks.filter((task) => task.id !== taskId),
+      selectedTask: state.selectedTask?.id === taskId ? null : state.selectedTask
+    })),
+})
+
+const createAgentsSlice: StoreCreator = (set) => ({
+  // Opzava Phase 2 - Agents
+  agents: [],
+  selectedAgent: null,
+  setAgents: (agents) => set({ agents }),
+  setSelectedAgent: (agent) => set({ selectedAgent: agent }),
+  addAgent: (agent) =>
+    set((state) => {
+      if (state.agents.some((item) => item.id === agent.id)) return state
+      return { agents: [agent, ...state.agents] }
+    }),
+  updateAgent: (agentId, updates) =>
+    set((state) => ({
+      agents: state.agents.map((agent) =>
+        agent.id === agentId ? { ...agent, ...updates } : agent
+      ),
+      selectedAgent: state.selectedAgent?.id === agentId
+        ? { ...state.selectedAgent, ...updates }
+        : state.selectedAgent
+    })),
+  deleteAgent: (agentId) =>
+    set((state) => ({
+      agents: state.agents.filter((agent) => agent.id !== agentId),
+      selectedAgent: state.selectedAgent?.id === agentId ? null : state.selectedAgent
+    })),
+})
+
+const createActivitiesSlice: StoreCreator = (set) => ({
+  // Opzava Phase 2 - Activities
+  activities: [],
+  setActivities: (activities) => set({ activities }),
+  addActivity: (activity) =>
+    set((state) => {
+      if (state.activities.some((item) => item.id === activity.id)) return state
+      return { activities: [activity, ...state.activities].slice(0, 1000) }
+    }),
+})
+
+const createNotificationsSlice: StoreCreator = (set) => ({
+  // Opzava Phase 2 - Notifications
+  notifications: [],
+  unreadNotificationCount: 0,
+  setNotifications: (notifications) =>
+    set({
+      notifications,
+      unreadNotificationCount: notifications.filter(n => !n.read_at).length
+    }),
+  addNotification: (notification) =>
+    set((state) => {
+      if (state.notifications.some((item) => item.id === notification.id)) return state
+      return {
         notifications: [notification, ...state.notifications].slice(0, 500),
-        unreadNotificationCount: state.unreadNotificationCount + 1
-      })),
-    markNotificationRead: (notificationId) =>
-      set((state) => ({
+        unreadNotificationCount: notification.read_at ? state.unreadNotificationCount : state.unreadNotificationCount + 1
+      }
+    }),
+  markNotificationRead: (notificationId) =>
+    set((state) => {
+      const existing = state.notifications.find((notification) => notification.id === notificationId)
+      const shouldDecrement = Boolean(existing && !existing.read_at)
+      return {
         notifications: state.notifications.map((notification) =>
-          notification.id === notificationId 
-            ? { ...notification, read_at: Math.floor(Date.now() / 1000) }
+          notification.id === notificationId
+            ? { ...notification, read_at: notification.read_at || Math.floor(Date.now() / 1000) }
             : notification
         ),
-        unreadNotificationCount: Math.max(0, state.unreadNotificationCount - 1)
-      })),
-    markAllNotificationsRead: () =>
-      set((state) => ({
-        notifications: state.notifications.map((notification) =>
-          notification.read_at ? notification : { ...notification, read_at: Math.floor(Date.now() / 1000) }
-        ),
-        unreadNotificationCount: 0
-      })),
+        unreadNotificationCount: shouldDecrement ? Math.max(0, state.unreadNotificationCount - 1) : state.unreadNotificationCount
+      }
+    }),
+  markAllNotificationsRead: () =>
+    set((state) => ({
+      notifications: state.notifications.map((notification) =>
+        notification.read_at ? notification : { ...notification, read_at: Math.floor(Date.now() / 1000) }
+      ),
+      unreadNotificationCount: 0
+    })),
+})
 
-    // Opzava Phase 2 - Comments
-    taskComments: {},
-    setTaskComments: (taskId, comments) =>
-      set((state) => ({
-        taskComments: { ...state.taskComments, [taskId]: comments }
-      })),
-    addTaskComment: (taskId, comment) =>
-      set((state) => ({
-        taskComments: {
-          ...state.taskComments,
-          [taskId]: [comment, ...(state.taskComments[taskId] || [])]
-        }
-      })),
+const createCommentsSlice: StoreCreator = (set) => ({
+  // Opzava Phase 2 - Comments
+  taskComments: {},
+  setTaskComments: (taskId, comments) =>
+    set((state) => ({
+      taskComments: { ...state.taskComments, [taskId]: comments }
+    })),
+  addTaskComment: (taskId, comment) =>
+    set((state) => ({
+      taskComments: {
+        ...state.taskComments,
+        [taskId]: [comment, ...(state.taskComments[taskId] || [])]
+      }
+    })),
+})
 
-    // Agent Chat
-    chatMessages: [],
-    conversations: [],
-    activeConversation: null,
-    chatInput: '',
-    isSendingMessage: false,
-    chatPanelOpen: false,
-    setChatMessages: (messages) => set({ chatMessages: messages.slice(-500) }),
-    addChatMessage: (message) =>
-      set((state) => {
-        // Deduplicate: skip if a message with the same server ID already exists
-        if (message.id > 0 && state.chatMessages.some(m => m.id === message.id)) {
-          return state
-        }
-        const messages = [...state.chatMessages, message].slice(-500)
-        const conversations = state.conversations.map((conv) =>
-          conv.id === message.conversation_id
-            ? { ...conv, lastMessage: message, updatedAt: message.created_at }
-            : conv
-        )
-        return { chatMessages: messages, conversations }
-      }),
-    replacePendingMessage: (tempId, message) =>
-      set((state) => ({
-        chatMessages: state.chatMessages.map(m =>
-          m.id === tempId ? { ...message, pendingStatus: 'sent' } : m
-        ),
-      })),
-    updatePendingMessage: (tempId, updates) =>
-      set((state) => ({
-        chatMessages: state.chatMessages.map(m =>
-          m.id === tempId ? { ...m, ...updates } : m
-        ),
-      })),
-    removePendingMessage: (tempId) =>
-      set((state) => ({
-        chatMessages: state.chatMessages.filter(m => m.id !== tempId),
-      })),
-    setConversations: (conversations) => set({ conversations }),
-    setActiveConversation: (conversationId) => set({ activeConversation: conversationId }),
-    setChatInput: (input) => set({ chatInput: input }),
-    setIsSendingMessage: (loading) => set({ isSendingMessage: loading }),
-    setChatPanelOpen: (open) => set({ chatPanelOpen: open }),
-    markConversationRead: (conversationId) =>
-      set((state) => ({
-        conversations: state.conversations.map((conv) =>
-          conv.id === conversationId
-            ? { ...conv, unreadCount: 0 }
-            : conv
-        ),
-        chatMessages: state.chatMessages.map((msg) =>
-          msg.conversation_id === conversationId && !msg.read_at
-            ? { ...msg, read_at: Math.floor(Date.now() / 1000) }
-            : msg
-        )
-      })),
+const createChatSlice: StoreCreator = (set) => ({
+  // Agent Chat
+  chatMessages: [],
+  conversations: [],
+  activeConversation: null,
+  chatInput: '',
+  isSendingMessage: false,
+  chatPanelOpen: false,
+  setChatMessages: (messages) => set({ chatMessages: messages.slice(-500) }),
+  addChatMessage: (message) =>
+    set((state) => {
+      // Deduplicate: skip if a message with the same server ID already exists
+      if (message.id > 0 && state.chatMessages.some(m => m.id === message.id)) {
+        return state
+      }
+      const messages = [...state.chatMessages, message].slice(-500)
+      const conversations = state.conversations.map((conv) =>
+        conv.id === message.conversation_id
+          ? { ...conv, lastMessage: message, updatedAt: message.created_at }
+          : conv
+      )
+      return { chatMessages: messages, conversations }
+    }),
+  replacePendingMessage: (tempId, message) =>
+    set((state) => ({
+      chatMessages: state.chatMessages.map(m =>
+        m.id === tempId ? { ...message, pendingStatus: 'sent' } : m
+      ),
+    })),
+  updatePendingMessage: (tempId, updates) =>
+    set((state) => ({
+      chatMessages: state.chatMessages.map(m =>
+        m.id === tempId ? { ...m, ...updates } : m
+      ),
+    })),
+  removePendingMessage: (tempId) =>
+    set((state) => ({
+      chatMessages: state.chatMessages.filter(m => m.id !== tempId),
+    })),
+  setConversations: (conversations) => set({ conversations }),
+  setActiveConversation: (conversationId) => set({ activeConversation: conversationId }),
+  setChatInput: (input) => set({ chatInput: input }),
+  setIsSendingMessage: (loading) => set({ isSendingMessage: loading }),
+  setChatPanelOpen: (open) => set({ chatPanelOpen: open }),
+  markConversationRead: (conversationId) =>
+    set((state) => ({
+      conversations: state.conversations.map((conv) =>
+        conv.id === conversationId
+          ? { ...conv, unreadCount: 0 }
+          : conv
+      ),
+      chatMessages: state.chatMessages.map((msg) =>
+        msg.conversation_id === conversationId && !msg.read_at
+          ? { ...msg, read_at: Math.floor(Date.now() / 1000) }
+          : msg
+      )
+    })),
+})
 
-    // Terminal split panes + attention
-    splitPanes: [],
-    setSplitPanes: (panes) => set({ splitPanes: panes }),
-    addSplitPane: (sessionId, sessionKind, sessionName) =>
-      set((state) => {
-        if (state.splitPanes.length >= 4) return state
-        if (state.splitPanes.some((p) => p.sessionId === sessionId)) return state
-        return {
-          splitPanes: [
-            ...state.splitPanes,
-            { id: `pane-${Date.now()}`, sessionId, sessionKind, sessionName },
-          ],
-        }
-      }),
-    removeSplitPane: (paneId) =>
-      set((state) => ({
-        splitPanes: state.splitPanes.filter((p) => p.id !== paneId),
-      })),
-    clearSplitPanes: () => set({ splitPanes: [] }),
-    sessionAttention: {},
-    setSessionAttention: (sessionId, level) =>
-      set((state) => {
-        if (!level) {
-          const next = { ...state.sessionAttention }
-          delete next[sessionId]
-          return { sessionAttention: next }
-        }
-        return { sessionAttention: { ...state.sessionAttention, [sessionId]: level } }
-      }),
+const createStandupSlice: StoreCreator = (set) => ({
+  // Opzava Phase 2 - Standup
+  standupReports: [],
+  currentStandupReport: null,
+  setStandupReports: (reports) => set({ standupReports: reports }),
+  setCurrentStandupReport: (report) => set({ currentStandupReport: report }),
+})
 
-    // Opzava Phase 2 - Standup
-    standupReports: [],
-    currentStandupReport: null,
-    setStandupReports: (reports) => set({ standupReports: reports }),
-    setCurrentStandupReport: (report) => set({ currentStandupReport: report }),
-  }))
+export const useMissionControl = create<MissionControlStore>()(
+  subscribeWithSelector((set, get) => ({
+    ...createDashboardSlice(set, get),
+    ...createUpdatesSlice(set, get),
+    ...createConnectionSlice(set, get),
+    ...createSessionsSlice(set, get),
+    ...createLogsSlice(set, get),
+    ...createSpawnSlice(set, get),
+    ...createCronSlice(set, get),
+    ...createMemorySlice(set, get),
+    ...createTokenUsageSlice(set, get),
+    ...createAuthSlice(set, get),
+    ...createTenantSlice(set, get),
+    ...createProjectSlice(set, get),
+    ...createExecApprovalsSlice(set, get),
+    ...createSkillsSlice(set, get),
+    ...createUiSlice(set, get),
+    ...createTasksSlice(set, get),
+    ...createAgentsSlice(set, get),
+    ...createActivitiesSlice(set, get),
+    ...createNotificationsSlice(set, get),
+    ...createCommentsSlice(set, get),
+    ...createChatSlice(set, get),
+    ...createStandupSlice(set, get),
+  } as MissionControlStore))
 )

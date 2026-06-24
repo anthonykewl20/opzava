@@ -130,7 +130,7 @@
 
     document.addEventListener('pointerover', function (e) {
       if (pop.contains(e.target)) { clearTimeout(closeTimer); return; }
-      var a = e.target.closest && e.target.closest(AV); if (!a) return;
+      var a = e.target.closest && e.target.closest(AV); if (!a || a.closest('[data-account-trigger]')) return;
       var key = resolve(a); if (!key) return;
       clearTimeout(closeTimer);
       if (anchor === a && isOpen()) return;
@@ -144,12 +144,12 @@
       clearTimeout(openTimer); closeTimer = setTimeout(close, 200);
     });
     document.addEventListener('focusin', function (e) {
-      var a = e.target.closest && e.target.closest(AV); if (!a) return;
+      var a = e.target.closest && e.target.closest(AV); if (!a || a.closest('[data-account-trigger]')) return;
       var key = resolve(a); if (key) openFor(a, key);
     });
     document.addEventListener('click', function (e) {
       var a = e.target.closest && e.target.closest(AV);
-      if (a) { var key = resolve(a); if (key) { e.preventDefault(); e.stopPropagation(); clearTimeout(closeTimer); openFor(a, key); pinned = true; return; } }
+      if (a && !a.closest('[data-account-trigger]')) { var key = resolve(a); if (key) { e.preventDefault(); e.stopPropagation(); clearTimeout(closeTimer); openFor(a, key); pinned = true; return; } }
       if (isOpen() && !pop.contains(e.target)) close();
     });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && isOpen()) close(); });

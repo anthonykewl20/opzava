@@ -3,6 +3,7 @@ import os from 'node:os'
 import { runCommand } from '@/lib/command'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
+import { getMemorySnapshot } from '@/lib/status-actions'
 
 export async function GET(request: NextRequest) {
   const auth = requireRole(request, 'viewer')
@@ -65,73 +66,8 @@ function cpuTotals() {
 }
 
 // ── Memory ──────────────────────────────────────────────────────────────────
-
-async function getMemorySnapshot() {
-  const totalBytes = os.totalmem()
-  let availableBytes = os.freemem()
-
-  // More accurate available memory per platform
-  if (process.platform === 'darwin') {
-    try {
-      const { stdout } = await runCommand('vm_stat', [], { timeoutMs: 3000 })
-      const pageSizeMatch = stdout.match(/page size of (\d+) bytes/i)
-      const pageSize = parseInt(pageSizeMatch?.[1] || '4096', 10)
-      const pageLabels = ['Pages free', 'Pages inactive', 'Pages speculative', 'Pages purgeable']
-
-      const availablePages = pageLabels.reduce((sum, label) => {
-        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        const match = stdout.match(new RegExp(`${escaped}:\\s+([\\d.]+)`, 'i'))
-        const pages = parseInt((match?.[1] || '0').replace(/\./g, ''), 10)
-        return sum + (Number.isFinite(pages) ? pages : 0)
-      }, 0)
-
-      const vmAvailable = availablePages * pageSize
-      if (vmAvailable > 0) availableBytes = Math.min(vmAvailable, totalBytes)
-    } catch { /* fallback to os.freemem() */ }
-  } else {
-    try {
-      const { stdout } = await runCommand('free', ['-b'], { timeoutMs: 3000 })
-      const memLine = stdout.split('\n').find(l => l.startsWith('Mem:'))
-      if (memLine) {
-        const parts = memLine.trim().split(/\s+/)
-        const available = parseInt(parts[6] || parts[3] || '0', 10)
-        if (Number.isFinite(available) && available > 0) {
-          availableBytes = Math.min(available, totalBytes)
-        }
-      }
-    } catch { /* fallback */ }
-  }
-
-  const usedBytes = Math.max(0, totalBytes - availableBytes)
-  const usagePercent = totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0
-
-  // Swap
-  let swapTotalBytes = 0
-  let swapUsedBytes = 0
-
-  if (process.platform === 'darwin') {
-    try {
-      const { stdout } = await runCommand('sysctl', ['-n', 'vm.swapusage'], { timeoutMs: 3000 })
-      // Output: "total = 2048.00M  used = 1024.00M  free = 1024.00M  ..."
-      const totalMatch = stdout.match(/total\s*=\s*([\d.]+)M/i)
-      const usedMatch = stdout.match(/used\s*=\s*([\d.]+)M/i)
-      if (totalMatch) swapTotalBytes = parseFloat(totalMatch[1]) * 1024 * 1024
-      if (usedMatch) swapUsedBytes = parseFloat(usedMatch[1]) * 1024 * 1024
-    } catch { /* no swap info */ }
-  } else {
-    try {
-      const { stdout } = await runCommand('free', ['-b'], { timeoutMs: 3000 })
-      const swapLine = stdout.split('\n').find(l => l.startsWith('Swap:'))
-      if (swapLine) {
-        const parts = swapLine.trim().split(/\s+/)
-        swapTotalBytes = parseInt(parts[1] || '0', 10)
-        swapUsedBytes = parseInt(parts[2] || '0', 10)
-      }
-    } catch { /* no swap info */ }
-  }
-
-  return { totalBytes, usedBytes, availableBytes, usagePercent, swapTotalBytes, swapUsedBytes }
-}
+// getMemorySnapshot is shared from @/lib/status-actions (Gap C dedup). The
+// status-action overview/health callers select only a subset of its fields.
 
 // ── Disk ────────────────────────────────────────────────────────────────────
 

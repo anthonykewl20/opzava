@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers, Message } from '@/lib/db'
+import { getDatabase, db_helpers, logAuditEvent, Message } from '@/lib/db'
 import { runOpenClaw } from '@/lib/command'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { eventBus } from '@/lib/event-bus'
@@ -258,8 +258,23 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0')
     const since = searchParams.get('since')
 
+    // Chat DM membership ACL (Gap B REST parity). The SSE stream already
+    // restricts chat.* events to their two participants unless the viewer is an
+    // operator/admin; the REST read path must apply the same predicate so a
+    // viewer cannot read another agent's DMs by hitting the list endpoint.
+    // viewerName mirrors the SSE stream's identity resolution exactly.
+    const viewerName = auth.user.display_name || auth.user.username
+    const isPrivileged = auth.user.role === 'operator' || auth.user.role === 'admin'
+    // Broadcasts (to_agent IS NULL) are workspace-wide and visible to all members —
+    // parity with GET /api/chat/conversations and the SSE chat ACL, which treat only
+    // real DMs (to_agent set) as private.
+    const membershipClause = isPrivileged ? '' : ' AND (from_agent = ? OR to_agent = ? OR to_agent IS NULL)'
+    const membershipParams = isPrivileged ? [] : [viewerName, viewerName]
+
     let query = 'SELECT * FROM messages WHERE workspace_id = ?'
     const params: any[] = [workspaceId]
+    query += membershipClause
+    params.push(...membershipParams)
 
     if (conversation_id) {
       query += ' AND conversation_id = ?'
@@ -291,9 +306,11 @@ export async function GET(request: NextRequest) {
       metadata: safeParseMetadata(msg.metadata),
     }))
 
-    // Get total count for pagination
+    // Get total count for pagination (same membership ACL applied for consistency)
     let countQuery = 'SELECT COUNT(*) as total FROM messages WHERE workspace_id = ?'
     const countParams: any[] = [workspaceId]
+    countQuery += membershipClause
+    countParams.push(...membershipParams)
     if (conversation_id) {
       countQuery += ' AND conversation_id = ?'
       countParams.push(conversation_id)
@@ -333,11 +350,11 @@ export async function POST(request: NextRequest) {
     const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json()
 
-    const requestedFrom = typeof body.from === 'string' ? body.from.trim() : ''
-    const isCoordinatorOverride = requestedFrom.toLowerCase() === COORDINATOR_AGENT.toLowerCase()
-    const from = isCoordinatorOverride
-      ? COORDINATOR_AGENT
-      : (auth.user.display_name || auth.user.username || 'system')
+    // Sender identity is resolved server-side only. A client-supplied body.from is
+    // never trusted on this human-authenticated route (P0-1 coordinator spoofing fix):
+    // any operator could otherwise POST messages that appear to come from the
+    // coordinator. body.from is intentionally ignored.
+    const from = auth.user.display_name || auth.user.username || 'system'
     const to = body.to ? (body.to as string).trim() : null
     const content = (body.content || '').trim()
     const message_type = body.message_type || 'text'
@@ -395,6 +412,21 @@ export async function POST(request: NextRequest) {
       { conversation_id, to, message_type },
       workspaceId
     )
+
+    // Record the human send in the unified audit trail. Chat is an Engine-A surface
+    // (inherited `messages`, `db_helpers`), so it joins the one audit surface via the
+    // inherited `audit_log` that GET /api/audit projects (unified-audit.ts) — no new
+    // table, no new boundary crossing. Only the user-originated send is audited;
+    // system-generated replies (createChatReply) are deliberately excluded so the
+    // compliance trail records human actions without agent chatter.
+    logAuditEvent({
+      action: 'chat_message_sent',
+      actor: from,
+      actor_id: auth.user.id,
+      target_type: 'message',
+      target_id: messageId,
+      detail: { conversation_id, to, message_type },
+    })
 
     // Create notification for recipient if specified
     if (to) {

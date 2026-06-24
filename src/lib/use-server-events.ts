@@ -7,6 +7,7 @@ import { createClientLogger } from '@/lib/client-logger'
 const log = createClientLogger('SSE')
 
 interface ServerEvent {
+  id?: number
   type: string
   data: any
   timestamp: number
@@ -19,14 +20,11 @@ interface ServerEvent {
  * SSE provides instant updates for all local-DB data (tasks, agents,
  * chat, activities, notifications), making REST polling a fallback.
  */
-const SSE_MAX_RECONNECT_ATTEMPTS = 20
-const SSE_BASE_DELAY_MS = 1000
-const SSE_MAX_DELAY_MS = 30000
+const MAX_DEDUPED_EVENT_IDS = 500
 
 export function useServerEvents() {
   const eventSourceRef = useRef<EventSource | null>(null)
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined)
-  const sseReconnectAttemptsRef = useRef<number>(0)
+  const processedEventIdsRef = useRef<Set<number>>(new Set())
 
   const {
     setConnection,
@@ -35,8 +33,10 @@ export function useServerEvents() {
     deleteTask,
     addAgent,
     updateAgent,
+    deleteAgent,
     addChatMessage,
     addNotification,
+    markNotificationRead,
     addActivity,
   } = useMissionControl()
 
@@ -54,7 +54,6 @@ export function useServerEvents() {
 
       es.onopen = () => {
         if (!mounted) return
-        sseReconnectAttemptsRef.current = 0
         setConnection({ sseConnected: true })
       }
 
@@ -62,6 +61,15 @@ export function useServerEvents() {
         if (!mounted) return
         try {
           const payload = JSON.parse(event.data) as ServerEvent
+          const eventId = typeof payload.id === 'number' ? payload.id : Number(event.lastEventId || 0)
+          if (Number.isSafeInteger(eventId) && eventId > 0) {
+            if (processedEventIdsRef.current.has(eventId)) return
+            processedEventIdsRef.current.add(eventId)
+            if (processedEventIdsRef.current.size > MAX_DEDUPED_EVENT_IDS) {
+              const oldest = processedEventIdsRef.current.values().next().value
+              if (oldest !== undefined) processedEventIdsRef.current.delete(oldest)
+            }
+          }
           dispatch(payload)
         } catch {
           // Ignore malformed events
@@ -71,24 +79,7 @@ export function useServerEvents() {
       es.onerror = () => {
         if (!mounted) return
         setConnection({ sseConnected: false })
-        es.close()
-        eventSourceRef.current = null
-
-        const attempts = sseReconnectAttemptsRef.current
-        if (attempts >= SSE_MAX_RECONNECT_ATTEMPTS) {
-          log.error(`Max reconnect attempts (${SSE_MAX_RECONNECT_ATTEMPTS}) reached`)
-          return
-        }
-
-        // Exponential backoff with jitter
-        const base = Math.min(Math.pow(2, attempts) * SSE_BASE_DELAY_MS, SSE_MAX_DELAY_MS)
-        const delay = Math.round(base + Math.random() * base * 0.5)
-        sseReconnectAttemptsRef.current = attempts + 1
-
-        log.warn(`Reconnecting in ${delay}ms (attempt ${attempts + 1}/${SSE_MAX_RECONNECT_ATTEMPTS})`)
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (mounted) connect()
-        }, delay)
+        log.warn('SSE connection lost; browser EventSource will reconnect')
       }
     }
 
@@ -133,6 +124,11 @@ export function useServerEvents() {
             updateAgent(event.data.id, event.data)
           }
           break
+        case 'agent.deleted':
+          if (event.data?.id) {
+            deleteAgent(event.data.id)
+          }
+          break
 
         // Chat events
         case 'chat.message':
@@ -166,6 +162,11 @@ export function useServerEvents() {
             })
           }
           break
+        case 'notification.read':
+          if (event.data?.id) {
+            markNotificationRead(event.data.id)
+          }
+          break
 
         // Activity events
         case 'activity.created':
@@ -189,7 +190,6 @@ export function useServerEvents() {
 
     return () => {
       mounted = false
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
       if (eventSourceRef.current) {
         eventSourceRef.current.close()
         eventSourceRef.current = null
@@ -203,8 +203,10 @@ export function useServerEvents() {
     deleteTask,
     addAgent,
     updateAgent,
+    deleteAgent,
     addChatMessage,
     addNotification,
+    markNotificationRead,
     addActivity,
   ])
 }

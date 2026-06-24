@@ -11,6 +11,8 @@
   <script src="tools-bar.js"></script>
   <script src="notify-bell.js"></script>
   <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
   <style>
     /* ── Shell ──────────────────────────────────────────────────────── */
     .bc { min-height: 100vh; font-size: var(--text-base); }
@@ -615,6 +617,62 @@
     }
     wireMenu('channelBtn', 'channelMenu');
     wireMenu('campaignBtn', 'campaignMenu');
+
+    /* ── Filter state + apply ──────────────────────────────────────── */
+    var filters = { channel: null, campaign: null };  // null = "All …"
+
+    function chipText(chip, sel) {
+      var el = chip.querySelector(sel);
+      return el ? el.textContent.trim().toLowerCase() : '';
+    }
+    function filtering(f) { return !!(f.channel || f.campaign); }
+
+    function applyFilters() {
+      var grid = document.querySelector('#monthView .cal-grid');
+      var emptyState = document.querySelector('.cal-empty');
+      var anyVisible = false;
+
+      document.querySelectorAll('#monthView .cal-chip').forEach(function (chip) {
+        var okChannel = !filters.channel ||
+          chipText(chip, '.cal-chip-channel') === filters.channel;
+        var okCampaign = !filters.campaign ||
+          chipText(chip, '.cal-chip-campaign') === filters.campaign;
+        var show = okChannel && okCampaign;
+        chip.style.display = show ? '' : 'none';
+        if (show) anyVisible = true;
+      });
+
+      var noMatch = filtering(filters) && !anyVisible;
+      if (grid) grid.style.display = noMatch ? 'none' : '';
+      // .cal-empty has CSS `display:none` — must set an explicit value to reveal it
+      if (emptyState) emptyState.style.display = noMatch ? 'block' : 'none';
+    }
+
+    /* Wire each menu's items to set the matching filter dimension + label */
+    function wireFilter(menuId, btnId, key, baseLabel) {
+      var menu = document.getElementById(menuId);
+      var btn = document.getElementById(btnId);
+      if (!menu || !btn) return;
+      menu.querySelectorAll('.sb-menu-item').forEach(function (item) {
+        item.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var raw = item.textContent.trim();
+          var isAll = /^All\b/i.test(raw);
+          filters[key] = isAll ? null : raw.toLowerCase();
+          btn.innerHTML = isAll
+            ? (baseLabel + ' <span aria-hidden="true">▾</span>')
+            : (baseLabel + ': ' + raw + ' <span aria-hidden="true">▾</span>');
+          // close the menu (mirror existing behaviour)
+          menu.style.display = 'none';
+          btn.setAttribute('aria-expanded', 'false');
+          applyFilters();
+        });
+      });
+    }
+    wireFilter('channelMenu', 'channelBtn', 'channel', 'Channel');
+    wireFilter('campaignMenu', 'campaignBtn', 'campaign', 'Campaign');
+
     document.addEventListener('click', function () {
       document.querySelectorAll('.sb-menu').forEach(function (m) { m.style.display = 'none'; });
       document.querySelectorAll('[aria-expanded]').forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
@@ -660,6 +718,108 @@
         }
       });
     });
+  })();
+</script>
+
+<!-- ── Content-piece detail drawer (opens when you click a calendar item) ──────── -->
+<style>
+  .scrim { display: none; }                 /* override app.css default-shown — closed until .is-open */
+  .scrim.is-open { display: flex; }
+  .mcd-head { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-5) var(--space-5) var(--space-4); border-bottom: 1px solid var(--border); }
+  .mcd-eyebrow { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); }
+  .mcd-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); line-height: var(--lh-snug); margin-top: 2px; }
+  .mcd-close { margin-left: auto; border: 0; background: none; font-size: 22px; line-height: 1; color: var(--fg-subtle); cursor: pointer; padding: 0 4px; }
+  .mcd-close:hover { color: var(--fg); }
+  .mcd-body { padding: var(--space-5); overflow-y: auto; }
+  .mcd-kv { display: grid; grid-template-columns: 92px 1fr; gap: 9px var(--space-3); margin: var(--space-4) 0; font-size: var(--text-sm); }
+  .mcd-kv dt { color: var(--fg-subtle); }
+  .mcd-kv dd { color: var(--fg); margin: 0; display: flex; align-items: center; gap: 6px; }
+  .mcd-notes { font-size: var(--text-sm); color: var(--fg-muted); line-height: var(--lh-relaxed); }
+  .mcd-sep { height: 1px; background: var(--border); margin: var(--space-4) 0; }
+  .mcd-h { font-size: var(--text-sm); font-weight: var(--fw-semibold); margin-bottom: var(--space-2); }
+  .mcd-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .mcd-composer { display: flex; gap: var(--space-2); }
+  .mcd-composer .textarea { flex: 1; min-height: 60px; }
+  /* a quiet, discoverable "add on this day" hint on cell hover */
+  .cal-grid .cal-cell { position: relative; }
+  .cal-grid .cal-cell:not(.cal-cell--empty):hover { cursor: pointer; }
+  .cal-grid .cal-cell:not(.cal-cell--empty):hover::after { content: '＋ add'; position: absolute; top: 4px; right: 6px; font-size: var(--text-xs); color: var(--fg-subtle); pointer-events: none; }
+</style>
+<div class="scrim" id="mcScrim" role="dialog" aria-modal="true" aria-labelledby="mcd-title">
+  <aside class="drawer">
+    <div class="mcd-head">
+      <span class="sb-avatar sb-avatar--sm" id="mcd-av" style="background:var(--chart-2)" aria-hidden="true">A</span>
+      <div style="min-width:0">
+        <p class="mcd-eyebrow" id="mcd-eyebrow">Content</p>
+        <h2 class="mcd-title" id="mcd-title">Scheduled content</h2>
+      </div>
+      <button class="mcd-close" type="button" data-mcd-close aria-label="Close">×</button>
+    </div>
+    <div class="mcd-body">
+      <span class="sb-statusline" id="mcd-status"><span class="sl-glyph" aria-hidden="true">●</span> <span class="sl-label">Scheduled</span></span>
+      <dl class="mcd-kv">
+        <dt>Channel</dt><dd id="mcd-channel">—</dd>
+        <dt>Campaign</dt><dd id="mcd-campaign">—</dd>
+        <dt>When</dt><dd id="mcd-when">—</dd>
+        <dt>Owner</dt><dd id="mcd-owner">—</dd>
+      </dl>
+      <p class="mcd-notes">A preview of this piece and where it's headed. The owner drafts it; nothing goes out until it's approved.</p>
+      <div class="mcd-sep"></div>
+      <div class="mcd-actions" id="mcd-actions"></div>
+      <div class="mcd-sep"></div>
+      <p class="mcd-h">Comments</p>
+      <div class="mcd-composer"><textarea class="textarea" placeholder="Add a comment…" aria-label="Add a comment"></textarea><button class="btn btn-ghost" type="button">Send</button></div>
+    </div>
+  </aside>
+</div>
+<script>
+  (function () {
+    var scrim = document.getElementById('mcScrim'); if (!scrim) return;
+    var $ = function (id) { return document.getElementById(id); };
+    var CH = {
+      blog:   { eb: 'Blog post',   who: 'Atlas', init: 'A', ai: true,  c: 'var(--chart-2)' },
+      email:  { eb: 'Email',       who: 'Atlas', init: 'A', ai: true,  c: 'var(--chart-2)' },
+      social: { eb: 'Social post', who: 'Iris',  init: 'I', ai: true,  c: 'var(--chart-6)' },
+      paid:   { eb: 'Paid ad',     who: 'Dan',   init: 'D', ai: false, c: 'var(--chart-4)' }
+    };
+    var ST = [['in review', { g: '◷', l: 'In review' }], ['review', { g: '◷', l: 'In review' }],
+              ['draft', { g: '◦', l: 'Draft' }], ['published', { g: '✓', l: 'Published' }], ['scheduled', { g: '●', l: 'Scheduled' }]];
+    function open() { scrim.classList.add('is-open'); }
+    function close() { scrim.classList.remove('is-open'); }
+    function fill(chip) {
+      var title = (chip.querySelector('.cal-chip-title') || {}).textContent || 'Scheduled content';
+      var ch = ((chip.querySelector('.cal-chip-channel') || {}).textContent || '').toLowerCase().trim();
+      var camp = (chip.querySelector('.cal-chip-campaign') || {}).textContent || '—';
+      var s = ((chip.getAttribute('aria-label') || '') + ' ' + ((chip.querySelector('.cal-chip-status') || {}).textContent || '')).toLowerCase();
+      var st = { g: '●', l: 'Scheduled' }; for (var i = 0; i < ST.length; i++) { if (s.indexOf(ST[i][0]) !== -1) { st = ST[i][1]; break; } }
+      var m = CH[ch] || { eb: 'Content', who: 'Atlas', init: 'A', ai: true, c: 'var(--chart-2)' };
+      var cell = chip.closest('.cal-cell'); var day = cell ? ((cell.querySelector('.cal-day-num') || {}).textContent || '').trim() : '';
+      $('mcd-title').textContent = title;
+      $('mcd-eyebrow').textContent = (m.ai ? '✦ ' : '') + m.eb;
+      var av = $('mcd-av'); av.textContent = m.init; av.style.background = m.c; av.className = 'sb-avatar sb-avatar--sm' + (m.ai ? ' sb-avatar--ai' : '');
+      $('mcd-status').innerHTML = '<span class="sl-glyph" aria-hidden="true">' + st.g + '</span> <span class="sl-label">' + st.l + '</span>';
+      $('mcd-channel').textContent = ch || '—';
+      $('mcd-campaign').textContent = camp;
+      $('mcd-when').textContent = day ? ('June ' + day + ', 2026') : '—';
+      $('mcd-owner').innerHTML = '<span class="sb-avatar sb-avatar--sm' + (m.ai ? ' sb-avatar--ai' : '') + '" style="background:' + m.c + '" aria-hidden="true">' + m.init + '</span> ' + (m.ai ? '✦ ' : '') + m.who + (m.ai ? ' (AI)' : '');
+      var acts;
+      if (st.l === 'Draft') acts = '<a class="btn btn-primary" href="essential-send-review.html">Send for review →</a><button class="btn btn-ghost" type="button">Edit</button><button class="btn btn-ghost" type="button">Reschedule</button>';
+      else if (st.l === 'In review') acts = '<a class="btn btn-primary" href="essential-mkt-approvals.html">Open in Approvals →</a><button class="btn btn-ghost" type="button">Edit</button>';
+      else acts = '<a class="btn btn-ghost" href="essential-card.html">Open the piece →</a><button class="btn btn-ghost" type="button">Edit</button><button class="btn btn-ghost" type="button">Reschedule</button>';
+      $('mcd-actions').innerHTML = acts;
+      open();
+    }
+    document.querySelectorAll('.cal-chip[role="button"]').forEach(function (chip) {
+      chip.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); fill(chip); });
+    });
+    // click an empty part of a day cell → add an event on that day
+    document.querySelectorAll('.cal-grid .cal-cell').forEach(function (cell) {
+      var num = cell.querySelector('.cal-day-num'); if (!num || !num.textContent.trim()) return;
+      cell.addEventListener('click', function (e) { if (e.target.closest('.cal-chip')) return; location.href = 'essential-event-new.html'; });
+    });
+    document.querySelectorAll('[data-mcd-close]').forEach(function (b) { b.addEventListener('click', close); });
+    scrim.addEventListener('click', function (e) { if (e.target === scrim) close(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && scrim.classList.contains('is-open')) close(); });
   })();
 </script>
 </body>

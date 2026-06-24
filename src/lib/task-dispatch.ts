@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { getDatabase, db_helpers } from './db'
 import { callOpenClawGateway } from './openclaw-gateway'
-import { eventBus } from './event-bus'
+import { eventBus, type EventType } from './event-bus'
 import { logger } from './logger'
 import { config } from './config'
 import { getAllGatewaySessions } from './sessions'
@@ -16,11 +16,73 @@ import {
 
 const AGENT_DISPATCH_ACCEPT_TIMEOUT_MS = 60_000
 
-/** Sync task to GitHub/GNAP and broadcast escalation if task failed */
-function syncAndEscalateIfFailed(task: { id: number; title: string; status: string; priority: string; project_id?: number | null; workspace_id: number; description?: string | null }, newStatus: string, errorMsg?: string, dispatchAttempts?: number): void {
-  syncTaskOutbound({ ...task, status: newStatus }, task.workspace_id)
+// ---------------------------------------------------------------------------
+// Dependency-injection seam.
+//
+// The five orchestrators below previously reached for module globals
+// (`getDatabase`, `eventBus.broadcast`, `db_helpers.logActivity`,
+// `callOpenClawGateway`, `Date.now`, `recoverDeferredCompletionTextFromTranscript`)
+// inline. That made them untestable without `vi.mock`-ing half the codebase.
+//
+// Per DEEPENING.md: the seam carries ONLY the members an orchestrator actually
+// uses (grow it per orchestrator, no speculative surface). Two adapters make
+// the seam REAL:
+//   - `makeDefaultDeps()` wires the production module globals (used by the
+//     scheduler and the task API routes).
+//   - Tests pass a deps-literal (fake db + stubbed side-effects) directly.
+//
+// Behavior is preserved exactly: `makeDefaultDeps()` returns the same globals
+// the orchestrators previously called inline.
+// ---------------------------------------------------------------------------
+
+export interface TaskDispatchDeps {
+  db: ReturnType<typeof getDatabase>
+  broadcast: (type: EventType, payload: Record<string, unknown>) => void
+  logActivity: typeof db_helpers.logActivity
+  clock: { now: () => number; nowMs: () => number }
+  gateway: <T>(method: string, params: unknown, timeoutMs?: number, opts?: { expectFinal?: boolean }) => Promise<T>
+  isGatewayAvailable: () => boolean
+  isDirectDispatchAvailable: (provider?: DirectProvider) => boolean
+  dispatchDirect: (task: any, prompt: string) => Promise<any>
+  recoverCompletionText: (task: any, metadata: Record<string, any>) => string | null
+  syncTaskOutbound: (task: { id: number; title: string; status: string; priority: string; project_id?: number | null; workspace_id: number; description?: string | null }, workspaceId: number) => void
+}
+
+/** Production adapter — wires the real module globals into the seam. */
+export function makeDefaultDeps(): TaskDispatchDeps {
+  return {
+    db: getDatabase(),
+    broadcast: (type, payload) => eventBus.broadcast(type, payload),
+    logActivity: db_helpers.logActivity,
+    clock: {
+      now: () => Math.floor(Date.now() / 1000),
+      nowMs: () => Date.now(),
+    },
+    gateway: (method, params, timeoutMs, opts) =>
+      callOpenClawGateway(method, params, timeoutMs, opts as { expectFinal?: boolean } | undefined),
+    isGatewayAvailable,
+    isDirectDispatchAvailable,
+    dispatchDirect: (task, prompt) => callDirectly(task, prompt),
+    recoverCompletionText: (task, metadata) => recoverDeferredCompletionTextFromTranscript(task, metadata),
+    syncTaskOutbound: (task, workspaceId) => syncTaskOutbound(task, workspaceId),
+  }
+}
+
+/** Sync task to GitHub/GNAP and broadcast escalation if task failed. Reads its
+ *  side effects ONLY from `deps` (the TaskDispatchDeps seam) — never the
+ *  module-global syncTaskOutbound / eventBus.broadcast — so orchestrators stay
+ *  fully seam-covered and testable without vi.mock. */
+function syncAndEscalateIfFailed(deps: TaskDispatchDeps, task: { id: number; title: string; status: string; priority: string; project_id?: number | null; workspace_id: number; description?: string | null }, newStatus: string, errorMsg?: string, dispatchAttempts?: number): void {
+  // Outbound sync is a best-effort side effect. A failure here must never
+  // escape into the caller's path — it would flip a successful dispatch into a
+  // failure (audit: sync-escalate-outbound-throw-flips-success-to-failure).
+  try {
+    deps.syncTaskOutbound({ ...task, status: newStatus }, task.workspace_id)
+  } catch (err) {
+    logger.warn({ err, taskId: task.id, newStatus }, 'outbound task sync failed (non-fatal)')
+  }
   if (newStatus === 'failed') {
-    eventBus.broadcast('task.escalated', {
+    deps.broadcast('task.escalated', {
       id: task.id,
       title: task.title,
       reason: errorMsg?.includes('Aegis rejected') ? 'max_aegis_rejections' : errorMsg?.includes('stuck') ? 'stale_task_max_retries' : 'max_dispatch_retries',
@@ -116,7 +178,7 @@ interface AgentResponseParsed {
   sessionId: string | null
 }
 
-interface DeferredCompletionTask {
+export interface DeferredCompletionTask {
   id: number
   title: string
   assigned_to: string | null
@@ -270,7 +332,7 @@ function findAssistantTextAfterTaskPrompt(rawTranscript: string, task: DeferredC
   return null
 }
 
-function recoverDeferredCompletionTextFromTranscript(
+export function recoverDeferredCompletionTextFromTranscript(
   task: DeferredCompletionTask,
   metadata: Record<string, any>,
 ): string | null {
@@ -308,8 +370,8 @@ function recoverDeferredCompletionTextFromTranscript(
   return null
 }
 
-async function waitForDeferredRun(runId: string): Promise<{ complete: boolean; text: string | null }> {
-  const waitPayload = await callOpenClawGateway<any>(
+async function waitForDeferredRun(deps: TaskDispatchDeps, runId: string): Promise<{ complete: boolean; text: string | null }> {
+  const waitPayload = await deps.gateway<any>(
     'agent.wait',
     { runId, timeoutMs: 1000 },
     3000,
@@ -324,17 +386,20 @@ async function waitForDeferredRun(runId: string): Promise<{ complete: boolean; t
   }
 }
 
-export async function reconcileDeferredTaskCompletions(options: {
-  workspaceId?: number
-  taskId?: number
-  limit?: number
-  waitForRun?: (runId: string) => Promise<{ complete: boolean; text: string | null }>
-} = {}): Promise<{ ok: boolean; message: string; checked: number; promoted: number }> {
-  const db = getDatabase()
+export async function reconcileDeferredTaskCompletions(
+  deps: TaskDispatchDeps,
+  options: {
+    workspaceId?: number
+    taskId?: number
+    limit?: number
+    waitForRun?: (runId: string) => Promise<{ complete: boolean; text: string | null }>
+  } = {},
+): Promise<{ ok: boolean; message: string; checked: number; promoted: number }> {
+  const db = deps.db
   const workspaceId = options.workspaceId ?? 1
   const limit = Math.max(1, Math.min(options.limit ?? 5, 20))
-  const waitForRun = options.waitForRun ?? waitForDeferredRun
-  const now = Math.floor(Date.now() / 1000)
+  const waitForRun = options.waitForRun ?? ((runId: string) => waitForDeferredRun(deps, runId))
+  const now = deps.clock.now()
 
   const params: unknown[] = [workspaceId]
   let query = `
@@ -380,7 +445,7 @@ export async function reconcileDeferredTaskCompletions(options: {
     }
     if (!completion.complete) continue
 
-    const recoveredText = completion.text?.trim() || recoverDeferredCompletionTextFromTranscript(task, metadata)
+    const recoveredText = completion.text?.trim() || deps.recoverCompletionText(task, metadata)
     const resolution = recoveredText || 'Deferred agent run completed without textual output.'
     const truncated = resolution.length > 10_000
       ? resolution.substring(0, 10_000) + '\n\n[Response truncated at 10,000 characters]'
@@ -410,12 +475,12 @@ export async function reconcileDeferredTaskCompletions(options: {
       VALUES (?, ?, ?, ?, ?)
     `).run(task.id, task.assigned_to || 'agent', truncated, now, task.workspace_id)
 
-    eventBus.broadcast('task.status_changed', {
+    deps.broadcast('task.status_changed', {
       id: task.id,
       status: 'review',
       previous_status: 'in_progress',
     })
-    eventBus.broadcast('task.updated', {
+    deps.broadcast('task.updated', {
       id: task.id,
       status: 'review',
       outcome: 'success',
@@ -424,7 +489,7 @@ export async function reconcileDeferredTaskCompletions(options: {
       dispatch_run_id: nextMetadata.dispatch_run_id,
     })
 
-    db_helpers.logActivity(
+    deps.logActivity(
       'task_agent_completed',
       'task',
       task.id,
@@ -539,6 +604,39 @@ function getAgentSoulContent(task: DispatchableTask): string | null {
   }
 }
 
+/**
+ * Record a token-usage row for a direct dispatch. Single source of truth for
+ * the three provider clients (Anthropic API, Claude CLI, OpenAI-compatible)
+ * that previously carried near-duplicate INSERT blocks. Best-effort: a write
+ * failure never aborts the dispatch. `cost` is left to 0 — it is calculated
+ * separately downstream.
+ */
+function recordUsage(
+  task: { id: number; workspace_id: number },
+  model: string,
+  sessionId: string | null,
+  inputTokens: number,
+  outputTokens: number,
+): void {
+  if (!inputTokens && !outputTokens) return
+  try {
+    const db = getDatabase()
+    db.prepare(`
+      INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, total_tokens, cost, created_at, workspace_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      model,
+      sessionId || `task-${task.id}`,
+      inputTokens,
+      outputTokens,
+      inputTokens + outputTokens,
+      0,
+      Math.floor(Date.now() / 1000),
+      task.workspace_id,
+    )
+  } catch { /* non-fatal */ }
+}
+
 async function callClaudeDirectly(
   task: DispatchableTask,
   prompt: string,
@@ -592,23 +690,7 @@ async function callClaudeDirectly(
 
   // Record token usage
   if (data.usage) {
-    try {
-      const db = getDatabase()
-      const now = Math.floor(Date.now() / 1000)
-      db.prepare(`
-        INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, total_tokens, cost, created_at, workspace_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        model,
-        `task-${task.id}`,
-        data.usage.input_tokens || 0,
-        data.usage.output_tokens || 0,
-        (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0),
-        0, // cost calculated separately
-        now,
-        task.workspace_id,
-      )
-    } catch { /* non-fatal */ }
+    recordUsage(task, model, null, data.usage.input_tokens || 0, data.usage.output_tokens || 0)
   }
 
   return { text, sessionId: null }
@@ -629,7 +711,7 @@ async function callClaudeDirectly(
 //   anything else (incl. "claude-*")                      → Anthropic
 // ---------------------------------------------------------------------------
 
-type DirectProvider = 'anthropic' | 'openai' | 'local'
+export type DirectProvider = 'anthropic' | 'openai' | 'local'
 
 function getOpenAIApiKey(): string | null {
   return (process.env.OPENAI_API_KEY || '').trim() || null
@@ -738,23 +820,7 @@ async function callClaudeViaCli(
 
         // Record token usage if reported.
         if (parsed?.usage && (parsed.usage.input_tokens || parsed.usage.output_tokens)) {
-          try {
-            const db = getDatabase()
-            const now = Math.floor(Date.now() / 1000)
-            db.prepare(`
-              INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, total_tokens, cost, created_at, workspace_id)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(
-              model,
-              sessionId || `task-${task.id}`,
-              parsed.usage.input_tokens || 0,
-              parsed.usage.output_tokens || 0,
-              (parsed.usage.input_tokens || 0) + (parsed.usage.output_tokens || 0),
-              0,
-              now,
-              task.workspace_id,
-            )
-          } catch { /* non-fatal */ }
+          recordUsage(task, model, sessionId, parsed.usage.input_tokens || 0, parsed.usage.output_tokens || 0)
         }
 
         resolve({ text, sessionId })
@@ -806,23 +872,7 @@ async function callOpenAICompatible(
   const text = data.choices?.[0]?.message?.content?.trim() || null
 
   if (data.usage) {
-    try {
-      const db = getDatabase()
-      const now = Math.floor(Date.now() / 1000)
-      db.prepare(`
-        INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, total_tokens, cost, created_at, workspace_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        model,
-        `task-${task.id}`,
-        data.usage.prompt_tokens || 0,
-        data.usage.completion_tokens || 0,
-        (data.usage.prompt_tokens || 0) + (data.usage.completion_tokens || 0),
-        0,
-        now,
-        task.workspace_id,
-      )
-    } catch { /* non-fatal */ }
+    recordUsage(task, model, null, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0)
   }
 
   return { text, sessionId: null }
@@ -927,8 +977,8 @@ function parseReviewVerdict(text: string): { status: 'approved' | 'rejected'; no
  * Run Aegis quality reviews on tasks in 'review' status.
  * Uses an agent to evaluate the task resolution, then approves or rejects.
  */
-export async function runAegisReviews(): Promise<{ ok: boolean; message: string }> {
-  const db = getDatabase()
+export async function runAegisReviews(deps: TaskDispatchDeps): Promise<{ ok: boolean; message: string }> {
+  const db = deps.db
 
   const tasks = db.prepare(`
     SELECT t.id, t.title, t.description, t.status, t.priority, t.resolution, t.assigned_to, t.workspace_id,
@@ -948,11 +998,15 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
   const results: Array<{ id: number; verdict: string; error?: string }> = []
 
   for (const task of tasks) {
-    // Move to quality_review to prevent re-processing
-    db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
-      .run('quality_review', Math.floor(Date.now() / 1000), task.id)
+    // Atomically claim review→quality_review: only flip if still 'review', so
+    // two concurrent runAegisReviews passes can't both process the same task
+    // (exactly one UPDATE reports changes=1; the loser skips). Mirrors the
+    // dispatchAssignedTasks claim guard (PR #698).
+    const claim = db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ? AND status = ?')
+      .run('quality_review', deps.clock.now(), task.id, 'review')
+    if (claim.changes === 0) continue
 
-    eventBus.broadcast('task.status_changed', {
+    deps.broadcast('task.status_changed', {
       id: task.id,
       status: 'quality_review',
       previous_status: 'review',
@@ -962,7 +1016,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
       const prompt = buildReviewPrompt(task)
       let agentResponse: AgentResponseParsed
 
-      if (!isGatewayAvailable() && isDirectDispatchAvailable()) {
+      if (!deps.isGatewayAvailable() && deps.isDirectDispatchAvailable()) {
         // Direct API review — no gateway needed (Anthropic / OpenAI / local).
         // Pass through agent_config so Aegis honors per-agent dispatchModel
         // overrides and routes to the matching provider.
@@ -973,7 +1027,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
           agent_config: task.agent_config, ticket_prefix: task.ticket_prefix,
           project_ticket_no: task.project_ticket_no, project_id: null,
         }
-        agentResponse = await callDirectly(reviewTask, prompt)
+        agentResponse = await deps.dispatchDirect(reviewTask, prompt)
       } else {
         // Resolve the gateway agent ID from config, falling back to assigned_to or default
         const reviewAgent = resolveGatewayAgentIdForReview(task)
@@ -981,10 +1035,10 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
         const invokeParams = {
           message: prompt,
           agentId: reviewAgent,
-          idempotencyKey: `aegis-review-${task.id}-${Date.now()}`,
+          idempotencyKey: `aegis-review-${task.id}-${deps.clock.nowMs()}`,
           deliver: false,
         }
-        const finalPayload = await callOpenClawGateway<any>(
+        const finalPayload = await deps.gateway<any>(
           'agent',
           invokeParams,
           125_000,
@@ -1009,17 +1063,17 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
 
       if (verdict.status === 'approved') {
         db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
-          .run('done', Math.floor(Date.now() / 1000), task.id)
+          .run('done', deps.clock.now(), task.id)
 
-        eventBus.broadcast('task.status_changed', {
+        deps.broadcast('task.status_changed', {
           id: task.id,
           status: 'done',
           previous_status: 'quality_review',
         })
-        syncAndEscalateIfFailed(task, 'done')
+        syncAndEscalateIfFailed(deps, task, 'done')
       } else {
         // Rejected: check dispatch_attempts to decide next status
-        const now = Math.floor(Date.now() / 1000)
+        const now = deps.clock.now()
         const currentAttempts = (db.prepare('SELECT dispatch_attempts FROM tasks WHERE id = ?').get(task.id) as { dispatch_attempts: number } | undefined)?.dispatch_attempts ?? 0
         const newAttempts = currentAttempts + 1
         const maxAegisRetries = 3
@@ -1029,27 +1083,27 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
           db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
             .run('failed', `Aegis rejected ${newAttempts} times. Last: ${verdict.notes}`, newAttempts, now, task.id)
 
-          eventBus.broadcast('task.status_changed', {
+          deps.broadcast('task.status_changed', {
             id: task.id,
             status: 'failed',
             previous_status: 'quality_review',
             error_message: `Aegis rejected ${newAttempts} times`,
             reason: 'max_aegis_retries_exceeded',
           })
-          syncAndEscalateIfFailed(task, 'failed', `Aegis rejected ${newAttempts} times`, newAttempts)
+          syncAndEscalateIfFailed(deps, task, 'failed', `Aegis rejected ${newAttempts} times`, newAttempts)
         } else {
           // Requeue to assigned for re-dispatch with feedback
           db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
             .run('assigned', `Aegis rejected: ${verdict.notes}`, newAttempts, now, task.id)
 
-          eventBus.broadcast('task.status_changed', {
+          deps.broadcast('task.status_changed', {
             id: task.id,
             status: 'assigned',
             previous_status: 'quality_review',
             error_message: `Aegis rejected: ${verdict.notes}`,
             reason: 'aegis_rejection',
           })
-          syncAndEscalateIfFailed(task, 'assigned')
+          syncAndEscalateIfFailed(deps, task, 'assigned')
         }
 
         // Add rejection as a comment so the agent sees it on next dispatch
@@ -1059,7 +1113,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
         `).run(task.id, `Quality Review Rejected (attempt ${newAttempts}/${maxAegisRetries}):\n${verdict.notes}`, now, task.workspace_id)
       }
 
-      db_helpers.logActivity(
+      deps.logActivity(
         'aegis_review',
         'task',
         task.id,
@@ -1077,9 +1131,9 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
 
       // Revert to review so it can be retried
       db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
-        .run('review', Math.floor(Date.now() / 1000), task.id)
+        .run('review', deps.clock.now(), task.id)
 
-      eventBus.broadcast('task.status_changed', {
+      deps.broadcast('task.status_changed', {
         id: task.id,
         status: 'review',
         previous_status: 'quality_review',
@@ -1103,9 +1157,9 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
  * Requeue stale tasks stuck in 'in_progress' whose assigned agent is offline.
  * Prevents tasks from being permanently stuck when agents crash or disconnect.
  */
-export async function requeueStaleTasks(): Promise<{ ok: boolean; message: string }> {
-  const db = getDatabase()
-  const now = Math.floor(Date.now() / 1000)
+export async function requeueStaleTasks(deps: TaskDispatchDeps): Promise<{ ok: boolean; message: string }> {
+  const db = deps.db
+  const now = deps.clock.now()
   const staleThreshold = now - 10 * 60 // 10 minutes
   const maxDispatchRetries = 5
 
@@ -1133,7 +1187,7 @@ export async function requeueStaleTasks(): Promise<{ ok: boolean; message: strin
   // direct provider (Anthropic/OpenAI/local). Skip the offline-stale check
   // entirely in that mode, otherwise every task is failed after 5 cycles
   // before any direct-API dispatch can run.
-  const directApiSkipsStaleCheck = !isGatewayAvailable() && isDirectDispatchAvailable()
+  const directApiSkipsStaleCheck = !deps.isGatewayAvailable() && deps.isDirectDispatchAvailable()
 
   for (const task of staleTasks) {
     if (directApiSkipsStaleCheck) continue
@@ -1144,10 +1198,14 @@ export async function requeueStaleTasks(): Promise<{ ok: boolean; message: strin
     const newAttempts = (task.dispatch_attempts ?? 0) + 1
 
     if (newAttempts >= maxDispatchRetries) {
-      db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
-        .run('failed', `Task stuck in_progress ${newAttempts} times — agent "${task.assigned_to}" offline. Moved to failed.`, newAttempts, now, task.id)
+      // Guard the flip with AND status='in_progress': a task reconcile is
+      // concurrently promoting in_progress→review must not be failed/requeued
+      // underneath us. Skip on a lost claim (mirrors the dispatch claim guard).
+      const claim = db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ? AND status = ?')
+        .run('failed', `Task stuck in_progress ${newAttempts} times — agent "${task.assigned_to}" offline. Moved to failed.`, newAttempts, now, task.id, 'in_progress')
+      if (claim.changes === 0) continue
 
-      eventBus.broadcast('task.status_changed', {
+      deps.broadcast('task.status_changed', {
         id: task.id,
         status: 'failed',
         previous_status: 'in_progress',
@@ -1155,11 +1213,12 @@ export async function requeueStaleTasks(): Promise<{ ok: boolean; message: strin
         reason: 'stale_task_max_retries',
       })
 
-      syncAndEscalateIfFailed(task as any, 'failed', `Task stuck in_progress ${newAttempts} times`, newAttempts)
+      syncAndEscalateIfFailed(deps, task as any, 'failed', `Task stuck in_progress ${newAttempts} times`, newAttempts)
       failed++
     } else {
-      db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
-        .run('assigned', `Requeued: agent "${task.assigned_to}" went offline while task was in_progress`, newAttempts, now, task.id)
+      const claim = db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ? AND status = ?')
+        .run('assigned', `Requeued: agent "${task.assigned_to}" went offline while task was in_progress`, newAttempts, now, task.id, 'in_progress')
+      if (claim.changes === 0) continue
 
       // Add a comment explaining the requeue
       db.prepare(`
@@ -1167,14 +1226,14 @@ export async function requeueStaleTasks(): Promise<{ ok: boolean; message: strin
         VALUES (?, 'scheduler', ?, ?, ?)
       `).run(task.id, `Task requeued (attempt ${newAttempts}/${maxDispatchRetries}): agent "${task.assigned_to}" went offline while task was in_progress.`, now, task.workspace_id)
 
-      eventBus.broadcast('task.status_changed', {
+      deps.broadcast('task.status_changed', {
         id: task.id,
         status: 'assigned',
         previous_status: 'in_progress',
         error_message: `Agent "${task.assigned_to}" went offline`,
         reason: 'stale_task_requeue',
       })
-      syncAndEscalateIfFailed(task as any, 'assigned')
+      syncAndEscalateIfFailed(deps, task as any, 'assigned')
 
       requeued++
     }
@@ -1189,8 +1248,8 @@ export async function requeueStaleTasks(): Promise<{ ok: boolean; message: strin
   }
 }
 
-export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: string }> {
-  const db = getDatabase()
+export async function dispatchAssignedTasks(deps: TaskDispatchDeps): Promise<{ ok: boolean; message: string }> {
+  const db = deps.db
 
   const tasks = db.prepare(`
     SELECT t.*, a.name as agent_name, a.id as agent_id, a.config as agent_config,
@@ -1218,7 +1277,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
   }
 
   const results: Array<{ id: number; success: boolean; error?: string }> = []
-  const now = Math.floor(Date.now() / 1000)
+  const now = deps.clock.now()
 
   for (const task of tasks) {
     // Atomically claim the task: only flip to in_progress if it is still
@@ -1235,13 +1294,13 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
       continue
     }
 
-    eventBus.broadcast('task.status_changed', {
+    deps.broadcast('task.status_changed', {
       id: task.id,
       status: 'in_progress',
       previous_status: 'assigned',
     })
 
-    db_helpers.logActivity(
+    deps.logActivity(
       'task_dispatched',
       'task',
       task.id,
@@ -1274,21 +1333,21 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         : null
 
       let agentResponse: AgentResponseParsed
-      const useDirectApi = !isGatewayAvailable() && isDirectDispatchAvailable()
+      const useDirectApi = !deps.isGatewayAvailable() && deps.isDirectDispatchAvailable()
 
       if (useDirectApi && !targetSession) {
         // Direct API dispatch — provider chosen by `dispatchModel` prefix
         // (Anthropic / OpenAI / OpenAI-compatible local). No gateway needed.
-        agentResponse = await callDirectly(task, prompt)
+        agentResponse = await deps.dispatchDirect(task, prompt)
       } else if (targetSession) {
         // Dispatch to a specific existing session via chat.send
         logger.info({ taskId: task.id, targetSession, agent: task.agent_name }, 'Dispatching task to targeted session')
-        const sendResult = await callOpenClawGateway<any>(
+        const sendResult = await deps.gateway<any>(
           'chat.send',
           {
             sessionKey: targetSession,
             message: prompt,
-            idempotencyKey: `task-dispatch-${task.id}-${Date.now()}`,
+            idempotencyKey: `task-dispatch-${task.id}-${deps.clock.nowMs()}`,
             deliver: false,
           },
           125_000,
@@ -1313,12 +1372,12 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
             async_warning: 'chat.send accepted without a runId; automatic completion reconciliation cannot safely wait on this session.',
           }),
           async_state: asyncState,
-          async_dispatched_at: Math.floor(Date.now() / 1000),
+          async_dispatched_at: deps.clock.now(),
         }
         db.prepare('UPDATE tasks SET metadata = ?, updated_at = ? WHERE id = ?')
-          .run(JSON.stringify(pendingMeta), Math.floor(Date.now() / 1000), task.id)
+          .run(JSON.stringify(pendingMeta), deps.clock.now(), task.id)
 
-        eventBus.broadcast('task.updated', {
+        deps.broadcast('task.updated', {
           id: task.id,
           status: 'in_progress',
           assigned_to: task.assigned_to,
@@ -1327,7 +1386,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
           async_state: asyncState,
         })
 
-        db_helpers.logActivity(
+        deps.logActivity(
           dispatchRunId ? 'task_deferred_dispatch' : 'task_deferred_dispatch_unreconcilable',
           'task',
           task.id,
@@ -1348,14 +1407,14 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         const invokeParams: Record<string, unknown> = {
           message: prompt,
           agentId: gatewayAgentId,
-          idempotencyKey: `task-dispatch-${task.id}-${Date.now()}`,
+          idempotencyKey: `task-dispatch-${task.id}-${deps.clock.nowMs()}`,
           deliver: false,
         }
         // Route to appropriate model tier based on task complexity.
         // null = no override, agent uses its own configured default model.
         if (dispatchModel) invokeParams.model = dispatchModel
 
-        const acceptedPayload = await callOpenClawGateway<any>(
+        const acceptedPayload = await deps.gateway<any>(
           'agent',
           invokeParams,
           AGENT_DISPATCH_ACCEPT_TIMEOUT_MS,
@@ -1382,12 +1441,12 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
             async_warning: 'agent dispatch accepted without a runId; automatic completion reconciliation cannot safely wait on this run.',
           }),
           async_state: asyncState,
-          async_dispatched_at: Math.floor(Date.now() / 1000),
+          async_dispatched_at: deps.clock.now(),
         }
         db.prepare('UPDATE tasks SET metadata = ?, updated_at = ? WHERE id = ?')
-          .run(JSON.stringify(pendingMeta), Math.floor(Date.now() / 1000), task.id)
+          .run(JSON.stringify(pendingMeta), deps.clock.now(), task.id)
 
-        eventBus.broadcast('task.updated', {
+        deps.broadcast('task.updated', {
           id: task.id,
           status: 'in_progress',
           assigned_to: task.assigned_to,
@@ -1396,7 +1455,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
           async_state: asyncState,
         })
 
-        db_helpers.logActivity(
+        deps.logActivity(
           dispatchRunId ? 'task_deferred_dispatch' : 'task_deferred_dispatch_unreconcilable',
           'task',
           task.id,
@@ -1434,7 +1493,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
       // Update task: status → review, set outcome
       db.prepare(`
         UPDATE tasks SET status = ?, outcome = ?, resolution = ?, metadata = ?, updated_at = ? WHERE id = ?
-      `).run('review', 'success', truncated, JSON.stringify(existingMeta), Math.floor(Date.now() / 1000), task.id)
+      `).run('review', 'success', truncated, JSON.stringify(existingMeta), deps.clock.now(), task.id)
 
       // Add a comment from the agent with the full response
       db.prepare(`
@@ -1444,26 +1503,26 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         task.id,
         task.agent_name,
         truncated,
-        Math.floor(Date.now() / 1000),
+        deps.clock.now(),
         task.workspace_id
       )
 
-      eventBus.broadcast('task.status_changed', {
+      deps.broadcast('task.status_changed', {
         id: task.id,
         status: 'review',
         previous_status: 'in_progress',
       })
 
-      eventBus.broadcast('task.updated', {
+      deps.broadcast('task.updated', {
         id: task.id,
         status: 'review',
         outcome: 'success',
         assigned_to: task.assigned_to,
         dispatch_session_id: agentResponse.sessionId,
       })
-      syncAndEscalateIfFailed(task, 'review')
+      syncAndEscalateIfFailed(deps, task, 'review')
 
-      db_helpers.logActivity(
+      deps.logActivity(
         'task_agent_completed',
         'task',
         task.id,
@@ -1488,32 +1547,32 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         const failureMessage = `Dispatch failed ${newAttempts} times. Last: ${errorMsg.substring(0, 5000)}`
         // Too many failures — move to failed
         db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
-          .run('failed', failureMessage, newAttempts, Math.floor(Date.now() / 1000), task.id)
+          .run('failed', failureMessage, newAttempts, deps.clock.now(), task.id)
 
-        eventBus.broadcast('task.status_changed', {
+        deps.broadcast('task.status_changed', {
           id: task.id,
           status: 'failed',
           previous_status: 'in_progress',
           error_message: failureMessage,
           reason: 'max_dispatch_retries_exceeded',
         })
-        syncAndEscalateIfFailed(task, 'failed', `Dispatch failed ${newAttempts} times`, newAttempts)
+        syncAndEscalateIfFailed(deps, task, 'failed', `Dispatch failed ${newAttempts} times`, newAttempts)
       } else {
         // Revert to assigned so it can be retried on the next tick
         db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
-          .run('assigned', errorMsg.substring(0, 5000), newAttempts, Math.floor(Date.now() / 1000), task.id)
+          .run('assigned', errorMsg.substring(0, 5000), newAttempts, deps.clock.now(), task.id)
 
-        eventBus.broadcast('task.status_changed', {
+        deps.broadcast('task.status_changed', {
           id: task.id,
           status: 'assigned',
           previous_status: 'in_progress',
           error_message: errorMsg.substring(0, 500),
           reason: 'dispatch_failed',
         })
-        syncAndEscalateIfFailed(task, 'assigned')
+        syncAndEscalateIfFailed(deps, task, 'assigned')
       }
 
-      db_helpers.logActivity(
+      deps.logActivity(
         'task_dispatch_failed',
         'task',
         task.id,
@@ -1557,11 +1616,11 @@ const ROLE_AFFINITY: Record<string, string[]> = {
 function scoreAgentForTask(
   agent: { name: string; role: string; status: string; config: string | null },
   taskText: string,
+  directApiOk: boolean,
 ): number {
   // Offline agents can't take work — unless we're in direct-API mode where
   // the agent has no heartbeat by design and the dispatcher invokes the
   // provider HTTP API directly (no live agent process required).
-  const directApiOk = !isGatewayAvailable() && isDirectDispatchAvailable()
   if (!directApiOk && (agent.status === 'offline' || agent.status === 'error' || agent.status === 'sleeping')) return -1
 
   const text = taskText.toLowerCase()
@@ -1595,8 +1654,8 @@ function scoreAgentForTask(
  * Auto-route inbox tasks to the best available agent.
  * Runs before dispatch — moves tasks from inbox → assigned.
  */
-export async function autoRouteInboxTasks(): Promise<{ ok: boolean; message: string }> {
-  const db = getDatabase()
+export async function autoRouteInboxTasks(deps: TaskDispatchDeps): Promise<{ ok: boolean; message: string }> {
+  const db = deps.db
 
   const inboxTasks = db.prepare(`
     SELECT id, title, description, priority, tags, workspace_id
@@ -1625,7 +1684,8 @@ export async function autoRouteInboxTasks(): Promise<{ ok: boolean; message: str
   }
 
   let routed = 0
-  const now = Math.floor(Date.now() / 1000)
+  const now = deps.clock.now()
+  const directApiOk = !deps.isGatewayAvailable() && deps.isDirectDispatchAvailable()
 
   for (const task of inboxTasks) {
     const taskText = `${task.title} ${task.description || ''}`
@@ -1637,7 +1697,7 @@ export async function autoRouteInboxTasks(): Promise<{ ok: boolean; message: str
 
     // Score each agent
     const scored = agents
-      .map(a => ({ agent: a, score: scoreAgentForTask(a, fullText) }))
+      .map(a => ({ agent: a, score: scoreAgentForTask(a, fullText, directApiOk) }))
       .filter(s => s.score > 0)
       .sort((a, b) => b.score - a.score)
 
@@ -1662,13 +1722,13 @@ export async function autoRouteInboxTasks(): Promise<{ ok: boolean; message: str
       db.prepare('UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ?')
         .run('assigned', alt.agent.name, now, task.id)
 
-      db_helpers.logActivity('task_auto_routed', 'task', task.id, 'scheduler',
+      deps.logActivity('task_auto_routed', 'task', task.id, 'scheduler',
         `Auto-assigned "${task.title}" to ${alt.agent.name} (${alt.agent.role}, score: ${alt.score})`,
         { agent: alt.agent.name, role: alt.agent.role, score: alt.score },
         task.workspace_id)
 
-      eventBus.broadcast('task.status_changed', { id: task.id, status: 'assigned', previous_status: 'inbox', assigned_to: alt.agent.name })
-      syncAndEscalateIfFailed(task as any, 'assigned')
+      deps.broadcast('task.status_changed', { id: task.id, status: 'assigned', previous_status: 'inbox', assigned_to: alt.agent.name })
+      syncAndEscalateIfFailed(deps, task as any, 'assigned')
       routed++
       continue
     }
@@ -1676,13 +1736,13 @@ export async function autoRouteInboxTasks(): Promise<{ ok: boolean; message: str
     db.prepare('UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ?')
       .run('assigned', best.name, now, task.id)
 
-    db_helpers.logActivity('task_auto_routed', 'task', task.id, 'scheduler',
+    deps.logActivity('task_auto_routed', 'task', task.id, 'scheduler',
       `Auto-assigned "${task.title}" to ${best.name} (${best.role}, score: ${scored[0].score})`,
       { agent: best.name, role: best.role, score: scored[0].score },
       task.workspace_id)
 
-    eventBus.broadcast('task.status_changed', { id: task.id, status: 'assigned', previous_status: 'inbox', assigned_to: best.name })
-    syncAndEscalateIfFailed(task as any, 'assigned')
+    deps.broadcast('task.status_changed', { id: task.id, status: 'assigned', previous_status: 'inbox', assigned_to: best.name })
+    syncAndEscalateIfFailed(deps, task as any, 'assigned')
     routed++
   }
 

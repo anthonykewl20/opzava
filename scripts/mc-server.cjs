@@ -1,92 +1,93 @@
 #!/usr/bin/env node
 
 /**
- * Opzava Server — custom wrapper for Next.js standalone
+ * Opzava standalone server wrapper.
  *
- * Wraps the Next.js standalone server.js and adds WebSocket upgrade
- * handling for PTY terminal connections on /ws/pty.
- *
- * Usage:
- *   node scripts/mc-server.cjs          # production (standalone)
- *   MC_PTY_ENABLED=1 pnpm dev           # dev mode (PTY via dev server hook)
+ * Next standalone owns the HTTP request handler. This wrapper patches the
+ * HTTP(S) server that Next creates so production can serve /ws/pty upgrades.
  */
 
+const fs = require('fs')
 const http = require('http')
+const https = require('https')
 const path = require('path')
+const { disposeAllPtySessions, installPtyUpgradeHandler } = require('./pty-websocket-standalone.cjs')
 
-const PORT = parseInt(process.env.PORT || '3000', 10)
-const HOST = process.env.HOSTNAME || '0.0.0.0'
+// Bounded SSE drain window (ms) on shutdown. Stops accepting new HTTP connections
+// so in-flight SSE responses can be flushed by the durable-replay gap recovery
+// rather than hard-dropped on every redeploy. Single hard-coded value; no config.
+const DRAIN_MS = 2000
 
-// Check if running in standalone mode
-const standaloneDir = path.join(__dirname, '..', '.next', 'standalone')
-let nextHandler
+// Captured the first patched HTTP(S) server Next standalone creates, so SIGTERM
+// can stop it from accepting new connections during the drain window.
+let patchedServer = null
 
-try {
-  // Try standalone server first
-  const nextServer = require(path.join(standaloneDir, 'server.js'))
-  nextHandler = nextServer
-} catch {
-  console.error('[mc-server] Standalone server not found. Run `pnpm build` first, then:')
-  console.error('  node scripts/mc-server.cjs')
-  console.error('')
-  console.error('For development, use `pnpm dev` instead.')
-  process.exit(1)
+function patchCreateServer(module) {
+  const original = module.createServer
+  module.createServer = function createServerWithPty(...args) {
+    const server = original.apply(this, args)
+    installPtyUpgradeHandler(server)
+    if (!patchedServer) patchedServer = server
+    return server
+  }
 }
 
-// Create HTTP server that wraps Next.js
-const server = http.createServer((req, res) => {
-  // Next.js handles all HTTP requests
-  // In standalone mode, the handler is set up by requiring server.js
-  // which calls server.listen() internally — we intercept before that
-})
+patchCreateServer(http)
+patchCreateServer(https)
 
-// PTY WebSocket upgrade handler (lazy-loaded to avoid native addon issues at import time)
-let handlePtyUpgrade = null
-
-server.on('upgrade', (req, socket, head) => {
-  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
-
-  if (url.pathname === '/ws/pty') {
-    // Lazy-load PTY WebSocket handler
-    if (!handlePtyUpgrade) {
-      try {
-        const ptyWs = require('../src/lib/pty-websocket')
-        handlePtyUpgrade = ptyWs.handlePtyUpgrade
-      } catch (err) {
-        console.error('[mc-server] Failed to load PTY WebSocket handler:', err.message)
-        socket.destroy()
-        return
-      }
+// Pure, dependency-injected drain so the process-global signal handler is testable.
+// Order: (1) server.close() to stop new connections, (2) bounded wait via a single
+// setTimeout(drainMs), (3) PTY dispose + exit. The bound fires regardless of whether
+// server.close ever calls back, so a hanging close cannot stall shutdown.
+function performGracefulDrain(server, disposePtySessions, deps) {
+  if (server && typeof server.close === 'function') {
+    try {
+      server.close()
+    } catch {
+      /* best effort; the bounded timer still proceeds */
     }
-
-    const handled = handlePtyUpgrade(req, socket, head)
-    if (!handled) {
-      socket.destroy()
-    }
-    return
   }
-
-  // Let Next.js handle other WebSocket upgrades (e.g., HMR in dev)
-  // In standalone mode, Next.js doesn't use WebSocket, so just close
-  socket.destroy()
-})
-
-// Graceful shutdown
-function shutdown() {
-  console.log('[mc-server] Shutting down...')
-  try {
-    const { disposeAllPtySessions } = require('../src/lib/pty-manager')
-    disposeAllPtySessions()
-  } catch {
-    // ignore if not loaded
-  }
-  server.close(() => process.exit(0))
-  setTimeout(() => process.exit(1), 5000)
+  deps.timers.setTimeout(() => {
+    disposePtySessions()
+    deps.exit(0)
+  }, deps.drainMs)
 }
 
-process.on('SIGTERM', shutdown)
-process.on('SIGINT', shutdown)
+function gracefulShutdown() {
+  performGracefulDrain(patchedServer, disposeAllPtySessions, {
+    drainMs: DRAIN_MS,
+    exit: (code) => process.exit(code),
+    timers: { setTimeout, clearTimeout },
+  })
+}
 
-console.log(`[mc-server] Opzava starting on ${HOST}:${PORT}`)
-console.log('[mc-server] PTY terminal support: enabled')
-console.log('[mc-server] WebSocket upgrade path: /ws/pty')
+process.on('SIGINT', gracefulShutdown)
+process.on('SIGTERM', gracefulShutdown)
+process.on('exit', disposeAllPtySessions)
+
+module.exports = { performGracefulDrain, patchCreateServer }
+
+// Bootstrap only when invoked directly (not when imported for testing).
+if (require.main === module) {
+  const projectRoot = path.resolve(__dirname, '..')
+  const candidateDirs = [
+    process.env.NEXT_STANDALONE_DIR,
+    process.cwd(),
+    projectRoot,
+    path.join(projectRoot, '.next', 'standalone'),
+  ].filter(Boolean)
+
+  const standaloneDir = candidateDirs.find((dir) => fs.existsSync(path.join(dir, 'server.js')))
+
+  if (!standaloneDir) {
+    console.error('[mc-server] Standalone server not found. Run `pnpm build` first.')
+    process.exit(1)
+  }
+
+  process.chdir(standaloneDir)
+
+  console.log(`[mc-server] Opzava standalone server: ${path.join(standaloneDir, 'server.js')}`)
+  console.log('[mc-server] PTY WebSocket upgrade path: /ws/pty')
+
+  require(path.join(standaloneDir, 'server.js'))
+}

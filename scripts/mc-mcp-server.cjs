@@ -787,6 +787,95 @@ const TOOLS = [
       return api('GET', `/api/v1/evals/leaderboard?${params}`);
     },
   },
+
+  // --- Ops workflow engine (Engine B: canonical opzava workflows under /api/ops/*) ---
+  // These proxy to the WorkflowRun/StepRun/Artifact/Approval REST surface.
+  // Prefixed mc_ops_* to distinguish them from the Engine A agent-run tools
+  // above (mc_list_runs/mc_get_run -> /api/v1/runs). Additive only.
+  {
+    name: 'mc_ops_list_runs',
+    description: 'List recent opzava workflow runs (Engine B: WorkflowRun/StepRun records under /api/ops/runs)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: 'Max results to return' },
+      },
+      required: [],
+    },
+    handler: async (args) => {
+      const params = new URLSearchParams();
+      if (args.limit) params.set('limit', String(args.limit));
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      return api('GET', `/api/ops/runs${qs}`);
+    },
+  },
+  {
+    name: 'mc_ops_get_run',
+    description: 'Get a single opzava workflow run by ID (Engine B): summary plus its operational events. GET /api/ops/runs/:id',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Workflow run ID' } },
+      required: ['id'],
+    },
+    handler: async (args) => api('GET', `/api/ops/runs/${encodeURIComponent(args.id)}`),
+  },
+  {
+    name: 'mc_ops_list_artifacts',
+    description: 'List opzava workflow artifacts (Engine B) with optional type/run filters',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', description: 'Filter by artifact type' },
+        run: { type: 'string', description: 'Filter by workflow run ID' },
+      },
+      required: [],
+    },
+    handler: async (args) => {
+      const params = new URLSearchParams();
+      if (args.type) params.set('type', args.type);
+      if (args.run) params.set('run', args.run);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      return api('GET', `/api/ops/artifacts${qs}`);
+    },
+  },
+  {
+    name: 'mc_ops_list_approvals',
+    description: 'List opzava workflow approvals (Engine B) with optional status filter',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: {
+          type: 'string',
+          enum: ['requested', 'approved', 'rejected', 'expired', 'cancelled'],
+          description: 'Filter by approval status',
+        },
+      },
+      required: [],
+    },
+    handler: async (args) => {
+      const qs = args.status ? `?status=${encodeURIComponent(args.status)}` : '';
+      return api('GET', `/api/ops/approvals${qs}`);
+    },
+  },
+  {
+    name: 'mc_ops_decide_approval',
+    description: 'Decide an opzava workflow approval (Engine B): approve or reject it. POST /api/ops/approvals/:id/decide',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Approval ID' },
+        decision: { type: 'string', enum: ['approved', 'rejected'], description: 'Decision to record' },
+        decisionReason: { type: 'string', description: 'Optional reason for the decision' },
+      },
+      required: ['id', 'decision'],
+    },
+    handler: async (args) => {
+      const { id, decision, decisionReason } = args;
+      const body = { decision };
+      if (decisionReason !== undefined) body.decisionReason = decisionReason;
+      return api('POST', `/api/ops/approvals/${encodeURIComponent(id)}/decide`, body);
+    },
+  },
 ];
 
 // Build lookup map
@@ -928,4 +1017,10 @@ async function main() {
   process.stdin.resume();
 }
 
-main();
+// Export internals for hermetic tests (node --test). Only start the stdio
+// transport when run directly — not when required as a module.
+module.exports = { TOOLS, api, loadConfig, handleMessage, SERVER_INFO };
+
+if (require.main === module) {
+  main();
+}
