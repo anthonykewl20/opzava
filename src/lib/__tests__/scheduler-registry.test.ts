@@ -78,7 +78,7 @@ describe('scheduler registry', () => {
     // (settingKey, defaultEnabled) for every task — copied from the pre-refactor
     // ternary chains in tick() / getSchedulerStatus().
     const expected: Record<string, { settingKey: string; defaultEnabled: boolean }> = {
-      auto_backup: { settingKey: 'general.auto_backup', defaultEnabled: false },
+      auto_backup: { settingKey: 'general.auto_backup', defaultEnabled: true },
       auto_cleanup: { settingKey: 'general.auto_cleanup', defaultEnabled: false },
       wal_checkpoint: { settingKey: 'general.wal_checkpoint', defaultEnabled: true },
       agent_heartbeat: { settingKey: 'general.agent_heartbeat', defaultEnabled: true },

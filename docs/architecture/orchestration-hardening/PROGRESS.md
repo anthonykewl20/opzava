@@ -37,7 +37,7 @@ Commits (branch `feat/orchestration-hardening`, oldest→newest):
 | B2 | Migration 056: quality_reviews.source + structural VERDICT | ✅ | _pending_ | aegis-verdict-parser 6/6 + migrations 4/4 + migration-ids-unique + typecheck. parseReviewVerdict now structural/default-DENY (defeats prompt-injection approval); migration 056 adds `source` (model vs human) with in-migration backfill; the done-gate keys on `source='model'` so a manual override can't satisfy it; Aegis INSERT writes source='model', manual POST writes source='human'. (The "forged aegis" bypass was already closed — reviewer is server-resolved.) |
 | B1b | FUSED resolveDeviceToken cascade branch | ⬜ | | |
 | D1–D7 | Device-auth + persistent reliable connection | ⬜ | | |
-| I1, I2 | Dokploy cookie/TLS + backup/restore | ⬜ | | |
+| I2 | Backup default-on + restore path + restore test | ✅ | _pending_ | scheduler-registry 7/7 + typecheck. auto_backup now defaultEnabled:true (was false — a cost-recording control plane with no backups had no recovery); added a cold-restore runbook to deployment.md (stop writer → replace db → discard -wal/-shm → restart). A `mc db restore` CLI verb deferred (the runbook is the safe cold procedure). |
 | G2, H2 | Doc reframes + graceful drain | ⬜ | | |
 
 ## P1 (depth + MCP)

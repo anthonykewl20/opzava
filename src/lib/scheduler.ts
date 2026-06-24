@@ -86,7 +86,7 @@ export const SCHEDULED_TASKS: readonly ScheduledTaskSpec[] = [
     id: 'auto_backup',
     name: 'Auto Backup',
     settingKey: 'general.auto_backup',
-    defaultEnabled: false,
+    defaultEnabled: true,
     intervalMs: DAILY_MS,
     firstRunDelay: () => getNextDailyMs(3), // ~3 AM UTC
     handler: () => runBackup(),

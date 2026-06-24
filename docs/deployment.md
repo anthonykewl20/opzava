@@ -313,10 +313,35 @@ SQLite database is stored in `/app/.data/` inside the container. Mount a volume 
 docker run -v /path/to/data:/app/.data ...
 ```
 
-### Automatic backups
+### Automatic backups + restore
 
-- Set `MC_AUTO_BACKUP=1` (accepts `1`/`true`/`yes`/`on`) in your `.env` to enable automatic daily backups without toggling it in the UI.
-- The backup directory is created automatically when scheduled backups run, so the backup warning clears once the task executes.
+- **Backups are ON by default** (scheduler task `auto_backup`, ~3 AM UTC daily, WAL-safe
+  SQLite Online Backup API, retained to 10 files under `<data-dir>/backups/`). Toggle via
+  the scheduler UI or the `general.auto_backup` setting. (`MC_AUTO_BACKUP=1` in `.env` is
+  still honored for compatibility but is no longer required.)
+- The backup directory is created automatically when the task first runs, so the
+  no-backup warning clears once it executes.
+
+**Restore (cold procedure — the writer MUST be stopped):**
+
+1. Stop Opzava (the single writer): `docker compose down` (or stop the standalone server).
+2. In the data dir (`MISSION_CONTROL_DATA_DIR`, default `.data/`), locate the backup to
+   restore — `backups/mc-backup-<timestamp>.db` — and **verify the timestamp** is the
+   point you want to return to.
+3. Replace the live DB and **discard the WAL/SHM sidecars** (they belong to the old DB):
+   ```bash
+   cd "$MISSION_CONTROL_DATA_DIR"
+   mv mission-control.db mission-control.db.pre-restore   # keep the pre-restore copy
+   rm -f mission-control.db-wal mission-control.db-shm     # stale; never reuse across DBs
+   cp backups/mc-backup-<timestamp>.db mission-control.db
+   ```
+4. Restart (`docker compose up -d`). On boot Opzava opens the DB and any pending
+   migrations apply to the restored file.
+5. Confirm row counts / the dashboard match the expected point in time. `PRAGMA
+   integrity_check` can be run against the file before step 3 to validate the backup.
+
+> Restore loses everything written since the backup. Always prefer the newest viable
+> backup and verify its timestamp before overwriting the live DB.
 
 ### Self-contained Operator Setup (Linux host with existing Claude Code / Codex CLIs)
 
