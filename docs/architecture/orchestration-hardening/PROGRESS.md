@@ -49,7 +49,7 @@ Commits (branch `feat/orchestration-hardening`, oldest→newest):
 | C2 | Split god-module: dispatch enqueues, runner executes | ⬜ |
 | C3 | Runner canonical path + task_id FK + stuck-task detector | ⬜ |
 | C4 | Deep mc-client.cjs extraction | ⬜ |
-| E1–E4 | MCP stdio integration test + contract test + timeouts + cron fix | ⬜ |
+| E1–E4 | MCP stdio integration test + contract test + timeouts + cron fix | 🟡 (E4 done) | E4 ✅: CLI cron verbs now map to the route action vocabulary (create/update→add, pause/resume→toggle, run→trigger, remove→remove); was 400 "Invalid action" on every verb. mc-cli.cjs entry guarded (require.main) + exports `commands` for tests; mc-cli-cron.test.mjs 6/6; scripts-parity 4/4. E1/E2/E3 (MCP stdio integration test, tools-vs-routes contract test, per-tool timeouts) ⬜ deferred — need the MCP spawn harness. |
 
 ## P2 (truthing)
 

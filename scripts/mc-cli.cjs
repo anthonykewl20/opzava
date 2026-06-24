@@ -544,13 +544,17 @@ const commands = {
   },
 
   cron: {
+    // E4: map CLI verbs to the route's action vocabulary (add/toggle/trigger/remove).
+    // Previously every verb POSTed bodyFromFlags with no `action` and the route
+    // rejected them with 400 "Invalid action" — cron management via the CLI was
+    // non-functional. The CLI action is applied AFTER the flag body so it always wins.
     list: () => ({ method: 'GET', route: '/api/cron' }),
-    create: (flags) => ({ method: 'POST', route: '/api/cron', body: bodyFromFlags(flags) || {} }),
-    update: (flags) => ({ method: 'POST', route: '/api/cron', body: bodyFromFlags(flags) || {} }),
-    pause: (flags) => ({ method: 'POST', route: '/api/cron', body: bodyFromFlags(flags) || {} }),
-    resume: (flags) => ({ method: 'POST', route: '/api/cron', body: bodyFromFlags(flags) || {} }),
-    remove: (flags) => ({ method: 'POST', route: '/api/cron', body: bodyFromFlags(flags) || {} }),
-    run: (flags) => ({ method: 'POST', route: '/api/cron', body: bodyFromFlags(flags) || {} }),
+    create: (flags) => ({ method: 'POST', route: '/api/cron', body: { ...(bodyFromFlags(flags) || {}), action: 'add' } }),
+    update: (flags) => ({ method: 'POST', route: '/api/cron', body: { ...(bodyFromFlags(flags) || {}), action: 'add' } }),
+    pause: (flags) => ({ method: 'POST', route: '/api/cron', body: { ...(bodyFromFlags(flags) || {}), action: 'toggle' } }),
+    resume: (flags) => ({ method: 'POST', route: '/api/cron', body: { ...(bodyFromFlags(flags) || {}), action: 'toggle' } }),
+    remove: (flags) => ({ method: 'POST', route: '/api/cron', body: { ...(bodyFromFlags(flags) || {}), action: 'remove' } }),
+    run: (flags) => ({ method: 'POST', route: '/api/cron', body: { ...(bodyFromFlags(flags) || {}), action: 'trigger' } }),
   },
 
   status: {
@@ -742,4 +746,10 @@ async function run() {
   }
 }
 
-run();
+// Exported for tests (main is require.main-guarded so requiring this module does
+// not launch the CLI). Mirrors scripts/mc-mcp-server.cjs.
+module.exports = { commands }
+
+if (require.main === module) {
+  run()
+}
