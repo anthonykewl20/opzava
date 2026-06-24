@@ -343,5 +343,15 @@ Pooled across the six research streams (deduped):
 - Adobe — https://business.adobe.com/blog/content-planning-and-publishing
 - Brandfolder/Bynder/Frontify (DAM) — https://www.frontify.com/en/guide/digital-asset-management-software · https://www.uplifted.ai/blog/post/creative-assets-management-what-it-is-why-it-matters-and-how-to-get-it-right
 - KPI-calm authorities — https://www.axonn.co.uk/seo/kpi-dashboards-for-marketing-teams-how-to-build-dashboards-people-actually-use · https://www.dataslayer.ai/blog/marketing-dashboard-best-practices-2025
-</content>
-</invoke>
+
+---
+
+## 8. Addenda (2026-06-24)
+
+### 8.1 New-project type picker — `essential-new-project.html`
+The §6 *project-type plumbing* (`type: generic | marketing`) is now realised at the moment of creation. The global **`＋ New project`** button — wired across **all 21 Essential pages** — opens a calm one-screen picker: a **Project name** field, then a **`role="radiogroup"`** of type cards, each previewing its tile lineup — **Blank project** (the generic everyday tools) vs **Marketing & Promotion** (the campaign-native set, shown selected) — plus a quiet *"More types coming"* row (Sales · Support · Events) per the precedent this doc sets. Lightweight JS toggles selection and points **Create project →** at the chosen type's workspace (`essential-project.html` / `essential-marketing.html`). No multi-step wizard — one calm screen, Basecamp-style. Reachable in the gallery as the lead-in card of the Marketing subsection.
+
+### 8.2 Reports & analysis — `essential-mkt-ads-report.html` · `essential-mkt-email-report.html` · `essential-mkt-blog-report.html`
+Per a direct user request for **ads / email-campaign / blog-content report-and-analysis** cards. Named jargon-free and parallel: **🎯 Ads Report · 📧 Email Report · 📝 Blog Report**, grouped on the workspace under a labelled **"Reports & analysis"** section that is explicitly distinct from **Performance** (*Performance = the campaign scoreboard; Reports = per-channel deep-dives*). Each report page is one calm template: a 4-up **summary stat row** (number + neutral ↑/↓/→ delta glyph, **no chart wall**), an **`✦ Atlas analysis`** panel — *"what the numbers say"* as 2–3 insight bullets + a recommendation + `✦ Ask Atlas` / `↻ Re-run` actions (the AI **is** the "analysis" half, the differentiator from a raw table), a **breakdown table** (by channel / by send / by post, with a totals row), and the shared 10-item footer nav.
+
+**Decision note vs §3.3.** §3.3 rejected a *"per-channel analytics wall"* from the home grid as KPI noise. These report surfaces consciously **extend past that line at the user's explicit request** — but stay inside the calm contract: they are **report + AI analysis**, never a KPI mosaic — ≤4 headline numbers, one table, one AI narrative per page; status/trend is a **label or glyph, never a hue**; one accent; the heavy analytics still live off the home grid (now in a dedicated, one-click-away Reports section rather than dumped as tiles). The home grid stays calm because the reports are **grouped, not scattered**.
