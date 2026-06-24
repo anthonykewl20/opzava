@@ -61,3 +61,42 @@ describe('main migrations — 055 counters/lease/idempotency', () => {
     expect(count.n).toBe(1)
   })
 })
+
+describe('main migrations — 056 quality_reviews.source (B2)', () => {
+  let db: Database.Database | null = null
+
+  afterEach(() => {
+    db?.close()
+    db = null
+  })
+
+  it('adds source (default human) + records the migration + backfills reviewer=aegis to model', () => {
+    db = new Database(':memory:')
+    runMigrations(db)
+
+    const cols = db.prepare('PRAGMA table_info(quality_reviews)').all() as Array<{ name: string }>
+    expect(cols.some((c) => c.name === 'source')).toBe(true)
+
+    // Seed parent tasks (quality_reviews.task_id has a FK -> tasks.id; FK enforcement is on).
+    db.prepare('INSERT INTO tasks (id, workspace_id, title) VALUES (1, 1, ?), (2, 1, ?)').run('t1', 't2')
+
+    // A row inserted without an explicit source defaults to 'human' (manual override).
+    db.prepare(
+      "INSERT INTO quality_reviews (task_id, reviewer, status, notes, workspace_id) VALUES (1, 'jane', 'approved', 'n', 1)"
+    ).run()
+    expect((db.prepare('SELECT source FROM quality_reviews WHERE task_id = 1').get() as { source: string }).source).toBe('human')
+
+    // The in-migration backfill: any reviewer='aegis' row resolves to source='model' so the
+    // done-gate (now keyed on source='model') still honors prior Aegis verdicts.
+    db.prepare(
+      "INSERT INTO quality_reviews (task_id, reviewer, status, notes, workspace_id, source) VALUES (2, 'aegis', 'approved', 'n', 1, 'human')"
+    ).run()
+    db.exec("UPDATE quality_reviews SET source = 'model' WHERE reviewer = 'aegis' AND source = 'human'")
+    expect((db.prepare('SELECT source FROM quality_reviews WHERE task_id = 2').get() as { source: string }).source).toBe('model')
+
+    const applied = db
+      .prepare("SELECT id FROM schema_migrations WHERE id = '056_quality_reviews_source'")
+      .get() as { id: string } | undefined
+    expect(applied?.id).toBe('056_quality_reviews_source')
+  })
+})

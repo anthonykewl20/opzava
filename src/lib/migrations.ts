@@ -1531,6 +1531,22 @@ const migrations: Migration[] = [
           WHERE client_request_id IS NOT NULL
       `)
     }
+  },
+  {
+    id: '056_quality_reviews_source',
+    up(db: Database.Database) {
+      // B2: discriminate a genuine Aegis MODEL verdict (source='model') from a manual/
+      // human approval (source='human'). The PATCH->done gate keys on source='model' so a
+      // manual override can never masquerade as the model verdict. Backfill existing
+      // reviewer='aegis' rows to source='model' INSIDE up() so the gate change is
+      // non-breaking (without this every prior Aegis verdict would read source='human').
+      const cols = db.prepare(`PRAGMA table_info(quality_reviews)`).all() as Array<{ name: string }>
+      if (!cols.some((c) => c.name === 'source')) {
+        db.exec(`ALTER TABLE quality_reviews ADD COLUMN source TEXT NOT NULL DEFAULT 'human'`)
+      }
+      db.exec(`UPDATE quality_reviews SET source = 'model' WHERE reviewer = 'aegis' AND source = 'human'`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_quality_reviews_source ON quality_reviews(source)`)
+    }
   }
 ]
 

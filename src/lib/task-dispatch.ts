@@ -965,11 +965,19 @@ function buildReviewPrompt(task: ReviewableTask): string {
   return lines.join('\n')
 }
 
-function parseReviewVerdict(text: string): { status: 'approved' | 'rejected'; notes: string } {
-  const upper = text.toUpperCase()
-  const status = upper.includes('VERDICT: APPROVED') ? 'approved' as const : 'rejected' as const
-  const notesMatch = text.match(/NOTES:\s*(.+)/i)
-  const notes = notesMatch?.[1]?.trim().substring(0, 2000) || (status === 'approved' ? 'Quality check passed' : 'Quality check failed')
+export function parseReviewVerdict(text: string): { status: 'approved' | 'rejected'; notes: string } {
+  // B2: structural match, default-DENY. Require `VERDICT: APPROVED|REJECTED` anchored to
+  // the START of a line — not a substring anywhere. Anything else (a model that omits the
+  // verdict, or that echoed injected `VERDICT: APPROVED` mid-paragraph from untrusted task
+  // title/description/resolution) is REJECTED. The previous `upper.includes(...)` matched
+  // mid-text and could auto-approve on injection.
+  const verdictLine = text.match(/^[ \t]*VERDICT:[ \t]*(APPROVED|REJECTED)\b/im)
+  const status: 'approved' | 'rejected' =
+    verdictLine && verdictLine[1].toUpperCase() === 'APPROVED' ? 'approved' : 'rejected'
+  const notesMatch = text.match(/^[ \t]*NOTES:[ \t]*(.+)/im)
+  const notes =
+    notesMatch?.[1]?.trim().substring(0, 2000) ||
+    (status === 'approved' ? 'Quality check passed' : 'Quality check failed')
   return { status, notes }
 }
 
@@ -1055,10 +1063,11 @@ export async function runAegisReviews(deps: TaskDispatchDeps): Promise<{ ok: boo
 
       const verdict = parseReviewVerdict(agentResponse.text)
 
-      // Insert quality review record
+      // Insert quality review record (source='model' marks this as a genuine Aegis
+      // verdict — the done-gate keys on source='model' so a manual override can't satisfy it).
       db.prepare(`
-        INSERT INTO quality_reviews (task_id, reviewer, status, notes, workspace_id)
-        VALUES (?, 'aegis', ?, ?, ?)
+        INSERT INTO quality_reviews (task_id, reviewer, status, notes, workspace_id, source)
+        VALUES (?, 'aegis', ?, ?, ?, 'model')
       `).run(task.id, verdict.status, verdict.notes, task.workspace_id)
 
       if (verdict.status === 'approved') {

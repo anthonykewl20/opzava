@@ -54,7 +54,7 @@ function resolveProjectId(db: ReturnType<typeof getDatabase>, workspaceId: numbe
 function hasAegisApproval(db: ReturnType<typeof getDatabase>, taskId: number, workspaceId: number): boolean {
   const review = db.prepare(`
     SELECT status FROM quality_reviews
-    WHERE task_id = ? AND reviewer = 'aegis' AND workspace_id = ?
+    WHERE task_id = ? AND source = 'model' AND workspace_id = ?
     ORDER BY created_at DESC
     LIMIT 1
   `).get(taskId, workspaceId) as { status?: string } | undefined

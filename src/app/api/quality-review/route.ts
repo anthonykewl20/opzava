@@ -117,8 +117,8 @@ export async function POST(request: NextRequest) {
     }
 
     const result = db.prepare(`
-      INSERT INTO quality_reviews (task_id, reviewer, status, notes, workspace_id)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO quality_reviews (task_id, reviewer, status, notes, workspace_id, source)
+      VALUES (?, ?, ?, ?, ?, 'human')
     `).run(taskId, reviewer, status, notes, workspaceId)
 
     db_helpers.logActivity(

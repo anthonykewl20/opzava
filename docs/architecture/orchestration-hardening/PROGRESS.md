@@ -34,7 +34,7 @@ Commits (branch `feat/orchestration-hardening`, oldest→newest):
 | A4 | Migration 057: token_usage idempotency; recordUsage INSERT OR IGNORE | ⬜ | | |
 | A4b | Migration 060: token_usage cost backfill | ⬜ | | |
 | A5 | ARM the lease (claimed_at at all 3 sites) + reclaim quality_review | ⬜ | | |
-| B2 | Migration 056: quality_reviews.source + structural VERDICT | ⬜ | | |
+| B2 | Migration 056: quality_reviews.source + structural VERDICT | ✅ | _pending_ | aegis-verdict-parser 6/6 + migrations 4/4 + migration-ids-unique + typecheck. parseReviewVerdict now structural/default-DENY (defeats prompt-injection approval); migration 056 adds `source` (model vs human) with in-migration backfill; the done-gate keys on `source='model'` so a manual override can't satisfy it; Aegis INSERT writes source='model', manual POST writes source='human'. (The "forged aegis" bypass was already closed — reviewer is server-resolved.) |
 | B1b | FUSED resolveDeviceToken cascade branch | ⬜ | | |
 | D1–D7 | Device-auth + persistent reliable connection | ⬜ | | |
 | I1, I2 | Dokploy cookie/TLS + backup/restore | ⬜ | | |

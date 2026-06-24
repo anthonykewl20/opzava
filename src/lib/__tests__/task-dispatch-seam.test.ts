@@ -307,9 +307,9 @@ describe('runAegisReviews (deps seam)', () => {
       'UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?',
       () => ({ changes: 1 }),
     )
-    // INSERT quality_reviews
+    // INSERT quality_reviews (B2: now carries source='model')
     state.runBySql.set(
-      "INSERT INTO quality_reviews (task_id, reviewer, status, notes, workspace_id)\n        VALUES (?, 'aegis', ?, ?, ?)",
+      "INSERT INTO quality_reviews (task_id, reviewer, status, notes, workspace_id, source)\n        VALUES (?, 'aegis', ?, ?, ?, 'model')",
       () => ({ changes: 1 }),
     )
 
