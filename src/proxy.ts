@@ -107,7 +107,7 @@ function hostsMatchForCsrf(requestHost: string, originHost: string): boolean {
   return stripDefaultPort(a) === stripDefaultPort(b)
 }
 
-function nextResponseWithNonce(request: NextRequest): { response: NextResponse; nonce: string } {
+function nextResponseWithNonce(request: NextRequest, requestId: string): { response: NextResponse; nonce: string } {
   const nonce = crypto.randomBytes(16).toString('base64')
   const googleEnabled = !!(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID)
   const requestHeaders = buildNonceRequestHeaders({
@@ -115,6 +115,9 @@ function nextResponseWithNonce(request: NextRequest): { response: NextResponse; 
     nonce,
     googleEnabled,
   })
+  // Propagate the correlation id to downstream route handlers (read by
+  // withRequestContext -> AsyncLocalStorage -> the pino request_id mixin).
+  requestHeaders.set('x-request-id', requestId)
   const response = NextResponse.next({
     request: {
       headers: requestHeaders,
@@ -125,8 +128,7 @@ function nextResponseWithNonce(request: NextRequest): { response: NextResponse; 
   return { response, nonce }
 }
 
-function addSecurityHeaders(response: NextResponse, _request: NextRequest, nonce?: string): NextResponse {
-  const requestId = crypto.randomUUID()
+function addSecurityHeaders(response: NextResponse, requestId: string, nonce?: string): NextResponse {
   response.headers.set('X-Request-Id', requestId)
   response.headers.set('X-Content-Type-Options', 'nosniff')
   response.headers.set('X-Frame-Options', 'DENY')
@@ -156,6 +158,17 @@ function extractApiKeyFromRequest(request: NextRequest): string {
 }
 
 export function proxy(request: NextRequest) {
+  // Per-request correlation id: an inbound x-request-id/X-Request-Id/request-id is
+  // honored, else a fresh UUID. Propagated to BOTH the downstream request headers
+  // (withRequestContext -> AsyncLocalStorage -> pino request_id mixin) and the
+  // X-Request-Id response header, so a client can trace a call end-to-end and every
+  // log/audit line for the request carries the same id.
+  const requestId =
+    request.headers.get('x-request-id') ||
+    request.headers.get('X-Request-Id') ||
+    request.headers.get('request-id') ||
+    crypto.randomUUID()
+
   // Network access control.
   // In production: default-deny unless explicitly allowed.
   // In dev/test: allow all hosts unless overridden.
@@ -175,7 +188,7 @@ export function proxy(request: NextRequest) {
     )
 
   if (!isAllowedHost) {
-    return addSecurityHeaders(new NextResponse('Forbidden', { status: 403 }), request)
+    return addSecurityHeaders(new NextResponse('Forbidden', { status: 403 }), requestId)
   }
 
   const { pathname } = request.nextUrl
@@ -188,7 +201,7 @@ export function proxy(request: NextRequest) {
       let originHost: string
       try { originHost = new URL(origin).host } catch { originHost = '' }
       if (originHost && !requestHosts.some((h) => hostsMatchForCsrf(h, originHost))) {
-        return addSecurityHeaders(NextResponse.json({ error: 'CSRF origin mismatch' }, { status: 403 }), request)
+        return addSecurityHeaders(NextResponse.json({ error: 'CSRF origin mismatch' }, { status: 403 }), requestId)
       }
     }
   }
@@ -198,8 +211,8 @@ export function proxy(request: NextRequest) {
   // Exact-match only (no prefix/wildcard) so this exempts just the two health routes.
   const isPublicHealthRoute = pathname === '/api/health' || pathname === '/health'
   if (pathname === '/login' || pathname === '/setup' || pathname.startsWith('/api/auth/') || pathname === '/api/setup' || pathname === '/api/docs' || pathname === '/docs' || isPublicHealthProbe || isPublicHealthRoute) {
-    const { response, nonce } = nextResponseWithNonce(request)
-    return addSecurityHeaders(response, request, nonce)
+    const { response, nonce } = nextResponseWithNonce(request, requestId)
+    return addSecurityHeaders(response, requestId, nonce)
   }
 
   // Check for session cookie
@@ -216,23 +229,23 @@ export function proxy(request: NextRequest) {
     const looksLikeAgentApiKey = /^mca_[a-f0-9]{48}$/i.test(apiKey)
 
     if (sessionToken || hasValidApiKey || looksLikeAgentApiKey) {
-      const { response, nonce } = nextResponseWithNonce(request)
-      return addSecurityHeaders(response, request, nonce)
+      const { response, nonce } = nextResponseWithNonce(request, requestId)
+      return addSecurityHeaders(response, requestId, nonce)
     }
 
-    return addSecurityHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }), request)
+    return addSecurityHeaders(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }), requestId)
   }
 
   // Page routes: redirect to login if no session
   if (sessionToken) {
-    const { response, nonce } = nextResponseWithNonce(request)
-    return addSecurityHeaders(response, request, nonce)
+    const { response, nonce } = nextResponseWithNonce(request, requestId)
+    return addSecurityHeaders(response, requestId, nonce)
   }
 
   // Redirect to login
   const loginUrl = request.nextUrl.clone()
   loginUrl.pathname = '/login'
-  return addSecurityHeaders(NextResponse.redirect(loginUrl), request)
+  return addSecurityHeaders(NextResponse.redirect(loginUrl), requestId)
 }
 
 export const config = {

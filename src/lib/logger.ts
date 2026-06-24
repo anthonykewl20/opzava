@@ -2,6 +2,7 @@ import pino from 'pino'
 import { resolveLogShippingConfig } from '@/opzava/platform/observability/log-shipping'
 import { createLogShipperFromConfig, type FetchLike } from '@/opzava/platform/observability/log-ship-transport'
 import { createLogShipDestination } from '@/opzava/platform/observability/log-ship-destination'
+import { getRequestContext } from './request-context'
 
 function hasPinoPretty(): boolean {
   try {
@@ -60,6 +61,21 @@ const REDACT_CONFIG = {
   censor: '[REDACTED]',
 }
 
+/**
+ * Merge the active request id (if any) into every log line. Reads the
+ * AsyncLocalStorage request context populated by `withRequestContext` on opted-in
+ * routes, so logs auto-correlate to the request without threading the id through
+ * every call. Defensive: never breaks logging if the context is unavailable.
+ */
+const REQUEST_ID_MIXIN = (): Record<string, unknown> => {
+  try {
+    const ctx = getRequestContext()
+    return ctx?.requestId ? { request_id: ctx.requestId } : {}
+  } catch {
+    return {}
+  }
+}
+
 // Centralized log shipping (aggregation): when LOG_SHIP_ENABLED + LOG_SHIP_ENDPOINT are set, every
 // stdout log line is ALSO forwarded to the aggregator. Disabled by default and fail-open, so neither
 // the dev (pretty) path nor a missing/flaky aggregator changes existing behavior.
@@ -68,6 +84,7 @@ function buildLogger(): pino.Logger {
     return pino({
       level,
       redact: REDACT_CONFIG,
+      mixin: REQUEST_ID_MIXIN,
       transport: { target: 'pino-pretty', options: { colorize: true } },
     })
   }
@@ -80,7 +97,7 @@ function buildLogger(): pino.Logger {
   )
   if (shipper !== null) {
     return pino(
-      { level, redact: REDACT_CONFIG },
+      { level, redact: REDACT_CONFIG, mixin: REQUEST_ID_MIXIN },
       pino.multistream([
         { stream: process.stdout },
         { stream: createLogShipDestination(shipper) },
@@ -88,7 +105,7 @@ function buildLogger(): pino.Logger {
     )
   }
 
-  return pino({ level, redact: REDACT_CONFIG })
+  return pino({ level, redact: REDACT_CONFIG, mixin: REQUEST_ID_MIXIN })
 }
 
 export const logger = buildLogger()

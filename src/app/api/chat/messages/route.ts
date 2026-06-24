@@ -8,6 +8,7 @@ import { logger } from '@/lib/logger'
 import { scanForInjection } from '@/lib/injection-guard'
 import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 import { resolveCoordinatorDeliveryTarget } from '@/lib/coordinator-routing'
+import { withRequestContext } from '@/lib/request-context'
 
 type ForwardInfo = {
   attempted: boolean
@@ -412,7 +413,7 @@ export async function GET(request: NextRequest) {
  * Body: { to, content, message_type, conversation_id, metadata }
  * Sender identity is always resolved server-side from authenticated user.
  */
-export async function POST(request: NextRequest) {
+async function handleChatPost(request: NextRequest) {
   const auth = requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
@@ -981,3 +982,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to send message' }, { status: 500 })
   }
 }
+
+// Correlate every chat-write log/audit line to the request via the x-request-id
+// header (set by middleware) — the pino logger auto-includes request_id inside.
+export const POST = withRequestContext(handleChatPost)
