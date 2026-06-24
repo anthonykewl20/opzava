@@ -59,15 +59,28 @@ class ServerEventBus extends EventEmitter {
   }
 
   /**
+   * Persist an event durably. Isolated as a seam so the durability latch in
+   * `broadcast` can be exercised without a live SQLite database: the lazy
+   * require avoids a db.ts -> event-bus.ts -> db.ts module cycle, and tests
+   * override this on the singleton to control success/failure per call.
+   */
+  protected recordDurable(event: ServerEvent): ServerEvent {
+    const { recordServerEvent } = require('./realtime-events') as typeof import('./realtime-events')
+    return recordServerEvent(event)
+  }
+
+  /**
    * Broadcast an event to all SSE listeners
    */
   broadcast(type: EventType, data: any): ServerEvent {
     const volatileEvent: ServerEvent = { type, data, timestamp: Date.now() }
     let event = volatileEvent
     try {
-      // Lazy require avoids a db.ts -> event-bus.ts -> db.ts module cycle.
-      const { recordServerEvent } = require('./realtime-events') as typeof import('./realtime-events')
-      event = recordServerEvent(volatileEvent)
+      event = this.recordDurable(volatileEvent)
+      // A successful record clears the latch so the NEXT failure warns again;
+      // without this one transient SQLite error permanently mutes durability
+      // warnings for the process life.
+      this.recordingFailureLogged = false
     } catch (err) {
       if (!this.recordingFailureLogged) {
         this.recordingFailureLogged = true

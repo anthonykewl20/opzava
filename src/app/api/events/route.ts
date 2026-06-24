@@ -84,16 +84,24 @@ export async function GET(request: NextRequest) {
         // Chat DM ACL: only a real DM (to_agent is a string) is private — delivered to
         // its two participants (or an operator/admin). Broadcasts (to_agent null/absent)
         // are workspace-wide and pass to all viewers, parity with GET /api/chat/conversations.
+        // Identity contract: a participant is identified by display_name OR username,
+        // compared case-insensitively so a recipient whose stored name differs in casing
+        // (or username-vs-display_name) is not dropped.
         if (event.type.startsWith('chat.') && event.data && typeof event.data === 'object') {
           const { from_agent, to_agent } = event.data as { from_agent?: unknown; to_agent?: unknown }
           if (typeof to_agent === 'string'
-            && viewerRole !== 'operator' && viewerRole !== 'admin'
-            && viewerName !== from_agent && viewerName !== to_agent) {
-            // ACL membership is stable per connection, so a replay-dropped DM can never
-            // become deliverable later — advance the cursor past it so the 1s poll does
-            // not re-fetch and re-test it on every tick.
-            if (advanceFilteredReplay && typeof event.id === 'number') lastSentId = event.id
-            return
+            && viewerRole !== 'operator' && viewerRole !== 'admin') {
+            const viewer = viewerName.toLowerCase()
+            const isParticipant =
+              (typeof from_agent === 'string' && viewer === from_agent.toLowerCase()) ||
+              viewer === to_agent.toLowerCase()
+            if (!isParticipant) {
+              // ACL membership is stable per connection, so a replay-dropped DM can never
+              // become deliverable later — advance the cursor past it so the 1s poll does
+              // not re-fetch and re-test it on every tick.
+              if (advanceFilteredReplay && typeof event.id === 'number') lastSentId = event.id
+              return
+            }
           }
         }
         const typeMatches = typeFilters.size === 0 || typeFilters.has(event.type)

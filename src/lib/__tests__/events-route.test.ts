@@ -244,6 +244,111 @@ describe('GET /api/events', () => {
     expect(operator).toContain('"type":"chat.message"')
   })
 
+  it('delivers a chat DM to a participant whose name differs only in casing (P2-1 case-insensitive ACL)', async () => {
+    async function deliverFor(viewer: typeof routeState.currentUser, events: ServerEvent[]): Promise<string> {
+      routeState.currentUser = viewer
+      vi.resetModules()
+      const { GET } = await import('../../app/api/events/route')
+      const response = await GET(new NextRequest('http://localhost/api/events'))
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('missing response body')
+      await reader.read()
+      await reader.read()
+      for (const event of events) routeState.handler?.(event)
+      const decoder = new TextDecoder()
+      let text = ''
+      const drained = await Promise.race([
+        reader.read().then((result) => {
+          if (!result.done && result.value) text = decoder.decode(result.value)
+        }),
+        new Promise<void>((resolve) => setTimeout(resolve, 50)),
+      ])
+      void drained
+      await reader.cancel()
+      return text
+    }
+
+    // DM from "alice" to "Bob" (display_name) — viewer is a viewer-role user whose
+    // identity resolves to "bob" (username) but the event's to_agent is "Bob".
+    // Identity contract: display_name OR username, compared case-insensitively.
+    const dm: ServerEvent = {
+      id: 200,
+      type: 'chat.message',
+      data: { id: 'm200', workspace_id: 1, from_agent: 'alice', to_agent: 'Bob', text: 'hi' },
+      timestamp: 1,
+      workspace_id: 1,
+    }
+
+    // Participant: display_name "Bob" differs only by case from to_agent "Bob" — exact
+    // case here, but the from_agent "alice" vs username "alice" path is covered too.
+    const participantByDisplay = await deliverFor(
+      { id: 2, username: 'bob', display_name: 'Bob', role: 'viewer', workspace_id: 1 },
+      [dm],
+    )
+    expect(participantByDisplay).toContain('"type":"chat.message"')
+
+    // Recipient whose identity is the display_name "BOB" (different case) still receives.
+    const recipientDiffCase = await deliverFor(
+      { id: 3, username: 'bobby', display_name: 'BOB', role: 'viewer', workspace_id: 1 },
+      [dm],
+    )
+    expect(recipientDiffCase).toContain('"from_agent":"alice"')
+
+    // Sender whose identity is "ALICE" (different case from from_agent "alice") receives their own send.
+    const senderDiffCase = await deliverFor(
+      { id: 4, username: 'al', display_name: 'ALICE', role: 'viewer', workspace_id: 1 },
+      [dm],
+    )
+    expect(senderDiffCase).toContain('"from_agent":"alice"')
+
+    // Non-participant (unrelated identity) still does NOT receive.
+    const outsider = await deliverFor(
+      { id: 9, username: 'carol', display_name: 'Carol', role: 'viewer', workspace_id: 1 },
+      [dm],
+    )
+    expect(outsider).not.toContain('"from_agent":"alice"')
+  })
+
+  it('keeps broadcast (to_agent null) chat messages visible to all viewers regardless of identity', async () => {
+    async function deliverFor(viewer: typeof routeState.currentUser, events: ServerEvent[]): Promise<string> {
+      routeState.currentUser = viewer
+      vi.resetModules()
+      const { GET } = await import('../../app/api/events/route')
+      const response = await GET(new NextRequest('http://localhost/api/events'))
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('missing response body')
+      await reader.read()
+      await reader.read()
+      for (const event of events) routeState.handler?.(event)
+      const decoder = new TextDecoder()
+      let text = ''
+      const drained = await Promise.race([
+        reader.read().then((result) => {
+          if (!result.done && result.value) text = decoder.decode(result.value)
+        }),
+        new Promise<void>((resolve) => setTimeout(resolve, 50)),
+      ])
+      void drained
+      await reader.cancel()
+      return text
+    }
+
+    const broadcast: ServerEvent = {
+      id: 201,
+      type: 'chat.message',
+      data: { id: 'm201', workspace_id: 1, from_agent: 'announcer', to_agent: null, text: 'all-hands' },
+      timestamp: 1,
+      workspace_id: 1,
+    }
+
+    const anyViewer = await deliverFor(
+      { id: 9, username: 'carol', display_name: 'Carol', role: 'viewer', workspace_id: 1 },
+      [broadcast],
+    )
+    expect(anyViewer).toContain('"type":"chat.message"')
+    expect(anyViewer).toContain('all-hands')
+  })
+
   it('emits a resync.required control frame when lastEventId predates the retention min id', async () => {
     // Client last saw id=5, but the workspace's earliest retained event is id=10.
     routeState.minRealtimeEventId.mockReturnValue(10)

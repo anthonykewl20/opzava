@@ -54,17 +54,25 @@ export function useServerEvents() {
 
       es.onopen = () => {
         if (!mounted) return
-        setConnection({ sseConnected: true })
+        // A fresh connection clears any stale resync-needed state from a prior
+        // (gap-affected) connection; the bootstrap/refetch path is the source
+        // of truth for a clean window.
+        setConnection({ sseConnected: true, resyncNeeded: false })
       }
 
       es.onmessage = (event) => {
         if (!mounted) return
         try {
           const payload = JSON.parse(event.data) as ServerEvent
-          const eventId = typeof payload.id === 'number' ? payload.id : Number(event.lastEventId || 0)
-          if (Number.isSafeInteger(eventId) && eventId > 0) {
-            if (processedEventIdsRef.current.has(eventId)) return
-            processedEventIdsRef.current.add(eventId)
+          // Dedup ONLY on the payload's own numeric id. Volatile/id-less events
+          // (connected, resync.required, …) bypass the Set entirely — falling
+          // back to event.lastEventId would reuse the PRIOR durable event's id
+          // (already in the Set) and mis-drop them. Such events are also never
+          // allowed to advance the cursor.
+          const id = payload.id
+          if (typeof id === 'number' && Number.isSafeInteger(id) && id > 0) {
+            if (processedEventIdsRef.current.has(id)) return
+            processedEventIdsRef.current.add(id)
             if (processedEventIdsRef.current.size > MAX_DEDUPED_EVENT_IDS) {
               const oldest = processedEventIdsRef.current.values().next().value
               if (oldest !== undefined) processedEventIdsRef.current.delete(oldest)
@@ -87,6 +95,16 @@ export function useServerEvents() {
       switch (event.type) {
         case 'connected':
           // Initial connection ack, nothing to do
+          break
+
+        // Control frame: the client's Last-Event-ID predates the server's
+        // retained window (retention gap). The store does not own a refetch
+        // path for the realtime-backed collections (panels do that on mount);
+        // surface a flag so the dashboard/panels can trigger a full REST
+        // refetch. Never crashes on the frame.
+        case 'resync.required':
+          log.warn('SSE retention gap detected; flagging for resync', event.data)
+          setConnection({ resyncNeeded: true })
           break
 
         // Task events

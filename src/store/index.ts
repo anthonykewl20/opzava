@@ -351,6 +351,10 @@ export interface ConnectionStatus {
   reconnectAttempts: number
   latency?: number
   sseConnected?: boolean
+  /** Set by the SSE hook when the server emits a `resync.required` control
+   * frame (client cursor predates the retained event window). Panels reading
+   * realtime-backed collections should trigger a full REST refetch. */
+  resyncNeeded?: boolean
 }
 
 export interface ExecApprovalRequest {

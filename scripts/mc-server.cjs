@@ -22,6 +22,24 @@ const DRAIN_MS = 2000
 // can stop it from accepting new connections during the drain window.
 let patchedServer = null
 
+// C4.2 double-dispose: the graceful drain disposes PTY sessions and then calls
+// process.exit(0), which fires the "exit" listener that ALSO disposes. Wrapping
+// the dispose so it runs at most once makes the second invocation a harmless
+// no-op. Pure factory so the guard is per-instance (no shared module latch that
+// would leak across tests or hide a genuine second lifecycle event).
+function createIdempotentDispose(dispose) {
+  let disposed = false
+  return function disposeOnce() {
+    if (disposed) return
+    disposed = true
+    dispose()
+  }
+}
+
+// Single idempotent dispose used by BOTH the drain timer and the process "exit"
+// listener, so the two paths cannot double-kill PTY sessions.
+const disposeAllPtySessionsOnce = createIdempotentDispose(disposeAllPtySessions)
+
 function patchCreateServer(module) {
   const original = module.createServer
   module.createServer = function createServerWithPty(...args) {
@@ -54,7 +72,7 @@ function performGracefulDrain(server, disposePtySessions, deps) {
 }
 
 function gracefulShutdown() {
-  performGracefulDrain(patchedServer, disposeAllPtySessions, {
+  performGracefulDrain(patchedServer, disposeAllPtySessionsOnce, {
     drainMs: DRAIN_MS,
     exit: (code) => process.exit(code),
     timers: { setTimeout, clearTimeout },
@@ -63,9 +81,9 @@ function gracefulShutdown() {
 
 process.on('SIGINT', gracefulShutdown)
 process.on('SIGTERM', gracefulShutdown)
-process.on('exit', disposeAllPtySessions)
+process.on('exit', disposeAllPtySessionsOnce)
 
-module.exports = { performGracefulDrain, patchCreateServer }
+module.exports = { performGracefulDrain, patchCreateServer, createIdempotentDispose }
 
 // Bootstrap only when invoked directly (not when imported for testing).
 if (require.main === module) {

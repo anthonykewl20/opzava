@@ -416,6 +416,89 @@ describe('dispatchAssignedTasks (deps seam)', () => {
     expect(broadcasts.some(b => b.type === 'task.updated' && (b.payload as any).dispatch_run_id === 'run-100')).toBe(true)
   })
 
+  it('dispatches via direct API and completes synchronously to review (deps.* seam, no gateway)', async () => {
+    // Coverage target: the direct-API synchronous-completion path — the block
+    // after `if (!agentResponse.text)` in dispatchAssignedTasks. When the
+    // gateway is unavailable AND direct dispatch is available, deps.dispatchDirect
+    // resolves {text, sessionId} and the task is written to "review" in the same
+    // tick. This pins that EVERY side effect in that block goes through the
+    // deps seam (UPDATE→review w/ resolution, comment INSERT, 2 broadcasts,
+    // syncTaskOutbound, logActivity) and that the gateway path is NOT taken.
+    const dispatchDirect = vi.fn(async () => ({
+      text: 'Here is the completed work.',
+      sessionId: 'direct-session-42',
+    })) as unknown as TaskDispatchDeps['dispatchDirect']
+    const gateway = vi.fn() as unknown as TaskDispatchDeps['gateway']
+    const { deps, state, broadcasts, activities, syncOutbound } = makeFakeDeps({
+      isGatewayAvailable: () => false,
+      isDirectDispatchAvailable: () => true,
+      dispatchDirect,
+      gateway,
+    })
+    const tasks = [{
+      id: 200, title: 'Direct task', description: 'Do the thing', status: 'assigned',
+      priority: 'medium', assigned_to: 'Directa', workspace_id: 1,
+      agent_name: 'Directa', agent_id: 2, agent_config: null,
+      ticket_prefix: null, project_ticket_no: null, project_id: null,
+      tags: null, metadata: '{}',
+    }]
+    state.rowsBySql.set(assignedSelectSql(), () => tasks)
+    // Claim: assigned -> in_progress
+    state.runBySql.set(
+      "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ? AND status = 'assigned'",
+      () => ({ changes: 1 }),
+    )
+    // rejection-feedback lookup (must resolve undefined so no feedback is added)
+    state.rowsBySql.set(
+      "SELECT content FROM comments\n        WHERE task_id = ? AND author = 'aegis' AND content LIKE 'Quality Review Rejected:%'\n        ORDER BY created_at DESC LIMIT 1",
+      () => undefined,
+    )
+    // metadata reads (target_session lookup + the trailing merge read)
+    state.rowsBySql.set(
+      'SELECT metadata FROM tasks WHERE id = ?',
+      () => ({ metadata: '{}' }),
+    )
+    // The trailing synchronous-completion UPDATE → review (the under-tested one)
+    state.runBySql.set(directCompletionUpdateToReviewSql(), (...args: unknown[]) => {
+      capturedReviewArgs = args
+      return { changes: 1 }
+    })
+    // The agent comment INSERT (5 plain placeholders — distinct from aegis/scheduler)
+    state.runBySql.set(directCompletionCommentInsertSql(), (...args: unknown[]) => {
+      capturedCommentArgs = args
+      return { changes: 1 }
+    })
+    let capturedReviewArgs: unknown[] = []
+    let capturedCommentArgs: unknown[] = []
+
+    const result = await dispatchAssignedTasks(deps)
+
+    expect(result.ok).toBe(true)
+    // The direct path was taken exactly once; the gateway path never was.
+    expect(dispatchDirect).toHaveBeenCalledTimes(1)
+    expect(gateway).not.toHaveBeenCalled()
+
+    // UPDATE → 'review' with outcome='success' and the returned text as resolution.
+    expect(capturedReviewArgs[0]).toBe('review')
+    expect(capturedReviewArgs[1]).toBe('success')
+    expect(capturedReviewArgs[2]).toBe('Here is the completed work.')
+
+    // Comment INSERT carries the agent name as author and the resolution text.
+    expect(capturedCommentArgs[0]).toBe(200)
+    expect(capturedCommentArgs[1]).toBe('Directa')
+    expect(capturedCommentArgs[2]).toBe('Here is the completed work.')
+
+    // Two broadcasts through deps.broadcast: status_changed→review and task.updated.
+    expect(broadcasts.some(b => b.type === 'task.status_changed' && (b.payload as any).status === 'review' && (b.payload as any).previous_status === 'in_progress')).toBe(true)
+    expect(broadcasts.some(b => b.type === 'task.updated' && (b.payload as any).status === 'review' && (b.payload as any).outcome === 'success' && (b.payload as any).dispatch_session_id === 'direct-session-42')).toBe(true)
+
+    // logActivity fires through the deps seam with the task_agent_completed verb.
+    expect(activities.some((a: unknown) => (a as unknown[])[0] === 'task_agent_completed')).toBe(true)
+
+    // Outbound sync goes through deps.syncTaskOutbound (never a module global).
+    expect(syncOutbound).toHaveLength(1)
+  })
+
   it('reports no assigned tasks when the table is empty', async () => {
     const { deps } = makeFakeDeps()
     const result = await dispatchAssignedTasks(deps)
@@ -448,3 +531,11 @@ function deferredCommentInsertSql(): string { return 'INSERT INTO comments (task
 function assignedSelectSql(): string { return "WHERE t.status = 'assigned'\n      AND t.assigned_to IS NOT NULL" }
 function reviewRejectCommentSql(): string { return "VALUES (?, 'aegis', ?, ?, ?)" }
 function staleRequeueCommentSql(): string { return "VALUES (?, 'scheduler', ?, ?, ?)" }
+/** The trailing synchronous-completion UPDATE in dispatchAssignedTasks
+ *  (direct-API path): status/outcome/resolution/metadata/updated_at. Distinct
+ *  from the deferred-promote update (no outcome/resolution column set there)
+ *  and from the bare status-only UPDATEs. */
+function directCompletionUpdateToReviewSql(): string { return 'UPDATE tasks SET status = ?, outcome = ?, resolution = ?, metadata = ?, updated_at = ? WHERE id = ?' }
+/** The agent-authored comment INSERT in the direct-completion block — five
+ *  plain placeholders, distinct from the 'aegis'/'scheduler' author variants. */
+function directCompletionCommentInsertSql(): string { return 'INSERT INTO comments (task_id, author, content, created_at, workspace_id)\n        VALUES (?, ?, ?, ?, ?)' }
