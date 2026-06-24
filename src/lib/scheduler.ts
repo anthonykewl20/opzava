@@ -10,10 +10,191 @@ import { pruneGatewaySessionsOlderThan, getAgentLiveStatuses } from './sessions'
 import { eventBus } from './event-bus'
 import { syncSkillsFromDisk } from './skill-sync'
 import { syncLocalAgents } from './local-agent-sync'
-import { dispatchAssignedTasks, runAegisReviews, requeueStaleTasks, autoRouteInboxTasks, reconcileDeferredTaskCompletions } from './task-dispatch'
+import { dispatchAssignedTasks, runAegisReviews, requeueStaleTasks, autoRouteInboxTasks, reconcileDeferredTaskCompletions, makeDefaultDeps } from './task-dispatch'
 import { spawnRecurringTasks } from './recurring-tasks'
 
 const BACKUP_DIR = join(dirname(config.dbPath), 'backups')
+
+const DAILY_MS = 24 * 60 * 60 * 1000
+const FIVE_MINUTES_MS = 5 * 60 * 1000
+const TICK_MS = 60 * 1000 // Check every minute
+
+// ---------------------------------------------------------------------------
+// Scheduled-task registry.
+//
+// Every task the scheduler runs is declared ONCE here — id, display name, the
+// settings-table key that gates it, the default-enabled fallback, the tick
+// interval, the first-run delay resolver, and the handler. initScheduler,
+// tick(), getSchedulerStatus(), and triggerTask() all read from this table, so
+// a task's setting gate / timing / handler can never drift between them (the
+// pre-refactor code re-derived the gate + handler in three places).
+//
+// This is an internal data table, NOT a public register() API: there is a
+// single caller (this module). Behavior is preserved exactly — every entry
+// below corresponds 1:1 to a former `tasks.set(...)` + ternary branch.
+// ---------------------------------------------------------------------------
+
+export interface ScheduledTaskContext {
+  /** true when invoked via triggerTask() (manual run), false on a scheduled tick. */
+  manual: boolean
+}
+
+export interface ScheduledTaskSpec {
+  id: string
+  name: string
+  /** settings-table key whose `'true'`/`'false'` value gates this task. */
+  settingKey: string
+  /** fallback when the setting row is absent. */
+  defaultEnabled: boolean
+  intervalMs: number
+  /** ms from scheduler init until the task's first eligible run. */
+  firstRunDelay: (now: number) => number
+  /** returns { ok, message }; the same handler backs both ticks and manual runs. */
+  handler: (ctx: ScheduledTaskContext) => Promise<{ ok: boolean; message: string }>
+}
+
+/** The task_dispatch chain: route → reconcile → dispatch, in one place. */
+async function runTaskDispatchChain(): Promise<{ ok: boolean; message: string }> {
+  const deps = makeDefaultDeps()
+  const routeResult = await autoRouteInboxTasks(deps)
+  const reconcileResult = await reconcileDeferredTaskCompletions(deps)
+  const dispatchResult = await dispatchAssignedTasks(deps)
+  const parts = [reconcileResult.message, routeResult.message, dispatchResult.message]
+    .filter(m => m && !m.includes('No ') && !m.includes('none completed'))
+  return {
+    ok: routeResult.ok && reconcileResult.ok && dispatchResult.ok,
+    message: parts.join(' | ') || 'No tasks to reconcile, route, or dispatch',
+  }
+}
+
+/** gateway_agent_sync differs between scheduled (live-status refresh) and manual. */
+async function runGatewayAgentSync(ctx: ScheduledTaskContext): Promise<{ ok: boolean; message: string }> {
+  const r = await syncAgentsFromConfig(ctx.manual ? 'manual' : 'scheduled')
+  if (ctx.manual) {
+    return { ok: true, message: `Gateway sync: ${r.created} created, ${r.updated} updated, ${r.synced} total` }
+  }
+  const refreshed = await syncAgentLiveStatuses()
+  return {
+    ok: true,
+    message: `Gateway sync: ${r.created} created, ${r.updated} updated, ${r.synced} total | Live status: ${refreshed} refreshed`,
+  }
+}
+
+export const SCHEDULED_TASKS: readonly ScheduledTaskSpec[] = [
+  {
+    id: 'auto_backup',
+    name: 'Auto Backup',
+    settingKey: 'general.auto_backup',
+    defaultEnabled: false,
+    intervalMs: DAILY_MS,
+    firstRunDelay: () => getNextDailyMs(3), // ~3 AM UTC
+    handler: () => runBackup(),
+  },
+  {
+    id: 'auto_cleanup',
+    name: 'Auto Cleanup',
+    settingKey: 'general.auto_cleanup',
+    defaultEnabled: false,
+    intervalMs: DAILY_MS,
+    firstRunDelay: () => getNextDailyMs(4), // ~4 AM UTC
+    handler: () => runCleanup(),
+  },
+  {
+    id: 'agent_heartbeat',
+    name: 'Agent Heartbeat Check',
+    settingKey: 'general.agent_heartbeat',
+    defaultEnabled: true,
+    intervalMs: FIVE_MINUTES_MS,
+    firstRunDelay: () => FIVE_MINUTES_MS,
+    handler: () => runHeartbeatCheck(),
+  },
+  {
+    id: 'webhook_retry',
+    name: 'Webhook Retry',
+    settingKey: 'webhooks.retry_enabled',
+    defaultEnabled: true,
+    intervalMs: TICK_MS,
+    firstRunDelay: () => TICK_MS,
+    handler: () => processWebhookRetries(),
+  },
+  {
+    id: 'claude_session_scan',
+    name: 'Claude Session Scan',
+    settingKey: 'general.claude_session_scan',
+    defaultEnabled: true,
+    intervalMs: getEnvNumber('MC_CLAUDE_SCAN_INTERVAL_MS', TICK_MS),
+    firstRunDelay: () => 5_000, // first scan 5s after startup
+    handler: () => syncClaudeSessions(),
+  },
+  {
+    id: 'skill_sync',
+    name: 'Skill Sync',
+    settingKey: 'general.skill_sync',
+    defaultEnabled: true,
+    intervalMs: TICK_MS,
+    firstRunDelay: () => 10_000, // first scan 10s after startup
+    handler: () => syncSkillsFromDisk(),
+  },
+  {
+    id: 'local_agent_sync',
+    name: 'Local Agent Sync',
+    settingKey: 'general.local_agent_sync',
+    defaultEnabled: true,
+    intervalMs: TICK_MS,
+    firstRunDelay: () => 15_000, // first scan 15s after startup
+    handler: () => syncLocalAgents(),
+  },
+  {
+    id: 'gateway_agent_sync',
+    name: 'Gateway Agent Sync',
+    settingKey: 'general.gateway_agent_sync',
+    defaultEnabled: true,
+    intervalMs: TICK_MS,
+    firstRunDelay: () => 20_000, // first scan 20s after startup (after local sync)
+    handler: runGatewayAgentSync,
+  },
+  {
+    id: 'task_dispatch',
+    name: 'Task Dispatch',
+    settingKey: 'general.task_dispatch',
+    defaultEnabled: true,
+    intervalMs: TICK_MS,
+    firstRunDelay: () => 10_000, // first check 10s after startup
+    handler: () => runTaskDispatchChain(),
+  },
+  {
+    id: 'aegis_review',
+    name: 'Aegis Quality Review',
+    settingKey: 'general.aegis_review',
+    defaultEnabled: true,
+    intervalMs: TICK_MS,
+    firstRunDelay: () => 30_000, // first check 30s after startup (after dispatch)
+    handler: () => runAegisReviews(makeDefaultDeps()),
+  },
+  {
+    id: 'recurring_task_spawn',
+    name: 'Recurring Task Spawn',
+    settingKey: 'general.recurring_task_spawn',
+    defaultEnabled: true,
+    intervalMs: TICK_MS,
+    firstRunDelay: () => 20_000, // first check 20s after startup
+    handler: () => spawnRecurringTasks(),
+  },
+  {
+    id: 'stale_task_requeue',
+    name: 'Stale Task Requeue',
+    settingKey: 'general.stale_task_requeue',
+    defaultEnabled: true,
+    intervalMs: TICK_MS,
+    firstRunDelay: () => 25_000, // first check 25s after startup
+    handler: () => requeueStaleTasks(makeDefaultDeps()),
+  },
+]
+
+/** Ids of every registered task — the source of truth for the API allow-list. */
+export function getRegisteredTaskIds(): string[] {
+  return SCHEDULED_TASKS.map(t => t.id)
+}
 
 interface ScheduledTask {
   name: string
@@ -287,10 +468,6 @@ async function syncAgentLiveStatuses(): Promise<number> {
   return refreshed
 }
 
-const DAILY_MS = 24 * 60 * 60 * 1000
-const FIVE_MINUTES_MS = 5 * 60 * 1000
-const TICK_MS = 60 * 1000 // Check every minute
-
 /** Initialize the scheduler */
 export function initScheduler() {
   if (tickInterval) return // Already running
@@ -300,119 +477,20 @@ export function initScheduler() {
     logger.warn({ err }, 'Agent auto-sync failed')
   })
 
-  // Register tasks
+  // Register every task from the registry — setting gate, timing, and first-run
+  // offset are all carried by the spec, so this loop cannot drift from the
+  // ternary chains that previously duplicated them.
   const now = Date.now()
-  // Stagger the initial runs: backup at ~3 AM, cleanup at ~4 AM (relative to process start)
-  const msUntilNextBackup = getNextDailyMs(3)
-  const msUntilNextCleanup = getNextDailyMs(4)
-
-  tasks.set('auto_backup', {
-    name: 'Auto Backup',
-    intervalMs: DAILY_MS,
-    lastRun: null,
-    nextRun: now + msUntilNextBackup,
-    enabled: true,
-    running: false,
-  })
-
-  tasks.set('auto_cleanup', {
-    name: 'Auto Cleanup',
-    intervalMs: DAILY_MS,
-    lastRun: null,
-    nextRun: now + msUntilNextCleanup,
-    enabled: true,
-    running: false,
-  })
-
-  tasks.set('agent_heartbeat', {
-    name: 'Agent Heartbeat Check',
-    intervalMs: FIVE_MINUTES_MS,
-    lastRun: null,
-    nextRun: now + FIVE_MINUTES_MS,
-    enabled: true,
-    running: false,
-  })
-
-  tasks.set('webhook_retry', {
-    name: 'Webhook Retry',
-    intervalMs: TICK_MS, // Every 60s, matching scheduler tick resolution
-    lastRun: null,
-    nextRun: now + TICK_MS,
-    enabled: true,
-    running: false,
-  })
-
-  tasks.set('claude_session_scan', {
-    name: 'Claude Session Scan',
-    intervalMs: getEnvNumber('MC_CLAUDE_SCAN_INTERVAL_MS', TICK_MS), // Default: every 60s; tune for large ~/.claude/projects trees
-    lastRun: null,
-    nextRun: now + 5_000, // First scan 5s after startup
-    enabled: true,
-    running: false,
-  })
-
-  tasks.set('skill_sync', {
-    name: 'Skill Sync',
-    intervalMs: TICK_MS, // Every 60s — lightweight file stat checks
-    lastRun: null,
-    nextRun: now + 10_000, // First scan 10s after startup
-    enabled: true,
-    running: false,
-  })
-
-  tasks.set('local_agent_sync', {
-    name: 'Local Agent Sync',
-    intervalMs: TICK_MS, // Every 60s — lightweight dir scan
-    lastRun: null,
-    nextRun: now + 15_000, // First scan 15s after startup
-    enabled: true,
-    running: false,
-  })
-
-  tasks.set('gateway_agent_sync', {
-    name: 'Gateway Agent Sync',
-    intervalMs: TICK_MS, // Every 60s — re-read openclaw.json
-    lastRun: null,
-    nextRun: now + 20_000, // First scan 20s after startup (after local sync)
-    enabled: true,
-    running: false,
-  })
-
-  tasks.set('task_dispatch', {
-    name: 'Task Dispatch',
-    intervalMs: TICK_MS, // Every 60s — check for assigned tasks to dispatch
-    lastRun: null,
-    nextRun: now + 10_000, // First check 10s after startup
-    enabled: true,
-    running: false,
-  })
-
-  tasks.set('aegis_review', {
-    name: 'Aegis Quality Review',
-    intervalMs: TICK_MS, // Every 60s — check for tasks awaiting review
-    lastRun: null,
-    nextRun: now + 30_000, // First check 30s after startup (after dispatch)
-    enabled: true,
-    running: false,
-  })
-
-  tasks.set('recurring_task_spawn', {
-    name: 'Recurring Task Spawn',
-    intervalMs: TICK_MS, // Every 60s — check for recurring tasks due
-    lastRun: null,
-    nextRun: now + 20_000, // First check 20s after startup
-    enabled: true,
-    running: false,
-  })
-
-  tasks.set('stale_task_requeue', {
-    name: 'Stale Task Requeue',
-    intervalMs: TICK_MS, // Every 60s — check for stale in_progress tasks
-    lastRun: null,
-    nextRun: now + 25_000, // First check 25s after startup
-    enabled: true,
-    running: false,
-  })
+  for (const spec of SCHEDULED_TASKS) {
+    tasks.set(spec.id, {
+      name: spec.name,
+      intervalMs: spec.intervalMs,
+      lastRun: null,
+      nextRun: now + spec.firstRunDelay(now),
+      enabled: true,
+      running: false,
+    })
+  }
 
   // Start the tick loop
   tickInterval = setInterval(tick, TICK_MS)
@@ -437,44 +515,15 @@ async function tick() {
   for (const [id, task] of tasks) {
     if (task.running || now < task.nextRun) continue
 
-    // Check if this task is enabled in settings (heartbeat is always enabled)
-    const settingKey = id === 'auto_backup' ? 'general.auto_backup'
-      : id === 'auto_cleanup' ? 'general.auto_cleanup'
-      : id === 'webhook_retry' ? 'webhooks.retry_enabled'
-      : id === 'claude_session_scan' ? 'general.claude_session_scan'
-      : id === 'skill_sync' ? 'general.skill_sync'
-      : id === 'local_agent_sync' ? 'general.local_agent_sync'
-      : id === 'gateway_agent_sync' ? 'general.gateway_agent_sync'
-      : id === 'task_dispatch' ? 'general.task_dispatch'
-      : id === 'aegis_review' ? 'general.aegis_review'
-      : id === 'recurring_task_spawn' ? 'general.recurring_task_spawn'
-      : id === 'stale_task_requeue' ? 'general.stale_task_requeue'
-      : 'general.agent_heartbeat'
-    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan' || id === 'skill_sync' || id === 'local_agent_sync' || id === 'gateway_agent_sync' || id === 'task_dispatch' || id === 'aegis_review' || id === 'recurring_task_spawn' || id === 'stale_task_requeue'
-    if (!isSettingEnabled(settingKey, defaultEnabled)) continue
+    const spec = SCHEDULED_TASKS.find(s => s.id === id)
+    if (!spec) continue
+
+    // Setting gate: skip if disabled in settings (falling back to defaultEnabled).
+    if (!isSettingEnabled(spec.settingKey, spec.defaultEnabled)) continue
 
     task.running = true
     try {
-      const result = id === 'auto_backup' ? await runBackup()
-        : id === 'agent_heartbeat' ? await runHeartbeatCheck()
-        : id === 'webhook_retry' ? await processWebhookRetries()
-        : id === 'claude_session_scan' ? await syncClaudeSessions()
-        : id === 'skill_sync' ? await syncSkillsFromDisk()
-        : id === 'local_agent_sync' ? await syncLocalAgents()
-        : id === 'gateway_agent_sync' ? await syncAgentsFromConfig('scheduled').then(async r => {
-            const refreshed = await syncAgentLiveStatuses()
-            return { ok: true, message: `Gateway sync: ${r.created} created, ${r.updated} updated, ${r.synced} total | Live status: ${refreshed} refreshed` }
-          })
-        : id === 'task_dispatch' ? await autoRouteInboxTasks().then(async (routeResult) => {
-            const reconcileResult = await reconcileDeferredTaskCompletions()
-            const dispatchResult = await dispatchAssignedTasks()
-            const parts = [reconcileResult.message, routeResult.message, dispatchResult.message].filter(m => m && !m.includes('No ') && !m.includes('none completed'))
-            return { ok: routeResult.ok && reconcileResult.ok && dispatchResult.ok, message: parts.join(' | ') || 'No tasks to reconcile, route, or dispatch' }
-          })
-        : id === 'aegis_review' ? await runAegisReviews()
-        : id === 'recurring_task_spawn' ? await spawnRecurringTasks()
-        : id === 'stale_task_requeue' ? await requeueStaleTasks()
-        : await runCleanup()
+      const result = await spec.handler({ manual: false })
       task.lastResult = { ...result, timestamp: now }
     } catch (err: any) {
       task.lastResult = { ok: false, message: err.message, timestamp: now }
@@ -499,23 +548,12 @@ export function getSchedulerStatus() {
   }> = []
 
   for (const [id, task] of tasks) {
-    const settingKey = id === 'auto_backup' ? 'general.auto_backup'
-      : id === 'auto_cleanup' ? 'general.auto_cleanup'
-      : id === 'webhook_retry' ? 'webhooks.retry_enabled'
-      : id === 'claude_session_scan' ? 'general.claude_session_scan'
-      : id === 'skill_sync' ? 'general.skill_sync'
-      : id === 'local_agent_sync' ? 'general.local_agent_sync'
-      : id === 'gateway_agent_sync' ? 'general.gateway_agent_sync'
-      : id === 'task_dispatch' ? 'general.task_dispatch'
-      : id === 'aegis_review' ? 'general.aegis_review'
-      : id === 'recurring_task_spawn' ? 'general.recurring_task_spawn'
-      : id === 'stale_task_requeue' ? 'general.stale_task_requeue'
-      : 'general.agent_heartbeat'
-    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan' || id === 'skill_sync' || id === 'local_agent_sync' || id === 'gateway_agent_sync' || id === 'task_dispatch' || id === 'aegis_review' || id === 'recurring_task_spawn' || id === 'stale_task_requeue'
+    const spec = SCHEDULED_TASKS.find(s => s.id === id)
+    if (!spec) continue
     result.push({
       id,
       name: task.name,
-      enabled: isSettingEnabled(settingKey, defaultEnabled),
+      enabled: isSettingEnabled(spec.settingKey, spec.defaultEnabled),
       lastRun: task.lastRun,
       nextRun: task.nextRun,
       running: task.running,
@@ -528,19 +566,9 @@ export function getSchedulerStatus() {
 
 /** Manually trigger a scheduled task */
 export async function triggerTask(taskId: string): Promise<{ ok: boolean; message: string }> {
-  if (taskId === 'auto_backup') return runBackup()
-  if (taskId === 'auto_cleanup') return runCleanup()
-  if (taskId === 'agent_heartbeat') return runHeartbeatCheck()
-  if (taskId === 'webhook_retry') return processWebhookRetries()
-  if (taskId === 'claude_session_scan') return syncClaudeSessions()
-  if (taskId === 'skill_sync') return syncSkillsFromDisk()
-  if (taskId === 'local_agent_sync') return syncLocalAgents()
-  if (taskId === 'gateway_agent_sync') return syncAgentsFromConfig('manual').then(r => ({ ok: true, message: `Gateway sync: ${r.created} created, ${r.updated} updated, ${r.synced} total` }))
-  if (taskId === 'task_dispatch') return autoRouteInboxTasks().then(async (r) => { const c = await reconcileDeferredTaskCompletions(); const d = await dispatchAssignedTasks(); return { ok: r.ok && c.ok && d.ok, message: [c.message, r.message, d.message].filter(m => m && !m.includes('No ') && !m.includes('none completed')).join(' | ') || 'No tasks' } })
-  if (taskId === 'aegis_review') return runAegisReviews()
-  if (taskId === 'recurring_task_spawn') return spawnRecurringTasks()
-  if (taskId === 'stale_task_requeue') return requeueStaleTasks()
-  return { ok: false, message: `Unknown task: ${taskId}` }
+  const spec = SCHEDULED_TASKS.find(s => s.id === taskId)
+  if (!spec) return { ok: false, message: `Unknown task: ${taskId}` }
+  return spec.handler({ manual: true })
 }
 
 /** Stop the scheduler */

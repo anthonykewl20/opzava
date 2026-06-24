@@ -222,3 +222,97 @@ Real violations of the declared layering; both fixed.
 `data/`, `ui/`, `testing/`; and `workflows/` plural), omitted `platform/observability/`, and named a
 non-existent `outreach` module as an initial feature module. Corrected to match the real tree under
 code-is-truth.
+
+---
+
+## Engine-A task-dispatch / scheduler (post-Variant-A track)
+
+The task-dispatch Variant-A track introduced a `TaskDispatchDeps` seam and folded the scheduler's
+hardcoded task list into a registry. The four items below are the verified post-refactor state an
+editor of `src/lib/task-dispatch.ts` or `src/lib/scheduler.ts` must not regress. Each is **✅
+RESOLVED** with `file:line` evidence; the colocated `task-dispatch.MODULE.md` / `scheduler.MODULE.md`
+copy these verbatim as their Editor guardrails.
+
+### ✅ RESOLVED — 9 `vi.mock` brittleness removed via the `TaskDispatchDeps` seam
+
+The five orchestrators (`autoRouteInboxTasks`, `dispatchAssignedTasks`,
+`reconcileDeferredTaskCompletions`, `requeueStaleTasks`, `runAegisReviews`) previously reached for
+module globals (`getDatabase`, `eventBus.broadcast`, `db_helpers.logActivity`,
+`callOpenClawGateway`, `Date.now`, `recoverDeferredCompletionTextFromTranscript`) inline, which forced
+tests to `vi.mock` half the codebase. **Resolved.** A `TaskDispatchDeps` seam
+(`src/lib/task-dispatch.ts:38`) carries only the members an orchestrator actually uses;
+`makeDefaultDeps()` (`src/lib/task-dispatch.ts:51`) is the production adapter (used by the scheduler
+and the task API routes), and tests pass a deps-literal.
+
+- **Evidence:** the seam interface + production adapter at `src/lib/task-dispatch.ts:38-67`; the
+  orchestrator bodies read exclusively from `deps` (e.g. `dispatchAssignedTasks` claims via
+  `deps.db` at `:1266-1274`, broadcasts via `deps.broadcast`, logs via `deps.logActivity`); tests in
+  `src/lib/__tests__/task-dispatch-seam.test.ts` use a fake-db deps-literal with **zero** `vi.mock`
+  of task-dispatch internals.
+- **Guardrail (task-dispatch MODULE.md):** do NOT re-introduce inline module-global reads inside an
+  orchestrator, and do NOT `vi.mock` task-dispatch internals to test them — build a deps-literal.
+  The seam is grown per orchestrator (no speculative surface; REJECT over-engineering).
+
+### ✅ RESOLVED — duplicated task-dispatch `.then()` chain unified
+
+The `route → reconcile → dispatch` chain (with its message-part ordering and the
+`!m.includes('No ') && !m.includes('none completed')` filter) was duplicated verbatim in the
+scheduler tick and the manual `triggerTask` path. **Resolved** by the `SCHEDULED_TASKS` registry:
+both the tick (`handler({ manual: false })`) and `triggerTask` (`handler({ manual: true })`) call the
+same handler — `runTaskDispatchChain` (`src/lib/scheduler.ts:57`).
+
+- **Evidence:** the single chain definition at `src/lib/scheduler.ts:57-69`; the `task_dispatch`
+  registry entry at `src/lib/scheduler.ts:156-164` whose `handler` ignores the manual flag (the chain
+  is mode-independent); `triggerTask` (`src/lib/scheduler.ts:568-571`) dispatches to the same
+  handler.
+- **Guardrail (task-dispatch + scheduler MODULE.md):** the dispatch ordering (reconcile, route,
+  dispatch message parts, filter rules) is defined in exactly one place. Do not re-fork it per call
+  site.
+
+### ✅ RESOLVED — 3× `token_usage` INSERT collapse
+
+The Anthropic-API, Claude-CLI, and OpenAI-compatible dispatch paths each carried a near-duplicate
+`INSERT INTO token_usage` block. **Resolved** by the `recordUsage` helper
+(`src/lib/task-dispatch.ts:602`); all three providers now funnel through it.
+
+- **Evidence:** `recordUsage` at `src/lib/task-dispatch.ts:602-626`; the three call sites are the
+  Anthropic API path (`callClaudeDirectly` → `recordUsage` at `:681`), the Claude CLI path
+  (`callClaudeViaCli` → `recordUsage` at `:811`), and the OpenAI-compatible path
+  (`callOpenAICompatible` → `recordUsage` at `:863`). `cost` is deliberately left `0` — it is
+  calculated downstream.
+- **Guardrail (task-dispatch MODULE.md):** all direct-provider token accounting goes through
+  `recordUsage`; `cost` is intentionally `0`. Do not re-duplicate the INSERT or compute cost here.
+
+### ✅ RESOLVED — 3 previously-uncovered orchestrators now testable
+
+`reconcileDeferredTaskCompletions`, `runAegisReviews`, and `requeueStaleTasks` previously had no
+interface tests (they were only exercised indirectly through the scheduler). **Resolved** — the seam
+admits a deps-literal, so all five orchestrators (these three plus `autoRouteInboxTasks` and
+`dispatchAssignedTasks`) have direct interface tests in
+`src/lib/__tests__/task-dispatch-seam.test.ts` with no module-level mocking.
+
+- **Evidence:** the reconcile/aegis/stale test groups in
+  `src/lib/__tests__/task-dispatch-seam.test.ts` (e.g. the `requeueStaleTasks (deps seam)`,
+  `runAegisReviews (deps seam)`, and `reconcileDeferredTaskCompletions (deps seam)` describe blocks);
+  each builds a fake-db deps-literal via `makeFakeDeps`.
+- **Guardrail (task-dispatch MODULE.md):** keep the seam honest — any new orchestrator must accept
+  `(deps, options?)` and read only from `deps`. A new orchestrator that reads a module global inline
+  re-introduces the `vi.mock` brittleness this track removed.
+
+### ✅ RESOLVED — scheduler task list deduplicated into a registry
+
+`initScheduler` previously hardcoded ~12 `tasks.set(...)` calls and then re-derived each task's
+setting gate + handler in two more ternary chains (`tick` and
+`getSchedulerStatus`/`triggerTask`). **Resolved** by the `SCHEDULED_TASKS` registry
+(`src/lib/scheduler.ts:83`) — init/tick/status/trigger all read from it. This is an internal data
+table, not a public `register()` API (single caller: this module).
+
+- **Evidence:** the registry at `src/lib/scheduler.ts:83-193`; `initScheduler` iterates it
+  (`src/lib/scheduler.ts:483-494`); `tick` resolves the spec by id (`src/lib/scheduler.ts:521-523`);
+  `getSchedulerStatus` (`src/lib/scheduler.ts:551-552`) and `triggerTask` (`src/lib/scheduler.ts:569`)
+  read the gate/handler from the same spec. The registry contract is pinned by
+  `src/lib/__tests__/scheduler-registry.test.ts` (unique ids + coverage of all 12 previously-hardcoded
+  tasks + per-task gate/timing assertions).
+- **Guardrail (scheduler MODULE.md):** adding/removing a task means editing `SCHEDULED_TASKS` once —
+  do not also edit a parallel `tasks.set` list or a ternary chain (they no longer exist). Preserve
+  every task's setting gate, default-enabled flag, interval, and first-run offset exactly.
