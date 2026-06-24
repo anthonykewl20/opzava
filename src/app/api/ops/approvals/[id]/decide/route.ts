@@ -4,6 +4,7 @@ import { getDatabase } from '@/lib/db'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { createApprovalRepository } from '@/opzava/core/approvals/approval-repository'
 import { transitionApprovalStatus } from '@/opzava/core/approvals/contracts'
+import { withRequestContext } from '@/lib/request-context'
 
 const DECISIONS = ['approved', 'rejected'] as const
 
@@ -27,7 +28,7 @@ function isRequester(
   return false
 }
 
-export async function POST(
+async function handleApproveDecide(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -91,3 +92,6 @@ export async function POST(
     return NextResponse.json({ error: msg }, { status: 400 })
   }
 }
+
+// Correlate the approval-decision log/audit lines to the request via x-request-id.
+export const POST = withRequestContext(handleApproveDecide)

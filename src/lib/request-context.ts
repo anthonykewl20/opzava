@@ -42,11 +42,12 @@ export function getRequestId(): string | undefined {
  * logger.ts), and audit/auth calls can read it via getRequestContext(). Apply
  * to the hot routes (chat write, ops, events, status).
  */
-export function withRequestContext<H extends (req: NextRequest) => Promise<NextResponse> | NextResponse>(
+export function withRequestContext<H extends (...args: any[]) => Promise<NextResponse> | NextResponse>(
   handler: H,
 ): H {
-  return (async (request: NextRequest) => {
-    const requestId = request.headers.get('x-request-id') || 'unknown'
-    return runRequestContext({ requestId }, () => handler(request))
+  return (async (...args: any[]) => {
+    const request = args[0] as NextRequest | undefined
+    const requestId = request?.headers?.get('x-request-id') || 'unknown'
+    return runRequestContext({ requestId }, () => (handler as (...a: any[]) => any)(...args))
   }) as H
 }
