@@ -93,6 +93,7 @@ describe('isBlockedWebhookUrl (SSRF classification)', () => {
     'http://127.1.2.3/x',
     'http://localhost/x',
     'http://[::1]/x',
+    'http://[::ffff:127.0.0.1]/x', // IPv4-mapped IPv6 → canonicalized to ::ffff:7f00:1 (B4 fix)
     'http://0.0.0.0/x',
   ])('blocks loopback %s', (url) => {
     expect(isBlockedWebhookUrl(url)).toBe(true)
@@ -103,6 +104,7 @@ describe('isBlockedWebhookUrl (SSRF classification)', () => {
     'http://169.254.169.254/latest/meta-data',
     'http://169.254.170.2/x',
     'http://metadata.google.internal/x',
+    'http://[::ffff:169.254.169.254]/latest/meta-data', // IPv4-mapped metadata (B4 fix)
   ])('blocks link-local / metadata %s', (url) => {
     expect(isBlockedWebhookUrl(url)).toBe(true)
   })

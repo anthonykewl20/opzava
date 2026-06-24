@@ -79,6 +79,19 @@ function isBlockedV6(ip: string): boolean {
   if (lower === '::' || lower === '::0') return true // unspecified
   if (lower.startsWith('fe80')) return true // link-local
   if (lower.startsWith('fc') || lower.startsWith('fd')) return true // unique-local
+  // IPv4-mapped IPv6 (::ffff:a.b.c.d, which Node's URL canonicalizes to ::ffff:HEX:HEX).
+  // On dual-stack systems this is treated as the embedded IPv4, so http://[::ffff:127.0.0.1]/
+  // is a real SSRF bypass of the v4 loopback rule (B4 — the one gap left in this guard).
+  // (The deprecated IPv4-compatible ::a.b.c.d form is NOT mapped to v4 by modern stacks,
+  // so it is not a bypass and is intentionally not special-cased.)
+  const mappedDot = lower.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/)
+  if (mappedDot) return isBlockedV4(mappedDot[1])
+  const mappedHex = lower.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+  if (mappedHex) {
+    const hi = parseInt(mappedHex[1], 16)
+    const lo = parseInt(mappedHex[2], 16)
+    return isBlockedV4(`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`)
+  }
   return false
 }
 

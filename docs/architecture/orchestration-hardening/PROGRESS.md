@@ -12,7 +12,7 @@
 | A1 | Migration 055: counters + claimed_at + client_request_id + governance test | ✅ | _pending_ | migration-ids-unique (2/2) + migrations apply (3/3) + typecheck |
 | B1a | Principal-binding authz | ✅ (partial) | _pending_ | typecheck + workspace-scope 27/27 + task-route-security 4/4. **Deferred:** sessions/[id]/control + exec-approvals POST bind against gateway-side opaque keys (session_key / approval_id) with no DB→agent mapping — needs a gateway lookup or sessions table before they can be bound (documented; not guessed) |
 | B3 | /api/connect admin-gate + name allowlist + hygiene | ✅ (partial) | _pending_ | typecheck + validation 47/47 (connectSchema allowlist). **Done:** connect admin-gate auto-create + scoped-key self-binding + name allowlist (secure, backward-compatible charset) + collision re-read; mc-cli saveProfile/loadProfile 0o600. **Deferred (lower-severity defensive):** hermes bin reject-not-fallback + subcommand allowlist; registerAuthResolver scope gate (dead surface) |
-| B4 | SSRF protection on webhooks | ⬜ | | |
+| B4 | SSRF protection on webhooks | ✅ | _pending_ | webhooks 32/32 + typecheck. **Verify-don't-assume:** the bulk was ALREADY implemented (`isBlockedWebhookUrl` covers scheme/hostnames/IP-literals/decimal-hex-octal/allowlist; `assertResolvablePublicUrl` does runtime DNS fail-closed before fetch). The one real gap was IPv4-mapped IPv6 — `isBlockedV6` now unwraps `::ffff:a.b.c.d` (and Node's canonicalized `::ffff:HEX:HEX`), closing the `[::ffff:127.0.0.1]`/`[::ffff:169.254.169.254]` bypass |
 | G1 | Leader-election lock + explicit workspaceId + lock<lease | ⬜ | | |
 | A2 | Transactional write spine + idempotency idiom | ⬜ | | |
 | A3 | Atomic guarded counters + aegis_unavailable audit | ⬜ | | |
