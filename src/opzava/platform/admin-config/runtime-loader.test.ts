@@ -8,8 +8,8 @@ import {
   projectRuntimeOptions,
 } from './runtime-options'
 import {
-  createRuntimeSettingsLoader,
-  createDefaultingRuntimeSettingsLoader,
+  createStrictRuntimeSettingsLoader,
+  createLiveRuntimeSettingsLoader,
   DEFAULT_RUNTIME_SETTINGS_UPDATED_AT,
   DEFAULT_RUNTIME_SETTINGS_UPDATED_BY,
 } from './runtime-loader'
@@ -17,7 +17,7 @@ import { defaultOpzavaAdminSettings } from './settings'
 
 describe('Opzava runtime settings loader', () => {
   it('returns typed unavailable when settings are not persisted', async () => {
-    const loader = createRuntimeSettingsLoader({ repository: fakeRepository(null) })
+    const loader = createStrictRuntimeSettingsLoader({ repository: fakeRepository(null) })
 
     await expect(loader.loadRuntimeSettings()).resolves.toEqual({
       ok: false,
@@ -31,7 +31,7 @@ describe('Opzava runtime settings loader', () => {
   it('loads persisted settings into runtime projections without mutating settings', async () => {
     const record = storageRecord()
     const before = JSON.stringify(record.settings)
-    const loader = createRuntimeSettingsLoader({ repository: fakeRepository(record) })
+    const loader = createStrictRuntimeSettingsLoader({ repository: fakeRepository(record) })
 
     const result = await loader.loadRuntimeSettings()
 
@@ -49,7 +49,7 @@ describe('Opzava runtime settings loader', () => {
 
   it('uses the same projection contracts as runtime option construction', async () => {
     const record = storageRecord()
-    const loader = createRuntimeSettingsLoader({ repository: fakeRepository(record) })
+    const loader = createStrictRuntimeSettingsLoader({ repository: fakeRepository(record) })
     const result = await loader.loadRuntimeSettings()
 
     if (!result.ok) throw new Error('expected runtime settings to load')
@@ -59,7 +59,7 @@ describe('Opzava runtime settings loader', () => {
   })
 
   it('rejects invalid persisted versions as programmer errors', async () => {
-    const loader = createRuntimeSettingsLoader({
+    const loader = createStrictRuntimeSettingsLoader({
       repository: fakeRepository({ ...storageRecord(), version: 0 }),
     })
 
@@ -67,7 +67,7 @@ describe('Opzava runtime settings loader', () => {
   })
 
   it('rejects invalid persisted update timestamps as programmer errors', async () => {
-    const loader = createRuntimeSettingsLoader({
+    const loader = createStrictRuntimeSettingsLoader({
       repository: fakeRepository({ ...storageRecord(), updatedAt: 'not-a-date' }),
     })
 
@@ -80,7 +80,7 @@ describe('Opzava runtime settings loader', () => {
     vi.spyOn(repository, 'getSettings').mockImplementation(() => {
       throw error
     })
-    const loader = createRuntimeSettingsLoader({ repository })
+    const loader = createStrictRuntimeSettingsLoader({ repository })
 
     await expect(loader.loadRuntimeSettings()).rejects.toBe(error)
   })
@@ -88,7 +88,7 @@ describe('Opzava runtime settings loader', () => {
 
 describe('Opzava defaulting runtime settings loader', () => {
   it('falls back to default options at version 0 when nothing is persisted', async () => {
-    const loader = createDefaultingRuntimeSettingsLoader({ repository: fakeRepository(null) })
+    const loader = createLiveRuntimeSettingsLoader({ repository: fakeRepository(null) })
 
     await expect(loader.loadRuntimeSettings()).resolves.toEqual({
       ok: true,
@@ -103,7 +103,7 @@ describe('Opzava defaulting runtime settings loader', () => {
 
   it('uses persisted settings when present (same projection as the strict loader)', async () => {
     const record = storageRecord()
-    const loader = createDefaultingRuntimeSettingsLoader({ repository: fakeRepository(record) })
+    const loader = createLiveRuntimeSettingsLoader({ repository: fakeRepository(record) })
 
     await expect(loader.loadRuntimeSettings()).resolves.toEqual({
       ok: true,
@@ -117,14 +117,14 @@ describe('Opzava defaulting runtime settings loader', () => {
   })
 
   it('still rejects a corrupt persisted version', async () => {
-    const loader = createDefaultingRuntimeSettingsLoader({
+    const loader = createLiveRuntimeSettingsLoader({
       repository: fakeRepository({ ...storageRecord(), version: 0 }),
     })
     await expect(loader.loadRuntimeSettings()).rejects.toThrow(/version/)
   })
 
   it('still rejects a corrupt persisted update timestamp (named in the error)', async () => {
-    const loader = createDefaultingRuntimeSettingsLoader({
+    const loader = createLiveRuntimeSettingsLoader({
       repository: fakeRepository({ ...storageRecord(), updatedAt: 'not-a-date' }),
     })
     await expect(loader.loadRuntimeSettings()).rejects.toThrow(/updatedAt/)

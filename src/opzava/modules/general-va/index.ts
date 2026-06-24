@@ -5,6 +5,8 @@ export {
   type CreateGeneralVaArtifactInput,
 } from './artifacts/general-va-artifact'
 
+export { GENERAL_VA_STEP_IDS } from './workflow/general-va-steps'
+
 export {
   createVaTaskDraftStepService,
   createMockVaTaskDraftProvider,

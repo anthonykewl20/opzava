@@ -9,6 +9,14 @@
 **Scope of the codebase:** ~143k lines. `src/lib` 37k (inherited base), `src/opzava` 28k
 (new product code, 268 files), `src/components` 45k (44 panels), `src/app` 31k (165 API routes).
 
+> **Point-in-time.** This ledger was verified on 2026-06-24 and the code has progressed since. Where
+> this ledger and the code disagree, **code wins** — treat the disagreement as a defect in this
+> ledger. Curated, re-verified findings live in [`92-stale-findings.md`](./92-stale-findings.md).
+> For per-module editing context, read the colocated `MODULE.md` next to each `src/opzava` module and
+> the module [`dependency-graph`](../dependency-graph.md). For per-component design rationale and
+> build history, see [`docs/case-study/`](../../case-study/) (150 build logs) — a layer this ledger
+> does not duplicate.
+
 ---
 
 ## How this ledger is built (accuracy contract)
@@ -171,9 +179,9 @@ Read in this order. Status reflects how much of each doc is ✅-verified vs 🔎
 | 51 | [`51-inherited-integrations.md`](./51-inherited-integrations.md) | Gateway, CLI bridges, GitHub sync, realtime, webhooks | webhook/poller ✅; rest ✅ (2nd pass, 3 corrections) |
 | 60 | [`60-api-layer.md`](./60-api-layer.md) | 165 API routes; deep on opzava-native surfaces | ✅ (2nd pass; count/auth/v1 confirmed) |
 | 61 | [`61-frontend.md`](./61-frontend.md) | SPA shell, Zustand store, 44 panels | ✅ (2nd pass; 4 corrections) |
-| 62 | [`62-tooling-build-governance.md`](./62-tooling-build-governance.md) | mc CLI/MCP/TUI, Docker/standalone, governance gates | F8 ✅✅; rest ✅ (2nd pass) |
-| 90 | [`90-parity-findings.md`](./90-parity-findings.md) | Cross-cutting risks & the two-engine divergence (for the audit) | 12 findings (F1–F8 ✅✅, F9–F12 ✅) |
-| 91 | [`91-remediation-plan.md`](./91-remediation-plan.md) | Sequenced fix plan for F1–F12, phased by blast radius + dependency | plan |
+| 62 | [`62-tooling-build-governance.md`](./62-tooling-build-governance.md) | mc CLI/MCP/TUI, Docker/Dokploy/standalone, governance gates | F8 ✅✅; rest ✅ (2nd pass; Docker/Dokploy parity updated 2026-06-23) |
+| 90 | [`90-parity-findings.md`](./90-parity-findings.md) | Cross-cutting risks & the two-engine divergence (for the audit) | 12 findings (F1–F8 ✅✅, F9–F12 ✅) — all remediated |
+| 91 | [`91-remediation-plan.md`](./91-remediation-plan.md) | Sequenced fix plan for F1–F12, phased by blast radius + dependency | ✅ all phases done (rel 2.1.0) |
 | 99 | [`99-verification-register.md`](./99-verification-register.md) | Corrected agent claims + open questions | living |
 
 > **Current state:** the full map is written and **second-pass verified** — all 15 documents, ~2,100 lines.
@@ -184,9 +192,11 @@ Read in this order. Status reflects how much of each doc is ✅-verified vs 🔎
 >
 > The previously-🔎 zones — inherited-layer detail, the API layer (165 routes), and the frontend (44 panels) —
 > were re-checked against source by five independent verification agents and upgraded **🔎 → ✅**, surfacing
-> **~11 factual corrections** (route count 165 ✅, 48 migrations / 030-031 gaps ✅, auth role-floors ✅, all six
+> **~11 factual corrections** (route count 165 ✅, migration gaps 030-031 ✅, auth role-floors ✅, all six
 > opzava module-table column sets ✅; corrections logged in
 > [`99-verification-register.md`](./99-verification-register.md)). No F-finding was refuted.
 >
 > **No remaining work:** the pass-3 deterministic grep cross-check (non-LLM, reproducible) delivers the
-> structural-corroboration layer in full. The ledger is complete and second-pass verified end-to-end.
+> structural-corroboration layer in full. The ledger is complete and second-pass verified end-to-end; the
+> 2026-06-23 Docker/Dokploy parity and realtime hardening updates are reflected in the database, API,
+> frontend, tooling, and inherited-gateway maps.

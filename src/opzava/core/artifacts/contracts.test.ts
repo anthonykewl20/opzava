@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createSecretReference } from '../../platform/admin-config/contracts'
+import { createSecretReference } from '../secrets/contracts'
 import { parseArtifact } from './contracts'
 
 describe('Opzava artifact contracts', () => {

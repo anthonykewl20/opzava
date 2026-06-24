@@ -1,16 +1,22 @@
 import { z } from 'zod'
 
-export const SECRET_REFERENCE_KIND = 'SecretReference' as const
+import {
+  type SecretReference,
+  secretReferenceSchema,
+  isSecretReference,
+} from '@/opzava/core/secrets/contracts'
+
+// The SecretReference model is owned by `core/secrets` (a framework-independent domain primitive).
+// Re-exported here so existing importers keep resolving. See docs/ard/0010-opzava-layering-realignment.md.
+export {
+  SECRET_REFERENCE_KIND,
+  secretReferenceSchema,
+  type SecretReference,
+  createSecretReference,
+  isSecretReference,
+} from '@/opzava/core/secrets/contracts'
+
 export const ADMIN_CONFIG_SCHEMA_VERSION = 1 as const
-
-export const secretReferenceSchema = z.object({
-  kind: z.literal(SECRET_REFERENCE_KIND),
-  id: z.string().min(1),
-  scope: z.enum(['provider-credential', 'webhook-secret', 'gateway-credential', 'operator-secret']),
-  purpose: z.string().min(1).max(200),
-}).strict()
-
-export type SecretReference = Readonly<z.infer<typeof secretReferenceSchema>>
 
 export const secretResolutionFailureSchema = z.object({
   kind: z.literal('SecretResolutionFailure'),
@@ -68,17 +74,6 @@ export const adminConfigRecordSchema = z.object({
 export type AdminConfigRecord = Readonly<z.infer<typeof adminConfigRecordSchema>>
 export type AuditSafeAdminConfigRecord = Omit<AdminConfigRecord, 'value'> & {
   value: Exclude<AdminConfigValue, SecretReference> | `[secret-reference:${SecretReference['scope']}]`
-}
-
-export function createSecretReference(input: Omit<SecretReference, 'kind'>): SecretReference {
-  return Object.freeze(secretReferenceSchema.parse({
-    kind: SECRET_REFERENCE_KIND,
-    ...input,
-  }))
-}
-
-export function isSecretReference(value: unknown): value is SecretReference {
-  return secretReferenceSchema.safeParse(value).success
 }
 
 export function parseAdminConfigRecord(input: unknown): AdminConfigRecord {

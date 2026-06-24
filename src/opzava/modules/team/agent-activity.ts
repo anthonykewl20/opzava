@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { createArtifactRepository } from '../content/artifacts/artifact-repository'
+import { createArtifactRepository } from '@/opzava/modules/content'
 import { type AgentRole } from './agent-role'
 
 export const STEP_TO_ARTIFACT_TYPE: Readonly<Record<string, string>> = {

@@ -3,7 +3,7 @@ import Database from 'better-sqlite3'
 import type { RunnerExecutor } from '@/opzava/platform/runner/worker'
 import { createRunnerRepository } from '@/opzava/platform/runner/repository'
 import { applyOpzavaExternalCallReservationSchema } from '@/opzava/platform/runner/migrations'
-import { createDefaultingRuntimeSettingsLoader } from '@/opzava/platform/admin-config/runtime-loader'
+import { createLiveRuntimeSettingsLoader } from '@/opzava/platform/admin-config/runtime-loader'
 import { createAdminSettingsRepository } from '@/opzava/platform/admin-config/repository'
 import { createExternalCallIdempotencyLookup } from '@/opzava/platform/providers/external-call-lookup'
 import { createExternalCallReservation } from '@/opzava/platform/providers/external-call-reservation'
@@ -49,7 +49,7 @@ export function createGuardedCampaignSendExecutorForCampaign(
   // The reservation table is added by a later runner migration; ensure it here too so the guarded
   // path is self-contained (the atomic reserve-before-execute needs it) wherever it is assembled.
   applyOpzavaExternalCallReservationSchema(deps.db)
-  const loader = createDefaultingRuntimeSettingsLoader({ repository: createAdminSettingsRepository(deps.db) })
+  const loader = createLiveRuntimeSettingsLoader({ repository: createAdminSettingsRepository(deps.db) })
   const idempotency = createExternalCallIdempotencyLookup(deps.db)
   // Atomic reserve-before-execute closes the lookup's race (two callers both reading null): the
   // reservation table PK admits exactly one writer per idempotency key.

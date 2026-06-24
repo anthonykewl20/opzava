@@ -184,4 +184,41 @@ describe('opzava architecture entropy guard', () => {
     }
     expect(violations).toEqual([]);
   });
+
+  it('core does not import platform', () => {
+    const violations: string[] = [];
+    for (const [file, targets] of graph) {
+      const relFile = rel(file);
+      if (!relFile.startsWith('core/')) continue;
+      for (const t of targets) {
+        const relT = rel(t);
+        if (relT.startsWith('platform/')) {
+          violations.push(`${relFile} -> ${relT}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('modules import another module only through its public index.ts barrel', () => {
+    const violations: string[] = [];
+    for (const [file, targets] of graph) {
+      const relFile = rel(file);
+      const fileParts = relFile.split('/');
+      if (fileParts[0] !== 'modules' || !fileParts[1]) continue;
+      const ownModule = fileParts[1];
+      for (const t of targets) {
+        const relT = rel(t);
+        const tParts = relT.split('/');
+        if (tParts[0] !== 'modules' || !tParts[1]) continue;
+        if (tParts[1] === ownModule) continue; // same module — internals are fine
+        // cross-module: the only allowed target is the module's public index.ts barrel
+        const isBarrel = tParts.length === 3 && tParts[2] === 'index.ts';
+        if (!isBarrel) {
+          violations.push(`${relFile} -> ${relT}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
 });

@@ -31,7 +31,7 @@ export type RuntimeSettingsLoaderOptions = Readonly<{
   repository: Pick<AdminSettingsRepository, 'getSettings'>
 }>
 
-export function createRuntimeSettingsLoader(options: RuntimeSettingsLoaderOptions): RuntimeSettingsLoader {
+export function createStrictRuntimeSettingsLoader(options: RuntimeSettingsLoaderOptions): RuntimeSettingsLoader {
   async function loadRuntimeSettings(): Promise<RuntimeSettingsLoadResult> {
     const record = options.repository.getSettings()
     if (record === null) {
@@ -63,12 +63,12 @@ export function createRuntimeSettingsLoader(options: RuntimeSettingsLoaderOption
 }
 
 /**
- * Like `createRuntimeSettingsLoader`, but falls back to the built-in `defaultOpzavaAdminSettings()`
+ * Like `createStrictRuntimeSettingsLoader`, but falls back to the built-in `defaultOpzavaAdminSettings()`
  * (at version 0) when nothing is persisted, instead of reporting `unavailable`. The provider-execution
  * layer (F1b live send) needs runtime options to exist; this lets a fresh deploy run on the defaults
  * until an operator persists their own.
  */
-export function createDefaultingRuntimeSettingsLoader(options: RuntimeSettingsLoaderOptions): RuntimeSettingsLoader {
+export function createLiveRuntimeSettingsLoader(options: RuntimeSettingsLoaderOptions): RuntimeSettingsLoader {
   async function loadRuntimeSettings(): Promise<RuntimeSettingsLoadResult> {
     const record = options.repository.getSettings()
     if (record === null) {
