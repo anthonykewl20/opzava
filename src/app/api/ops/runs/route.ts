@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withRequestContext } from '@/lib/request-context'
 import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { requireRole } from '@/lib/auth'
@@ -43,7 +44,7 @@ const startContentRunBodySchema = z.object({
 // Starts a content-department workflow run on mock providers (draft-only: the
 // mock human-approval gate and mock WordPress provider never perform a real
 // publish). Live providers are wired separately through admin connection settings.
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   const auth = requireRole(request, 'admin')
   if ('error' in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -121,3 +122,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
+
+export const POST = withRequestContext(handlePost)

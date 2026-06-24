@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withRequestContext } from '@/lib/request-context'
 import { type ServerEvent } from '@/lib/event-bus'
 import { requireRole } from '@/lib/auth'
 import { createSseStream, type SseFilterResult } from '@/lib/sse-stream'
@@ -16,7 +17,7 @@ export const runtime = 'nodejs'
  * is the chat DM ACL and the `?types=` server-side filter. Both invariants are
  * load-bearing privacy/correctness gates — see MODULE.md.
  */
-export async function GET(request: NextRequest) {
+async function handleGet(request: NextRequest) {
   const auth = requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
@@ -69,3 +70,5 @@ export async function GET(request: NextRequest) {
     emitResyncSentinel: true,
   })
 }
+
+export const GET = withRequestContext(handleGet)

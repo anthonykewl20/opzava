@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withRequestContext } from '@/lib/request-context';
 import { getDatabase, Task, db_helpers } from '@/lib/db';
 import { eventBus } from '@/lib/event-bus';
 import { requireRole } from '@/lib/auth';
@@ -171,7 +172,7 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/tasks - Create a new task
  */
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   const auth = requireRole(request, 'operator');
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -365,7 +366,7 @@ export async function POST(request: NextRequest) {
 /**
  * PUT /api/tasks - Update multiple tasks (for drag-and-drop status changes)
  */
-export async function PUT(request: NextRequest) {
+async function handlePut(request: NextRequest) {
   const auth = requireRole(request, 'operator');
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -454,3 +455,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to update tasks' }, { status: 500 });
   }
 }
+
+export const POST = withRequestContext(handlePost)
+export const PUT = withRequestContext(handlePut)

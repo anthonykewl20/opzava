@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withRequestContext } from '@/lib/request-context'
 import { requireRole } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { config } from '@/lib/config'
@@ -167,7 +168,7 @@ export async function GET(request: NextRequest) {
  * PUT /api/settings - Update one or more settings
  * Body: { settings: { key: value, ... } }
  */
-export async function PUT(request: NextRequest) {
+async function handlePut(request: NextRequest) {
   const auth = requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
@@ -275,3 +276,5 @@ export async function DELETE(request: NextRequest) {
 
   return NextResponse.json({ reset: key, default_value: settingDefinitions[key]?.default ?? null })
 }
+
+export const PUT = withRequestContext(handlePut)

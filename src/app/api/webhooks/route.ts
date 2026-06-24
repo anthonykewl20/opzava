@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withRequestContext } from '@/lib/request-context'
 import { getDatabase } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { randomBytes } from 'crypto'
@@ -76,7 +77,7 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/webhooks - Create a new webhook
  */
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   const auth = requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
 /**
  * PUT /api/webhooks - Update a webhook
  */
-export async function PUT(request: NextRequest) {
+async function handlePut(request: NextRequest) {
   const auth = requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
@@ -189,6 +190,9 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to update webhook' }, { status: 500 })
   }
 }
+
+export const POST = withRequestContext(handlePost)
+export const PUT = withRequestContext(handlePut)
 
 /**
  * DELETE /api/webhooks - Delete a webhook

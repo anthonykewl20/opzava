@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withRequestContext } from '@/lib/request-context';
 import { getDatabase, Agent, db_helpers } from '@/lib/db';
 import { eventBus } from '@/lib/event-bus';
 import { getTemplate, buildAgentConfig } from '@/lib/agent-templates';
@@ -151,7 +152,7 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/agents - Create a new agent
  */
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   const auth = requireRole(request, 'operator');
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -374,7 +375,7 @@ export async function POST(request: NextRequest) {
 /**
  * PUT /api/agents - Update agent status (bulk operation for status updates)
  */
-export async function PUT(request: NextRequest) {
+async function handlePut(request: NextRequest) {
   const auth = requireRole(request, 'operator');
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -490,3 +491,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to update agent' }, { status: 500 });
   }
 }
+
+export const POST = withRequestContext(handlePost)
+export const PUT = withRequestContext(handlePut)
