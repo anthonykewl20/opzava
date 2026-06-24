@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Goals · Customer Support</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="tools-bar.js"></script>
+  <style>
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .bc-wrap { max-width: 880px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+
+    .pg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-2); }
+    .pg-title { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; display: flex; align-items: center; gap: var(--space-2); }
+    .pg-sub { font-size: var(--text-md); color: var(--fg-muted); margin-bottom: var(--space-6); max-width: 60ch; }
+
+    /* The goal card — generous, calm; nothing competes with the sentence + number */
+    .goal-card { padding: var(--space-5) var(--space-6); margin-bottom: var(--space-5); }
+    .goal-eyebrow { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
+    .goal-stmt { font-size: var(--text-md); font-weight: var(--fw-medium); color: var(--fg); line-height: var(--lh-snug); margin-bottom: var(--space-4); }
+    .goal-mrow { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-3); }
+    .goal-trow { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+    .goal-time { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--fg-muted); }
+    .goal-time .rel { font-size: var(--text-xs); }
+    .goal-owner { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--fg-muted); }
+    .icon-more { width: 30px; height: 30px; border: 0; background: none; border-radius: var(--radius-md); color: var(--fg-muted); font-size: 18px; cursor: pointer; }
+    .icon-more:hover { background: var(--surface-2); color: var(--fg); }
+
+    /* Disclosure footer */
+    .goal-foot { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+    .goal-foot > summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); cursor: pointer; list-style: none; }
+    .goal-foot > summary::-webkit-details-marker { display: none; }
+    .goal-foot > summary .chk { color: var(--accent); font-weight: var(--fw-medium); }
+    .disc { padding-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+    .disc-label { font-size: var(--text-xs); color: var(--fg-subtle); text-transform: uppercase; letter-spacing: var(--tracking-caps); font-weight: var(--fw-semibold); margin-bottom: var(--space-1); }
+    .disc-prose { font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-snug); }
+
+    /* Connected work rows with N-of-M mini-bars */
+    .cw-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; }
+    .cw-name { font-size: var(--text-sm); color: var(--fg); flex: 1 1 auto; min-width: 0; }
+    .cw-mini { flex: none; width: 90px; height: 5px; background: var(--surface-3); border-radius: var(--radius-full); overflow: hidden; }
+    .cw-mini i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+    .cw-count { font-size: var(--text-xs); color: var(--fg-subtle); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 6ch; text-align: right; }
+
+    /* Check-in feed */
+    .ci { display: flex; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+    .ci:last-child { border-bottom: 0; }
+    .ci-av { flex: none; }
+    .ci-body { flex: 1 1 auto; min-width: 0; }
+    .ci-meta { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: 2px; }
+    .ci-text { font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-snug); }
+
+    /* compact supporting cards */
+    .goal-card--compact .goal-stmt { margin-bottom: var(--space-3); }
+    .secn { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg-muted); margin: var(--space-8) 0 var(--space-3); }
+
+    @media (max-width: 640px) { .topnav { display: none; } }
+  </style>
+</head>
+<body>
+<div class="bc">
+  <header class="topbar">
+    <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+      <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+      <strong style="font-size:var(--text-md)">Opzava</strong>
+    </a>
+    <nav class="topnav" aria-label="Primary">
+      <a href="essential-home.html">Home</a>
+      <a href="essential-my-stuff.html">My stuff</a>
+      <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+      <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+      <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+      <a href="#">Find…</a>
+    </nav>
+    <span class="u-grow"></span>
+    <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <button class="btn-icon btn-ghost" type="button" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></button>
+    <span class="ava" style="width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--chart-2);color:#fff;font-size:var(--text-xs);font-weight:var(--fw-semibold)" aria-hidden="true">AG</span>
+  </header>
+
+  <div class="bc-wrap">
+    <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+      <a href="essential-home.html">Home</a>
+      <span class="sep" aria-hidden="true">›</span>
+      <a href="essential-project.html">Customer Support</a>
+      <span class="sep" aria-hidden="true">›</span>
+      <span class="current">Goals</span>
+    </nav>
+
+    <div class="pg-head">
+      <div>
+        <h1 class="pg-title"><span aria-hidden="true">🎯</span> Goals</h1>
+      </div>
+      <a class="btn btn-primary" href="essential-goal-create.html"><span aria-hidden="true">＋</span> Add a goal</a>
+    </div>
+    <p class="pg-sub">A clear target everyone can see — specific, measurable, and time-bound. Atlas keeps progress in sync with the work.</p>
+
+    <!-- ── PRIMARY GOAL (full anatomy, disclosure open) ─────────────────── -->
+    <div class="card goal-card" aria-label="Primary goal">
+      <div class="goal-eyebrow">
+        <span class="u-caps">★ Primary goal</span>
+        <div class="u-row" style="gap:var(--space-2)">
+          <span class="sb-statusline" aria-label="Status: On track"><span class="sl-glyph" aria-hidden="true">◴</span> <span class="sl-label">On track</span></span>
+          <button class="icon-more" type="button" aria-label="Goal options">⋯</button>
+        </div>
+      </div>
+      <p class="goal-stmt">Increase support response-time satisfaction <strong>from 82% to 90%</strong> by <strong>Dec 31</strong> — by revising triage and response templates.</p>
+
+      <div class="goal-mrow">
+        <span class="goal-val"><span class="cur">82%</span> <span class="tgt">→ 90%</span></span>
+        <span class="perf-bar" style="flex:1 1 200px;max-width:340px"><span class="perf-bar-track" style="max-width:none"><i class="perf-bar-fill" style="width:76%"></i></span></span>
+        <span class="perf-pct">76% there</span>
+        <span class="sb-badge sb-badge--secondary"><span aria-hidden="true">↑</span> +3 pts this period</span>
+      </div>
+
+      <div class="goal-trow">
+        <span class="goal-time"><span aria-hidden="true">◷</span> by Dec 31 · <span class="rel">18 days left</span></span>
+        <span class="goal-owner">Owner <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span> Atlas</span>
+      </div>
+
+      <details class="goal-foot" open>
+        <summary>Why it matters · <span class="chk">3 linked</span> · last check-in 4 days ago <span aria-hidden="true">▾</span></summary>
+        <div class="disc">
+          <div>
+            <div class="disc-label">Why this matters</div>
+            <p class="disc-prose">Aligned to <strong>Customer Experience H2</strong> — keeps support quality up as ticket volume grows, without overtime. Feasible: triage rules + reply templates are already in place; realistic within the quarter.</p>
+          </div>
+          <div>
+            <div class="disc-label">Connected work · moves this number</div>
+            <div class="cw-row"><span class="cw-name">✓ Rewrite the top-20 reply templates</span><span class="cw-mini"><i style="width:80%"></i></span><span class="cw-count">8 / 10</span></div>
+            <div class="cw-row"><span class="cw-name">▦ Triage workflow board</span><span class="cw-mini"><i style="width:60%"></i></span><span class="cw-count">6 / 10</span></div>
+            <div class="cw-row"><span class="cw-name">✓ Train the team on the new flow</span><span class="cw-mini"><i style="width:50%"></i></span><span class="cw-count">2 / 4</span></div>
+            <a href="#" class="btn btn-ghost btn-sm" style="margin-top:var(--space-2)"><span aria-hidden="true">＋</span> Link work</a>
+          </div>
+          <div>
+            <div class="disc-label">Check-ins</div>
+            <div class="ci">
+              <span class="ci-av sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span>
+              <div class="ci-body">
+                <div class="ci-text">Up to <strong>88%</strong> this week (+3 pts). Templates are landing; on pace for 90% by Dec 31.</div>
+                <div class="ci-meta">✦ Atlas · drafted, you approved · 4 days ago · status kept ◴ On track</div>
+              </div>
+            </div>
+            <div class="ci">
+              <span class="ci-av sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span>
+              <div class="ci-body">
+                <div class="ci-text">Started at 82%. Triage rewrite is the long pole.</div>
+                <div class="ci-meta">Maria · 3 weeks ago · period Q4 2026 · Oct 1 – Dec 31</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <!-- ── SUPPORTING GOALS (compact) ───────────────────────────────────── -->
+    <div class="secn">Other goals · 2</div>
+
+    <div class="card goal-card goal-card--compact">
+      <div class="goal-eyebrow">
+        <span class="u-caps">SMART goal</span>
+        <div class="u-row" style="gap:var(--space-2)">
+          <span class="sb-statusline sb-statusline--accent" aria-label="Status: At risk, needs you"><span class="sl-glyph" aria-hidden="true">◑</span> <span class="sl-label">At risk · needs you</span></span>
+          <button class="icon-more" type="button" aria-label="Goal options">⋯</button>
+        </div>
+      </div>
+      <p class="goal-stmt">Produce at least <strong>3 large-scale marketing assets</strong> per month through Q1.</p>
+      <div class="goal-mrow">
+        <span class="goal-val"><span class="cur">2</span> <span class="tgt">→ 3 assets</span></span>
+        <span class="perf-bar" style="flex:1 1 200px;max-width:340px"><span class="perf-bar-track" style="max-width:none"><i class="perf-bar-fill" style="width:67%"></i></span></span>
+        <span class="perf-pct">67%</span>
+        <span class="sb-badge sb-badge--secondary"><span aria-hidden="true">→</span> flat</span>
+      </div>
+      <div class="goal-trow">
+        <span class="goal-time"><span aria-hidden="true">◷</span> this month · <span class="rel">6 days left</span></span>
+        <span class="goal-owner">Owner <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-5)" aria-hidden="true">I</span> Iris</span>
+      </div>
+      <details class="goal-foot">
+        <summary>Why it matters · 2 linked · last check-in 1 week ago <span aria-hidden="true">▾</span></summary>
+        <div class="disc"><p class="disc-prose">Aligned to the Q1 demand-gen plan. The webinar asset is blocked on design review — needs a call on scope.</p></div>
+      </details>
+    </div>
+
+    <div class="card goal-card goal-card--compact">
+      <div class="goal-eyebrow">
+        <span class="u-caps">SMART goal</span>
+        <div class="u-row" style="gap:var(--space-2)">
+          <span class="sb-statusline" aria-label="Status: On track"><span class="sl-glyph" aria-hidden="true">◴</span> <span class="sl-label">On track</span></span>
+          <button class="icon-more" type="button" aria-label="Goal options">⋯</button>
+        </div>
+      </div>
+      <p class="goal-stmt">Provide <strong>100 hours</strong> of free tutoring during <strong>February</strong>.</p>
+      <div class="goal-mrow">
+        <span class="goal-val"><span class="cur">64h</span> <span class="tgt">→ 100h</span></span>
+        <span class="perf-bar" style="flex:1 1 200px;max-width:340px"><span class="perf-bar-track" style="max-width:none"><i class="perf-bar-fill" style="width:64%"></i></span></span>
+        <span class="perf-pct">64%</span>
+        <span class="sb-badge sb-badge--secondary"><span aria-hidden="true">↑</span> +12h this week</span>
+      </div>
+      <div class="goal-trow">
+        <span class="goal-time"><span aria-hidden="true">◷</span> ends Feb 28 · <span class="rel">9 days left</span></span>
+        <span class="goal-owner">Owner <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" aria-hidden="true">D</span> Dan</span>
+      </div>
+      <details class="goal-foot">
+        <summary>Why it matters · 1 linked · last check-in 2 days ago <span aria-hidden="true">▾</span></summary>
+        <div class="disc"><p class="disc-prose">Community commitment for Q1. Pace is steady — ~12h/week keeps it on track.</p></div>
+      </details>
+    </div>
+
+    <!-- ── Footer: back to the project ──────────────────────────────────── -->
+    <nav style="display:flex;gap:var(--space-4);flex-wrap:wrap;margin-top:var(--space-10);padding-top:var(--space-6);border-top:1px solid var(--border)" aria-label="Project tools">
+      <a href="essential-project.html" style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none">← Customer Support</a>
+      <a href="essential-todos.html" style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none">✓ To-dos</a>
+      <a href="essential-card-table.html" style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none">▦ Board</a>
+      <span style="color:var(--accent);font-size:var(--text-sm);font-weight:var(--fw-medium)">🎯 Goals</span>
+      <a href="project-assistant.html" style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none">✦ Ask your assistant</a>
+    </nav>
+  </div>
+</div>
+</body>
+</html>

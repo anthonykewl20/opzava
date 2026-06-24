@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Add a card</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="tools-bar.js"></script>
+  <style>
+    /* Basecamp-style Essential calm shell — layout only, no colour/font overrides */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .ava { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* ── Faded project workspace behind the dim (subtle hint only) ──────── */
+    .bc-wrap { max-width: 1000px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+    .proj-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6); }
+    .proj-title { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; }
+    .proj-sub { font-size: var(--text-sm); color: var(--fg-muted); }
+    .tile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+    .tile { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+    .tile-glyph { font-size: 1.5rem; line-height: 1; flex: none; }
+    .tile-name { font-size: var(--text-md); font-weight: var(--fw-semibold); color: var(--fg); }
+    .tile-meta { font-size: var(--text-xs); color: var(--fg-subtle); }
+    .tile--add { border-style: dashed; color: var(--fg-subtle); justify-content: center; }
+
+    /* ── The Add-a-card picker dialog (reuses .sb-overlay dim + .wiz frame) ─ */
+    .wiz { width: 620px; max-width: 100%; margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); overflow: hidden; max-height: 92vh; display: flex; flex-direction: column; }
+    .wiz-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) var(--space-6) var(--space-4); border-bottom: 1px solid var(--border); }
+    .wiz-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); flex: 1 1 auto; }
+    .wiz-x { width: 30px; height: 30px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font-size: 17px; cursor: pointer; flex: none; }
+    .wiz-x:hover { background: var(--surface-2); color: var(--fg); }
+    .wiz-body { padding: var(--space-5) var(--space-6); overflow-y: auto; }
+    .wiz-lead { font-size: var(--text-sm); color: var(--fg-muted); margin-bottom: var(--space-5); line-height: var(--lh-relaxed); }
+    .wiz-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); }
+
+    /* Card-type chooser — calm radiogroup of selectable cards (from new-project) */
+    .type-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); align-items: start; }
+    .type-card { position: relative; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); cursor: pointer; transition: box-shadow var(--dur-fast) var(--ease-standard), transform var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard); }
+    .type-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+    .type-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    /* Selected — the one accent marks the choice; a corner ✓, never a colour wall */
+    .type-card[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .type-check { position: absolute; top: var(--space-3); right: var(--space-3); width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--accent-fg); display: none; align-items: center; justify-content: center; font-size: 12px; font-weight: var(--fw-bold); }
+    .type-card[aria-checked="true"] .type-check { display: inline-flex; }
+
+    .type-head { display: flex; align-items: center; gap: var(--space-3); }
+    .type-glyph { font-size: 1.5rem; line-height: 1; flex: none; }
+    .type-name { font-size: var(--text-md); font-weight: var(--fw-semibold); color: var(--fg); }
+    .type-desc { font-size: var(--text-sm); color: var(--fg-muted); line-height: var(--lh-snug); }
+    .type-tiles { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; padding-top: var(--space-3); border-top: 1px solid var(--border); }
+    .type-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px var(--space-3); font-size: var(--text-xs); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); white-space: nowrap; }
+    .type-chip .g { font-size: var(--text-sm); }
+
+    /* Quiet Atlas suggestion line under the grid */
+    .add-atlas { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-5); font-size: var(--text-sm); color: var(--fg-muted); }
+    .add-atlas .spark { color: var(--accent); flex: none; }
+
+    @media (max-width: 640px) {
+      .topnav { display: none; }
+      .tile-grid { grid-template-columns: 1fr; }
+      .type-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ════════ Faded project workspace behind the dim (subtle hint) ════════ -->
+  <div class="bc" aria-hidden="true">
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages</a>
+        <a href="mention-inbox.html">Activity</a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="#">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <span class="ava" style="background:var(--chart-2)">AG</span>
+    </header>
+
+    <div class="bc-wrap">
+      <div class="proj-head">
+        <span class="proj-title">Customer Support</span>
+        <span class="proj-sub">· 4 cards</span>
+      </div>
+      <div class="tile-grid">
+        <div class="tile"><span class="tile-glyph">🎯</span><div><div class="tile-name">Goals</div><div class="tile-meta">2 on track</div></div></div>
+        <div class="tile"><span class="tile-glyph">✓</span><div><div class="tile-name">To-dos</div><div class="tile-meta">8 of 14 done</div></div></div>
+        <div class="tile"><span class="tile-glyph">▦</span><div><div class="tile-name">Board</div><div class="tile-meta">Triage · In progress · Done</div></div></div>
+        <div class="tile tile--add"><span aria-hidden="true">＋</span> Add a card</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ Add-a-card picker DIALOG (open over the dimmed page) ════════ -->
+  <div class="sb-overlay open" role="dialog" aria-modal="true" aria-labelledby="addCardTitle">
+    <div class="wiz">
+
+      <div class="wiz-head">
+        <span class="wiz-title" id="addCardTitle">Add a card to Customer Support</span>
+        <a class="wiz-x" href="essential-project.html" aria-label="Close">✕</a>
+      </div>
+
+      <div class="wiz-body">
+        <p class="wiz-lead">Pick what to add to this project. You can rearrange or remove cards any time.</p>
+
+        <div class="type-grid" role="radiogroup" aria-label="Card type">
+
+          <!-- SMART Goal — first, selected by default -->
+          <div class="type-card" role="radio" aria-checked="true" tabindex="0" data-href="essential-goal-create.html" data-name="SMART Goal">
+            <span class="type-check" aria-hidden="true">✓</span>
+            <div class="type-head">
+              <span class="type-glyph" aria-hidden="true">🎯</span>
+              <span class="type-name">SMART Goal</span>
+            </div>
+            <p class="type-desc">Set a clear, measurable target with a deadline.</p>
+            <div class="type-tiles" aria-label="Preview">
+              <span class="type-chip"><span class="g" aria-hidden="true">📈</span> Progress bar</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">⏳</span> Deadline</span>
+            </div>
+          </div>
+
+          <!-- To-do list -->
+          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="essential-todos.html" data-name="To-do list">
+            <span class="type-check" aria-hidden="true">✓</span>
+            <div class="type-head">
+              <span class="type-glyph" aria-hidden="true">✓</span>
+              <span class="type-name">To-do list</span>
+            </div>
+            <p class="type-desc">A checklist of work to get done.</p>
+            <div class="type-tiles" aria-label="Preview">
+              <span class="type-chip"><span class="g" aria-hidden="true">☑</span> Check off items</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">👤</span> Assign &amp; due dates</span>
+            </div>
+          </div>
+
+          <!-- Note -->
+          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="#" data-name="Note">
+            <span class="type-check" aria-hidden="true">✓</span>
+            <div class="type-head">
+              <span class="type-glyph" aria-hidden="true">📝</span>
+              <span class="type-name">Note</span>
+            </div>
+            <p class="type-desc">A rich-text doc for context, briefs, decisions.</p>
+            <div class="type-tiles" aria-label="Preview">
+              <span class="type-chip"><span class="g" aria-hidden="true">▤</span> Headings &amp; lists</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">💬</span> Comments</span>
+            </div>
+          </div>
+
+          <!-- Board -->
+          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="essential-card-table.html" data-name="Board">
+            <span class="type-check" aria-hidden="true">✓</span>
+            <div class="type-head">
+              <span class="type-glyph" aria-hidden="true">▦</span>
+              <span class="type-name">Board</span>
+            </div>
+            <p class="type-desc">Cards in swim lanes — Triage → In progress → Done.</p>
+            <div class="type-tiles" aria-label="Preview">
+              <span class="type-chip"><span class="g" aria-hidden="true">▥</span> Drag between lanes</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">🏷</span> Labels</span>
+            </div>
+          </div>
+
+          <!-- Schedule -->
+          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="#" data-name="Schedule">
+            <span class="type-check" aria-hidden="true">✓</span>
+            <div class="type-head">
+              <span class="type-glyph" aria-hidden="true">📅</span>
+              <span class="type-name">Schedule</span>
+            </div>
+            <p class="type-desc">A calendar of what's happening and when.</p>
+            <div class="type-tiles" aria-label="Preview">
+              <span class="type-chip"><span class="g" aria-hidden="true">🗓</span> Month &amp; week</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">🔔</span> Reminders</span>
+            </div>
+          </div>
+
+          <!-- Docs & Files -->
+          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="#" data-name="Docs &amp; Files">
+            <span class="type-check" aria-hidden="true">✓</span>
+            <div class="type-head">
+              <span class="type-glyph" aria-hidden="true">📎</span>
+              <span class="type-name">Docs &amp; Files</span>
+            </div>
+            <p class="type-desc">Shared files, assets, and links.</p>
+            <div class="type-tiles" aria-label="Preview">
+              <span class="type-chip"><span class="g" aria-hidden="true">⬆</span> Upload</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">🔗</span> Link out</span>
+            </div>
+          </div>
+
+          <!-- Discovery -->
+          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="essential-discovery.html" data-name="Discovery">
+            <span class="type-check" aria-hidden="true">✓</span>
+            <div class="type-head">
+              <span class="type-glyph" aria-hidden="true">💡</span>
+              <span class="type-name">Discovery</span>
+            </div>
+            <p class="type-desc">Brainstorm ideas with Atlas before they're projects.</p>
+            <div class="type-tiles" aria-label="Preview">
+              <span class="type-chip"><span class="g" aria-hidden="true">🗂</span> Idea board</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">✦</span> Atlas-assisted</span>
+            </div>
+          </div>
+
+          <!-- Updates -->
+          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="#" data-name="Updates">
+            <span class="type-check" aria-hidden="true">✓</span>
+            <div class="type-head">
+              <span class="type-glyph" aria-hidden="true">⌁</span>
+              <span class="type-name">Updates</span>
+            </div>
+            <p class="type-desc">A running activity feed for the project.</p>
+            <div class="type-tiles" aria-label="Preview">
+              <span class="type-chip"><span class="g" aria-hidden="true">📣</span> Post an update</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">⏱</span> Newest first</span>
+            </div>
+          </div>
+
+        </div>
+
+        <p class="add-atlas"><span class="spark" aria-hidden="true">✦</span> Atlas can suggest the right cards for a project like this.</p>
+      </div>
+
+      <div class="wiz-foot">
+        <a class="btn btn-ghost" href="essential-project.html">Cancel</a>
+        <a class="btn btn-primary" id="addBtn" href="essential-goal-create.html">Add SMART Goal →</a>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // Calm radiogroup: clicking/keying a card type selects it, marks the ✓,
+    // and points the single primary button at that type's create flow + label.
+    // Default selected = SMART Goal → essential-goal-create.html.
+    (function () {
+      var group = document.querySelector('.type-grid');
+      var addBtn = document.getElementById('addBtn');
+      function select(card) {
+        group.querySelectorAll('.type-card').forEach(function (c) {
+          c.setAttribute('aria-checked', c === card ? 'true' : 'false');
+        });
+        addBtn.setAttribute('href', card.getAttribute('data-href'));
+        addBtn.innerHTML = 'Add ' + card.getAttribute('data-name') + ' →';
+        card.focus();
+      }
+      group.addEventListener('click', function (e) {
+        var card = e.target.closest('.type-card');
+        if (card) select(card);
+      });
+      group.addEventListener('keydown', function (e) {
+        var card = e.target.closest('.type-card');
+        if (card && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); select(card); }
+      });
+    })();
+  </script>
+</body>
+</html>
