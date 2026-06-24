@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
   <script src="tools-bar.js"></script>
   <script src="notify-bell.js"></script>
   <script src="avatar-card.js"></script>
@@ -119,7 +120,7 @@
       </nav>
       <span class="u-grow"></span>
       <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></a>
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
 
@@ -161,13 +162,13 @@
           <!-- ── Filter tab row ── -->
           <!-- Using sb-tabs segmented style; "@ You" tab active -->
           <div class="sb-tabs filter-bar" role="tablist" aria-label="Activity filters" id="filter-tabs">
-            <button class="sb-tab" role="tab" aria-selected="false" data-filter="all"
+            <button type="button" class="sb-tab" role="tab" aria-selected="false" data-filter="all"
                     aria-controls="inbox-panel">All</button>
-            <button class="sb-tab" role="tab" aria-selected="true" data-filter="mentions"
+            <button type="button" class="sb-tab" role="tab" aria-selected="true" data-filter="mentions"
                     aria-controls="inbox-panel">@ You <span class="sb-badge sb-badge--accent" style="margin-left:4px;height:18px;padding:0 6px">2</span></button>
-            <button class="sb-tab" role="tab" aria-selected="false" data-filter="approvals"
+            <button type="button" class="sb-tab" role="tab" aria-selected="false" data-filter="approvals"
                     aria-controls="inbox-panel">Approvals <span class="sb-badge sb-badge--secondary" style="margin-left:4px;height:18px;padding:0 6px">1</span></button>
-            <button class="sb-tab" role="tab" aria-selected="false" data-filter="following"
+            <button type="button" class="sb-tab" role="tab" aria-selected="false" data-filter="following"
                     aria-controls="inbox-panel">Following</button>
           </div>
 

@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
   <script src="tools-bar.js"></script>
   <script src="notify-bell.js"></script>
   <script src="avatar-card.js"></script>
@@ -28,7 +29,7 @@
     .wiz-cap { font-size: var(--text-xs); color: var(--fg-subtle); font-weight: var(--fw-semibold); text-transform: uppercase; letter-spacing: var(--tracking-caps); margin: var(--space-8) 0 var(--space-3); }
     .wiz { max-width: 560px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); overflow: hidden; }
     .wiz-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) var(--space-6) var(--space-3); }
-    .wiz-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); flex: 1 1 auto; }
+    .wiz-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); flex: 1 1 auto;  margin: 0;}
     .wiz-x { width: 30px; height: 30px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font-size: 17px; cursor: pointer; flex: none; }
     .wiz-steps { padding: 0 var(--space-6) var(--space-4); }
     .wiz-body { padding: var(--space-2) var(--space-6) var(--space-5); }
@@ -116,7 +117,7 @@
     </nav>
     <span class="u-grow"></span>
     <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-    <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 1 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">1</span></a>
+    <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
     <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
   </header>
 
@@ -140,7 +141,7 @@
     <div class="wiz-cap">Step 1 — Write</div>
     <div class="wiz" role="dialog" aria-label="Add a goal — step 1">
       <div class="wiz-head">
-        <span class="wiz-title">New goal</span>
+        <h1 class="wiz-title">New goal</h1>
         <button class="wiz-x" type="button" aria-label="Close">✕</button>
       </div>
       <div class="wiz-steps">

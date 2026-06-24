@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
   <script src="avatar-card.js"></script>
   <script src="account-menu.js"></script>
   <script src="menu-filter.js"></script>
@@ -38,7 +39,7 @@
     /* ── The Add-a-to-do DIALOG (reuses .sb-overlay dim + .wiz frame) ─────── */
     .wiz { width: 540px; max-width: 100%; margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); overflow: hidden; max-height: 92vh; display: flex; flex-direction: column; }
     .wiz-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) var(--space-6) var(--space-4); border-bottom: 1px solid var(--border); }
-    .wiz-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); flex: 1 1 auto; }
+    .wiz-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); flex: 1 1 auto;  margin: 0;}
     .wiz-x { width: 30px; height: 30px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font-size: 17px; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
     .wiz-x:hover { background: var(--surface-2); color: var(--fg); }
     .wiz-body { padding: var(--space-5) var(--space-6); overflow-y: auto; }
@@ -115,7 +116,7 @@
     <div class="wiz">
 
       <div class="wiz-head">
-        <span class="wiz-title" id="newTodoTitle">Add a to-do</span>
+        <h1 class="wiz-title" id="newTodoTitle">Add a to-do</h1>
         <a class="wiz-x" href="essential-todos.html" aria-label="Close">✕</a>
       </div>
 
