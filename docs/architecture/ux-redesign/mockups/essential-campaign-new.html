@@ -52,8 +52,11 @@
     .atlas-row .input { flex: 1 1 auto; min-width: 0; background: var(--surface); }
     .atlas-row .btn { flex: none; }
 
-    /* Atlas inline proposal — reuses .ai-card markup from essential-discovery.html */
-    .ai-card { border: 1px solid var(--accent-border); border-radius: var(--radius-md); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); background: var(--surface); margin-top: var(--space-3); }
+    /* Atlas working state + inline proposal — both hidden until the user asks */
+    .atlas-working { display: none; align-items: center; gap: var(--space-2); margin-top: var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); }
+    .atlas-working[data-on="true"] { display: flex; }
+    .ai-card { border: 1px solid var(--accent-border); border-radius: var(--radius-md); padding: var(--space-4); display: none; flex-direction: column; gap: var(--space-3); background: var(--surface); margin-top: var(--space-3); }
+    .ai-card[data-on="true"] { display: flex; }
     .ai-card-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
     .ai-quote { font-size: var(--text-md); font-weight: var(--fw-medium); color: var(--fg); line-height: var(--lh-snug); }
     .ai-spec { font-size: var(--text-sm); color: var(--fg-muted); line-height: var(--lh-relaxed); }
@@ -71,12 +74,14 @@
     .chip-grid { display: flex; flex-wrap: wrap; gap: var(--space-2); }
     .chan-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); cursor: pointer; }
     .chan-chip[aria-checked="true"] { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: var(--fw-medium); }
+    .chan-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); border-color: var(--accent); }
     .chan-chip .g { font-size: var(--text-sm); }
 
     /* Owner avatar picker */
     .own-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
     .own-pick { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--surface); cursor: pointer; font-size: var(--text-sm); color: var(--fg); }
     .own-pick[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .own-pick:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); border-color: var(--accent); }
 
     @media (max-width: 640px) {
       .topnav { display: none; }
@@ -143,16 +148,23 @@
 
       <div class="wiz-body">
 
-        <!-- ✦ Atlas assist (an offer, accent-soft, NOT the primary action) -->
+        <!-- ✦ Atlas assist (an offer, accent-soft, NOT the primary action).
+             The draft is hidden until the user asks: nothing is pre-rendered as done. -->
         <div class="atlas-offer">
           <div class="atlas-offer-cap"><span class="spark" aria-hidden="true">✦</span> Atlas can draft a campaign brief from a sentence — you review.</div>
           <div class="atlas-row">
-            <input class="input" type="text" value="email push to drive launch-day signups" placeholder="Describe the campaign in a sentence…" aria-label="Describe the campaign in a sentence">
-            <button class="btn btn-ghost" type="button" style="color:var(--accent)"><span aria-hidden="true">✦</span> Draft a brief with Atlas</button>
+            <input class="input" id="atlas-prompt" type="text" value="email push to drive launch-day signups" placeholder="Describe the campaign in a sentence…" aria-label="Describe the campaign in a sentence">
+            <button class="btn btn-ghost" id="atlasDraftBtn" type="button" style="color:var(--accent)" aria-controls="atlasDraft"><span aria-hidden="true">✦</span> Draft a brief with Atlas</button>
           </div>
 
-          <!-- Atlas inline proposal (reuses .ai-card markup) -->
-          <div class="ai-card" aria-label="Atlas draft">
+          <!-- Working state — shown briefly after the user presses Draft -->
+          <div class="atlas-working" id="atlasWorking" role="status" aria-live="polite">
+            <span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span>
+            <span>Atlas is drafting a brief…</span>
+          </div>
+
+          <!-- Atlas inline proposal — revealed only after Draft is pressed -->
+          <div class="ai-card" id="atlasDraft" aria-label="Atlas draft">
             <div class="ai-card-row">
               <span class="sb-badge sb-badge--accent"><span aria-hidden="true">✦</span> Atlas</span>
               <span class="u-subtle" style="font-size:var(--text-xs)">drafted — you review</span>
@@ -162,50 +174,52 @@
             <p class="ai-spec"><strong>Suggested channels:</strong> email · social · paid</p>
             <p class="ai-stages">Runs through the 5 stages: Plan · Create · Approve · Publish · Measure.</p>
             <div class="ai-card-row">
-              <button class="btn btn-primary btn-sm" type="button">Use this</button>
+              <button class="btn btn-sm" id="useDraftBtn" type="button">Use this draft</button>
               <button class="btn btn-ghost btn-sm" type="button">Tweak</button>
             </div>
           </div>
         </div>
 
-        <!-- Campaign name -->
+        <!-- Campaign name — empty until the user types it or accepts a draft -->
         <div class="field">
           <label class="label" for="c-name">Campaign name</label>
-          <input class="input" id="c-name" type="text" value="June Launch email push" aria-label="Campaign name">
+          <input class="input" id="c-name" type="text" value="" placeholder="e.g. June Launch email push" aria-label="Campaign name">
         </div>
 
         <!-- Channels — multi-select chips -->
         <div class="field-block">
           <div class="label" style="margin-bottom:var(--space-2)">Channels</div>
           <div class="chip-grid" role="group" aria-label="Channels">
-            <span class="chan-chip" role="checkbox" aria-checked="true"><span class="g" aria-hidden="true">✉</span> email</span>
-            <span class="chan-chip" role="checkbox" aria-checked="false"><span class="g" aria-hidden="true">◷</span> social</span>
-            <span class="chan-chip" role="checkbox" aria-checked="false"><span class="g" aria-hidden="true">◎</span> paid</span>
-            <span class="chan-chip" role="checkbox" aria-checked="false"><span class="g" aria-hidden="true">▤</span> blog</span>
+            <span class="chan-chip" role="checkbox" aria-checked="true" tabindex="0"><span class="g" aria-hidden="true">✉</span> email</span>
+            <span class="chan-chip" role="checkbox" aria-checked="false" tabindex="0"><span class="g" aria-hidden="true">◷</span> social</span>
+            <span class="chan-chip" role="checkbox" aria-checked="false" tabindex="0"><span class="g" aria-hidden="true">◎</span> paid</span>
+            <span class="chan-chip" role="checkbox" aria-checked="false" tabindex="0"><span class="g" aria-hidden="true">▤</span> blog</span>
           </div>
         </div>
 
-        <!-- Goal / success -->
+        <!-- Description + measurable target.
+             One canonical measurable target = the linked SMART goal; the text
+             field below is plainly a description, not a second metric. -->
         <div class="field-block">
-          <label class="label" for="c-goal">Goal — what success looks like</label>
-          <input class="input" id="c-goal" type="text" value="500 signups by launch day" aria-label="Goal — what success looks like">
-          <p class="help">Ties to a measurable target. <a href="essential-goal-create.html"><span aria-hidden="true">🎯</span> Link a goal →</a></p>
+          <label class="label" for="c-goal">Description <span class="u-subtle" style="font-weight:var(--fw-regular)">(optional)</span></label>
+          <input class="input" id="c-goal" type="text" value="" placeholder="A sentence on what this campaign is about…" aria-label="Description">
+          <p class="help">The measurable target comes from a goal. <a href="essential-goal-create.html"><span aria-hidden="true">🎯</span> Link a goal →</a></p>
         </div>
 
         <!-- Owner — avatar picker -->
         <div class="field-block">
           <div class="label" style="margin-bottom:var(--space-2)">Owner</div>
           <div class="own-row" role="radiogroup" aria-label="Owner">
-            <span class="own-pick" role="radio" aria-checked="true">
+            <span class="own-pick" role="radio" aria-checked="true" tabindex="0">
               <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span> You
             </span>
-            <span class="own-pick" role="radio" aria-checked="false">
+            <span class="own-pick" role="radio" aria-checked="false" tabindex="-1">
               <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span> Maria
             </span>
-            <span class="own-pick" role="radio" aria-checked="false">
+            <span class="own-pick" role="radio" aria-checked="false" tabindex="-1">
               <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">D</span> Dan
             </span>
-            <span class="own-pick" role="radio" aria-checked="false">
+            <span class="own-pick" role="radio" aria-checked="false" tabindex="-1">
               <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-1)" aria-hidden="true">A</span> <span aria-hidden="true" style="color:var(--accent)">✦</span> Atlas
             </span>
           </div>
@@ -240,20 +254,76 @@
   </div>
 
   <script>
-    // Calm chip / radio toggles — selection state only; the single primary
-    // button always lands on the Campaigns board. AI vs human stays glyph-coded.
+    // Calm chip / radio toggles — fully keyboard-operable; selection state only.
+    // The single primary button always lands on the Campaigns board.
+    // AI vs human stays glyph-coded. AI output is revealed only after the user asks.
     (function () {
+
+      // ── Channels: role=checkbox — each independently focusable, Enter/Space toggles ──
       document.querySelectorAll('.chan-chip[role="checkbox"]').forEach(function (chip) {
-        chip.addEventListener('click', function () {
+        function toggle() {
           chip.setAttribute('aria-checked', chip.getAttribute('aria-checked') === 'true' ? 'false' : 'true');
+        }
+        chip.addEventListener('click', toggle);
+        chip.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); toggle(); }
         });
       });
-      var owners = document.querySelectorAll('.own-pick[role="radio"]');
-      owners.forEach(function (o) {
-        o.addEventListener('click', function () {
-          owners.forEach(function (x) { x.setAttribute('aria-checked', x === o ? 'true' : 'false'); });
+
+      // ── Owner: role=radiogroup — roving tabindex + arrow keys + Enter/Space ──
+      var owners = Array.prototype.slice.call(document.querySelectorAll('.own-pick[role="radio"]'));
+      function selectOwner(target, moveFocus) {
+        owners.forEach(function (x) {
+          var on = x === target;
+          x.setAttribute('aria-checked', on ? 'true' : 'false');
+          x.setAttribute('tabindex', on ? '0' : '-1');
+        });
+        if (moveFocus) { target.focus(); }
+      }
+      owners.forEach(function (o, i) {
+        o.addEventListener('click', function () { selectOwner(o, false); });
+        o.addEventListener('keydown', function (e) {
+          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+            e.preventDefault(); selectOwner(owners[(i + 1) % owners.length], true);
+          } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+            e.preventDefault(); selectOwner(owners[(i - 1 + owners.length) % owners.length], true);
+          } else if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+            e.preventDefault(); selectOwner(o, false);
+          }
         });
       });
+
+      // ── Atlas: hide the draft until asked; on press show a >400ms working state, then reveal ──
+      var draftBtn = document.getElementById('atlasDraftBtn');
+      var working  = document.getElementById('atlasWorking');
+      var card     = document.getElementById('atlasDraft');
+      var nameInput = document.getElementById('c-name');
+      if (draftBtn && working && card) {
+        draftBtn.setAttribute('aria-expanded', 'false');
+        draftBtn.addEventListener('click', function () {
+          card.setAttribute('data-on', 'false');
+          working.setAttribute('data-on', 'true');
+          draftBtn.disabled = true;
+          window.setTimeout(function () {
+            working.setAttribute('data-on', 'false');
+            card.setAttribute('data-on', 'true');
+            draftBtn.disabled = false;
+            draftBtn.setAttribute('aria-expanded', 'true');
+            var useBtn = document.getElementById('useDraftBtn');
+            if (useBtn) { useBtn.focus(); }
+          }, 650);
+        });
+      }
+
+      // ── Accepting the draft fills the name field — never auto-filled before then ──
+      var useBtn = document.getElementById('useDraftBtn');
+      if (useBtn && nameInput) {
+        useBtn.addEventListener('click', function () {
+          nameInput.value = 'June Launch email push';
+          nameInput.focus();
+        });
+      }
+
     })();
   </script>
 </body>

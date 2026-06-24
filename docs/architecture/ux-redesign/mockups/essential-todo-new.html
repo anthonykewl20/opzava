@@ -63,6 +63,11 @@
     .atlas-note .spark { color: var(--accent); flex: none; }
     .atlas-note.is-on { display: flex; }
 
+    /* Inline validation — error message under a field; red ring on the input */
+    .input[aria-invalid="true"] { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+    .field-error { display: none; margin-top: var(--space-2); font-size: var(--text-xs); color: var(--danger); }
+    .field-error.is-on { display: block; }
+
     /* Optional sub-steps disclosure */
     .disc-d { margin-top: var(--space-5); border-top: 1px solid var(--border); padding-top: var(--space-4); }
     .disc-d > summary { font-size: var(--text-sm); color: var(--fg-muted); cursor: pointer; list-style: none; font-weight: var(--fw-medium); }
@@ -120,24 +125,26 @@
         <a class="wiz-x" href="essential-todos.html" aria-label="Close">✕</a>
       </div>
 
+      <form id="todoForm" novalidate>
       <div class="wiz-body">
 
         <!-- To-do text -->
         <div class="field">
           <label class="label" for="td-text">To-do</label>
-          <input class="input" id="td-text" type="text" value="Write the Q3 launch announcement post" aria-label="To-do">
+          <input class="input" id="td-text" name="todo" type="text" value="Write the Q3 launch announcement post" required aria-required="true" aria-invalid="false" aria-describedby="td-text-err">
+          <p class="field-error" id="td-text-err" role="alert">Write what needs doing before you add it.</p>
         </div>
 
         <!-- Assign to — avatar picker: ✦ Atlas (AI) or a person -->
         <div class="field-block">
           <div class="label" style="margin-bottom:var(--space-2)">Assign to</div>
           <div class="assign-row" role="radiogroup" aria-label="Assign to">
-            <span class="assign-pick" id="pick-atlas" role="radio" aria-checked="true" tabindex="0" data-atlas="true">
+            <span class="assign-pick" role="radio" aria-checked="true" tabindex="0" data-atlas="false">
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span> You
+            </span>
+            <span class="assign-pick" id="pick-atlas" role="radio" aria-checked="false" tabindex="-1" data-atlas="true">
               <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-1)" aria-hidden="true">A</span>
               <span class="spark" aria-hidden="true">✦</span> Atlas
-            </span>
-            <span class="assign-pick" role="radio" aria-checked="false" tabindex="-1" data-atlas="false">
-              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span> You
             </span>
             <span class="assign-pick" role="radio" aria-checked="false" tabindex="-1" data-atlas="false">
               <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span> Maria
@@ -146,10 +153,10 @@
               <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" aria-hidden="true">D</span> Dan
             </span>
           </div>
-          <p class="assign-gloss" id="assignGloss">Atlas will do it and bring it back for review.</p>
+          <p class="assign-gloss" id="assignGloss">You are on it.</p>
 
-          <!-- Calm note — shown when ✦ Atlas is the assignee -->
-          <div class="atlas-note is-on" id="atlasNote">
+          <!-- Calm note — shown ONLY when ✦ Atlas is the assignee (autonomous AI run is an explicit opt-in) -->
+          <div class="atlas-note" id="atlasNote">
             <span class="spark" aria-hidden="true">✦</span>
             <span>Atlas starts right away; you approve the result.</span>
           </div>
@@ -160,7 +167,7 @@
           <div class="field-2">
             <div class="field">
               <label class="label" for="td-due">Due</label>
-              <input class="input" id="td-due" type="text" value="Fri" placeholder="Fri" aria-label="Due date">
+              <input class="input" id="td-due" name="due" type="date" value="2026-06-26" min="2026-06-24" aria-label="Due date">
             </div>
             <div class="field">
               <label class="label" for="td-list">List</label>
@@ -185,8 +192,9 @@
 
       <div class="wiz-foot">
         <a class="btn btn-ghost" href="essential-todos.html">Cancel</a>
-        <a class="btn btn-primary" href="essential-todos.html">Add to-do</a>
+        <button class="btn btn-primary" type="submit" id="todoSubmit">Add to-do</button>
       </div>
+      </form>
 
     </div>
   </div>
@@ -218,6 +226,39 @@
       group.addEventListener('keydown', function (e) {
         var pick = e.target.closest('.assign-pick');
         if (pick && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); select(pick); }
+      });
+    })();
+
+    // Validated submit: a to-do needs text. On failure keep the dialog open,
+    // show the inline error, and move focus to the offending field. On success,
+    // give a brief pending→done state, then return to the to-dos list.
+    (function () {
+      var form = document.getElementById('todoForm');
+      var text = document.getElementById('td-text');
+      var err = document.getElementById('td-text-err');
+      var submit = document.getElementById('todoSubmit');
+      function clearError() {
+        text.setAttribute('aria-invalid', 'false');
+        err.classList.remove('is-on');
+      }
+      text.addEventListener('input', function () {
+        if (text.value.trim()) clearError();
+      });
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!text.value.trim()) {
+          text.setAttribute('aria-invalid', 'true');
+          err.classList.add('is-on');
+          text.focus();
+          return;
+        }
+        clearError();
+        submit.disabled = true;
+        submit.textContent = 'Adding…';
+        setTimeout(function () {
+          submit.textContent = '✓ Added';
+          setTimeout(function () { window.location.href = 'essential-todos.html'; }, 350);
+        }, 450);
       });
     })();
   </script>

@@ -36,6 +36,9 @@ ARG NEXT_PUBLIC_GATEWAY_CLIENT_ID=
 ARG NEXT_PUBLIC_GATEWAY_OPTIONAL=
 ARG NEXT_PUBLIC_COORDINATOR_AGENT=
 ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID=
+ARG NEXT_PUBLIC_FORCE_HTTPS=
+ARG NEXT_PUBLIC_APP_URL=
+ARG NEXT_PUBLIC_CHAT_POLL_INTERVAL_MS=
 ENV NEXT_PUBLIC_GATEWAY_URL=${NEXT_PUBLIC_GATEWAY_URL}
 ENV NEXT_PUBLIC_GATEWAY_HOST=${NEXT_PUBLIC_GATEWAY_HOST}
 ENV NEXT_PUBLIC_GATEWAY_PORT=${NEXT_PUBLIC_GATEWAY_PORT}
@@ -45,6 +48,9 @@ ENV NEXT_PUBLIC_GATEWAY_CLIENT_ID=${NEXT_PUBLIC_GATEWAY_CLIENT_ID}
 ENV NEXT_PUBLIC_GATEWAY_OPTIONAL=${NEXT_PUBLIC_GATEWAY_OPTIONAL}
 ENV NEXT_PUBLIC_COORDINATOR_AGENT=${NEXT_PUBLIC_COORDINATOR_AGENT}
 ENV NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
+ENV NEXT_PUBLIC_FORCE_HTTPS=${NEXT_PUBLIC_FORCE_HTTPS}
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+ENV NEXT_PUBLIC_CHAT_POLL_INTERVAL_MS=${NEXT_PUBLIC_CHAT_POLL_INTERVAL_MS}
 # ────────────────────────────────────────────────────────────────────────────
 
 RUN pnpm build
@@ -59,24 +65,41 @@ LABEL org.opencontainers.image.version="${MC_VERSION}"
 
 WORKDIR /app
 ENV NODE_ENV=production
+ENV HOME=/home/nextjs
+ENV PATH=/home/nextjs/.local/bin:/home/nextjs/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # curl, CA certs, python3, git needed for agent runtime installers (OpenClaw, Hermes)
 # procps provides `ps` and `uptime` used by system-monitor APIs
-RUN apt-get update && apt-get install -y curl ca-certificates python3 git make g++ procps --no-install-recommends && rm -rf /var/lib/apt/lists/*
-RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+# tmux is required by the production PTY WebSocket attach path.
+RUN apt-get update && apt-get install -y curl ca-certificates python3 git make g++ procps tmux --no-install-recommends && rm -rf /var/lib/apt/lists/*
+ARG INSTALL_AGENT_CLIS=1
+# The node base image already provides uid/gid 1000. Keep the app process on
+# that uid so Linux host bind mounts are writable without chown.
+RUN mkdir -p /home/nextjs/.local/bin /home/nextjs/.bun /home/nextjs/.claude && \
+    chown -R node:node /home/nextjs && \
+    if [ "$INSTALL_AGENT_CLIS" = "1" ]; then \
+      npm install -g @anthropic-ai/claude-code @openai/codex; \
+    fi
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
 COPY --from=build /app/src/lib/schema.sql ./src/lib/schema.sql
+COPY --from=build /app/scripts/mc-server.cjs ./scripts/mc-server.cjs
+COPY --from=build /app/scripts/pty-websocket-standalone.cjs ./scripts/pty-websocket-standalone.cjs
 # node-pty is a native addon; Next standalone tracing can omit built artifacts.
-# Copy the fully installed package (including native binary artifacts) from deps stage.
+# ws is required by the standalone PTY wrapper and can be omitted by Next tracing.
+# Copy the fully installed packages from deps stage.
 COPY --from=deps /app/node_modules/.pnpm/node-pty@1.1.0/node_modules/node-pty ./node_modules/.pnpm/node-pty@1.1.0/node_modules/node-pty
+COPY --from=deps /app/node_modules/.pnpm/ws@8.19.0/node_modules/ws ./node_modules/.pnpm/ws@8.19.0/node_modules/ws
+RUN mkdir -p ./node_modules && \
+    ln -sfnT .pnpm/node-pty@1.1.0/node_modules/node-pty ./node_modules/node-pty && \
+    ln -sfnT .pnpm/ws@8.19.0/node_modules/ws ./node_modules/ws
 # Create data directory with correct ownership for SQLite
-RUN mkdir -p .data && chown nextjs:nodejs .data
+RUN mkdir -p .data && chown node:node .data
 RUN echo 'const http=require("http");const r=http.get("http://localhost:"+(process.env.PORT||3000)+"/api/status?action=health",s=>{process.exit(s.statusCode===200?0:1)});r.on("error",()=>process.exit(1));r.setTimeout(4000,()=>{r.destroy();process.exit(1)})' > /app/healthcheck.js
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod 755 /app/docker-entrypoint.sh && \
-    chmod -R a+rX /app/public/ /app/src/
-USER nextjs
+    chmod -R a+rX /app/public/ /app/src/ /app/scripts/
+USER node
 ENV PORT=3000
 EXPOSE 3000
 ENV HOSTNAME=0.0.0.0

@@ -33,9 +33,15 @@ notifications/comments, sessions/logs/cron/spawn/memory/tokens/models (capped + 
 helpers), auth/tenant/project (persisted to `localStorage`), exec-approvals queue, persisted UI prefs
 (**10** `mc-*` keys, SSR-guarded).
 
-**Live wiring**: SSE (`use-server-events.ts`) calls store reducers directly (`task.created→addTask`, etc.);
-WS (`websocket.ts`) feeds sessions/logs/spawn/cron. ⚠️ **Disjoint ownership**: SSE owns local-DB entities;
-WS owns gateway/session/log/spawn/cron.
+**Live wiring**: SSE (`use-server-events.ts`) calls store reducers directly (`task.created→addTask`, etc.),
+uses browser-native EventSource reconnection, and dedupes durable event ids before dispatch. Store insert
+reducers for tasks, agents, and notifications are idempotent by entity id so replay is safe. WS (`websocket.ts`)
+feeds sessions/logs/spawn/cron, closes deterministically when browser send buffering exceeds 1 MiB, rejects
+oversized text frames, and truncates malformed-frame logging. The terminal UI (`terminal-view.tsx`) uses the
+same 1 MiB send-buffer guard for `/ws/pty` and a connection-generation guard so stale async setup cannot
+overwrite a newer terminal/socket. ⚠️ **Disjoint ownership**:
+SSE owns local-DB entities; WS owns
+gateway/session/log/spawn/cron.
 
 ## Data flow ✅
 

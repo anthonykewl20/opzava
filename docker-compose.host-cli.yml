@@ -1,0 +1,39 @@
+# Optional Linux host CLI sharing overlay.
+# Usage:
+#   MC_HOST_CLI_ENABLED=1 make up mc
+# or:
+#   docker compose -f docker-compose.yml -f docker-compose.host-cli.yml up -d --build
+#
+# This intentionally bind-mounts authenticated host CLI state. Use it only on a
+# single-operator host where the container should be allowed to drive those CLIs.
+services:
+  mission-control:
+    environment:
+      - HOME=/home/nextjs
+      - MC_CLAUDE_HOME=/home/nextjs/.claude
+      - MC_HOST_SESSION_MODE=${MC_HOST_SESSION_MODE:-coexist}
+      - PATH=/home/nextjs/.local/bin:/home/nextjs/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    volumes:
+      - type: bind
+        source: ${HOME:?HOME must be set}/.local/bin
+        target: /home/nextjs/.local/bin
+        read_only: true
+      - type: bind
+        source: ${HOME:?HOME must be set}/.bun
+        target: /home/nextjs/.bun
+        read_only: true
+      - type: bind
+        source: ${HOME:?HOME must be set}/.claude
+        target: /home/nextjs/.claude
+      - type: bind
+        source: ${HOME:?HOME must be set}/.claude.json
+        target: /home/nextjs/.claude.json
+      - type: bind
+        source: ${HOME:?HOME must be set}/.local/share/claude
+        target: /home/nextjs/.local/share/claude
+      - type: bind
+        source: ${HOME:?HOME must be set}
+        target: ${HOME:?HOME must be set}
+      - type: bind
+        source: /mnt
+        target: /mnt

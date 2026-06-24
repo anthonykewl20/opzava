@@ -52,7 +52,10 @@ PORT=3000 pnpm start
 
 Use this for bare-metal deployments that run Next's standalone server directly.
 This path is preferred over ad hoc `node .next/standalone/server.js` because it
-syncs `.next/static` and `public/` into the standalone bundle before launch.
+syncs `.next/static` and `public/` into the standalone bundle before launch and
+starts `scripts/mc-server.cjs`, the production wrapper that serves `/ws/pty`
+upgrades for terminal attach. Bare `node .next/standalone/server.js` does not
+serve the PTY WebSocket route.
 
 ```bash
 pnpm install --frozen-lockfile
@@ -76,6 +79,9 @@ What `deploy:standalone` does:
 
 ## Production (Docker)
 
+Requires Docker Engine with Docker Compose v2. The mode-aware operator workflow
+also requires GNU Make (`sudo apt-get install -y make` on Debian/Ubuntu).
+
 Preferred operator flow (Make controls docker compose):
 
 ```bash
@@ -98,8 +104,9 @@ Use `.env` + `.env.openclaw` as the single source of truth for mode/host/port/to
 
 - `MC_MODE=prod` → `docker-compose.yml`
 - `MC_MODE=dev` → `docker-compose-dev.yml`
-- `OPENCLAW_ENABLED=1` → `make <verb> all` includes OpenClaw
+- `OPENCLAW_ENABLED=1` → `make <verb> all` includes `docker-compose-openclaw.yml`
 - `OPENCLAW_ENABLED=0` → `make <verb> all` manages MC only
+- `MC_HOST_CLI_ENABLED=1` → includes `docker-compose.host-cli.yml` so MC can use authenticated host CLIs
 
 Command grammar:
 
@@ -164,6 +171,7 @@ TELEGRAM_DM_POLICY=pairing
 TELEGRAM_ALLOW_FROM=
 TELEGRAM_OWNER_ALLOW_FROM=
 # .env.openclaw (or keep in .env)
+OPENCLAW_GATEWAY_IMAGE=ghcr.io/openclaw/openclaw:latest
 OPENCLAW_GATEWAY_PORT=18789
 OPENCLAW_CONTROL_UI_PORT=18791
 OPENCLAW_GATEWAY_INTERNAL_PORT=18789
@@ -174,6 +182,79 @@ OPENCLAW_STATUS_HOST=127.0.0.1
 docker compose up          # with gateway connectivity
 docker compose --profile standalone up   # without gateway (standalone mode)
 ```
+
+### Local Dokploy-Parity Stack
+
+Use this path before deploying to Dokploy when you need local Docker to behave
+like the Dokploy Compose runtime rather than like a direct `localhost:3000`
+developer container.
+
+Dokploy-specific assumptions this stack models:
+
+- Dokploy Compose environment variables are written to a `.env` file, but they
+  only reach the container when the Compose file uses `env_file` or explicit
+  `${VAR}` references.
+- Dokploy domains route through Traefik labels/networking at deployment time.
+- A routed Compose service should expose its container port to the Docker
+  network; Traefik owns the host-published HTTP/HTTPS port.
+
+Source docs: [Dokploy Docker Compose](https://docs.dokploy.com/docs/core/docker-compose),
+[Dokploy Compose domains](https://docs.dokploy.com/docs/core/docker-compose/domains),
+and [Dokploy troubleshooting](https://docs.dokploy.com/docs/core/troubleshooting).
+
+Local parity command:
+
+```bash
+pnpm test:docker:dokploy
+```
+
+This runs `docker-compose.dokploy.yml`: a production Opzava image behind a
+local Traefik service on `http://opzava.localhost:3080`, with no direct
+host-published app port. The local Traefik default is pinned to
+`traefik:v3.7.5`; older `v3.1` images can fail against Docker 29+ daemons by
+serving 404s while logging Docker API `1.24` negotiation errors. The local
+Traefik entrypoint also trusts forwarded headers so the smoke test can simulate
+Dokploy's HTTPS-terminated request path on a plain local HTTP port. The smoke
+test verifies:
+
+- Traefik-routed `/api/status?action=health` is healthy
+- `mission-control` has no direct host port for `3000`
+- runtime user is uid `1000`, `HOME=/home/nextjs`
+- `/app` is read-only while `/app/.data` is writable
+- `X-Forwarded-Proto: https` causes a secure `__Host-mc-session` cookie
+- `/api/events` streams the SSE contract through Traefik
+- `/ws/pty` upgrades through Traefik and reaches the app wrapper
+
+PTY terminal attach uses local `tmux`/`node-pty` state. The Dokploy-parity
+Traefik service enables sticky cookies so `/api/pty/attach` and `/ws/pty` stay
+on the same app replica. The app service intentionally omits a fixed
+`container_name`, so local `docker compose --scale mission-control=N` checks are
+not blocked by Compose. For multi-host or non-sticky scaling, deploy an external
+PTY broker instead of relying on container-local tmux.
+
+Run deeper E2E through the same stack:
+
+```bash
+DOKPLOY_PARITY_RUN_E2E=1 pnpm test:docker:dokploy
+```
+
+The deep path uses `playwright.dokploy.config.ts`, which intentionally does
+not start a Node web server; it targets the already-running Docker stack.
+
+OpenClaw gateway parity can be added with the Compose profile:
+
+```bash
+NEXT_PUBLIC_GATEWAY_OPTIONAL=false \
+NEXT_PUBLIC_GATEWAY_HOST=opzava-gateway.localhost \
+NEXT_PUBLIC_GATEWAY_PORT=3080 \
+NEXT_PUBLIC_GATEWAY_PROTOCOL=ws \
+OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway \
+docker compose -f docker-compose.dokploy.yml --profile openclaw up -d --build
+```
+
+For Dokploy itself, configure domains in the Dokploy UI where possible and use
+the Preview Compose output to confirm the service, internal port, labels, and
+network match the local parity shape.
 
 Or build and run manually:
 
@@ -193,7 +274,7 @@ The Docker image:
 - Builds from `node:22-slim` with multi-stage build
 - Compiles `better-sqlite3` natively inside the container (Linux x64)
 - Uses Next.js standalone output for minimal image size
-- Runs as non-root user `nextjs`
+- Runs as the non-root Node base-image user (uid/gid 1000) with `HOME=/home/nextjs`
 - Exposes port 3000 (override with `-e PORT=8080`)
 
 ### Gateway Connectivity from Docker
@@ -240,12 +321,16 @@ docker run -v /path/to/data:/app/.data ...
 ### Self-contained Operator Setup (Linux host with existing Claude Code / Codex CLIs)
 
 For an operator running MC on a Linux/Docker host who already has authenticated
-`claude` / `codex` / `opencode` CLIs in `~/.local/bin`, the default
-`docker-compose.yml` projects the host configuration into the container so MC
-can drive those same authenticated CLIs without re-login. This path runs MC
-**without** OpenClaw gateway (which is macOS-only).
+`claude` / `codex` / `opencode` CLIs in `~/.local/bin`, the opt-in
+`docker-compose.host-cli.yml` overlay projects the host configuration into the
+container so MC can drive those same authenticated CLIs without re-login. This
+path can run MC **without** an OpenClaw gateway:
 
-What the default compose does for this case:
+```bash
+MC_HOST_CLI_ENABLED=1 OPENCLAW_ENABLED=0 make up mc
+```
+
+What the host CLI overlay does for this case:
 
 - **Image bakes `claude` and `codex` as a fallback** — if the host doesn't
   have them in `~/.local/bin`, the container's installed copies are used.
@@ -256,8 +341,8 @@ What the default compose does for this case:
   are mounted under `/home/nextjs/...` inside the container, plus `${HOME}`
   itself and `/mnt` are mounted at the same absolute paths so file paths the
   user sees on the host work identically inside the container.
-- **Container runs as uid 1000** (the slim image's existing `node` user,
-  renamed `nextjs`) so bind-mounted host files (typical Linux uid 1000) are
+- **Container runs as uid 1000** (the slim image's existing `node` user, with
+  `HOME=/home/nextjs`) so bind-mounted host files (typical Linux uid 1000) are
   read/written without `chown`.
 
 **Ports.** `docker-compose.yml` maps `${MC_PORT}` on the host to `${PORT}` in
@@ -265,7 +350,7 @@ the container. The bundled `Makefile` computes its readiness/status URL from
 `MC_URL_SCHEME`, `MC_HOST`, and `MC_PORT` loaded from `.env`.
 
 **uid mismatch.** If your host user has uid ≠ 1000 (common on macOS, or
-multi-user Linux), edit `docker-compose.yml`:
+multi-user Linux), add a user override to your local compose overlay:
 
 ```yaml
 user: "$(id -u):$(id -g)"   # or hard-code your uid:gid
@@ -342,8 +427,13 @@ See `.env.example` for the full list. Key variables:
 | `AUTH_PASS_B64` | No | - | Base64-encoded admin password (overrides `AUTH_PASS` if set) |
 | `API_KEY` | Yes | - | API key for headless access |
 | `PORT` | No | `3005` (direct) / `3000` (Docker) | Server port |
+| `MC_MODE` | No | `prod` | Makefile Docker mode: `prod` uses `docker-compose.yml`; `dev` uses `docker-compose-dev.yml`. |
+| `OPENCLAW_ENABLED` | No | `0` | When truthy, Makefile `all` scope includes the OpenClaw sidecar overlay. |
+| `MC_HOST_CLI_ENABLED` | No | `0` | When truthy, Makefile includes `docker-compose.host-cli.yml` for host CLI/session sharing. |
+| `INSTALL_AGENT_CLIS` | No | `1` | Bake Claude Code and Codex CLI fallback binaries into the Docker runtime image. |
 | `OPENCLAW_HOME` | No | - | Legacy: parent home directory containing `.openclaw/`. Use `OPENCLAW_STATE_DIR` instead (see note below) |
 | `OPENCLAW_STATE_DIR` | No | `~/.openclaw` | Exact path to the OpenClaw state directory. Preferred over `OPENCLAW_HOME` — avoids double-nesting when the path already ends in `.openclaw` |
+| `OPENCLAW_GATEWAY_IMAGE` | No | `ghcr.io/openclaw/openclaw:latest` | Image used by `docker-compose-openclaw.yml`. |
 | `OPENCLAW_TOOLS_PROFILE` | No | `coding` | Tool profile projected into OpenClaw config when the env var is present (compose injects the default) |
 | `OPENCLAW_SECURITY_WORKSPACE_ONLY` | No | `1` | Restrict filesystem tools to the workspace when set (env-driven) |
 | `OPENCLAW_SECURITY_DENY_AUTOMATION` | No | `1` | Deny automation tool group via env-driven bootstrap |

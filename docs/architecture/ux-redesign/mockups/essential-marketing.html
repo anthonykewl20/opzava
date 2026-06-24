@@ -72,6 +72,14 @@
     /* Breadcrumb */
     .page-breadcrumb { margin-bottom: var(--space-2); }
 
+    /* Waiting-on-you band (Zeigarnik / Goal-Gradient) — label+glyph, deep-links to the work.
+       Left rule is a structural emphasis, not a status hue on a label. */
+    .needs-band { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-7); border-left: 3px solid var(--warning); }
+    .needs-band-glyph { flex: none; color: var(--fg-subtle); line-height: 1; font-size: var(--text-md); }
+    .needs-band-text { flex: 1 1 auto; min-width: 0; font-size: var(--text-base); color: var(--fg); }
+    .needs-band-text strong { font-weight: var(--fw-semibold); }
+    .needs-band-sub { font-size: var(--text-xs); color: var(--fg-muted); }
+
     /* Mobile: single-column collapse */
     @media (max-width: 640px) {
       /* topnav collapses to just Opzava logo + notifications */
@@ -101,7 +109,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -163,6 +171,16 @@
           </div>
         </div>
 
+        <!-- ── Waiting on you (Zeigarnik pull → one-click path, not dead text) ── -->
+        <div class="card needs-band" role="status" aria-label="Waiting on you: 1 approval overdue">
+          <span class="needs-band-glyph" aria-hidden="true">◷</span>
+          <div class="needs-band-text">
+            <strong>Waiting on you:</strong> 1 approval overdue — the Webinar banner has sat 2 days.
+            <span class="needs-band-sub">·&nbsp;5 campaigns on track</span>
+          </div>
+          <a class="btn" href="essential-mkt-approvals.html#webinar-banner" role="button">Review</a>
+        </div>
+
         <!-- ── Tool tiles (7 marketing-native tiles) ─────────────────────── -->
         <!--
           Loading state (hidden by default — toggle .u-hidden to show):
@@ -187,7 +205,7 @@
             <a href="essential-mkt-campaigns.html" class="tile-name">Campaigns</a>
             <p class="tile-preview">4 active — 1 in Approve, 2 in Create. June Launch is due Friday.</p>
             <div class="tile-foot">
-              <span class="sb-badge sb-badge--accent">✦ Atlas drafting</span>
+              <span class="sb-statusline sb-statusline--accent" aria-label="Status: Atlas drafting"><span class="sl-glyph" aria-hidden="true">✦</span> <span class="sl-label">Atlas drafting</span></span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">4 active</span>
             </div>
@@ -199,19 +217,19 @@
             <a href="essential-mkt-calendar.html" class="tile-name">Content Calendar</a>
             <p class="tile-preview">This week: 6 posts, 2 emails. Next up — June newsletter, Friday 9 am.</p>
             <div class="tile-foot">
-              <span class="badge badge-warning"><span class="dot dot-warning" aria-hidden="true"></span> Due Fri</span>
+              <span class="sb-statusline" aria-label="Status: Due Fri"><span class="sl-glyph" aria-hidden="true">◷</span> <span class="sl-label">Due Fri</span></span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">8 scheduled</span>
             </div>
           </div>
 
-          <!-- 3 · ✓◷ Approvals — bottleneck queue -->
+          <!-- 3 · Approvals — bottleneck queue -->
           <div class="card tile">
-            <span class="tile-glyph" aria-hidden="true">✓◷</span>
+            <span class="tile-glyph" aria-hidden="true">◷</span>
             <a href="essential-mkt-approvals.html" class="tile-name">Approvals</a>
             <p class="tile-preview">3 awaiting review · 1 changes requested. Webinar banner has sat 2 days.</p>
             <div class="tile-foot">
-              <span class="badge badge-warning"><span class="dot dot-warning" aria-hidden="true"></span> 3 to review</span>
+              <span class="sb-statusline" aria-label="Status: 3 to review"><span class="sl-glyph" aria-hidden="true">◷</span> <span class="sl-label">3 to review</span></span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">1 overdue</span>
             </div>
@@ -223,7 +241,7 @@
             <a href="essential-mkt-assets.html" class="tile-name">Assets</a>
             <p class="tile-preview">24 files — 18 approved, 6 in review. Brand kit + June Launch creative.</p>
             <div class="tile-foot">
-              <span class="badge"><span class="dot" aria-hidden="true"></span> Up to date</span>
+              <span class="sb-statusline" aria-label="Status: Up to date"><span class="sl-glyph" aria-hidden="true">✓</span> <span class="sl-label">Up to date</span></span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">24 files</span>
             </div>
@@ -247,7 +265,7 @@
             <a href="project-assistant.html" class="tile-name">Ask your assistant</a>
             <p class="tile-preview">Atlas drafts briefs, schedules posts, and summarises results — approve work inline.</p>
             <div class="tile-foot">
-              <span class="sb-badge sb-badge--accent">✦ Atlas</span>
+              <span class="sb-statusline sb-statusline--accent" aria-label="Status: Atlas working"><span class="sl-glyph" aria-hidden="true">✦</span> <span class="sl-label">Atlas</span></span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">working now</span>
             </div>
@@ -259,7 +277,7 @@
             <a href="essential-team-room.html" class="tile-name">Team</a>
             <p class="tile-preview">Maria, Dan, and you. Maria left a note on the social calendar — 2 new.</p>
             <div class="tile-foot">
-              <span class="badge badge-accent"><span class="dot dot-accent" aria-hidden="true"></span> 2 new</span>
+              <span class="sb-statusline" aria-label="Status: 2 new"><span class="sl-glyph" aria-hidden="true">●</span> <span class="sl-label">2 new</span></span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">3 people</span>
             </div>

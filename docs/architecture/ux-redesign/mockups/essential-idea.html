@@ -54,6 +54,14 @@
     /* Decision hint — what converging unlocks (the hand-off) */
     .decide-note { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-8); padding: var(--space-4) var(--space-5); background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--radius-md); font-size: var(--text-sm); }
 
+    /* Confirm "make this the decision" — names the state change before it commits (Nielsen #3) */
+    .confirm-card { width: 100%; max-width: 440px; padding: var(--space-5) var(--space-5) var(--space-4); }
+    .confirm-title { font-size: var(--text-md); font-weight: var(--fw-semibold); letter-spacing: -.01em; }
+    .confirm-body { margin-top: var(--space-2); font-size: var(--text-sm); color: var(--fg-muted); line-height: var(--lh-normal); }
+    .confirm-foot { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-5); }
+    /* Decided state, after the call is made */
+    .status-chip.is-decided { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: var(--fw-medium); }
+
     /* Contributors — multiple people + multiple AI assistants on one idea */
     .id-people { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-3) 0 var(--space-1); flex-wrap: wrap; }
 
@@ -91,7 +99,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
 
@@ -109,7 +117,7 @@
         <!-- The idea (hero) -->
         <div class="id-tags">
           <span class="idea-tag">#format</span>
-          <span class="status-chip">Exploring</span>
+          <span class="status-chip" id="ideaStatus">Exploring</span>
         </div>
         <h1 class="id-title">Weekly founder AMA series</h1>
         <div class="id-meta">Suggested by <strong>You</strong> · 5 days ago · in Discovery</div>
@@ -130,7 +138,7 @@
 
         <div class="id-actions">
           <button class="vote is-on" type="button" id="voteBtn">👍 <span>6</span> votes</button>
-          <button class="btn btn-primary" type="button">⭐ Make this the decision</button>
+          <button class="btn btn-primary" type="button" id="decideBtn" aria-haspopup="dialog">⭐ Make this the decision</button>
           <button class="btn btn-ghost" type="button">Move to ▾</button>
         </div>
 
@@ -193,7 +201,7 @@
           <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
           <div class="u-grow u-col-2">
             <textarea class="textarea" rows="2" placeholder="Build on this idea…" aria-label="Build on this idea"></textarea>
-            <div><button class="btn btn-primary" type="button">Add</button></div>
+            <div><button class="btn" type="button">Add</button></div>
           </div>
         </div>
 
@@ -213,10 +221,78 @@
     </main>
   </div>
 
+  <!-- Confirm: making this the decision is a state change — name it before it commits (Nielsen #3) -->
+  <div class="sb-overlay" id="decideOverlay" role="alertdialog" aria-modal="true" aria-labelledby="decideConfirmTitle" aria-describedby="decideConfirmBody">
+    <div class="card confirm-card">
+      <h2 class="confirm-title" id="decideConfirmTitle">Make this the decision?</h2>
+      <p class="confirm-body" id="decideConfirmBody">“Weekly founder AMA series” moves from <strong>Exploring</strong> to <strong>Decided</strong>. The other ideas in Discovery stay as they are. You can then connect it to a project or turn it into a to-do. This doesn’t start any work yet.</p>
+      <div class="confirm-foot">
+        <button class="btn" type="button" id="decideCancel">Keep exploring</button>
+        <button class="btn btn-primary" type="button" id="decideConfirm">⭐ Make it the decision</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     (function () {
       var v = document.getElementById('voteBtn');
-      v.addEventListener('click', function () { v.classList.toggle('is-on'); });
+      if (v) v.addEventListener('click', function () { v.classList.toggle('is-on'); });
+
+      // --- "Make this the decision" confirm: focus-managed, Esc-cancellable, names the state change ---
+      var openBtn = document.getElementById('decideBtn');
+      var overlay = document.getElementById('decideOverlay');
+      var cancelBtn = document.getElementById('decideCancel');
+      var confirmBtn = document.getElementById('decideConfirm');
+      var statusChip = document.getElementById('ideaStatus');
+      var lastFocus = null;
+
+      function focusables() {
+        return Array.prototype.slice.call(
+          overlay.querySelectorAll('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')
+        ).filter(function (el) { return el.offsetParent !== null; });
+      }
+
+      function openDialog() {
+        lastFocus = document.activeElement;
+        overlay.classList.add('open');
+        confirmBtn.focus();
+        document.addEventListener('keydown', onKeydown, true);
+      }
+
+      function closeDialog(restore) {
+        overlay.classList.remove('open');
+        document.removeEventListener('keydown', onKeydown, true);
+        if (restore && lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus();
+      }
+
+      function onKeydown(e) {
+        if (e.key === 'Escape') { e.preventDefault(); closeDialog(true); return; }
+        if (e.key === 'Tab') {
+          var f = focusables();
+          if (!f.length) return;
+          var first = f[0], last = f[f.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        }
+      }
+
+      if (openBtn && overlay) {
+        openBtn.addEventListener('click', openDialog);
+        cancelBtn.addEventListener('click', function () { closeDialog(true); });
+        // click outside the card cancels
+        overlay.addEventListener('mousedown', function (e) { if (e.target === overlay) closeDialog(true); });
+        confirmBtn.addEventListener('click', function () {
+          // Commit the state change, reflect it on the page, then disable the now-spent action.
+          if (statusChip) { statusChip.textContent = 'Decided'; statusChip.classList.add('is-decided'); }
+          openBtn.textContent = '★ Decided';
+          openBtn.classList.remove('btn-primary');
+          openBtn.classList.add('btn-ghost');
+          openBtn.setAttribute('aria-disabled', 'true');
+          openBtn.removeAttribute('aria-haspopup');
+          closeDialog(false);
+          openBtn.focus();
+        });
+      }
     })();
   </script>
 </body>

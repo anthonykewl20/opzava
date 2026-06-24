@@ -59,6 +59,15 @@
     /* "Add a card" ghost button */
     .ct-add { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: var(--space-3); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); background: none; color: var(--fg-subtle); font: inherit; font-size: var(--text-sm); cursor: pointer; transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard); }
     .ct-add:hover { background: var(--surface-2); color: var(--fg-muted); }
+
+    /* ── Per-card actions menu (single-pointer 'Move to column…' alternative to drag) ── */
+    .ct-card-menu-wrap { position: relative; display: inline-flex; margin-left: 2px; }
+    .ct-card-menu-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 1px solid transparent; border-radius: var(--radius-md); background: none; color: var(--fg-subtle); font: inherit; font-size: var(--text-md); line-height: 1; cursor: pointer; transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard); }
+    .ct-card-menu-btn:hover { background: var(--surface-2); color: var(--fg); }
+    .ct-card-menu-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .ct-card-menu-btn[aria-expanded="true"] { background: var(--surface-2); color: var(--fg); border-color: var(--border); }
+    .ct-card-menu { position: absolute; top: calc(100% + 4px); right: 0; z-index: var(--z-dropdown); min-width: 200px; }
+    .ct-card-menu .sb-menu-label { text-transform: none; }
   </style>
 </head>
 <body>
@@ -78,7 +87,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -113,10 +122,11 @@
           </div>
         </div>
         <p class="u-muted" style="font-size:var(--text-sm);margin-bottom:var(--space-8)">
-          New requests arrive in Triage. Each card shows who’s on it, how far along, and what needs you — at a glance. Drag a card right as the work moves along.
+          New requests arrive in Triage. Each card shows who’s on it, how far along, and what needs you — at a glance. To move work along, drag a card to the next column or open its <span aria-hidden="true">⋯</span> menu and choose “Move to column…”.
         </p>
 
         <!-- ── Board ────────────────────────────────────────────────────────── -->
+        <p class="u-sr-only" id="ctMoveStatus" role="status" aria-live="polite"></p>
         <div class="ct-board" role="region" aria-label="Card table board">
 
           <!-- ── TRIAGE ────────────────────────────────────────────────────── -->
@@ -124,8 +134,8 @@
             <div class="ct-col-head"><h2 class="ct-col-label">Triage</h2><span class="ct-col-count" aria-label="3 cards">3</span></div>
 
             <!-- Card: Login 2FA — AI working, due soon -->
-            <a href="essential-card.html" class="ct-card" style="text-decoration:none;color:inherit;--card-color:var(--chart-1)" tabindex="0" aria-label="CS-1042 Login keeps failing — 2FA error, Echo working, 2 of 4 steps done, due Friday, 3 comments, 5 files">
-              <div class="ct-card-top"><span class="ct-card-id">CS-1042</span><span class="ct-card-age">· 1d</span><span class="u-grow"></span><span class="badge badge-warning" style="height:20px"><span class="dot dot-warning" aria-hidden="true"></span> Due Fri</span></div>
+            <div role="button" tabindex="0" data-card-link="essential-card.html" class="ct-card" data-column="Triage" data-card="CS-1042" style="--card-color:var(--chart-1)" aria-label="CS-1042 Login keeps failing — 2FA error, Echo working, 2 of 4 steps done, due Friday, 3 comments, 5 files">
+              <div class="ct-card-top"><span class="ct-card-id">CS-1042</span><span class="ct-card-age">· 1d</span><span class="u-grow"></span><span class="badge badge-warning" style="height:20px"><span class="dot dot-warning" aria-hidden="true"></span> Due Fri</span><span class="ct-card-menu-wrap" data-card-menu><button type="button" class="ct-card-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Card actions for CS-1042"><span aria-hidden="true">⋯</span></button></span></div>
               <div class="ct-card-labels"><span class="ct-label">Customer-facing</span></div>
               <p class="ct-card-title">Login keeps failing — 2FA error</p>
               <div class="ct-steps" aria-label="2 of 4 steps done"><div class="ct-steps-bar"><i style="width:50%"></i></div><span class="ct-steps-text">2/4</span></div>
@@ -136,11 +146,11 @@
                 <span class="ct-mini" aria-label="3 comments"><span aria-hidden="true">💬</span> 3</span>
                 <span class="ct-mini" aria-label="5 files"><span aria-hidden="true">📎</span> 5</span>
               </div>
-            </a>
+            </div>
 
             <!-- Card: Billing — reply drafted, needs review -->
-            <a href="essential-card.html" class="ct-card" style="text-decoration:none;color:inherit;--card-color:var(--chart-3)" tabindex="0" aria-label="CS-1043 Billing charge not matching invoice, Iris drafted a reply for review, 1 comment">
-              <div class="ct-card-top"><span class="ct-card-id">CS-1043</span><span class="ct-card-age">· 2d</span></div>
+            <div role="button" tabindex="0" data-card-link="essential-card.html" class="ct-card" data-column="Triage" data-card="CS-1043" style="--card-color:var(--chart-3)" aria-label="CS-1043 Billing charge not matching invoice, Iris drafted a reply for review, 1 comment">
+              <div class="ct-card-top"><span class="ct-card-id">CS-1043</span><span class="ct-card-age">· 2d</span><span class="u-grow"></span><span class="ct-card-menu-wrap" data-card-menu><button type="button" class="ct-card-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Card actions for CS-1043"><span aria-hidden="true">⋯</span></button></span></div>
               <div class="ct-card-labels"><span class="ct-label">Billing</span></div>
               <p class="ct-card-title">Billing charge not matching invoice</p>
               <div class="ct-steps" aria-label="3 of 3 steps done"><div class="ct-steps-bar is-done"><i style="width:100%"></i></div><span class="ct-steps-text">3/3</span></div>
@@ -150,11 +160,11 @@
                 <span class="u-grow"></span>
                 <span class="ct-mini" aria-label="1 comment"><span aria-hidden="true">💬</span> 1</span>
               </div>
-            </a>
+            </div>
 
             <!-- Card: CSV export — just arrived, untouched -->
-            <a href="essential-card.html" class="ct-card" style="text-decoration:none;color:inherit;--card-color:var(--chart-6)" tabindex="0" aria-label="CS-1051 Can't export data to CSV, assigned to Nexus, not started">
-              <div class="ct-card-top"><span class="ct-card-id">CS-1051</span><span class="ct-card-age">· 3d</span></div>
+            <div role="button" tabindex="0" data-card-link="essential-card.html" class="ct-card" data-column="Triage" data-card="CS-1051" style="--card-color:var(--chart-6)" aria-label="CS-1051 Can't export data to CSV, assigned to Nexus, not started">
+              <div class="ct-card-top"><span class="ct-card-id">CS-1051</span><span class="ct-card-age">· 3d</span><span class="u-grow"></span><span class="ct-card-menu-wrap" data-card-menu><button type="button" class="ct-card-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Card actions for CS-1051"><span aria-hidden="true">⋯</span></button></span></div>
               <div class="ct-card-labels"><span class="ct-label">Bug</span></div>
               <p class="ct-card-title">Can't export data to CSV</p>
               <div class="ct-steps" aria-label="0 of 3 steps done"><div class="ct-steps-bar"><i style="width:0%"></i></div><span class="ct-steps-text">0/3</span></div>
@@ -164,7 +174,7 @@
                 <span class="u-grow"></span>
                 <span class="ct-mini" aria-label="0 comments"><span aria-hidden="true">💬</span> 0</span>
               </div>
-            </a>
+            </div>
 
             <button class="ct-add" type="button" aria-label="Add a card to Triage"><span aria-hidden="true">＋</span> Add a card</button>
           </section>
@@ -174,8 +184,8 @@
             <div class="ct-col-head"><h2 class="ct-col-label">In progress</h2><span class="ct-col-count" aria-label="2 cards">2</span></div>
 
             <!-- Card: Seat count — reply drafted -->
-            <a href="essential-card.html" class="ct-card" style="text-decoration:none;color:inherit;--card-color:var(--chart-2)" tabindex="0" aria-label="CS-1039 Team plan seat count wrong, Echo, reply drafted, 1 of 3 steps, 2 comments, 1 file">
-              <div class="ct-card-top"><span class="ct-card-id">CS-1039</span><span class="ct-card-age">· 4d</span></div>
+            <div role="button" tabindex="0" data-card-link="essential-card.html" class="ct-card" data-column="In progress" data-card="CS-1039" style="--card-color:var(--chart-2)" aria-label="CS-1039 Team plan seat count wrong, Echo, reply drafted, 1 of 3 steps, 2 comments, 1 file">
+              <div class="ct-card-top"><span class="ct-card-id">CS-1039</span><span class="ct-card-age">· 4d</span><span class="u-grow"></span><span class="ct-card-menu-wrap" data-card-menu><button type="button" class="ct-card-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Card actions for CS-1039"><span aria-hidden="true">⋯</span></button></span></div>
               <div class="ct-card-labels"><span class="ct-label">Billing</span></div>
               <p class="ct-card-title">Team plan seat count wrong</p>
               <div class="ct-steps" aria-label="1 of 3 steps done"><div class="ct-steps-bar"><i style="width:33%"></i></div><span class="ct-steps-text">1/3</span></div>
@@ -186,11 +196,11 @@
                 <span class="ct-mini" aria-label="2 comments"><span aria-hidden="true">💬</span> 2</span>
                 <span class="ct-mini" aria-label="1 file"><span aria-hidden="true">📎</span> 1</span>
               </div>
-            </a>
+            </div>
 
             <!-- Card: Webhook — AI working, due Mon -->
-            <a href="essential-card.html" class="ct-card" style="text-decoration:none;color:inherit;--card-color:var(--chart-4)" tabindex="0" aria-label="CS-1047 Webhook not firing on new signup, Atlas working, 2 of 5 steps, due Monday, 4 comments">
-              <div class="ct-card-top"><span class="ct-card-id">CS-1047</span><span class="ct-card-age">· 2d</span><span class="u-grow"></span><span class="badge" style="height:20px"><span class="dot" aria-hidden="true"></span> Due Mon</span></div>
+            <div role="button" tabindex="0" data-card-link="essential-card.html" class="ct-card" data-column="In progress" data-card="CS-1047" style="--card-color:var(--chart-4)" aria-label="CS-1047 Webhook not firing on new signup, Atlas working, 2 of 5 steps, due Monday, 4 comments">
+              <div class="ct-card-top"><span class="ct-card-id">CS-1047</span><span class="ct-card-age">· 2d</span><span class="u-grow"></span><span class="badge" style="height:20px"><span class="dot" aria-hidden="true"></span> Due Mon</span><span class="ct-card-menu-wrap" data-card-menu><button type="button" class="ct-card-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Card actions for CS-1047"><span aria-hidden="true">⋯</span></button></span></div>
               <div class="ct-card-labels"><span class="ct-label">Integration</span></div>
               <p class="ct-card-title">Webhook not firing on new signup</p>
               <div class="ct-steps" aria-label="2 of 5 steps done"><div class="ct-steps-bar"><i style="width:40%"></i></div><span class="ct-steps-text">2/5</span></div>
@@ -200,7 +210,7 @@
                 <span class="u-grow"></span>
                 <span class="ct-mini" aria-label="4 comments"><span aria-hidden="true">💬</span> 4</span>
               </div>
-            </a>
+            </div>
 
             <button class="ct-add" type="button" aria-label="Add a card to In progress"><span aria-hidden="true">＋</span> Add a card</button>
           </section>
@@ -210,8 +220,8 @@
             <div class="ct-col-head"><h2 class="ct-col-label">On hold</h2><span class="ct-col-count" aria-label="1 card">1</span></div>
 
             <!-- Card: Dark mode — waiting on customer -->
-            <a href="essential-card.html" class="ct-card" style="text-decoration:none;color:inherit;--card-color:var(--chart-6)" tabindex="0" aria-label="CS-1031 Feature request dark mode, Cipher, waiting on customer, 6 comments">
-              <div class="ct-card-top"><span class="ct-card-id">CS-1031</span><span class="ct-card-age">· 6d</span></div>
+            <div role="button" tabindex="0" data-card-link="essential-card.html" class="ct-card" data-column="On hold" data-card="CS-1031" style="--card-color:var(--chart-6)" aria-label="CS-1031 Feature request dark mode, Cipher, waiting on customer, 6 comments">
+              <div class="ct-card-top"><span class="ct-card-id">CS-1031</span><span class="ct-card-age">· 6d</span><span class="u-grow"></span><span class="ct-card-menu-wrap" data-card-menu><button type="button" class="ct-card-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Card actions for CS-1031"><span aria-hidden="true">⋯</span></button></span></div>
               <div class="ct-card-labels"><span class="ct-label">Feature request</span></div>
               <p class="ct-card-title">Feature request: dark mode</p>
               <div class="ct-card-foot">
@@ -220,7 +230,7 @@
                 <span class="u-grow"></span>
                 <span class="ct-mini" aria-label="6 comments"><span aria-hidden="true">💬</span> 6</span>
               </div>
-            </a>
+            </div>
 
             <button class="ct-add" type="button" aria-label="Add a card to On hold"><span aria-hidden="true">＋</span> Add a card</button>
           </section>
@@ -230,8 +240,8 @@
             <div class="ct-col-head"><h2 class="ct-col-label">Done</h2><span class="ct-col-count" aria-label="2 cards">2</span></div>
 
             <!-- Card: Password reset — resolved -->
-            <a href="essential-card.html" class="ct-card" style="text-decoration:none;color:inherit;--card-color:var(--chart-3)" tabindex="0" aria-label="CS-1028 Password reset email not arriving, Iris, resolved, all steps done, 3 comments">
-              <div class="ct-card-top"><span class="ct-card-id">CS-1028</span><span class="ct-card-age">· 1d</span></div>
+            <div role="button" tabindex="0" data-card-link="essential-card.html" class="ct-card" data-column="Done" data-card="CS-1028" style="--card-color:var(--chart-3)" aria-label="CS-1028 Password reset email not arriving, Iris, resolved, all steps done, 3 comments">
+              <div class="ct-card-top"><span class="ct-card-id">CS-1028</span><span class="ct-card-age">· 1d</span><span class="u-grow"></span><span class="ct-card-menu-wrap" data-card-menu><button type="button" class="ct-card-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Card actions for CS-1028"><span aria-hidden="true">⋯</span></button></span></div>
               <div class="ct-card-labels"><span class="ct-label">Bug</span></div>
               <p class="ct-card-title">Password reset email not arriving</p>
               <div class="ct-steps" aria-label="4 of 4 steps done"><div class="ct-steps-bar is-done"><i style="width:100%"></i></div><span class="ct-steps-text">4/4</span></div>
@@ -241,11 +251,11 @@
                 <span class="u-grow"></span>
                 <span class="ct-mini" aria-label="3 comments"><span aria-hidden="true">💬</span> 3</span>
               </div>
-            </a>
+            </div>
 
             <!-- Card: Import wizard — resolved -->
-            <a href="essential-card.html" class="ct-card" style="text-decoration:none;color:inherit;--card-color:var(--chart-1)" tabindex="0" aria-label="CS-1019 Import wizard crashes on large files, Nexus, resolved, all steps done, 5 comments, 3 files">
-              <div class="ct-card-top"><span class="ct-card-id">CS-1019</span><span class="ct-card-age">· 3d</span></div>
+            <div role="button" tabindex="0" data-card-link="essential-card.html" class="ct-card" data-column="Done" data-card="CS-1019" style="--card-color:var(--chart-1)" aria-label="CS-1019 Import wizard crashes on large files, Nexus, resolved, all steps done, 5 comments, 3 files">
+              <div class="ct-card-top"><span class="ct-card-id">CS-1019</span><span class="ct-card-age">· 3d</span><span class="u-grow"></span><span class="ct-card-menu-wrap" data-card-menu><button type="button" class="ct-card-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Card actions for CS-1019"><span aria-hidden="true">⋯</span></button></span></div>
               <div class="ct-card-labels"><span class="ct-label">Bug</span></div>
               <p class="ct-card-title">Import wizard crashes on large files</p>
               <div class="ct-steps" aria-label="5 of 5 steps done"><div class="ct-steps-bar is-done"><i style="width:100%"></i></div><span class="ct-steps-text">5/5</span></div>
@@ -256,7 +266,7 @@
                 <span class="ct-mini" aria-label="5 comments"><span aria-hidden="true">💬</span> 5</span>
                 <span class="ct-mini" aria-label="3 files"><span aria-hidden="true">📎</span> 3</span>
               </div>
-            </a>
+            </div>
 
             <button class="ct-add" type="button" aria-label="Add a card to Done"><span aria-hidden="true">＋</span> Add a card</button>
           </section>
@@ -274,6 +284,125 @@
       btn.addEventListener('click', function (e) { e.stopPropagation(); var open = menu.style.display === 'block'; menu.style.display = open ? 'none' : 'block'; btn.setAttribute('aria-expanded', String(!open)); });
       document.addEventListener('click', function () { menu.style.display = 'none'; btn.setAttribute('aria-expanded', 'false'); });
       document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { menu.style.display = 'none'; btn.setAttribute('aria-expanded', 'false'); } });
+    })();
+
+    /* ── Cards: keyboard-activatable + single-pointer 'Move to column…' (no drag required) ── */
+    (function () {
+      var board = document.querySelector('.ct-board');
+      if (!board) return;
+      var status = document.getElementById('ctMoveStatus');
+      var openMenu = null, openBtn = null;
+
+      // The ordered set of columns, derived from the live DOM.
+      function columns() {
+        return Array.prototype.map.call(board.querySelectorAll('.ct-col'), function (col) {
+          var head = col.querySelector('.ct-col-label');
+          return { el: col, name: head ? head.textContent.trim() : '', count: col.querySelector('.ct-col-count') };
+        });
+      }
+
+      function announce(msg) { if (status) { status.textContent = ''; status.textContent = msg; } }
+
+      function refreshCounts() {
+        columns().forEach(function (c) {
+          var n = c.el.querySelectorAll('.ct-card').length;
+          if (c.count) { c.count.textContent = String(n); c.count.setAttribute('aria-label', n === 1 ? '1 card' : n + ' cards'); }
+        });
+      }
+
+      function closeMenu(focusBtn) {
+        if (!openMenu) return;
+        var b = openBtn;
+        openMenu.remove();
+        b.setAttribute('aria-expanded', 'false');
+        openMenu = null; openBtn = null;
+        if (focusBtn && b) b.focus();
+      }
+
+      function moveCard(card, targetCol) {
+        var addBtn = targetCol.el.querySelector('.ct-add');
+        if (addBtn) targetCol.el.insertBefore(card, addBtn); else targetCol.el.appendChild(card);
+        card.setAttribute('data-column', targetCol.name);
+        refreshCounts();
+        announce(card.getAttribute('data-card') + ' moved to ' + targetCol.name + '.');
+      }
+
+      function buildMenu(card, btn) {
+        var menu = document.createElement('div');
+        menu.className = 'sb-menu ct-card-menu';
+        menu.setAttribute('role', 'menu');
+        menu.setAttribute('aria-label', 'Card actions for ' + card.getAttribute('data-card'));
+
+        var open = document.createElement('a');
+        open.className = 'sb-menu-item';
+        open.setAttribute('role', 'menuitem');
+        open.href = card.getAttribute('data-card-link') || '#';
+        open.innerHTML = '<span aria-hidden="true">↳</span> Open card';
+        menu.appendChild(open);
+
+        var sep = document.createElement('div'); sep.className = 'sb-menu-sep'; menu.appendChild(sep);
+        var label = document.createElement('div'); label.className = 'sb-menu-label'; label.textContent = 'Move to column…'; menu.appendChild(label);
+
+        var current = card.getAttribute('data-column');
+        columns().forEach(function (col) {
+          var item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'sb-menu-item';
+          item.setAttribute('role', 'menuitem');
+          var isCurrent = col.name === current;
+          item.disabled = isCurrent;
+          if (isCurrent) { item.style.opacity = '0.55'; item.style.cursor = 'default'; }
+          item.innerHTML = '<span aria-hidden="true">' + (isCurrent ? '•' : '→') + '</span> ' + col.name + (isCurrent ? ' <span class="sb-shortcut">current</span>' : '');
+          if (!isCurrent) item.addEventListener('click', function (e) { e.stopPropagation(); moveCard(card, col); closeMenu(false); btn.focus(); });
+          menu.appendChild(item);
+        });
+        return menu;
+      }
+
+      function items() { return openMenu ? Array.prototype.filter.call(openMenu.querySelectorAll('.sb-menu-item'), function (el) { return !el.disabled; }) : []; }
+
+      // Per-card menu button.
+      board.addEventListener('click', function (e) {
+        var btn = e.target.closest('.ct-card-menu-btn');
+        if (!btn) return;
+        e.stopPropagation();
+        var card = btn.closest('.ct-card');
+        if (openBtn === btn) { closeMenu(true); return; }
+        if (openMenu) closeMenu(false);
+        var menu = buildMenu(card, btn);
+        btn.closest('.ct-card-menu-wrap').appendChild(menu);
+        btn.setAttribute('aria-expanded', 'true');
+        openMenu = menu; openBtn = btn;
+        var first = items()[0]; if (first) first.focus();
+      });
+
+      // Roving focus + Escape inside an open menu.
+      board.addEventListener('keydown', function (e) {
+        if (!openMenu || !openMenu.contains(e.target)) return;
+        var list = items(), i = list.indexOf(e.target);
+        if (e.key === 'ArrowDown') { e.preventDefault(); (list[(i + 1) % list.length] || list[0]).focus(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); (list[(i - 1 + list.length) % list.length] || list[0]).focus(); }
+        else if (e.key === 'Home') { e.preventDefault(); list[0] && list[0].focus(); }
+        else if (e.key === 'End') { e.preventDefault(); list[list.length - 1] && list[list.length - 1].focus(); }
+        else if (e.key === 'Escape') { e.preventDefault(); closeMenu(true); }
+      });
+
+      // Card activation (the card is role="button"): navigate unless the menu was the target.
+      function activateCard(card) { var href = card.getAttribute('data-card-link'); if (href) window.location.href = href; }
+      board.addEventListener('click', function (e) {
+        if (e.target.closest('.ct-card-menu-wrap') || e.target.closest('.ct-add')) return;
+        var card = e.target.closest('.ct-card');
+        if (card) activateCard(card);
+      });
+      board.addEventListener('keydown', function (e) {
+        var card = e.target.closest('.ct-card');
+        if (!card || e.target !== card) return;            // only when the card itself is focused
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activateCard(card); }
+      });
+
+      // Click-outside / Escape (global) closes the open card menu.
+      document.addEventListener('click', function (e) { if (openMenu && !openMenu.contains(e.target) && e.target !== openBtn) closeMenu(false); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && openMenu) closeMenu(true); });
     })();
   </script>
 </body>

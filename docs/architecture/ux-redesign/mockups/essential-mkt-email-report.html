@@ -55,12 +55,23 @@
     .table th { white-space: nowrap; }
     .ch-name { color: var(--fg); font-weight: var(--fw-medium); }
     .ch-sub { font-size: var(--text-xs); color: var(--fg-subtle); }
-    .trend-up { color: var(--fg); font-weight: var(--fw-semibold); }
-    .trend-down { color: var(--fg-muted); }
+    /* Trend = direction + signed size + a plain better/worse word, never colour-only.
+       .trend-better is the neutral-strong treatment; .trend-worse is muted — the WORD carries meaning. */
+    .trend { display: inline-flex; align-items: baseline; gap: 4px; font-variant-numeric: tabular-nums; }
+    .trend-better { color: var(--fg); font-weight: var(--fw-semibold); }
+    .trend-worse { color: var(--fg-muted); font-weight: var(--fw-semibold); }
+    .trend-flat { color: var(--fg-muted); }
+    .trend-mag { font-size: var(--text-xs); color: var(--fg-muted); font-weight: var(--fw-regular); }
+    .trend-word { font-size: var(--text-xs); color: var(--fg-subtle); }
     .row-total td { border-top: 2px solid var(--border-strong); font-weight: var(--fw-semibold); }
 
     /* ── Date filter ──────────────────────────────────────────────────── */
     .filter-row { display: flex; align-items: center; gap: var(--space-3); }
+    .filter-status { font-size: var(--text-xs); color: var(--fg-muted); display: inline-flex; align-items: center; gap: 5px; min-height: 18px; }
+    .filter-status[hidden] { display: none; }
+    .filter-status .spin { display: inline-block; animation: filt-spin .8s linear infinite; }
+    @keyframes filt-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .filter-status .spin { animation: none; } }
 
     @media (max-width: 720px) {
       .topnav { display: none; }
@@ -87,7 +98,7 @@
       <a href="essential-find.html">Find…</a>
     </nav>
     <span class="u-grow"></span>
-    <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
     <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
     <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
   </header>
@@ -108,14 +119,17 @@
         <p class="pg-sub">Every send's results — opens, clicks, conversions — and Atlas's read on what's working.</p>
       </div>
       <div class="filter-row">
-        <div style="position:relative;display:inline-flex;align-items:center;">
-          <select class="select" aria-label="Date range" style="padding-right:var(--space-6);appearance:none;cursor:pointer;font-size:var(--text-sm);">
-            <option selected>This month</option>
-            <option>Last month</option>
-            <option>Last 90 days</option>
-            <option>This quarter</option>
-          </select>
-          <span aria-hidden="true" style="position:absolute;right:var(--space-3);pointer-events:none;color:var(--fg-muted);font-size:var(--text-xs);">▾</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;">
+          <div style="position:relative;display:inline-flex;align-items:center;">
+            <select id="date-range" class="select" aria-label="Date range" style="padding-right:var(--space-6);appearance:none;cursor:pointer;font-size:var(--text-sm);">
+              <option value="this-month" selected>This month</option>
+              <option value="last-month">Last month</option>
+              <option value="last-90">Last 90 days</option>
+              <option value="this-quarter">This quarter</option>
+            </select>
+            <span aria-hidden="true" style="position:absolute;right:var(--space-3);pointer-events:none;color:var(--fg-muted);font-size:var(--text-xs);">▾</span>
+          </div>
+          <p id="filter-status" class="filter-status" role="status" aria-live="polite" hidden></p>
         </div>
       </div>
     </div>
@@ -173,8 +187,8 @@
             <th class="num">Open %</th>
             <th class="num">Click %</th>
             <th class="num">Conv.</th>
-            <th class="num">Unsub.</th>
-            <th style="text-align:center;">Trend</th>
+            <th class="num" title="Lower is better — a rising unsubscribe rate is a worse result">Unsub. %</th>
+            <th style="text-align:center;">Trend vs last period</th>
           </tr>
         </thead>
         <tbody>
@@ -184,8 +198,8 @@
             <td class="num">44%</td>
             <td class="num">7.9%</td>
             <td class="num">41</td>
-            <td class="num">0.3%</td>
-            <td style="text-align:center;"><span class="trend-up" aria-label="trending up">↑</span></td>
+            <td class="num">0.3% <span class="trend-mag" aria-label="unsubscribe rate down 0.1 points — better">↓ −0.1</span></td>
+            <td style="text-align:center;"><span class="trend trend-better" aria-label="Up 0.5 times vs last period — better"><span aria-hidden="true">↑</span> <span class="trend-mag">+0.5×</span> <span class="trend-word">better</span></span></td>
           </tr>
           <tr>
             <td><span class="ch-name">Product update</span> <span class="ch-sub">· Jun 10</span></td>
@@ -193,8 +207,8 @@
             <td class="num">38%</td>
             <td class="num">5.2%</td>
             <td class="num">22</td>
-            <td class="num">0.4%</td>
-            <td style="text-align:center;"><span class="trend-down" aria-label="trending down">↓</span></td>
+            <td class="num">0.4% <span class="trend-mag" aria-label="unsubscribe rate flat vs last period">→ 0.0</span></td>
+            <td style="text-align:center;"><span class="trend trend-worse" aria-label="Down 0.3 times vs last period — worse"><span aria-hidden="true">↓</span> <span class="trend-mag">−0.3×</span> <span class="trend-word">worse</span></span></td>
           </tr>
           <tr>
             <td><span class="ch-name">Webinar invite</span> <span class="ch-sub">· Jun 17</span></td>
@@ -202,8 +216,8 @@
             <td class="num">47%</td>
             <td class="num">9.1%</td>
             <td class="num">19</td>
-            <td class="num">0.2%</td>
-            <td style="text-align:center;"><span class="trend-up" aria-label="trending up">↑</span></td>
+            <td class="num">0.2% <span class="trend-mag" aria-label="unsubscribe rate down 0.1 points — better">↓ −0.1</span></td>
+            <td style="text-align:center;"><span class="trend trend-better" aria-label="Up 0.7 times vs last period — better"><span aria-hidden="true">↑</span> <span class="trend-mag">+0.7×</span> <span class="trend-word">better</span></span></td>
           </tr>
           <tr>
             <td><span class="ch-name">Re-engagement</span> <span class="ch-sub">· Jun 24</span></td>
@@ -211,8 +225,8 @@
             <td class="num">29%</td>
             <td class="num">4.4%</td>
             <td class="num">14</td>
-            <td class="num">0.9%</td>
-            <td style="text-align:center;"><span class="trend-up" aria-label="trending up">↑</span></td>
+            <td class="num">0.9% <span class="trend-worse" aria-label="unsubscribe rate up 0.5 points — worse (lower is better)">↑ +0.5</span></td>
+            <td style="text-align:center;"><span class="trend trend-better" aria-label="Conversions up 2 times vs last period — better; unsubscribe rate worse, see the Unsub. column"><span aria-hidden="true">↑</span> <span class="trend-mag">+2.0×</span> <span class="trend-word">conv.</span></span></td>
           </tr>
           <tr class="row-total">
             <td>All sends</td>
@@ -220,8 +234,8 @@
             <td class="num">41%</td>
             <td class="num">6.8%</td>
             <td class="num">96</td>
-            <td class="num">0.4%</td>
-            <td style="text-align:center;"><span class="trend-up" aria-label="trending up">↑</span></td>
+            <td class="num">0.4% <span class="trend-mag" aria-label="unsubscribe rate flat vs last period">→ 0.0</span></td>
+            <td style="text-align:center;"><span class="trend trend-better" aria-label="Up 0.4 times vs last period — better"><span aria-hidden="true">↑</span> <span class="trend-mag">+0.4×</span> <span class="trend-word">better</span></span></td>
           </tr>
         </tbody>
       </table>
@@ -243,5 +257,46 @@
 
   </div><!-- /.bc-wrap -->
 </div><!-- /.bc -->
+
+<script>
+  /* Item #14 — the date-range control is a real affordance, not a fake one.
+     Changing it announces an aria-busy "Updating…" state, marks the chosen
+     option with aria-current, then settles to a label that reflects the
+     active range. (Static mockup: numbers don't actually refetch.) */
+  (function () {
+    var sel = document.getElementById('date-range');
+    var status = document.getElementById('filter-status');
+    if (!sel || !status) return;
+
+    function markCurrent() {
+      var opts = sel.options;
+      for (var i = 0; i < opts.length; i++) {
+        if (opts[i].selected) opts[i].setAttribute('aria-current', 'true');
+        else opts[i].removeAttribute('aria-current');
+      }
+    }
+    markCurrent();
+
+    var settleTimer = null;
+    sel.addEventListener('change', function () {
+      var label = sel.options[sel.selectedIndex].text;
+      markCurrent();
+
+      // Pending: announce work in progress.
+      clearTimeout(settleTimer);
+      status.hidden = false;
+      sel.setAttribute('aria-busy', 'true');
+      status.innerHTML = '<span class="spin" aria-hidden="true">↻</span> Updating — ' +
+        label.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '…';
+
+      // Settle: confirm the active range.
+      settleTimer = setTimeout(function () {
+        sel.removeAttribute('aria-busy');
+        status.innerHTML = '<span aria-hidden="true">✓</span> Showing ' +
+          label.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      }, 600);
+    });
+  })();
+</script>
 </body>
 </html>

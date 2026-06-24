@@ -129,6 +129,16 @@
     .composer-input::placeholder { color: var(--fg-subtle); }
     .composer-sep { width: 1px; height: 22px; background: var(--border); flex: none; }
 
+    /* per-message send status (optimistic pending → sent / queued / failed)
+       LABEL + GLYPH only — never a traffic-light hue. Glyph stays neutral. */
+    .msg-status { display: inline-flex; align-items: center; gap: 5px; margin-top: var(--space-1); font-size: var(--text-xs); color: var(--fg-subtle); }
+    .msg-status .ms-glyph { line-height: 1; flex: none; }
+    .msg-status[data-state="sending"] .ms-glyph { animation: ms-spin 1s linear infinite; }
+    @keyframes ms-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .msg-status[data-state="sending"] .ms-glyph { animation: none; } }
+    .msg-status .ms-retry { border: 0; background: none; padding: 0; margin-left: 2px; font: inherit; font-size: var(--text-xs); color: var(--accent); text-decoration: underline; cursor: pointer; }
+    .msg-status .ms-retry:hover { color: var(--accent); }
+
     /* skeleton (left list loading) */
     .sk-conv { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
     .sk-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
@@ -172,7 +182,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative">
         <span aria-hidden="true">🔔</span>
         <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span>
@@ -510,7 +520,11 @@
         });
       }
 
-      // ── Composer: send → append your message ───────────────────────────
+      // ── Composer: send → optimistic append (pending → sent/queued) ──────
+      // Item #12 + #13: the bubble appears immediately (<400ms feedback) in a
+      // "Sending…" pending state, then resolves to "Sent" — or "Queued"
+      // offline, or "Not sent" with a Retry path on failure. Status is
+      // LABEL + GLYPH only, announced via aria-live, never a traffic-light hue.
       var input   = document.getElementById('roomMsg');
       var sendBtn = document.getElementById('sendBtn');
       var log     = document.querySelector('.msg-log');
@@ -518,6 +532,46 @@
       function escHtml(s) {
         return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
       }
+
+      // status presentation per state — glyph + plain-language label, no hue
+      var MS = {
+        sending: { glyph: '◌', label: 'Sending…' },
+        sent:    { glyph: '✓', label: 'Sent' },
+        queued:  { glyph: '◷', label: 'Queued — will send when you reconnect' },
+        failed:  { glyph: '⚠', label: 'Not sent' }
+      };
+
+      // render/refresh the status line inside a message bubble
+      function setStatus(statusEl, state, retryFn) {
+        var s = MS[state] || MS.sending;
+        statusEl.dataset.state = state;
+        statusEl.setAttribute('aria-label', s.label);
+        statusEl.innerHTML =
+          '<span class="ms-glyph" aria-hidden="true">' + s.glyph + '</span>' +
+          '<span>' + s.label + '</span>';
+        if (state === 'failed' && retryFn) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'ms-retry';
+          btn.textContent = 'Retry';
+          btn.addEventListener('click', retryFn);
+          statusEl.appendChild(btn);
+        }
+      }
+
+      // simulate the network: queue if offline, otherwise succeed (demo never
+      // fails on its own — failure is reachable by going offline then back).
+      function deliver(statusEl, retryFn) {
+        setStatus(statusEl, 'sending');
+        if (!navigator.onLine) {           // offline → queue, don't fail
+          setStatus(statusEl, 'queued');
+          return;
+        }
+        setTimeout(function () {
+          setStatus(statusEl, 'sent');
+        }, 450);                            // brief working state, then "Sent"
+      }
+
       function sendMessage() {
         var text = input.value.trim();
         if (!text) return;
@@ -531,10 +585,16 @@
           '<div class="msg-body">' +
             '<div class="msg-head"><span class="msg-author">You</span><span class="msg-time">' + hhmm + '</span></div>' +
             '<p class="msg-text">' + escHtml(text) + '</p>' +
+            '<div class="msg-status" data-state="sending" role="status" aria-live="polite"></div>' +
           '</div>';
         log.appendChild(row);
         input.value = '';
         row.scrollIntoView({ behavior: 'smooth', block: 'end' });
+
+        // optimistic delivery — pending now, resolves shortly after
+        var statusEl = row.querySelector('.msg-status');
+        function retry() { deliver(statusEl, retry); }
+        deliver(statusEl, retry);
       }
       if (sendBtn) sendBtn.addEventListener('click', sendMessage);
       if (input) input.addEventListener('keydown', function (e) {
@@ -554,11 +614,18 @@
       }
 
       // ── Offline detection ──────────────────────────────────────────────
+      // Composer stays usable offline: messages send into a "Queued" state
+      // (see deliver) and flush to "Sent" on reconnect.
       var offlineBanner = document.getElementById('offlineBanner');
       function setOffline(off) {
         if (offlineBanner) offlineBanner.style.display = off ? 'flex' : 'none';
-        if (input)   input.disabled   = off;
-        if (sendBtn) sendBtn.disabled = off;
+        if (!off) {
+          // reconnected → flush any queued bubbles to Sent
+          document.querySelectorAll('.msg-status[data-state="queued"]').forEach(function (el) {
+            setStatus(el, 'sending');
+            setTimeout(function () { setStatus(el, 'sent'); }, 450);
+          });
+        }
       }
       window.addEventListener('offline', function () { setOffline(true); });
       window.addEventListener('online',  function () { setOffline(false); });

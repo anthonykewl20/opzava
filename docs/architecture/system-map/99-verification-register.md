@@ -87,7 +87,7 @@ further corroboration source is pending.
 | Q2 | Should the live provider path be approval/receipt-gated? | Mechanics confirmed as finding **F1**; the *decision* is yours. | ✅ verified → F1 |
 | Q3 | Do the governance gates run in CI? | Confirmed NOT on merge → **F8**. | ✅ verified → F8 |
 | Q4 | Is there a production `SecretResolver`? | Confirmed none; cleartext from `settings` → **F4**. | ✅ verified → F4 |
-| Q5 | Inherited migration ids `030`/`031` absent; `035` drops/recreates `api_keys`? | Confirmed: ids 001–050, only 030/031 absent; `035_api_keys_v2` drops/recreates (`migrations.ts:1048-1082`). | ✅ verified |
+| Q5 | Inherited migration ids `030`/`031` absent; `035` drops/recreates `api_keys`? | Confirmed: ids 001–053, only 030/031 absent; `035_api_keys_v2` drops/recreates (`migrations.ts:1048-1082`), and `053_realtime_events` adds durable SSE replay. | ✅ verified |
 
 ---
 
@@ -99,7 +99,7 @@ further corroboration source is pending.
 | DB connection/pragmas | ✅ | `db.ts:28-52` |
 | Webhook bootstrap | ✅ | corrected (C1) |
 | Inherited schema.sql base tables | ✅ | 2nd pass — 8 base tables + enums confirmed (`schema.sql`) |
-| Inherited numbered migrations | ✅ | 2nd pass — 48 migrations, ids 001–050, 030/031 gaps, 035 drop/recreate (`migrations.ts`) |
+| Inherited numbered migrations | ✅ | 2nd pass plus 2026-06-23 realtime update — 51 migrations, ids 001–053, 030/031 gaps, 035 drop/recreate, 053 realtime replay (`migrations.ts`) |
 | opzava module-table columns (00) | ✅ | 2nd pass — all 6 column sets confirmed against the repos |
 | Inherited API layer (60) | ✅ | 2nd pass — 165 routes, auth floors (91 viewer/78 operator/90 admin), v1/openapi; C6/C7 |
 | Frontend (61) | ✅ | 2nd pass — shell/router/store/SSE/WS confirmed; C2–C5 |
@@ -107,4 +107,4 @@ further corroboration source is pending.
 | Inherited agent/task/memory/cron/tokens/skills (50) | ✅ | 2nd pass — scheduler 12 jobs, 6-framework registry re-confirmed; C13 |
 | Admin-config/audit/costs detail (13) | ✅ | 2nd pass — all 🔎 detail held |
 | Content + team/social/va module detail (20/21) | ✅ | 2nd pass — pipeline/contracts/dead-wiring confirmed |
-| Tooling/build/governance (62) | ✅ | 2nd pass — CLI/MCP/Docker/CI confirmed |
+| Tooling/build/governance (62) | ✅ | 2nd pass — CLI/MCP/Docker/CI confirmed; Docker/Dokploy parity stack updated 2026-06-23; Traefik-routed SSE + PTY WebSocket smoke added |

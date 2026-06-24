@@ -30,9 +30,17 @@
     .bc-wrap { max-width: 880px; margin: 0 auto; padding: var(--space-7) var(--space-6) var(--space-16); }
 
     /* ── Page heading row ── */
-    .page-header-row { display: flex; align-items: baseline; gap: var(--space-4); margin: var(--space-5) 0 var(--space-6); flex-wrap: wrap; }
+    .page-header-row { display: flex; align-items: baseline; gap: var(--space-4); margin: var(--space-5) 0 var(--space-2); flex-wrap: wrap; }
     .page-header-row h1 { font-size: var(--text-2xl); letter-spacing: -.02em; margin: 0; }
     .mark-all { font-size: var(--text-sm); color: var(--fg-muted); cursor: pointer; }
+    /* Sub-header stating this surface's job (Notifications, not Activity) */
+    .page-sub { font-size: var(--text-sm); color: var(--fg-muted); margin: 0 var(--space-1) var(--space-6); line-height: 1.5; }
+    .page-sub a { color: var(--fg-muted); }
+
+    /* ── Async state toggles (loading / error / empty) — happy path is .state-content ── */
+    .state-loading { display: none; }
+    .state-error   { display: none; }
+    .state-empty   { display: none; }
 
     /* ── Group ── */
     .group { margin-bottom: var(--space-7); }
@@ -101,7 +109,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, viewing" aria-current="page" style="position:relative;color:var(--accent)"><span aria-hidden="true">🔔</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -122,8 +130,45 @@
           <span class="u-grow"></span>
           <button class="btn btn-ghost mark-all" type="button" id="mark-all-btn">Mark all read</button>
         </div>
+        <!-- #15: state this surface's job and draw the boundary with Activity -->
+        <p class="page-sub" id="page-sub">
+          System, tool, and goal alerts — plus a pointer to anything that needs you.
+          Mentions and hand-offs from people and assistants live in <a href="mention-inbox.html">Activity</a>.
+        </p>
 
         <!-- ════════ GROUP 1 — Needs you (the accent group) ════════ -->
+        <!-- ── Loading state (skeleton) — #12 ──
+             ASYNC STATE: loading. Toggle .state-loading display:block and hide #state-content when fetching /api/notifications. -->
+        <div class="state-loading card" id="state-loading" aria-busy="true" aria-label="Loading notifications">
+          <div style="padding:var(--space-5);display:flex;flex-direction:column;gap:var(--space-4)">
+            <div class="skeleton sk-line" style="width:68%"></div>
+            <div class="skeleton sk-line" style="width:52%"></div>
+            <div class="skeleton sk-line" style="width:60%"></div>
+            <div class="skeleton sk-line" style="width:45%"></div>
+          </div>
+        </div>
+
+        <!-- ── Error state — #12 ──
+             ASYNC STATE: error. Show this block + retry if /api/notifications fails. -->
+        <div class="state-error sb-alert sb-alert--destructive" id="state-error" role="alert">
+          <span class="ico" aria-hidden="true">✕</span>
+          <div>
+            <strong class="sb-alert-title">Could not load notifications.</strong>
+            <span class="sb-alert-desc">Check your connection and <button class="mark-all" type="button" id="retry-btn" style="color:var(--accent)">retry</button>.</span>
+          </div>
+        </div>
+
+        <!-- ── Empty / all-caught-up state — #12 ──
+             ASYNC STATE: empty. Shown when nothing is unread or pending. -->
+        <div class="state-empty card" id="state-empty" aria-live="polite">
+          <div style="padding:var(--space-10) var(--space-6);display:flex;flex-direction:column;align-items:center;gap:var(--space-3);text-align:center">
+            <span style="font-size:28px" aria-hidden="true">✅</span>
+            <p class="u-subtle" style="margin:0">You're all caught up — no notifications need you right now.<br>Your assistants will let you know when something new comes in.</p>
+          </div>
+        </div>
+
+        <!-- ── Happy-path content ── -->
+        <div class="state-content" id="state-content">
         <section class="group" aria-labelledby="grp-needs">
           <div class="group-cap">
             <span class="u-caps" id="grp-needs">Needs you</span>
@@ -260,38 +305,13 @@
           </div><!-- /.feed -->
         </section>
 
-        <!-- ════════ GROUP 3 — Mentions ════════ -->
-        <section class="group" aria-labelledby="grp-mentions">
-          <div class="group-cap">
-            <span class="u-caps" id="grp-mentions">Mentions</span>
-            <span class="count">1</span>
-          </div>
+        <!-- #15: Mentions + hand-offs live in Activity, not here. A single pointer replaces
+             the duplicated mention rows so the two surfaces don't overlap. -->
+        <p class="group-more" style="padding-top:0">
+          <a href="mention-inbox.html">Mentions and hand-offs that need you → Activity</a>
+        </p>
 
-          <div class="card feed" aria-label="Mentions of you">
-
-            <!-- Human @mention -->
-            <div class="note-row" aria-label="Maria mentioned you on the social carousel">
-              <div class="note-unread" aria-hidden="true"><span class="dot dot-accent"></span></div>
-              <div class="note-glyph" aria-hidden="true" title="Mention">@</div>
-              <div class="note-body">
-                <span class="note-text"><strong>@you</strong> on the social carousel — "can you take a look?"</span>
-                <div class="note-sub">
-                  <span>Maria</span>
-                </div>
-              </div>
-              <div class="note-meta">
-                <span class="note-time">1d</span>
-                <a class="note-act" href="mention-inbox.html">Open</a>
-              </div>
-            </div>
-
-          </div><!-- /.feed -->
-
-          <!-- Pointer to the full mentions inbox -->
-          <p class="group-more">
-            <a href="mention-inbox.html">See all @mentions → Activity</a>
-          </p>
-        </section>
+        </div><!-- /#state-content -->
 
         <!-- ── Footer note ── -->
         <p class="foot-note">Manage alert rules in <span class="u-subtle">Settings (admin)</span>.</p>
@@ -301,27 +321,105 @@
 
   </div><!-- /.bc -->
 
-  <script>
-    /* ── Mark all read: clear accent dots + dim rows; no colour swap, just opacity ── */
-    (function () {
-      var btn = document.getElementById('mark-all-btn');
-      if (!btn) return;
-      btn.addEventListener('click', function () {
-        document.querySelectorAll('.note-row .dot.dot-accent').forEach(function (d) { d.style.opacity = '0'; });
-        document.querySelectorAll('.note-row:not(.is-read)').forEach(function (r) { r.classList.add('is-read'); });
-      });
+  <!-- ── Undo toast stack (#3) — aria-live region announces the reversible bulk action ── -->
+  <div class="toast-stack" id="toast-stack" role="status" aria-live="polite" aria-atomic="false"></div>
 
-      /* Clicking a row action marks just that row read */
+  <script>
+    /* ── Notifications: reversible "Mark all read" (#3) + async-state demo wiring (#12) ── */
+    (function () {
+      var markBtn  = document.getElementById('mark-all-btn');
+      var stack    = document.getElementById('toast-stack');
+      var undoTimer = null;
+
+      /* Mark a single row read (no colour swap — just dim + drop the unread dot) */
+      function markRow(row) {
+        if (!row || row.classList.contains('is-read')) return false;
+        row.classList.add('is-read');
+        var dot = row.querySelector('.dot.dot-accent');
+        if (dot) dot.style.opacity = '0';
+        return true;
+      }
+      function unmarkRow(row) {
+        row.classList.remove('is-read');
+        var dot = row.querySelector('.dot.dot-accent');
+        if (dot) dot.style.opacity = '';
+      }
+
+      /* Build the "Marked N read · Undo" toast and announce it via the live region */
+      function showUndoToast(rows) {
+        if (!stack) return;
+        if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
+        stack.innerHTML = '';
+        var toast = document.createElement('div');
+        toast.className = 'toast toast-info';
+        var body = document.createElement('div');
+        body.style.flex = '1 1 auto';
+        var title = document.createElement('div');
+        title.className = 'toast-title';
+        title.textContent = 'Marked ' + rows.length + ' read';
+        var msg = document.createElement('div');
+        msg.className = 'toast-msg';
+        msg.textContent = 'These notifications are now marked read.';
+        body.appendChild(title);
+        body.appendChild(msg);
+        var undo = document.createElement('button');
+        undo.type = 'button';
+        undo.className = 'btn btn-sm btn-ghost';
+        undo.textContent = 'Undo';
+        undo.style.alignSelf = 'center';
+        undo.style.color = 'var(--accent)';
+        undo.addEventListener('click', function () {
+          rows.forEach(unmarkRow);
+          if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
+          stack.innerHTML = '';
+          refreshEmptyState();
+        });
+        toast.appendChild(body);
+        toast.appendChild(undo);
+        stack.appendChild(toast);
+        undoTimer = setTimeout(function () { stack.innerHTML = ''; undoTimer = null; }, 8000);
+      }
+
+      /* When nothing is unread, fall back to the calm "all caught up" empty state (#12) */
+      function refreshEmptyState() {
+        var content = document.getElementById('state-content');
+        var empty   = document.getElementById('state-empty');
+        if (!content || !empty) return;
+        var anyUnread = !!document.querySelector('.note-row:not(.is-read)');
+        content.style.display = anyUnread ? '' : 'none';
+        empty.style.display   = anyUnread ? 'none' : 'block';
+      }
+
+      if (markBtn) {
+        markBtn.addEventListener('click', function () {
+          var changed = Array.prototype.filter.call(
+            document.querySelectorAll('.note-row:not(.is-read)'),
+            markRow
+          );
+          if (changed.length) showUndoToast(changed);
+          refreshEmptyState();
+        });
+      }
+
+      /* Clicking a row action marks just that row read (no toast for single rows) */
       document.querySelectorAll('.note-row .note-act').forEach(function (a) {
         a.addEventListener('click', function () {
-          var row = a.closest('.note-row');
-          if (row && !row.classList.contains('is-read')) {
-            row.classList.add('is-read');
-            var dot = row.querySelector('.dot.dot-accent');
-            if (dot) dot.style.opacity = '0';
-          }
+          markRow(a.closest('.note-row'));
+          refreshEmptyState();
         });
       });
+
+      /* #12: retry on the error state re-shows the happy path (static demo) */
+      var retry = document.getElementById('retry-btn');
+      if (retry) {
+        retry.addEventListener('click', function () {
+          var err = document.getElementById('state-error');
+          if (err) err.style.display = 'none';
+          var content = document.getElementById('state-content');
+          if (content) content.style.display = '';
+          refreshEmptyState();
+        });
+      }
     })();
   </script>
 </body>

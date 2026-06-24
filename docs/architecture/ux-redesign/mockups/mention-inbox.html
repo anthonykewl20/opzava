@@ -119,7 +119,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -130,7 +130,7 @@
         <!-- ── Page heading ── -->
         <div class="page-header-row">
           <h1>Activity</h1>
-          <span class="hd-sub">Mentions, hand-offs, and approvals that need you.</span>
+          <span class="hd-sub">People and assistants directed something at you — mentions, hand-offs, and approvals. System and tool alerts live in <a href="essential-notifications.html">Notifications</a>.</span>
           <span class="u-grow"></span>
           <button class="mark-all" type="button" id="mark-all-btn" aria-label="Mark all as read">Mark all read</button>
         </div>
@@ -160,19 +160,21 @@
         <div class="state-content" id="state-content">
 
           <!-- ── Filter tab row ── -->
-          <!-- Using sb-tabs segmented style; "@ You" tab active -->
+          <!-- Using sb-tabs segmented style; "For you" tab active.
+               "For you" = everything directed at you (mentions + AI hand-offs + approvals),
+               so it is renamed from "@ You" — the old label implied @-mentions only. -->
           <div class="sb-tabs filter-bar" role="tablist" aria-label="Activity filters" id="filter-tabs">
             <button type="button" class="sb-tab" role="tab" aria-selected="false" data-filter="all"
                     aria-controls="inbox-panel">All</button>
             <button type="button" class="sb-tab" role="tab" aria-selected="true" data-filter="mentions"
-                    aria-controls="inbox-panel">@ You <span class="sb-badge sb-badge--accent" style="margin-left:4px;height:18px;padding:0 6px">2</span></button>
+                    aria-controls="inbox-panel">For you <span class="sb-badge sb-badge--accent" style="margin-left:4px;height:18px;padding:0 6px">2</span></button>
             <button type="button" class="sb-tab" role="tab" aria-selected="false" data-filter="approvals"
                     aria-controls="inbox-panel">Approvals <span class="sb-badge sb-badge--secondary" style="margin-left:4px;height:18px;padding:0 6px">1</span></button>
             <button type="button" class="sb-tab" role="tab" aria-selected="false" data-filter="following"
                     aria-controls="inbox-panel">Following</button>
           </div>
 
-          <!-- ── Inbox panel — "@ You" view active ── -->
+          <!-- ── Inbox panel — "For you" view active ── -->
           <div id="inbox-panel" role="tabpanel">
 
             <!-- ─── Active / unread section ─── -->
@@ -233,7 +235,7 @@
 
               <!-- ── Row 3: approval request (unread, kind=approvals) ── -->
               <div class="inbox-row" data-kind="approvals" data-id="act-3" aria-label="Approval requested for outreach-seriesb.md">
-                <!-- unread dot — shown in "@ You" filter because it's directed at you -->
+                <!-- unread dot — shown in "For you" filter because it's directed at you -->
                 <div class="inbox-unread" aria-hidden="true">
                   <!-- read: empty space -->
                   <span style="width:8px;display:inline-block"></span>
@@ -340,13 +342,23 @@
 
           </div><!-- /#inbox-panel -->
 
-          <!-- ── Empty state ── -->
-          <!-- ASYNC STATE: empty. Shown when the "@ You" filter returns zero items.
+          <!-- ── Empty state: caught-up (no-results) ── -->
+          <!-- ASYNC STATE: empty. Shown when "All", "For you", or "Approvals" return zero items.
                In JS toggle: hide #inbox-active + #inbox-earlier + divider; show #empty-state. -->
           <div class="card" id="empty-state" style="display:none;" aria-live="polite">
             <div class="empty-secondary">
               <span style="font-size:28px" aria-hidden="true">✅</span>
               <p class="u-subtle" style="margin:0;text-align:center">You're all caught up — nothing here needs your attention right now.<br>Your assistants will let you know when something new comes in.</p>
+            </div>
+          </div>
+
+          <!-- ── Empty state: Following first-use ── -->
+          <!-- First-use copy for "Following" — distinct from the "all caught up" no-results state.
+               Shown only when the Following filter is active and it has no followed items yet. -->
+          <div class="card" id="empty-following" style="display:none;" aria-live="polite">
+            <div class="empty-secondary">
+              <span style="font-size:28px" aria-hidden="true">☆</span>
+              <p class="u-subtle" style="margin:0;text-align:center">You're not following anything yet.<br>Follow a project, thread, or to-do and its updates will show up here — even when you're not mentioned.</p>
             </div>
           </div>
 
@@ -362,6 +374,9 @@
 
   </div><!-- /.bc -->
 
+  <!-- ── Toast stack — undo affordance for reversible bulk actions (e.g. Mark all read) ── -->
+  <div class="toast-stack" id="toast-stack" aria-label="Notifications"></div>
+
   <script>
     /* ── Filter tabs ── */
     (function () {
@@ -375,21 +390,26 @@
         });
 
         if (filter === 'all' || filter === 'mentions') {
-          // show every row; the "@ You" tab shows mentions + AI hand-offs (all directed)
+          // show every row; the "For you" tab shows mentions + AI hand-offs + approvals (all directed)
           rows.forEach(function (r) { r.style.display = ''; });
         } else if (filter === 'approvals') {
           rows.forEach(function (r) {
             r.style.display = r.dataset.kind === 'approvals' ? '' : 'none';
           });
         } else if (filter === 'following') {
-          // following has no items in this snapshot — show empty state
+          // following has no items in this snapshot — show the Following first-use empty state
           rows.forEach(function (r) { r.style.display = 'none'; });
         }
 
-        // toggle empty state visibility
+        // toggle empty-state visibility — Following gets its own first-use copy,
+        // the other filters fall back to the "all caught up" no-results state.
         var anyVisible = Array.from(rows).some(function (r) { return r.style.display !== 'none'; });
-        var emptyEl = document.getElementById('empty-state');
-        if (emptyEl) emptyEl.style.display = anyVisible ? 'none' : '';
+        var caughtUpEl = document.getElementById('empty-state');
+        var followingEl = document.getElementById('empty-following');
+        var showFollowingEmpty = (filter === 'following') && !anyVisible;
+        var showCaughtUp = !anyVisible && !showFollowingEmpty;
+        if (caughtUpEl) caughtUpEl.style.display = showCaughtUp ? '' : 'none';
+        if (followingEl) followingEl.style.display = showFollowingEmpty ? '' : 'none';
       }
 
       tabs.forEach(function (tab) {
@@ -398,20 +418,91 @@
         });
       });
 
-      /* ── Mark all read ── */
+      /* ── Mark all read (reversible — confirm-with-consequence via an undo toast) ── */
       var markAllBtn = document.getElementById('mark-all-btn');
+      var toastStack = document.getElementById('toast-stack');
+      var undoTimer = null;
+
+      function showUndoToast(count, restore) {
+        if (!toastStack) return;
+        // Only one undo toast at a time — committing or dismissing clears the prior one.
+        toastStack.innerHTML = '';
+        if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
+
+        var toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.setAttribute('role', 'status');
+        toast.setAttribute('aria-live', 'polite');
+
+        var body = document.createElement('div');
+        body.className = 'u-col-2 u-grow';
+        body.style.display = 'flex';
+        body.style.alignItems = 'center';
+        body.style.justifyContent = 'space-between';
+        body.style.gap = 'var(--space-3)';
+
+        var title = document.createElement('span');
+        title.className = 'toast-title';
+        title.textContent = 'Marked ' + count + ' read';
+
+        var undoBtn = document.createElement('button');
+        undoBtn.type = 'button';
+        undoBtn.className = 'mark-all';
+        undoBtn.textContent = 'Undo';
+        undoBtn.setAttribute('aria-label', 'Undo — mark ' + count + ' back as unread');
+
+        body.appendChild(title);
+        body.appendChild(undoBtn);
+        toast.appendChild(body);
+        toastStack.appendChild(toast);
+
+        function dismiss() {
+          if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }
+
+        undoBtn.addEventListener('click', function () {
+          restore();
+          dismiss();
+        });
+
+        // Auto-commit (drop the undo affordance) after a short window.
+        undoTimer = setTimeout(dismiss, 8000);
+      }
+
       if (markAllBtn) {
         markAllBtn.addEventListener('click', function () {
-          document.querySelectorAll('.dot.dot-accent').forEach(function (dot) {
-            dot.style.opacity = '0';
+          // Capture prior state so Undo can restore it exactly.
+          var changedRows = Array.prototype.slice.call(
+            document.querySelectorAll('.inbox-row:not(.is-read)')
+          );
+          var changedDots = Array.prototype.slice.call(
+            document.querySelectorAll('.dot.dot-accent')
+          ).filter(function (dot) { return dot.style.opacity !== '0'; });
+          var badges = Array.prototype.slice.call(
+            document.querySelectorAll('#filter-tabs .sb-badge--accent')
+          ).map(function (b) {
+            return { el: b, text: b.textContent, display: b.style.display };
           });
-          document.querySelectorAll('.inbox-row:not(.is-read)').forEach(function (r) {
-            r.classList.add('is-read');
+
+          var count = changedRows.length;
+          if (count === 0) return; // nothing to do — no toast
+
+          // Apply read state.
+          changedRows.forEach(function (r) { r.classList.add('is-read'); });
+          changedDots.forEach(function (dot) { dot.style.opacity = '0'; });
+          badges.forEach(function (b) {
+            b.el.textContent = '0';
+            b.el.style.display = 'none';
           });
-          // update badge counts to zero
-          document.querySelectorAll('#filter-tabs .sb-badge--accent').forEach(function (b) {
-            b.textContent = '0';
-            b.style.display = 'none';
+
+          showUndoToast(count, function restore() {
+            changedRows.forEach(function (r) { r.classList.remove('is-read'); });
+            changedDots.forEach(function (dot) { dot.style.opacity = ''; });
+            badges.forEach(function (b) {
+              b.el.textContent = b.text;
+              b.el.style.display = b.display;
+            });
           });
         });
       }
@@ -428,7 +519,7 @@
         });
       });
 
-      // Initialise: "@ You" tab active
+      // Initialise: "For you" tab active
       applyFilter('mentions');
     })();
 

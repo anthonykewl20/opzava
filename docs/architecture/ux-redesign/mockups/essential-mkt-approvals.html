@@ -199,6 +199,59 @@
       margin-bottom: var(--space-6);
     }
 
+    /* Row hidden by an active filter */
+    .apr-row[hidden] { display: none; }
+
+    /* Pending state on an Approve button (within-400ms feedback) */
+    .apr-row.is-approving { opacity: 0.6; }
+    .apr-row.is-approving .apr-actions button { pointer-events: none; }
+
+    /* Inline "Request changes" note composer — the destination for a note
+       like "tighten CTA". Lives inside the row, below the meta line. */
+    .apr-note-composer {
+      flex: 1 1 100%;
+      order: 8;
+      display: none;
+      flex-direction: column;
+      gap: var(--space-2);
+      margin-top: var(--space-2);
+      padding-top: var(--space-3);
+      border-top: 1px dashed var(--border);
+    }
+    .apr-row.is-noting .apr-note-composer { display: flex; }
+    .apr-note-composer label {
+      font-size: var(--text-xs);
+      font-weight: var(--fw-medium);
+      color: var(--fg-muted);
+    }
+    .apr-note-composer textarea {
+      width: 100%;
+      min-height: 56px;
+      resize: vertical;
+      font: inherit;
+      font-size: var(--text-base);
+      color: var(--fg);
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      padding: var(--space-2) var(--space-3);
+    }
+    .apr-note-composer textarea:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+    .apr-note-composer .apr-note-err {
+      display: none;
+      font-size: var(--text-xs);
+      color: var(--danger);
+    }
+    .apr-note-composer.has-error .apr-note-err { display: block; }
+    .apr-note-composer .apr-note-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: var(--space-2);
+    }
+
     /* Mobile collapse */
     @media (max-width: 640px) {
       /* Each row stacks: name fills width, meta wraps below, actions push to new line */
@@ -236,7 +289,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative">
         <span aria-hidden="true">🔔</span>
         <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span>
@@ -264,28 +317,30 @@
               <!-- Filter -->
               <div style="position:relative">
                 <button class="btn btn-ghost" type="button" id="filterBtn" aria-haspopup="menu" aria-expanded="false" style="gap:6px">
-                  All <span aria-hidden="true">▾</span>
+                  <span id="filterLabel">All</span> <span aria-hidden="true">▾</span>
                 </button>
                 <div class="sb-menu" id="filterMenu" role="menu" aria-label="Filter approvals" style="display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:var(--z-dropdown);min-width:200px">
                   <div class="sb-menu-label">Filter by status</div>
-                  <button class="sb-menu-item" role="menuitem" type="button">All</button>
-                  <button class="sb-menu-item" role="menuitem" type="button">Needs review</button>
-                  <button class="sb-menu-item" role="menuitem" type="button">Changes requested</button>
-                  <button class="sb-menu-item" role="menuitem" type="button">Approved</button>
+                  <button class="sb-menu-item" role="menuitemradio" type="button" data-filter-kind="status" data-filter-value="all" aria-current="true">All</button>
+                  <button class="sb-menu-item" role="menuitemradio" type="button" data-filter-kind="status" data-filter-value="needs" aria-current="false">Needs review</button>
+                  <button class="sb-menu-item" role="menuitemradio" type="button" data-filter-kind="status" data-filter-value="changes" aria-current="false">Changes requested</button>
+                  <button class="sb-menu-item" role="menuitemradio" type="button" data-filter-kind="status" data-filter-value="approved" aria-current="false">Approved</button>
                   <div class="sb-menu-sep"></div>
                   <div class="sb-menu-label">Filter by campaign</div>
-                  <button class="sb-menu-item" role="menuitem" type="button">June Launch</button>
-                  <button class="sb-menu-item" role="menuitem" type="button">Webinar promo</button>
+                  <button class="sb-menu-item" role="menuitemradio" type="button" data-filter-kind="campaign" data-filter-value="June Launch" aria-current="false">June Launch</button>
+                  <button class="sb-menu-item" role="menuitemradio" type="button" data-filter-kind="campaign" data-filter-value="Webinar promo" aria-current="false">Webinar promo</button>
                 </div>
               </div>
-              <!-- Primary action -->
-              <a href="essential-send-review.html" class="btn btn-primary" aria-label="Send an asset for review">
+              <!-- Secondary action — the single filled primary is reserved for the
+                   one assigned/flagged row that needs you (the page's key action). -->
+              <a href="essential-send-review.html" class="btn" aria-label="Send an asset for review">
                 <span aria-hidden="true">＋</span> Send for review
               </a>
             </div>
           </div>
           <p class="u-muted" style="font-size:var(--text-sm)">
             Everything waiting on a sign-off. Oldest first.
+            <span id="aprCountLine" aria-live="polite" style="color:var(--fg-subtle)"></span>
           </p>
         </div>
 
@@ -320,17 +375,17 @@
              GROUP 1: Needs review · 3
              Rows are DIVs (not anchors) because each row has inner <a> and <button type="button">.
         ════════════════════════════════════════════════════════════════════════ -->
-        <section class="apr-section" aria-label="Needs review">
+        <section class="apr-section" id="sectionNeeds" data-section="needs" aria-label="Needs review">
           <div class="apr-section-head">
             <span aria-hidden="true">◷</span>
             Needs review
-            <span class="apr-section-count" aria-label="3 items">3</span>
+            <span class="apr-section-count" id="countNeeds" aria-label="3 items">3</span>
           </div>
 
-          <div class="apr-rows-wrap" role="list">
+          <div class="apr-rows-wrap" id="wrapNeeds" role="list">
 
             <!-- Row 1: Webinar banner — oldest (2 days), reviewer Maria -->
-            <div class="apr-row" role="listitem" aria-label="Webinar banner v2, June Launch, needs review, Maria, 2 days ago">
+            <div class="apr-row" role="listitem" data-state="needs" data-campaign="June Launch" data-asset="Webinar banner v2" aria-label="Webinar banner v2, June Launch, needs review, Maria, 2 days ago">
               <div class="apr-name">
                 <a href="essential-mkt-assets.html" class="apr-name-link">Webinar banner</a>
               </div>
@@ -344,13 +399,22 @@
                 <span aria-hidden="true">◷</span> 2 days
               </span>
               <div class="apr-actions">
-                <button class="btn btn-primary btn-sm" type="button" aria-label="Approve Webinar banner v2">Approve</button>
-                <button class="btn btn-ghost btn-sm" type="button" aria-label="Request changes on Webinar banner v2">Request changes</button>
+                <button class="btn btn-sm" type="button" data-approve aria-label="Approve Webinar banner v2">Approve</button>
+                <button class="btn btn-ghost btn-sm" type="button" data-request-changes aria-expanded="false" aria-controls="note-1" aria-label="Request changes on Webinar banner v2">Request changes</button>
               </div>
+              <form class="apr-note-composer" id="note-1" novalidate>
+                <label for="note-1-text">What needs to change? <span class="u-muted" style="font-weight:var(--fw-normal)">— Maria will get this note</span></label>
+                <textarea id="note-1-text" name="note" placeholder="e.g. Tighten the headline and use the launch-day date." required></textarea>
+                <p class="apr-note-err" role="alert">Add a short note so the team knows what to change.</p>
+                <div class="apr-note-actions">
+                  <button class="btn btn-ghost btn-sm" type="button" data-note-cancel>Cancel</button>
+                  <button class="btn btn-sm" type="submit" data-note-send>Send changes</button>
+                </div>
+              </form>
             </div>
 
             <!-- Row 2: Launch email hero — 4 hrs, reviewer You -->
-            <div class="apr-row" role="listitem" aria-label="Launch email hero v1, June Launch, needs review, You, 4 hours ago">
+            <div class="apr-row" role="listitem" data-state="needs" data-campaign="June Launch" data-asset="Launch email hero v1" aria-label="Launch email hero v1, June Launch, needs review, You, 4 hours ago">
               <div class="apr-name">
                 <a href="essential-mkt-assets.html" class="apr-name-link">Launch email — hero</a>
               </div>
@@ -364,13 +428,22 @@
                 <span aria-hidden="true">◷</span> 4 hrs
               </span>
               <div class="apr-actions">
-                <button class="btn btn-primary btn-sm" type="button" aria-label="Approve Launch email hero v1">Approve</button>
-                <button class="btn btn-ghost btn-sm" type="button" aria-label="Request changes on Launch email hero v1">Request changes</button>
+                <button class="btn btn-sm" type="button" data-approve aria-label="Approve Launch email hero v1">Approve</button>
+                <button class="btn btn-ghost btn-sm" type="button" data-request-changes aria-expanded="false" aria-controls="note-2" aria-label="Request changes on Launch email hero v1">Request changes</button>
               </div>
+              <form class="apr-note-composer" id="note-2" novalidate>
+                <label for="note-2-text">What needs to change? <span class="u-muted" style="font-weight:var(--fw-normal)">— the team will get this note</span></label>
+                <textarea id="note-2-text" name="note" placeholder="e.g. Shorten the hero copy and swap in the product shot." required></textarea>
+                <p class="apr-note-err" role="alert">Add a short note so the team knows what to change.</p>
+                <div class="apr-note-actions">
+                  <button class="btn btn-ghost btn-sm" type="button" data-note-cancel>Cancel</button>
+                  <button class="btn btn-sm" type="submit" data-note-send>Send changes</button>
+                </div>
+              </form>
             </div>
 
             <!-- Row 3: ✦ Paid ad copy set — Atlas-flagged, 1 hr, reviewer Atlas → You -->
-            <div class="apr-row" role="listitem" aria-label="Paid ad copy set v1, flagged by Atlas for compliance, June Launch, needs review, Atlas assigned to You, 1 hour ago">
+            <div class="apr-row" role="listitem" data-state="needs" data-campaign="June Launch" data-asset="Paid ad copy set v1" data-flagged="true" aria-label="Paid ad copy set v1, flagged by Atlas for compliance, June Launch, needs review, Atlas assigned to You, 1 hour ago">
               <div class="apr-name">
                 <span class="apr-ai-glyph" aria-label="Atlas-flagged">✦</span>
                 <a href="essential-mkt-assets.html" class="apr-name-link">Paid ad copy set</a>
@@ -389,9 +462,18 @@
                 <span aria-hidden="true">◷</span> 1 hr
               </span>
               <div class="apr-actions">
-                <button class="btn btn-primary btn-sm" type="button" aria-label="Approve Paid ad copy set v1">Approve</button>
-                <button class="btn btn-ghost btn-sm" type="button" aria-label="Request changes on Paid ad copy set v1">Request changes</button>
+                <button class="btn btn-primary btn-sm" type="button" data-approve aria-label="Approve Paid ad copy set v1">Approve</button>
+                <button class="btn btn-ghost btn-sm" type="button" data-request-changes aria-expanded="false" aria-controls="note-3" aria-label="Request changes on Paid ad copy set v1">Request changes</button>
               </div>
+              <form class="apr-note-composer" id="note-3" novalidate>
+                <label for="note-3-text">What needs to change? <span class="u-muted" style="font-weight:var(--fw-normal)">— Atlas and the team will get this note</span></label>
+                <textarea id="note-3-text" name="note" placeholder="e.g. Reword the offer claim so it clears the compliance flag." required></textarea>
+                <p class="apr-note-err" role="alert">Add a short note so the team knows what to change.</p>
+                <div class="apr-note-actions">
+                  <button class="btn btn-ghost btn-sm" type="button" data-note-cancel>Cancel</button>
+                  <button class="btn btn-sm" type="submit" data-note-send>Send changes</button>
+                </div>
+              </form>
             </div>
 
           </div><!-- /.apr-rows-wrap -->
@@ -400,17 +482,17 @@
         <!-- ═══════════════════════════════════════════════════════════════════
              GROUP 2: Changes requested · 1
         ════════════════════════════════════════════════════════════════════════ -->
-        <section class="apr-section" aria-label="Changes requested">
+        <section class="apr-section" id="sectionChanges" data-section="changes" aria-label="Changes requested">
           <div class="apr-section-head">
             <span aria-hidden="true">↩</span>
             Changes requested
-            <span class="apr-section-count" aria-label="1 item">1</span>
+            <span class="apr-section-count" id="countChanges" aria-label="1 item">1</span>
           </div>
 
-          <div class="apr-rows-wrap" role="list">
+          <div class="apr-rows-wrap" id="wrapChanges" role="list">
 
             <!-- Row: Social carousel — changes requested, note from Maria -->
-            <div class="apr-row apr-row--changes" role="listitem" aria-label="Social carousel v2, Webinar promo, changes requested by Maria, note: tighten CTA">
+            <div class="apr-row apr-row--changes" role="listitem" data-state="changes" data-campaign="Webinar promo" data-asset="Social carousel v2" aria-label="Social carousel v2, Webinar promo, changes requested by Maria, note: tighten CTA">
               <div class="apr-name">
                 <a href="essential-mkt-assets.html" class="apr-name-link">Social carousel</a>
               </div>
@@ -432,11 +514,11 @@
         <!-- ═══════════════════════════════════════════════════════════════════
              GROUP 3: Approved · 2 — collapsed toggle
         ════════════════════════════════════════════════════════════════════════ -->
-        <section class="apr-section" aria-label="Approved">
+        <section class="apr-section" id="sectionApproved" data-section="approved" aria-label="Approved">
           <div class="apr-section-head" id="approvedHead" style="cursor:default">
             <span aria-hidden="true">✓</span>
             Approved
-            <span class="apr-section-count" aria-label="2 items">2</span>
+            <span class="apr-section-count" id="countApproved" aria-label="2 items">2</span>
             <button
               class="apr-section-toggle"
               type="button"
@@ -451,7 +533,7 @@
           <div class="apr-approved-group" id="approvedGroup" role="list" aria-label="Approved items">
 
             <!-- Approved row 1: June newsletter header -->
-            <div class="apr-row" role="listitem" aria-label="June newsletter header v1, June Launch, approved by You">
+            <div class="apr-row" role="listitem" data-state="approved" data-campaign="June Launch" data-asset="June newsletter header v1" aria-label="June newsletter header v1, June Launch, approved by You">
               <div class="apr-name">
                 <a href="essential-mkt-assets.html" class="apr-name-link">June newsletter header</a>
               </div>
@@ -470,7 +552,7 @@
             </div>
 
             <!-- Approved row 2: Brand logo pack -->
-            <div class="apr-row" role="listitem" aria-label="Brand logo pack v3, all campaigns, approved by Maria">
+            <div class="apr-row" role="listitem" data-state="approved" data-campaign="All campaigns" data-asset="Brand logo pack v3" aria-label="Brand logo pack v3, all campaigns, approved by Maria">
               <div class="apr-name">
                 <a href="essential-mkt-assets.html" class="apr-name-link">Brand logo pack</a>
               </div>
@@ -496,18 +578,414 @@
 
   </div><!-- /.bc -->
 
+  <!-- ── Confirm: approve despite Atlas's compliance flag (consequential) ──── -->
+  <div class="sb-overlay" id="flagDlg" role="alertdialog" aria-modal="true" aria-labelledby="flagDlgTitle" aria-describedby="flagDlgDesc">
+    <div class="sb-dialog">
+      <div class="sb-dialog-title" id="flagDlgTitle">Approve despite Atlas's compliance flag?</div>
+      <div class="sb-dialog-desc" id="flagDlgDesc">
+        Atlas flagged <strong>Paid ad copy set v1</strong> for a possible compliance issue in the offer claim. Approving sends it to publish as-is. You can still undo right after.
+      </div>
+      <div class="sb-dialog-footer">
+        <button class="btn" type="button" data-flag-cancel>Cancel</button>
+        <button class="btn btn-primary" type="button" data-flag-confirm>Approve anyway</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Toast stack — aria-live confirmations with Undo ──────────────────── -->
+  <div class="toast-stack" id="toastStack" role="status" aria-live="polite" aria-atomic="false"></div>
+
   <script>
-    // ── Filter menu toggle ─────────────────────────────────────────────────
-    (function () {
+    // ─────────────────────────────────────────────────────────────────────────
+    // Shared helpers
+    // ─────────────────────────────────────────────────────────────────────────
+    var wrapNeeds    = document.getElementById('wrapNeeds');
+    var wrapChanges  = document.getElementById('wrapChanges');
+    var approvedGrp  = document.getElementById('approvedGroup');
+    var sectionNeeds   = document.getElementById('sectionNeeds');
+    var sectionChanges = document.getElementById('sectionChanges');
+    var sectionApprov  = document.getElementById('sectionApproved');
+    var countNeeds   = document.getElementById('countNeeds');
+    var countChanges = document.getElementById('countChanges');
+    var countApprov  = document.getElementById('countApproved');
+    var countLine    = document.getElementById('aprCountLine');
+    var toastStack   = document.getElementById('toastStack');
+
+    function allRows() {
+      return Array.prototype.slice.call(document.querySelectorAll('.apr-row'));
+    }
+
+    // Recompute every section count + the live summary line from real DOM state,
+    // ignoring rows hidden by an active filter.
+    function recount() {
+      function visibleIn(wrap) {
+        if (!wrap) return 0;
+        return wrap.querySelectorAll('.apr-row:not([hidden])').length;
+      }
+      var n = visibleIn(wrapNeeds);
+      var c = visibleIn(wrapChanges);
+      var a = visibleIn(approvedGrp);
+
+      function setCount(el, val, noun) {
+        if (!el) return;
+        el.textContent = String(val);
+        el.setAttribute('aria-label', val + ' ' + (val === 1 ? noun : noun + 's'));
+      }
+      setCount(countNeeds, n, 'item');
+      setCount(countChanges, c, 'item');
+      setCount(countApprov, a, 'item');
+
+      if (countLine) {
+        countLine.textContent = ' · ' + n + ' need' + (n === 1 ? 's' : '') +
+          ' your review, ' + c + ' with changes, ' + a + ' approved.';
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Toast with Undo (aria-live confirmation; honest reversibility)
+    // ─────────────────────────────────────────────────────────────────────────
+    function showToast(opts) {
+      // opts: { title, msg, onUndo }
+      var t = document.createElement('div');
+      t.className = 'toast toast-success';
+      t.setAttribute('role', 'group');
+
+      var body = document.createElement('div');
+      body.style.flex = '1';
+      var title = document.createElement('div');
+      title.className = 'toast-title';
+      title.textContent = opts.title;
+      body.appendChild(title);
+      if (opts.msg) {
+        var msg = document.createElement('div');
+        msg.className = 'toast-msg';
+        msg.textContent = opts.msg;
+        body.appendChild(msg);
+      }
+      t.appendChild(body);
+
+      var timer;
+      function dismiss() {
+        if (timer) clearTimeout(timer);
+        if (t.parentNode) t.parentNode.removeChild(t);
+      }
+
+      if (opts.onUndo) {
+        var undo = document.createElement('button');
+        undo.className = 'btn btn-ghost btn-sm';
+        undo.type = 'button';
+        undo.textContent = 'Undo';
+        undo.style.alignSelf = 'flex-start';
+        undo.addEventListener('click', function () {
+          opts.onUndo();
+          dismiss();
+        });
+        t.appendChild(undo);
+      }
+
+      toastStack.appendChild(t);
+      timer = setTimeout(dismiss, 7000);
+      return t;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Move a row between sections (optimistic), swapping its trailing controls
+    // ─────────────────────────────────────────────────────────────────────────
+    function approvedBadge() {
+      var span = document.createElement('span');
+      span.className = 'sb-badge';
+      span.style.fontSize = 'var(--text-xs)';
+      span.textContent = '✓ Approved';
+      return span;
+    }
+    function openAssetLink(asset) {
+      var a = document.createElement('a');
+      a.href = 'essential-mkt-assets.html';
+      a.className = 'btn btn-ghost btn-sm';
+      a.style.textDecoration = 'none';
+      a.setAttribute('aria-label', 'Open ' + asset + ' asset');
+      a.textContent = 'Open asset →';
+      return a;
+    }
+
+    // Approve a row: optimistic move into Approved, with within-400ms pending cue.
+    function doApprove(row) {
+      var asset = row.getAttribute('data-asset') || 'asset';
+      var prevState = row.getAttribute('data-state');
+      var prevParent = row.parentNode;
+      var prevNext = row.nextElementSibling;
+
+      // Pending cue (Doherty: visible feedback well under 400ms)
+      row.classList.add('is-approving');
+
+      setTimeout(function () {
+        row.classList.remove('is-approving');
+        // Replace the action cluster with the calm "✓ Approved" badge.
+        var actions = row.querySelector('.apr-actions');
+        var composer = row.querySelector('.apr-note-composer');
+        if (composer) { row.classList.remove('is-noting'); composer.hidden = true; }
+        if (actions) { actions.innerHTML = ''; actions.appendChild(approvedBadge()); }
+        row.setAttribute('data-state', 'approved');
+        row.classList.remove('apr-row--changes');
+
+        // Open the Approved group so the moved row is visible.
+        if (!approvedGrp.classList.contains('is-open')) {
+          var tgl = document.getElementById('approvedToggle');
+          if (tgl) tgl.click();
+        }
+        approvedGrp.appendChild(row);
+        applyFilter();
+        recount();
+
+        showToast({
+          title: 'Approved · ' + asset,
+          msg: 'Sent to publish.',
+          onUndo: function () {
+            // Restore the row to where it came from, with its controls intact.
+            row.setAttribute('data-state', prevState);
+            if (prevNext && prevNext.parentNode === prevParent) {
+              prevParent.insertBefore(row, prevNext);
+            } else {
+              prevParent.appendChild(row);
+            }
+            // Rebuild the original Approve / Request-changes controls.
+            var actions2 = row.querySelector('.apr-actions');
+            if (actions2) {
+              actions2.innerHTML = '';
+              var ap = document.createElement('button');
+              ap.type = 'button';
+              ap.setAttribute('data-approve', '');
+              ap.setAttribute('aria-label', 'Approve ' + asset);
+              ap.textContent = 'Approve';
+              ap.className = (row.getAttribute('data-flagged') === 'true')
+                ? 'btn btn-primary btn-sm' : 'btn btn-sm';
+              var rc = document.createElement('button');
+              rc.type = 'button';
+              rc.setAttribute('data-request-changes', '');
+              rc.setAttribute('aria-expanded', 'false');
+              rc.setAttribute('aria-label', 'Request changes on ' + asset);
+              rc.className = 'btn btn-ghost btn-sm';
+              rc.textContent = 'Request changes';
+              actions2.appendChild(ap);
+              actions2.appendChild(rc);
+            }
+            applyFilter();
+            recount();
+          }
+        });
+      }, 320);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Confirm dialog for the Atlas-compliance-flagged row (focus trap + restore)
+    // ─────────────────────────────────────────────────────────────────────────
+    var flagDlg = document.getElementById('flagDlg');
+    var flagReturnFocus = null;
+    var flagPendingRow = null;
+
+    function trapTab(e, dialog) {
+      if (e.key !== 'Tab') return;
+      var f = dialog.querySelectorAll('button, [href], input, textarea, [tabindex]:not([tabindex="-1"])');
+      if (!f.length) return;
+      var first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    function openFlagDlg(row, trigger) {
+      flagPendingRow = row;
+      flagReturnFocus = trigger;
+      flagDlg.classList.add('open');
+      var confirmBtn = flagDlg.querySelector('[data-flag-confirm]');
+      if (confirmBtn) confirmBtn.focus();
+    }
+    function closeFlagDlg() {
+      flagDlg.classList.remove('open');
+      flagPendingRow = null;
+      if (flagReturnFocus && typeof flagReturnFocus.focus === 'function') flagReturnFocus.focus();
+      flagReturnFocus = null;
+    }
+    flagDlg.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.stopPropagation(); closeFlagDlg(); }
+      trapTab(e, flagDlg);
+    });
+    flagDlg.querySelector('[data-flag-cancel]').addEventListener('click', closeFlagDlg);
+    flagDlg.querySelector('[data-flag-confirm]').addEventListener('click', function () {
+      var row = flagPendingRow;
+      closeFlagDlg();
+      if (row) doApprove(row);
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Approve + Request-changes wiring (event delegation over the live list)
+    // ─────────────────────────────────────────────────────────────────────────
+    document.addEventListener('click', function (e) {
+      var approveBtn = e.target.closest('[data-approve]');
+      if (approveBtn) {
+        var row = approveBtn.closest('.apr-row');
+        if (!row) return;
+        if (row.getAttribute('data-flagged') === 'true') {
+          openFlagDlg(row, approveBtn);   // consequential: confirm first
+        } else {
+          doApprove(row);                 // generic: optimistic + undo toast
+        }
+        return;
+      }
+
+      var rcBtn = e.target.closest('[data-request-changes]');
+      if (rcBtn) {
+        var row2 = rcBtn.closest('.apr-row');
+        if (!row2) return;
+        var composer = row2.querySelector('.apr-note-composer');
+        if (!composer) return;
+        var open = row2.classList.toggle('is-noting');
+        rcBtn.setAttribute('aria-expanded', String(open));
+        if (open) {
+          var ta = composer.querySelector('textarea');
+          if (ta) ta.focus();
+        }
+        return;
+      }
+
+      var cancelBtn = e.target.closest('[data-note-cancel]');
+      if (cancelBtn) {
+        var row3 = cancelBtn.closest('.apr-row');
+        if (!row3) return;
+        row3.classList.remove('is-noting');
+        var composer3 = row3.querySelector('.apr-note-composer');
+        if (composer3) composer3.classList.remove('has-error');
+        var trigger = row3.querySelector('[data-request-changes]');
+        if (trigger) { trigger.setAttribute('aria-expanded', 'false'); trigger.focus(); }
+        return;
+      }
+    });
+
+    // Validate + send the inline "Request changes" note (real form submit).
+    document.querySelectorAll('.apr-note-composer').forEach(function (form) {
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var ta = form.querySelector('textarea');
+        var note = (ta.value || '').trim();
+        if (!note) {
+          form.classList.add('has-error');
+          ta.setAttribute('aria-invalid', 'true');
+          ta.focus();                     // move focus to the offending field
+          return;
+        }
+        form.classList.remove('has-error');
+        ta.removeAttribute('aria-invalid');
+
+        var row = form.closest('.apr-row');
+        var asset = row.getAttribute('data-asset') || 'asset';
+        var sendBtn = form.querySelector('[data-note-send]');
+        if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sending…'; }
+
+        // Optimistic: move the row into "Changes requested" with the note shown.
+        setTimeout(function () {
+          row.classList.remove('is-noting');
+          form.hidden = true;
+          row.setAttribute('data-state', 'changes');
+          row.classList.add('apr-row--changes');
+
+          // Show the note where the meta line lives, replace actions with "Open asset".
+          var actions = row.querySelector('.apr-actions');
+          if (actions) { actions.innerHTML = ''; actions.appendChild(openAssetLink(asset)); }
+          // Drop a note element before the actions if one isn't already there.
+          if (!row.querySelector('.apr-note')) {
+            var noteEl = document.createElement('span');
+            noteEl.className = 'apr-note';
+            noteEl.textContent = '"' + note + '"';
+            noteEl.setAttribute('aria-label', 'Note: ' + note);
+            row.insertBefore(noteEl, actions);
+          }
+          wrapChanges.appendChild(row);
+          applyFilter();
+          recount();
+          showToast({ title: 'Changes requested · ' + asset, msg: 'The team got your note.' });
+        }, 300);
+      });
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Data-driven filter (#14) — drives off data-state / data-campaign, never
+    // a regex over rendered text. Reflects the choice on the trigger + aria-current.
+    // ─────────────────────────────────────────────────────────────────────────
+    var filterState = { status: 'all', campaign: null };
+    var filterLabel = document.getElementById('filterLabel');
+
+    function applyFilter() {
+      allRows().forEach(function (row) {
+        var okStatus = filterState.status === 'all' ||
+          row.getAttribute('data-state') === filterState.status;
+        var okCampaign = !filterState.campaign ||
+          row.getAttribute('data-campaign') === filterState.campaign;
+        row.hidden = !(okStatus && okCampaign);
+      });
+
+      // Hide a whole section when it has no matching rows (calmer than empty heads).
+      [[sectionNeeds, wrapNeeds], [sectionChanges, wrapChanges], [sectionApprov, approvedGrp]]
+        .forEach(function (pair) {
+          var section = pair[0], wrap = pair[1];
+          if (!section || !wrap) return;
+          var any = wrap.querySelectorAll('.apr-row:not([hidden])').length > 0;
+          section.hidden = !any;
+        });
+      recount();
+    }
+
+    (function wireFilter() {
       var btn = document.getElementById('filterBtn');
       var menu = document.getElementById('filterMenu');
       if (!btn || !menu) return;
+
+      function setLabel() {
+        var parts = [];
+        if (filterState.status !== 'all') {
+          var map = { needs: 'Needs review', changes: 'Changes requested', approved: 'Approved' };
+          parts.push(map[filterState.status]);
+        }
+        if (filterState.campaign) parts.push(filterState.campaign);
+        filterLabel.textContent = parts.length ? parts.join(' · ') : 'All';
+      }
+
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
         var open = menu.style.display === 'block';
         menu.style.display = open ? 'none' : 'block';
         btn.setAttribute('aria-expanded', String(!open));
       });
+
+      menu.addEventListener('click', function (e) {
+        var item = e.target.closest('[data-filter-kind]');
+        if (!item) return;
+        e.stopPropagation();
+        var kind = item.getAttribute('data-filter-kind');
+        var value = item.getAttribute('data-filter-value');
+
+        if (kind === 'status') {
+          filterState.status = value;
+        } else if (kind === 'campaign') {
+          // Toggle campaign off if the same one is re-picked.
+          filterState.campaign = (filterState.campaign === value) ? null : value;
+        }
+
+        // Reflect chosen options with aria-current within their own kind group.
+        menu.querySelectorAll('[data-filter-kind="' + kind + '"]').forEach(function (b) {
+          var v = b.getAttribute('data-filter-value');
+          var isCurrent = (kind === 'status')
+            ? (v === filterState.status)
+            : (v === filterState.campaign);
+          b.setAttribute('aria-current', String(isCurrent));
+        });
+        // Keep the status "All" marker honest when only a campaign is active.
+        var allBtn = menu.querySelector('[data-filter-kind="status"][data-filter-value="all"]');
+        if (allBtn) allBtn.setAttribute('aria-current', String(filterState.status === 'all'));
+
+        setLabel();
+        applyFilter();
+        menu.style.display = 'none';
+        btn.setAttribute('aria-expanded', 'false');
+      });
+
       document.addEventListener('click', function () {
         menu.style.display = 'none';
         btn.setAttribute('aria-expanded', 'false');
@@ -540,6 +1018,9 @@
         }
       });
     })();
+
+    // Initial summary line.
+    recount();
   </script>
 </body>
 </html>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Opzava — New event</title>
+  <title>Opzava — Schedule content</title>
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="shadcn.css">
@@ -47,10 +47,17 @@
     .field-row .field { flex: 1 1 0; min-width: 0; }
     .field-row .field + .field { margin-top: 0; }
 
-    /* Status segmented control — glyph + label, never colour */
+    /* Status segmented control — glyph + label, never colour. role=radiogroup: it sets a value, switches no panel. */
     .wiz-tabs { display: inline-flex; gap: 2px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 3px; }
     .wiz-tab { height: 30px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-full); background: none; color: var(--fg-muted); font: inherit; font-size: var(--text-sm); font-weight: var(--fw-medium); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
-    .wiz-tab[aria-selected="true"] { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
+    .wiz-tab[aria-checked="true"] { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
+    .wiz-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* Inline validation error — label+text, not colour-only meaning */
+    .field-error { display: none; margin-top: 6px; font-size: var(--text-xs); color: var(--danger, #b42318); }
+    .field-error::before { content: "⚠ "; }
+    .field.has-error .input { border-color: var(--danger, #b42318); }
+    .field.has-error .field-error { display: block; }
 
     /* Quiet ✦ Atlas offer line under the form */
     .add-atlas { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); font-size: var(--text-sm); color: var(--fg-muted); }
@@ -104,20 +111,21 @@
     </div>
   </div>
 
-  <!-- ════════ Add-event DIALOG (open over the dimmed calendar) ════════ -->
+  <!-- ════════ Schedule-content DIALOG (open over the dimmed calendar) ════════ -->
   <div class="sb-overlay open" role="dialog" aria-modal="true" aria-labelledby="evtTitle">
-    <div class="wiz">
+    <form class="wiz" id="evtForm" novalidate>
 
       <div class="wiz-head">
-        <h1 class="wiz-title" id="evtTitle">Add to the calendar</h1>
+        <h1 class="wiz-title" id="evtTitle">Schedule content</h1>
         <a class="wiz-x" href="essential-mkt-calendar.html" aria-label="Close">✕</a>
       </div>
 
       <div class="wiz-body">
 
-        <div class="field">
+        <div class="field" id="f-what">
           <label class="label" for="e-what">What's going out</label>
-          <input class="input" id="e-what" type="text" value="June newsletter" placeholder="e.g. June newsletter">
+          <input class="input" id="e-what" type="text" value="June newsletter" placeholder="e.g. June newsletter" required aria-describedby="err-what">
+          <span class="field-error" id="err-what">Give this content a name before scheduling it.</span>
         </div>
 
         <div class="field">
@@ -140,22 +148,24 @@
         </div>
 
         <div class="field-row">
-          <div class="field">
+          <div class="field" id="f-date">
             <label class="label" for="e-date">Date</label>
-            <input class="input" id="e-date" type="date" value="2026-06-17" aria-label="Date — Jun 17">
+            <input class="input" id="e-date" type="date" value="2026-06-17" required aria-describedby="err-date">
+            <span class="field-error" id="err-date">Pick a date for this content.</span>
           </div>
-          <div class="field">
+          <div class="field" id="f-time">
             <label class="label" for="e-time">Time</label>
-            <input class="input" id="e-time" type="text" value="9:00 am" placeholder="e.g. 9:00 am">
+            <input class="input" id="e-time" type="time" value="09:00" required aria-describedby="err-time">
+            <span class="field-error" id="err-time">Pick a time for this content.</span>
           </div>
         </div>
 
         <div class="field" style="margin-top:var(--space-4)">
-          <span class="label" style="display:block;margin-bottom:var(--space-2)">Status</span>
-          <div class="wiz-tabs" role="tablist" aria-label="Status">
-            <button class="wiz-tab" role="tab" aria-selected="true" type="button"><span aria-hidden="true">◦</span> Draft</button>
-            <button class="wiz-tab" role="tab" aria-selected="false" type="button"><span aria-hidden="true">●</span> Scheduled</button>
-            <button class="wiz-tab" role="tab" aria-selected="false" type="button"><span aria-hidden="true">✓</span> Published</button>
+          <span class="label" id="statusLabel" style="display:block;margin-bottom:var(--space-2)">Status</span>
+          <div class="wiz-tabs" role="radiogroup" aria-labelledby="statusLabel">
+            <button class="wiz-tab" role="radio" aria-checked="true" type="button" tabindex="0"><span aria-hidden="true">◦</span> Draft</button>
+            <button class="wiz-tab" role="radio" aria-checked="false" type="button" tabindex="-1"><span aria-hidden="true">●</span> Scheduled</button>
+            <button class="wiz-tab" role="radio" aria-checked="false" type="button" tabindex="-1"><span aria-hidden="true">✓</span> Published</button>
           </div>
         </div>
 
@@ -165,11 +175,72 @@
 
       <div class="wiz-foot">
         <a class="btn btn-ghost" href="essential-mkt-calendar.html">Cancel</a>
-        <a class="btn btn-primary" href="essential-mkt-calendar.html">Add to calendar</a>
+        <button class="btn btn-primary" type="submit" id="evtSubmit">Schedule content</button>
       </div>
 
-    </div>
+    </form>
   </div>
+
+  <script>
+    (function () {
+      var form = document.getElementById('evtForm');
+      if (!form) return;
+
+      // ── Status radiogroup: roving tabindex + arrow keys (sets a value, no panel) ──
+      var group = form.querySelector('[role="radiogroup"]');
+      var radios = group ? Array.prototype.slice.call(group.querySelectorAll('[role="radio"]')) : [];
+      function selectRadio(idx, moveFocus) {
+        idx = (idx + radios.length) % radios.length;
+        radios.forEach(function (r, i) {
+          var on = i === idx;
+          r.setAttribute('aria-checked', on ? 'true' : 'false');
+          r.tabIndex = on ? 0 : -1;
+        });
+        if (moveFocus) radios[idx].focus();
+      }
+      radios.forEach(function (r, i) {
+        r.addEventListener('click', function () { selectRadio(i, false); });
+        r.addEventListener('keydown', function (e) {
+          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); selectRadio(i + 1, true); }
+          else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); selectRadio(i - 1, true); }
+          else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); selectRadio(i, false); }
+        });
+      });
+
+      // ── Validated submit: keep the dialog open, show inline errors, focus first invalid field ──
+      var checks = [
+        { field: 'f-what', input: 'e-what' },
+        { field: 'f-date', input: 'e-date' },
+        { field: 'f-time', input: 'e-time' }
+      ];
+      function clearErrors() {
+        checks.forEach(function (c) { document.getElementById(c.field).classList.remove('has-error'); });
+      }
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        clearErrors();
+        var firstInvalid = null;
+        checks.forEach(function (c) {
+          var input = document.getElementById(c.input);
+          if (!input.value.trim()) {
+            document.getElementById(c.field).classList.add('has-error');
+            input.setAttribute('aria-invalid', 'true');
+            if (!firstInvalid) firstInvalid = input;
+          } else {
+            input.removeAttribute('aria-invalid');
+          }
+        });
+        if (firstInvalid) { firstInvalid.focus(); return; }
+
+        // Valid: optimistic pending → done, then navigate to the calendar.
+        var btn = document.getElementById('evtSubmit');
+        btn.disabled = true;
+        btn.textContent = 'Scheduling…';
+        btn.setAttribute('aria-busy', 'true');
+        setTimeout(function () { window.location.href = 'essential-mkt-calendar.html'; }, 450);
+      });
+    })();
+  </script>
 
 </body>
 </html>

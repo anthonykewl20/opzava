@@ -26,6 +26,7 @@
 
     /* ── Card table layout ────────────────────────────────────────────────── */
     .ct-board { display: flex; gap: var(--space-4); align-items: flex-start; overflow-x: auto; padding-bottom: var(--space-4); }
+    .ct-board[hidden], .ct-list[hidden] { display: none; }
     .ct-col { flex: 0 0 272px; display: flex; flex-direction: column; gap: var(--space-3); }
     .ct-col-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-1); }
     .ct-col-label { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
@@ -63,6 +64,28 @@
     /* ── Loading / empty states ──────────────────────────────────────────── */
     .sk-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
 
+    /* ── Per-card ⋯ menu (single-pointer "Move to column…" alternative) ──── */
+    .ct-menu-wrap { position: relative; display: inline-flex; }
+    .ct-menu-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: none; border-radius: var(--radius-sm); background: none; color: var(--fg-subtle); font: inherit; font-size: var(--text-md); line-height: 1; cursor: pointer; }
+    .ct-menu-btn:hover, .ct-menu-btn[aria-expanded="true"] { background: var(--surface-2); color: var(--fg); }
+    .ct-menu { position: absolute; top: 28px; right: 0; z-index: var(--z-popover); min-width: 200px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); padding: var(--space-1); display: none; }
+    .ct-menu[data-open="true"] { display: block; }
+    .ct-menu-head { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); padding: var(--space-2) var(--space-3) var(--space-1); }
+    .ct-menu-item { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: var(--space-2) var(--space-3); border: none; border-radius: var(--radius-sm); background: none; color: var(--fg); font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer; }
+    .ct-menu-item:hover, .ct-menu-item:focus-visible { background: var(--surface-2); }
+    .ct-menu-item[aria-disabled="true"] { color: var(--fg-subtle); cursor: default; }
+    .ct-menu-item[aria-disabled="true"]:hover { background: none; }
+    .ct-menu-item .ct-menu-tick { margin-left: auto; color: var(--accent); }
+
+    /* ── List view (alternate to Board) ──────────────────────────────────── */
+    .ct-list { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+    .ct-list-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); }
+    .ct-list-row:last-child { border-bottom: none; }
+    .ct-list-stage { flex: 0 0 92px; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-muted); text-transform: uppercase; letter-spacing: .04em; }
+    .ct-list-name { font-size: var(--text-base); font-weight: var(--fw-medium); color: var(--fg); text-decoration: none; }
+    .ct-list-name:hover { color: var(--accent); text-decoration: underline; }
+    .ct-list-meta { margin-left: auto; font-size: var(--text-xs); color: var(--fg-subtle); }
+
     /* ── Responsive: collapse board to single column on narrow screens ──── */
     @media (max-width: 640px) {
       /* Board stacks vertically; each column goes full-width */
@@ -91,7 +114,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -112,9 +135,10 @@
             </h1>
           </div>
           <div class="u-row" style="gap:var(--space-2);flex-wrap:wrap">
-            <!-- View toggle -->
+            <!-- View toggle — real Board | List segmented control -->
             <div class="view-pill" role="group" aria-label="View mode">
-              <button class="active" type="button" aria-pressed="true" id="viewBoard">Board <span aria-hidden="true">▾</span></button>
+              <button class="active" type="button" aria-pressed="true" id="viewBoard">Board</button>
+              <button type="button" aria-pressed="false" id="viewList">List</button>
             </div>
             <button class="btn btn-ghost" type="button" style="gap:6px;color:var(--accent);border-color:var(--accent-border)">
               <span aria-hidden="true">✦</span> Draft a brief
@@ -123,7 +147,7 @@
           </div>
         </div>
         <p class="u-muted" style="font-size:var(--text-sm);margin-bottom:var(--space-7)">
-          Every campaign and what stage it's in. Click one to open its brief, assets, and results.
+          Every campaign and what stage it's in. Click one to open its brief, assets, and results. To change a stage, use the card's <span aria-hidden="true">⋯</span> menu and pick <strong>Move to stage…</strong> — no dragging needed.
         </p>
 
         <!-- ── Loading state (hidden — swap display to show) ──────────────── -->
@@ -160,9 +184,13 @@
             </div>
 
             <!-- Card: Fall Newsletter -->
-            <div class="ct-card" style="--card-color:var(--chart-1)">
+            <div class="ct-card" data-card="Fall Newsletter" data-stage="Plan" style="--card-color:var(--chart-1)">
               <div class="ct-card-top">
-                <span class="ct-card-due" aria-label="Due next week">◷ next wk</span>
+                <span class="ct-card-due" aria-label="Due next week">◷ Due next week</span>
+                <span class="u-grow"></span>
+                <span class="ct-menu-wrap" data-cardmenu>
+                  <button class="ct-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Fall Newsletter">⋯</button>
+                </span>
               </div>
               <div class="ct-card-labels">
                 <span class="ct-label">email</span>
@@ -177,9 +205,13 @@
             </div>
 
             <!-- Card: Summer Social Push -->
-            <div class="ct-card" style="--card-color:var(--chart-6)">
+            <div class="ct-card" data-card="Summer Social Push" data-stage="Plan" style="--card-color:var(--chart-6)">
               <div class="ct-card-top">
-                <span class="ct-card-due" aria-label="Due in 3 weeks">◷ 3 wks</span>
+                <span class="ct-card-due" aria-label="Due in 3 weeks">◷ Due in 3 weeks</span>
+                <span class="u-grow"></span>
+                <span class="ct-menu-wrap" data-cardmenu>
+                  <button class="ct-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Summer Social Push">⋯</button>
+                </span>
               </div>
               <div class="ct-card-labels">
                 <span class="ct-label">social</span>
@@ -205,11 +237,14 @@
             </div>
 
             <!-- Card: June Launch ✦ (Atlas drafting) -->
-            <div class="ct-card" style="--card-color:var(--accent-border)">
+            <div class="ct-card" data-card="June Launch" data-stage="Create" style="--card-color:var(--accent-border)">
               <div class="ct-card-top">
                 <span class="sb-badge sb-badge--accent" style="height:20px;gap:4px"><span aria-hidden="true">✦</span> Atlas drafting</span>
                 <span class="u-grow"></span>
-                <span class="badge badge-warning" style="height:20px"><span class="dot dot-warning" aria-hidden="true"></span> Due Fri</span>
+                <span class="ct-card-due" aria-label="Due Friday">◷ Due Fri</span>
+                <span class="ct-menu-wrap" data-cardmenu>
+                  <button class="ct-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for June Launch">⋯</button>
+                </span>
               </div>
               <div class="ct-card-labels">
                 <span class="ct-label">email</span>
@@ -225,9 +260,13 @@
             </div>
 
             <!-- Card: Webinar Promo -->
-            <div class="ct-card" style="--card-color:var(--chart-5)">
+            <div class="ct-card" data-card="Webinar Promo" data-stage="Create" style="--card-color:var(--chart-5)">
               <div class="ct-card-top">
-                <span class="ct-card-due" aria-label="Due in 5 days">◷ 5d</span>
+                <span class="ct-card-due" aria-label="Due in 5 days">◷ Due in 5 days</span>
+                <span class="u-grow"></span>
+                <span class="ct-menu-wrap" data-cardmenu>
+                  <button class="ct-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Webinar Promo">⋯</button>
+                </span>
               </div>
               <div class="ct-card-labels">
                 <span class="ct-label">social</span>
@@ -253,9 +292,13 @@
             </div>
 
             <!-- Card: Webinar Promo assets in review -->
-            <div class="ct-card" style="--card-color:var(--chart-4)">
+            <div class="ct-card" data-card="Webinar Promo assets" data-stage="Approve" style="--card-color:var(--chart-4)">
               <div class="ct-card-top">
-                <span class="badge badge-warning" style="height:20px">⏳ 2 in review</span>
+                <span class="sb-badge sb-badge--secondary" style="height:20px;gap:4px"><span aria-hidden="true">◷</span> 2 in review</span>
+                <span class="u-grow"></span>
+                <span class="ct-menu-wrap" data-cardmenu>
+                  <button class="ct-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Webinar Promo assets in review">⋯</button>
+                </span>
               </div>
               <div class="ct-card-labels">
                 <span class="ct-label">social</span>
@@ -281,9 +324,13 @@
             </div>
 
             <!-- Card: Product Hunt Push — live -->
-            <div class="ct-card" style="--card-color:var(--chart-2)">
+            <div class="ct-card" data-card="Product Hunt Push" data-stage="Publish" style="--card-color:var(--chart-2)">
               <div class="ct-card-top">
-                <span class="badge badge-success" style="height:20px"><span class="dot dot-success live" aria-hidden="true"></span> Live</span>
+                <span class="sb-badge sb-badge--secondary" style="height:20px;gap:5px"><span class="dot live" aria-hidden="true" style="background:currentColor"></span> Live</span>
+                <span class="u-grow"></span>
+                <span class="ct-menu-wrap" data-cardmenu>
+                  <button class="ct-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Product Hunt Push">⋯</button>
+                </span>
               </div>
               <div class="ct-card-labels">
                 <span class="ct-label">blog</span>
@@ -308,9 +355,13 @@
             </div>
 
             <!-- Card: Spring Teaser — ended -->
-            <div class="ct-card" style="--card-color:var(--border-strong)">
+            <div class="ct-card" data-card="Spring Teaser" data-stage="Measure" style="--card-color:var(--border-strong)">
               <div class="ct-card-top">
                 <span class="sb-badge sb-badge--secondary" style="height:20px">✓ Ended</span>
+                <span class="u-grow"></span>
+                <span class="ct-menu-wrap" data-cardmenu>
+                  <button class="ct-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Spring Teaser">⋯</button>
+                </span>
               </div>
               <div class="ct-card-labels">
                 <span class="ct-label">social</span>
@@ -329,11 +380,14 @@
 
         </div><!-- /.ct-board -->
 
+        <!-- ── List view (alternate to Board; built from the board on toggle) ─ -->
+        <div id="ctList" class="ct-list" role="region" aria-label="Campaigns list — Plan to Measure lifecycle" hidden></div>
+
         <!-- ── Quick nav to other marketing surfaces ──────────────────────── -->
         <nav aria-label="Marketing workspace" style="margin-top:var(--space-10);display:flex;gap:var(--space-3);flex-wrap:wrap;border-top:1px solid var(--border);padding-top:var(--space-6)">
           <span style="font-size:var(--text-xs);color:var(--fg-subtle);align-self:center;margin-right:var(--space-2)">Also in Q3 Launch Campaign:</span>
           <a href="essential-mkt-calendar.html" class="btn btn-ghost" style="font-size:var(--text-sm)">📅 Content Calendar</a>
-          <a href="essential-mkt-approvals.html" class="btn btn-ghost" style="font-size:var(--text-sm)">✓◷ Approvals <span class="badge badge-warning" style="margin-left:6px;height:18px;padding:0 6px">3</span></a>
+          <a href="essential-mkt-approvals.html" class="btn btn-ghost" style="font-size:var(--text-sm)"><span aria-hidden="true">◷</span> Approvals <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 6px" aria-label="3 awaiting review">3</span></a>
           <a href="essential-mkt-assets.html" class="btn btn-ghost" style="font-size:var(--text-sm)">📎 Assets</a>
           <a href="essential-mkt-performance.html" class="btn btn-ghost" style="font-size:var(--text-sm)">📈 Performance</a>
           <a href="essential-mkt-ads-report.html" class="btn btn-ghost" style="font-size:var(--text-sm)">🎯 Ads Report</a>
@@ -350,13 +404,221 @@
 
   <script>
     (function () {
-      // New campaign button — placeholder interaction (real app would open a drawer/modal)
-      var btn = document.getElementById('newCampaignBtn');
-      if (btn) {
-        btn.addEventListener('click', function () {
-          // In the real app this opens a "New campaign" drawer
-        });
+      'use strict';
+
+      // The five lifecycle stages, in board order.
+      var STAGES = ['Plan', 'Create', 'Approve', 'Publish', 'Measure'];
+
+      // Map each stage to its board <section> column (matched by aria-label prefix).
+      var columns = {};
+      Array.prototype.forEach.call(document.querySelectorAll('.ct-board > .ct-col'), function (col) {
+        var head = col.querySelector('.ct-col-label');
+        if (head) columns[head.textContent.trim()] = col;
+      });
+
+      function colCountEl(stage) {
+        var col = columns[stage];
+        return col ? col.querySelector('.ct-col-count') : null;
       }
+
+      function recountColumn(stage) {
+        var col = columns[stage];
+        if (!col) return;
+        var n = col.querySelectorAll('.ct-card').length;
+        var countEl = colCountEl(stage);
+        if (countEl) {
+          countEl.textContent = String(n);
+          countEl.setAttribute('aria-label', n + (n === 1 ? ' campaign' : ' campaigns'));
+        }
+        var sec = col;
+        sec.setAttribute('aria-label', stage + ' stage — ' + n + (n === 1 ? ' campaign' : ' campaigns'));
+      }
+
+      // ── Per-card ⋯ menu: single-pointer "Move to stage…" alternative ──────
+      var openMenu = null;
+
+      function closeMenu() {
+        if (!openMenu) return;
+        openMenu.setAttribute('data-open', 'false');
+        var trigger = openMenu.parentElement.querySelector('.ct-menu-btn');
+        if (trigger) trigger.setAttribute('aria-expanded', 'false');
+        openMenu = null;
+      }
+
+      function moveCard(card, toStage) {
+        var fromStage = card.getAttribute('data-stage');
+        if (fromStage === toStage) return;
+        var targetCol = columns[toStage];
+        if (!targetCol) return;
+        // Insert before the column's "＋ Add campaign" affordance so it stays last.
+        var addBtn = targetCol.querySelector('.ct-add');
+        if (addBtn) targetCol.insertBefore(card, addBtn);
+        else targetCol.appendChild(card);
+        card.setAttribute('data-stage', toStage);
+        recountColumn(fromStage);
+        recountColumn(toStage);
+        announce(card.getAttribute('data-card') + ' moved to ' + toStage);
+        if (!list.hidden) renderList();
+      }
+
+      function buildMenu(wrap) {
+        var card = wrap.closest('.ct-card');
+        var name = card.getAttribute('data-card');
+        var current = card.getAttribute('data-stage');
+        var menu = document.createElement('div');
+        menu.className = 'ct-menu';
+        menu.setAttribute('role', 'menu');
+        menu.setAttribute('aria-label', 'Actions for ' + name);
+        menu.setAttribute('data-open', 'false');
+
+        var head = document.createElement('div');
+        head.className = 'ct-menu-head';
+        head.textContent = 'Move to stage…';
+        menu.appendChild(head);
+
+        STAGES.forEach(function (stage) {
+          var item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'ct-menu-item';
+          item.setAttribute('role', 'menuitemradio');
+          item.setAttribute('data-stage', stage);
+          var label = document.createElement('span');
+          label.textContent = stage;
+          item.appendChild(label);
+          if (stage === current) {
+            item.setAttribute('aria-checked', 'true');
+            item.setAttribute('aria-disabled', 'true');
+            var tick = document.createElement('span');
+            tick.className = 'ct-menu-tick';
+            tick.setAttribute('aria-hidden', 'true');
+            tick.textContent = '✓';
+            item.appendChild(tick);
+          } else {
+            item.setAttribute('aria-checked', 'false');
+            item.addEventListener('click', function () {
+              moveCard(card, stage);
+              closeMenu();
+              var trigger = wrap.querySelector('.ct-menu-btn');
+              if (trigger) trigger.focus();
+            });
+          }
+          menu.appendChild(item);
+        });
+
+        wrap.appendChild(menu);
+        return menu;
+      }
+
+      Array.prototype.forEach.call(document.querySelectorAll('[data-cardmenu]'), function (wrap) {
+        var trigger = wrap.querySelector('.ct-menu-btn');
+        var menu = buildMenu(wrap);
+
+        trigger.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var isOpen = menu.getAttribute('data-open') === 'true';
+          closeMenu();
+          if (!isOpen) {
+            menu.setAttribute('data-open', 'true');
+            trigger.setAttribute('aria-expanded', 'true');
+            openMenu = menu;
+            var first = menu.querySelector('.ct-menu-item:not([aria-disabled="true"])');
+            if (first) first.focus();
+          }
+        });
+
+        // Roving Arrow-key navigation + Esc within the menu.
+        menu.addEventListener('keydown', function (e) {
+          var items = Array.prototype.filter.call(
+            menu.querySelectorAll('.ct-menu-item'),
+            function (i) { return i.getAttribute('aria-disabled') !== 'true'; }
+          );
+          var idx = items.indexOf(document.activeElement);
+          if (e.key === 'ArrowDown') { e.preventDefault(); items[(idx + 1) % items.length].focus(); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); items[(idx - 1 + items.length) % items.length].focus(); }
+          else if (e.key === 'Escape') { e.preventDefault(); closeMenu(); trigger.focus(); }
+        });
+      });
+
+      document.addEventListener('click', function (e) {
+        if (openMenu && !e.target.closest('[data-cardmenu]')) closeMenu();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && openMenu) {
+          var trigger = openMenu.parentElement.querySelector('.ct-menu-btn');
+          closeMenu();
+          if (trigger) trigger.focus();
+        }
+      });
+
+      // ── aria-live announcer for move feedback ─────────────────────────────
+      var liveRegion = document.createElement('div');
+      liveRegion.setAttribute('aria-live', 'polite');
+      liveRegion.className = 'sr-only';
+      liveRegion.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap';
+      document.body.appendChild(liveRegion);
+      function announce(msg) { liveRegion.textContent = ''; setTimeout(function () { liveRegion.textContent = msg; }, 30); }
+
+      // ── Board | List segmented control ────────────────────────────────────
+      var board = document.querySelector('.ct-board');
+      var list = document.getElementById('ctList');
+      var btnBoard = document.getElementById('viewBoard');
+      var btnList = document.getElementById('viewList');
+
+      function renderList() {
+        list.textContent = '';
+        STAGES.forEach(function (stage) {
+          var col = columns[stage];
+          if (!col) return;
+          Array.prototype.forEach.call(col.querySelectorAll('.ct-card'), function (card) {
+            var titleLink = card.querySelector('.ct-card-title-link');
+            var due = card.querySelector('.ct-card-due');
+            var row = document.createElement('div');
+            row.className = 'ct-list-row';
+
+            var stageEl = document.createElement('span');
+            stageEl.className = 'ct-list-stage';
+            stageEl.textContent = stage;
+            row.appendChild(stageEl);
+
+            var nameEl = document.createElement('a');
+            nameEl.className = 'ct-list-name';
+            nameEl.href = titleLink ? titleLink.getAttribute('href') : '#';
+            nameEl.textContent = card.getAttribute('data-card');
+            row.appendChild(nameEl);
+
+            if (due) {
+              var metaEl = document.createElement('span');
+              metaEl.className = 'ct-list-meta';
+              metaEl.textContent = due.textContent.trim();
+              row.appendChild(metaEl);
+            }
+            list.appendChild(row);
+          });
+        });
+        if (!list.querySelector('.ct-list-row')) {
+          var empty = document.createElement('div');
+          empty.className = 'ct-list-row';
+          empty.style.color = 'var(--fg-subtle)';
+          empty.textContent = 'No campaigns yet.';
+          list.appendChild(empty);
+        }
+      }
+
+      function showBoard() {
+        board.hidden = false;
+        list.hidden = true;
+        btnBoard.classList.add('active'); btnBoard.setAttribute('aria-pressed', 'true');
+        btnList.classList.remove('active'); btnList.setAttribute('aria-pressed', 'false');
+      }
+      function showList() {
+        renderList();
+        board.hidden = true;
+        list.hidden = false;
+        btnList.classList.add('active'); btnList.setAttribute('aria-pressed', 'true');
+        btnBoard.classList.remove('active'); btnBoard.setAttribute('aria-pressed', 'false');
+      }
+      if (btnBoard) btnBoard.addEventListener('click', showBoard);
+      if (btnList) btnList.addEventListener('click', showList);
     })();
   </script>
 </body>

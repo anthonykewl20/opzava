@@ -75,7 +75,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -118,8 +118,10 @@
             </div>
           </div>
           <div class="proj-band-actions">
+            <!-- #2/#25: single key action for this view = New to-do (one .btn-primary). The band-level
+                 "Ask your assistant" button was removed — the Ask-your-assistant tile already carries it,
+                 so this avoids a duplicate entry point (Hick's/Recognition-over-recall). -->
             <a href="essential-todo-new.html" class="btn btn-primary"><span aria-hidden="true">＋</span> New to-do</a>
-            <a class="btn btn-ghost" href="project-assistant.html" role="button"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask your assistant</a>
           </div>
         </div>
 
@@ -136,13 +138,15 @@
         <!-- ── Tool tiles ──────────────────────────────────────────────────── -->
         <div class="tool-grid">
 
-          <!-- 🎯 Goals — measurable targets (AI-assisted accent top-border) -->
+          <!-- 🎯 Goals — measurable targets (AI-assisted accent top-border).
+               #25: the 76% / On-track progress was removed here — the goal banner above already
+               states it once. The tile is the doorway to all goals; it doesn't repeat the headline metric. -->
           <div class="card tile" style="border-top:2px solid var(--accent-border)">
             <span class="tile-glyph" aria-hidden="true">🎯</span>
             <a href="essential-goals.html" class="tile-name">Goals</a>
-            <p class="tile-preview">3 SMART goals. Response-time satisfaction at 76% of target — Atlas keeps progress in sync with the work.</p>
+            <p class="tile-preview">3 SMART goals for this quarter — Atlas keeps progress in sync with the work.</p>
             <div class="tile-foot">
-              <span class="sb-statusline quick" role="button" tabindex="0" data-quick="On track|Response-time satisfaction 82% → 90% · 76% there|◷ 18 days left · on pace" data-qlink="essential-goals.html" data-qlabel="Open Goals" aria-label="On track"><span class="sl-glyph" aria-hidden="true">◴</span> <span class="sl-label">On track</span></span>
+              <span class="badge quick" role="button" tabindex="0" data-quick="Goals · 3|Response-time satisfaction 82% → 90%|Newsletter cadence — weekly|Social reach — +20%" data-qlink="essential-goals.html" data-qlabel="Open Goals"><span class="dot" aria-hidden="true"></span> 3 SMART goals</span>
               <span class="u-grow"></span>
               <span class="u-subtle" style="font-size:var(--text-xs)">3 goals</span>
             </div>
@@ -337,13 +341,18 @@
     .qp-link:hover{color:var(--accent)}
   </style>
   <script>
-    (function(){var pop;function close(){if(pop){pop.remove();pop=null;}}
+    /* #19: the quick-status popover is a non-modal status readout, not a dialog.
+       It is now role="tooltip" referenced by the trigger via aria-describedby (assistive tech
+       announces the status text as the trigger's description), instead of the mismeaning role="dialog". */
+    (function(){var pop,owner;var POP_ID='quick-status-pop';
+    function close(){if(owner){owner.removeAttribute('aria-describedby');owner=null;}if(pop){pop.remove();pop=null;}}
     document.addEventListener('click',function(e){var t=e.target.closest('.quick');if(!t){close();return;}e.stopPropagation();close();
       var parts=(t.dataset.quick||'').split('|');var hd=parts.shift();
       var rows=parts.map(function(r){return '<div class="qp-row">'+r+'</div>';}).join('');
       var link=t.dataset.qlink?'<a class="qp-link" href="'+t.dataset.qlink+'">'+(t.dataset.qlabel||'Open')+' →</a>':'';
-      pop=document.createElement('div');pop.className='qp sb-popover';pop.setAttribute('role','dialog');
+      pop=document.createElement('div');pop.className='qp sb-popover';pop.id=POP_ID;pop.setAttribute('role','tooltip');
       pop.innerHTML='<div class="qp-hd">'+hd+'</div>'+rows+link;document.body.appendChild(pop);
+      owner=t;t.setAttribute('aria-describedby',POP_ID);
       var r=t.getBoundingClientRect(),w=270,left=Math.max(12,Math.min(r.left,window.innerWidth-w-12));
       pop.style.left=left+'px';pop.style.top=(r.bottom+8)+'px';pop.style.width=w+'px';});
     document.addEventListener('keydown',function(e){if(e.key==='Escape')close();});

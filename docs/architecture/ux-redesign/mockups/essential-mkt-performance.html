@@ -61,12 +61,14 @@
     .attention-line { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-4); padding: var(--space-3) var(--space-4); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--fg-muted); }
     .attention-glyph { font-size: var(--text-base); flex: none; }
 
-    /* ── Loading / empty async states ────────────────────────────────── */
-    .state-loading { display: none; }   /* toggle .state-loading { display: block } to show skeleton */
-    .state-empty   { display: none; }   /* toggle to show empty state */
-
     /* ── Date filter control ──────────────────────────────────────────── */
     .filter-row { display: flex; align-items: center; gap: var(--space-3); }
+    /* Live "Updating…" cue while the range filter re-fetches — the only async
+       state rendered on this surface (no display:none demo blocks: spec §23). */
+    .filter-busy { display: none; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--fg-muted); }
+    .filter-busy[data-busy="true"] { display: inline-flex; }
+    .filter-busy .filter-busy-glyph { color: var(--accent); }
+    .results-region[aria-busy="true"] { opacity: 0.55; transition: opacity 0.2s var(--ease-standard); pointer-events: none; }
 
     /* ── Mobile collapse ──────────────────────────────────────────────── */
     @media (max-width: 640px) {
@@ -100,7 +102,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
     <span class="u-grow"></span>
-    <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
     <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative">
       <span aria-hidden="true">🔔</span>
       <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span>
@@ -126,40 +128,41 @@
         <p class="pg-sub">Goal vs. actual for live and recent campaigns. One number that matters each.</p>
       </div>
 
-      <!-- Date-range filter -->
+      <!-- Date-range filter — a real wired control, not a false affordance:
+           changing it shows a live "Updating…" cue + aria-busy on the results,
+           marks the chosen option aria-current, and recomputes the count line
+           (spec §14: reflect the active selection, never leave the control inert). -->
       <div class="filter-row">
+        <span class="filter-busy" id="filter-busy" role="status" data-busy="false">
+          <span class="filter-busy-glyph" aria-hidden="true">◷</span>
+          <span>Updating…</span>
+        </span>
         <div style="position:relative;display:inline-flex;align-items:center;">
-          <select class="select" id="date-range-filter" aria-label="Date range" style="padding-right:var(--space-6);appearance:none;cursor:pointer;font-size:var(--text-sm);">
-            <option selected>This quarter</option>
-            <option>Last quarter</option>
-            <option>Last 30 days</option>
-            <option>Last 90 days</option>
-            <option>All time</option>
+          <select class="select" id="date-range-filter" aria-label="Date range" aria-describedby="results-count-text" style="padding-right:var(--space-6);appearance:none;cursor:pointer;font-size:var(--text-sm);">
+            <option value="this-quarter" data-count="3" selected aria-current="true">This quarter</option>
+            <option value="last-quarter" data-count="4">Last quarter</option>
+            <option value="last-30" data-count="2">Last 30 days</option>
+            <option value="last-90" data-count="3">Last 90 days</option>
+            <option value="all-time" data-count="7">All time</option>
           </select>
           <span aria-hidden="true" style="position:absolute;right:var(--space-3);pointer-events:none;color:var(--fg-muted);font-size:var(--text-xs);">▾</span>
         </div>
       </div>
     </div>
 
-    <!-- ── Loading skeleton (hidden by default; toggle display:block to show) ── -->
-    <!-- async state: loading -->
-    <div class="state-loading" aria-live="polite" aria-label="Loading performance data">
-      <div class="skeleton" style="height:44px;border-radius:var(--radius-md);margin-bottom:var(--space-2);"></div>
-      <div class="skeleton" style="height:56px;border-radius:var(--radius-md);margin-bottom:var(--space-2);"></div>
-      <div class="skeleton" style="height:56px;border-radius:var(--radius-md);margin-bottom:var(--space-2);"></div>
-      <div class="skeleton" style="height:56px;border-radius:var(--radius-md);"></div>
-    </div>
+    <!-- Spec §23: the inline loading-skeleton and empty-state DEMO blocks that
+         used to sit here were design-spec scaffolding leaking into a live
+         surface — they read to real users as a broken/duplicate page. The
+         canonical loading/error/empty reference lives in the states gallery
+         (see mention-inbox.html), not on this populated performance page. -->
 
-    <!-- ── Empty state (hidden by default; toggle display:block to show) ── -->
-    <!-- async state: empty — shown when no campaigns have tracked results yet -->
-    <div class="state-empty">
-      <div class="empty" style="padding:var(--space-16) 0;">
-        <div class="empty-icon" aria-hidden="true">📈</div>
-        <div class="empty-title">No results yet</div>
-        <div class="empty-desc">Campaign results will appear here once a campaign moves to the Publish or Measure stage.</div>
-        <a href="essential-mkt-campaigns.html" class="btn btn-ghost empty-cta">Go to Campaigns</a>
-      </div>
-    </div>
+    <!-- Results region — dimmed + aria-busy while the date range re-fetches. -->
+    <div class="results-region" id="results-region" aria-busy="false">
+
+    <!-- ── Results count line — recomputed when the date range changes ─── -->
+    <p class="results-count" id="results-count" aria-live="polite" style="font-size:var(--text-sm);color:var(--fg-muted);margin:0 0 var(--space-3);">
+      <span id="results-count-text">Showing <strong>3 campaigns</strong> · this quarter</span>
+    </p>
 
     <!-- ── Main results table ─────────────────────────────────────────── -->
     <div style="overflow-x:auto;">
@@ -257,6 +260,8 @@
       </span>
     </div>
 
+    </div><!-- /.results-region -->
+
     <!-- ── Footer nav: back to other marketing tiles ──────────────────── -->
     <nav style="display:flex;gap:var(--space-4);flex-wrap:wrap;margin-top:var(--space-10);padding-top:var(--space-6);border-top:1px solid var(--border);" aria-label="Marketing workspace tiles">
       <a href="essential-mkt-campaigns.html"  style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">▣ Campaigns</a>
@@ -273,5 +278,53 @@
 
   </div><!-- /.bc-wrap -->
 </div><!-- /.bc -->
+
+<!-- ── Page-local JS: wire the date-range filter (spec §14) ───────────────
+     The control drives explicit per-option state (data-count + value), never a
+     regex over rendered text. On change it: (1) reflects the active selection
+     via aria-current on the chosen <option>, (2) marks the results region
+     aria-busy + shows a live "Updating…" cue (so it isn't a false affordance),
+     then (3) recomputes the count line. Static mock — a real build would
+     re-fetch; here we surface the same observable states. -->
+<script>
+(function () {
+  var sel     = document.getElementById('date-range-filter');
+  var busy    = document.getElementById('filter-busy');
+  var region  = document.getElementById('results-region');
+  var countEl = document.getElementById('results-count-text');
+  if (!sel || !busy || !region || !countEl) return;
+
+  var timer = null;
+
+  function setBusy(on) {
+    busy.setAttribute('data-busy', on ? 'true' : 'false');
+    region.setAttribute('aria-busy', on ? 'true' : 'false');
+  }
+
+  sel.addEventListener('change', function () {
+    var opt = sel.options[sel.selectedIndex];
+
+    // (1) Reflect the active selection — aria-current marks the chosen option.
+    Array.prototype.forEach.call(sel.options, function (o) {
+      o.removeAttribute('aria-current');
+    });
+    opt.setAttribute('aria-current', 'true');
+
+    // (2) Show the live "Updating…" state so the control reads as wired.
+    setBusy(true);
+
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(function () {
+      // (3) Recompute the count line from explicit per-option data.
+      var count = opt.getAttribute('data-count') || '0';
+      var label = (opt.textContent || '').trim().toLowerCase();
+      var noun  = count === '1' ? 'campaign' : 'campaigns';
+      countEl.innerHTML =
+        'Showing <strong>' + count + ' ' + noun + '</strong> · ' + label;
+      setBusy(false);
+    }, 450);
+  });
+})();
+</script>
 </body>
 </html>

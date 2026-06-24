@@ -35,6 +35,34 @@
     .page-head h1 { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; margin: 0; }
     .page-sub { font-size: var(--text-md); color: var(--fg-muted); line-height: var(--lh-snug); max-width: 60ch; margin-bottom: var(--space-7); }
 
+    /* ── Waiting-on-you band (#10 Zeigarnik / Goal-Gradient) — label+glyph, deep-links to the work, surfaced above calm on-track items. ── */
+    .needs-band { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-6); border-left: 3px solid var(--warning); }
+    .needs-band-glyph { flex: none; color: var(--fg-subtle); line-height: 1; font-size: var(--text-md); }
+    .needs-band-text { flex: 1 1 auto; min-width: 0; font-size: var(--text-base); color: var(--fg); }
+    .needs-band-text strong { font-weight: var(--fw-semibold); }
+    .needs-band-sub { font-size: var(--text-xs); color: var(--fg-muted); }
+    /* #10 pull-to-closure: once the waiting approval is taken, the band relaxes to a calm cleared cue. */
+    .needs-band[data-cleared="true"] { border-left-color: var(--border); opacity: .6; }
+
+    /* ── Async states (#12) — skeleton + empty, hidden by default; toggled via the page demo control. ── */
+    .feed-region.is-loading .day-group,
+    .feed-region.is-loading .summary-card,
+    .feed-region.is-loading .feed-close { display: none; }
+    .feed-region.is-empty .day-group,
+    .feed-region.is-empty .summary-card,
+    .feed-region.is-empty .feed-close { display: none; }
+    .feed-skeleton, .feed-empty { display: none; }
+    .feed-region.is-loading .feed-skeleton { display: block; }
+    .feed-region.is-empty .feed-empty { display: flex; }
+    .feed-error { display: none; }
+    .feed-region.is-error .day-group,
+    .feed-region.is-error .summary-card,
+    .feed-region.is-error .feed-close,
+    .feed-region.is-error .needs-band { display: none; }
+    .feed-region.is-error .feed-error { display: flex; }
+    .sk-feed-item { display: flex; align-items: baseline; gap: var(--space-4); padding: var(--space-4) var(--space-1); border-bottom: 1px solid var(--border); }
+    .sk-feed-ava { width: 30px; height: 30px; border-radius: 50%; flex: none; }
+
     /* ── Pinned daily-summary card ── */
     .summary-card { padding: var(--space-6); margin-bottom: var(--space-8); border-top: 2px solid var(--accent-border); }
     .summary-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-4); }
@@ -79,7 +107,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -103,6 +131,42 @@
           <button class="btn btn-ghost btn-sm" type="button" aria-haspopup="menu" aria-expanded="false">Filter <span aria-hidden="true">▾</span></button>
         </div>
         <p class="page-sub">A running history of what happened in this project — and the daily summary Atlas writes at 5 pm.</p>
+
+        <!-- ── Feed region wrapper (#12 — toggles loading / empty / error states) ── -->
+        <div class="feed-region" id="feed-region">
+
+        <!-- ── Waiting on you (#10 Zeigarnik pull → one-click path, not dead text) ── -->
+        <div class="card needs-band" role="status" aria-label="Waiting on you: 1 approval overdue">
+          <span class="needs-band-glyph" aria-hidden="true">◷</span>
+          <div class="needs-band-text">
+            <strong>Waiting on you:</strong> 1 approval overdue — the June newsletter has waited since 2:14 pm.
+            <span class="needs-band-sub">·&nbsp;Everything else on track</span>
+          </div>
+          <a class="btn btn-primary" href="essential-my-stuff.html#review-june-newsletter" data-needs-action="review-june-newsletter">Review<span aria-hidden="true"> →</span></a>
+        </div>
+
+        <!-- ── Loading skeleton (#12 — shown while the feed is fetching) ── -->
+        <div class="feed-skeleton" aria-busy="true" aria-label="Loading updates">
+          <div class="day-head">Today</div>
+          <div class="sk-feed-item"><span class="skeleton sk-feed-ava"></span><span class="skeleton sk-line u-grow" style="height:15px;max-width:70%"></span><span class="skeleton sk-line" style="height:12px;width:48px"></span></div>
+          <div class="sk-feed-item"><span class="skeleton sk-feed-ava"></span><span class="skeleton sk-line u-grow" style="height:15px;max-width:55%"></span><span class="skeleton sk-line" style="height:12px;width:48px"></span></div>
+          <div class="sk-feed-item"><span class="skeleton sk-feed-ava"></span><span class="skeleton sk-line u-grow" style="height:15px;max-width:62%"></span><span class="skeleton sk-line" style="height:12px;width:48px"></span></div>
+        </div>
+
+        <!-- ── First-use empty state (#12) ── -->
+        <div class="feed-empty card empty" style="flex-direction:column;align-items:center;justify-content:center">
+          <div class="empty-icon" aria-hidden="true">⌁</div>
+          <div class="empty-title">No updates yet</div>
+          <div class="empty-desc">Atlas posts the first summary at 5 pm. As your team and assistants work, what they do shows up here.</div>
+        </div>
+
+        <!-- ── Error / retry state (#12) ── -->
+        <div class="feed-error card empty" style="flex-direction:column;align-items:center;justify-content:center" role="status">
+          <div class="empty-icon" aria-hidden="true">⚠</div>
+          <div class="empty-title">Couldn’t load updates</div>
+          <div class="empty-desc">Something went wrong fetching this project’s history.</div>
+          <div class="empty-cta"><button class="btn btn-ghost" type="button" id="feed-retry">Try again</button></div>
+        </div>
 
         <!-- ── Pinned ✦ Atlas daily-summary card ───────────────────────────── -->
         <div class="card summary-card" aria-label="Pinned daily summary from Atlas">
@@ -233,5 +297,57 @@
     </main>
 
   </div><!-- /.bc -->
+
+  <!-- ── Page-local JS: #12 async-state recovery (error → loading → content) + #10 pull-to-closure announce. ──
+       The feed renders the happy path by default (no state class on #feed-region), matching the
+       mention-inbox convention — the loading/empty/error blocks stay hidden until a real condition
+       toggles them, so none read as broken scaffolding on the live page. -->
+  <script>
+    (function () {
+      'use strict';
+
+      var region = document.getElementById('feed-region');
+      if (!region) return;
+
+      // Single polite announcer for state changes (no duplicate live regions).
+      var live = document.createElement('div');
+      live.className = 'u-sr-only';
+      live.setAttribute('role', 'status');
+      live.setAttribute('aria-live', 'polite');
+      region.appendChild(live);
+
+      var STATES = ['is-loading', 'is-empty', 'is-error'];
+      function setState(name) {
+        STATES.forEach(function (s) { region.classList.remove(s); });
+        if (name) region.classList.add('is-' + name);
+      }
+
+      // ── #12 error recovery: retry runs a brief loading beat (>400ms, Doherty),
+      //    then restores the feed content and announces it. ──
+      var retry = document.getElementById('feed-retry');
+      if (retry) {
+        retry.addEventListener('click', function () {
+          setState('loading');
+          live.textContent = 'Reloading updates…';
+          window.setTimeout(function () {
+            setState(null); // back to the happy-path content
+            live.textContent = 'Updates loaded.';
+          }, 600);
+        });
+      }
+
+      // ── #10 pull-to-closure: when the user takes the one approval that is waiting,
+      //    decrement the band to "all clear" so the page reflects the cleared item.
+      //    (Deep-link still navigates; the optimistic clear is announced for AT.) ──
+      var band = document.querySelector('.needs-band');
+      var bandAction = document.querySelector('[data-needs-action]');
+      if (band && bandAction) {
+        bandAction.addEventListener('click', function () {
+          band.setAttribute('data-cleared', 'true');
+          live.textContent = 'Review opened — the June newsletter approval is no longer waiting.';
+        });
+      }
+    })();
+  </script>
 </body>
 </html>

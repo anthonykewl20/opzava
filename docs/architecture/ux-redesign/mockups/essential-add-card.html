@@ -63,9 +63,13 @@
     .type-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px var(--space-3); font-size: var(--text-xs); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); white-space: nowrap; }
     .type-chip .g { font-size: var(--text-sm); }
 
-    /* Quiet Atlas suggestion line under the grid */
-    .add-atlas { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-5); font-size: var(--text-sm); color: var(--fg-muted); }
+    /* Quiet Atlas suggestion control under the grid — real button + plain hint */
+    .add-atlas { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-top: var(--space-5); }
     .add-atlas .spark { color: var(--accent); flex: none; }
+    .add-atlas-btn { flex: none; }
+    .add-atlas-hint { font-size: var(--text-sm); color: var(--fg-muted); }
+    .add-atlas-result { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); }
+    .add-atlas-result .spark { color: var(--accent); flex: none; }
 
     @media (max-width: 640px) {
       .topnav { display: none; }
@@ -123,7 +127,7 @@
 
         <div class="type-grid" role="radiogroup" aria-label="Card type">
 
-          <!-- SMART Goal — first, selected by default -->
+          <!-- SMART Goal — first, selected by default (roving tabindex: only the checked card is tabbable) -->
           <div class="type-card" role="radio" aria-checked="true" tabindex="0" data-href="essential-goal-create.html" data-name="SMART Goal">
             <span class="type-check" aria-hidden="true">✓</span>
             <div class="type-head">
@@ -138,7 +142,7 @@
           </div>
 
           <!-- To-do list -->
-          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="essential-todos.html" data-name="To-do list">
+          <div class="type-card" role="radio" aria-checked="false" tabindex="-1" data-href="essential-todos.html" data-name="To-do list">
             <span class="type-check" aria-hidden="true">✓</span>
             <div class="type-head">
               <span class="type-glyph" aria-hidden="true">✓</span>
@@ -152,7 +156,7 @@
           </div>
 
           <!-- Note -->
-          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="essential-compose.html" data-name="Note">
+          <div class="type-card" role="radio" aria-checked="false" tabindex="-1" data-href="essential-compose.html" data-name="Note">
             <span class="type-check" aria-hidden="true">✓</span>
             <div class="type-head">
               <span class="type-glyph" aria-hidden="true">📝</span>
@@ -166,7 +170,7 @@
           </div>
 
           <!-- Board -->
-          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="essential-card-table.html" data-name="Board">
+          <div class="type-card" role="radio" aria-checked="false" tabindex="-1" data-href="essential-card-table.html" data-name="Board">
             <span class="type-check" aria-hidden="true">✓</span>
             <div class="type-head">
               <span class="type-glyph" aria-hidden="true">▦</span>
@@ -180,7 +184,7 @@
           </div>
 
           <!-- Schedule -->
-          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="essential-schedule.html" data-name="Schedule">
+          <div class="type-card" role="radio" aria-checked="false" tabindex="-1" data-href="essential-schedule.html" data-name="Schedule">
             <span class="type-check" aria-hidden="true">✓</span>
             <div class="type-head">
               <span class="type-glyph" aria-hidden="true">📅</span>
@@ -194,7 +198,7 @@
           </div>
 
           <!-- Docs & Files -->
-          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="essential-docs.html" data-name="Docs &amp; Files">
+          <div class="type-card" role="radio" aria-checked="false" tabindex="-1" data-href="essential-docs.html" data-name="Docs &amp; Files">
             <span class="type-check" aria-hidden="true">✓</span>
             <div class="type-head">
               <span class="type-glyph" aria-hidden="true">📎</span>
@@ -208,7 +212,7 @@
           </div>
 
           <!-- Discovery -->
-          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="essential-discovery.html" data-name="Discovery">
+          <div class="type-card" role="radio" aria-checked="false" tabindex="-1" data-href="essential-discovery.html" data-name="Discovery">
             <span class="type-check" aria-hidden="true">✓</span>
             <div class="type-head">
               <span class="type-glyph" aria-hidden="true">💡</span>
@@ -222,7 +226,7 @@
           </div>
 
           <!-- Updates -->
-          <div class="type-card" role="radio" aria-checked="false" tabindex="0" data-href="essential-updates.html" data-name="Updates">
+          <div class="type-card" role="radio" aria-checked="false" tabindex="-1" data-href="essential-updates.html" data-name="Updates">
             <span class="type-check" aria-hidden="true">✓</span>
             <div class="type-head">
               <span class="type-glyph" aria-hidden="true">⌁</span>
@@ -237,7 +241,13 @@
 
         </div>
 
-        <p class="add-atlas"><span class="spark" aria-hidden="true">✦</span> Atlas can suggest the right cards for a project like this.</p>
+        <div class="add-atlas">
+          <button type="button" class="btn btn-ghost add-atlas-btn" id="suggestBtn" aria-describedby="suggestHint">
+            <span class="spark" aria-hidden="true">✦</span> Suggest cards
+          </button>
+          <span class="add-atlas-hint" id="suggestHint">Atlas can pick the right cards for a project like this.</span>
+        </div>
+        <p class="add-atlas-result" id="suggestResult" role="status" aria-live="polite" hidden></p>
       </div>
 
       <div class="wiz-foot">
@@ -249,19 +259,27 @@
   </div>
 
   <script>
-    // Calm radiogroup: clicking/keying a card type selects it, marks the ✓,
-    // and points the single primary button at that type's create flow + label.
+    // Calm radiogroup with roving tabindex + arrow keys (#9), and a focus-trapped
+    // modal dialog with focus restore + inert background + scoped Esc (#8).
     // Default selected = SMART Goal → essential-goal-create.html.
     (function () {
+      var overlay = document.querySelector('.sb-overlay');
+      var backdrop = document.querySelector('.bc');           // dimmed page behind
       var group = document.querySelector('.type-grid');
       var addBtn = document.getElementById('addBtn');
-      function select(card) {
-        group.querySelectorAll('.type-card').forEach(function (c) {
-          c.setAttribute('aria-checked', c === card ? 'true' : 'false');
+      var cards = Array.prototype.slice.call(group.querySelectorAll('.type-card'));
+
+      // ── Roving tabindex radiogroup (#9): only the checked card is tabbable;
+      //    Arrow keys move selection + focus together, Home/End jump to ends.
+      function select(card, focusIt) {
+        cards.forEach(function (c) {
+          var on = c === card;
+          c.setAttribute('aria-checked', on ? 'true' : 'false');
+          c.setAttribute('tabindex', on ? '0' : '-1');
         });
         addBtn.setAttribute('href', card.getAttribute('data-href'));
-        addBtn.innerHTML = 'Add ' + card.getAttribute('data-name') + ' →';
-        card.focus();
+        addBtn.textContent = 'Add ' + card.getAttribute('data-name') + ' →';
+        if (focusIt !== false) card.focus();
       }
       group.addEventListener('click', function (e) {
         var card = e.target.closest('.type-card');
@@ -269,8 +287,71 @@
       });
       group.addEventListener('keydown', function (e) {
         var card = e.target.closest('.type-card');
-        if (card && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); select(card); }
+        if (!card) return;
+        var i = cards.indexOf(card);
+        if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); select(card); return; }
+        var next = null;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { next = cards[(i + 1) % cards.length]; }
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { next = cards[(i - 1 + cards.length) % cards.length]; }
+        else if (e.key === 'Home') { next = cards[0]; }
+        else if (e.key === 'End') { next = cards[cards.length - 1]; }
+        if (next) { e.preventDefault(); select(next); }
       });
+
+      // ── #25: real "✦ Suggest cards" button replaces the dead suggestion text.
+      //    Atlas picks a sensible set for this project; selecting the top pick.
+      var suggestBtn = document.getElementById('suggestBtn');
+      var suggestResult = document.getElementById('suggestResult');
+      if (suggestBtn) {
+        suggestBtn.addEventListener('click', function () {
+          if (suggestBtn.getAttribute('aria-busy') === 'true') return;
+          suggestBtn.setAttribute('aria-busy', 'true');
+          suggestBtn.disabled = true;
+          suggestResult.hidden = false;
+          suggestResult.textContent = 'Atlas is looking at this project…';
+          window.setTimeout(function () {
+            // For a support project: a SMART Goal + a To-do list + a Board.
+            var pick = cards.find(function (c) { return c.getAttribute('data-name') === 'SMART Goal'; }) || cards[0];
+            select(pick, false);
+            suggestResult.innerHTML =
+              '<span class="spark" aria-hidden="true">✦</span> Atlas suggests starting with a <strong>SMART Goal</strong>, then a <strong>To-do list</strong> and a <strong>Board</strong>. SMART Goal is selected — adjust below.';
+            suggestBtn.setAttribute('aria-busy', 'false');
+            suggestBtn.disabled = false;
+          }, 480);
+        });
+      }
+
+      // ── #8: modal focus contract — trap Tab inside the dialog, mark the page
+      //    behind inert, move focus in on open, restore + clean Esc on close.
+      var FOCUSABLE = 'a[href],button:not([disabled]),input,select,textarea,[tabindex]:not([tabindex="-1"])';
+      function tabbables() {
+        return Array.prototype.slice.call(overlay.querySelectorAll(FOCUSABLE))
+          .filter(function (el) { return el.offsetParent !== null && el.getAttribute('tabindex') !== '-1'; });
+      }
+      // Background page is decorative here; make it truly inert for AT + Tab.
+      if (backdrop && 'inert' in HTMLElement.prototype) { backdrop.inert = true; }
+
+      overlay.addEventListener('keydown', function (e) {
+        if (e.key === 'Tab') {
+          var items = tabbables();
+          if (!items.length) return;
+          var first = items[0], last = items[items.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        }
+      });
+      // Esc only acts while the overlay is open; closes to the project page
+      // (the dialog's canonical close target — same as Cancel / ✕).
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && overlay.classList.contains('open')) {
+          e.preventDefault();
+          window.location.href = 'essential-project.html';
+        }
+      });
+
+      // Move focus into the dialog on open: the selected (checked) card.
+      var checked = group.querySelector('.type-card[aria-checked="true"]') || cards[0];
+      if (checked) { checked.focus(); }
     })();
   </script>
 </body>

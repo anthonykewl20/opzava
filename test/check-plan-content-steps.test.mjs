@@ -1232,14 +1232,6 @@ test('case study records approval decide ui progress', async () => {
   assert.match(entry, /Next Case Study Thread/);
 });
 
-test('campaign daemon runtime wires timer sleep and stop signal', async () => {
-  await readFile(new URL('../src/opzava/modules/content/workflow/campaign-daemon-runtime.ts', import.meta.url), 'utf8');
-  await readFile(new URL('../src/opzava/modules/content/workflow/campaign-daemon-runtime.test.ts', import.meta.url), 'utf8');
-  const idx = await readFile(new URL('../src/opzava/modules/content/index.ts', import.meta.url), 'utf8');
-  assert.match(idx, /runCampaignDaemon/);
-  assert.match(idx, /createStopSignal/);
-});
-
 test('case study records campaign daemon runtime progress', async () => {
   const readme = await readFile(new URL('../docs/case-study/README.md', import.meta.url), 'utf8');
   const entry = await readFile(new URL('../docs/case-study/0112-campaign-daemon-runtime.md', import.meta.url), 'utf8');

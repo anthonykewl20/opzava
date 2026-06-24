@@ -96,6 +96,22 @@
 
     .final-note { font-size: var(--text-sm); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); margin-top: var(--space-8); line-height: var(--lh-relaxed); }
 
+    /* #5 — Atlas working state (shown only after "Make it SMART" is pressed, before the draft reveals) */
+    .ai-working { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--fg-muted); margin-bottom: var(--space-5); }
+    .ai-working-dots { width: 14px; height: 14px; flex: none; border: 2px solid var(--accent-border); border-top-color: var(--accent); border-radius: 50%; animation: ai-spin .7s linear infinite; }
+    @keyframes ai-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .ai-working-dots { animation: none; } }
+
+    /* #23 — SMART rubric as a read-only label+glyph readout (no broken/disabled controls) */
+    .rubric-item { color: var(--fg-muted); }
+    .rubric-item .rub-glyph { flex: none; color: var(--fg-subtle); }
+    .rubric-item .rub-when { font-size: var(--text-xs); }
+    .rubric-item[data-met="true"] { color: var(--fg); }
+    .rubric-item[data-met="true"] .rub-glyph { color: var(--accent); }
+
+    /* #24 — Goal-Gradient: early-fill affirmation under the step rail */
+    .step-gauge { font-size: var(--text-xs); color: var(--fg-subtle); margin: var(--space-2) 0 0; line-height: var(--lh-snug); }
+
     @media (max-width: 640px) { .topnav { display: none; } .smart-hero { flex-direction: column; align-items: stretch; } }
   </style>
 </head>
@@ -116,7 +132,7 @@
       <a href="essential-find.html">Find…</a>
     </nav>
     <span class="u-grow"></span>
-    <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
     <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
     <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
   </header>
@@ -139,30 +155,38 @@
 
     <!-- ════════ STEP 1 — Write (the S) ════════ -->
     <div class="wiz-cap">Step 1 — Write</div>
-    <div class="wiz" role="dialog" aria-label="Add a goal — step 1">
+    <section class="wiz" aria-label="Add a goal — step 1 of 3, Write">
       <div class="wiz-head">
         <h1 class="wiz-title">New goal</h1>
         <button class="wiz-x" type="button" aria-label="Close">✕</button>
       </div>
       <div class="wiz-steps">
         <div class="sb-steps" aria-label="Step 1 of 3 — 1 Write · 2 Measure · 3 Own &amp; schedule">
-          <span class="sb-step" data-state="current"><span class="sb-step-dot">1</span> Write</span>
-          <span class="sb-step-bar"></span>
-          <span class="sb-step"><span class="sb-step-dot">2</span> Measure</span>
+          <span class="sb-step" data-state="current" id="g-step-1"><span class="sb-step-dot">1</span> Write</span>
+          <span class="sb-step-bar" id="g-bar-1"></span>
+          <span class="sb-step" id="g-step-2"><span class="sb-step-dot">2</span> Measure</span>
           <span class="sb-step-bar"></span>
           <span class="sb-step"><span class="sb-step-dot">3</span> Own &amp; schedule</span>
         </div>
+        <p class="step-gauge" id="g-gauge">Three short steps — Atlas can pre-fill Write and Measure, so you mostly just confirm.</p>
       </div>
       <div class="wiz-body">
 
         <!-- HERO: ✦ Atlas "Make it SMART" assist (an offer, NOT the primary action) -->
         <div class="smart-hero">
-          <input class="input" type="text" value="get more signups" placeholder="In a sentence, what do you want to achieve?" aria-label="Describe your goal in a sentence">
-          <button class="btn btn-ghost" type="button" style="color:var(--accent);flex:none"><span aria-hidden="true">✦</span> Make it SMART</button>
+          <input class="input" id="g-seed" type="text" value="get more signups" placeholder="In a sentence, what do you want to achieve?" aria-label="Describe your goal in a sentence">
+          <button class="btn btn-ghost" id="g-smart-btn" type="button" style="color:var(--accent);flex:none" aria-controls="g-ai-card" aria-expanded="false"><span aria-hidden="true">✦</span> Make it SMART</button>
         </div>
 
-        <!-- Atlas inline proposal (reuses .ai-card markup) -->
-        <div class="ai-card" aria-label="Atlas draft">
+        <!-- Atlas working state — shown only while drafting, after the user presses "Make it SMART" -->
+        <div class="ai-working" id="g-ai-working" role="status" aria-live="polite" hidden>
+          <span class="sb-badge sb-badge--accent"><span aria-hidden="true">✦</span> Atlas</span>
+          <span class="ai-working-dots" aria-hidden="true"></span>
+          <span>Drafting a SMART version of “get more signups”…</span>
+        </div>
+
+        <!-- Atlas inline proposal (reuses .ai-card markup) — hidden until the user invokes "Make it SMART" -->
+        <div class="ai-card" id="g-ai-card" aria-label="Atlas draft" hidden>
           <div class="ai-card-row">
             <span class="sb-badge sb-badge--accent"><span aria-hidden="true">✦</span> Atlas</span>
             <span class="u-subtle" style="font-size:var(--text-xs)">drafted — you review</span>
@@ -174,7 +198,7 @@
           </div>
           <p class="ai-suggest"><span class="u-subtle">suggested:</span> start <strong>120</strong> · target <strong>200</strong> · by <strong>30 Sep</strong> <span class="u-subtle">(from this project)</span></p>
           <div class="ai-card-row">
-            <button class="btn btn-primary btn-sm" type="button">Use this draft</button>
+            <button class="btn btn-sm" id="g-use-draft" type="button">Use this draft</button>
             <button class="btn btn-ghost btn-sm" type="button">Tweak it</button>
           </div>
         </div>
@@ -183,11 +207,11 @@
         <div class="field-block">
           <div class="field">
             <label class="label" for="g-title">Goal title</label>
-            <input class="input" id="g-title" type="text" value="Increase weekly signups from 120 to 200 by 30 Sep" aria-label="Goal title">
+            <input class="input" id="g-title" type="text" value="" placeholder="Name the goal — or let Atlas draft one above" aria-label="Goal title">
           </div>
           <div class="field">
             <label class="label" for="g-outcome">The outcome you want</label>
-            <textarea class="textarea" id="g-outcome" aria-label="The outcome you want" placeholder="What does success look like, in plain words?">More qualified signups each week, driven by the referral flow and a sharper landing page — so the team has a clear, shared target through Q3.</textarea>
+            <textarea class="textarea" id="g-outcome" aria-label="The outcome you want" placeholder="What does success look like, in plain words?"></textarea>
           </div>
         </div>
 
@@ -216,15 +240,15 @@
           </div>
         </details>
 
-        <!-- Read-only SMART rubric tick strip -->
-        <div class="rubric" aria-label="SMART rubric">
+        <!-- SMART rubric — a read-only progress readout (label + glyph, never a control) -->
+        <div class="rubric" role="group" aria-label="Is this goal SMART?">
           <div class="rubric-cap">Is this goal SMART?</div>
           <div class="rubric-strip">
-            <span class="rubric-item"><input class="sb-check" type="checkbox" checked disabled aria-label="Specific — satisfied"> Specific</span>
-            <span class="rubric-item"><input class="sb-check" type="checkbox" disabled aria-label="Measurable — set in step 2"> Measurable</span>
-            <span class="rubric-item"><input class="sb-check" type="checkbox" checked disabled aria-label="Achievable — satisfied"> Achievable</span>
-            <span class="rubric-item"><input class="sb-check" type="checkbox" checked disabled aria-label="Relevant — satisfied"> Relevant</span>
-            <span class="rubric-item"><input class="sb-check" type="checkbox" disabled aria-label="Time-bound — set in step 3"> Time-bound</span>
+            <span class="rubric-item" id="rub-s" data-met="false"><span class="rub-glyph" aria-hidden="true">◷</span> <span class="rub-text">Specific</span></span>
+            <span class="rubric-item" id="rub-m" data-met="false"><span class="rub-glyph" aria-hidden="true">◷</span> <span class="rub-text">Measurable</span> <span class="rub-when u-subtle">— set in step 2</span></span>
+            <span class="rubric-item" id="rub-a" data-met="false"><span class="rub-glyph" aria-hidden="true">◷</span> <span class="rub-text">Achievable</span></span>
+            <span class="rubric-item" id="rub-r" data-met="false"><span class="rub-glyph" aria-hidden="true">◷</span> <span class="rub-text">Relevant</span></span>
+            <span class="rubric-item" id="rub-t" data-met="false"><span class="rub-glyph" aria-hidden="true">◷</span> <span class="rub-text">Time-bound</span> <span class="rub-when u-subtle">— set in step 3</span></span>
           </div>
         </div>
 
@@ -233,11 +257,11 @@
         <span></span>
         <button class="btn btn-primary" type="button">Continue →</button>
       </div>
-    </div>
+    </section>
 
     <!-- ════════ STEP 2 — Measure (the M) ════════ -->
     <div class="wiz-cap">Step 2 — Measure</div>
-    <div class="wiz" role="dialog" aria-label="Add a goal — step 2">
+    <section class="wiz" aria-label="Add a goal — step 2 of 3, Measure">
       <div class="wiz-head">
         <span class="wiz-title">How will you measure it?</span>
         <button class="wiz-x" type="button" aria-label="Close">✕</button>
@@ -295,11 +319,11 @@
         <button class="btn btn-ghost" type="button">← Back</button>
         <button class="btn btn-primary" type="button">Continue →</button>
       </div>
-    </div>
+    </section>
 
     <!-- ════════ STEP 3 — Own & schedule ════════ -->
     <div class="wiz-cap">Step 3 — Own &amp; schedule</div>
-    <div class="wiz" role="dialog" aria-label="Add a goal — step 3">
+    <section class="wiz" aria-label="Add a goal — step 3 of 3, Own and schedule">
       <div class="wiz-head">
         <span class="wiz-title">Owner &amp; timing</span>
         <button class="wiz-x" type="button" aria-label="Close">✕</button>
@@ -360,7 +384,7 @@
         <button class="btn btn-ghost" type="button">← Back</button>
         <button class="btn btn-primary" type="button">Create goal</button>
       </div>
-    </div>
+    </section>
 
     <!-- closing note -->
     <p class="final-note">
@@ -369,5 +393,75 @@
 
   </div><!-- /.bc-wrap -->
 </div><!-- /.bc -->
+
+<script>
+/* Page-local: #5 AI-honesty (reveal-on-invoke) · #24 Goal-Gradient (early-fill progress).
+   No framework — vanilla, dependency-free, runs after the canonical head scripts. */
+(function () {
+  var seed     = document.getElementById('g-seed');
+  var smartBtn = document.getElementById('g-smart-btn');
+  var working  = document.getElementById('g-ai-working');
+  var card     = document.getElementById('g-ai-card');
+  var useDraft = document.getElementById('g-use-draft');
+  var title    = document.getElementById('g-title');
+  var outcome  = document.getElementById('g-outcome');
+  var gauge    = document.getElementById('g-gauge');
+  var bar1     = document.getElementById('g-bar-1');
+
+  // The concrete draft Atlas would produce (kept here so nothing is pre-rendered as "done").
+  var DRAFT_TITLE   = 'Increase weekly signups from 120 to 200 by 30 Sep';
+  var DRAFT_OUTCOME = 'More qualified signups each week, driven by the referral flow and a sharper '
+                    + 'landing page — so the team has a clear, shared target through Q3.';
+
+  function setMet(id, met) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.setAttribute('data-met', met ? 'true' : 'false');
+    var g = el.querySelector('.rub-glyph');
+    if (g) g.textContent = met ? '✓' : '◷';
+  }
+
+  // #5 — reveal the draft only after the user asks for it, with a brief (>400ms) working state.
+  var drafting = false;
+  if (smartBtn) {
+    smartBtn.addEventListener('click', function () {
+      if (drafting) return;
+      drafting = true;
+      var phrase = (seed && seed.value.trim()) ? seed.value.trim() : 'your goal';
+      working.querySelector('span:last-child').textContent =
+        'Drafting a SMART version of “' + phrase + '”…';
+      card.hidden = true;
+      working.hidden = false;
+      smartBtn.disabled = true;
+      smartBtn.setAttribute('aria-expanded', 'false');
+      window.setTimeout(function () {
+        working.hidden = true;
+        card.hidden = false;
+        smartBtn.disabled = false;
+        smartBtn.setAttribute('aria-expanded', 'true');
+        // Atlas drafting demonstrates the goal can be Specific; user still confirms via "Use this draft".
+        setMet('rub-s', true);
+        if (useDraft) useDraft.focus();
+        drafting = false;
+      }, 650); // > Doherty 400ms so the work is visible, not instant-fake
+    });
+  }
+
+  // #5 + #24 — accepting the draft fills the fields the user reviewed, advances the rubric and the
+  // step bar (Atlas has supplied Write + Measure), and updates the early-fill affirmation.
+  if (useDraft) {
+    useDraft.addEventListener('click', function () {
+      if (title)   title.value = DRAFT_TITLE;
+      if (outcome) outcome.value = DRAFT_OUTCOME;
+      setMet('rub-s', true);  // Specific  — named target
+      setMet('rub-a', true);  // Achievable — scoped to existing team/work
+      setMet('rub-r', true);  // Relevant  — tied to activation
+      setMet('rub-m', true);  // Measurable — draft carries 120 → 200 (confirmed in step 2)
+      if (bar1) bar1.setAttribute('data-done', 'true'); // momentum toward Measure
+      if (gauge) gauge.textContent = 'Draft accepted — Write and Measure are filled. One more step to go.';
+    });
+  }
+})();
+</script>
 </body>
 </html>

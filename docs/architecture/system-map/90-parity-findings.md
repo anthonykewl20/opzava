@@ -8,6 +8,12 @@
 > Each finding ends with an **Audit question** — the thing to check in the shared repos to
 > establish parity (does the other codebase do this better, worse, or the same?).
 
+> **Remediation status (2026-06-23):** every finding below (F1–F14) has been **resolved** in this codebase
+> as of release 2.1.0 — each carries an inline ✅ note and is tracked to a done-gate in
+> [`91-remediation-plan.md`](./91-remediation-plan.md). The present-tense write-ups are preserved as the
+> **as-found audit** (the baseline the external repos are measured against); read them as "what was found",
+> not "what is still broken".
+
 **Severity key:** 🔴 correctness/security gap · 🟠 architectural debt / divergence ·
 🟡 hygiene / enforcement gap.
 
@@ -43,6 +49,15 @@ provider layer**, and emits **no provider cost or external-call event**.
 > live send path and no `external-call` record — so even if the idempotency lookup were wired,
 > there'd be nothing for it to find.
 
+> **✅ Resolved (milestone 2, 2026-06-22 — release 2.1.0).** `POST /api/campaigns/[id]/run` now drains every
+> live send through `createGuardedCampaignSendExecutorForCampaign` → `guardLiveProviderExecutionAfterPreflight`:
+> a real persisted `Approval` (bounded expiry, targeting this campaign) is required, the send is
+> provider-level exactly-once via the idempotency lookup, and each send emits an external-call receipt +
+> redacted cost + audit event. The `approvalGranted:true` hardcoding is gone, and rate/cost ceilings are
+> enforced before each send (`createProviderLimitExecutor`). The one documented follow-up is the *atomic*
+> reserve-before-execute (the runner's atomic job lease keeps same-job execution sequential until then).
+> See [`91`](./91-remediation-plan.md) F1/F1b.
+
 **Audit question:** In the shared repos, are live external side effects routed through a single
 approval+idempotency+receipt boundary, or can a sender call the provider transport directly?
 
@@ -63,6 +78,12 @@ approval+idempotency+receipt boundary, or can a sender call the provider transpo
 or shared status update bridges them. They share only the SQLite *connection* (the `/api/team/agents`
 route passes `getDatabase()` into the opzava repo, but that repo reads only `opzava_agent_roles` +
 `opzava_content_artifacts`, never `agents`).
+
+> **✅ Resolved (intentional separation — [ARD 0007](../../ard/0007-engine-separation-and-surface-unification.md)).**
+> The split is now a documented decision, not debt: a governance gate (`test/engine-boundary.test.mjs`)
+> statically enforces the one-way boundary, the agent models are *bridged* (role→runtime) rather than merged,
+> and the cross-cutting surfaces are unified by projection — unified cost on `GET /api/ops/costs`, unified
+> audit on `GET /api/audit`. See `docs/architecture/engine-boundary.md` and [`91`](./91-remediation-plan.md) F2/F2b.
 
 **Audit question:** Do the shared repos maintain one agent identity/registry, or also carry a
 split between an "operator/runtime" model and a "role/org-chart" model?
@@ -92,6 +113,11 @@ never to be *passed* (`wordpress-draft-service.ts:45-55` checks `artifactType`, 
 > so the type-only re-check is also skipped on the live path — review verdicts are read in
 > **zero** places.
 
+> **✅ Resolved.** `content-quality-gate.ts` (`assertContentQualityGatesPassed`) turns the three recorded
+> verdicts into a hard stop (a gate passes iff `status==='passed'`), enforced in the wordpress-draft step
+> service (the chokepoint both orchestrators call), `parseWordpressDraftStepInput`, and the recording executor
+> before human-approval. A `failed` fact-check now produces **no** draft. See [`91`](./91-remediation-plan.md) F3.
+
 **Audit question:** In the shared repos, do quality-gate failures block the pipeline (halt /
 requeue / feedback loop), or are they advisory artifacts like here?
 
@@ -118,6 +144,12 @@ provider URLs, model names… in source code… credentials belong in admin sett
 secret storage or environment-provided secret references."* The `settings` table stores the value
 as plaintext; `sensitive:true` only redacts it from GET responses, it does not encrypt at rest.
 
+> **✅ Resolved ([ARD 0008](../../ard/0008-secret-storage-and-resolution.md)).** A production
+> `createEnvSecretResolver` resolves secrets from the environment via the `SecretReference` boundary
+> (fail-closed). `resend_api_key` / `wordpress_app_password` are removed from settings storage — the DB holds
+> **no** provider secrets at rest; the live send path resolves the key from env and returns 503 if absent. The
+> connections UI shows an env-secret note, not secret inputs. See [`91`](./91-remediation-plan.md) F4.
+
 **Audit question:** Do the shared repos resolve credentials through a real secret-resolution
 boundary, or also read provider secrets cleartext from a general key/value store?
 
@@ -141,6 +173,12 @@ retry-after-backoff, and drip scheduling cannot make progress on their own — t
 calling them. A campaign step with `offsetHours>0` is scheduled in the future but the inline run
 loop won't wait, so it reports `failed` (`run-approved-campaign.ts` finalize logic).
 
+> **✅ Resolved.** `createRunnerMaintenanceDaemon` (`platform/runner/maintenance-daemon.ts`) runs
+> expired-lease recovery + retention on a timer, booted in `db.ts` **beside** the inherited scheduler
+> (ARD 0007 — the two timers coexist), guarded off in build/test. The campaign queue drains through the
+> guarded executor via the per-kind executor router; a standalone send-daemon was intentionally not booted to
+> avoid double-processing the same queue. See [`91`](./91-remediation-plan.md) F5/F5b.
+
 **Audit question:** Do the shared repos actually *run* their durable worker as a background
 process/daemon, or also collapse it into synchronous request handling?
 
@@ -157,6 +195,12 @@ The rate/cost limits (`requestsPerMinute`, `burst`, `usdPerHourLimit`, `usdPerDa
 validated and stored but **not even projected** into the runtime options (`runtime-options.ts:46`
 emits only runner delays + retry + provider timeout) — so no consumer could enforce them even if
 the loader were wired.
+
+> **✅ Resolved.** Admin-only `GET/PUT /api/ops/admin-settings` reads/writes the `opzava_admin_settings`
+> singleton (validates, versions, audits; stores SecretReferences only). `projectProviderLimits` projects the
+> rate/cost ceilings into runtime options and `evaluateProviderLimits` (+`createProviderLimitExecutor`,
+> `createProviderUsageReader`) enforces them fail-closed before each live send. See
+> [`91`](./91-remediation-plan.md) F6/F6b.
 
 **Audit question:** In the shared repos, are operator-tunable runtime settings (and budget/rate
 limits) actually loaded and enforced at runtime, or defined-but-dormant?
@@ -179,6 +223,11 @@ layer does not:
 No governance test bans hardcoded models anywhere — so the inherited layer violates the documented
 principle and simply isn't covered by any check. (`task-dispatch` has an optional per-agent
 `dispatchModel` override, but the hardcoded IDs are the operative default.)
+
+> **✅ Resolved (with F14).** All twelve inherited model-id/pricing sites now route through a single
+> `src/lib/model-config.ts`; the governance gate `test/no-hardcoded-models.test.mjs` enforces that no
+> `claude-<family>-<version>` literal remains in their executable code (green at 283 governance tests). See
+> the F14 section below and [`91`](./91-remediation-plan.md) F7.
 
 **Audit question:** Do the shared repos centralize model/pricing config, or scatter model IDs
 through source like the inherited layer here?
@@ -250,6 +299,11 @@ yields it with `agentId:null`; its artifacts are attributed to no one.
 wraps the **recording** one — which is what `POST /api/ops/runs` (`route.ts:109`) actually calls. Two code paths,
 one workflow definition, easy to drift.
 
+> **✅ Resolved (intent met).** Rather than a risky merge of the two executors, F3's quality-gate enforcement
+> was placed in the **single chokepoint both call** — the wordpress-draft step service — so the gate cannot be
+> missed by either path (F10's only real purpose). A structural merge is deferred as low-value (no remaining
+> drift risk for the gate). See [`91`](./91-remediation-plan.md) F10.
+
 **Audit question:** Do the shared repos keep a single orchestrator per workflow, or fork sync/async variants?
 
 ---
@@ -259,6 +313,11 @@ one workflow definition, easy to drift.
 `src/lib/schedule-parser.ts:166` destructures `[minExpr, hourExpr, , , dowExpr]` — positions 2 (day-of-month)
 and 3 (month) are discarded; lines 169–173 match only minute/hour/day-of-week. So a cron with a day-of-month or
 month constraint **over-fires**. `cron-occurrences.ts` is a separate, full 5-field parser → the two disagree.
+
+> **✅ Resolved.** `isCronDue` now honours all five fields — added the month check and a `matchesCronDay`
+> helper applying Vixie-cron day-of-month/day-of-week OR-semantics, mirroring `cron-occurrences.ts` so the
+> "due now" check and the occurrence enumerator agree (`0 0 1 * *` fires only on day-1, etc.). See
+> [`91`](./91-remediation-plan.md) F11.
 
 **Audit question:** Do the shared repos parse all five cron fields consistently in one place?
 
@@ -270,6 +329,12 @@ month constraint **over-fires**. `cron-occurrences.ts` is a separate, full 5-fie
 `scripts/` (station-doctor.sh, security-audit.sh, deploy-standalone.sh, take-screenshots.ts, mc-cli.cjs, …). The
 branding gate (`test/branding.test.mjs:75-91`) scans only `src/app`, `src/components`, `messages/` — never
 `scripts/`. Compounds **F8**: the gate is both unwired in CI *and* scoped to miss this residue.
+
+> **✅ Resolved.** `scripts/mc-mcp-server.cjs` now reports `serverInfo.name = 'opzava'`, and
+> `test/branding.test.mjs` adds a dedicated `scripts/` invariant ("agent-facing scripts declare Opzava as the
+> product identity"). The residual `mission-control` strings in `scripts/` are sanctioned inherited references
+> (the `MISSION_CONTROL_*` env vars, the `mission-control.db` filename, the `~/.mission-control` profile path),
+> not brand leaks. See [`91`](./91-remediation-plan.md) F12.
 
 **Audit question:** Do the shared repos scope their brand checks to cover ops/CLI tooling, not just app source?
 

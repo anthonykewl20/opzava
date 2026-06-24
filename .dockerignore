@@ -8,3 +8,5 @@ node_modules
 ops
 scripts/*
 !scripts/check-node-version.mjs
+!scripts/mc-server.cjs
+!scripts/pty-websocket-standalone.cjs

@@ -139,7 +139,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -152,12 +152,13 @@
           <span aria-hidden="true">←</span> Q2 Content Push
         </a>
 
-        <!-- Header — board-level actions only (no Cards▾, no New-project-on-board) -->
+        <!-- Header — board-level actions only. "Add an idea" lives on each column's dashed
+             creator (the one create affordance, #25); the header carries only the assistive
+             "Ask Atlas" — kept non-primary so the page's single primary is "Connect to a project". -->
         <div class="disc-head">
           <h1 class="disc-title">💡 Discovery</h1>
           <div class="u-row" style="gap:var(--space-2)">
-            <a href="essential-idea-new.html" class="btn"><span aria-hidden="true">＋</span> Add an idea</a>
-            <button class="btn btn-primary" type="button" id="askAtlasBtn"><span aria-hidden="true">✦</span> Ask Atlas</button>
+            <button class="btn" type="button" id="askAtlasBtn"><span aria-hidden="true">✦</span> Ask Atlas</button>
           </div>
         </div>
 
@@ -349,12 +350,49 @@
   <script>
     (function () {
       var scrim = document.getElementById('aiScrim');
-      function openAi(){ scrim.classList.add('open'); }
-      function closeAi(){ scrim.classList.remove('open'); }
-      document.getElementById('askAtlasBtn').addEventListener('click', openAi);
+      var panel = scrim.querySelector('.ai-panel');
+      var pageMain = document.querySelector('main');
+      var FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+      var lastTrigger = null;
+
+      function focusable() {
+        return Array.prototype.filter.call(panel.querySelectorAll(FOCUSABLE), function (el) {
+          return el.offsetParent !== null || el === document.activeElement;
+        });
+      }
+      function isOpen(){ return scrim.classList.contains('open'); }
+
+      function openAi(trigger) {
+        lastTrigger = trigger || document.activeElement;
+        scrim.classList.add('open');
+        if (pageMain) { pageMain.inert = true; pageMain.setAttribute('aria-hidden', 'true'); }
+        var first = focusable()[0];
+        if (first) first.focus();        // move focus into the dialog
+      }
+      function closeAi() {
+        if (!isOpen()) return;
+        scrim.classList.remove('open');
+        if (pageMain) { pageMain.inert = false; pageMain.removeAttribute('aria-hidden'); }
+        if (lastTrigger && typeof lastTrigger.focus === 'function') lastTrigger.focus();  // restore focus to trigger
+        lastTrigger = null;
+      }
+      function trapTab(e) {
+        if (e.key !== 'Tab') return;
+        var nodes = focusable();
+        if (!nodes.length) { e.preventDefault(); return; }
+        var first = nodes[0], last = nodes[nodes.length - 1], active = document.activeElement;
+        if (e.shiftKey && (active === first || !panel.contains(active))) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+      }
+
+      document.getElementById('askAtlasBtn').addEventListener('click', function (e) { openAi(e.currentTarget); });
       document.getElementById('aiClose').addEventListener('click', closeAi);
       scrim.addEventListener('click', function (e) { if (e.target === scrim) closeAi(); });
-      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAi(); });
+      scrim.addEventListener('keydown', function (e) {
+        if (!isOpen()) return;
+        if (e.key === 'Escape') { e.preventDefault(); closeAi(); }    // Esc scoped to the open overlay; restores focus, never navigates
+        else trapTab(e);
+      });
 
       var srcBtn = document.getElementById('srcToggle'), srcPanel = document.getElementById('srcPanel');
       srcBtn.addEventListener('click', function () {

@@ -36,6 +36,7 @@
     .stat-value { font-size: var(--text-2xl); font-weight: var(--fw-semibold); color: var(--fg); font-variant-numeric: tabular-nums; line-height: 1.1; margin: var(--space-2) 0 var(--space-1); }
     .stat-delta { font-size: var(--text-xs); color: var(--fg-muted); display: inline-flex; align-items: center; gap: 5px; }
     .stat-delta .g { font-weight: var(--fw-semibold); color: var(--fg); }   /* trend glyph — neutral, direction is the signal */
+    .stat-delta--neutral { color: var(--fg-subtle); }   /* inverted/ambiguous metric (spend is a cost, CTR flat) — no good/bad weight */
 
     /* ── ✦ Atlas analysis — the AI's read on the numbers ──────────────── */
     .analysis { border: 1px solid var(--border); border-top: 2px solid var(--accent); border-radius: var(--radius-lg); background: var(--surface); padding: var(--space-5) var(--space-6); margin-bottom: var(--space-8); }
@@ -46,7 +47,11 @@
     .analysis-item { display: flex; gap: var(--space-3); font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-snug); }
     .analysis-item .mark { color: var(--accent); flex: none; font-weight: var(--fw-semibold); }
     .analysis-rec { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border); font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-snug); }
-    .analysis-actions { display: flex; gap: var(--space-2); margin-top: var(--space-4); flex-wrap: wrap; }
+    .analysis-actions { display: flex; gap: var(--space-2); margin-top: var(--space-4); flex-wrap: wrap; align-items: center; }
+    .analysis-stamp { font-size: var(--text-xs); color: var(--fg-subtle); margin: var(--space-3) 0 0; }
+    .analysis-stamp[data-busy="true"] { color: var(--accent); }
+    .analysis-feedback { font-size: var(--text-sm); color: var(--fg); margin: var(--space-3) 0 0; }
+    .analysis-feedback:not(.u-sr-only) { display: inline-flex; align-items: center; gap: 5px; }
 
     /* ── Breakdown table ──────────────────────────────────────────────── */
     .sec-label { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); margin-bottom: var(--space-3); }
@@ -55,8 +60,9 @@
     .table th { white-space: nowrap; }
     .ch-name { color: var(--fg); font-weight: var(--fw-medium); }
     .ch-sub { font-size: var(--text-xs); color: var(--fg-subtle); }
-    .trend-up { color: var(--fg); font-weight: var(--fw-semibold); }
-    .trend-down { color: var(--fg-muted); }
+    .trend-up { color: var(--fg); font-weight: var(--fw-semibold); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .trend-down { color: var(--fg-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .th-note { font-weight: var(--fw-regular); color: var(--fg-subtle); font-size: var(--text-xs); }
     .row-total td { border-top: 2px solid var(--border-strong); font-weight: var(--fw-semibold); }
 
     /* ── Date filter ──────────────────────────────────────────────────── */
@@ -87,7 +93,7 @@
       <a href="essential-find.html">Find…</a>
     </nav>
     <span class="u-grow"></span>
-    <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
     <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
     <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
   </header>
@@ -125,22 +131,22 @@
       <div class="stat-card">
         <div class="stat-label">Spend</div>
         <div class="stat-value">$4,820</div>
-        <div class="stat-delta"><span class="g" aria-hidden="true">↑</span> 8% vs last month</div>
+        <div class="stat-delta stat-delta--neutral"><span aria-hidden="true">↑</span> +8% more spent vs last month <span class="u-sr-only">(cost — not a result; up or down is neither good nor bad on its own)</span></div>
       </div>
       <div class="stat-card">
         <div class="stat-label">ROAS</div>
         <div class="stat-value">3.1×</div>
-        <div class="stat-delta"><span class="g" aria-hidden="true">↑</span> from 2.6×</div>
+        <div class="stat-delta"><span class="g" aria-hidden="true">↑</span> +0.5× vs last month (was 2.6×)</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Conversions</div>
         <div class="stat-value">142</div>
-        <div class="stat-delta"><span class="g" aria-hidden="true">↑</span> 19% vs last month</div>
+        <div class="stat-delta"><span class="g" aria-hidden="true">↑</span> +19% vs last month</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Click-through</div>
         <div class="stat-value">2.4%</div>
-        <div class="stat-delta"><span class="g" aria-hidden="true">→</span> flat</div>
+        <div class="stat-delta stat-delta--neutral"><span aria-hidden="true">→</span> flat vs last month (±0)</div>
       </div>
     </div>
 
@@ -157,9 +163,14 @@
       </div>
       <div class="analysis-rec"><strong>Recommendation:</strong> shift ≈ $600 from LinkedIn and Google broad-match into Meta retargeting; it should add ~20 conversions at the current rate.</div>
       <div class="analysis-actions">
+        <button class="btn btn-primary btn-sm" type="button" id="apply-rec" data-shift-amount="600" data-shift-to="Meta retargeting">
+          <span aria-hidden="true">→</span> Apply: shift $600 to Meta
+        </button>
         <a class="btn btn-ghost btn-sm" href="project-assistant.html" style="text-decoration:none;color:var(--accent);">✦ Ask Atlas about this</a>
-        <button class="btn btn-ghost btn-sm" type="button">↻ Re-run analysis</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="rerun-analysis"><span aria-hidden="true">↻</span> Re-run analysis</button>
       </div>
+      <p class="analysis-stamp" id="analysis-stamp">Analysis from 2h ago.</p>
+      <p class="analysis-feedback u-sr-only" id="analysis-feedback" role="status" aria-live="polite"></p>
     </section>
 
     <!-- ── Breakdown table ────────────────────────────────────────────── -->
@@ -175,7 +186,7 @@
             <th class="num">CTR</th>
             <th class="num">Conv.</th>
             <th class="num">ROAS</th>
-            <th style="text-align:center;">Trend</th>
+            <th style="text-align:right;">Trend vs last period <span class="th-note">(return on ad spend)</span></th>
           </tr>
         </thead>
         <tbody>
@@ -187,7 +198,7 @@
             <td class="num">2.6%</td>
             <td class="num">91</td>
             <td class="num">3.8×</td>
-            <td style="text-align:center;"><span class="trend-up" aria-label="trending up">↑</span></td>
+            <td class="num"><span class="trend-up"><span aria-hidden="true">↑</span> +0.6×</span><span class="u-sr-only">return rising vs last period</span></td>
           </tr>
           <tr>
             <td><span class="ch-name">Google</span> <span class="ch-sub">· Search</span></td>
@@ -197,7 +208,7 @@
             <td class="num">3.7%</td>
             <td class="num">38</td>
             <td class="num">2.4×</td>
-            <td style="text-align:center;"><span class="trend-down" aria-label="trending down">↓</span></td>
+            <td class="num"><span class="trend-down"><span aria-hidden="true">↓</span> −0.5×</span><span class="u-sr-only">return falling vs last period</span></td>
           </tr>
           <tr>
             <td><span class="ch-name">Google</span> <span class="ch-sub">· Display</span></td>
@@ -207,7 +218,7 @@
             <td class="num">0.5%</td>
             <td class="num">7</td>
             <td class="num">1.6×</td>
-            <td style="text-align:center;"><span class="trend-down" aria-label="trending down">↓</span></td>
+            <td class="num"><span class="trend-down"><span aria-hidden="true">↓</span> −0.3×</span><span class="u-sr-only">return falling vs last period</span></td>
           </tr>
           <tr>
             <td><span class="ch-name">LinkedIn</span> <span class="ch-sub">· Sponsored</span></td>
@@ -217,7 +228,7 @@
             <td class="num">1.1%</td>
             <td class="num">6</td>
             <td class="num">1.4×</td>
-            <td style="text-align:center;"><span class="trend-down" aria-label="trending down">↓</span></td>
+            <td class="num"><span class="trend-down"><span aria-hidden="true">↓</span> −0.2×</span><span class="u-sr-only">return falling vs last period</span></td>
           </tr>
           <tr class="row-total">
             <td>All channels</td>
@@ -227,7 +238,7 @@
             <td class="num">2.4%</td>
             <td class="num">142</td>
             <td class="num">3.1×</td>
-            <td style="text-align:center;"><span class="trend-up" aria-label="trending up">↑</span></td>
+            <td class="num"><span class="trend-up"><span aria-hidden="true">↑</span> +0.5×</span><span class="u-sr-only">blended return rising vs last period</span></td>
           </tr>
         </tbody>
       </table>
@@ -249,5 +260,69 @@
 
   </div><!-- /.bc-wrap -->
 </div><!-- /.bc -->
+
+<script>
+  // ── Page-local: actionable AI recommendation (#11) + within-400ms async feedback (#13) ──
+  (function () {
+    var feedback = document.getElementById('analysis-feedback');
+    var stamp = document.getElementById('analysis-stamp');
+
+    function announce(msg) {
+      if (!feedback) return;
+      feedback.classList.remove('u-sr-only');
+      feedback.textContent = msg;
+    }
+
+    // #11 — turn the recommendation prose into one click, with optimistic pending→done feedback (#13).
+    var applyBtn = document.getElementById('apply-rec');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', function () {
+        if (applyBtn.dataset.applied === 'true') return;
+        var amount = applyBtn.dataset.shiftAmount || '600';
+        var target = applyBtn.dataset.shiftTo || 'Meta retargeting';
+        // Optimistic pending state inside the Doherty 400ms window.
+        applyBtn.disabled = true;
+        applyBtn.setAttribute('aria-busy', 'true');
+        applyBtn.innerHTML = '<span aria-hidden="true">◷</span> Applying…';
+        announce('Applying budget shift…');
+        setTimeout(function () {
+          applyBtn.dataset.applied = 'true';
+          applyBtn.removeAttribute('aria-busy');
+          applyBtn.classList.remove('btn-primary');
+          applyBtn.classList.add('btn-ghost');
+          applyBtn.innerHTML = '<span aria-hidden="true">✓</span> $' + amount + ' shifted to ' + target;
+          announce('Done — $' + amount + ' moved to ' + target + '. Atlas will report the impact in the next analysis.');
+        }, 320);
+      });
+    }
+
+    // #13 — re-run analysis shows an aria-busy working state + refreshes the freshness stamp.
+    var rerunBtn = document.getElementById('rerun-analysis');
+    if (rerunBtn) {
+      rerunBtn.addEventListener('click', function () {
+        if (rerunBtn.getAttribute('aria-busy') === 'true') return;
+        var originalLabel = rerunBtn.innerHTML;
+        rerunBtn.disabled = true;
+        rerunBtn.setAttribute('aria-busy', 'true');
+        rerunBtn.innerHTML = '<span aria-hidden="true">✦</span> Atlas is re-analyzing…';
+        if (stamp) {
+          stamp.dataset.busy = 'true';
+          stamp.textContent = '✦ Atlas is re-analyzing the numbers…';
+        }
+        announce('Atlas is re-analyzing the numbers.');
+        setTimeout(function () {
+          rerunBtn.disabled = false;
+          rerunBtn.removeAttribute('aria-busy');
+          rerunBtn.innerHTML = originalLabel;
+          if (stamp) {
+            stamp.removeAttribute('data-busy');
+            stamp.textContent = 'Analysis from just now.';
+          }
+          announce('Analysis refreshed just now.');
+        }, 1100);
+      });
+    }
+  })();
+</script>
 </body>
 </html>
