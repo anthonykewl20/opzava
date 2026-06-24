@@ -151,6 +151,62 @@ describe('autoRouteInboxTasks (deps seam)', () => {
     const result = await autoRouteInboxTasks(deps)
     expect(result).toEqual({ ok: true, message: 'No inbox tasks to route' })
   })
+
+  // ENG-1: the route-UPDATE must guard with `AND status = 'inbox'` so two
+  // concurrent autoRouteInboxTasks ticks cannot both flip the same row. The
+  // loser sees changes===0 and skips silently — mirroring dispatchAssignedTasks
+  // (WHERE id = ? AND status = 'assigned', line ~1288). No event, no activity.
+  it('gates the inbox->assigned UPDATE with `AND status = ?` (claim guard predicate)', async () => {
+    const { deps, state } = makeFakeDeps({ isGatewayAvailable: () => true })
+    state.rowsBySql.set(inboxSelectSql(), () => [{
+      id: 1, title: 'Fix the login bug', description: 'debug', priority: 'high', tags: null, workspace_id: 1,
+    }])
+    state.rowsBySql.set(agentsSelectSql(), () => [
+      { id: 1, name: 'coder-bot', role: 'coder', status: 'idle', config: null },
+    ])
+    state.rowsBySql.set(capacityCountSql(), () => ({ c: 0 }))
+    state.runBySql.set(
+      'UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ?',
+      () => ({ changes: 1 }),
+    )
+
+    await autoRouteInboxTasks(deps)
+
+    // Every route-UPDATE must carry the inbox claim predicate (5th bind param).
+    const routeUpdates = state.writes.filter(w => w.sql.includes('assigned_to = ?, updated_at = ?'))
+    expect(routeUpdates.length).toBeGreaterThan(0)
+    for (const u of routeUpdates) {
+      expect(u.sql).toContain('AND status = ?')
+      expect(u.args[u.args.length - 1]).toBe('inbox')
+    }
+  })
+
+  it('skips a lost claim (changes===0) with no broadcast, no activity, no escalation', async () => {
+    const { deps, state, broadcasts, activities, syncOutbound } = makeFakeDeps({
+      isGatewayAvailable: () => true,
+    })
+    state.rowsBySql.set(inboxSelectSql(), () => [{
+      id: 42, title: 'Contested task', description: 'raced', priority: 'high', tags: null, workspace_id: 1,
+    }])
+    state.rowsBySql.set(agentsSelectSql(), () => [
+      { id: 1, name: 'coder-bot', role: 'coder', status: 'idle', config: null },
+    ])
+    state.rowsBySql.set(capacityCountSql(), () => ({ c: 0 }))
+    // The other concurrent tick already flipped this row — our claim loses.
+    state.runBySql.set(
+      'UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ?',
+      () => ({ changes: 0 }),
+    )
+
+    const result = await autoRouteInboxTasks(deps)
+
+    // Routed count stays at zero; the loser reports the contested task as unrouted.
+    expect(result).toEqual({ ok: true, message: '1 inbox task(s), no suitable agents found' })
+    // Lost-claim invariant: NO side effects emitted (mirrors the assigned-claim skip).
+    expect(broadcasts.some(b => b.type === 'task.status_changed')).toBe(false)
+    expect(activities.some((a: unknown) => (a as unknown[])[0] === 'task_auto_routed')).toBe(false)
+    expect(syncOutbound).toHaveLength(0)
+  })
 })
 
 describe('requeueStaleTasks (deps seam)', () => {

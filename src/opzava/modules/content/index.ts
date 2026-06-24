@@ -435,14 +435,6 @@ export {
 } from './workflow/campaign-worker-daemon'
 
 export {
-  createTimerSleep,
-  createStopSignal,
-  runCampaignDaemon,
-  type StopSignal,
-  type RunCampaignDaemonDeps,
-} from './workflow/campaign-daemon-runtime'
-
-export {
   createArtifactRepository,
   type ArtifactRepository,
   type StoredArtifactContext,

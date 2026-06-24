@@ -8,9 +8,13 @@ SCORE=0
 MAX_SCORE=0
 ISSUES=()
 
-pass() { echo "  [PASS] $1"; ((SCORE++)); ((MAX_SCORE++)); }
-fail() { echo "  [FAIL] $1"; ISSUES+=("$1"); ((MAX_SCORE++)); }
-warn() { echo "  [WARN] $1"; ((MAX_SCORE++)); }
+# NOTE: use `$((...))` assignment, not `((...))`. Under `set -e`, `((expr))`
+# returns exit status 1 when the expression evaluates to 0, which would abort
+# the whole audit at the first check. Assignment is side-effect-equivalent and
+# always exits 0.
+pass() { echo "  [PASS] $1"; SCORE=$((SCORE+1)); MAX_SCORE=$((MAX_SCORE+1)); }
+fail() { echo "  [FAIL] $1"; ISSUES+=("$1"); MAX_SCORE=$((MAX_SCORE+1)); }
+warn() { echo "  [WARN] $1"; MAX_SCORE=$((MAX_SCORE+1)); }
 info() { echo "  [INFO] $1"; }
 
 # Load .env if exists
@@ -42,7 +46,7 @@ fi
 # 2. Default passwords check
 echo ""
 echo "--- Credentials ---"
-INSECURE_PASSWORDS=("admin" "password" "change-me-on-first-login" "changeme" "testpass123" "testpass1234")
+INSECURE_PASSWORDS=("admin" "password" "change-me-on-first-login" "changeme" "testpass123" "testpass1234" "testpass1234!")
 AUTH_PASS_VAL="${AUTH_PASS:-}"
 if [[ -z "$AUTH_PASS_VAL" ]]; then
   fail "AUTH_PASS is not set"

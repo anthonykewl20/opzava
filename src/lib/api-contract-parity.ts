@@ -9,11 +9,21 @@ export interface RouteOperation {
   sourceFile: string
 }
 
+export interface ParamMismatch {
+  method: string
+  path: string
+  openapiPath: string
+  routeParam: string
+  openapiParam: string
+}
+
 export interface ParityReport {
+  ok: boolean
   routeOperations: ContractOperation[]
   openapiOperations: ContractOperation[]
   missingInOpenApi: ContractOperation[]
   missingInRoutes: ContractOperation[]
+  paramMismatches: ParamMismatch[]
   ignoredOperations: ContractOperation[]
 }
 
@@ -118,6 +128,59 @@ function normalizeOperation(operation: string): ContractOperation {
   return `${normalizedMethod} ${normalizedPath}` as ContractOperation
 }
 
+// A path segment is a param when wrapped in braces, e.g. "{id}". Returns the
+// inner name for params, or null for literal segments.
+function paramName(segment: string): string | null {
+  if (segment.startsWith('{') && segment.endsWith('}')) return segment.slice(1, -1)
+  return null
+}
+
+// Two paths are shape-compatible when they have the same number of segments
+// and each segment pair is either literally equal or both params. Param NAMES
+// are intentionally ignored here so a route [agentId] can line up with an
+// OpenAPI {id}; the names are compared separately by paramMismatchesFor.
+function isShapeCompatible(routePath: string, openapiPath: string): boolean {
+  const routeSegments = routePath.split('/').filter(Boolean)
+  const openapiSegments = openapiPath.split('/').filter(Boolean)
+  if (routeSegments.length !== openapiSegments.length) return false
+  for (let i = 0; i < routeSegments.length; i += 1) {
+    const routeIsParam = paramName(routeSegments[i]) !== null
+    const openapiIsParam = paramName(openapiSegments[i]) !== null
+    if (routeIsParam && openapiIsParam) continue
+    if (routeSegments[i] === openapiSegments[i]) continue
+    return false
+  }
+  return true
+}
+
+// For a shape-compatible pair, collect each position where the param name
+// differs. A route segment always provides the canonical name here because the
+// caller passes the route path first.
+function paramMismatchesFor(method: string, routePath: string, openapiPath: string): ParamMismatch[] {
+  const routeSegments = routePath.split('/').filter(Boolean)
+  const openapiSegments = openapiPath.split('/').filter(Boolean)
+  const mismatches: ParamMismatch[] = []
+  for (let i = 0; i < routeSegments.length; i += 1) {
+    const routeName = paramName(routeSegments[i])
+    const openapiName = paramName(openapiSegments[i])
+    if (routeName !== null && openapiName !== null && routeName !== openapiName) {
+      mismatches.push({
+        method,
+        path: routePath,
+        openapiPath,
+        routeParam: routeName,
+        openapiParam: openapiName,
+      })
+    }
+  }
+  return mismatches
+}
+
+function splitOperation(operation: ContractOperation): { method: string; path: string } {
+  const [method = '', ...pathParts] = operation.split(' ')
+  return { method, path: pathParts.join(' ').trim() }
+}
+
 export function compareApiContractParity(params: {
   routeOperations: RouteOperation[]
   openapiOperations: ContractOperation[]
@@ -130,14 +193,52 @@ export function compareApiContractParity(params: {
   const routeSet = new Set(routeOperations)
   const openapiSet = new Set(openapiOperations)
 
+  // Index openapi ops by method so shape-matching only compares same-method paths.
+  const openapiByMethod = new Map<string, ContractOperation[]>()
+  for (const op of openapiOperations) {
+    const { method } = splitOperation(op)
+    const list = openapiByMethod.get(method) ?? []
+    list.push(op)
+    openapiByMethod.set(method, list)
+  }
+  const routeByMethod = new Map<string, ContractOperation[]>()
+  for (const op of routeOperations) {
+    const { method } = splitOperation(op)
+    const list = routeByMethod.get(method) ?? []
+    list.push(op)
+    routeByMethod.set(method, list)
+  }
+
   const ignoredOperations: ContractOperation[] = []
   const missingInOpenApi: ContractOperation[] = []
+  const paramMismatches: ParamMismatch[] = []
+  const shapeMatchedRoute = new Set<ContractOperation>()
+  const shapeMatchedOpenApi = new Set<ContractOperation>()
+
   for (const op of routeOperations) {
     if (ignored.has(op)) {
       ignoredOperations.push(op)
       continue
     }
-    if (!openapiSet.has(op)) missingInOpenApi.push(op)
+    if (openapiSet.has(op)) {
+      shapeMatchedRoute.add(op)
+      continue
+    }
+    // No exact match: look for a same-method OpenAPI path with the same shape.
+    const { method, path } = splitOperation(op)
+    const candidates = openapiByMethod.get(method) ?? []
+    const matched = candidates.find((candidate) => {
+      if (openapiSet.has(op) && candidate === op) return true
+      if (shapeMatchedOpenApi.has(candidate)) return false
+      return isShapeCompatible(path, splitOperation(candidate).path)
+    })
+    if (matched) {
+      shapeMatchedRoute.add(op)
+      shapeMatchedOpenApi.add(matched)
+      paramMismatches.push(...paramMismatchesFor(method, path, splitOperation(matched).path))
+    } else {
+      missingInOpenApi.push(op)
+    }
   }
 
   const missingInRoutes: ContractOperation[] = []
@@ -146,14 +247,42 @@ export function compareApiContractParity(params: {
       if (!ignoredOperations.includes(op as ContractOperation)) ignoredOperations.push(op as ContractOperation)
       continue
     }
-    if (!routeSet.has(op)) missingInRoutes.push(op as ContractOperation)
+    if (routeSet.has(op) || shapeMatchedOpenApi.has(op)) continue
+    // Defensive: a same-shape route that wasn't paired above (e.g. ordering).
+    const { method, path } = splitOperation(op)
+    const candidates = routeByMethod.get(method) ?? []
+    const matched = candidates.find((candidate) => {
+      if (shapeMatchedRoute.has(candidate)) return false
+      return isShapeCompatible(splitOperation(candidate).path, path)
+    })
+    if (matched) {
+      shapeMatchedOpenApi.add(op)
+      // Avoid duplicate mismatch entries when the route side already recorded it.
+      if (!paramMismatches.some((m) => m.method === method && m.openapiPath === path)) {
+        paramMismatches.push(...paramMismatchesFor(method, splitOperation(matched).path, path))
+      }
+    } else {
+      missingInRoutes.push(op as ContractOperation)
+    }
   }
 
+  paramMismatches.sort((a, b) =>
+    a.method === b.method
+      ? a.path === b.path
+        ? a.routeParam.localeCompare(b.routeParam)
+        : a.path.localeCompare(b.path)
+      : a.method.localeCompare(b.method),
+  )
+
+  const ok = missingInOpenApi.length === 0 && missingInRoutes.length === 0 && paramMismatches.length === 0
+
   return {
+    ok,
     routeOperations: routeOperations as ContractOperation[],
     openapiOperations: openapiOperations as ContractOperation[],
     missingInOpenApi,
     missingInRoutes,
+    paramMismatches,
     ignoredOperations: ignoredOperations.sort(),
   }
 }

@@ -20,7 +20,7 @@ Exported from `src/lib/event-bus.ts` (truth):
   workspace_id?: number | null }`.
 - `type EventType` — the string-literal union of the ~26 emitted event types (`task.created`,
   `task.updated`, `task.deleted`, `task.status_changed`, `task.escalated`, `chat.message`,
-  `chat.message.deleted`, `notification.created`, `notification.read`, `activity.created`,
+  `notification.created`, `notification.read`, `activity.created`,
   `agent.created`, `agent.updated`, `agent.deleted`, `agent.synced`, `agent.status_changed`,
   `audit.security`, `security.event`, `connection.created`, `connection.disconnected`,
   `github.synced`, `run.created`, `run.updated`, `run.completed`, `run.eval_attached`,

@@ -286,7 +286,7 @@ export async function DELETE(
       workspaceId
     )
 
-    eventBus.broadcast('agent.deleted', { id: agent.id, name: agent.name })
+    eventBus.broadcast('agent.deleted', { id: agent.id, name: agent.name, workspace_id: workspaceId })
 
     return NextResponse.json({
       success: true,

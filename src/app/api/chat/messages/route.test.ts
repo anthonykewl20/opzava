@@ -23,7 +23,7 @@ const {
   // but it now delegates to emit so ordering is observable on a single list.
   broadcastMock: vi.fn(),
   preparedStmt: {
-    run: vi.fn(() => ({ lastInsertRowid: 42 })),
+    run: vi.fn((..._args: unknown[]) => ({ lastInsertRowid: 42 })),
     get: vi.fn(() => ({
       id: 42,
       workspace_id: 1,
@@ -567,6 +567,127 @@ describe('POST /api/chat/messages — P1-1 transactional outbox (atomic durable 
   })
 })
 
+describe('POST /api/chat/messages — P2 message_type constrained for human sends', () => {
+  beforeEach(() => {
+    logAuditEventMock.mockClear()
+    logActivityMock.mockClear()
+    broadcastMock.mockClear()
+    emitSpy.mockClear()
+    gatewayMock.mockClear()
+    preparedStmt.run.mockClear()
+    preparedStmt.get.mockClear()
+    dbState.idempotentId = null
+    dbState.messagesInserted = 0
+    dbState.realtimeEventsInserted = 0
+    dbState.transactionRan = false
+    dbState.lastInsertedRow = null
+  })
+
+  it('coerces a spoofed message_type:"system" to "text" on the stored row', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+    const request = new NextRequest('http://localhost/api/chat/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'hi', message_type: 'system' }),
+    })
+
+    const response = await POST(request)
+    expect(response.status).toBe(201)
+
+    // stmt.run(conversation_id, from, to, content, message_type, metadata, workspaceId, client_message_id)
+    // The persisted message_type (5th positional arg) must be coerced to 'text',
+    // never the operator-supplied 'system'.
+    expect(preparedStmt.run).toHaveBeenCalledWith(
+      expect.any(String), // conversation_id
+      'Anthony', // from_agent
+      null, // to
+      'hi', // content
+      'text', // message_type — coerced, spoofed 'system' rejected
+      null, // metadata
+      1, // workspaceId
+      null, // client_message_id
+    )
+  })
+
+  it('coerces each reserved type (system/command/handoff/status/tool_call) to "text"', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+    for (const spoofed of ['system', 'command', 'handoff', 'status', 'tool_call']) {
+      preparedStmt.run.mockClear()
+      const response = await POST(
+        new NextRequest('http://localhost/api/chat/messages', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ content: 'x', message_type: spoofed }),
+        }),
+      )
+      expect(response.status).toBe(201)
+      // 5th positional arg of the messages INSERT is the persisted message_type.
+      const insertCalls = preparedStmt.run.mock.calls
+      expect(insertCalls.length).toBeGreaterThan(0)
+      const persistedType = insertCalls[0][4]
+      expect(persistedType).toBe('text')
+    }
+  })
+
+  it('coerces an arbitrary unknown message_type to "text"', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+    const response = await POST(
+      new NextRequest('http://localhost/api/chat/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: 'x', message_type: 'definitely-not-allowed' }),
+      }),
+    )
+    expect(response.status).toBe(201)
+    const persistedType = preparedStmt.run.mock.calls[0][4]
+    expect(persistedType).toBe('text')
+  })
+
+  it('preserves an explicit "text" message_type', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+    const response = await POST(
+      new NextRequest('http://localhost/api/chat/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: 'x', message_type: 'text' }),
+      }),
+    )
+    expect(response.status).toBe(201)
+    const persistedType = preparedStmt.run.mock.calls[0][4]
+    expect(persistedType).toBe('text')
+  })
+
+  it('defaults a missing message_type to "text" (behavior-preserving)', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+    const response = await POST(
+      new NextRequest('http://localhost/api/chat/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: 'x' }),
+      }),
+    )
+    expect(response.status).toBe(201)
+    const persistedType = preparedStmt.run.mock.calls[0][4]
+    expect(persistedType).toBe('text')
+  })
+
+  it('records the coerced type in the audit detail (not the spoofed value)', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+    await POST(
+      new NextRequest('http://localhost/api/chat/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: 'x', message_type: 'command' }),
+      }),
+    )
+    expect(logAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({ message_type: 'text' }),
+      }),
+    )
+  })
+})
+
 describe('POST /api/chat/messages — P1-2 broadcast ordering (originator before reply)', () => {
   beforeEach(() => {
     logAuditEventMock.mockClear()
@@ -642,5 +763,292 @@ describe('POST /api/chat/messages — P1-2 broadcast ordering (originator before
     // The first chat.message emission is the originator (not a reply).
     const firstChat = emissions.find((e) => e.type === 'chat.message')
     expect(firstChat?.data?.from_agent).toBe('Anthony')
+  })
+})
+
+describe('POST /api/chat/messages — CHAT-3 payload size caps (reject oversized before any INSERT)', () => {
+  beforeEach(() => {
+    logAuditEventMock.mockClear()
+    logActivityMock.mockClear()
+    broadcastMock.mockClear()
+    emitSpy.mockClear()
+    gatewayMock.mockClear()
+    preparedStmt.run.mockClear()
+    preparedStmt.get.mockClear()
+    dbState.idempotentId = null
+    dbState.messagesInserted = 0
+    dbState.realtimeEventsInserted = 0
+    dbState.transactionRan = false
+    dbState.lastInsertedRow = null
+  })
+
+  it('rejects content larger than the 16KB cap with 413 and writes no message row', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+    const oversized = 'x'.repeat(16 * 1024 + 1)
+    const response = await POST(
+      new NextRequest('http://localhost/api/chat/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: oversized }),
+      }),
+    )
+    expect(response.status).toBe(413)
+    expect(dbState.messagesInserted).toBe(0)
+    expect(dbState.realtimeEventsInserted).toBe(0)
+  })
+
+  it('rejects metadata larger than the 8KB cap before any INSERT', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+    const bigMetadata = { blob: 'y'.repeat(8 * 1024 + 1) }
+    const response = await POST(
+      new NextRequest('http://localhost/api/chat/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: 'ok', metadata: bigMetadata }),
+      }),
+    )
+    expect(response.status).toBe(413)
+    expect(dbState.messagesInserted).toBe(0)
+    expect(dbState.realtimeEventsInserted).toBe(0)
+  })
+
+  it('rejects more than N attachments before any INSERT', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+    // Build a valid small image data URL repeated past the count cap.
+    const tinyPng = 'data:image/png;base64,iVBORw0KGgo='
+    const tooMany = Array.from({ length: 11 }, () => ({ dataUrl: tinyPng }))
+    const response = await POST(
+      new NextRequest('http://localhost/api/chat/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: 'ok', attachments: tooMany }),
+      }),
+    )
+    expect(response.status).toBe(413)
+    expect(dbState.messagesInserted).toBe(0)
+    expect(dbState.realtimeEventsInserted).toBe(0)
+  })
+
+  it('rejects a single oversized data-URL attachment before any INSERT', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+    // data:image/png;base64,<very large base64> — exceeds the per-data-URL byte cap.
+    const oversizedDataUrl = `data:image/png;base64,${'A'.repeat(2 * 1024 * 1024)}`
+    const response = await POST(
+      new NextRequest('http://localhost/api/chat/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          content: 'ok',
+          attachments: [{ dataUrl: oversizedDataUrl }],
+        }),
+      }),
+    )
+    expect(response.status).toBe(413)
+    expect(dbState.messagesInserted).toBe(0)
+    expect(dbState.realtimeEventsInserted).toBe(0)
+  })
+
+  it('rejects attachments whose total exceeds the byte cap before any INSERT', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+    // Several individually-valid attachments whose summed size exceeds the total cap.
+    // Each is ~64KB; 11 of them blows past a ~256KB total cap and the count cap is
+    // not the binding constraint here (count stays under the cap; total bytes is the
+    // rejection trigger). Each attachment is ~900 KiB (under the 1 MiB per-item cap),
+    // and 5 of them sum to ~4.4 MiB which exceeds the 4 MiB total cap.
+    const chunk900k = `${'B'.repeat(900 * 1024)}`
+    const attachments = Array.from({ length: 5 }, () => ({
+      dataUrl: `data:image/png;base64,${chunk900k}`,
+    }))
+    const response = await POST(
+      new NextRequest('http://localhost/api/chat/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: 'ok', attachments }),
+      }),
+    )
+    expect(response.status).toBe(413)
+    expect(dbState.messagesInserted).toBe(0)
+    expect(dbState.realtimeEventsInserted).toBe(0)
+  })
+
+  it('accepts content exactly at the 16KB cap (boundary-inclusive)', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+    const atCap = 'x'.repeat(16 * 1024)
+    const response = await POST(
+      new NextRequest('http://localhost/api/chat/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: atCap }),
+      }),
+    )
+    expect(response.status).toBe(201)
+    expect(dbState.messagesInserted).toBe(1)
+  })
+})
+
+describe('POST /api/chat/messages — CHAT-4 no dead injection-guard import', () => {
+  // sanitizeForPrompt was imported but never used in this route (dead import).
+  // The route only uses scanForInjection on the forward path. This test pins the
+  // source contract so the dead import cannot regress: the injection-guard import
+  // must name scanForInjection only, and sanitizeForPrompt must appear nowhere.
+  it('imports only scanForInjection from @/lib/injection-guard', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const source = fs.readFileSync(
+      path.resolve(__dirname, 'route.ts'),
+      'utf8',
+    )
+
+    // The one injection-guard import line names scanForInjection only.
+    const injectionImport = source.match(
+      /import\s+\{[^}]*\}\s+from\s+['"]@\/lib\/injection-guard['"]/,
+    )
+    expect(injectionImport, 'expected an injection-guard import').not.toBeNull()
+    expect(injectionImport![0]).toBe(
+      "import { scanForInjection } from '@/lib/injection-guard'",
+    )
+
+    // sanitizeForPrompt appears nowhere in the file (no import, no usage).
+    expect(source).not.toContain('sanitizeForPrompt')
+  })
+})
+
+describe('POST /api/chat/messages — DS-4 originator metadata parity (SSE vs HTTP)', () => {
+  // DS-4: the originator chat.message event (SSE frame, emitted in-tx via the
+  // realtime_events outbox) and the POST response body must describe the SAME
+  // message with the SAME metadata. forwardInfo is delivery metadata, not message
+  // metadata: it is computed AFTER the tx commits (the gateway forward is
+  // intentionally outside the tx), so it cannot be part of the in-tx outbox row.
+  // Previously the HTTP body appended forwardInfo onto message.metadata while the
+  // SSE frame carried the bare row metadata -> a metadata flicker for the same id.
+  // The contract: forwardInfo travels on the top-level `forward` response field,
+  // never on message.metadata, so both descriptions of the message are identical.
+  beforeEach(async () => {
+    logAuditEventMock.mockClear()
+    logActivityMock.mockClear()
+    broadcastMock.mockClear()
+    emitSpy.mockClear()
+    gatewayMock.mockClear()
+    preparedStmt.run.mockClear()
+    preparedStmt.get.mockClear()
+    dbState.idempotentId = null
+    dbState.messagesInserted = 0
+    dbState.realtimeEventsInserted = 0
+    dbState.transactionRan = false
+    dbState.lastInsertedRow = null
+    requireRoleMock.mockReset()
+    requireRoleMock.mockReturnValue({
+      user: {
+        id: 7,
+        username: 'anthony',
+        display_name: 'Anthony',
+        role: 'operator',
+        workspace_id: 1,
+        tenant_id: 1,
+      },
+    })
+    // Live coordinator session so callOpenClawGateway fires and forwardInfo is
+    // populated (attempted + delivered), which is the case that previously caused
+    // the metadata to diverge between the SSE frame and the HTTP body.
+    const { resolveCoordinatorDeliveryTarget } = await import('@/lib/coordinator-routing')
+    ;(resolveCoordinatorDeliveryTarget as ReturnType<typeof vi.fn>).mockReturnValue({
+      sessionKey: 'sess-live',
+      deliveryName: 'coordinator',
+      openclawAgentId: null,
+    })
+    gatewayMock.mockResolvedValue({ status: 'started', runId: 'run-ds4' })
+  })
+
+  it('the SSE chat.message frame and the HTTP response carry identical metadata for the same message id', async () => {
+    const { POST } = await import('@/app/api/chat/messages/route')
+
+    // Direct-agent forward (agent_ conversation, not coord:). With a live session
+    // this populates forwardInfo (attempted + delivered via callOpenClawGateway)
+    // WITHOUT triggering any coord:-gated createChatReply status rows, so the final
+    // SELECT of the originator row returns the originator's own metadata — mirroring
+    // production's id-scoped SELECT. This is exactly the forwarded-message scenario
+    // the DS-4 acceptance describes.
+    const response = await POST(
+      new NextRequest('http://localhost/api/chat/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          content: 'ds4 parity',
+          to: 'rex',
+          forward: true,
+          conversation_id: 'agent_rex',
+          client_message_id: 'cmid-ds4',
+        }),
+      }),
+    )
+    expect(response.status).toBe(201)
+    const body = await response.json()
+
+    // The forward happened (forwardInfo is non-null on the top-level field).
+    expect(body?.forward).toEqual(
+      expect.objectContaining({ attempted: true, delivered: true }),
+    )
+
+    // The originator message metadata from the HTTP response body.
+    const httpMetadata = body?.message?.metadata
+    const messageId = body?.message?.id
+
+    // The originator chat.message SSE frame (the in-tx outbox emission), identified
+    // by the human sender 'Anthony'.
+    const emissions = emitSpy.mock.calls.map((c) => c[1]) as Array<{
+      type: string
+      data: { id?: number; from_agent?: string; metadata?: unknown }
+    }>
+    const sseFrame = emissions.find(
+      (e) => e.type === 'chat.message' && e.data?.from_agent === 'Anthony',
+    )
+    expect(sseFrame, 'expected an originator chat.message SSE frame').toBeDefined()
+    expect(sseFrame!.data.id).toBe(messageId)
+
+    const sseMetadata = sseFrame!.data.metadata
+
+    // The two descriptions of the same message must be deeply equal. This is the
+    // DS-4 contract: no metadata flicker between the realtime event and the response.
+    expect(sseMetadata).toEqual(httpMetadata)
+  })
+
+  it('forwardInfo is NOT present on message.metadata (it lives on the top-level forward field)', async () => {
+    // Pins the deferral contract: delivery metadata never leaks onto the message's
+    // own metadata in either surface. The frontend reads data.forward first, so
+    // removing forwardInfo from message.metadata is behavior-preserving.
+    const { POST } = await import('@/app/api/chat/messages/route')
+
+    const response = await POST(
+      new NextRequest('http://localhost/api/chat/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          content: 'ds4 defer',
+          to: 'rex',
+          forward: true,
+          conversation_id: 'agent_rex',
+          client_message_id: 'cmid-ds4-defer',
+        }),
+      }),
+    )
+    expect(response.status).toBe(201)
+    const body = await response.json()
+
+    // The forward still happened and is reported on the top-level field.
+    expect(body?.forward).toEqual(
+      expect.objectContaining({ attempted: true, delivered: true }),
+    )
+    // ...but it never appears on the message's own metadata in the HTTP body...
+    expect(body?.message?.metadata?.forwardInfo).toBeUndefined()
+    // ...nor in the originator SSE frame metadata.
+    const emissions = emitSpy.mock.calls.map((c) => c[1]) as Array<{
+      type: string
+      data: { from_agent?: string; metadata?: { forwardInfo?: unknown } }
+    }>
+    const sseFrame = emissions.find(
+      (e) => e.type === 'chat.message' && e.data?.from_agent === 'Anthony',
+    )
+    expect(sseFrame).toBeDefined()
+    expect(sseFrame!.data.metadata?.forwardInfo).toBeUndefined()
   })
 })

@@ -19,10 +19,19 @@ export type RunApprovedCampaignDeps = Readonly<{
   workflowRunId: string
   clock: Readonly<{ now: () => Date }>
   ids: Readonly<{ attemptId: () => string; deadLetterId: (input: { jobId: string; attemptId: string }) => string }>
+  /** Overrides the per-job retry budget for the enqueued sends. Defaults to the runner's 3. */
+  maxAttempts?: number
 }>
 
 export type RunApprovedCampaignResult = Readonly<{
-  status: 'sent' | 'failed'
+  /**
+   * - 'sent': every recipient send succeeded inline.
+   * - 'failed': at least one send terminally failed (dead-lettered, retry budget exhausted) — no
+   *   retry is pending.
+   * - 'retrying': one or more sends failed transiently with retry budget remaining; the runner has
+   *   re-queued them and a worker daemon must drain the retry window. The campaign is NOT terminal.
+   */
+  status: 'sent' | 'failed' | 'retrying'
   campaign: Campaign
   sent: number
   total: number
@@ -53,7 +62,13 @@ export async function runApprovedCampaign(
   }
   const enqueue = runCampaignSendWithRepository(
     deps.db,
-    { newId: deps.newId, now: deps.now, workflowRunId: deps.workflowRunId, approvalGranted: sendApproved },
+    {
+      newId: deps.newId,
+      now: deps.now,
+      workflowRunId: deps.workflowRunId,
+      approvalGranted: sendApproved,
+      ...(deps.maxAttempts !== undefined ? { maxAttempts: deps.maxAttempts } : {}),
+    },
     planInput
   )
   const total = enqueue.enqueued.length
@@ -67,15 +82,47 @@ export async function runApprovedCampaign(
     ids: deps.ids,
   })
 
+  // Drain every job that is leaseable right now. The runner's retry policy re-queues transient
+  // failures with a future scheduled_at (minutes out), so they are NOT leaseable on the next
+  // iteration — runNext() returns 'idle' and the loop ends. We must not pad the iteration count
+  // to absorb retries that structurally cannot fire inline; doing so terminal-marks the campaign
+  // 'failed' while a retry job is still queued (RUN-4).
   let sent = 0
-  for (let i = 0; i < total + 2; i++) {
+  let deadLettered = 0
+  let retryScheduled = 0
+  // Guard against an unexpected non-idle stream: bound the sweep by the enqueued job count.
+  for (let i = 0; i < total; i++) {
     const r = await worker.runNext()
     if (r.status === 'idle') break
     if (r.status === 'succeeded') sent++
+    else if (r.status === 'failed-dead-letter') deadLettered++
+    else if (r.status === 'failed-retry') retryScheduled++
   }
 
-  const finalStatus = sent === total && total > 0 ? 'sent' : 'failed'
+  const finalStatus: RunApprovedCampaignResult['status'] = resolveCampaignDrainStatus({
+    total,
+    sent,
+    deadLettered,
+    retryScheduled,
+  })
   const final = transitionCampaign(sending, finalStatus, deps.now())
   repo.saveCampaign(final)
   return { status: finalStatus, campaign: final, sent, total }
+}
+
+/**
+ * Decides the campaign's post-drain status from the worker outcomes. A terminal 'failed' is only
+ * warranted when a send exhausted its retry budget (dead-lettered) or failed without scheduling a
+ * retry. A transient failure that scheduled a retry leaves the campaign non-terminal ('retrying')
+ * so a worker daemon can drain the retry window — the inline drain cannot wait it out.
+ */
+function resolveCampaignDrainStatus(input: Readonly<{
+  total: number
+  sent: number
+  deadLettered: number
+  retryScheduled: number
+}>): RunApprovedCampaignResult['status'] {
+  if (input.deadLettered > 0) return 'failed'
+  if (input.retryScheduled > 0) return 'retrying'
+  return input.sent === input.total && input.total > 0 ? 'sent' : 'failed'
 }

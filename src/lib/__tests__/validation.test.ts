@@ -161,6 +161,22 @@ describe('createWebhookSchema', () => {
     })
     expect(result.success).toBe(false)
   })
+
+  // SEC-5: SSRF — webhook URLs must not target internal/private/metadata hosts.
+  it.each([
+    'http://169.254.169.254/latest/meta-data', // cloud metadata (AWS)
+    'http://169.254.170.2/x', // link-local
+    'http://127.0.0.1/x', // loopback
+    'http://localhost/x', // loopback hostname
+    'http://[::1]/x', // IPv6 loopback
+    'http://10.0.0.5/x', // RFC1918
+    'http://192.168.1.1/x', // RFC1918
+    'http://172.20.0.1/x', // RFC1918
+    'http://0.0.0.0/x', // invalid/unspecified
+  ])('rejects SSRF target %s', (url) => {
+    const result = createWebhookSchema.safeParse({ name: 'Hook', url })
+    expect(result.success).toBe(false)
+  })
 })
 
 describe('createAlertSchema', () => {

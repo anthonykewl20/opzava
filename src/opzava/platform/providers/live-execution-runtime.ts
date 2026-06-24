@@ -119,11 +119,13 @@ export async function executeApprovedLiveProviderActionOnce(
     throw error
   }
 
-  // A reserved action that did not succeed releases its reservation so a later retry can win the
-  // key again. A successful action keeps the reservation so genuine duplicates still lose.
-  if (options.reservation !== undefined && value.result.status !== 'succeeded') {
-    options.reservation.reserve.releaseExternalCall(options.request.idempotencyKey)
-  }
+  // A reserved action keeps its reservation for any completed outcome, successful or not. A
+  // transient/ambiguous provider failure (e.g. an email send that returned an error after the
+  // provider may have accepted it) must not be re-sent on retry: the persisted external-call record
+  // short-circuits the retry via the idempotency lookup as already-executed, and the retained
+  // reservation closes the concurrent window so a parallel caller cannot re-run it either. The
+  // reservation is released only when execution throws (an unknown outcome where no record is
+  // persisted), so the key is not poisoned and a retry can win again.
 
   return Object.freeze({
     ok: true,

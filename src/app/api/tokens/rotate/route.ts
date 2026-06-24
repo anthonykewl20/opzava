@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
-import { requireRole } from '@/lib/auth'
+import { requireRole, invalidateActiveApiKeyCache } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { mutationLimiter } from '@/lib/rate-limit'
 
@@ -97,6 +97,10 @@ export async function POST(request: NextRequest) {
       updated_by = excluded.updated_by,
       updated_at = unixepoch()
   `).run(newKey, auth.user.username)
+
+  // SEC-9: drop the cached active API key so the rotated value is visible on
+  // the next request without waiting for the TTL to expire.
+  invalidateActiveApiKeyCache()
 
   // Audit log
   const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'

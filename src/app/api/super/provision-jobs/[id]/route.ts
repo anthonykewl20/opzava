@@ -21,6 +21,12 @@ export async function GET(
   const job = getProvisionJob(id)
   if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
+  // SEC-1: scope to the caller's tenant. Report 404 (not 403) to avoid
+  // disclosing the existence of another tenant's jobs.
+  if (Number(job.tenant_id) !== auth.user.tenant_id) {
+    return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+  }
+
   return NextResponse.json({ job })
 }
 
@@ -48,6 +54,13 @@ export async function POST(
 
     if (!['approve', 'reject', 'cancel'].includes(action)) {
       return NextResponse.json({ error: 'Invalid action. Use approve, reject, or cancel.' }, { status: 400 })
+    }
+
+    // SEC-1: only the job's owning tenant may transition its state.
+    const existing = getProvisionJob(id)
+    if (!existing) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    if (Number(existing.tenant_id) !== auth.user.tenant_id) {
+      return NextResponse.json({ error: 'Forbidden: tenant scope violation' }, { status: 403 })
     }
 
     const job = transitionProvisionJobStatus(id, auth.user.username, action, reason)

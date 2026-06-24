@@ -297,7 +297,7 @@ Examples:
   ./notification-daemon.sh --stop
 
 Environment variables:
-  MISSION_CONTROL_URL    Opzava base URL (default: http://localhost:3005)
+  MISSION_CONTROL_URL    Opzava base URL (default: http://localhost:3000)
 
 Log files:
   $LOG_DIR/notification-daemon-YYYY-MM-DD.log

@@ -17,6 +17,14 @@ let db: Database.Database | null = null;
 const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build'
 const isTestMode = process.env.MISSION_CONTROL_TEST_MODE === '1'
 
+// PROC-2: AbortController for the runner-maintenance daemon, retained so a single
+// coordinated process-shutdown path can abort it alongside the scheduler and
+// realtime pruner. Null until startRunnerMaintenance has run (or never, in
+// build/test mode).
+let maintenanceController: AbortController | null = null;
+let shutdownRegistered = false;
+const STOP_BACKGROUND_TIMERS_KEY = Symbol.for('opzava.stopBackgroundTimers');
+
 /**
  * Get or create database connection
  */
@@ -90,8 +98,11 @@ function initializeSchema() {
 
         // Start the opzava durable-runner maintenance loop (F5): recovers expired leases and prunes
         // retention on a timer, beside the inherited scheduler (ARD 0007 — the two engines coexist).
+        // The returned AbortController is retained so stopBackgroundTimers() can abort it on
+        // shutdown (PROC-2) — previously it was discarded and the daemon could only die with the
+        // process, leaving a pending cycle to fire into a closing handle on SIGTERM.
         import('../opzava/platform/runner/maintenance-boot').then(({ startRunnerMaintenance }) => {
-          startRunnerMaintenance(db!, {
+          maintenanceController = startRunnerMaintenance(db!, {
             onError: (error) => logger.warn(
               `opzava runner maintenance cycle failed: ${error instanceof Error ? error.message : String(error)}`,
             ),
@@ -108,6 +119,12 @@ function initializeSchema() {
         }).catch(() => {
           // Silent - pruner is best-effort
         });
+
+        // Register a single coordinated process-shutdown handler (PROC-2) so
+        // SIGTERM/SIGINT/beforeExit abort the maintenance daemon and stop the
+        // scheduler + realtime pruner through one idempotent path, instead of
+        // leaving pending cycles to fire into a closing handle.
+        registerProcessShutdown();
       }
     }
 
@@ -205,6 +222,62 @@ export function closeDatabase() {
     db.close();
     db = null;
   }
+}
+
+/**
+ * Stop all three long-lived background timers (PROC-2): the runner-maintenance
+ * daemon (aborted via its retained AbortController), the inherited scheduler,
+ * and the realtime-events retention pruner. Idempotent — safe to call from
+ * SIGTERM/SIGINT/beforeExit AND from the standalone wrapper's drain, which may
+ * race. Dynamic imports avoid the module-load cycle (scheduler/realtime-events
+ * both import from ./db), so this never re-enters its own initialization.
+ * Best-effort: a failing stop never throws so the shutdown path stays bounded.
+ */
+export async function stopBackgroundTimers(): Promise<void> {
+  try {
+    maintenanceController?.abort();
+  } catch {
+    /* best-effort */
+  }
+  maintenanceController = null;
+  try {
+    const { stopScheduler } = await import('./scheduler');
+    stopScheduler();
+  } catch {
+    /* scheduler module may be absent (test/build) */
+  }
+  try {
+    const { stopRealtimePruner } = await import('./realtime-events');
+    stopRealtimePruner();
+  } catch {
+    /* realtime-events module may be absent (test/build) */
+  }
+}
+
+/**
+ * Register a single coordinated process-shutdown handler (PROC-2). SIGTERM,
+ * SIGINT, and beforeExit each abort the maintenance daemon and stop the
+ * scheduler + realtime pruner through one idempotent path. Guarded by a latch
+ * so repeated calls (e.g. hot-reload) never stack duplicate listeners. Also
+ * publishes the stop fn on globalThis under a well-known Symbol so the
+ * standalone mc-server.cjs wrapper — which cannot statically require compiled
+ * TypeScript — can drive the same stop path during its bounded drain.
+ */
+export function registerProcessShutdown(): void {
+  if (shutdownRegistered) return;
+  shutdownRegistered = true;
+
+  const handler = () => {
+    void stopBackgroundTimers();
+  };
+
+  process.on('SIGTERM', handler);
+  process.on('SIGINT', handler);
+  process.on('beforeExit', handler);
+
+  // Cross-runtime hand-off for the standalone wrapper. mc-server.cjs reads this
+  // defensively (best-effort); a missing hook never breaks its drain.
+  (globalThis as Record<symbol, unknown>)[STOP_BACKGROUND_TIMERS_KEY] = stopBackgroundTimers;
 }
 
 // Type definitions for database entities
@@ -635,3 +708,25 @@ if (typeof window === 'undefined' && !isBuildPhase) {
 process.on('exit', closeDatabase);
 process.on('SIGINT', closeDatabase);
 process.on('SIGTERM', closeDatabase);
+
+// PROC-1: process-level fatal error handlers. A stray unhandled rejection /
+// uncaught exception previously crashed the process with NO structured
+// diagnostic. These log the reason + stack via pino (redacted at the logger
+// seam) BEFORE default termination, then exit non-zero so the process never
+// keeps running in a corrupted state. Registered once — idempotent across
+// hot-reload / repeated module imports — via a stable string key on globalThis.
+function handleFatalRejection(reason: unknown): void {
+  logger.error({ err: reason }, 'unhandled rejection');
+  process.exit(1);
+}
+function handleFatalException(err: unknown): void {
+  logger.error({ err }, 'uncaught exception');
+  process.exit(1);
+}
+
+const g = globalThis as unknown as { __opzavaFatalHandlersRegistered?: boolean };
+if (!g.__opzavaFatalHandlersRegistered) {
+  g.__opzavaFatalHandlersRegistered = true;
+  process.on('unhandledRejection', handleFatalRejection);
+  process.on('uncaughtException', handleFatalException);
+}

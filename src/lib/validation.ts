@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { ZodSchema, ZodError } from 'zod'
 import { z } from 'zod'
+import { isBlockedWebhookUrl } from '@/lib/webhooks'
 
 export async function validateBody<T>(
   request: Request,
@@ -133,7 +134,12 @@ export const bulkUpdateTaskStatusSchema = z.object({
 
 export const createWebhookSchema = z.object({
   name: z.string().min(1, 'Name is required').max(200),
-  url: z.string().url('Invalid URL'),
+  url: z
+    .string()
+    .url('Invalid URL')
+    .refine((url) => !isBlockedWebhookUrl(url), {
+      message: 'Webhook URL cannot point to internal or private services',
+    }),
   events: z.array(z.string().min(1).max(200)).max(50).optional(),
   generate_secret: z.boolean().optional(),
 })
@@ -206,9 +212,12 @@ export const gatewayConfigUpdateSchema = z.object({
   hash: z.string().optional(),
 })
 
+// `reviewer` is intentionally ABSENT: it must be resolved server-side from the
+// authenticated principal (see POST /api/quality-review), never trusted from
+// the request body. Accepting a client-supplied reviewer would let a caller
+// forge the review's attribution.
 export const qualityReviewSchema = z.object({
   taskId: z.number(),
-  reviewer: z.string().default('aegis'),
   status: z.enum(['approved', 'rejected']),
   notes: z.string().min(1, 'Notes are required for quality reviews'),
 })

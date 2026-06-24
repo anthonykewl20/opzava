@@ -15,8 +15,17 @@ const { disposeAllPtySessions, installPtyUpgradeHandler } = require('./pty-webso
 
 // Bounded SSE drain window (ms) on shutdown. Stops accepting new HTTP connections
 // so in-flight SSE responses can be flushed by the durable-replay gap recovery
-// rather than hard-dropped on every redeploy. Single hard-coded value; no config.
-const DRAIN_MS = 2000
+// rather than hard-dropped on every redeploy. Operator-tunable via MC_DRAIN_MS;
+// falls back to 2000ms when unset or not a positive integer.
+const DRAIN_MS = resolveDrainMs(process.env.MC_DRAIN_MS)
+
+function resolveDrainMs(raw) {
+  const DEFAULT_MS = 2000
+  if (raw == null || raw === '') return DEFAULT_MS
+  const parsed = Number(raw)
+  if (!Number.isInteger(parsed) || parsed <= 0) return DEFAULT_MS
+  return parsed
+}
 
 // Captured the first patched HTTP(S) server Next standalone creates, so SIGTERM
 // can stop it from accepting new connections during the drain window.
@@ -54,13 +63,27 @@ patchCreateServer(http)
 patchCreateServer(https)
 
 // Pure, dependency-injected drain so the process-global signal handler is testable.
-// Order: (1) server.close() to stop new connections, (2) bounded wait via a single
+// Order: (1) server.close() to stop new connections, (1b) stop the three long-lived
+// background timers (PROC-2) so a pending scheduler/realtime/maintenance cycle does
+// not fire into a closing handle during the drain, (2) bounded wait via a single
 // setTimeout(drainMs), (3) PTY dispose + exit. The bound fires regardless of whether
-// server.close ever calls back, so a hanging close cannot stall shutdown.
+// server.close ever calls back, so a hanging close cannot stall shutdown. The
+// background-timer stop is best-effort: a missing or throwing hook never blocks drain.
 function performGracefulDrain(server, disposePtySessions, deps) {
   if (server && typeof server.close === 'function') {
     try {
       server.close()
+    } catch {
+      /* best effort; the bounded timer still proceeds */
+    }
+  }
+  if (typeof deps.stopBackgroundTimers === 'function') {
+    try {
+      const result = deps.stopBackgroundTimers()
+      if (result && typeof result.then === 'function') {
+        // best-effort; do not await — the bounded timer governs exit regardless
+        result.catch(() => {})
+      }
     } catch {
       /* best effort; the bounded timer still proceeds */
     }
@@ -71,11 +94,24 @@ function performGracefulDrain(server, disposePtySessions, deps) {
   }, deps.drainMs)
 }
 
+// PROC-2: cross-runtime hand-off. The compiled db module (loaded by Next standalone
+// server.js) publishes its stopBackgroundTimers on globalThis under a well-known
+// Symbol. We read it defensively here so the standalone wrapper drives the same
+// coordinated stop path as the in-process SIGTERM handler — without a static require
+// of compiled TypeScript (fragile across build outputs). Absent until the server.js
+// has initialized the database; a missing hook is a no-op.
+const STOP_BACKGROUND_TIMERS_KEY = Symbol.for('opzava.stopBackgroundTimers')
+function resolveStopBackgroundTimers() {
+  const hook = globalThis[STOP_BACKGROUND_TIMERS_KEY]
+  return typeof hook === 'function' ? hook : undefined
+}
+
 function gracefulShutdown() {
   performGracefulDrain(patchedServer, disposeAllPtySessionsOnce, {
     drainMs: DRAIN_MS,
     exit: (code) => process.exit(code),
     timers: { setTimeout, clearTimeout },
+    stopBackgroundTimers: resolveStopBackgroundTimers(),
   })
 }
 
@@ -83,7 +119,19 @@ process.on('SIGINT', gracefulShutdown)
 process.on('SIGTERM', gracefulShutdown)
 process.on('exit', disposeAllPtySessionsOnce)
 
-module.exports = { performGracefulDrain, patchCreateServer, createIdempotentDispose }
+module.exports = {
+  performGracefulDrain,
+  patchCreateServer,
+  createIdempotentDispose,
+  // Exposes the resolved drain window so tests (and operators via logs) can read
+  // the effective value without re-resolving env parsing. The constant is fixed at
+  // module load; this is a pure read, not a setter.
+  getDrainMs: () => DRAIN_MS,
+  // PROC-2: resolves the coordinated background-timer stop hook published by the
+  // compiled db module on globalThis. Exported so the cross-runtime hand-off is
+  // observable without spawning a child process.
+  resolveStopBackgroundTimers,
+}
 
 // Bootstrap only when invoked directly (not when imported for testing).
 if (require.main === module) {
@@ -106,6 +154,7 @@ if (require.main === module) {
 
   console.log(`[mc-server] Opzava standalone server: ${path.join(standaloneDir, 'server.js')}`)
   console.log('[mc-server] PTY WebSocket upgrade path: /ws/pty')
+  console.log(`[mc-server] Graceful SSE drain window: ${DRAIN_MS}ms (MC_DRAIN_MS)`)
 
   require(path.join(standaloneDir, 'server.js'))
 }

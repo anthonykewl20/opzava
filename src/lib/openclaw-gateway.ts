@@ -191,7 +191,8 @@ export async function callOpenClawGateway<T = unknown>(
       }
 
       if (frame.type === 'event' && frame.event === 'connect.challenge') {
-        connectSent = false
+        // SEC-7: ignore replayed challenges once a connect has been sent for
+        // this invocation — at most one connect frame reaches the wire.
         sendConnect(frame.payload?.nonce)
         return
       }

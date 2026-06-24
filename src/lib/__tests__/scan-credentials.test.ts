@@ -1,8 +1,10 @@
 /**
- * Tests for src/lib/secret-scanner.ts — scanForSecrets and redactSecrets
+ * Tests for src/lib/secret-scanner.ts — scanForSecrets.
+ * (redactSecrets was removed: secret masking now happens at the pino logger
+ *  seam — see src/lib/logger.ts REDACT_PATHS and logger-redact.test.ts.)
  */
 import { describe, it, expect } from 'vitest'
-import { scanForSecrets, redactSecrets } from '@/lib/secret-scanner'
+import { scanForSecrets } from '@/lib/secret-scanner'
 
 describe('scanForSecrets', () => {
   it('detects AWS access key IDs', () => {
@@ -93,35 +95,6 @@ describe('scanForSecrets', () => {
     const text = 'prefix AKIAIOSFODNN7EXAMPLE suffix'
     const hits = scanForSecrets(text)
     expect(hits[0].position).toBe(7)
-  })
-})
-
-describe('redactSecrets', () => {
-  it('masks AWS keys in text', () => {
-    const text = 'Key is AKIAIOSFODNN7EXAMPLE here'
-    const result = redactSecrets(text)
-    expect(result).toContain('***REDACTED***')
-    expect(result).not.toContain('AKIAIOSFODNN7EXAMPLE')
-  })
-
-  it('masks GitHub tokens', () => {
-    const token = 'ghp_' + 'A'.repeat(36)
-    const result = redactSecrets(`Use ${token} for auth`)
-    expect(result).toContain('***REDACTED***')
-    expect(result).not.toContain(token)
-  })
-
-  it('preserves text without credentials', () => {
-    const text = 'Just a normal message with nothing sensitive.'
-    expect(redactSecrets(text)).toBe(text)
-  })
-
-  it('masks multiple credentials in one string', () => {
-    const token = 'ghp_' + 'X'.repeat(36)
-    const text = `AWS: AKIAIOSFODNN7EXAMPLE GitHub: ${token}`
-    const result = redactSecrets(text)
-    expect(result).not.toContain('AKIAIOSFODNN7EXAMPLE')
-    expect(result).not.toContain(token)
   })
 })
 

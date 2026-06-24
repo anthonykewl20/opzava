@@ -5,6 +5,7 @@ import type { ServerEvent } from '../event-bus'
 const routeState = vi.hoisted(() => ({
   handler: null as ((event: ServerEvent) => void) | null,
   readServerEventsAfter: vi.fn(),
+  minRealtimeEventId: vi.fn((): number | null => null),
   eventBus: {
     on: vi.fn((_event: string, handler: (event: ServerEvent) => void) => {
       routeState.handler = handler
@@ -36,6 +37,7 @@ vi.mock('@/lib/realtime-events', async () => {
   return {
     ...actual,
     readServerEventsAfter: routeState.readServerEventsAfter,
+    minRealtimeEventId: routeState.minRealtimeEventId,
   }
 })
 
@@ -65,6 +67,7 @@ describe('GET /api/v1/runs/stream', () => {
     vi.clearAllMocks()
     routeState.handler = null
     routeState.readServerEventsAfter.mockReturnValue([])
+    routeState.minRealtimeEventId.mockReturnValue(null)
   })
 
   it('replays only stored run events for the caller workspace', async () => {
@@ -174,5 +177,39 @@ describe('GET /api/v1/runs/stream', () => {
 
     expect(routeState.eventBus.off).toHaveBeenCalled()
     expect(routeState.handler).toBeNull()
+  })
+
+  it('emits a resync.required control frame when lastEventId predates the retention min id', async () => {
+    // Client last saw id=5, but the workspace's earliest retained event is id=10.
+    // Parity with /api/events (P1-4): the runs feed must not silently gap past retention.
+    routeState.minRealtimeEventId.mockReturnValue(10)
+    routeState.readServerEventsAfter.mockReturnValue([
+      { id: 11, type: 'run.created', data: { id: 'run-1', workspace_id: 1 }, timestamp: 100, workspace_id: 1 },
+    ])
+
+    const { GET } = await import('../../app/api/v1/runs/stream/route')
+    const response = await GET(new NextRequest('http://localhost/api/v1/runs/stream', {
+      headers: { 'last-event-id': '5' },
+    }))
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('missing response body')
+    const decoder = new TextDecoder()
+    // retry, connected, resync.required, then the replayed run.created
+    let text = ''
+    for (let index = 0; index < 4; index += 1) {
+      const { value, done } = await reader.read()
+      if (done) break
+      text += decoder.decode(value, { stream: true })
+    }
+    await reader.cancel()
+
+    expect(text).toContain('"type":"resync.required"')
+    expect(text).toContain('"reason":"retention-gap"')
+    // Control frame carries no numeric id (does not advance the durable cursor)
+    expect(text).not.toMatch(/id: \d+\ndata: \{"type":"resync.required"/)
+    // Cursor jumped past the gap: replay requested from minId-1, not lastEventId=5
+    expect(routeState.readServerEventsAfter).toHaveBeenCalledWith({ afterId: 9, workspaceId: 1 })
+    // The replayed run event after the gap still arrives
+    expect(text).toContain('id: 11')
   })
 })

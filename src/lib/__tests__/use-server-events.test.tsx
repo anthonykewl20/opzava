@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { useServerEvents } from '@/lib/use-server-events'
+import { useServerEvents, useResyncRefetch } from '@/lib/use-server-events'
 import { useMissionControl } from '@/store'
 
 /**
@@ -124,6 +124,112 @@ describe('useServerEvents', () => {
     const task = useMissionControl.getState().tasks.find((t) => t.id === 5)
     expect(task).toBeDefined()
     expect(task?.title).toBe('volatile')
+  })
+
+  it('useResyncRefetch fires the refetch callback when resyncNeeded flips true, then clears the flag', async () => {
+    const refetch = vi.fn().mockResolvedValue(undefined)
+    renderHook(() => useResyncRefetch(refetch))
+
+    // No refetch while the flag is unset.
+    expect(refetch).not.toHaveBeenCalled()
+    expect(useMissionControl.getState().connection.resyncNeeded).toBeFalsy()
+
+    // Flip the flag exactly as the SSE producer does (via setConnection). This
+    // isolates the consumer contract from the SSE hook's internal dispatch.
+    await act(async () => {
+      useMissionControl.getState().setConnection({ resyncNeeded: true })
+    })
+
+    // The resync effect must run the refetch exactly once and clear the flag.
+    expect(refetch).toHaveBeenCalledTimes(1)
+    expect(useMissionControl.getState().connection.resyncNeeded).toBe(false)
+  })
+
+  it('useResyncRefetch reacts to a live resync.required control frame', async () => {
+    const refetch = vi.fn().mockResolvedValue(undefined)
+    renderHook(() => useResyncRefetch(refetch))
+    renderHook(() => useServerEvents())
+
+    await act(async () => {
+      sendMessage({
+        type: 'resync.required',
+        data: { reason: 'retention-gap' },
+        timestamp: Date.now(),
+      })
+    })
+
+    // End-to-end: control frame → flag → refetch → cleared.
+    expect(refetch).toHaveBeenCalledTimes(1)
+    expect(useMissionControl.getState().connection.resyncNeeded).toBe(false)
+  })
+
+  it('useResyncRefetch does not refetch when the flag is cleared without ever being set', () => {
+    const refetch = vi.fn().mockResolvedValue(undefined)
+    renderHook(() => useResyncRefetch(refetch))
+
+    // Flag stays falsy → no refetch, idempotent.
+    expect(refetch).not.toHaveBeenCalled()
+    expect(useMissionControl.getState().connection.resyncNeeded).toBeFalsy()
+  })
+
+  it('a chat.message.read event sets read_at on the matching chat message (CHAT-5)', () => {
+    renderHook(() => useServerEvents())
+
+    // Seed a chat message that is currently unread.
+    useMissionControl.setState({
+      chatMessages: [
+        {
+          id: 77,
+          conversation_id: 'conv_x',
+          from_agent: 'Beatrice',
+          to_agent: 'Carol',
+          content: 'hi',
+          message_type: 'text',
+          read_at: undefined,
+          created_at: 1700000000,
+        },
+      ],
+    })
+
+    // The realtime layer broadcasts a chat.message.read carrying the message id + read_at.
+    sendMessage({
+      id: 9001,
+      type: 'chat.message.read',
+      data: { id: 77, workspace_id: 1, read_at: 1700000500 },
+      timestamp: Date.now(),
+    })
+
+    const msg = useMissionControl.getState().chatMessages.find((m) => m.id === 77)
+    expect(msg?.read_at).toBe(1700000500)
+  })
+
+  it('a chat.message.read event for an unknown message is a safe no-op (CHAT-5)', () => {
+    renderHook(() => useServerEvents())
+    useMissionControl.setState({
+      chatMessages: [
+        {
+          id: 77,
+          conversation_id: 'conv_x',
+          from_agent: 'Beatrice',
+          to_agent: 'Carol',
+          content: 'hi',
+          message_type: 'text',
+          read_at: 1700000001,
+          created_at: 1700000000,
+        },
+      ],
+    })
+
+    // read-state for a message that is not in the local cache must not throw or mutate.
+    sendMessage({
+      id: 9002,
+      type: 'chat.message.read',
+      data: { id: 9999, workspace_id: 1, read_at: 1700000600 },
+      timestamp: Date.now(),
+    })
+
+    const msg = useMissionControl.getState().chatMessages.find((m) => m.id === 77)
+    expect(msg?.read_at).toBe(1700000001) // unchanged
   })
 
   it('still deduplicates genuinely repeated id-bearing durable events', () => {

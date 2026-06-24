@@ -83,12 +83,18 @@ describe('Opzava external-call idempotency lookup', () => {
     expect(lookup.findExistingExternalCall('workflow:run_999:step:other:provider:v1')).toBeNull()
   })
 
-  it('ignores a failed external call so the action can be retried', async () => {
+  it('treats a failed external call as already-executed so a transient failure is not re-sent', async () => {
     const repo = repository()
     await storeExternalCall(repo, liveRequest(), 'failed')
     const lookup = createExternalCallIdempotencyLookup(db as Database.Database)
 
-    expect(lookup.findExistingExternalCall('workflow:run_001:step:seo-brief:provider:v1')).toBeNull()
+    const found = lookup.findExistingExternalCall('workflow:run_001:step:seo-brief:provider:v1')
+
+    // A failed side-effecting call is ambiguous (the provider may have delivered before returning
+    // the error), so it short-circuits a retry as already-executed rather than re-running it.
+    expect(found).not.toBeNull()
+    expect(found?.status).toBe('failed')
+    expect(found?.idempotencyKey).toBe('workflow:run_001:step:seo-brief:provider:v1')
   })
 })
 

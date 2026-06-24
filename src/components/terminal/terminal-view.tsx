@@ -12,18 +12,30 @@ interface TerminalViewProps {
 }
 
 type ConnectionState = 'connecting' | 'ready' | 'disconnected' | 'error' | 'unsupported'
+const MAX_WS_BUFFERED_AMOUNT = 1024 * 1024
 
 export function TerminalView({ sessionId, sessionKind, mode, onExit, onError, onReady }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<any>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const fitAddonRef = useRef<any>(null)
+  const cleanupInProgressRef = useRef(false)
+  const terminalErroredRef = useRef(false)
+  const connectionSeqRef = useRef(0)
   const [connState, setConnState] = useState<ConnectionState>('connecting')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const connect = useCallback(async () => {
     if (!containerRef.current) return
+    const connectionSeq = connectionSeqRef.current + 1
+    connectionSeqRef.current = connectionSeq
+    const isCurrentConnection = () => connectionSeqRef.current === connectionSeq
 
+    cleanupInProgressRef.current = true
+    wsRef.current?.close(1000, 'Reconnect')
+    wsRef.current = null
+    cleanupInProgressRef.current = false
+    terminalErroredRef.current = false
     setConnState('connecting')
     setErrorMessage(null)
 
@@ -35,6 +47,7 @@ export function TerminalView({ sessionId, sessionKind, mode, onExit, onError, on
         body: JSON.stringify({ sessionId, kind: sessionKind, mode }),
       })
       const data = await res.json()
+      if (!isCurrentConnection() || !containerRef.current) return
 
       if (!data.supported) {
         setConnState('unsupported')
@@ -49,6 +62,7 @@ export function TerminalView({ sessionId, sessionKind, mode, onExit, onError, on
         import('@xterm/addon-fit'),
         import('@xterm/addon-web-links'),
       ])
+      if (!isCurrentConnection() || !containerRef.current) return
 
       // Inject xterm CSS inline (avoids module resolution issues with Next.js)
       if (!document.querySelector('style[data-xterm-css]')) {
@@ -125,6 +139,11 @@ export function TerminalView({ sessionId, sessionKind, mode, onExit, onError, on
       term.loadAddon(fitAddon)
       term.loadAddon(webLinksAddon)
 
+      if (!isCurrentConnection() || !containerRef.current) {
+        term.dispose()
+        return
+      }
+
       termRef.current = term
       fitAddonRef.current = fitAddon
 
@@ -136,18 +155,40 @@ export function TerminalView({ sessionId, sessionKind, mode, onExit, onError, on
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
       const wsUrl = `${protocol}://${window.location.host}${data.wsPath}`
       const ws = new WebSocket(wsUrl)
+      if (!isCurrentConnection()) {
+        ws.close()
+        term.dispose()
+        return
+      }
       wsRef.current = ws
+      const sendTerminalMessage = (payload: unknown): boolean => {
+        if (!isCurrentConnection() || wsRef.current !== ws) return false
+        if (ws.readyState !== WebSocket.OPEN) return false
+        if (ws.bufferedAmount > MAX_WS_BUFFERED_AMOUNT) {
+          const message = 'Terminal WebSocket backpressure limit reached; reconnect to resume.'
+          terminalErroredRef.current = true
+          setConnState('error')
+          setErrorMessage(message)
+          onError?.(message)
+          ws.close(1013, 'client backpressure')
+          return false
+        }
+        ws.send(JSON.stringify(payload))
+        return true
+      }
 
       ws.onopen = () => {
+        if (!isCurrentConnection() || wsRef.current !== ws) return
         // Send initial size
-        ws.send(JSON.stringify({
+        sendTerminalMessage({
           type: 'resize',
           cols: term.cols,
           rows: term.rows,
-        }))
+        })
       }
 
       ws.onmessage = (event) => {
+        if (!isCurrentConnection() || wsRef.current !== ws) return
         try {
           const msg = JSON.parse(event.data)
           switch (msg.type) {
@@ -164,6 +205,7 @@ export function TerminalView({ sessionId, sessionKind, mode, onExit, onError, on
               onExit?.(msg.code)
               break
             case 'error':
+              terminalErroredRef.current = true
               setConnState('error')
               setErrorMessage(msg.message)
               onError?.(msg.message)
@@ -177,12 +219,15 @@ export function TerminalView({ sessionId, sessionKind, mode, onExit, onError, on
       }
 
       ws.onclose = () => {
-        if (connState !== 'error') {
+        if (!isCurrentConnection() || wsRef.current !== ws) return
+        if (!terminalErroredRef.current && !cleanupInProgressRef.current) {
           setConnState('disconnected')
         }
       }
 
       ws.onerror = () => {
+        if (!isCurrentConnection() || wsRef.current !== ws) return
+        terminalErroredRef.current = true
         setConnState('error')
         setErrorMessage('WebSocket connection failed')
       }
@@ -190,23 +235,20 @@ export function TerminalView({ sessionId, sessionKind, mode, onExit, onError, on
       // Forward terminal input to WebSocket
       if (mode === 'interactive') {
         term.onData((data: string) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'input', data }))
-          }
+          sendTerminalMessage({ type: 'input', data })
         })
       }
 
       // Handle resize
       const resizeObserver = new ResizeObserver(() => {
+        if (!isCurrentConnection() || wsRef.current !== ws) return
         try {
           fitAddon.fit()
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              type: 'resize',
-              cols: term.cols,
-              rows: term.rows,
-            }))
-          }
+          sendTerminalMessage({
+            type: 'resize',
+            cols: term.cols,
+            rows: term.rows,
+          })
         } catch {
           // ignore
         }
@@ -215,24 +257,37 @@ export function TerminalView({ sessionId, sessionKind, mode, onExit, onError, on
 
       // Cleanup on unmount is handled by the effect cleanup
       return () => {
+        cleanupInProgressRef.current = true
         resizeObserver.disconnect()
+        if (wsRef.current === ws) wsRef.current = null
+        if (termRef.current === term) termRef.current = null
+        if (fitAddonRef.current === fitAddon) fitAddonRef.current = null
         ws.close()
         term.dispose()
       }
     } catch (err) {
+      if (!isCurrentConnection()) return
+      terminalErroredRef.current = true
       setConnState('error')
       const msg = err instanceof Error ? err.message : 'Failed to connect'
       setErrorMessage(msg)
       onError?.(msg)
     }
-  }, [sessionId, sessionKind, mode, onExit, onError, onReady, connState])
+  }, [sessionId, sessionKind, mode, onExit, onError, onReady])
 
   useEffect(() => {
     const cleanup = connect()
     return () => {
+      connectionSeqRef.current += 1
+      cleanupInProgressRef.current = true
       cleanup?.then?.((fn) => fn?.())
-      wsRef.current?.close()
-      termRef.current?.dispose()
+      const ws = wsRef.current
+      const term = termRef.current
+      wsRef.current = null
+      termRef.current = null
+      fitAddonRef.current = null
+      ws?.close()
+      term?.dispose()
     }
   }, [connect])
 

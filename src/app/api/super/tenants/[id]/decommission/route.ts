@@ -19,6 +19,13 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid tenant id' }, { status: 400 })
   }
 
+  // SEC-1: decommission targets a tenant inferred from the path. Only the
+  // owning tenant may queue a decommission for itself; reject any other id
+  // before any privileged action.
+  if (tenantId !== auth.user.tenant_id) {
+    return NextResponse.json({ error: 'Forbidden: tenant scope violation' }, { status: 403 })
+  }
+
   try {
     const body = await request.json().catch(() => ({}))
     const created = createTenantDecommissionJob(tenantId, {

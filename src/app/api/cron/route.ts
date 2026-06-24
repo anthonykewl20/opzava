@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { writeFileAtomic } from '@/lib/atomic-write'
 
 interface CronJob {
   name: string
@@ -87,7 +88,7 @@ async function saveCronFile(data: OpenClawCronFile): Promise<boolean> {
   const filePath = getCronFilePath()
   if (!filePath) return false
   try {
-    await writeFile(filePath, JSON.stringify(data, null, 2))
+    await writeFileAtomic(filePath, JSON.stringify(data, null, 2))
     return true
   } catch (err) {
     logger.error({ err }, 'Failed to write cron file')

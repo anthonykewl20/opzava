@@ -5,7 +5,7 @@ import { getAllGatewaySessions } from '@/lib/sessions'
 import { eventBus } from '@/lib/event-bus'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
-import { scanForInjection, sanitizeForPrompt } from '@/lib/injection-guard'
+import { scanForInjection } from '@/lib/injection-guard'
 import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 import { resolveCoordinatorDeliveryTarget } from '@/lib/coordinator-routing'
 
@@ -33,6 +33,72 @@ type ChatAttachmentInput = {
 const COORDINATOR_AGENT =
   String(process.env.MC_COORDINATOR_AGENT || process.env.NEXT_PUBLIC_COORDINATOR_AGENT || 'coordinator').trim() ||
   'coordinator'
+
+// CHAT-3 payload size caps. A human message previously had no bound on content,
+// metadata, or attachment data — an unbounded POST would balloon the messages row
+// and the realtime_events outbox row it commits in the same transaction. Caps are
+// enforced BEFORE any INSERT so an oversized payload never enters the durable path.
+const MAX_CONTENT_BYTES = 16 * 1024 // 16 KiB for message text
+const MAX_METADATA_BYTES = 8 * 1024 // 8 KiB for the serialized metadata blob
+const MAX_ATTACHMENT_COUNT = 10 // hard cap on the number of attachments
+const MAX_ATTACHMENT_BYTES = 1024 * 1024 // 1 MiB per individual data-URL
+const MAX_TOTAL_ATTACHMENT_BYTES = 4 * 1024 * 1024 // 4 MiB summed across all attachments
+
+function utf8ByteLength(value: string): number {
+  return Buffer.byteLength(value, 'utf8')
+}
+
+// Returns an error string when the payload violates a CHAT-3 cap, else null. Runs
+// cheaply (length + regex) so the rejection happens before any DB write or forward.
+function validatePayloadSize(body: any): string | null {
+  const content = typeof body?.content === 'string' ? body.content : ''
+  if (utf8ByteLength(content) > MAX_CONTENT_BYTES) {
+    return `Message content exceeds the ${MAX_CONTENT_BYTES}-byte cap`
+  }
+
+  const metadata = body?.metadata
+  if (metadata !== null && metadata !== undefined) {
+    let metadataBytes = 0
+    try {
+      metadataBytes = utf8ByteLength(JSON.stringify(metadata))
+    } catch {
+      metadataBytes = Infinity
+    }
+    if (metadataBytes > MAX_METADATA_BYTES) {
+      return `Message metadata exceeds the ${MAX_METADATA_BYTES}-byte cap`
+    }
+  }
+
+  const attachments = body?.attachments
+  if (Array.isArray(attachments)) {
+    if (attachments.length > MAX_ATTACHMENT_COUNT) {
+      return `Too many attachments (max ${MAX_ATTACHMENT_COUNT})`
+    }
+    let total = 0
+    for (const entry of attachments) {
+      const file = entry as ChatAttachmentInput
+      const dataUrl = typeof file?.dataUrl === 'string' ? file.dataUrl : ''
+      const size = utf8ByteLength(dataUrl)
+      if (size > MAX_ATTACHMENT_BYTES) {
+        return `Attachment exceeds the ${MAX_ATTACHMENT_BYTES}-byte cap`
+      }
+      total += size
+    }
+    if (total > MAX_TOTAL_ATTACHMENT_BYTES) {
+      return `Attachments exceed the ${MAX_TOTAL_ATTACHMENT_BYTES}-byte total cap`
+    }
+  }
+
+  return null
+}
+
+// Human-originated sends on this route may only be 'text'. The reserved types
+// (status, tool_call, system, command, handoff, ...) are written exclusively by
+// server-side code (createChatReply, coordinator replies); an operator POSTing
+// message_type:'system' could otherwise spoof a system/command/handoff message
+// in the audit trail and chat history (CHAT-2). Any non-text value — spoofed
+// reserved type or arbitrary string — is coerced to 'text'.
+const HUMAN_MESSAGE_TYPE = 'text'
 
 function parseGatewayJson(raw: string): any | null {
   const trimmed = String(raw || '').trim()
@@ -362,7 +428,11 @@ export async function POST(request: NextRequest) {
     const from = auth.user.display_name || auth.user.username || 'system'
     const to = body.to ? (body.to as string).trim() : null
     const content = (body.content || '').trim()
-    const message_type = body.message_type || 'text'
+    // CHAT-2: message_type is constrained server-side to HUMAN_MESSAGE_TYPE ('text')
+    // for human-originated sends. The raw body value is never trusted — reserved
+    // types (system/command/handoff/status/tool_call) and any arbitrary string are
+    // coerced to 'text' so an operator cannot spoof a system/command/handoff message.
+    const message_type = HUMAN_MESSAGE_TYPE
     const conversation_id = body.conversation_id || `conv_${Date.now()}`
     const metadata = body.metadata || null
 
@@ -371,6 +441,14 @@ export async function POST(request: NextRequest) {
         { error: '"content" is required' },
         { status: 400 }
       )
+    }
+
+    // CHAT-3: enforce payload size caps (content, metadata, attachments) BEFORE any
+    // SELECT or INSERT. An oversized human message must never reach the durable path
+    // (messages row + realtime_events outbox commit in the same transaction).
+    const sizeError = validatePayloadSize(body)
+    if (sizeError) {
+      return NextResponse.json({ error: sizeError }, { status: 413 })
     }
 
     // Scan content for injection when it will be forwarded to an agent
@@ -882,18 +960,21 @@ export async function POST(request: NextRequest) {
     }
 
     const created = db.prepare('SELECT * FROM messages WHERE id = ? AND workspace_id = ?').get(messageId, workspaceId) as Message
+    // DS-4 metadata parity: parsedMessage describes the message IDENTICALLY to the
+    // chat.message SSE frame (built in-tx from the same row). forwardInfo is delivery
+    // metadata, computed AFTER the tx commits (the gateway forward is intentionally
+    // outside the tx), so it can never be part of the message's own metadata without
+    // diverging from the realtime event for the same id. It travels on the top-level
+    // `forward` field below, which the frontend reads first. Keeping forwardInfo off
+    // message.metadata here makes the HTTP body and the SSE frame agree exactly.
     const parsedMessage = {
       ...created,
-      metadata: {
-        ...(safeParseMetadata(created.metadata) || {}),
-        forwardInfo: forwardInfo || undefined,
-      },
+      metadata: safeParseMetadata(created.metadata),
     }
 
     // The originator event was already emitted above (after the tx committed) via
     // eventBus.emit('server-event', outboxEvent). Do NOT broadcast again here — that
-    // would re-record a second realtime_events row. parsedMessage carries forwardInfo
-    // for the HTTP response only.
+    // would re-record a second realtime_events row.
     return NextResponse.json({ message: parsedMessage, forward: forwardInfo }, { status: 201 })
   } catch (error) {
     logger.error({ err: error }, 'POST /api/chat/messages error')

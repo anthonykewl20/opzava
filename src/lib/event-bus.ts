@@ -21,7 +21,7 @@ export type EventType =
   | 'task.deleted'
   | 'task.status_changed'
   | 'chat.message'
-  | 'chat.message.deleted'
+  | 'chat.message.read'
   | 'notification.created'
   | 'notification.read'
   | 'activity.created'
@@ -41,7 +41,6 @@ export type EventType =
   | 'run.eval_attached'
   | 'task.escalated'
   | 'session.updated'
-
 class ServerEventBus extends EventEmitter {
   private static instance: ServerEventBus | null = null
   private recordingFailureLogged = false

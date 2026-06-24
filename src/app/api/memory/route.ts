@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readdir, readFile, stat, writeFile, mkdir, unlink } from 'fs/promises'
+import { readdir, readFile, stat, mkdir, unlink } from 'fs/promises'
 import { existsSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { db_helpers, getDatabase } from '@/lib/db'
@@ -9,6 +9,7 @@ import { logger } from '@/lib/logger'
 import { validateSchema, extractWikiLinks } from '@/lib/memory-utils'
 import { MEMORY_PATH, MEMORY_ALLOWED_PREFIXES, isPathAllowed, resolveSafeMemoryPath } from '@/lib/memory-path'
 import { searchMemory, indexFile, removeFromIndex } from '@/lib/memory-search'
+import { writeFileAtomic } from '@/lib/atomic-write'
 
 // Ensure memory directory exists on startup
 if (MEMORY_PATH && !existsSync(MEMORY_PATH)) {
@@ -225,7 +226,7 @@ export async function POST(request: NextRequest) {
       const schemaResult = path.endsWith('.md') ? validateSchema(content) : null
       const schemaWarnings = schemaResult?.errors ?? []
 
-      await writeFile(fullPath, content, 'utf-8')
+      await writeFileAtomic(fullPath, content)
       // Incrementally update FTS index
       try { indexFile(getDatabase(), MEMORY_PATH, path) } catch { /* best-effort */ }
       try {
@@ -257,7 +258,7 @@ export async function POST(request: NextRequest) {
         // File doesn't exist, which is what we want
       }
 
-      await writeFile(fullPath, content || '', 'utf-8')
+      await writeFileAtomic(fullPath, content || '')
       try { indexFile(getDatabase(), MEMORY_PATH, path) } catch { /* best-effort */ }
       try {
         db_helpers.logActivity('memory_file_created', 'memory', 0, auth.user.username || 'unknown', `Created ${path}`, { path })

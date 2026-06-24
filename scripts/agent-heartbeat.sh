@@ -230,7 +230,7 @@ case "${1:-}" in
         echo "  --help, -h    Show this help message"
         echo ""
         echo "Environment variables:"
-        echo "  MISSION_CONTROL_URL  Opzava base URL (default: http://localhost:3005)"
+        echo "  MISSION_CONTROL_URL  Opzava base URL (default: http://localhost:3000)"
         echo ""
         exit 0
         ;;

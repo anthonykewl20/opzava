@@ -61,7 +61,7 @@ import { Loader } from '@/components/ui/loader'
 import { ProjectManagerModal } from '@/components/modals/project-manager-modal'
 import { ExecApprovalOverlay } from '@/components/modals/exec-approval-overlay'
 import { useWebSocket } from '@/lib/websocket'
-import { useServerEvents } from '@/lib/use-server-events'
+import { useServerEvents, useResyncRefetch } from '@/lib/use-server-events'
 import { completeNavigationTiming } from '@/lib/navigation-metrics'
 import { panelHref, useNavigateToPanel } from '@/lib/navigation'
 import { clearOnboardingDismissedThisSession, clearOnboardingReplayFromStart, getOnboardingSessionDecision, markOnboardingReplayFromStart, readOnboardingDismissedThisSession } from '@/lib/onboarding-session'
@@ -134,6 +134,42 @@ export default function Home() {
 
   // Connect to SSE for real-time local DB events (tasks, agents, chat, etc.)
   useServerEvents()
+
+  // Resync consumer: when the SSE layer flags a retention-gap resync
+  // (connection.resyncNeeded), reload the realtime-backed collections exactly
+  // as the boot path does, then clear the flag. Idempotent (one refetch per
+  // flip) and decoupled from boot timing — no-op while bootComplete is false.
+  useResyncRefetch(async () => {
+    if (!bootComplete) return
+    const [agentsData, sessionsData, projectsData, graphData, skillsData] =
+      await Promise.allSettled([
+        apiFetch<{ agents?: unknown }>('/api/agents'),
+        apiFetch<{ sessions?: unknown }>('/api/sessions'),
+        apiFetch<{ projects?: unknown }>('/api/projects'),
+        apiFetch<{ agents?: unknown }>('/api/memory/graph?agent=all'),
+        apiFetch<{ skills?: unknown; groups?: unknown; total?: unknown }>('/api/skills'),
+      ])
+    if (agentsData.status === 'fulfilled' && agentsData.value?.agents) {
+      setAgents(agentsData.value.agents as Parameters<typeof setAgents>[0])
+    }
+    if (sessionsData.status === 'fulfilled' && sessionsData.value?.sessions) {
+      setSessions(sessionsData.value.sessions as Parameters<typeof setSessions>[0])
+    }
+    if (projectsData.status === 'fulfilled' && projectsData.value?.projects) {
+      setProjects(projectsData.value.projects as Parameters<typeof setProjects>[0])
+    }
+    if (graphData.status === 'fulfilled' && graphData.value?.agents) {
+      setMemoryGraphAgents(graphData.value.agents as Parameters<typeof setMemoryGraphAgents>[0])
+    }
+    if (skillsData.status === 'fulfilled' && skillsData.value?.skills) {
+      setSkillsData(
+        skillsData.value.skills as Parameters<typeof setSkillsData>[0],
+        (skillsData.value.groups || []) as Parameters<typeof setSkillsData>[1],
+        (skillsData.value.total || 0) as number,
+      )
+    }
+  })
+
   const [isClient, setIsClient] = useState(false)
   const [stepStatuses, setStepStatuses] = useState<Record<string, 'pending' | 'done'>>(
     () => Object.fromEntries(STEP_KEYS.map(k => [k, 'pending']))

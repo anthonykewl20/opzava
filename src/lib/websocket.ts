@@ -31,6 +31,9 @@ const DEFAULT_GATEWAY_CLIENT_ID = process.env.NEXT_PUBLIC_GATEWAY_CLIENT_ID || '
 const PING_INTERVAL_MS = 30_000
 const MAX_MISSED_PONGS = 3
 const ERROR_LOG_DEDUPE_MS = 5_000
+const MAX_WS_BUFFERED_AMOUNT = 1024 * 1024
+const MAX_WS_MESSAGE_CHARS = 1024 * 1024
+const MAX_RAW_LOG_CHARS = 2_048
 
 // Gateway message types
 interface GatewayFrame {
@@ -73,6 +76,23 @@ const lastSeqRef: { current: number | null } = { current: null }
 const tokenOnlyFallbackRef: { current: boolean } = { current: false }
 const tokenOnlyFallbackTriedRef: { current: boolean } = { current: false }
 const wsPathFallbackTriedRef: { current: Set<string> } = { current: new Set() }
+
+function sendGatewayFrame(ws: WebSocket, frame: unknown): boolean {
+  if (ws.readyState !== WebSocket.OPEN) return false
+  if (ws.bufferedAmount > MAX_WS_BUFFERED_AMOUNT) {
+    log.warn('Gateway WebSocket backpressure limit reached; closing connection')
+    ws.close(1013, 'client backpressure')
+    return false
+  }
+  ws.send(JSON.stringify(frame))
+  return true
+}
+
+function rawMessagePreview(data: string): string {
+  return data.length > MAX_RAW_LOG_CHARS
+    ? `${data.slice(0, MAX_RAW_LOG_CHARS)}... [truncated ${data.length - MAX_RAW_LOG_CHARS} chars]`
+    : data
+}
 
 export function useWebSocket() {
   const maxReconnectAttempts = 10
@@ -185,11 +205,7 @@ export function useWebSocket() {
         id: pingId,
       }
 
-      try {
-        wsRef.current.send(JSON.stringify(pingFrame))
-      } catch {
-        // Send failed, will be caught by reconnect logic
-      }
+      sendGatewayFrame(wsRef.current, pingFrame)
     }, PING_INTERVAL_MS)
   }, [addLog])
 
@@ -285,7 +301,7 @@ export function useWebSocket() {
       }
     }
     log.info('Sending connect handshake')
-    ws.send(JSON.stringify(connectRequest))
+    sendGatewayFrame(ws, connectRequest)
   }, [])
 
   // Parse and handle different gateway message types
@@ -714,6 +730,15 @@ export function useWebSocket() {
       }
 
       ws.onmessage = (event) => {
+        if (typeof event.data !== 'string') {
+          log.warn('Ignoring non-text WebSocket message from Gateway')
+          return
+        }
+        if (event.data.length > MAX_WS_MESSAGE_CHARS) {
+          log.warn('Gateway WebSocket message exceeded size limit; closing connection')
+          ws.close(1009, 'message too large')
+          return
+        }
         try {
           const frame = JSON.parse(event.data) as GatewayFrame
           handleGatewayFrame(frame, ws)
@@ -724,13 +749,14 @@ export function useWebSocket() {
             timestamp: Date.now(),
             level: 'debug',
             source: 'websocket',
-            message: `Raw message: ${event.data}`
+            message: `Raw message: ${rawMessagePreview(event.data)}`
           })
         }
       }
 
       ws.onclose = (event) => {
         log.info(`Disconnected from Gateway: ${event.code} ${event.reason}`)
+        const handshakeCompletedBeforeClose = handshakeCompleteRef.current
         setConnection({ isConnected: false })
         handshakeCompleteRef.current = false
         stopHeartbeat()
@@ -740,7 +766,7 @@ export function useWebSocket() {
 
         // If the initial handshake never completed and the URL is root-only,
         // try common reverse-proxy websocket paths before exponential backoff.
-        if (!handshakeCompleteRef.current) {
+        if (!handshakeCompletedBeforeClose) {
           const fallback = buildGatewayPathFallbackUrls(normalizedUrl).find(
             (candidate) => !wsPathFallbackTriedRef.current.has(candidate),
           )
@@ -862,8 +888,7 @@ export function useWebSocket() {
 
   const sendMessage = useCallback((message: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN && handshakeCompleteRef.current) {
-      wsRef.current.send(JSON.stringify(message))
-      return true
+      return sendGatewayFrame(wsRef.current, message)
     }
     return false
   }, [])

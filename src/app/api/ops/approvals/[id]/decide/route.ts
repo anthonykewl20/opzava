@@ -7,6 +7,26 @@ import { transitionApprovalStatus } from '@/opzava/core/approvals/contracts'
 
 const DECISIONS = ['approved', 'rejected'] as const
 
+/**
+ * SEC-2: returns true when the caller's identity matches the approval's requester,
+ * i.e. the same agent/user that opened the workflow gate is trying to decide it.
+ * Candidates: the caller's username (which is `agent:<name>` for agent-scoped API
+ * keys), and — for agent-authenticated callers — the bare agent name (some workflow
+ * paths store the requester as the raw agent name rather than the `agent:` form).
+ */
+function isRequester(
+  requesterId: string,
+  user: { username?: string | null; agent_id?: number | null; agent_name?: string | null }
+): boolean {
+  if (!requesterId) return false
+  if (user.username && user.username === requesterId) return true
+  if (user.agent_id != null) {
+    if (user.agent_name && user.agent_name === requesterId) return true
+    if (`agent:${user.agent_name ?? ''}` === requesterId) return true
+  }
+  return false
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -38,6 +58,16 @@ export async function POST(
 
   const existing = repo.getApprovalById(id)
   if (!existing) return NextResponse.json({ error: 'Approval not found' }, { status: 404 })
+
+  // SEC-2: an approver must not be the same identity that requested the gate.
+  // Matches on the caller's username (also covers `agent:<name>` for agent-scoped keys)
+  // and, when the caller authenticated as an agent, the bare agent name.
+  if (isRequester(existing.requesterId, auth.user)) {
+    return NextResponse.json(
+      { error: 'cannot approve own request' },
+      { status: 403 }
+    )
+  }
 
   const decision = {
     status: body.decision as (typeof DECISIONS)[number],

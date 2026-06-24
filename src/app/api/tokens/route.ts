@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readFile, writeFile, access } from 'fs/promises'
+import { readFile, access } from 'fs/promises'
 import { dirname } from 'path'
 import { config, ensureDirExists } from '@/lib/config'
+import { writeFileAtomic } from '@/lib/atomic-write'
 import { requireRole } from '@/lib/auth'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { logger } from '@/lib/logger'
@@ -227,9 +228,12 @@ function deriveFromSessions(workspaceId: number, providerSubscriptions: Record<s
   return records
 }
 
-async function saveTokenData(data: TokenUsageRecord[]): Promise<void> {
+export async function saveTokenData(data: TokenUsageRecord[]): Promise<void> {
   ensureDirExists(dirname(DATA_PATH))
-  await writeFile(DATA_PATH, JSON.stringify(data, null, 2))
+  // Atomic write (DUR-2): write the payload to a sibling `.tmp` file then
+  // `rename` over tokens.json. A crash mid-write leaves a stale `.tmp` behind
+  // but never truncates the destination, so historical token data survives.
+  await writeFileAtomic(DATA_PATH, JSON.stringify(data, null, 2))
 }
 
 function calculateStats(records: TokenUsageRecord[]): TokenStats {
@@ -608,22 +612,14 @@ export async function POST(request: NextRequest) {
       duration,
     }
 
-    // Persist only manually posted usage records in the JSON file.
-    const existingData = await loadTokenDataFromFile(workspaceId, providerSubscriptions)
-    existingData.unshift(record)
-
-    if (existingData.length > 10000) {
-      existingData.splice(10000)
-    }
-
-    await saveTokenData(existingData)
-
-    // Also INSERT into the token_usage SQLite table so by-agent / DB-based
-    // aggregations (which read from token_usage, not from the JSON file)
-    // include externally-posted records. Without this, worker-reported
-    // tokens land only in the JSON file and the by-agent dashboard widget
-    // stays empty even when usage exists. Failures are non-fatal so the
-    // JSON write remains the canonical record.
+    // SEC-8: the token_usage SQLite row is the SOLE canonical store for
+    // manually posted usage. The previous code did a non-atomic
+    // read-modify-write on tokens.json (load -> unshift -> save): two
+    // concurrent same-workspace POSTs both read the same array and the second
+    // atomic rename clobbered the first, silently dropping a record. SQLite
+    // serializes the INSERTs, so every manual post survives. The JSON file is
+    // now reserved for legacy/historic data and is still READ by loadTokenData
+    // (GET) for backward compatibility, but it is never written from this path.
     try {
       const db = getDatabase()
       const createdAtSec = Math.floor(Date.now() / 1000)
@@ -642,7 +638,8 @@ export async function POST(request: NextRequest) {
         record.agentName,
       )
     } catch (err) {
-      logger.warn({ err }, 'token_usage DB insert failed (JSON record persisted)')
+      logger.error({ err }, 'token_usage DB insert failed (manual post)')
+      return NextResponse.json({ error: 'Failed to record token usage' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true, record })

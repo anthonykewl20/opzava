@@ -164,6 +164,23 @@ export function useServerEvents() {
             })
           }
           break
+        // CHAT-5: another client marked a DM read. Reconcile read_at on the
+        // matching cached message. Idempotent: only writes when the message is
+        // present and its read_at differs; an unknown id is a safe no-op.
+        case 'chat.message.read': {
+          const readId = event.data?.id
+          const readAt = event.data?.read_at
+          if (typeof readId !== 'number' || typeof readAt !== 'number') break
+          const state = useMissionControl.getState()
+          const existing = state.chatMessages.find((m) => m.id === readId)
+          if (!existing || existing.read_at === readAt) break
+          useMissionControl.setState({
+            chatMessages: state.chatMessages.map((m) =>
+              m.id === readId ? { ...m, read_at: readAt } : m
+            ),
+          })
+          break
+        }
 
         // Notification events
         case 'notification.created':
@@ -227,4 +244,48 @@ export function useServerEvents() {
     markNotificationRead,
     addActivity,
   ])
+}
+
+/**
+ * Watches `connection.resyncNeeded`. When the SSE layer flags a retention-gap
+ * resync, this re-invokes the caller-provided refetch (a stable closure that
+ * reloads the realtime-backed collections) and then clears the flag.
+ *
+ * Idempotent + thread-safe: the effect only runs the refetch on a true→false
+ * transition (gated by `resyncNeeded === true`), so concurrent reconnection
+ * storms or repeated frames cannot fire duplicate refetches; clearing is a
+ * single synchronous store write. The refetch callback is invoked once per
+ * flag flip and awaited — failures are logged but still clear the flag so the
+ * client does not get stuck refusing the next resync.
+ *
+ * Kept in this module (next to the flag's producer) so the resync contract —
+ * flip → refetch → clear — lives in one place. Callers pass their own refetch
+ * so this hook owns no network/UI concerns (deep module, no hidden deps).
+ */
+export function useResyncRefetch(refetch: () => void | Promise<void>) {
+  const resyncNeeded = useMissionControl((s) => s.connection.resyncNeeded)
+  const setConnection = useMissionControl((s) => s.setConnection)
+  // Hold the latest refetch in a ref so the flag-transition effect is
+  // independent of callback identity churn; the resync effect re-runs ONLY on
+  // the flag transition, not on every refetch-closure change.
+  const refetchRef = useRef(refetch)
+  useEffect(() => {
+    refetchRef.current = refetch
+  }, [refetch])
+
+  useEffect(() => {
+    if (!resyncNeeded) return
+    let cancelled = false
+    Promise.resolve()
+      .then(() => refetchRef.current())
+      .catch((err) => log.warn('Resync refetch failed', err))
+      .finally(() => {
+        // Always clear the flag so a failed refetch does not wedge resync.
+        // Guarded so a rapid unmount does not write after teardown.
+        if (!cancelled) setConnection({ resyncNeeded: false })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [resyncNeeded, setConnection])
 }

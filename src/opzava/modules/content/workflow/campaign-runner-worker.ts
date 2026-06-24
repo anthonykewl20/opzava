@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 
 import { createRunnerRepository } from '@/opzava/platform/runner/repository'
 import { createRunnerWorker, type RunnerWorker, type RunnerExecutor } from '@/opzava/platform/runner/worker'
-import { createExponentialRetryPolicy } from '@/opzava/platform/runner/retry-policy'
+import { createExponentialRetryPolicy, type ExponentialRetryPolicyOptions } from '@/opzava/platform/runner/retry-policy'
 
 import { createCampaignSendExecutor } from './campaign-send-executor'
 import { createJobKindExecutor } from './job-kind-executor'
@@ -40,7 +40,21 @@ export type CampaignRunnerWorkerDeps = Readonly<{
   onSent?: (info: Readonly<{ jobId: string; to: string; messageId: string | null }>) => void
   leaseDurationMs?: number
   executionTimeoutMs?: number
+  /**
+   * Operator-tunable retry policy projected from admin settings
+   * (runtime-options.ts `projectRetryPolicyOptions`). When absent the worker falls back to its
+   * own safe defaults so callers that do not participate in settings (e.g. the inline campaign
+   * drain) keep working. RUN-3: the daemon path must supply the projection rather than rely on
+   * these literals.
+   */
+  retryOptions?: ExponentialRetryPolicyOptions
 }>
+
+const DEFAULT_CAMPAIGN_RETRY_OPTIONS: ExponentialRetryPolicyOptions = Object.freeze({
+  initialDelayMs: 2 * 60_000,
+  multiplier: 2,
+  maxDelayMs: 10 * 60_000,
+})
 
 export function createCampaignRunnerWorker(deps: CampaignRunnerWorkerDeps): RunnerWorker {
   const repository = createRunnerRepository(deps.db)
@@ -59,11 +73,7 @@ export function createCampaignRunnerWorker(deps: CampaignRunnerWorkerDeps): Runn
     workerId: deps.workerId,
     leaseDurationMs: deps.leaseDurationMs ?? 5 * 60 * 1000,
     executionTimeoutMs: deps.executionTimeoutMs ?? 30_000,
-    retryPolicy: createExponentialRetryPolicy({
-      initialDelayMs: 2 * 60_000,
-      multiplier: 2,
-      maxDelayMs: 10 * 60_000,
-    }),
+    retryPolicy: createExponentialRetryPolicy(deps.retryOptions ?? DEFAULT_CAMPAIGN_RETRY_OPTIONS),
     clock: deps.clock,
     ids: deps.ids,
   })

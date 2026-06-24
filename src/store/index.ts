@@ -987,9 +987,18 @@ const createUiSlice: StoreCreator = (set, get) => ({
     set({ dashboardLayout: layout })
   },
 
-  // Interface Mode
-  interfaceMode: 'essential' as const,
-  setInterfaceMode: (mode) => set({ interfaceMode: mode }),
+  // Interface Mode (persisted — mirrors headerDensity)
+  interfaceMode: (() => {
+    if (typeof window === 'undefined') return 'essential' as const
+    try {
+      const raw = localStorage.getItem('mc-interface-mode')
+      return raw === 'full' ? 'full' : 'essential'
+    } catch { return 'essential' as const }
+  })(),
+  setInterfaceMode: (mode) => {
+    try { localStorage.setItem('mc-interface-mode', mode) } catch {}
+    set({ interfaceMode: mode })
+  },
 
   // UI State — sidebar & layout persistence
   activeTab: 'overview',
@@ -1220,11 +1229,21 @@ const createChatSlice: StoreCreator = (set) => ({
       return { chatMessages: messages, conversations }
     }),
   replacePendingMessage: (tempId, message) =>
-    set((state) => ({
-      chatMessages: state.chatMessages.map(m =>
-        m.id === tempId ? { ...message, pendingStatus: 'sent' } : m
-      ),
-    })),
+    set((state) => {
+      // The SSE originator may have delivered the real message before the HTTP
+      // response. If so, drop the tempId row instead of inserting a second
+      // copy — never two messages with the same positive id for one chat.
+      if (message.id > 0 && state.chatMessages.some(m => m.id === message.id)) {
+        return {
+          chatMessages: state.chatMessages.filter(m => m.id !== tempId),
+        }
+      }
+      return {
+        chatMessages: state.chatMessages.map(m =>
+          m.id === tempId ? { ...message, pendingStatus: 'sent' } : m
+        ),
+      }
+    }),
   updatePendingMessage: (tempId, updates) =>
     set((state) => ({
       chatMessages: state.chatMessages.map(m =>

@@ -14,6 +14,10 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
       resolve()
     }
     const timeout = setTimeout(done, ms)
+    // unref() so the daemon's sleep timer never keeps the event loop alive on
+    // its own (PROC-2). The loop is driven by this promise; without unref a
+    // pending sleep would be the lone reason Node refuses to exit between cycles.
+    timeout.unref?.()
     signal.addEventListener('abort', done, { once: true })
   })
 }

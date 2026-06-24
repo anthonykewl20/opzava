@@ -3,10 +3,13 @@ import { NextRequest } from 'next/server'
 import Database from 'better-sqlite3'
 import { createApprovalRepository } from '@/opzava/core/approvals/approval-repository'
 
-const { dbRef } = vi.hoisted(() => ({ dbRef: { db: null as any } }))
+const { dbRef, authRef } = vi.hoisted(() => ({
+  dbRef: { db: null as any },
+  authRef: { user: { id: 1, username: 'admin' } as any },
+}))
 
 vi.mock('@/lib/auth', () => ({
-  requireRole: vi.fn(() => ({ user: { id: 1, username: 'admin' } })),
+  requireRole: vi.fn(() => ({ user: authRef.user })),
 }))
 vi.mock('@/lib/rate-limit', () => ({
   mutationLimiter: vi.fn(() => null),
@@ -17,14 +20,14 @@ vi.mock('@/lib/db', () => ({
 
 import { POST } from './route'
 
-function requested(id: string): any {
+function requested(id: string, requesterId = 'system'): any {
   return {
     schemaVersion: 1,
     approvalId: id,
     requestedAction: 'wordpress-draft',
     target: { kind: 'external-action', id: `req-${id}` },
     status: 'requested',
-    requesterId: 'system',
+    requesterId,
     approverId: null,
     decisionReason: null,
     requestedAt: '2026-07-01T00:00:00.000Z',
@@ -51,6 +54,7 @@ const ctx = (id: string) => ({ params: Promise.resolve({ id }) })
 
 beforeEach(() => {
   dbRef.db = new Database(':memory:')
+  authRef.user = { id: 1, username: 'admin' }
 })
 
 describe('POST /api/ops/approvals/[id]/decide', () => {
@@ -110,5 +114,47 @@ describe('POST /api/ops/approvals/[id]/decide', () => {
       ctx('apr-4')
     )
     expect(res.status).toBe(400)
+  })
+
+  it('403 when the approver is the original requester (same username)', async () => {
+    authRef.user = { id: 1, username: 'admin' }
+    seed(requested('apr-self', 'admin'))
+    const res = await POST(
+      req('apr-self', { decision: 'approved' }),
+      ctx('apr-self')
+    )
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error).toMatch(/cannot approve own request/i)
+
+    // Approval must remain undecided (no partial state mutation)
+    const persisted = createApprovalRepository(dbRef.db).getApprovalById('apr-self')
+    expect(persisted?.status).toBe('requested')
+    expect(persisted?.approverId).toBeNull()
+  })
+
+  it('403 when the approver is the original requester (same agent identity)', async () => {
+    authRef.user = { id: -7, username: 'agent:writer', agent_id: 7, agent_name: 'writer' }
+    seed(requested('apr-agent', 'agent:writer'))
+    const res = await POST(
+      req('apr-agent', { decision: 'approved' }),
+      ctx('apr-agent')
+    )
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error).toMatch(/cannot approve own request/i)
+  })
+
+  it('still approves when a different user decides the request', async () => {
+    authRef.user = { id: 2, username: 'admin-b' }
+    seed(requested('apr-other', 'admin'))
+    const res = await POST(
+      req('apr-other', { decision: 'approved' }),
+      ctx('apr-other')
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.status).toBe('approved')
+    expect(body.approverId).toBe('admin-b')
   })
 })

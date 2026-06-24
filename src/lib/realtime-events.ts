@@ -146,6 +146,20 @@ export function startRealtimePruner(): void {
   }
   tick()
   prunerHandle = setInterval(tick, SSE_PRUNE_INTERVAL_MS)
+  // unref() so the pruner never keeps the event loop alive on its own (PROC-2).
+  prunerHandle.unref?.()
+}
+
+/**
+ * Stop the realtime retention pruner and clear its handle (PROC-2). Idempotent:
+ * a no-op when the pruner was never started or already stopped, so it is safe to
+ * call from a coordinated process-shutdown path alongside stopScheduler().
+ */
+export function stopRealtimePruner(): void {
+  if (prunerHandle) {
+    clearInterval(prunerHandle)
+    prunerHandle = null
+  }
 }
 
 export function readServerEventsAfter(input: {

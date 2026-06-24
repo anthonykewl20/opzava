@@ -67,6 +67,59 @@ describe('api-contract-parity helpers', () => {
     expect(report.ignoredOperations).toEqual(['PATCH /api/tasks/{id}'])
   })
 
+  it('detects a path-param rename between a route and its OpenAPI spec', () => {
+    // SCR-8: route /api/agents/[agentId] normalizes to /api/agents/{agentId};
+    // OpenAPI declares /api/agents/{id}. Same shape, different param name.
+    // The literal-string check used to flag each as missing-in-the-other and
+    // hide the real cause. The parity check must recognize the shape match and
+    // fail explicitly on the param-name mismatch, naming both names.
+    const report = compareApiContractParity({
+      routeOperations: [
+        { method: 'GET', path: '/api/agents/{agentId}', sourceFile: 'a' },
+        { method: 'GET', path: '/api/tasks', sourceFile: 'b' },
+      ],
+      openapiOperations: ['GET /api/agents/{id}', 'GET /api/tasks'],
+    })
+
+    // Shape-matched renames must NOT be double-counted as missing in either set.
+    expect(report.missingInOpenApi).toEqual([])
+    expect(report.missingInRoutes).toEqual([])
+    // The rename is surfaced explicitly with both param names.
+    expect(report.paramMismatches).toEqual([
+      {
+        method: 'GET',
+        path: '/api/agents/{agentId}',
+        openapiPath: '/api/agents/{id}',
+        routeParam: 'agentId',
+        openapiParam: 'id',
+      },
+    ])
+    expect(report.ok).toBe(false)
+  })
+
+  it('does not flag matching param names as a mismatch', () => {
+    const report = compareApiContractParity({
+      routeOperations: [{ method: 'GET', path: '/api/tasks/{id}/steps/{stepId}', sourceFile: 'a' }],
+      openapiOperations: ['GET /api/tasks/{id}/steps/{stepId}'],
+    })
+
+    expect(report.paramMismatches).toEqual([])
+    expect(report.missingInOpenApi).toEqual([])
+    expect(report.missingInRoutes).toEqual([])
+    expect(report.ok).toBe(true)
+  })
+
+  it('does not shape-match paths with a different number of segments', () => {
+    const report = compareApiContractParity({
+      routeOperations: [{ method: 'GET', path: '/api/tasks/{id}', sourceFile: 'a' }],
+      openapiOperations: ['GET /api/tasks/{id}/steps/{stepId}'],
+    })
+
+    expect(report.paramMismatches).toEqual([])
+    expect(report.missingInOpenApi).toEqual(['GET /api/tasks/{id}'])
+    expect(report.missingInRoutes).toEqual(['GET /api/tasks/{id}/steps/{stepId}'])
+  })
+
   it('scans a project root and compares route operations to openapi', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-contract-'))
     tempDirs.push(root)
