@@ -10,7 +10,7 @@
 |------|-------|--------|--------|----------|
 | A0 | Durability decision + mandatory wal_checkpoint | ✅ | 6956d69 | typecheck + scheduler-registry (7/7) |
 | A1 | Migration 055: counters + claimed_at + client_request_id + governance test | ✅ | _pending_ | migration-ids-unique (2/2) + migrations apply (3/3) + typecheck |
-| B1a | Principal-binding authz | ⬜ | | |
+| B1a | Principal-binding authz | ✅ (partial) | _pending_ | typecheck + workspace-scope 27/27 + task-route-security 4/4. **Deferred:** sessions/[id]/control + exec-approvals POST bind against gateway-side opaque keys (session_key / approval_id) with no DB→agent mapping — needs a gateway lookup or sessions table before they can be bound (documented; not guessed) |
 | B3 | /api/connect admin-gate + name allowlist + hygiene | ⬜ | | |
 | B4 | SSRF protection on webhooks | ⬜ | | |
 | G1 | Leader-election lock + explicit workspaceId + lock<lease | ⬜ | | |

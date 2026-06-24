@@ -12,7 +12,7 @@ import { reconcileDeferredTaskCompletions, makeDefaultDeps } from '@/lib/task-di
 import { pushTaskToGitHub, syncTaskOutbound } from '@/lib/github-sync-engine';
 import { pushTaskToGnap } from '@/lib/gnap-sync';
 import { config } from '@/lib/config';
-import { requireWorkspaceId } from '@/lib/enforcement/workspace-scope';
+import { requireWorkspaceId, requireAgentTaskAccess } from '@/lib/enforcement/workspace-scope';
 
 function formatTicketRef(prefix?: string | null, num?: number | null): string | undefined {
   if (!prefix || typeof num !== 'number' || !Number.isFinite(num) || num <= 0) return undefined
@@ -396,11 +396,23 @@ async function handlePut(request: NextRequest) {
     `);
 
     const actor = auth.user.username
+    const forbiddenIds: number[] = []
+    let updatedCount = 0
 
     const transaction = db.transaction((tasksToUpdate: any[]) => {
       for (const task of tasksToUpdate) {
         const oldTask = db.prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?').get(task.id, workspaceId) as Task;
         if (!oldTask) continue;
+
+        // Principal-binding (B1a): an operator-scoped agent key may only move its own
+        // tasks; tasks it does not own are skipped and reported as forbidden. Admins and
+        // human operators are exempt. Closes the bulk-PUT authz gap (the single-task [id]
+        // route already enforced this).
+        const accessDeny = requireAgentTaskAccess(auth.user, oldTask.assigned_to ?? null)
+        if (accessDeny) {
+          forbiddenIds.push(task.id)
+          continue
+        }
 
         if (task.status === 'done' && !hasAegisApproval(db, task.id, workspaceId)) {
           throw new Error(`Aegis approval required for task ${task.id}`)
@@ -411,6 +423,7 @@ async function handlePut(request: NextRequest) {
         } else {
           updateStmt.run(task.status, now, task.id, workspaceId);
         }
+        updatedCount += 1
 
         // Log status change if different
         if (oldTask && oldTask.status !== task.status) {
@@ -426,11 +439,14 @@ async function handlePut(request: NextRequest) {
         }
       }
     });
-    
+
     transaction(tasks);
 
-    // Broadcast status changes to SSE clients + outbound sync
+    // Broadcast status changes to SSE clients + outbound sync (only for tasks the
+    // caller was authorized to move).
+    const forbiddenSet = new Set(forbiddenIds)
     for (const task of tasks) {
+      if (forbiddenSet.has(task.id)) continue
       eventBus.broadcast('task.status_changed', {
         id: task.id,
         status: task.status,
@@ -445,7 +461,7 @@ async function handlePut(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, updated: tasks.length });
+    return NextResponse.json({ success: true, updated: updatedCount, forbidden: forbiddenIds.length, forbidden_ids: forbiddenIds });
   } catch (error) {
     logger.error({ err: error }, 'PUT /api/tasks error');
     const message = error instanceof Error ? error.message : 'Failed to update tasks'

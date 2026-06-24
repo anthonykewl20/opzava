@@ -6,6 +6,7 @@ import { config } from '@/lib/config';
 import { resolveWithin } from '@/lib/paths';
 import { getAgentWorkspaceCandidates, readAgentWorkspaceFile } from '@/lib/agent-workspace';
 import { requireRole } from '@/lib/auth';
+import { requireAgentSelfAccess } from '@/lib/enforcement/workspace-scope';
 import { logger } from '@/lib/logger';
 
 function resolveAgentWorkspacePath(workspace: string): string {
@@ -110,6 +111,11 @@ export async function PUT(
     const resolvedParams = await params;
     const agentId = resolvedParams.id;
     const workspaceId = auth.user.workspace_id ?? 1;
+    // Principal-binding (B1a): an operator-scoped agent key may only edit its own SOUL
+    // (soul_content becomes the system prompt — cross-agent writes are identity spoofing
+    // + prompt injection). Admins/humans are exempt.
+    const selfDeny = requireAgentSelfAccess(auth.user, agentId);
+    if (selfDeny) return selfDeny;
     const body = await request.json();
     const { soul_content, template_name } = body;
     

@@ -105,6 +105,20 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Missing required field: agents' }, { status: 400 })
   }
 
+  // Principal-binding (B1a): an operator-scoped agent key may only edit its OWN
+  // exec-approval allowlist entry; rewriting another agent's patterns is lateral
+  // movement. Admins/humans are exempt.
+  if (auth.user.agent_name && auth.user.role !== 'admin') {
+    for (const agentId of Object.keys(body.agents)) {
+      if (agentId !== auth.user.agent_name) {
+        return NextResponse.json(
+          { error: 'Access denied: agent key may only edit its own allowlist.' },
+          { status: 403 },
+        )
+      }
+    }
+  }
+
   const filePath = execApprovalsPath()
   try {
     const { readFile, writeFile, mkdir } = require('fs/promises')

@@ -7,6 +7,7 @@ import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
 import { runOpenClaw } from '@/lib/command'
 import { config as appConfig } from '@/lib/config'
+import { requireAgentSelfAccess } from '@/lib/enforcement/workspace-scope'
 
 /**
  * GET /api/agents/[id] - Get a single agent by ID or name
@@ -66,6 +67,10 @@ export async function PUT(
     const db = getDatabase()
     const { id } = await params
     const workspaceId = auth.user.workspace_id ?? 1;
+    // Principal-binding (B1a): an operator-scoped agent key may only mutate its
+    // own agent config (incl. openclawId / identity); admins/humans are exempt.
+    const selfDeny = requireAgentSelfAccess(auth.user, id)
+    if (selfDeny) return selfDeny
     const body = await request.json()
     const { role, gateway_config, write_to_gateway } = body
 
