@@ -76,7 +76,7 @@ function makeFakeDeps(overrides: {
   dispatchDirect?: TaskDispatchDeps['dispatchDirect']
   recoverCompletionText?: TaskDispatchDeps['recoverCompletionText']
   clock?: Partial<TaskDispatchDeps['clock']>
-} = {}): { deps: TaskDispatchDeps; state: FakeDbState; broadcasts: Array<{ type: string; payload: unknown }>; activities: unknown[] } {
+} = {}): { deps: TaskDispatchDeps; state: FakeDbState; broadcasts: Array<{ type: string; payload: unknown }>; activities: unknown[]; syncOutbound: Array<{ task: unknown; workspaceId: number }> } {
   const state: FakeDbState = overrides.dbState ?? {
     rowsBySql: new Map(),
     runBySql: new Map(),
@@ -84,11 +84,13 @@ function makeFakeDeps(overrides: {
   }
   const broadcasts: Array<{ type: string; payload: unknown }> = []
   const activities: unknown[] = []
+  const syncOutbound: Array<{ task: unknown; workspaceId: number }> = []
   const fixedTime = 1_700_000_000
   const deps: TaskDispatchDeps = {
     db: makeFakeDb(state) as TaskDispatchDeps['db'],
     broadcast: (type, payload) => { broadcasts.push({ type, payload }) },
     logActivity: (...args: unknown[]) => { activities.push(args) },
+    syncTaskOutbound: (task, workspaceId) => { syncOutbound.push({ task, workspaceId }) },
     clock: {
       now: () => fixedTime,
       nowMs: () => fixedTime * 1000,
@@ -100,7 +102,7 @@ function makeFakeDeps(overrides: {
     dispatchDirect: overrides.dispatchDirect ?? (vi.fn() as unknown as TaskDispatchDeps['dispatchDirect']),
     recoverCompletionText: overrides.recoverCompletionText ?? (() => null),
   }
-  return { deps, state, broadcasts, activities }
+  return { deps, state, broadcasts, activities, syncOutbound }
 }
 
 describe('autoRouteInboxTasks (deps seam)', () => {
@@ -178,7 +180,7 @@ describe('requeueStaleTasks (deps seam)', () => {
   })
 
   it('fails a task that has hit the max retries while offline', async () => {
-    const { deps, state, broadcasts } = makeFakeDeps({
+    const { deps, state, broadcasts, syncOutbound } = makeFakeDeps({
       isGatewayAvailable: () => true,
       isDirectDispatchAvailable: () => false,
     })
@@ -196,6 +198,11 @@ describe('requeueStaleTasks (deps seam)', () => {
 
     expect(result.message).toContain('failed 1')
     expect(broadcasts.some(b => (b.payload as any).status === 'failed')).toBe(true)
+    // Seam guardrail: the max-retry failure escalates THROUGH deps.broadcast
+    // (task.escalated with the stale-retry reason) and syncs outbound through
+    // deps.syncTaskOutbound — neither side effect hits the module globals.
+    expect(broadcasts.some(b => b.type === 'task.escalated' && (b.payload as any).reason === 'stale_task_max_retries')).toBe(true)
+    expect(syncOutbound).toHaveLength(1)
   })
 
   it('skips stale check entirely in direct-API mode (no gateway)', async () => {
@@ -223,7 +230,7 @@ describe('requeueStaleTasks (deps seam)', () => {
 
 describe('runAegisReviews (deps seam)', () => {
   it('approves a reviewable task via direct dispatch and marks it done', async () => {
-    const { deps, state, broadcasts, activities } = makeFakeDeps({
+    const { deps, state, broadcasts, activities, syncOutbound } = makeFakeDeps({
       isGatewayAvailable: () => false,
       isDirectDispatchAvailable: () => true,
       dispatchDirect: (() => Promise.resolve({
@@ -256,6 +263,9 @@ describe('runAegisReviews (deps seam)', () => {
     // Final task status broadcasted to done
     expect(broadcasts.some(b => (b.payload as any).status === 'done')).toBe(true)
     expect(activities).toHaveLength(1)
+    // Seam guardrail: the approve path syncs outbound THROUGH deps.syncTaskOutbound,
+    // never the module-global syncTaskOutbound (the leak this assertion pins).
+    expect(syncOutbound).toHaveLength(1)
   })
 
   it('rejects and requeues a task below max retries', async () => {

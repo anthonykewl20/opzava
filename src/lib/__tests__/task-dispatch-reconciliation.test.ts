@@ -1,15 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+// REWRITE: these tests now exercise the orchestrators through the
+// dependency-injected `deps` seam (the "test deps-literal adapter"), NOT via
+// `vi.mock` of task-dispatch internals. The fake-db is a hoisted helper shared
+// by every orchestrator call (per the DEEPENING.md discipline); only the
+// side-effect modules that `recoverDeferredCompletionTextFromTranscript`
+// transitively imports (sessions, transcript-parser, config, gateway) remain
+// mocked, because that helper is a pure function we wire into `deps` directly.
+
+// ---------------------------------------------------------------------------
+// Hoisted fake-db state — the single shared SQL router.
+// ---------------------------------------------------------------------------
 const mockDbState = vi.hoisted(() => ({
-  tasks: [] as Array<{
-    id: number
-    title: string
-    assigned_to: string | null
-    metadata: string | null
-    workspace_id: number
-    ticket_prefix?: string | null
-    project_ticket_no?: number | null
-  }>,
+  tasks: [] as Array<Record<string, unknown>>,
   updates: [] as Array<{
     resolution: string
     metadata: string
@@ -22,14 +25,9 @@ const mockDbState = vi.hoisted(() => ({
     content: string
     workspaceId: number
   }>,
-  statusUpdates: [] as Array<{
-    status: string
-    taskId: number
-  }>,
-  metadataUpdates: [] as Array<{
-    metadata: string
-    taskId: number
-  }>,
+  statusUpdates: [] as Array<{ status: string; taskId: number }>,
+  metadataUpdates: [] as Array<{ metadata: string; taskId: number }>,
+  dispatchAttempts: {} as Record<number, number>,
   callOpenClawGateway: vi.fn(),
   runOpenClaw: vi.fn(),
   getAllGatewaySessions: vi.fn(),
@@ -43,19 +41,15 @@ vi.mock('../db', () => ({
   getDatabase: () => ({
     prepare: (sql: string) => {
       if (sql.includes('SELECT') && sql.includes('assigned_to') && sql.includes('metadata') && sql.includes('project_ticket_no')) {
-        return {
-          all: () => mockDbState.tasks,
-        }
+        return { all: () => mockDbState.tasks }
       }
       if (sql.includes('FROM tasks t') && sql.includes('JOIN agents')) {
-        return {
-          all: () => mockDbState.tasks,
-        }
+        return { all: () => mockDbState.tasks }
       }
       if (sql.includes('SELECT metadata FROM tasks WHERE id = ?')) {
         return {
           get: (taskId: number) => {
-            const task = mockDbState.tasks.find((item) => item.id === taskId)
+            const task = mockDbState.tasks.find((item) => item.id === taskId) as { metadata?: string } | undefined
             return task ? { metadata: task.metadata } : undefined
           },
         }
@@ -86,6 +80,11 @@ vi.mock('../db', () => ({
             mockDbState.metadataUpdates.push({ metadata, taskId })
             return { changes: 1 }
           },
+        }
+      }
+      if (sql.includes('SELECT dispatch_attempts FROM tasks WHERE id = ?')) {
+        return {
+          get: (taskId: number) => ({ dispatch_attempts: mockDbState.dispatchAttempts[taskId] ?? 0 }),
         }
       }
       if (sql.includes('UPDATE tasks') && sql.includes("status = 'review'")) {
@@ -171,25 +170,61 @@ vi.mock('../logger', () => ({
   },
 }))
 
-import { dispatchAssignedTasks, extractDeferredCompletionText, reconcileDeferredTaskCompletions } from '../task-dispatch'
+import {
+  dispatchAssignedTasks,
+  extractDeferredCompletionText,
+  reconcileDeferredTaskCompletions,
+  recoverDeferredCompletionTextFromTranscript,
+  resolveTaskDispatchModelOverride,
+  type TaskDispatchDeps,
+} from '../task-dispatch'
+import { getDatabase } from '../db'
+
+// ---------------------------------------------------------------------------
+// Test deps-literal adapter: builds a TaskDispatchDeps whose `db` is the SAME
+// fake-db that getDatabase() returns (so the orchestrator's deps.db and the
+// mocked module agree), with broadcast/logActivity/clock/gateway stubbed. The
+// production `recoverDeferredCompletionTextFromTranscript` is wired straight
+// in so the transcript-recovery test exercises the real (mocked-dep) code path.
+// ---------------------------------------------------------------------------
+function makeTestDeps(overrides: Partial<TaskDispatchDeps> = {}): TaskDispatchDeps {
+  return {
+    db: getDatabase() as unknown as TaskDispatchDeps['db'],
+    broadcast: mockDbState.broadcast as TaskDispatchDeps['broadcast'],
+    logActivity: mockDbState.logActivity as unknown as TaskDispatchDeps['logActivity'],
+    clock: { now: () => 1_700_000_000, nowMs: () => 1_700_000_000_000 },
+    // gateway healthy (fake-db gateways COUNT -> 1), so isGatewayAvailable is
+    // gated through deps here; the orchestrator reads it via deps.
+    isGatewayAvailable: () => true,
+    isDirectDispatchAvailable: () => false,
+    gateway: mockDbState.callOpenClawGateway as unknown as TaskDispatchDeps['gateway'],
+    dispatchDirect: vi.fn(),
+    recoverCompletionText: (task, metadata) => recoverDeferredCompletionTextFromTranscript(task, metadata),
+    syncTaskOutbound: () => {},
+    ...overrides,
+  }
+}
+
+function resetMockState() {
+  mockDbState.tasks = []
+  mockDbState.updates = []
+  mockDbState.comments = []
+  mockDbState.statusUpdates = []
+  mockDbState.metadataUpdates = []
+  mockDbState.dispatchAttempts = {}
+  mockDbState.callOpenClawGateway.mockReset()
+  mockDbState.runOpenClaw.mockReset()
+  mockDbState.getAllGatewaySessions.mockReset()
+  mockDbState.getAllGatewaySessions.mockReturnValue([])
+  mockDbState.readSessionJsonl.mockReset()
+  mockDbState.readSessionJsonl.mockReturnValue(null)
+  mockDbState.logActivity.mockClear()
+  mockDbState.broadcast.mockClear()
+  mockDbState.warn.mockClear()
+}
 
 describe('deferred task completion reconciliation', () => {
-  beforeEach(() => {
-    mockDbState.tasks = []
-    mockDbState.updates = []
-    mockDbState.comments = []
-    mockDbState.statusUpdates = []
-    mockDbState.metadataUpdates = []
-    mockDbState.callOpenClawGateway.mockReset()
-    mockDbState.runOpenClaw.mockReset()
-    mockDbState.getAllGatewaySessions.mockReset()
-    mockDbState.getAllGatewaySessions.mockReturnValue([])
-    mockDbState.readSessionJsonl.mockReset()
-    mockDbState.readSessionJsonl.mockReturnValue(null)
-    mockDbState.logActivity.mockClear()
-    mockDbState.broadcast.mockClear()
-    mockDbState.warn.mockClear()
-  })
+  beforeEach(resetMockState)
 
   it('extracts text from gateway payloads', () => {
     expect(
@@ -226,7 +261,7 @@ describe('deferred task completion reconciliation', () => {
     }]
     const waitForRun = vi.fn(async () => ({ complete: true, text: 'Should not be used.' }))
 
-    const result = await reconcileDeferredTaskCompletions({ waitForRun })
+    const result = await reconcileDeferredTaskCompletions(makeTestDeps(), { waitForRun })
 
     expect(waitForRun).not.toHaveBeenCalled()
     expect(result.promoted).toBe(0)
@@ -243,7 +278,7 @@ describe('deferred task completion reconciliation', () => {
     }]
     const waitForRun = vi.fn(async () => ({ complete: false, text: 'Partial output is ignored.' }))
 
-    const result = await reconcileDeferredTaskCompletions({ waitForRun })
+    const result = await reconcileDeferredTaskCompletions(makeTestDeps(), { waitForRun })
 
     expect(result.promoted).toBe(0)
     expect(mockDbState.updates).toHaveLength(0)
@@ -260,7 +295,7 @@ describe('deferred task completion reconciliation', () => {
     }]
     mockDbState.callOpenClawGateway.mockResolvedValue({ status: 'timeout', runId: 'run-timeout' })
 
-    const result = await reconcileDeferredTaskCompletions()
+    const result = await reconcileDeferredTaskCompletions(makeTestDeps())
 
     expect(mockDbState.callOpenClawGateway).toHaveBeenCalledWith(
       'agent.wait',
@@ -282,7 +317,7 @@ describe('deferred task completion reconciliation', () => {
     }]
     const waitForRun = vi.fn(async () => ({ complete: true, text: 'Should not be used.' }))
 
-    const result = await reconcileDeferredTaskCompletions({ waitForRun })
+    const result = await reconcileDeferredTaskCompletions(makeTestDeps(), { waitForRun })
 
     expect(waitForRun).not.toHaveBeenCalled()
     expect(result.promoted).toBe(0)
@@ -299,7 +334,7 @@ describe('deferred task completion reconciliation', () => {
     }]
     const waitForRun = vi.fn(async () => ({ complete: true, text: null }))
 
-    const result = await reconcileDeferredTaskCompletions({ waitForRun })
+    const result = await reconcileDeferredTaskCompletions(makeTestDeps(), { waitForRun })
 
     expect(result.promoted).toBe(1)
     expect(mockDbState.updates[0].resolution).toBe('Deferred agent run completed without textual output.')
@@ -359,7 +394,7 @@ describe('deferred task completion reconciliation', () => {
     ].join('\n'))
     const waitForRun = vi.fn(async () => ({ complete: true, text: null }))
 
-    const result = await reconcileDeferredTaskCompletions({ waitForRun })
+    const result = await reconcileDeferredTaskCompletions(makeTestDeps(), { waitForRun })
 
     expect(result.promoted).toBe(1)
     expect(mockDbState.getAllGatewaySessions).toHaveBeenCalledWith(24 * 60 * 60 * 1000, true)
@@ -375,22 +410,7 @@ describe('deferred task completion reconciliation', () => {
 })
 
 describe('existing-session deferred dispatch', () => {
-  beforeEach(() => {
-    mockDbState.tasks = []
-    mockDbState.updates = []
-    mockDbState.comments = []
-    mockDbState.statusUpdates = []
-    mockDbState.metadataUpdates = []
-    mockDbState.callOpenClawGateway.mockReset()
-    mockDbState.runOpenClaw.mockReset()
-    mockDbState.getAllGatewaySessions.mockReset()
-    mockDbState.getAllGatewaySessions.mockReturnValue([])
-    mockDbState.readSessionJsonl.mockReset()
-    mockDbState.readSessionJsonl.mockReturnValue(null)
-    mockDbState.logActivity.mockClear()
-    mockDbState.broadcast.mockClear()
-    mockDbState.warn.mockClear()
-  })
+  beforeEach(resetMockState)
 
   it('marks accepted chat.send without a runId as explicit manual reconciliation', async () => {
     mockDbState.tasks = [{
@@ -408,10 +428,10 @@ describe('existing-session deferred dispatch', () => {
       project_ticket_no: null,
       project_id: null,
       metadata: JSON.stringify({ target_session: 'session-123' }),
-    } as any]
+    }]
     mockDbState.callOpenClawGateway.mockResolvedValue({ status: 'accepted' })
 
-    const result = await dispatchAssignedTasks()
+    const result = await dispatchAssignedTasks(makeTestDeps())
 
     expect(result).toEqual({ ok: true, message: 'Dispatched 1/1 tasks' })
     expect(mockDbState.callOpenClawGateway).toHaveBeenCalledWith(
@@ -470,14 +490,14 @@ describe('existing-session deferred dispatch', () => {
       project_ticket_no: null,
       project_id: null,
       metadata: '{}',
-    } as any]
+    }]
     mockDbState.callOpenClawGateway.mockResolvedValue({
       status: 'accepted',
       runId: 'run-22',
       sessionId: 'session-22',
     })
 
-    await dispatchAssignedTasks()
+    await dispatchAssignedTasks(makeTestDeps())
 
     expect(mockDbState.runOpenClaw).not.toHaveBeenCalled()
     expect(mockDbState.callOpenClawGateway).toHaveBeenCalledTimes(1)
@@ -494,5 +514,24 @@ describe('existing-session deferred dispatch', () => {
       dispatch_run_id: 'run-22',
       async_state: 'pending',
     })
+  })
+})
+
+describe('resolveTaskDispatchModelOverride (pure, retained)', () => {
+  it('returns null when the agent has no explicit dispatch model override', () => {
+    expect(resolveTaskDispatchModelOverride({ agent_config: null })).toBeNull()
+    expect(resolveTaskDispatchModelOverride({ agent_config: '{"openclawId":"main"}' })).toBeNull()
+  })
+
+  it('returns the explicit dispatch model override when present', () => {
+    expect(
+      resolveTaskDispatchModelOverride({
+        agent_config: '{"openclawId":"main","dispatchModel":"openai-codex/gpt-5.4"}',
+      })
+    ).toBe('openai-codex/gpt-5.4')
+  })
+
+  it('ignores malformed agent config payloads', () => {
+    expect(resolveTaskDispatchModelOverride({ agent_config: '{not json' })).toBeNull()
   })
 })

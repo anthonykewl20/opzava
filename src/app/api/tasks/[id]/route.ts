@@ -7,7 +7,7 @@ import { logger } from '@/lib/logger';
 import { validateBody, updateTaskSchema } from '@/lib/validation';
 import { resolveMentionRecipients } from '@/lib/mentions';
 import { normalizeTaskUpdateStatus } from '@/lib/task-status';
-import { reconcileDeferredTaskCompletions } from '@/lib/task-dispatch';
+import { reconcileDeferredTaskCompletions, makeDefaultDeps } from '@/lib/task-dispatch';
 import { syncTaskOutbound } from '@/lib/github-sync-engine';
 import { removeTaskFromGnap } from '@/lib/gnap-sync';
 import { config } from '@/lib/config';
@@ -66,7 +66,7 @@ export async function GET(
     }
 
     try {
-      await reconcileDeferredTaskCompletions({ workspaceId, taskId, limit: 1 })
+      await reconcileDeferredTaskCompletions(makeDefaultDeps(), { workspaceId, taskId, limit: 1 })
     } catch (err) {
       logger.warn({ err, taskId }, 'Deferred task reconciliation failed during task read')
     }
@@ -528,7 +528,7 @@ export async function DELETE(
     }
 
     // Broadcast to SSE clients
-    eventBus.broadcast('task.deleted', { id: taskId, title: task.title });
+    eventBus.broadcast('task.deleted', { id: taskId, title: task.title, workspace_id: workspaceId });
 
     return NextResponse.json({ success: true });
   } catch (error) {

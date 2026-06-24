@@ -45,6 +45,7 @@ export interface TaskDispatchDeps {
   isDirectDispatchAvailable: (provider?: DirectProvider) => boolean
   dispatchDirect: (task: any, prompt: string) => Promise<any>
   recoverCompletionText: (task: any, metadata: Record<string, any>) => string | null
+  syncTaskOutbound: (task: { id: number; title: string; status: string; priority: string; project_id?: number | null; workspace_id: number; description?: string | null }, workspaceId: number) => void
 }
 
 /** Production adapter — wires the real module globals into the seam. */
@@ -63,14 +64,25 @@ export function makeDefaultDeps(): TaskDispatchDeps {
     isDirectDispatchAvailable,
     dispatchDirect: (task, prompt) => callDirectly(task, prompt),
     recoverCompletionText: (task, metadata) => recoverDeferredCompletionTextFromTranscript(task, metadata),
+    syncTaskOutbound: (task, workspaceId) => syncTaskOutbound(task, workspaceId),
   }
 }
 
-/** Sync task to GitHub/GNAP and broadcast escalation if task failed */
-function syncAndEscalateIfFailed(task: { id: number; title: string; status: string; priority: string; project_id?: number | null; workspace_id: number; description?: string | null }, newStatus: string, errorMsg?: string, dispatchAttempts?: number): void {
-  syncTaskOutbound({ ...task, status: newStatus }, task.workspace_id)
+/** Sync task to GitHub/GNAP and broadcast escalation if task failed. Reads its
+ *  side effects ONLY from `deps` (the TaskDispatchDeps seam) — never the
+ *  module-global syncTaskOutbound / eventBus.broadcast — so orchestrators stay
+ *  fully seam-covered and testable without vi.mock. */
+function syncAndEscalateIfFailed(deps: TaskDispatchDeps, task: { id: number; title: string; status: string; priority: string; project_id?: number | null; workspace_id: number; description?: string | null }, newStatus: string, errorMsg?: string, dispatchAttempts?: number): void {
+  // Outbound sync is a best-effort side effect. A failure here must never
+  // escape into the caller's path — it would flip a successful dispatch into a
+  // failure (audit: sync-escalate-outbound-throw-flips-success-to-failure).
+  try {
+    deps.syncTaskOutbound({ ...task, status: newStatus }, task.workspace_id)
+  } catch (err) {
+    logger.warn({ err, taskId: task.id, newStatus }, 'outbound task sync failed (non-fatal)')
+  }
   if (newStatus === 'failed') {
-    eventBus.broadcast('task.escalated', {
+    deps.broadcast('task.escalated', {
       id: task.id,
       title: task.title,
       reason: errorMsg?.includes('Aegis rejected') ? 'max_aegis_rejections' : errorMsg?.includes('stuck') ? 'stale_task_max_retries' : 'max_dispatch_retries',
@@ -1054,7 +1066,7 @@ export async function runAegisReviews(deps: TaskDispatchDeps): Promise<{ ok: boo
           status: 'done',
           previous_status: 'quality_review',
         })
-        syncAndEscalateIfFailed(task, 'done')
+        syncAndEscalateIfFailed(deps, task, 'done')
       } else {
         // Rejected: check dispatch_attempts to decide next status
         const now = deps.clock.now()
@@ -1074,7 +1086,7 @@ export async function runAegisReviews(deps: TaskDispatchDeps): Promise<{ ok: boo
             error_message: `Aegis rejected ${newAttempts} times`,
             reason: 'max_aegis_retries_exceeded',
           })
-          syncAndEscalateIfFailed(task, 'failed', `Aegis rejected ${newAttempts} times`, newAttempts)
+          syncAndEscalateIfFailed(deps, task, 'failed', `Aegis rejected ${newAttempts} times`, newAttempts)
         } else {
           // Requeue to assigned for re-dispatch with feedback
           db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
@@ -1087,7 +1099,7 @@ export async function runAegisReviews(deps: TaskDispatchDeps): Promise<{ ok: boo
             error_message: `Aegis rejected: ${verdict.notes}`,
             reason: 'aegis_rejection',
           })
-          syncAndEscalateIfFailed(task, 'assigned')
+          syncAndEscalateIfFailed(deps, task, 'assigned')
         }
 
         // Add rejection as a comment so the agent sees it on next dispatch
@@ -1193,7 +1205,7 @@ export async function requeueStaleTasks(deps: TaskDispatchDeps): Promise<{ ok: b
         reason: 'stale_task_max_retries',
       })
 
-      syncAndEscalateIfFailed(task as any, 'failed', `Task stuck in_progress ${newAttempts} times`, newAttempts)
+      syncAndEscalateIfFailed(deps, task as any, 'failed', `Task stuck in_progress ${newAttempts} times`, newAttempts)
       failed++
     } else {
       db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
@@ -1212,7 +1224,7 @@ export async function requeueStaleTasks(deps: TaskDispatchDeps): Promise<{ ok: b
         error_message: `Agent "${task.assigned_to}" went offline`,
         reason: 'stale_task_requeue',
       })
-      syncAndEscalateIfFailed(task as any, 'assigned')
+      syncAndEscalateIfFailed(deps, task as any, 'assigned')
 
       requeued++
     }
@@ -1499,7 +1511,7 @@ export async function dispatchAssignedTasks(deps: TaskDispatchDeps): Promise<{ o
         assigned_to: task.assigned_to,
         dispatch_session_id: agentResponse.sessionId,
       })
-      syncAndEscalateIfFailed(task, 'review')
+      syncAndEscalateIfFailed(deps, task, 'review')
 
       deps.logActivity(
         'task_agent_completed',
@@ -1535,7 +1547,7 @@ export async function dispatchAssignedTasks(deps: TaskDispatchDeps): Promise<{ o
           error_message: failureMessage,
           reason: 'max_dispatch_retries_exceeded',
         })
-        syncAndEscalateIfFailed(task, 'failed', `Dispatch failed ${newAttempts} times`, newAttempts)
+        syncAndEscalateIfFailed(deps, task, 'failed', `Dispatch failed ${newAttempts} times`, newAttempts)
       } else {
         // Revert to assigned so it can be retried on the next tick
         db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
@@ -1548,7 +1560,7 @@ export async function dispatchAssignedTasks(deps: TaskDispatchDeps): Promise<{ o
           error_message: errorMsg.substring(0, 500),
           reason: 'dispatch_failed',
         })
-        syncAndEscalateIfFailed(task, 'assigned')
+        syncAndEscalateIfFailed(deps, task, 'assigned')
       }
 
       deps.logActivity(
@@ -1707,7 +1719,7 @@ export async function autoRouteInboxTasks(deps: TaskDispatchDeps): Promise<{ ok:
         task.workspace_id)
 
       deps.broadcast('task.status_changed', { id: task.id, status: 'assigned', previous_status: 'inbox', assigned_to: alt.agent.name })
-      syncAndEscalateIfFailed(task as any, 'assigned')
+      syncAndEscalateIfFailed(deps, task as any, 'assigned')
       routed++
       continue
     }
@@ -1721,7 +1733,7 @@ export async function autoRouteInboxTasks(deps: TaskDispatchDeps): Promise<{ ok:
       task.workspace_id)
 
     deps.broadcast('task.status_changed', { id: task.id, status: 'assigned', previous_status: 'inbox', assigned_to: best.name })
-    syncAndEscalateIfFailed(task as any, 'assigned')
+    syncAndEscalateIfFailed(deps, task as any, 'assigned')
     routed++
   }
 
