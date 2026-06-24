@@ -50,4 +50,4 @@ if [ -z "$API_KEY" ] || [ "$API_KEY" = "generate-a-random-key" ]; then
 fi
 
 printf '[entrypoint] Starting server\n'
-exec node server.js
+exec node scripts/mc-server.cjs

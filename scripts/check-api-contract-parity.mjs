@@ -50,6 +50,155 @@ function normalizeOperation(operation) {
   return `${normalizedMethod} ${normalizedPath}`
 }
 
+// SCR-8: a path segment is a param when wrapped in braces ("{id}"). Returns the
+// inner name for params, or null for literal segments.
+function paramName(segment) {
+  if (segment.startsWith('{') && segment.endsWith('}')) return segment.slice(1, -1)
+  return null
+}
+
+// Two paths are shape-compatible when they have the same number of segments and
+// each segment pair is either literally equal or both params. Param NAMES are
+// intentionally ignored so a route [agentId] can line up with an OpenAPI {id};
+// the names are compared separately to surface renames.
+function isShapeCompatible(routePath, openapiPath) {
+  const routeSegments = routePath.split('/').filter(Boolean)
+  const openapiSegments = openapiPath.split('/').filter(Boolean)
+  if (routeSegments.length !== openapiSegments.length) return false
+  for (let i = 0; i < routeSegments.length; i += 1) {
+    const routeIsParam = paramName(routeSegments[i]) !== null
+    const openapiIsParam = paramName(openapiSegments[i]) !== null
+    if (routeIsParam && openapiIsParam) continue
+    if (routeSegments[i] === openapiSegments[i]) continue
+    return false
+  }
+  return true
+}
+
+function paramMismatchesFor(method, routePath, openapiPath) {
+  const routeSegments = routePath.split('/').filter(Boolean)
+  const openapiSegments = openapiPath.split('/').filter(Boolean)
+  const mismatches = []
+  for (let i = 0; i < routeSegments.length; i += 1) {
+    const routeName = paramName(routeSegments[i])
+    const openapiName = paramName(openapiSegments[i])
+    if (routeName !== null && openapiName !== null && routeName !== openapiName) {
+      mismatches.push({
+        method,
+        path: routePath,
+        openapiPath,
+        routeParam: routeName,
+        openapiParam: openapiName,
+      })
+    }
+  }
+  return mismatches
+}
+
+function splitOperation(operation) {
+  const [method = '', ...pathParts] = operation.split(' ')
+  return { method, path: pathParts.join(' ').trim() }
+}
+
+// Compares route operations to OpenAPI operations. Exact string matches are
+// exact; otherwise a same-method OpenAPI path with a matching shape is treated
+// as the same operation and any differing param names are reported as
+// paramMismatches. Renames no longer masquerade as missing-in-each-set.
+function compareParity(routeOperations, openapiOperations, ignore) {
+  const ignored = new Set(ignore)
+  const routeOps = [...new Set(routeOperations)].sort()
+  const openapiOps = [...new Set(openapiOperations.map((op) => normalizeOperation(op)))].sort()
+
+  const routeSet = new Set(routeOps)
+  const openapiSet = new Set(openapiOps)
+
+  const openapiByMethod = new Map()
+  for (const op of openapiOps) {
+    const { method } = splitOperation(op)
+    const list = openapiByMethod.get(method) ?? []
+    list.push(op)
+    openapiByMethod.set(method, list)
+  }
+  const routeByMethod = new Map()
+  for (const op of routeOps) {
+    const { method } = splitOperation(op)
+    const list = routeByMethod.get(method) ?? []
+    list.push(op)
+    routeByMethod.set(method, list)
+  }
+
+  const ignoredOperations = []
+  const missingInOpenApi = []
+  const paramMismatches = []
+  const shapeMatchedRoute = new Set()
+  const shapeMatchedOpenApi = new Set()
+
+  for (const op of routeOps) {
+    if (ignored.has(op)) {
+      ignoredOperations.push(op)
+      continue
+    }
+    if (openapiSet.has(op)) {
+      shapeMatchedRoute.add(op)
+      continue
+    }
+    const { method, path } = splitOperation(op)
+    const candidates = openapiByMethod.get(method) ?? []
+    const matched = candidates.find((candidate) => {
+      if (shapeMatchedOpenApi.has(candidate)) return false
+      return isShapeCompatible(path, splitOperation(candidate).path)
+    })
+    if (matched) {
+      shapeMatchedRoute.add(op)
+      shapeMatchedOpenApi.add(matched)
+      paramMismatches.push(...paramMismatchesFor(method, path, splitOperation(matched).path))
+    } else {
+      missingInOpenApi.push(op)
+    }
+  }
+
+  const missingInRoutes = []
+  for (const op of openapiOps) {
+    if (ignored.has(op)) {
+      if (!ignoredOperations.includes(op)) ignoredOperations.push(op)
+      continue
+    }
+    if (routeSet.has(op) || shapeMatchedOpenApi.has(op)) continue
+    const { method, path } = splitOperation(op)
+    const candidates = routeByMethod.get(method) ?? []
+    const matched = candidates.find((candidate) => {
+      if (shapeMatchedRoute.has(candidate)) return false
+      return isShapeCompatible(splitOperation(candidate).path, path)
+    })
+    if (matched) {
+      shapeMatchedOpenApi.add(op)
+      if (!paramMismatches.some((m) => m.method === method && m.openapiPath === path)) {
+        paramMismatches.push(...paramMismatchesFor(method, splitOperation(matched).path, path))
+      }
+    } else {
+      missingInRoutes.push(op)
+    }
+  }
+
+  paramMismatches.sort((a, b) =>
+    a.method === b.method
+      ? a.path === b.path
+        ? a.routeParam.localeCompare(b.routeParam)
+        : a.path.localeCompare(b.path)
+      : a.method.localeCompare(b.method),
+  )
+
+  return {
+    ok: missingInOpenApi.length === 0 && missingInRoutes.length === 0 && paramMismatches.length === 0,
+    routeOperations: routeOps,
+    openapiOperations: openapiOps,
+    missingInOpenApi,
+    missingInRoutes,
+    paramMismatches,
+    ignoredOperations: ignoredOperations.sort(),
+  }
+}
+
 function parseIgnoreArg(ignoreArg) {
   if (!ignoreArg) return []
   return ignoreArg
@@ -105,26 +254,26 @@ function run() {
   }
 
   const routeFiles = walkRouteFiles(path.join(projectRoot, 'src/app/api'))
-  const routeOps = new Set()
+  const routeOps = []
   for (const file of routeFiles) {
     const source = fs.readFileSync(file, 'utf8')
     const methods = extractHttpMethods(source)
     const apiPath = routeFileToApiPath(projectRoot, file)
-    for (const method of methods) routeOps.add(`${method} ${apiPath}`)
+    for (const method of methods) routeOps.push(`${method} ${apiPath}`)
   }
 
-  const missingInOpenApi = [...routeOps].filter((op) => !openapiOps.has(op) && !ignore.has(op)).sort()
-  const missingInRoutes = [...openapiOps].filter((op) => !routeOps.has(op) && !ignore.has(op)).sort()
+  const result = compareParity(routeOps, [...openapiOps], [...ignore])
 
   const summary = {
-    ok: missingInOpenApi.length === 0 && missingInRoutes.length === 0,
+    ok: result.ok,
     totals: {
-      routeOperations: routeOps.size,
-      openapiOperations: openapiOps.size,
-      ignoredOperations: ignore.size,
+      routeOperations: result.routeOperations.length,
+      openapiOperations: result.openapiOperations.length,
+      ignoredOperations: result.ignoredOperations.length,
     },
-    missingInOpenApi,
-    missingInRoutes,
+    missingInOpenApi: result.missingInOpenApi,
+    missingInRoutes: result.missingInRoutes,
+    paramMismatches: result.paramMismatches,
   }
 
   if (flags.json) {
@@ -134,20 +283,26 @@ function run() {
     console.log(`- route operations:   ${summary.totals.routeOperations}`)
     console.log(`- openapi operations: ${summary.totals.openapiOperations}`)
     console.log(`- ignored entries:    ${summary.totals.ignoredOperations}`)
-    if (missingInOpenApi.length) {
+    if (result.missingInOpenApi.length) {
       console.log('\nMissing in OpenAPI:')
-      for (const op of missingInOpenApi) console.log(`  - ${op}`)
+      for (const op of result.missingInOpenApi) console.log(`  - ${op}`)
     }
-    if (missingInRoutes.length) {
+    if (result.missingInRoutes.length) {
       console.log('\nMissing in routes:')
-      for (const op of missingInRoutes) console.log(`  - ${op}`)
+      for (const op of result.missingInRoutes) console.log(`  - ${op}`)
     }
-    if (!missingInOpenApi.length && !missingInRoutes.length) {
+    if (result.paramMismatches.length) {
+      console.log('\nPath-param name mismatches (route vs OpenAPI):')
+      for (const m of result.paramMismatches) {
+        console.log(`  - ${m.method} ${m.path} -> ${m.openapiPath} : {${m.routeParam}} != {${m.openapiParam}}`)
+      }
+    }
+    if (result.ok) {
       console.log('\n✅ Contract parity OK')
     }
   }
 
-  process.exit(summary.ok ? 0 : 1)
+  process.exit(result.ok ? 0 : 1)
 }
 
 run()

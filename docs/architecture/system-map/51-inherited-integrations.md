@@ -15,12 +15,23 @@ Opzava is a *client* via two paths:
   sessions/[id]/control,spawn,channels,nodes,chat}` + `task-dispatch`.
   ⚠️ pass-1 also listed `status`, `gateways`, `agent-runtimes`, `super-admin` — those do **not** import `callOpenClawGateway`.
 - **Browser→gateway WS** (`websocket.ts`, a singleton React hook): Ed25519 device-identity challenge-response
-  (`device-identity.ts`), heartbeat, backoff; ingests gateway events into the Zustand store.
+  (`device-identity.ts`), heartbeat, backoff, client-side send backpressure close at 1 MiB; ingests gateway
+  events into the Zustand store. The reverse-proxy fallback check now uses the handshake state captured before
+  close; it only probes `/gateway-ws`/`/gw` when the initial handshake never completed.
 
 Config from the gateway's own `openclaw.json` (`gateway-runtime.ts`) + URL builder (`gateway-url.ts`).
 ⚠️ **`NEXT_PUBLIC_GATEWAY_OPTIONAL=true`** (✅ referenced in `websocket.ts`) stops reconnection — standalone
 Opzava runs with no gateway and the gateway-dependent UI (live sessions, spawn, exec approvals) stays empty.
 `provisioner-client.ts` is a separate Unix-socket client to a privileged host daemon.
+
+Docker/Dokploy local parity now models both gateway shapes ✅:
+- `docker-compose.yml` defaults to standalone-safe gateway optional mode and can point server-side gateway RPC
+  at `host.docker.internal` or another configured host.
+- `docker-compose-openclaw.yml` adds an optional local OpenClaw sidecar for operator-mode Compose.
+- `docker-compose.dokploy.yml` adds an optional `mc-openclaw-gateway` profile on the same Traefik network as
+  `mission-control`; the app uses `OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway` for server-side calls, while
+  browser gateway traffic can be routed through the local Dokploy-style Traefik host
+  `opzava-gateway.localhost`.
 
 ## Agent-CLI session bridges ✅
 
@@ -52,16 +63,34 @@ the poller.
 ## Realtime transport ✅
 
 Three independent channels to the browser:
-1. **SSE — local DB mutations**: `event-bus.ts` (singleton `EventEmitter`) ← DB/scheduler/adapters call
-   `eventBus.broadcast(...)`; `/api/events` streams `server-event` (workspace-filtered, 30s heartbeat);
-   `use-server-events.ts` dispatches into the store. SSE owns local-DB entities.
+1. **SSE — local DB mutations**: `event-bus.ts` records every broadcast into `realtime_events`
+   (`id`, `type`, JSON `data`, `timestamp`, nullable `workspace_id`) and emits the same event through the
+   process-local `EventEmitter`. `/api/events` streams `retry: 5000`, `id:` frames, a `connected` event, and a
+   15s comment heartbeat; it honors `Last-Event-ID` (or `lastEventId` query), `types=...`, strict workspace
+   filters, drops unresolved-workspace events from scoped replay/streams, advances filtered cursors only while
+   replaying durable rows (not for dropped live events), prunes the durable log by age/count, closes slow streams
+   on backpressure, and DB-polls for events written by another same-host app process sharing the SQLite DB.
+   `use-server-events.ts`
+   relies on native browser EventSource reconnect, dedupes event ids, and dispatches into the store. SSE owns
+   local-DB entities.
 2. **WebSocket — gateway live data**: `websocket.ts` (the only WS to OpenClaw). WS owns
-   sessions/logs/spawn/cron. SSE + WS are independent (`connection.isConnected` vs `.sseConnected`).
+   sessions/logs/spawn/cron, closes sends above 1 MiB browser buffering, rejects text frames above 1 MiB, and
+   logs only a truncated preview for malformed frames. SSE + WS are independent (`connection.isConnected` vs
+   `.sseConnected`).
 3. **PTY WebSocket — terminal attach**: `pty-manager.ts` (node-pty pool → `tmux attach`) + `pty-websocket.ts`
-   (`/ws/pty` upgrade, auth-gated). ⚠️ Not wired into Next.js itself — the custom `scripts/mc-server.cjs`
-   standalone wrapper intercepts the upgrade, so bare `pnpm start`/`server.js` won't serve `/ws/pty`.
+   (`/ws/pty` upgrade, operator-gated, 30s server heartbeat, 64 KiB inbound message cap, 1 MiB outbound
+   backpressure close, resize clamping, close-before-attach cleanup). `scripts/mc-server.cjs` is the production standalone wrapper: it
+   patches the HTTP(S) server that Next standalone creates and intercepts `/ws/pty` before delegating all
+   other upgrade paths back to Next. Docker entrypoint and `scripts/start-standalone.sh` now run that wrapper.
+   Bare `node .next/standalone/server.js` still will not serve `/ws/pty`. PTY is local-affinity by design:
+   a scaled Traefik deployment must use sticky routing (the Dokploy parity stack does) or an external PTY broker,
+   because `tmux`/`node-pty` state is process/container-local.
 
-`use-smart-poll.ts` is the visibility-aware REST fallback (pauses while WS/SSE connected).
+`use-smart-poll.ts` is the visibility-aware REST fallback (pauses while WS/SSE connected). `/api/events` and
+`/api/v1/runs/stream` both replay from `realtime_events` with workspace filtering, EventSource `id:`
+reconnects, heartbeats, retention pruning, and slow-client close. Horizontal SSE scaling is
+**SQLite/WAL single-host**: multiple Node processes can replay from the same DB file; multi-host or
+multi-primary replicas still need a shared event bus such as Redis/NATS before claiming full fanout parity.
 
 ## Webhooks & external auth
 
@@ -83,7 +112,8 @@ Google ID token), `receipt-signing.ts` + `mcp-audit.ts` (Ed25519 tamper-evident 
   `NEXT_PUBLIC_GATEWAY_OPTIONAL=true`.
 - **Hermes/Codex/OpenCode/Clawdbot bridges** — depend on those specific CLIs being installed.
 - The 6 **framework adapter stubs** (CrewAI/LangGraph/AutoGen) — speculative.
-- **PTY** — needs `tmux` + `node-pty` + the `mc-server.cjs` wrapper.
+- **PTY** — live in Docker/standalone when launched through `mc-server.cjs`; it needs `tmux`, `node-pty`,
+  `ws`, and an existing `tmux` session for the requested agent session id.
 
 ⚠️ **Branding residue** ✅: `User-Agent: MissionControl/1.0`, `mc:` GitHub labels,
 `MC_*`/`MISSION_CONTROL_*`/`OPENCLAW_*` env keys, `container_name: mission-control` — upstream names retained

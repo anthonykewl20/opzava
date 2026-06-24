@@ -78,16 +78,42 @@ export async function POST(request: NextRequest) {
   try {
     const validated = await validateBody(request, qualityReviewSchema)
     if ('error' in validated) return validated.error
-    const { taskId, reviewer, status, notes } = validated.data
+    const { taskId, status, notes } = validated.data
 
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1;
 
+    // Reviewer is resolved server-side from the authenticated principal — it is
+    // never trusted from the request body (qualityReviewSchema has no reviewer
+    // field). Prefer the human username; fall back to the agent display name for
+    // agent-scoped keys. The route already gates on requireRole('operator'), so
+    // the reviewer is constrained to a review-capable principal.
+    const reviewer =
+      (auth.user.agent_name
+        ? auth.user.display_name || auth.user.username
+        : auth.user.username) || 'unknown'
+
     const task = db
-      .prepare('SELECT id, title FROM tasks WHERE id = ? AND workspace_id = ?')
-      .get(taskId, workspaceId) as any
+      .prepare('SELECT id, title, assigned_to FROM tasks WHERE id = ? AND workspace_id = ?')
+      .get(taskId, workspaceId) as { id: number; title: string; assigned_to?: string | null } | undefined
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
+    }
+
+    // Prevent self-review: a principal may not quality-review a task it is
+    // assigned to. Match against every identity the principal carries (username,
+    // agent display name, agent_name) so an agent-scoped key cannot review its
+    // own task under any of its names.
+    const ownIdentities = new Set(
+      [auth.user.username, auth.user.display_name, auth.user.agent_name].filter(
+        (v): v is string => typeof v === 'string' && v.length > 0
+      )
+    )
+    if (task.assigned_to && ownIdentities.has(task.assigned_to)) {
+      return NextResponse.json(
+        { error: 'Self-review is not permitted: the reviewer cannot be the task assignee' },
+        { status: 403 }
+      )
     }
 
     const result = db.prepare(`

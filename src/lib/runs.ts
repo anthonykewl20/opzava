@@ -248,9 +248,43 @@ export function updateRun(id: string, updates: Partial<AgentRun>, workspaceId?: 
   return updated
 }
 
-export function attachEval(runId: string, evalResult: EvalResult, workspaceId?: number): AgentRun | null {
+/**
+ * Thrown by {@link attachEval} when the caller attempts to score a run it
+ * itself originated (self-scoring). The owning route maps this to HTTP 403.
+ */
+export class EvalSelfScoringError extends Error {
+  constructor(runId: string, agentId: string) {
+    super(`Self-scoring is not permitted: caller originated run ${runId} (agent ${agentId})`)
+    this.name = 'EvalSelfScoringError'
+  }
+}
+
+export function attachEval(
+  runId: string,
+  evalResult: EvalResult,
+  workspaceId?: number,
+  callerAgentIdentities?: ReadonlySet<string>,
+): AgentRun | null {
   const db = getDatabase()
   const wsId = workspaceId ?? 1
+
+  // Resolve the run before any mutation. This both short-circuits the missing-run
+  // case (no spurious UPDATE) and lets us enforce the self-scoring guard.
+  const existing = getRun(runId, wsId)
+  if (!existing) return null
+
+  // SEC-6: an agent may not attach an eval result to a run it originated —
+  // match the run's originator (agent_id and agent_name) against every identity
+  // the caller carries. When no caller identities are supplied (human operator),
+  // the guard is skipped to preserve operator-driven scoring.
+  if (callerAgentIdentities && callerAgentIdentities.size > 0) {
+    const originators = [existing.agent_id, existing.agent_name].filter(
+      (v): v is string => typeof v === 'string' && v.length > 0,
+    )
+    if (originators.some((id) => callerAgentIdentities.has(id))) {
+      throw new EvalSelfScoringError(runId, existing.agent_id)
+    }
+  }
 
   db.prepare(`
     UPDATE runs SET

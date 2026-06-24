@@ -56,6 +56,19 @@
     .pj-arch-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
     .pj-arch-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
     .pj-arch-row .nm { color: var(--fg); font-weight: var(--fw-medium); }
+
+    /* ── Page-local: async states (loading skeleton + error/retry) ───────────── */
+    /* Mirrors the loading/error/empty pattern in mention-inbox.html: one block
+       shown at a time. data-pj-state on <main> toggles which group is visible. */
+    [data-pj-state="loading"] .pj-loaded,
+    [data-pj-state="error"]   .pj-loaded   { display: none; }
+    [data-pj-state="ready"]   .pj-loading,
+    [data-pj-state="error"]   .pj-loading  { display: none; }
+    [data-pj-state="ready"]   .pj-error,
+    [data-pj-state="loading"] .pj-error    { display: none; }
+    .pj-sk-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-5); border-top: 3px solid var(--border); }
+    .pj-sk-row { display: flex; gap: var(--space-2); }
+    .pj-error .sb-alert-desc .retry { border: 0; background: none; padding: 0; font: inherit; color: var(--danger); font-weight: var(--fw-semibold); text-decoration: underline; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -75,13 +88,13 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
 
     <main class="bc-main">
-      <div class="bc-wrap">
+      <div class="bc-wrap" data-pj-state="ready">
         <!-- ── Breadcrumb: Home › All projects ─────────────────────────────────── -->
         <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-4)">
           <a href="essential-home.html">Home</a>
@@ -95,9 +108,45 @@
             <h1 class="greeting">Your projects</h1>
             <p class="u-muted">All 9 projects you’re part of.</p>
           </div>
-          <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+          <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
         </div>
 
+        <!-- ── Loading state (skeleton grid) ───────────────────────────────────── -->
+        <!-- ASYNC STATE: loading. Shown while the project list is being fetched;
+             same one-block-at-a-time toggle pattern as mention-inbox.html. -->
+        <div class="pj-loading proj-grid" aria-busy="true" aria-label="Loading your projects">
+          <div class="card pj-sk-card" aria-hidden="true">
+            <div class="skeleton sk-line" style="height:18px;width:62%"></div>
+            <div class="skeleton sk-line" style="width:90%"></div>
+            <div class="pj-sk-row"><span class="skeleton sk-line" style="height:26px;width:88px;border-radius:var(--radius-full)"></span><span class="skeleton sk-line" style="height:26px;width:74px;border-radius:var(--radius-full)"></span></div>
+            <div class="skeleton sk-line" style="width:48%"></div>
+          </div>
+          <div class="card pj-sk-card" aria-hidden="true">
+            <div class="skeleton sk-line" style="height:18px;width:54%"></div>
+            <div class="skeleton sk-line" style="width:84%"></div>
+            <div class="pj-sk-row"><span class="skeleton sk-line" style="height:26px;width:80px;border-radius:var(--radius-full)"></span><span class="skeleton sk-line" style="height:26px;width:92px;border-radius:var(--radius-full)"></span></div>
+            <div class="skeleton sk-line" style="width:40%"></div>
+          </div>
+          <div class="card pj-sk-card" aria-hidden="true">
+            <div class="skeleton sk-line" style="height:18px;width:58%"></div>
+            <div class="skeleton sk-line" style="width:88%"></div>
+            <div class="pj-sk-row"><span class="skeleton sk-line" style="height:26px;width:70px;border-radius:var(--radius-full)"></span><span class="skeleton sk-line" style="height:26px;width:84px;border-radius:var(--radius-full)"></span></div>
+            <div class="skeleton sk-line" style="width:52%"></div>
+          </div>
+        </div>
+
+        <!-- ── Error state (retry) ─────────────────────────────────────────────── -->
+        <!-- ASYNC STATE: error. Shown if the project list fails to load. -->
+        <div class="pj-error sb-alert sb-alert--destructive" role="alert">
+          <span class="ico" aria-hidden="true">✕</span>
+          <div>
+            <strong class="sb-alert-title">Couldn’t load your projects.</strong>
+            <span class="sb-alert-desc">Check your connection and <button type="button" class="retry" id="pjRetry">try again</button>.</span>
+          </div>
+        </div>
+
+        <!-- ── Loaded content (toolbar + grid + archived) ──────────────────────── -->
+        <div class="pj-loaded">
         <!-- ── Calm filter / sort row (inert) ──────────────────────────────────── -->
         <div class="pj-toolbar">
           <div class="pj-search">
@@ -126,7 +175,7 @@
         <!-- ── All 9 active projects ───────────────────────────────────────────── -->
         <div class="proj-grid">
           <!-- 1 — Marketing & Promotion project type — its own marketing-native tiles. -->
-          <a href="essential-marketing.html" class="card proj" style="--c:var(--chart-2)">
+          <a href="essential-marketing.html" class="card proj" style="--c:var(--chart-2)" data-state="active">
             <div class="proj-name">Q3 Launch Campaign</div>
             <p class="u-muted">Marketing &amp; promotion — email, social &amp; paid for the Q3 launch.</p>
             <div class="tool-row">
@@ -143,7 +192,7 @@
           </a>
 
           <!-- 2 -->
-          <a href="essential-project.html" class="card proj" style="--c:var(--chart-1)">
+          <a href="essential-project.html" class="card proj" style="--c:var(--chart-1)" data-state="active">
             <div class="proj-name">Q2 Content Push</div>
             <p class="u-muted">Blog posts, newsletters & social for the quarter.</p>
             <div class="tool-row">
@@ -160,7 +209,7 @@
           </a>
 
           <!-- 3 -->
-          <a href="essential-card-table.html" class="card proj" style="--c:var(--chart-2)">
+          <a href="essential-card-table.html" class="card proj" style="--c:var(--chart-2)" data-state="needs">
             <div class="proj-name">Series B Outreach</div>
             <p class="u-muted">Investor emails, follow-ups & the data room.</p>
             <div class="tool-row">
@@ -176,7 +225,7 @@
           </a>
 
           <!-- 4 -->
-          <a href="essential-project.html" class="card proj" style="--c:var(--chart-3)">
+          <a href="essential-project.html" class="card proj" style="--c:var(--chart-3)" data-state="active">
             <div class="proj-name">Market Research</div>
             <p class="u-muted">Competitor scans & market briefs for the team.</p>
             <div class="tool-row">
@@ -192,7 +241,7 @@
           </a>
 
           <!-- 5 -->
-          <a href="essential-project.html" class="card proj" style="--c:var(--chart-4)">
+          <a href="essential-project.html" class="card proj" style="--c:var(--chart-4)" data-state="active">
             <div class="proj-name">Customer Support</div>
             <p class="u-muted">Triage incoming questions & draft friendly replies.</p>
             <div class="tool-row">
@@ -208,7 +257,7 @@
           </a>
 
           <!-- 6 -->
-          <a href="essential-project.html" class="card proj" style="--c:var(--chart-5)">
+          <a href="essential-project.html" class="card proj" style="--c:var(--chart-5)" data-state="idle">
             <div class="proj-name">Website Refresh</div>
             <p class="u-muted">Copy & assets for the new marketing site.</p>
             <div class="tool-row">
@@ -224,7 +273,7 @@
           </a>
 
           <!-- 7 -->
-          <a href="essential-project.html" class="card proj" style="--c:var(--chart-6)">
+          <a href="essential-project.html" class="card proj" style="--c:var(--chart-6)" data-state="active">
             <div class="proj-name">Weekly Ops</div>
             <p class="u-muted">Recurring reports & checks that run on a schedule.</p>
             <div class="tool-row">
@@ -240,7 +289,7 @@
           </a>
 
           <!-- 8 — added to reach 9, same style & tone. -->
-          <a href="essential-project.html" class="card proj" style="--c:var(--chart-3)">
+          <a href="essential-project.html" class="card proj" style="--c:var(--chart-3)" data-state="idle">
             <div class="proj-name">Onboarding Revamp</div>
             <p class="u-muted">New-hire guides, welcome emails & a setup checklist.</p>
             <div class="tool-row">
@@ -256,7 +305,7 @@
           </a>
 
           <!-- 9 — added to reach 9, same style & tone. -->
-          <a href="essential-project.html" class="card proj" style="--c:var(--chart-6)">
+          <a href="essential-project.html" class="card proj" style="--c:var(--chart-6)" data-state="idle">
             <div class="proj-name">Brand Refresh 2026</div>
             <p class="u-muted">New logo, voice & assets for the 2026 refresh.</p>
             <div class="tool-row">
@@ -295,19 +344,38 @@
             </div>
           </div>
         </details>
+        </div><!-- /.pj-loaded -->
       </div>
     </main>
   </div>
   <style>.pj-chip { cursor: pointer; } .pj-sort { cursor: pointer; } .proj[hidden] { display: none; }</style>
   <script>
     (function () {
-      var grid = document.querySelector('.proj-grid');
-      var cards = Array.prototype.slice.call(document.querySelectorAll('.proj-grid .proj'));
+      // #12 — async state coverage (loading skeleton + error/retry + happy path),
+      // matching the one-block-at-a-time pattern in mention-inbox.html. The wrap's
+      // data-pj-state attribute is the single source of truth; the mockup ships in
+      // "ready" (content visible) and the retry button drives error → loading → ready.
+      var wrap = document.querySelector('.bc-wrap');
+      var retry = document.getElementById('pjRetry');
+      function setPjState(s) { if (wrap) wrap.setAttribute('data-pj-state', s); }
+      if (retry) {
+        retry.addEventListener('click', function () {
+          setPjState('loading');
+          setTimeout(function () { setPjState('ready'); }, 600);
+        });
+      }
+
+      var grid = document.querySelector('.pj-loaded .proj-grid');
+      var cards = Array.prototype.slice.call(document.querySelectorAll('.pj-loaded .proj-grid .proj'));
       var ORDER = cards.slice();
+      // #14 — drive the "Needs you" / "Active" filters from each card's explicit
+      // data-state ("needs" | "active" | "idle"), never a regex over rendered text
+      // (a text match silently lied: a project whose copy merely mentioned "review"
+      // would show under "Needs you"). #16 — cache each row's lowercased name once
+      // so the keystroke handler never re-reads the DOM.
       cards.forEach(function (c) {
-        var t = c.textContent.toLowerCase();
-        c.dataset.needs = /needs|waiting|review/.test(t) ? '1' : '0';
-        c.dataset.active = /running|active/.test(t) ? '1' : '0';
+        if (!c.dataset.state) c.dataset.state = 'idle';
+        c.dataset.search = ((c.querySelector('.proj-name') || {}).textContent || '').toLowerCase();
       });
       var search = document.getElementById('projSearch');
       var chips = Array.prototype.slice.call(document.querySelectorAll('.pj-chip'));
@@ -316,9 +384,8 @@
       function apply() {
         var q = (search.value || '').toLowerCase().trim(), shown = 0;
         cards.forEach(function (c) {
-          var name = ((c.querySelector('.proj-name') || {}).textContent || '').toLowerCase();
-          var okQ = !q || name.indexOf(q) !== -1;
-          var okF = filter === 'all' || (filter === 'needs' && c.dataset.needs === '1') || (filter === 'active' && c.dataset.active === '1');
+          var okQ = !q || c.dataset.search.indexOf(q) !== -1;
+          var okF = filter === 'all' || c.dataset.state === filter;
           var vis = okQ && okF; c.hidden = !vis; if (vis) shown++;
         });
         if (empty) empty.style.display = shown ? 'none' : 'block';
@@ -332,14 +399,22 @@
         ch.addEventListener('click', sel);
         ch.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sel(); } });
       });
-      if (search) search.addEventListener('input', apply);
+      // #16 — debounce the live-search handler (~220ms) so the filter/relayout
+      // work runs once the typing settles, not on every keystroke.
+      if (search) {
+        var deb;
+        search.addEventListener('input', function () {
+          clearTimeout(deb);
+          deb = setTimeout(apply, 220);
+        });
+      }
 
       var sortBtn = document.getElementById('projSort'), sortMenu = document.getElementById('projSortMenu'), sortLabel = document.getElementById('projSortLabel');
       function setSort(mode, label) {
         sortLabel.textContent = label;
         var arr = ORDER.slice();
         if (mode === 'name') arr.sort(function (a, b) { return a.querySelector('.proj-name').textContent.localeCompare(b.querySelector('.proj-name').textContent); });
-        else if (mode === 'needs') arr.sort(function (a, b) { return (b.dataset.needs === '1' ? 1 : 0) - (a.dataset.needs === '1' ? 1 : 0); });
+        else if (mode === 'needs') arr.sort(function (a, b) { return (b.dataset.state === 'needs' ? 1 : 0) - (a.dataset.state === 'needs' ? 1 : 0); });
         arr.forEach(function (c) { grid.appendChild(c); });
         sortMenu.querySelectorAll('[data-sort]').forEach(function (x) { x.setAttribute('aria-checked', x.getAttribute('data-sort') === mode ? 'true' : 'false'); });
       }

@@ -232,6 +232,7 @@ async function sseStream({ baseUrl, apiKey, cookie, route, timeoutMs, onEvent, o
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let currentData = '';
 
     while (true) {
       const { done, value } = await reader.read();
@@ -241,11 +242,16 @@ async function sseStream({ baseUrl, apiKey, cookie, route, timeoutMs, onEvent, o
       // Parse SSE frames
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
-      let currentData = '';
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          currentData += line.slice(6);
+      for (const rawLine of lines) {
+        const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+        if (line.startsWith(':')) {
+          continue;
+        }
+
+        if (line.startsWith('data:')) {
+          const value = line.startsWith('data: ') ? line.slice(6) : line.slice(5);
+          currentData += currentData ? `\n${value}` : value;
         } else if (line === '' && currentData) {
           try {
             const event = JSON.parse(currentData);

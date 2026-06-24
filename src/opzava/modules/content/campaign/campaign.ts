@@ -8,6 +8,7 @@ export const CAMPAIGN_STATUSES = [
   'draft',
   'approved',
   'sending',
+  'retrying',
   'sent',
   'failed',
 ] as const
@@ -61,7 +62,11 @@ export const CAMPAIGN_TRANSITIONS: Readonly<
 > = {
   draft: ['approved'],
   approved: ['sending', 'draft'],
-  sending: ['sent', 'failed'],
+  // 'retrying' is the non-terminal outcome when the inline drain leaves one or more retryable
+  // jobs still queued (their retry window hasn't elapsed). A worker daemon re-enters 'sending' to
+  // drain them; the run completes to 'sent' or terminally 'failed' once retries resolve.
+  sending: ['sent', 'failed', 'retrying'],
+  retrying: ['sending', 'sent', 'failed'],
   sent: [],
   failed: ['sending'],
 }

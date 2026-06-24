@@ -84,6 +84,11 @@
     .ai-card-row { display: flex; align-items: center; gap: var(--space-2); }
     .ai-offer { font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-snug); }
 
+    /* Inline validation error — label+glyph, shown only when there's nothing to upload */
+    .form-error { display: none; align-items: center; gap: var(--space-2); margin-top: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-2); font-size: var(--text-sm); color: var(--fg); }
+    .form-error[data-show="true"] { display: flex; }
+    .form-error .err-glyph { flex: none; font-size: var(--text-md); }
+
     @media (max-width: 640px) {
       .topnav { display: none; }
       .asset-grid { grid-template-columns: 1fr; }
@@ -151,18 +156,25 @@
         <a class="wiz-x" href="essential-mkt-assets.html" aria-label="Close">✕</a>
       </div>
 
+      <form id="uploadForm" novalidate>
       <div class="wiz-body">
 
         <!-- Drop zone -->
-        <div class="drop">
+        <div class="drop" id="dropZone" tabindex="-1" aria-describedby="uploadError">
           <span class="drop-glyph" aria-hidden="true">📎</span>
           <span class="drop-lead">Drag files here, or browse</span>
           <span class="drop-hint">PNG, JPG, PDF, HTML, MP4 — up to 50 MB each</span>
           <button class="btn btn-ghost btn-sm" type="button">Browse files</button>
         </div>
 
+        <!-- Inline error: only appears if you try to upload with nothing staged -->
+        <div class="form-error" id="uploadError" role="alert" aria-live="assertive">
+          <span class="err-glyph" aria-hidden="true">!</span>
+          <span>Add at least one file before uploading.</span>
+        </div>
+
         <!-- Staged files (2 already added) -->
-        <div class="file-list" aria-label="Files to upload">
+        <div class="file-list" id="fileList" aria-label="Files to upload">
           <div class="file-row">
             <span class="file-glyph" aria-hidden="true">🖼</span>
             <div class="file-main">
@@ -246,8 +258,9 @@
 
       <div class="wiz-foot">
         <a class="btn btn-ghost" href="essential-mkt-assets.html">Cancel</a>
-        <a class="btn btn-primary" href="essential-mkt-assets.html"><span aria-hidden="true">⬆</span> Upload 2 files</a>
+        <button class="btn btn-primary" type="submit" id="uploadSubmit"><span aria-hidden="true">⬆</span> Upload 2 files</button>
       </div>
+      </form>
 
     </div>
   </div>
@@ -271,6 +284,64 @@
         var opt = e.target.closest('.rev-opt');
         if (opt && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); select(opt); }
       });
+    })();
+
+    // Validated upload submit: real form, no navigation-as-submit.
+    // - Remove (✕) actually unstages a file, so the count is true.
+    // - Submit blocks when nothing is staged: inline error + focus, dialog stays open.
+    // - With ≥1 file: optimistic pending → done, then go to Assets.
+    (function () {
+      var form = document.getElementById('uploadForm');
+      var list = document.getElementById('fileList');
+      var error = document.getElementById('uploadError');
+      var drop = document.getElementById('dropZone');
+      var submit = document.getElementById('uploadSubmit');
+      if (!form || !list || !error || !submit) return;
+
+      function count() { return list.querySelectorAll('.file-row').length; }
+
+      function syncLabel() {
+        var n = count();
+        submit.innerHTML = '<span aria-hidden="true">⬆</span> Upload ' + n + (n === 1 ? ' file' : ' files');
+        submit.disabled = false;
+      }
+
+      function clearError() {
+        error.setAttribute('data-show', 'false');
+      }
+
+      // Unstage a file when its ✕ is pressed, then keep the label honest.
+      list.addEventListener('click', function (e) {
+        var btn = e.target.closest('.file-x');
+        if (!btn) return;
+        var row = btn.closest('.file-row');
+        if (row) row.remove();
+        syncLabel();
+        clearError();
+      });
+
+      // Any newly added file clears a standing error.
+      drop && drop.addEventListener('click', clearError);
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (count() === 0) {
+          error.setAttribute('data-show', 'true');
+          drop && drop.focus();
+          return;
+        }
+        clearError();
+        if (submit.dataset.pending === 'true') return;
+        submit.dataset.pending = 'true';
+        submit.disabled = true;
+        submit.setAttribute('aria-busy', 'true');
+        submit.innerHTML = 'Uploading…';
+        setTimeout(function () {
+          window.location.href = 'essential-mkt-assets.html';
+        }, 450);
+      });
+
+      syncLabel();
     })();
   </script>
 </body>

@@ -55,8 +55,9 @@
     .table th { white-space: nowrap; }
     .ch-name { color: var(--fg); font-weight: var(--fw-medium); }
     .ch-sub { font-size: var(--text-xs); color: var(--fg-subtle); }
-    .trend-up { color: var(--fg); font-weight: var(--fw-semibold); }
-    .trend-down { color: var(--fg-muted); }
+    .trend-up { color: var(--fg); font-weight: var(--fw-semibold); white-space: nowrap; font-variant-numeric: tabular-nums; }   /* neutral — sign + magnitude carry meaning, not hue */
+    .trend-down { color: var(--fg-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .th-note { font-weight: var(--fw-regular); color: var(--fg-subtle); font-size: var(--text-xs); }
     .row-total td { border-top: 2px solid var(--border-strong); font-weight: var(--fw-semibold); }
 
     /* ── Date filter ──────────────────────────────────────────────────── */
@@ -87,7 +88,7 @@
       <a href="essential-find.html">Find…</a>
     </nav>
     <span class="u-grow"></span>
-    <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
     <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
     <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
   </header>
@@ -155,11 +156,13 @@
         <p class="analysis-item"><span class="mark" aria-hidden="true">✦</span> <span><strong>Organic search is climbing</strong> — up 18% month over month; 'Automating marketing ops with AI' now ranks page 1 for three terms.</span></p>
         <p class="analysis-item"><span class="mark" aria-hidden="true">✦</span> <span><strong>One post does the heavy lifting</strong> — the top post drives 34% of all signups but has no mid-article CTA; easy win.</span></p>
       </div>
-      <div class="analysis-rec"><strong>Recommendation:</strong> Publish two more how-to / SEO pieces this month and add inline signup CTAs to the top 3 posts.</div>
+      <div class="analysis-rec" id="blog-rec"><strong>Recommendation:</strong> Publish two more how-to / SEO pieces this month and add inline signup CTAs to the top 3 posts.</div>
       <div class="analysis-actions">
+        <button class="btn btn-primary btn-sm" type="button" id="draft-cta-btn" aria-describedby="blog-rec"><span aria-hidden="true">✦</span> Have Atlas draft the CTA</button>
         <a class="btn btn-ghost btn-sm" href="project-assistant.html" style="text-decoration:none;color:var(--accent);">✦ Ask Atlas about this</a>
-        <button class="btn btn-ghost btn-sm" type="button">↻ Re-run analysis</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="rerun-btn">↻ Re-run analysis</button>
       </div>
+      <p class="u-sr-only" role="status" aria-live="polite" id="draft-cta-status"></p>
     </section>
 
     <!-- ── Breakdown table ────────────────────────────────────────────── -->
@@ -173,7 +176,7 @@
             <th>Avg. time</th>
             <th>Source</th>
             <th class="num">Signups</th>
-            <th style="text-align:center;">Trend</th>
+            <th class="num" scope="col" data-metric="signups" data-metric-polarity="positive">Trend vs last period <span class="th-note">(signups vs prior month — more is better)</span></th>
           </tr>
         </thead>
         <tbody>
@@ -183,7 +186,7 @@
             <td>4m 30s</td>
             <td>Organic</td>
             <td class="num">71</td>
-            <td style="text-align:center;"><span class="trend-up" aria-label="trending up">↑</span></td>
+            <td class="num" data-metric="signups" data-polarity="good" data-change="+29"><span class="trend-up"><span aria-hidden="true">↑</span> +29%</span><span class="u-sr-only">signups rising 29% vs last period</span></td>
           </tr>
           <tr>
             <td><span class="ch-name">Q3 product roadmap</span></td>
@@ -191,7 +194,7 @@
             <td>2m 05s</td>
             <td>Direct</td>
             <td class="num">38</td>
-            <td style="text-align:center;"><span class="trend-down" aria-label="trending down">↓</span></td>
+            <td class="num" data-metric="signups" data-polarity="bad" data-change="-12"><span class="trend-down"><span aria-hidden="true">↓</span> −12%</span><span class="u-sr-only">signups falling 12% vs last period</span></td>
           </tr>
           <tr>
             <td><span class="ch-name">5 email subject lines that convert</span></td>
@@ -199,7 +202,7 @@
             <td>3m 40s</td>
             <td>Social</td>
             <td class="num">52</td>
-            <td style="text-align:center;"><span class="trend-up" aria-label="trending up">↑</span></td>
+            <td class="num" data-metric="signups" data-polarity="good" data-change="+16"><span class="trend-up"><span aria-hidden="true">↑</span> +16%</span><span class="u-sr-only">signups rising 16% vs last period</span></td>
           </tr>
           <tr>
             <td><span class="ch-name">Launch week recap</span></td>
@@ -207,7 +210,7 @@
             <td>1m 50s</td>
             <td>Email</td>
             <td class="num">21</td>
-            <td style="text-align:center;"><span class="trend-down" aria-label="trending down">↓</span></td>
+            <td class="num" data-metric="signups" data-polarity="bad" data-change="-34"><span class="trend-down"><span aria-hidden="true">↓</span> −34%</span><span class="u-sr-only">signups falling 34% vs last period</span></td>
           </tr>
           <tr>
             <td><span class="ch-name">Customer story: Acme</span></td>
@@ -215,7 +218,7 @@
             <td>3m 15s</td>
             <td>Organic</td>
             <td class="num">28</td>
-            <td style="text-align:center;"><span class="trend-up" aria-label="trending up">↑</span></td>
+            <td class="num" data-metric="signups" data-polarity="good" data-change="+9"><span class="trend-up"><span aria-hidden="true">↑</span> +9%</span><span class="u-sr-only">signups rising 9% vs last period</span></td>
           </tr>
           <tr class="row-total">
             <td>All posts</td>
@@ -223,7 +226,7 @@
             <td>3m 12s</td>
             <td>—</td>
             <td class="num">210</td>
-            <td style="text-align:center;"><span class="trend-up" aria-label="trending up">↑</span></td>
+            <td class="num" data-metric="signups" data-polarity="good" data-change="+18"><span class="trend-up"><span aria-hidden="true">↑</span> +18%</span><span class="u-sr-only">signups rising 18% vs last period</span></td>
           </tr>
         </tbody>
       </table>
@@ -245,5 +248,70 @@
 
   </div><!-- /.bc-wrap -->
 </div><!-- /.bc -->
+
+<!-- ── Page-local: turn Atlas's recommendation into one actionable step (item #11) ── -->
+<script>
+(function () {
+  'use strict';
+  var btn = document.getElementById('draft-cta-btn');
+  var statusEl = document.getElementById('draft-cta-status');
+  var actions = btn && btn.closest('.analysis-actions');
+  if (!btn || !statusEl || !actions) return;
+
+  var ASSISTANT_HREF = 'project-assistant.html';
+
+  btn.addEventListener('click', function () {
+    if (btn.dataset.state === 'working' || btn.dataset.state === 'done') return;
+
+    // Working state — AI output is revealed only after the user invokes it.
+    btn.dataset.state = 'working';
+    btn.setAttribute('aria-busy', 'true');
+    btn.disabled = true;
+    btn.innerHTML = '<span aria-hidden="true">✦</span> Atlas is drafting…';
+    statusEl.textContent = 'Atlas is drafting an inline signup CTA for the top 3 posts.';
+
+    window.setTimeout(function () {
+      // Done state — hand the user a concrete next step, not a dead end.
+      btn.dataset.state = 'done';
+      btn.removeAttribute('aria-busy');
+      btn.disabled = false;
+      btn.classList.remove('btn-primary');
+      btn.classList.add('btn-ghost');
+      var done = document.createElement('a');
+      done.className = 'btn btn-primary btn-sm';
+      done.href = ASSISTANT_HREF;
+      done.style.textDecoration = 'none';
+      done.innerHTML = '<span aria-hidden="true">✦</span> Review the CTA draft →';
+      done.setAttribute('aria-describedby', 'blog-rec');
+      btn.replaceWith(done);
+      statusEl.textContent = 'Draft ready. Review the CTA Atlas wrote for your top 3 posts.';
+      done.focus();
+    }, 650);
+  });
+})();
+
+// ── Item #6: derive trend polarity per metric (never assume ↑ = good) ──
+// The blog Trend column is signups — a positive metric where rising is good.
+// We compute each row's good/bad polarity from metric + sign rather than trusting
+// a hand-set attribute, so an inverted metric (or a typo) can't silently mislead.
+(function () {
+  'use strict';
+  var head = document.querySelector('th[data-metric][data-metric-polarity]');
+  if (!head) return;
+  // 'positive' → up is good; 'inverted' → up is bad (e.g. unsub %, spend).
+  var upIsGood = head.getAttribute('data-metric-polarity') !== 'inverted';
+  var cells = document.querySelectorAll('td[data-metric][data-change]');
+  Array.prototype.forEach.call(cells, function (cell) {
+    var change = parseFloat(cell.getAttribute('data-change'));
+    if (isNaN(change) || change === 0) { cell.setAttribute('data-trend', 'flat'); return; }
+    var rising = change > 0;
+    var isGood = rising === upIsGood;            // direction agrees with what's good
+    cell.setAttribute('data-trend', rising ? 'up' : 'down');
+    cell.setAttribute('data-trend-meaning', isGood ? 'good' : 'bad');
+    // Keep the existing semantic data-polarity honest with the computed meaning.
+    cell.setAttribute('data-polarity', isGood ? 'good' : 'bad');
+  });
+})();
+</script>
 </body>
 </html>

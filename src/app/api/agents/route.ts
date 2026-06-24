@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withRequestContext } from '@/lib/request-context';
 import { getDatabase, Agent, db_helpers } from '@/lib/db';
 import { eventBus } from '@/lib/event-bus';
 import { getTemplate, buildAgentConfig } from '@/lib/agent-templates';
@@ -12,6 +13,7 @@ import { runOpenClaw } from '@/lib/command';
 import { config as appConfig } from '@/lib/config';
 import { DISPATCH_MODEL_DEFAULT } from '@/lib/model-config';
 import { resolveWithin } from '@/lib/paths';
+import { writeFileAtomic } from '@/lib/atomic-write';
 import path from 'node:path';
 
 /**
@@ -150,7 +152,7 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/agents - Create a new agent
  */
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   const auth = requireRole(request, 'operator');
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -278,20 +280,20 @@ export async function POST(request: NextRequest) {
     // Provision Hermes profile directory if runtime_type is hermes
     if (runtime_type === 'hermes') {
       try {
-        const { mkdirSync, writeFileSync, existsSync: fsExists } = require('node:fs')
+        const { mkdirSync, existsSync: fsExists } = require('node:fs')
         const profileDir = path.join(appConfig.homeDir, '.hermes', 'profiles', name)
         if (!fsExists(profileDir)) {
           mkdirSync(profileDir, { recursive: true })
           // Write config.yaml with model from agent config or default
           const model = finalConfig.model || DISPATCH_MODEL_DEFAULT
           const provider = finalConfig.provider || 'anthropic'
-          writeFileSync(
+          await writeFileAtomic(
             path.join(profileDir, 'config.yaml'),
             `model: ${model}\nprovider: ${provider}\ntoolsets:\n- all\nmax_turns: 100\n`,
           )
           // Write SOUL.md if soul_content provided
           if (soul_content) {
-            writeFileSync(path.join(profileDir, 'SOUL.md'), soul_content)
+            await writeFileAtomic(path.join(profileDir, 'SOUL.md'), soul_content)
           }
           logger.info({ agentName: name, profileDir }, 'Provisioned Hermes profile directory')
         }
@@ -373,7 +375,7 @@ export async function POST(request: NextRequest) {
 /**
  * PUT /api/agents - Update agent status (bulk operation for status updates)
  */
-export async function PUT(request: NextRequest) {
+async function handlePut(request: NextRequest) {
   const auth = requireRole(request, 'operator');
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -477,6 +479,7 @@ export async function PUT(request: NextRequest) {
         ...(last_activity !== undefined && { last_activity }),
         ...(role !== undefined && { role }),
         updated_at: now,
+        workspace_id: workspaceId,
       });
 
       return NextResponse.json({ success: true });
@@ -488,3 +491,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to update agent' }, { status: 500 });
   }
 }
+
+export const POST = withRequestContext(handlePost)
+export const PUT = withRequestContext(handlePut)

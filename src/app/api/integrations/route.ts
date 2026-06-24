@@ -3,10 +3,11 @@ import { requireRole } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
 import { config } from '@/lib/config'
 import { join } from 'path'
-import { readFile, writeFile, rename } from 'fs/promises'
+import { readFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import os from 'os'
 import { execFileSync } from 'child_process'
+import { writeFileAtomic } from '@/lib/atomic-write'
 import { validateBody, integrationActionSchema } from '@/lib/validation'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { detectProviderSubscriptions } from '@/lib/provider-subscriptions'
@@ -167,10 +168,7 @@ async function readEnvFile(): Promise<{ lines: EnvLine[]; raw: string } | null> 
 
 async function writeEnvFile(lines: EnvLine[]): Promise<void> {
   const envPath = getEnvPath()!
-  const tmpPath = envPath + '.tmp'
-  const content = serializeEnv(lines)
-  await writeFile(tmpPath, content, 'utf-8')
-  await rename(tmpPath, envPath)
+  await writeFileAtomic(envPath, serializeEnv(lines))
 }
 
 function redactValue(value: string): string {

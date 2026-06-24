@@ -85,7 +85,11 @@ describe('Opzava runner worker boundary', () => {
 
     expect(result.status).toBe('failed-retry')
     expect(repo.getJobById(job.jobId)?.job.status).toBe('queued')
-    expect(repo.getJobById(job.jobId)?.job.scheduledAt).toBe('2026-06-15T00:03:00.000Z')
+    // The retry policy applies per-call jitter (0..25% of base) on top of the deterministic
+    // 2 min initial delay, so scheduledAt lands in [00:03:00, 00:03:30] rather than an exact instant.
+    const scheduledAt = repo.getJobById(job.jobId)?.job.scheduledAt ?? ''
+    expect(scheduledAt >= '2026-06-15T00:03:00.000Z').toBe(true)
+    expect(scheduledAt <= '2026-06-15T00:03:30.000Z').toBe(true)
     expect(repo.getAttemptById('attempt_worker_001')?.attempt.errorClass).toBe('provider-error')
     expect(repo.getAttemptById('attempt_worker_001')?.attempt.retryDecision.action).toBe('retry')
     expect(auditActions(repo, job.workflowRunId)).toEqual(['runner.attempt.retry-scheduled'])

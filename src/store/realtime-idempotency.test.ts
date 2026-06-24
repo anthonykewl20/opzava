@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useMissionControl } from './index'
-import type { Activity, Agent, Notification, Task } from './index'
+import type { Activity, Agent, ChatMessage, Notification, Task } from './index'
 
 const task = (id: number): Task => ({
   id,
@@ -103,5 +103,45 @@ describe('store realtime idempotency', () => {
 
     expect(useMissionControl.getState().notifications[0].read_at).toBeTruthy()
     expect(useMissionControl.getState().unreadNotificationCount).toBe(0)
+  })
+})
+
+describe('store optimistic-send race (chat.message vs HTTP response)', () => {
+  const msg = (id: number, content = 'hi'): ChatMessage => ({
+    id,
+    conversation_id: 'conv-1',
+    from_agent: 'human',
+    to_agent: 'agent-1',
+    content,
+    message_type: 'text',
+    created_at: 1,
+  })
+
+  beforeEach(() => {
+    useMissionControl.setState({ chatMessages: [] })
+  })
+
+  it('replacePendingMessage keeps exactly one message when the SSE originator already inserted it', () => {
+    // Race: tempId -1 optimistic, then SSE delivers real id 42 first, then
+    // the HTTP response calls replacePendingMessage(-1, msg42).
+    useMissionControl.setState({
+      chatMessages: [msg(-1, 'pending'), msg(42, 'hello')],
+    })
+
+    useMissionControl.getState().replacePendingMessage(-1, msg(42, 'hello'))
+
+    const ids = useMissionControl.getState().chatMessages.map((m) => m.id)
+    expect(ids).toEqual([42])
+    expect(ids.filter((id) => id === 42)).toHaveLength(1)
+  })
+
+  it('replacePendingMessage still swaps the tempId when the real message is not yet present', () => {
+    useMissionControl.setState({ chatMessages: [msg(-1, 'pending')] })
+
+    useMissionControl.getState().replacePendingMessage(-1, msg(42, 'hello'))
+
+    const { chatMessages } = useMissionControl.getState()
+    expect(chatMessages.map((m) => m.id)).toEqual([42])
+    expect(chatMessages[0].pendingStatus).toBe('sent')
   })
 })

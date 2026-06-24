@@ -5,18 +5,29 @@ import { listProvisionJobs } from '@/lib/super-admin'
 
 /**
  * GET /api/super/provision-jobs - List provisioning jobs
+ *
+ * The listing is always scoped to the caller's tenant. A client-supplied
+ * tenant_id is honored only when it equals auth.user.tenant_id; any other
+ * value is rejected with 403 to prevent cross-tenant enumeration.
  */
 export async function GET(request: NextRequest) {
   const auth = requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { searchParams } = new URL(request.url)
-  const tenant_id = searchParams.get('tenant_id')
+  const requestedTenantId = searchParams.get('tenant_id')
   const status = searchParams.get('status') || undefined
   const limit = Math.min(parseInt(searchParams.get('limit') || '100', 10), 200)
 
+  if (requestedTenantId !== null) {
+    const parsed = Number(requestedTenantId)
+    if (!Number.isInteger(parsed) || parsed !== auth.user.tenant_id) {
+      return NextResponse.json({ error: 'Forbidden: tenant scope violation' }, { status: 403 })
+    }
+  }
+
   const jobs = listProvisionJobs({
-    tenant_id: tenant_id ? parseInt(tenant_id, 10) : undefined,
+    tenant_id: auth.user.tenant_id,
     status,
     limit,
   })
@@ -40,6 +51,13 @@ export async function POST(request: NextRequest) {
 
     if (!Number.isInteger(tenantId) || tenantId <= 0) {
       return NextResponse.json({ error: 'tenant_id is required' }, { status: 400 })
+    }
+
+    // SEC-1: the caller may only target their own tenant. Reject any
+    // client-supplied tenant_id that does not match auth.user.tenant_id
+    // before any privileged lookup or write.
+    if (tenantId !== auth.user.tenant_id) {
+      return NextResponse.json({ error: 'Forbidden: tenant scope violation' }, { status: 403 })
     }
 
     if (!['bootstrap', 'update', 'decommission'].includes(jobType)) {

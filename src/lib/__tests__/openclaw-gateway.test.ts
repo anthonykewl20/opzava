@@ -125,6 +125,40 @@ describe('callOpenClawGateway', () => {
     })
   })
 
+  it('emits exactly one connect req frame on replayed connect.challenge events (SEC-7)', async () => {
+    // Newer gateways can replay connect.challenge (reconnect, duplicate frames).
+    // Only one connect req must reach the wire per invocation.
+    const connectFrames: any[] = []
+    server.once('connection', (ws) => {
+      // Replay the challenge twice.
+      ws.send(JSON.stringify({
+        type: 'event',
+        event: 'connect.challenge',
+        payload: { nonce: 'replay-1' },
+      }))
+      ws.send(JSON.stringify({
+        type: 'event',
+        event: 'connect.challenge',
+        payload: { nonce: 'replay-2' },
+      }))
+
+      ws.on('message', (raw) => {
+        const frame = JSON.parse(raw.toString())
+        if (frame.method === 'connect') {
+          connectFrames.push(frame)
+          ws.send(JSON.stringify({ type: 'res', id: frame.id, ok: true, result: {} }))
+          return
+        }
+        ws.send(JSON.stringify({ type: 'res', id: frame.id, ok: true, result: { ok: true } }))
+      })
+    })
+
+    await callOpenClawGateway('agent', { message: 'hi', deliver: false }, 5000)
+
+    expect(connectFrames).toHaveLength(1)
+    expect(connectFrames[0]).toMatchObject({ type: 'req', method: 'connect' })
+  })
+
   it('rejects gateway RPC errors', async () => {
     server.once('connection', (ws) => {
       ws.removeAllListeners('message')

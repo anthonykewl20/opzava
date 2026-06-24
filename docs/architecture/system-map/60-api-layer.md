@@ -71,7 +71,8 @@ super=admin.
 
 The Agent-Run-Protocol v0.1.0 over `@/lib/runs` (header `X-Agent-Run-Protocol: 0.1.0`): `runs`
 list/create/get/patch, `runs/[id]/eval`, `runs/[id]/provenance`, `runs/stream` (SSE),
-`evals/leaderboard`. Genuinely thin wrappers, workspace-scoped to `auth.user.workspace_id ?? 1`.
+`evals/leaderboard`. Genuinely thin wrappers, workspace-scoped to `auth.user.workspace_id ?? 1`; the
+run SSE stream uses the durable realtime ledger and emits only `run.*` rows for the caller workspace.
 
 ## openapi.json ✅
 
@@ -89,7 +90,9 @@ HTTP → match route.ts → verb handler(req,{params})
   → INHERITED: getDatabase() + inline SQL (+ @/lib/* service) + eventBus.broadcast (SSE)
     OPZAVA:    createXRepository(getDatabase()).ensureSchema() → @/opzava service → repo.save
   → NextResponse.json(payload, {status})
-SSE routes (events, v1/runs/stream): Response(ReadableStream) subscribing eventBus, 30s heartbeat
+SSE routes: `/api/events` and `/api/v1/runs/stream` use durable `realtime_events` replay (`id:`,
+`Last-Event-ID`, `retry: 5000`, 15s heartbeat, workspace filtering, slow-client close); `/api/events`
+also accepts `types=...`, while `/api/v1/runs/stream` hard-filters to Agent-Run-Protocol `run.*` events.
 ```
 
 ## Parity flags ⚠️

@@ -41,8 +41,9 @@ if [[ -f "$PROJECT_ROOT/.env" ]]; then
 fi
 
 export MISSION_CONTROL_DATA_DIR="${MISSION_CONTROL_DATA_DIR:-$PROJECT_ROOT/.data}"
+export NEXT_STANDALONE_DIR="$STANDALONE_DIR"
 
 # Next.js standalone server reads HOSTNAME to decide bind address.
 # Default to 0.0.0.0 so the server is accessible from outside the host.
 export HOSTNAME="${HOSTNAME:-0.0.0.0}"
-exec node server.js
+exec node "$PROJECT_ROOT/scripts/mc-server.cjs"

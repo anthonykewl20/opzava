@@ -59,6 +59,8 @@
     .cmd-foot { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border); font-size: var(--text-xs); color: var(--fg-subtle); }
     .cmd-foot kbd { font-family: var(--font-mono); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 1px 5px; background: var(--surface-2); color: var(--fg-muted); }
     .cmd-hint { display: inline-flex; align-items: center; gap: 5px; }
+    /* Zero-state ("Recent / Suggested") shown only when the query is cleared. */
+    .cmd-zero[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -78,7 +80,7 @@
         <a href="#" class="active" aria-current="page">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -112,6 +114,39 @@
 
       <!-- Results -->
       <div class="cmd-results" role="listbox" aria-label="Results">
+
+        <!-- Zero-state: shown only when the search box is empty, so a cleared
+             query lands on a curated "Recent / Suggested" set instead of a bare
+             unranked dump of everything. Hidden while a query is present. -->
+        <div class="cmd-zero" id="findZero" hidden>
+          <div class="cmd-group u-caps">Recent</div>
+          <a href="essential-project.html" class="cmd-row" role="option" aria-selected="false">
+            <span class="cmd-row-glyph" aria-hidden="true">▦</span>
+            <span class="cmd-row-name">Q3 Launch Campaign</span>
+            <span class="cmd-row-meta">Project · opened today</span>
+          </a>
+          <a href="essential-todos.html" class="cmd-row" role="option" aria-selected="false">
+            <span class="cmd-row-glyph" aria-hidden="true">✓</span>
+            <span class="cmd-row-name">Write the Q3 launch announcement</span>
+            <span class="cmd-row-meta">To-do · opened yesterday</span>
+          </a>
+          <a href="essential-mkt-assets.html" class="cmd-row" role="option" aria-selected="false">
+            <span class="cmd-row-glyph" aria-hidden="true">📄</span>
+            <span class="cmd-row-name">launch-email.html</span>
+            <span class="cmd-row-meta">File · opened 2 days ago</span>
+          </a>
+          <div class="cmd-group u-caps">Suggested</div>
+          <a href="essential-new-project.html" class="cmd-row" role="option" aria-selected="false">
+            <span class="cmd-row-glyph cmd-row-add" aria-hidden="true">＋</span>
+            <span class="cmd-row-name">New project</span>
+            <span class="cmd-row-meta">Action</span>
+          </a>
+          <a href="essential-ask-opzava.html" class="cmd-row" role="option" aria-selected="false">
+            <span class="cmd-row-ava sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-1)" aria-label="Atlas, AI assistant">✦</span>
+            <span class="cmd-row-name">Ask Opzava</span>
+            <span class="cmd-row-meta">Assistant</span>
+          </a>
+        </div>
 
         <!-- Projects -->
         <div class="cmd-group u-caps">Projects</div>
@@ -223,13 +258,34 @@
 
   <script>
     (function () {
+      var overlay  = document.getElementById('findOverlay');
+      var card     = document.getElementById('findCard');
       var input    = document.getElementById('findInput');
       var results  = document.querySelector('.cmd-results');
-      var rows     = Array.prototype.slice.call(document.querySelectorAll('.cmd-row'));
-      var groups   = Array.prototype.slice.call(document.querySelectorAll('.cmd-group'));
+      var zero     = document.getElementById('findZero');
+      var bg       = document.querySelector('.home-hint'); // faded Home behind the dim
+      // The element that had focus before the palette opened — restored on close.
+      var lastTrigger = document.activeElement;
+
+      // Split rows into the live-search set and the cleared-query "Recent /
+      // Suggested" set so the two never show (or get navigated) at once.
+      var allRows  = Array.prototype.slice.call(document.querySelectorAll('.cmd-row'));
+      var zeroRows = zero ? Array.prototype.slice.call(zero.querySelectorAll('.cmd-row')) : [];
+      var rows     = allRows.filter(function (r) { return zeroRows.indexOf(r) === -1; });
+      var groups   = Array.prototype.slice.call(results.querySelectorAll('.cmd-group'))
+                       .filter(function (g) { return !zero || !zero.contains(g); });
       var seps     = Array.prototype.slice.call(document.querySelectorAll('.cmd-sep'));
 
-      function close() { window.location.href = 'essential-home.html'; }
+      function isOpen() { return overlay && overlay.classList.contains('open'); }
+
+      function close() {
+        // Restore focus to the opener rather than hard-navigating blindly; in
+        // this standalone mockup the palette IS the page, so Home is the opener.
+        if (lastTrigger && lastTrigger !== document.body && lastTrigger.focus) {
+          try { lastTrigger.focus(); } catch (e) {}
+        }
+        window.location.href = 'essential-home.html';
+      }
 
       // ── Live empty state ("No results for '…'") — created once, reused. ──
       var empty = document.createElement('div');
@@ -242,8 +298,8 @@
       empty.style.fontSize = 'var(--text-base)';
       if (results) results.appendChild(empty);
 
-      // For each group heading, collect the .cmd-row siblings that follow it
-      // (up to the next .cmd-group), so we can hide a heading once its rows hide.
+      // For each (non-zero-state) group heading, collect the .cmd-row siblings
+      // that follow it, so we can hide a heading once its rows hide.
       var groupOf = groups.map(function (g) {
         var members = [];
         var n = g.nextElementSibling;
@@ -254,13 +310,17 @@
         return { head: g, rows: members };
       });
 
-      function rowText(row) {
-        return (row.textContent || '').toLowerCase().replace(/\s+/g, ' ').trim();
-      }
+      // ── #16: cache each row's lowercased search text ONCE (computed up front),
+      //    instead of re-reading .textContent of every row on every keystroke. ──
+      function normalize(s) { return (s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+      allRows.forEach(function (r) { r.dataset.search = normalize(r.textContent); });
 
-      // Currently-visible rows, in DOM order — drives keyboard nav + selection.
-      function visibleRows() {
-        return rows.filter(function (r) { return !r.hidden; });
+      // Currently-navigable rows, in DOM order — drives keyboard nav + selection.
+      // When the query is empty we navigate the zero-state set; otherwise the
+      // visible search results.
+      function navRows() {
+        var pool = (zero && !zero.hidden) ? zeroRows : rows;
+        return pool.filter(function (r) { return !r.hidden; });
       }
 
       function setSelected(next) {
@@ -273,59 +333,83 @@
       }
 
       // ── Live filter: hide non-matching rows, empty group headings, orphaned
-      //    separators; show the calm empty state when nothing matches. ──
+      //    separators; show the calm empty state when nothing matches; show the
+      //    curated zero-state when the query is cleared. ──
       function filter() {
-        var q = (input ? input.value : '').toLowerCase().replace(/\s+/g, ' ').trim();
+        var q = normalize(input ? input.value : '');
+        var cleared = !q;
+
+        // Cleared query → curated "Recent / Suggested"; otherwise live results.
+        if (zero) zero.hidden = !cleared;
+        rows.forEach(function (r) { if (cleared) r.hidden = true; });
+        groupOf.forEach(function (g) { if (cleared) g.head.hidden = true; });
+        seps.forEach(function (s) { s.hidden = true; });
+
         var anyVisible = false;
+        if (!cleared) {
+          rows.forEach(function (r) {
+            var match = r.dataset.search.indexOf(q) !== -1; // cached text, no layout read
+            r.hidden = !match;
+            if (match) anyVisible = true;
+          });
+          // Hide a group heading when all its rows are hidden.
+          groupOf.forEach(function (g) {
+            g.head.hidden = !g.rows.some(function (r) { return !r.hidden; });
+          });
+        }
 
-        rows.forEach(function (r) {
-          var match = !q || rowText(r).indexOf(q) !== -1;
-          r.hidden = !match;
-          if (match) anyVisible = true;
-        });
-
-        // Hide a group heading when all its rows are hidden.
-        groupOf.forEach(function (g) {
-          var shown = g.rows.some(function (r) { return !r.hidden; });
-          g.head.hidden = !shown;
-        });
-
-        // Hide every separator while filtering; a single search list reads
-        // calmer ungrouped. Restore them only when the query is cleared.
-        seps.forEach(function (s) { s.hidden = !!q; });
-
-        // Empty state.
-        if (!anyVisible) {
-          empty.textContent = q ? ('No results for “' + (input ? input.value.trim() : '') + '”') : 'No results';
+        // Empty state only applies to an active, no-match query.
+        if (!cleared && !anyVisible) {
+          empty.textContent = 'No results for “' + (input ? input.value.trim() : '') + '”';
           empty.hidden = false;
         } else {
           empty.hidden = true;
         }
 
-        // Re-seat the keyboard selection on the first visible row so ↑/↓/↵
+        // Re-seat the keyboard selection on the first navigable row so ↑/↓/↵
         // never act on a hidden item.
-        var vis = visibleRows();
+        var vis = navRows();
         var cur = document.querySelector('.cmd-row.is-selected');
         if (!cur || cur.hidden) setSelected(vis[0] || null);
       }
 
-      input && input.addEventListener('input', filter);
+      // ── #16: debounce the input handler (~200ms) so we don't filter + relayout
+      //    on every keystroke; the expensive pass runs once typing settles. ──
+      var debounceId;
+      function onInput() {
+        clearTimeout(debounceId);
+        debounceId = setTimeout(filter, 200);
+      }
+      input && input.addEventListener('input', onInput);
 
-      // Esc closes the palette (links back to Home).
+      // ── #8: focus trap — keep Tab inside the open dialog card. ──
+      function trappable() {
+        var sel = 'a[href], button, input, [tabindex]:not([tabindex="-1"])';
+        return Array.prototype.slice.call(card.querySelectorAll(sel)).filter(function (el) {
+          return !el.hidden && !el.disabled && el.offsetParent !== null;
+        });
+      }
+
       document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape') { e.preventDefault(); close(); }
-      });
+        if (!isOpen()) return; // #8: handlers only fire while the overlay is open
 
-      // Clicking the dim (outside the card) closes too.
-      document.getElementById('findOverlay').addEventListener('click', function (e) {
-        if (e.target === this) close();
-      });
+        if (e.key === 'Escape') { e.preventDefault(); close(); return; }
 
-      // ↑/↓ move the keyboard selection (accent-soft highlight) across the
-      // VISIBLE rows only; ↵ follows it.
-      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Tab') {
+          var f = trappable();
+          if (!f.length) { e.preventDefault(); return; }
+          var first = f[0], last = f[f.length - 1], active = document.activeElement;
+          if (e.shiftKey && (active === first || !card.contains(active))) {
+            e.preventDefault(); last.focus();
+          } else if (!e.shiftKey && (active === last || !card.contains(active))) {
+            e.preventDefault(); first.focus();
+          }
+          return;
+        }
+
+        // ↑/↓ move the keyboard selection across the navigable rows; ↵ follows it.
         if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
-        var vis = visibleRows();
+        var vis = navRows();
         if (!vis.length) { if (e.key !== 'Enter') e.preventDefault(); return; }
         var cur = document.querySelector('.cmd-row.is-selected');
         var idx = vis.indexOf(cur);
@@ -334,7 +418,16 @@
         else if (e.key === 'Enter' && cur && !cur.hidden) { e.preventDefault(); window.location.href = cur.getAttribute('href'); }
       });
 
-      // Apply the initial (pre-filled) query, then focus.
+      // Clicking the dim (outside the card) closes too.
+      overlay.addEventListener('click', function (e) {
+        if (e.target === this) close();
+      });
+
+      // ── #8: mark the faded Home behind the dim inert so it can't take focus
+      //    or be reached by AT while the modal palette is open. ──
+      if (bg && 'inert' in HTMLElement.prototype) { bg.inert = true; }
+
+      // Apply the initial (pre-filled) query, then move focus into the dialog.
       filter();
       if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
     })();

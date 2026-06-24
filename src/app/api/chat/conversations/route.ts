@@ -24,16 +24,20 @@ export async function GET(request: NextRequest) {
     const params: any[] = []
 
     if (agent) {
-      // Get conversations where this agent is a participant
+      // Get conversations where this agent is a participant.
+      // Identity contract: membership matches display_name OR username, compared
+      // case-insensitively (P2-1) so a participant whose stored name differs in casing
+      // from the requested `agent` filter is not dropped. Broadcasts (to_agent IS NULL)
+      // remain visible to all.
       query = `
         SELECT
           m.conversation_id,
           MAX(m.created_at) as last_message_at,
           COUNT(*) as message_count,
           COUNT(DISTINCT m.from_agent) + COUNT(DISTINCT CASE WHEN m.to_agent IS NOT NULL THEN m.to_agent END) as participant_count,
-          SUM(CASE WHEN m.to_agent = ? AND m.read_at IS NULL THEN 1 ELSE 0 END) as unread_count
+          SUM(CASE WHEN LOWER(m.to_agent) = LOWER(?) AND m.read_at IS NULL THEN 1 ELSE 0 END) as unread_count
         FROM messages m
-        WHERE m.workspace_id = ? AND (m.from_agent = ? OR m.to_agent = ? OR m.to_agent IS NULL)
+        WHERE m.workspace_id = ? AND (LOWER(m.from_agent) = LOWER(?) OR LOWER(m.to_agent) = LOWER(?) OR m.to_agent IS NULL)
         GROUP BY m.conversation_id
         ORDER BY last_message_at DESC
         LIMIT ? OFFSET ?
@@ -62,7 +66,7 @@ export async function GET(request: NextRequest) {
     const lastMsgStmt = db.prepare(`
       SELECT * FROM messages
       WHERE conversation_id = ? AND workspace_id = ?
-      ORDER BY created_at DESC
+      ORDER BY created_at DESC, id DESC
       LIMIT 1
     `);
 
@@ -87,7 +91,7 @@ export async function GET(request: NextRequest) {
       countQuery = `
         SELECT COUNT(DISTINCT m.conversation_id) as total
         FROM messages m
-        WHERE m.workspace_id = ? AND (m.from_agent = ? OR m.to_agent = ? OR m.to_agent IS NULL)
+        WHERE m.workspace_id = ? AND (LOWER(m.from_agent) = LOWER(?) OR LOWER(m.to_agent) = LOWER(?) OR m.to_agent IS NULL)
       `
       countParams.push(agent, agent)
     } else {

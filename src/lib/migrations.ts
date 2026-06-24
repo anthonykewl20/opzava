@@ -1475,6 +1475,26 @@ const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_realtime_events_timestamp ON realtime_events(timestamp);
       `)
     }
+  },
+  {
+    id: '054_messages_client_message_id',
+    up(db: Database.Database) {
+      // Idempotent chat send (P1-3). client_message_id lets the POST short-circuit a
+      // duplicate to the first committed message instead of inserting + forwarding again.
+      const cols = db.prepare(`PRAGMA table_info(messages)`).all() as Array<{ name: string }>
+      if (!cols.some((c) => c.name === 'client_message_id')) {
+        db.exec(`ALTER TABLE messages ADD COLUMN client_message_id TEXT`)
+      }
+      // Partial unique index: only rows that carry a client_message_id are constrained,
+      // so legacy/broadcast sends (NULL) are unaffected. Scoped to (workspace, conversation,
+      // sender) so the same key reused by a different sender or in a different thread is
+      // not falsely treated as a duplicate.
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client_message_id
+          ON messages(workspace_id, conversation_id, from_agent, client_message_id)
+          WHERE client_message_id IS NOT NULL
+      `)
+    }
   }
 ]
 

@@ -36,6 +36,15 @@
     .ava-row { display: flex; }
     .ava-row .ava { margin-left: -6px; border: 2px solid var(--surface); }
     .ava-row .ava:first-child { margin-left: 0; }
+
+    /* ── Async states (loading / error / empty) — toggled via JS; happy path shown by default. ──
+       Non-content state blocks carry .is-hidden in the markup, so they stay hidden with no JS
+       (content shows). JS toggles .is-hidden to switch states, restoring each block's natural display. */
+    .is-hidden { display: none !important; }
+    /* Skeleton placeholders for the rollup + tools glance cards while their summaries load. */
+    .glance-sk { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+    /* Skeleton grid mirrors the real project grid geometry so layout doesn't jump on load. */
+    .sk-proj { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-5); }
   </style>
 </head>
 <body>
@@ -55,7 +64,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -65,11 +74,36 @@
         <h1 class="greeting">Good morning, Anthony</h1>
         <p class="u-muted" style="margin-bottom:var(--space-6)">Tuesday, 23 June · Here’s what your team is working on.</p>
 
+        <!-- ── Glance cards (rollup + tools): loading skeleton ──
+             ASYNC STATE: loading. Shown while the cross-project rollup and tool health summaries are fetched. -->
+        <div class="glance-state state-loading is-hidden" data-glance-state="loading" aria-busy="true" aria-label="Loading your summary">
+          <div class="card glance-sk">
+            <div class="skeleton" style="width:14px;height:14px;border-radius:50%"></div>
+            <div class="skeleton sk-line u-grow" style="max-width:60%"></div>
+          </div>
+          <div class="card glance-sk">
+            <div class="skeleton" style="width:17px;height:17px;border-radius:var(--radius-sm)"></div>
+            <div class="skeleton sk-line u-grow" style="max-width:52%"></div>
+          </div>
+        </div>
+
+        <!-- ── Glance cards: error ──
+             ASYNC STATE: error. Shown if the rollup / tools summary fetch fails. -->
+        <div class="glance-state state-error sb-alert sb-alert--destructive is-hidden" data-glance-state="error" role="alert" style="margin-bottom:var(--space-4)">
+          <span class="ico" aria-hidden="true">✕</span>
+          <div>
+            <strong class="sb-alert-title">Couldn't load your summary.</strong>
+            <span class="sb-alert-desc">Check your connection and <button class="btn btn-sm btn-ghost" type="button" data-glance-retry>try again</button>.</span>
+          </div>
+        </div>
+
+        <!-- ── Glance cards: loaded content (happy path) ── -->
+        <div class="glance-state glance-content" data-glance-state="content">
         <!-- T5 — computed cross-project "Everything OK?" rollup, summarised across every project. -->
         <div class="card" style="border-left:3px solid var(--warning);display:flex;align-items:center;gap:var(--space-3);padding:var(--space-4) var(--space-5);margin-bottom:var(--space-4)">
           <span class="dot dot-warning" aria-hidden="true"></span>
           <div class="u-grow"><strong>2 projects need you · 1 blocked</strong><span class="u-muted"> — Approve the partner outreach email for Series&nbsp;B, and Weekly Ops is waiting on a connection.</span></div>
-          <a class="btn" href="mention-inbox.html" role="button">Show me</a>
+          <a class="btn btn-primary" href="mention-inbox.html" role="button">Show me</a>
         </div>
         <!-- Your tools — linked-tools health glance (doc 12). Healthy/factual = neutral; a blocking tool would flip to a left-accent + "needs you". -->
         <a href="essential-tools.html" class="card" style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);margin-bottom:var(--space-4);text-decoration:none">
@@ -78,6 +112,7 @@
           <span class="badge u-tnum" aria-hidden="true">5 / 7</span>
           <span class="u-subtle" aria-hidden="true">→</span>
         </a>
+        </div><!-- /.glance-content -->
         <!-- T1 — Ask Opzava: the one cross-project assistant. Distinct from any single project's assistant. -->
         <a href="essential-ask-opzava.html" class="card" style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);margin-bottom:var(--space-8);text-decoration:none">
           <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">O</span>
@@ -90,17 +125,60 @@
           <a href="essential-projects.html" class="u-accent" style="font-weight:var(--fw-medium)">View all (9)</a>
         </div>
 
-        <div class="proj-grid">
+        <!-- ── Project grid: loading skeleton ──
+             ASYNC STATE: loading. Mirrors the real grid geometry so layout doesn't shift on load. -->
+        <div class="proj-state state-loading proj-grid is-hidden" data-projects-state="loading" aria-busy="true" aria-label="Loading your projects">
+          <div class="card sk-proj">
+            <div class="skeleton sk-line" style="width:60%;height:16px"></div>
+            <div class="skeleton sk-line" style="width:85%"></div>
+            <div class="skeleton sk-line" style="width:40%"></div>
+          </div>
+          <div class="card sk-proj">
+            <div class="skeleton sk-line" style="width:55%;height:16px"></div>
+            <div class="skeleton sk-line" style="width:80%"></div>
+            <div class="skeleton sk-line" style="width:45%"></div>
+          </div>
+          <div class="card sk-proj">
+            <div class="skeleton sk-line" style="width:58%;height:16px"></div>
+            <div class="skeleton sk-line" style="width:78%"></div>
+            <div class="skeleton sk-line" style="width:38%"></div>
+          </div>
+        </div>
+
+        <!-- ── Project grid: error ──
+             ASYNC STATE: error. Shown if the project list fetch fails; retry re-requests it. -->
+        <div class="proj-state state-error sb-alert sb-alert--destructive is-hidden" data-projects-state="error" role="alert">
+          <span class="ico" aria-hidden="true">✕</span>
+          <div>
+            <strong class="sb-alert-title">Couldn't load your projects.</strong>
+            <span class="sb-alert-desc">Check your connection and <button class="btn btn-sm btn-ghost" type="button" data-projects-retry>try again</button>.</span>
+          </div>
+        </div>
+
+        <!-- ── Project grid: first-use empty ──
+             ASYNC STATE: empty. Shown when you don't have any projects yet. -->
+        <div class="proj-state state-empty card is-hidden" data-projects-state="empty" aria-live="polite">
+          <div class="empty">
+            <div class="empty-icon" aria-hidden="true">◆</div>
+            <p class="empty-title">No projects yet</p>
+            <p class="empty-desc">Start a project and your team — people and assistants — will get to work. You'll see everything that's happening right here.</p>
+            <div class="empty-cta">
+              <a class="btn" href="essential-new-project.html" role="button"><span aria-hidden="true">＋</span> Start your first project</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="proj-state proj-grid" data-projects-state="content">
           <!-- Each project is a self-contained workspace with the same friendly tools. -->
           <!-- Marketing & Promotion project type — its own marketing-native tiles. -->
           <a href="essential-marketing.html" class="card proj" style="--c:var(--chart-2)">
             <div class="proj-name">Q3 Launch Campaign</div>
             <p class="u-muted">Marketing &amp; promotion — email, social &amp; paid for the Q3 launch.</p>
             <div class="tool-row">
-              <span class="tool">▣ Campaigns <strong>4</strong></span>
-              <span class="tool">📅 Calendar</span>
-              <span class="tool">✓◷ Approvals <strong>3</strong></span>
-              <span class="tool">📈 Performance</span>
+              <span class="tool">Campaigns <strong>4</strong></span>
+              <span class="tool">Calendar</span>
+              <span class="tool">Approvals <strong>3</strong></span>
+              <span class="tool">Performance</span>
             </div>
             <div class="proj-foot">
               <span class="ava-row"><span class="ava" style="background:var(--chart-3)">M</span><span class="ava" style="background:var(--chart-6)">D</span><span class="ava" style="background:var(--accent)" aria-label="Atlas (AI)">✦</span></span>
@@ -113,10 +191,10 @@
             <div class="proj-name">Q2 Content Push</div>
             <p class="u-muted">Blog posts, newsletters & social for the quarter.</p>
             <div class="tool-row">
-              <span class="tool">✓ To-dos <strong>8</strong></span>
-              <span class="tool">▦ Board</span>
-              <span class="tool">✉ Messages <strong>2</strong></span>
-              <span class="tool">▤ Docs</span>
+              <span class="tool">To-dos <strong>8</strong></span>
+              <span class="tool">Board</span>
+              <span class="tool">Messages <strong>2</strong></span>
+              <span class="tool">Docs</span>
             </div>
             <div class="proj-foot">
               <span class="ava-row"><span class="ava" style="background:var(--chart-1)">A</span><span class="ava" style="background:var(--chart-3)">I</span></span>
@@ -129,9 +207,9 @@
             <div class="proj-name">Series B Outreach</div>
             <p class="u-muted">Investor emails, follow-ups & the data room.</p>
             <div class="tool-row">
-              <span class="tool">✓ To-dos <strong>5</strong></span>
-              <span class="tool">▦ Board</span>
-              <span class="tool">✉ Messages</span>
+              <span class="tool">To-dos <strong>5</strong></span>
+              <span class="tool">Board</span>
+              <span class="tool">Messages</span>
             </div>
             <div class="proj-foot">
               <span class="ava-row"><span class="ava" style="background:var(--chart-2)">C</span></span>
@@ -144,9 +222,9 @@
             <div class="proj-name">Market Research</div>
             <p class="u-muted">Competitor scans & market briefs for the team.</p>
             <div class="tool-row">
-              <span class="tool">✓ To-dos <strong>4</strong></span>
-              <span class="tool">▤ Docs <strong>6</strong></span>
-              <span class="tool">✉ Messages</span>
+              <span class="tool">To-dos <strong>4</strong></span>
+              <span class="tool">Docs <strong>6</strong></span>
+              <span class="tool">Messages</span>
             </div>
             <div class="proj-foot">
               <span class="ava-row"><span class="ava" style="background:var(--chart-4)">N</span></span>
@@ -159,9 +237,9 @@
             <div class="proj-name">Customer Support</div>
             <p class="u-muted">Triage incoming questions & draft friendly replies.</p>
             <div class="tool-row">
-              <span class="tool">✓ To-dos <strong>12</strong></span>
-              <span class="tool">▦ Board</span>
-              <span class="tool">⌁ Updates</span>
+              <span class="tool">To-dos <strong>12</strong></span>
+              <span class="tool">Board</span>
+              <span class="tool">Updates</span>
             </div>
             <div class="proj-foot">
               <span class="ava-row"><span class="ava" style="background:var(--chart-5)">E</span><span class="ava" style="background:var(--chart-3)">I</span></span>
@@ -174,9 +252,9 @@
             <div class="proj-name">Website Refresh</div>
             <p class="u-muted">Copy & assets for the new marketing site.</p>
             <div class="tool-row">
-              <span class="tool">✓ To-dos <strong>6</strong></span>
-              <span class="tool">▤ Docs <strong>9</strong></span>
-              <span class="tool">📅 Schedule</span>
+              <span class="tool">To-dos <strong>6</strong></span>
+              <span class="tool">Docs <strong>9</strong></span>
+              <span class="tool">Schedule</span>
             </div>
             <div class="proj-foot">
               <span class="ava-row"><span class="ava" style="background:var(--chart-1)">A</span></span>
@@ -189,9 +267,9 @@
             <div class="proj-name">Weekly Ops</div>
             <p class="u-muted">Recurring reports & checks that run on a schedule.</p>
             <div class="tool-row">
-              <span class="tool">✓ To-dos <strong>3</strong></span>
-              <span class="tool">⌁ Updates</span>
-              <span class="tool">📅 Schedule</span>
+              <span class="tool">To-dos <strong>3</strong></span>
+              <span class="tool">Updates</span>
+              <span class="tool">Schedule</span>
             </div>
             <div class="proj-foot">
               <span class="ava-row"><span class="ava" style="background:var(--chart-2)">N</span></span>
@@ -203,5 +281,40 @@
       </div>
     </main>
   </div>
+
+  <script>
+    /* ── Async-state demo toggle (loading / error / empty / content) ──
+       These mockups have no backend, so a tiny controller shows how each surface behaves.
+       Default = the happy path (content). In production these states are driven by the
+       fetch lifecycle (loading → content | error) and by an empty result set (empty).
+       Toggle from the console, e.g.  __homeState('projects','loading')  /  __homeState('glance','error'). */
+    (function () {
+      function show(group, state) {
+        document.querySelectorAll('[data-' + group + '-state]').forEach(function (el) {
+          // .is-hidden carries !important so it overrides the no-JS .state-* fallback,
+          // and removing it restores each element's own stylesheet display (grid / sb-alert grid / block).
+          el.classList.toggle('is-hidden', el.getAttribute('data-' + group + '-state') !== state);
+        });
+      }
+      // Initialise both groups to their loaded content.
+      show('glance', 'content');
+      show('projects', 'content');
+
+      // Retry controls re-enter the loading state, then resolve to content (demo: 600ms).
+      function wireRetry(selector, group) {
+        document.querySelectorAll(selector).forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            show(group, 'loading');
+            window.setTimeout(function () { show(group, 'content'); }, 600);
+          });
+        });
+      }
+      wireRetry('[data-glance-retry]', 'glance');
+      wireRetry('[data-projects-retry]', 'projects');
+
+      // Expose a console hook so reviewers can preview any state without editing markup.
+      window.__homeState = show;
+    })();
+  </script>
 </body>
 </html>

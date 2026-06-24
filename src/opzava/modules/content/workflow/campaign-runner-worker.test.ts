@@ -3,6 +3,8 @@ import { describe, it, expect } from 'vitest'
 
 import { runCampaignSendWithRepository } from './run-campaign-send-with-repository'
 import { createCampaignRunnerWorker } from './campaign-runner-worker'
+import { defaultOpzavaAdminSettings, parseOpzavaAdminSettings } from '@/opzava/platform/admin-config/settings'
+import { projectRetryPolicyOptions } from '@/opzava/platform/admin-config/runtime-options'
 
 function buildInput() {
   return {
@@ -106,4 +108,52 @@ describe('campaign-runner-worker', () => {
 
     db.close()
   })
+
+  it('builds its retry policy from the projected runtime settings, not source literals', async () => {
+    const failedAt = new Date('2026-07-03T00:00:00.000Z')
+    // An operator tunes retry.initialDelayMs up from the worker's old hardcoded 2 min.
+    const settings = parseOpzavaAdminSettings({
+      ...defaultOpzavaAdminSettings(),
+      retry: { ...defaultOpzavaAdminSettings().retry, initialDelayMs: 5 * 60_000 },
+    })
+
+    const db = new Database(':memory:')
+    const { newId, attemptId, deadLetterId } = buildDeps(db)
+    const input = buildInput()
+
+    runCampaignSendWithRepository(
+      db,
+      { newId, now: () => '2026-07-01T00:00:00.000Z', workflowRunId: 'wf-1', approvalGranted: true },
+      input,
+    )
+
+    const failingSender = async () => ({ ok: false, messageId: null })
+    const worker = createCampaignRunnerWorker({
+      db,
+      sender: failingSender,
+      workerId: 'w-retry',
+      clock: { now: () => failedAt },
+      ids: { attemptId, deadLetterId },
+      retryOptions: projectRetryPolicyOptions(settings),
+    })
+
+    const result = await worker.runNext()
+    expect(result.status).toBe('failed-retry')
+
+    // The first retry is scheduled at failedAt + initialDelayMs. With the projected
+    // 5 min the base is 00:05:00; per-call jitter (0..25% of base = up to 75s) lands it in
+    // [00:05:00, 00:06:15]. The hardcoded 2-min literal would be [00:02:00, 00:02:30], so the
+    // floor at 00:05:00 is the RUN-3 discriminator (projected settings, not source literals).
+    const scheduledAt = readJobScheduledAt(db, 'id-1')
+    expect(scheduledAt >= '2026-07-03T00:05:00.000Z').toBe(true)
+    expect(scheduledAt <= '2026-07-03T00:06:15.000Z').toBe(true)
+
+    db.close()
+  })
 })
+
+function readJobScheduledAt(db: Database.Database, jobId: string): string {
+  const row = db.prepare('SELECT record_json FROM opzava_runner_jobs WHERE job_id = ?').get(jobId) as { record_json: string } | undefined
+  if (!row) throw new Error(`job not found: ${jobId}`)
+  return JSON.parse(row.record_json).job.scheduledAt as string
+}

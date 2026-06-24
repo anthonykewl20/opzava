@@ -151,7 +151,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative">
         <span aria-hidden="true">🔔</span>
         <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span>
@@ -354,12 +354,13 @@
               </div>
             </div>
 
-            <!-- Live working indicator: Atlas is working right now (SSE-driven in production) -->
-            <div class="asst-row" id="workingRow" role="status" aria-live="polite" aria-label="Atlas is currently working">
+            <!-- Per-turn working indicator: hidden until YOU send; shown only while Atlas
+                 works on your latest message, then removed. Not an always-on generic row. -->
+            <div class="asst-row" id="workingRow" role="status" aria-live="polite" aria-label="Atlas is working on your message" hidden>
               <span class="sb-avatar sb-avatar--ai" style="background:var(--chart-1);flex:none" aria-hidden="true">At</span>
               <div class="working-label">
                 <span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span>
-                <span><strong>✦ Atlas</strong> is working…</span>
+                <span><strong>✦ Atlas</strong> is working on your message…</span>
                 <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
               </div>
             </div>
@@ -412,7 +413,7 @@
                   aria-label="Ask Atlas to do something for this project"
                 ></textarea>
               </div>
-              <button class="btn btn-primary" type="button" id="sendBtn" aria-label="Send message to Atlas">Send</button>
+              <button class="btn" type="button" id="sendBtn" aria-label="Send message to Atlas">Send</button>
             </div>
             <p class="composer-hint">Atlas works on this project only. To coordinate across all projects, use <a href="essential-ask-opzava.html" style="color:var(--fg-muted)">↑ Ask Opzava</a>.</p>
           </div>
@@ -425,7 +426,7 @@
 
   <!-- ── Preview drawer ────────────────────────────────────────────── -->
   <div class="sb-overlay" id="previewDlg" role="dialog" aria-modal="true" aria-labelledby="previewTitle" style="display:none">
-    <div class="sb-dialog" style="max-width:580px;width:100%">
+    <div class="sb-dialog" tabindex="-1" style="max-width:580px;width:100%">
       <div class="sb-dialog-title" id="previewTitle">outreach-seriesb.md — Preview</div>
       <div class="sb-dialog-desc" style="margin-top:var(--space-4);line-height:var(--lh-normal);max-height:360px;overflow-y:auto">
         <p><strong>Subject:</strong> Partnering on our Series B journey</p>
@@ -463,16 +464,43 @@
         traceChevron.textContent = open ? '▸' : '▾';
       });
 
-      /* ── Preview dialog ────────────────────────────────────────────── */
+      /* ── Preview dialog: focus trap + restore + background inert (#8) ── */
       var previewDlg = document.getElementById('previewDlg');
+      var pageMain = document.querySelector('main');
+      var previewTrigger = null; // element to restore focus to on close
+      var FOCUSABLE = 'a[href],button:not([disabled]),textarea,input,select,[tabindex]:not([tabindex="-1"])';
+      function dialogFocusables() {
+        return Array.prototype.filter.call(
+          previewDlg.querySelectorAll(FOCUSABLE),
+          function (el) { return el.offsetParent !== null || el === document.activeElement; }
+        );
+      }
       function openPreview() {
+        previewTrigger = document.activeElement;
         previewDlg.style.display = '';
         previewDlg.classList.add('open');
+        if (pageMain) pageMain.inert = true; // background out of tab + AT reach
+        // Move focus into the dialog (first focusable / heading control)
+        var f = dialogFocusables();
+        (f[0] || previewDlg).focus();
       }
       function closePreview() {
         previewDlg.classList.remove('open');
+        if (pageMain) pageMain.inert = false;
         setTimeout(function () { previewDlg.style.display = 'none'; }, 160);
+        // Restore focus to whatever opened the dialog
+        if (previewTrigger && typeof previewTrigger.focus === 'function') previewTrigger.focus();
+        previewTrigger = null;
       }
+      // Trap Tab within the dialog while it is open
+      previewDlg.addEventListener('keydown', function (e) {
+        if (e.key !== 'Tab' || !previewDlg.classList.contains('open')) return;
+        var f = dialogFocusables();
+        if (!f.length) { e.preventDefault(); return; }
+        var first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      });
       document.getElementById('previewBtn').addEventListener('click', openPreview);
       document.getElementById('previewClose').addEventListener('click', closePreview);
       previewDlg.addEventListener('click', function (e) { if (e.target === previewDlg) closePreview(); });
@@ -517,6 +545,7 @@
       /* ── Composer send ─────────────────────────────────────────────── */
       var sendBtn = document.getElementById('sendBtn');
       var input = document.getElementById('askInput');
+      var workingTimer = null;
       function sendMessage() {
         var text = input.value.trim();
         if (!text) return;
@@ -532,8 +561,15 @@
           + '</div>';
         log.insertBefore(userRow, workingRow);
         input.value = '';
-        // Scroll to bottom
+        // Per-turn feedback (#5): reveal the working indicator only in response to YOUR
+        // send, keep it for a brief (>400ms) working state, then hide it again.
+        if (workingTimer) clearTimeout(workingTimer);
+        workingRow.hidden = false;
         log.scrollTop = log.scrollHeight;
+        workingTimer = setTimeout(function () {
+          workingRow.hidden = true;
+          input.focus();
+        }, 1400);
       }
       function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
       sendBtn.addEventListener('click', sendMessage);

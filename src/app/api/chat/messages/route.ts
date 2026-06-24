@@ -5,9 +5,10 @@ import { getAllGatewaySessions } from '@/lib/sessions'
 import { eventBus } from '@/lib/event-bus'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
-import { scanForInjection, sanitizeForPrompt } from '@/lib/injection-guard'
+import { scanForInjection } from '@/lib/injection-guard'
 import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 import { resolveCoordinatorDeliveryTarget } from '@/lib/coordinator-routing'
+import { withRequestContext } from '@/lib/request-context'
 
 type ForwardInfo = {
   attempted: boolean
@@ -33,6 +34,72 @@ type ChatAttachmentInput = {
 const COORDINATOR_AGENT =
   String(process.env.MC_COORDINATOR_AGENT || process.env.NEXT_PUBLIC_COORDINATOR_AGENT || 'coordinator').trim() ||
   'coordinator'
+
+// CHAT-3 payload size caps. A human message previously had no bound on content,
+// metadata, or attachment data — an unbounded POST would balloon the messages row
+// and the realtime_events outbox row it commits in the same transaction. Caps are
+// enforced BEFORE any INSERT so an oversized payload never enters the durable path.
+const MAX_CONTENT_BYTES = 16 * 1024 // 16 KiB for message text
+const MAX_METADATA_BYTES = 8 * 1024 // 8 KiB for the serialized metadata blob
+const MAX_ATTACHMENT_COUNT = 10 // hard cap on the number of attachments
+const MAX_ATTACHMENT_BYTES = 1024 * 1024 // 1 MiB per individual data-URL
+const MAX_TOTAL_ATTACHMENT_BYTES = 4 * 1024 * 1024 // 4 MiB summed across all attachments
+
+function utf8ByteLength(value: string): number {
+  return Buffer.byteLength(value, 'utf8')
+}
+
+// Returns an error string when the payload violates a CHAT-3 cap, else null. Runs
+// cheaply (length + regex) so the rejection happens before any DB write or forward.
+function validatePayloadSize(body: any): string | null {
+  const content = typeof body?.content === 'string' ? body.content : ''
+  if (utf8ByteLength(content) > MAX_CONTENT_BYTES) {
+    return `Message content exceeds the ${MAX_CONTENT_BYTES}-byte cap`
+  }
+
+  const metadata = body?.metadata
+  if (metadata !== null && metadata !== undefined) {
+    let metadataBytes = 0
+    try {
+      metadataBytes = utf8ByteLength(JSON.stringify(metadata))
+    } catch {
+      metadataBytes = Infinity
+    }
+    if (metadataBytes > MAX_METADATA_BYTES) {
+      return `Message metadata exceeds the ${MAX_METADATA_BYTES}-byte cap`
+    }
+  }
+
+  const attachments = body?.attachments
+  if (Array.isArray(attachments)) {
+    if (attachments.length > MAX_ATTACHMENT_COUNT) {
+      return `Too many attachments (max ${MAX_ATTACHMENT_COUNT})`
+    }
+    let total = 0
+    for (const entry of attachments) {
+      const file = entry as ChatAttachmentInput
+      const dataUrl = typeof file?.dataUrl === 'string' ? file.dataUrl : ''
+      const size = utf8ByteLength(dataUrl)
+      if (size > MAX_ATTACHMENT_BYTES) {
+        return `Attachment exceeds the ${MAX_ATTACHMENT_BYTES}-byte cap`
+      }
+      total += size
+    }
+    if (total > MAX_TOTAL_ATTACHMENT_BYTES) {
+      return `Attachments exceed the ${MAX_TOTAL_ATTACHMENT_BYTES}-byte total cap`
+    }
+  }
+
+  return null
+}
+
+// Human-originated sends on this route may only be 'text'. The reserved types
+// (status, tool_call, system, command, handoff, ...) are written exclusively by
+// server-side code (createChatReply, coordinator replies); an operator POSTing
+// message_type:'system' could otherwise spoof a system/command/handoff message
+// in the audit trail and chat history (CHAT-2). Any non-text value — spoofed
+// reserved type or arbitrary string — is coerced to 'text'.
+const HUMAN_MESSAGE_TYPE = 'text'
 
 function parseGatewayJson(raw: string): any | null {
   const trimmed = String(raw || '').trim()
@@ -263,12 +330,17 @@ export async function GET(request: NextRequest) {
     // operator/admin; the REST read path must apply the same predicate so a
     // viewer cannot read another agent's DMs by hitting the list endpoint.
     // viewerName mirrors the SSE stream's identity resolution exactly.
+    // Identity contract: a participant is identified by display_name OR username,
+    // compared case-insensitively so a DM whose stored from_agent/to_agent differs
+    // in casing (or username-vs-display_name) from the viewer is not dropped (P2-1).
     const viewerName = auth.user.display_name || auth.user.username
     const isPrivileged = auth.user.role === 'operator' || auth.user.role === 'admin'
     // Broadcasts (to_agent IS NULL) are workspace-wide and visible to all members —
     // parity with GET /api/chat/conversations and the SSE chat ACL, which treat only
     // real DMs (to_agent set) as private.
-    const membershipClause = isPrivileged ? '' : ' AND (from_agent = ? OR to_agent = ? OR to_agent IS NULL)'
+    const membershipClause = isPrivileged
+      ? ''
+      : ' AND (LOWER(from_agent) = LOWER(?) OR LOWER(to_agent) = LOWER(?) OR to_agent IS NULL)'
     const membershipParams = isPrivileged ? [] : [viewerName, viewerName]
 
     let query = 'SELECT * FROM messages WHERE workspace_id = ?'
@@ -296,7 +368,7 @@ export async function GET(request: NextRequest) {
       params.push(parseInt(since))
     }
 
-    query += ' ORDER BY created_at ASC LIMIT ? OFFSET ?'
+    query += ' ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?'
     params.push(limit, offset)
 
     const messages = db.prepare(query).all(...params) as Message[]
@@ -341,7 +413,7 @@ export async function GET(request: NextRequest) {
  * Body: { to, content, message_type, conversation_id, metadata }
  * Sender identity is always resolved server-side from authenticated user.
  */
-export async function POST(request: NextRequest) {
+async function handleChatPost(request: NextRequest) {
   const auth = requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
@@ -357,7 +429,11 @@ export async function POST(request: NextRequest) {
     const from = auth.user.display_name || auth.user.username || 'system'
     const to = body.to ? (body.to as string).trim() : null
     const content = (body.content || '').trim()
-    const message_type = body.message_type || 'text'
+    // CHAT-2: message_type is constrained server-side to HUMAN_MESSAGE_TYPE ('text')
+    // for human-originated sends. The raw body value is never trusted — reserved
+    // types (system/command/handoff/status/tool_call) and any arbitrary string are
+    // coerced to 'text' so an operator cannot spoof a system/command/handoff message.
+    const message_type = HUMAN_MESSAGE_TYPE
     const conversation_id = body.conversation_id || `conv_${Date.now()}`
     const metadata = body.metadata || null
 
@@ -366,6 +442,14 @@ export async function POST(request: NextRequest) {
         { error: '"content" is required' },
         { status: 400 }
       )
+    }
+
+    // CHAT-3: enforce payload size caps (content, metadata, attachments) BEFORE any
+    // SELECT or INSERT. An oversized human message must never reach the durable path
+    // (messages row + realtime_events outbox commit in the same transaction).
+    const sizeError = validatePayloadSize(body)
+    if (sizeError) {
+      return NextResponse.json({ error: sizeError }, { status: 413 })
     }
 
     // Scan content for injection when it will be forwarded to an agent
@@ -383,26 +467,160 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const stmt = db.prepare(`
-      INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, metadata, workspace_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `)
+    // P1-3 idempotency: when the caller supplies a client_message_id, a duplicate
+    // POST returns the first committed message and forwards zero times. The partial
+    // unique index idx_messages_client_message_id (migration 054) guards the insert;
+    // this SELECT is the happy-path short-circuit before any write.
+    const client_message_id =
+      typeof body.client_message_id === 'string' && body.client_message_id.trim()
+        ? body.client_message_id.trim()
+        : null
 
-    const result = stmt.run(
-      conversation_id,
-      from,
-      to,
-      content,
-      message_type,
-      metadata ? JSON.stringify(metadata) : null,
-      workspaceId
-    )
+    if (client_message_id) {
+      const existing = db
+        .prepare(
+          `SELECT id FROM messages
+           WHERE workspace_id = ? AND conversation_id = ? AND from_agent = ? AND client_message_id = ?`,
+        )
+        .get(workspaceId, conversation_id, from, client_message_id) as { id: number } | undefined
 
-    const messageId = result.lastInsertRowid as number
+      if (existing) {
+        const existingRow = db
+          .prepare('SELECT * FROM messages WHERE id = ? AND workspace_id = ?')
+          .get(existing.id, workspaceId) as Message
+        return NextResponse.json(
+          {
+            message: {
+              ...existingRow,
+              metadata: { ...(safeParseMetadata(existingRow.metadata) || {}), idempotent: true },
+            },
+            forward: null,
+          },
+          { status: 200 },
+        )
+      }
+    }
 
-    let forwardInfo: ForwardInfo | null = null
+    // P1-1 transactional outbox: every DURABLE write for this send — the message row,
+    // the activity log, the recipient notification, the audit event, AND the
+    // realtime_events outbox row for the chat.message event — shares ONE BEGIN
+    // IMMEDIATE transaction on the singleton getDatabase() connection so they commit
+    // atomically. A crash between commit and the in-process emit below still delivers
+    // via the 1s SSE poller because the realtime_events row is durable in the tx.
+    // The gateway forward (async network IO) stays OUTSIDE the tx to keep the SQLite
+    // write lock held for the minimum time.
+    let messageId = 0
+    let outboxEvent: { id: number; type: string; data: any; timestamp: number; workspace_id: number | null } | null = null
 
-    // Log activity
+    // The activity log + recipient notification are intentionally OUTSIDE this tx:
+    // their eventBus broadcasts run recordServerEvent -> pruneRealtimeEvents (DELETE +
+    // COUNT over the events table), which must NOT run while the BEGIN IMMEDIATE write
+    // lock is held (it would widen the critical section past busy_timeout under load).
+    const sendChatMessage = db.transaction(() => {
+      const result = db
+        .prepare(`
+          INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, metadata, workspace_id, client_message_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          conversation_id,
+          from,
+          to,
+          content,
+          message_type,
+          metadata ? JSON.stringify(metadata) : null,
+          workspaceId,
+          client_message_id,
+        )
+
+      messageId = result.lastInsertRowid as number
+
+      // Record the human send in the unified audit trail. Chat is an Engine-A surface
+      // (inherited `messages`, `db_helpers`), so it joins the one audit surface via the
+      // inherited `audit_log` that GET /api/audit projects (unified-audit.ts) — no new
+      // table, no new boundary crossing. Only the user-originated send is audited;
+      // system-generated replies (createChatReply) are deliberately excluded so the
+      // compliance trail records human actions without agent chatter.
+      logAuditEvent({
+        action: 'chat_message_sent',
+        actor: from,
+        actor_id: auth.user.id,
+        target_type: 'message',
+        target_id: messageId,
+        detail: { conversation_id, to, message_type },
+      })
+
+      // Durable outbox row for the chat.message event — mirrors recordServerEvent's
+      // INSERT but runs in-tx so it commits atomically with the message. We emit the
+      // in-process fast-path AFTER the tx (below); we do NOT call eventBus.broadcast
+      // here, which would record a SECOND realtime_events row.
+      const createdRow = db
+        .prepare('SELECT * FROM messages WHERE id = ? AND workspace_id = ?')
+        .get(messageId, workspaceId) as Message
+      const chatPayload = {
+        ...createdRow,
+        metadata: safeParseMetadata(createdRow.metadata),
+      }
+      const outboxResult = db
+        .prepare(`
+          INSERT INTO realtime_events (type, data, timestamp, workspace_id)
+          VALUES (?, ?, ?, ?)
+        `)
+        .run('chat.message', JSON.stringify(chatPayload), Date.now(), workspaceId)
+      outboxEvent = {
+        id: Number(outboxResult.lastInsertRowid),
+        type: 'chat.message',
+        data: chatPayload,
+        timestamp: Date.now(),
+        workspace_id: workspaceId,
+      }
+    })
+
+    try {
+      sendChatMessage.immediate()
+    } catch (err) {
+      // P1-3 concurrent-duplicate race: two identical client_message_id POSTs can both
+      // miss the pre-insert SELECT and both reach the INSERT; the partial unique index
+      // (migration 054) makes the second throw SQLITE_CONSTRAINT -- the index already
+      // prevented the double-insert/double-forward. Convert the conflict into the
+      // idempotent return path instead of surfacing a spurious 500.
+      if (
+        client_message_id &&
+        (err as { code?: string })?.code?.includes('SQLITE_CONSTRAINT')
+      ) {
+        const existing = db
+          .prepare(
+            `SELECT * FROM messages
+             WHERE workspace_id = ? AND conversation_id = ? AND from_agent = ? AND client_message_id = ?`,
+          )
+          .get(workspaceId, conversation_id, from, client_message_id) as Message | undefined
+        if (existing) {
+          return NextResponse.json(
+            {
+              message: {
+                ...existing,
+                metadata: { ...(safeParseMetadata(existing.metadata) || {}), idempotent: true },
+              },
+              forward: null,
+            },
+            { status: 200 },
+          )
+        }
+      }
+      throw err
+    }
+
+    // P1-2 broadcast reorder: emit the originator event BEFORE the gateway forward
+    // and BEFORE any createChatReply system replies (previously the broadcast ran at
+    // the very end, after the gateway round-trip). emit ONLY — the durable row is
+    // already committed in the tx above; broadcast would re-record a second row.
+    if (outboxEvent) {
+      eventBus.emit('server-event', outboxEvent)
+    }
+
+    // Activity log + recipient notification -- best-effort side-effects OUTSIDE the tx
+    // (their broadcasts run recordServerEvent + prune; losing them on a crash is
+    // tolerable, unlike the outbox row which is durable in the tx above).
     db_helpers.logActivity(
       'chat_message',
       'message',
@@ -412,23 +630,6 @@ export async function POST(request: NextRequest) {
       { conversation_id, to, message_type },
       workspaceId
     )
-
-    // Record the human send in the unified audit trail. Chat is an Engine-A surface
-    // (inherited `messages`, `db_helpers`), so it joins the one audit surface via the
-    // inherited `audit_log` that GET /api/audit projects (unified-audit.ts) — no new
-    // table, no new boundary crossing. Only the user-originated send is audited;
-    // system-generated replies (createChatReply) are deliberately excluded so the
-    // compliance trail records human actions without agent chatter.
-    logAuditEvent({
-      action: 'chat_message_sent',
-      actor: from,
-      actor_id: auth.user.id,
-      target_type: 'message',
-      target_id: messageId,
-      detail: { conversation_id, to, message_type },
-    })
-
-    // Create notification for recipient if specified
     if (to) {
       db_helpers.createNotification(
         to,
@@ -439,313 +640,320 @@ export async function POST(request: NextRequest) {
         messageId,
         workspaceId
       )
+    }
 
-      // Optionally forward to agent via gateway
-      if (body.forward) {
-        forwardInfo = { attempted: true, delivered: false }
+    let forwardInfo: ForwardInfo | null = null
 
-        const agent = db
-          .prepare('SELECT * FROM agents WHERE lower(name) = lower(?) AND workspace_id = ?')
-          .get(to, workspaceId) as any
+    // Optionally forward to agent via gateway (only when a recipient is specified)
+    if (to && body.forward) {
+      forwardInfo = { attempted: true, delivered: false }
 
-        const explicitSessionKey = typeof body.sessionKey === 'string' && body.sessionKey
-          ? body.sessionKey
-          : null
-        const sessions = getAllGatewaySessions()
-        const isCoordinatorSend = String(to).toLowerCase() === COORDINATOR_AGENT.toLowerCase()
-        const allAgents = isCoordinatorSend
-          ? (db
-              .prepare('SELECT name, session_key, config FROM agents WHERE workspace_id = ?')
-              .all(workspaceId) as Array<{ name: string; session_key?: string | null; config?: string | null }>)
-          : []
-        const configuredCoordinatorTarget = isCoordinatorSend
-          ? (db
-              .prepare("SELECT value FROM settings WHERE key = 'chat.coordinator_target_agent'")
-              .get() as { value?: string } | undefined)?.value || null
-          : null
+      const agent = db
+        .prepare('SELECT * FROM agents WHERE lower(name) = lower(?) AND workspace_id = ?')
+        .get(to, workspaceId) as any
 
-        const coordinatorResolution = resolveCoordinatorDeliveryTarget({
-          to: String(to),
-          coordinatorAgent: COORDINATOR_AGENT,
-          directAgent: agent
-            ? {
-                name: String(agent.name || to),
-                session_key: typeof agent.session_key === 'string' ? agent.session_key : null,
-                config: typeof agent.config === 'string' ? agent.config : null,
-              }
-            : null,
-          allAgents,
-          sessions,
-          explicitSessionKey,
-          configuredCoordinatorTarget,
-        })
+      const explicitSessionKey = typeof body.sessionKey === 'string' && body.sessionKey
+        ? body.sessionKey
+        : null
+      const sessions = getAllGatewaySessions()
+      const isCoordinatorSend = String(to).toLowerCase() === COORDINATOR_AGENT.toLowerCase()
+      const allAgents = isCoordinatorSend
+        ? (db
+            .prepare('SELECT name, session_key, config FROM agents WHERE workspace_id = ?')
+            .all(workspaceId) as Array<{ name: string; session_key?: string | null; config?: string | null }>)
+        : []
+      const configuredCoordinatorTarget = isCoordinatorSend
+        ? (db
+            .prepare("SELECT value FROM settings WHERE key = 'chat.coordinator_target_agent'")
+            .get() as { value?: string } | undefined)?.value || null
+        : null
 
-        // Use explicit session key from caller if provided, then DB, then on-disk lookup
-        let sessionKey: string | null = coordinatorResolution.sessionKey
-
-        // Fallback: derive session from on-disk gateway session stores
-        if (!sessionKey) {
-          const match = sessions.find(
-            (s) =>
-              s.agent.toLowerCase() === String(to).toLowerCase() ||
-              s.agent.toLowerCase() === coordinatorResolution.deliveryName.toLowerCase() ||
-              s.agent.toLowerCase() === String(coordinatorResolution.openclawAgentId || '').toLowerCase()
-          )
-          sessionKey = match?.key || match?.sessionId || null
-        }
-
-        // Prefer configured openclawId when present, fallback to normalized name
-        let openclawAgentId: string | null = coordinatorResolution.openclawAgentId
-
-        if (!sessionKey && !openclawAgentId) {
-          forwardInfo.reason = 'no_active_session'
-
-          // Emit an immediate visible status reply so the user isn't left with
-          // silence when no live session exists — for both coordinator (coord:)
-          // and direct agent (agent_<name>) conversations (issue #611).
-          const isCoordConversation = typeof conversation_id === 'string' && conversation_id.startsWith('coord:')
-          const isAgentConversation = typeof conversation_id === 'string' && conversation_id.startsWith('agent_')
-          if (isCoordConversation || isAgentConversation) {
-            const replyFrom = isCoordConversation ? COORDINATOR_AGENT : String(to)
-            const replyText = isCoordConversation
-              ? 'I received your message, but my live coordinator session is offline right now. Start/restore the coordinator session and retry.'
-              : `Message received, but ${to} has no active gateway session right now. Start or restore the agent's session and retry.`
-            try {
-              createChatReply(
-                db,
-                workspaceId,
-                conversation_id as string,
-                replyFrom,
-                from,
-                replyText,
-                'status',
-                { status: 'offline', reason: 'no_active_session' }
-              )
-            } catch (e) {
-              logger.error({ err: e }, 'Failed to create offline status reply')
+      const coordinatorResolution = resolveCoordinatorDeliveryTarget({
+        to: String(to),
+        coordinatorAgent: COORDINATOR_AGENT,
+        directAgent: agent
+          ? {
+              name: String(agent.name || to),
+              session_key: typeof agent.session_key === 'string' ? agent.session_key : null,
+              config: typeof agent.config === 'string' ? agent.config : null,
             }
-          }
-        } else {
-          try {
-            const idempotencyKey = `mc-${messageId}-${Date.now()}`
+          : null,
+        allAgents,
+        sessions,
+        explicitSessionKey,
+        configuredCoordinatorTarget,
+      })
 
-            if (sessionKey) {
-              const acceptedPayload = await callOpenClawGateway<any>(
-                'chat.send',
-                {
-                  sessionKey,
-                  message: content,
-                  idempotencyKey,
-                  deliver: false,
-                  attachments: toGatewayAttachments(body.attachments),
-                },
-                12000,
-              )
-              const status = String(acceptedPayload?.status || '').toLowerCase()
-              forwardInfo.delivered = status === 'started' || status === 'ok' || status === 'in_flight'
-              forwardInfo.session = sessionKey
-              if (typeof acceptedPayload?.runId === 'string' && acceptedPayload.runId) {
-                forwardInfo.runId = acceptedPayload.runId
-              }
-            } else {
-              const invokeParams: any = {
-                message: `Message from ${from}: ${content}`,
+      // Use explicit session key from caller if provided, then DB, then on-disk lookup
+      let sessionKey: string | null = coordinatorResolution.sessionKey
+
+      // Fallback: derive session from on-disk gateway session stores
+      if (!sessionKey) {
+        const match = sessions.find(
+          (s) =>
+            s.agent.toLowerCase() === String(to).toLowerCase() ||
+            s.agent.toLowerCase() === coordinatorResolution.deliveryName.toLowerCase() ||
+            s.agent.toLowerCase() === String(coordinatorResolution.openclawAgentId || '').toLowerCase()
+        )
+        sessionKey = match?.key || match?.sessionId || null
+      }
+
+      // Prefer configured openclawId when present, fallback to normalized name
+      let openclawAgentId: string | null = coordinatorResolution.openclawAgentId
+
+      if (!sessionKey && !openclawAgentId) {
+        forwardInfo.reason = 'no_active_session'
+
+        // Emit an immediate visible status reply so the user isn't left with
+        // silence when no live session exists — for both coordinator (coord:)
+        // and direct agent (agent_<name>) conversations (issue #611).
+        const isCoordConversation = typeof conversation_id === 'string' && conversation_id.startsWith('coord:')
+        const isAgentConversation = typeof conversation_id === 'string' && conversation_id.startsWith('agent_')
+        if (isCoordConversation || isAgentConversation) {
+          const replyFrom = isCoordConversation ? COORDINATOR_AGENT : String(to)
+          const replyText = isCoordConversation
+            ? 'I received your message, but my live coordinator session is offline right now. Start/restore the coordinator session and retry.'
+            : `Message received, but ${to} has no active gateway session right now. Start or restore the agent's session and retry.`
+          try {
+            createChatReply(
+              db,
+              workspaceId,
+              conversation_id as string,
+              replyFrom,
+              from,
+              replyText,
+              'status',
+              { status: 'offline', reason: 'no_active_session' }
+            )
+          } catch (e) {
+            logger.error({ err: e }, 'Failed to create offline status reply')
+          }
+        }
+      } else {
+        try {
+          // P1-3: derive a deterministic gateway idempotency key from client_message_id
+          // when present so a retried POST dedupes at the gateway too. Fall back to the
+          // per-message timestamped key only when no client_message_id was supplied.
+          const idempotencyKey = client_message_id
+            ? `mc-${client_message_id}`
+            : `mc-${messageId}-${Date.now()}`
+
+          if (sessionKey) {
+            const acceptedPayload = await callOpenClawGateway<any>(
+              'chat.send',
+              {
+                sessionKey,
+                message: content,
                 idempotencyKey,
                 deliver: false,
-              }
-              invokeParams.agentId = openclawAgentId
-
-              const invokeResult = await runOpenClaw(
-                [
-                  'gateway',
-                  'call',
-                  'agent',
-                  '--timeout',
-                  '10000',
-                  '--params',
-                  JSON.stringify(invokeParams),
-                  '--json',
-                ],
-                { timeoutMs: 12000 }
-              )
-              const acceptedPayload = parseGatewayJson(invokeResult.stdout)
-              forwardInfo.delivered = true
-              forwardInfo.session = openclawAgentId || undefined
-              if (typeof acceptedPayload?.runId === 'string' && acceptedPayload.runId) {
-                forwardInfo.runId = acceptedPayload.runId
-              }
+                attachments: toGatewayAttachments(body.attachments),
+              },
+              12000,
+            )
+            const status = String(acceptedPayload?.status || '').toLowerCase()
+            forwardInfo.delivered = status === 'started' || status === 'ok' || status === 'in_flight'
+            forwardInfo.session = sessionKey
+            if (typeof acceptedPayload?.runId === 'string' && acceptedPayload.runId) {
+              forwardInfo.runId = acceptedPayload.runId
             }
-          } catch (err) {
-            // OpenClaw may return accepted JSON on stdout but still emit a late stderr warning.
-            // Treat accepted runs as successful delivery.
-            const maybeStdout = String((err as any)?.stdout || '')
-            const acceptedPayload = parseGatewayJson(maybeStdout)
-            if (maybeStdout.includes('"status": "accepted"') || maybeStdout.includes('"status":"accepted"')) {
-              forwardInfo.delivered = true
-              forwardInfo.session = sessionKey || openclawAgentId || undefined
-              if (typeof acceptedPayload?.runId === 'string' && acceptedPayload.runId) {
-                forwardInfo.runId = acceptedPayload.runId
-              }
-            } else {
-              forwardInfo.reason = 'gateway_send_failed'
-              logger.error({ err }, 'Failed to forward message via gateway')
+          } else {
+            const invokeParams: any = {
+              message: `Message from ${from}: ${content}`,
+              idempotencyKey,
+              deliver: false,
+            }
+            invokeParams.agentId = openclawAgentId
 
-              // For coordinator messages, emit visible status when send fails
-              if (typeof conversation_id === 'string' && conversation_id.startsWith('coord:')) {
-                try {
-                  createChatReply(
-                    db,
-                    workspaceId,
-                    conversation_id,
-                    COORDINATOR_AGENT,
-                    from,
-                    'I received your message, but delivery to the live coordinator runtime failed. Please restart the coordinator/gateway session and retry.',
-                    'status',
-                    { status: 'delivery_failed', reason: 'gateway_send_failed' }
-                  )
-                } catch (e) {
-                  logger.error({ err: e }, 'Failed to create gateway failure status reply')
-                }
-              }
+            const invokeResult = await runOpenClaw(
+              [
+                'gateway',
+                'call',
+                'agent',
+                '--timeout',
+                '10000',
+                '--params',
+                JSON.stringify(invokeParams),
+                '--json',
+              ],
+              { timeoutMs: 12000 }
+            )
+            const acceptedPayload = parseGatewayJson(invokeResult.stdout)
+            forwardInfo.delivered = true
+            forwardInfo.session = openclawAgentId || undefined
+            if (typeof acceptedPayload?.runId === 'string' && acceptedPayload.runId) {
+              forwardInfo.runId = acceptedPayload.runId
             }
           }
-
-          // Coordinator mode should always show visible coordinator feedback in thread.
-          if (
-            typeof conversation_id === 'string' &&
-            conversation_id.startsWith('coord:') &&
-            forwardInfo.delivered
-          ) {
-            try {
-              createChatReply(
-                db,
-                workspaceId,
-                conversation_id,
-                COORDINATOR_AGENT,
-                from,
-                'Received. I am coordinating downstream agents now.',
-                'status',
-                { status: 'accepted', runId: forwardInfo.runId || null }
-              )
-            } catch (e) {
-              logger.error({ err: e }, 'Failed to create accepted status reply')
+        } catch (err) {
+          // OpenClaw may return accepted JSON on stdout but still emit a late stderr warning.
+          // Treat accepted runs as successful delivery.
+          const maybeStdout = String((err as any)?.stdout || '')
+          const acceptedPayload = parseGatewayJson(maybeStdout)
+          if (maybeStdout.includes('"status": "accepted"') || maybeStdout.includes('"status":"accepted"')) {
+            forwardInfo.delivered = true
+            forwardInfo.session = sessionKey || openclawAgentId || undefined
+            if (typeof acceptedPayload?.runId === 'string' && acceptedPayload.runId) {
+              forwardInfo.runId = acceptedPayload.runId
             }
+          } else {
+            forwardInfo.reason = 'gateway_send_failed'
+            logger.error({ err }, 'Failed to forward message via gateway')
 
-            // Best effort: wait briefly and surface completion/error feedback.
-            if (forwardInfo.runId) {
+            // For coordinator messages, emit visible status when send fails
+            if (typeof conversation_id === 'string' && conversation_id.startsWith('coord:')) {
               try {
-                const waitResult = await runOpenClaw(
-                  [
-                    'gateway',
-                    'call',
-                    'agent.wait',
-                    '--timeout',
-                    '8000',
-                    '--params',
-                    JSON.stringify({ runId: forwardInfo.runId, timeoutMs: 6000 }),
-                    '--json',
-                  ],
-                  { timeoutMs: 9000 }
-                )
-
-                const waitPayload = parseGatewayJson(waitResult.stdout)
-                const waitStatus = String(waitPayload?.status || '').toLowerCase()
-                const toolEvents = extractToolEvents(waitPayload)
-
-                if (toolEvents.length > 0) {
-                  for (const evt of toolEvents) {
-                    createChatReply(
-                      db,
-                      workspaceId,
-                      conversation_id,
-                      COORDINATOR_AGENT,
-                      from,
-                      evt.name,
-                      'tool_call',
-                      {
-                        event: 'tool_call',
-                        toolName: evt.name,
-                        input: evt.input || null,
-                        output: evt.output || null,
-                        status: evt.status || null,
-                        runId: forwardInfo.runId || null,
-                      }
-                    )
-                  }
-                }
-
-                if (waitStatus === 'error') {
-                  const reason =
-                    typeof waitPayload?.error === 'string'
-                      ? waitPayload.error
-                      : 'Unknown runtime error'
-                  createChatReply(
-                    db,
-                    workspaceId,
-                    conversation_id,
-                    COORDINATOR_AGENT,
-                    from,
-                    `I received your message, but execution failed: ${reason}`,
-                    'status',
-                    { status: 'error', runId: forwardInfo.runId }
-                  )
-                } else if (waitStatus === 'timeout') {
-                  createChatReply(
-                    db,
-                    workspaceId,
-                    conversation_id,
-                    COORDINATOR_AGENT,
-                    from,
-                    'I received your message and I am still processing it. I will post results as soon as execution completes.',
-                    'status',
-                    { status: 'processing', runId: forwardInfo.runId }
-                  )
-                } else {
-                  const replyText = extractReplyText(waitPayload)
-                  if (replyText) {
-                    createChatReply(
-                      db,
-                      workspaceId,
-                      conversation_id,
-                      COORDINATOR_AGENT,
-                      from,
-                      replyText,
-                      'text',
-                      { status: waitStatus || 'completed', runId: forwardInfo.runId }
-                    )
-                  } else {
-                    createChatReply(
-                      db,
-                      workspaceId,
-                      conversation_id,
-                      COORDINATOR_AGENT,
-                      from,
-                      'Execution accepted and completed. No textual response payload was returned by the runtime.',
-                      'status',
-                      { status: waitStatus || 'completed', runId: forwardInfo.runId }
-                    )
-                  }
-                }
-              } catch (waitErr) {
-                const maybeWaitStdout = String((waitErr as any)?.stdout || '')
-                const maybeWaitStderr = String((waitErr as any)?.stderr || '')
-                const waitPayload = parseGatewayJson(maybeWaitStdout)
-                const reason =
-                  typeof waitPayload?.error === 'string'
-                    ? waitPayload.error
-                    : (maybeWaitStderr || maybeWaitStdout || 'Unable to read completion status from coordinator runtime.').trim()
-
                 createChatReply(
                   db,
                   workspaceId,
                   conversation_id,
                   COORDINATOR_AGENT,
                   from,
-                  `I received your message, but I could not retrieve completion output yet: ${reason}`,
+                  'I received your message, but delivery to the live coordinator runtime failed. Please restart the coordinator/gateway session and retry.',
                   'status',
-                  { status: 'unknown', runId: forwardInfo.runId }
+                  { status: 'delivery_failed', reason: 'gateway_send_failed' }
                 )
+              } catch (e) {
+                logger.error({ err: e }, 'Failed to create gateway failure status reply')
               }
+            }
+          }
+        }
+
+        // Coordinator mode should always show visible coordinator feedback in thread.
+        if (
+          typeof conversation_id === 'string' &&
+          conversation_id.startsWith('coord:') &&
+          forwardInfo.delivered
+        ) {
+          try {
+            createChatReply(
+              db,
+              workspaceId,
+              conversation_id,
+              COORDINATOR_AGENT,
+              from,
+              'Received. I am coordinating downstream agents now.',
+              'status',
+              { status: 'accepted', runId: forwardInfo.runId || null }
+            )
+          } catch (e) {
+            logger.error({ err: e }, 'Failed to create accepted status reply')
+          }
+
+          // Best effort: wait briefly and surface completion/error feedback.
+          if (forwardInfo.runId) {
+            try {
+              const waitResult = await runOpenClaw(
+                [
+                  'gateway',
+                  'call',
+                  'agent.wait',
+                  '--timeout',
+                  '8000',
+                  '--params',
+                  JSON.stringify({ runId: forwardInfo.runId, timeoutMs: 6000 }),
+                  '--json',
+                ],
+                { timeoutMs: 9000 }
+              )
+
+              const waitPayload = parseGatewayJson(waitResult.stdout)
+              const waitStatus = String(waitPayload?.status || '').toLowerCase()
+              const toolEvents = extractToolEvents(waitPayload)
+
+              if (toolEvents.length > 0) {
+                for (const evt of toolEvents) {
+                  createChatReply(
+                    db,
+                    workspaceId,
+                    conversation_id,
+                    COORDINATOR_AGENT,
+                    from,
+                    evt.name,
+                    'tool_call',
+                    {
+                      event: 'tool_call',
+                      toolName: evt.name,
+                      input: evt.input || null,
+                      output: evt.output || null,
+                      status: evt.status || null,
+                      runId: forwardInfo.runId || null,
+                    }
+                  )
+                }
+              }
+
+              if (waitStatus === 'error') {
+                const reason =
+                  typeof waitPayload?.error === 'string'
+                    ? waitPayload.error
+                    : 'Unknown runtime error'
+                createChatReply(
+                  db,
+                  workspaceId,
+                  conversation_id,
+                  COORDINATOR_AGENT,
+                  from,
+                  `I received your message, but execution failed: ${reason}`,
+                  'status',
+                  { status: 'error', runId: forwardInfo.runId }
+                )
+              } else if (waitStatus === 'timeout') {
+                createChatReply(
+                  db,
+                  workspaceId,
+                  conversation_id,
+                  COORDINATOR_AGENT,
+                  from,
+                  'I received your message and I am still processing it. I will post results as soon as execution completes.',
+                  'status',
+                  { status: 'processing', runId: forwardInfo.runId }
+                )
+              } else {
+                const replyText = extractReplyText(waitPayload)
+                if (replyText) {
+                  createChatReply(
+                    db,
+                    workspaceId,
+                    conversation_id,
+                    COORDINATOR_AGENT,
+                    from,
+                    replyText,
+                    'text',
+                    { status: waitStatus || 'completed', runId: forwardInfo.runId }
+                  )
+                } else {
+                  createChatReply(
+                    db,
+                    workspaceId,
+                    conversation_id,
+                    COORDINATOR_AGENT,
+                    from,
+                    'Execution accepted and completed. No textual response payload was returned by the runtime.',
+                    'status',
+                    { status: waitStatus || 'completed', runId: forwardInfo.runId }
+                  )
+                }
+              }
+            } catch (waitErr) {
+              const maybeWaitStdout = String((waitErr as any)?.stdout || '')
+              const maybeWaitStderr = String((waitErr as any)?.stderr || '')
+              const waitPayload = parseGatewayJson(maybeWaitStdout)
+              const reason =
+                typeof waitPayload?.error === 'string'
+                  ? waitPayload.error
+                  : (maybeWaitStderr || maybeWaitStdout || 'Unable to read completion status from coordinator runtime.').trim()
+
+              createChatReply(
+                db,
+                workspaceId,
+                conversation_id,
+                COORDINATOR_AGENT,
+                from,
+                `I received your message, but I could not retrieve completion output yet: ${reason}`,
+                'status',
+                { status: 'unknown', runId: forwardInfo.runId }
+              )
             }
           }
         }
@@ -753,20 +961,28 @@ export async function POST(request: NextRequest) {
     }
 
     const created = db.prepare('SELECT * FROM messages WHERE id = ? AND workspace_id = ?').get(messageId, workspaceId) as Message
+    // DS-4 metadata parity: parsedMessage describes the message IDENTICALLY to the
+    // chat.message SSE frame (built in-tx from the same row). forwardInfo is delivery
+    // metadata, computed AFTER the tx commits (the gateway forward is intentionally
+    // outside the tx), so it can never be part of the message's own metadata without
+    // diverging from the realtime event for the same id. It travels on the top-level
+    // `forward` field below, which the frontend reads first. Keeping forwardInfo off
+    // message.metadata here makes the HTTP body and the SSE frame agree exactly.
     const parsedMessage = {
       ...created,
-      metadata: {
-        ...(safeParseMetadata(created.metadata) || {}),
-        forwardInfo: forwardInfo || undefined,
-      },
+      metadata: safeParseMetadata(created.metadata),
     }
 
-    // Broadcast to SSE clients
-    eventBus.broadcast('chat.message', parsedMessage)
-
+    // The originator event was already emitted above (after the tx committed) via
+    // eventBus.emit('server-event', outboxEvent). Do NOT broadcast again here — that
+    // would re-record a second realtime_events row.
     return NextResponse.json({ message: parsedMessage, forward: forwardInfo }, { status: 201 })
   } catch (error) {
     logger.error({ err: error }, 'POST /api/chat/messages error')
     return NextResponse.json({ error: 'Failed to send message' }, { status: 500 })
   }
 }
+
+// Correlate every chat-write log/audit line to the request via the x-request-id
+// header (set by middleware) — the pino logger auto-includes request_id inside.
+export const POST = withRequestContext(handleChatPost)

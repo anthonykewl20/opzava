@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 
 import { parseApproval, type Approval } from '@/opzava/core/approvals/contracts'
@@ -275,6 +276,15 @@ describe('createGuardedCampaignSendExecutor', () => {
     await expect(
       createGuardedCampaignSendExecutor(makeDeps()).execute(badJob, attempt, new AbortController().signal),
     ).rejects.toMatchObject({ name: 'RunnerExecutionError', errorClass: 'validation-error' })
+  })
+
+  it('documents the reservation slice as wired, not unwired (DS-3: no stale "not wired" comment)', () => {
+    const source = readFileSync(require('path').resolve(__dirname, 'guarded-campaign-send-executor.ts'), 'utf8')
+    // The reservation IS wired: the runtime factory supplies it (createExternalCallReservation)
+    // and deps.reservation is passed through at the guard call. The reserved-elsewhere branch is
+    // a real concurrent-contention outcome handled as a retryable provider error — the stale
+    // "not wired here yet" claim must not survive.
+    expect(source).not.toMatch(/not wired here yet/)
   })
 
   it('maps a preflight failure (unresolvable secret) to a retryable provider-error', async () => {

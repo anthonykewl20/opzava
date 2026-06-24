@@ -83,6 +83,11 @@
     .human-note a { color: var(--accent); text-decoration: none; }
     .human-note a:hover { text-decoration: underline; }
 
+    /* inline submit-validation error — label+glyph, surfaced only after a failed Send */
+    .form-error { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-4); font-size: var(--text-sm); color: var(--danger, var(--fg)); font-weight: var(--fw-medium); }
+    .form-error[hidden] { display: none; }
+    .to-field.is-invalid, .textarea.is-invalid { border-color: var(--danger, var(--accent)); }
+
     @media (max-width: 640px) {
       .topnav { display: none; }
       .hub-grid { grid-template-columns: 1fr; }
@@ -135,6 +140,7 @@
         <a class="wiz-x" href="essential-messages.html" aria-label="Close">✕</a>
       </div>
 
+      <form id="composeForm" novalidate>
       <div class="wiz-body">
 
         <!-- Destination toggle: Direct message vs project room -->
@@ -190,12 +196,17 @@
           This goes to people on your team. For AI help, use <a href="essential-ask-opzava.html"><span aria-hidden="true">✦</span> Ask your assistant</a> instead.
         </p>
 
+        <!-- Inline validation error (hidden until a failed Send) -->
+        <p class="form-error" id="composeError" role="alert" aria-live="assertive" hidden></p>
+
       </div>
 
       <div class="wiz-foot">
         <a class="btn btn-ghost" href="essential-messages.html">Cancel</a>
-        <a class="btn btn-primary" href="essential-messages.html">Send →</a>
+        <button class="btn btn-primary" type="submit" id="sendBtn">Send →</button>
       </div>
+
+      </form>
 
     </div>
   </div>
@@ -361,6 +372,74 @@
       // Outside click closes the menu cleanly.
       document.addEventListener('click', function (e) {
         if (!pop.hidden && !e.target.closest('.to-wrap')) close();
+      });
+    })();
+
+    // Validated Send — real form submit, not navigation. Requires a destination
+    // (≥1 recipient on Direct message, a room on Post-in-a-project-room) and a
+    // non-empty message. On failure: keep the dialog open, show an inline error,
+    // and move focus to the first offending field. On success: optimistic
+    // pending→sent, then leave for the Messages hub.
+    (function () {
+      var form    = document.getElementById('composeForm');
+      var toggle  = document.querySelector('.dest-toggle');
+      var boxEl   = document.getElementById('toFieldBox');
+      var toInput = document.getElementById('toInput');
+      var room    = document.getElementById('roomSelect');
+      var body    = document.getElementById('msgBody');
+      var errEl   = document.getElementById('composeError');
+      var sendBtn = document.getElementById('sendBtn');
+
+      function isRoomDest() {
+        var sel = toggle.querySelector('.dest-tab[aria-selected="true"]');
+        return sel && sel.getAttribute('data-dest') === 'room';
+      }
+      function recipientCount() {
+        return boxEl.querySelectorAll('.to-chip').length;
+      }
+      function clearErrors() {
+        errEl.hidden = true;
+        boxEl.classList.remove('is-invalid');
+        body.classList.remove('is-invalid');
+        boxEl.removeAttribute('aria-invalid');
+        body.removeAttribute('aria-invalid');
+      }
+      function fail(message, field, invalidEl) {
+        errEl.textContent = '⚠ ' + message;
+        errEl.hidden = false;
+        if (invalidEl) { invalidEl.classList.add('is-invalid'); invalidEl.setAttribute('aria-invalid', 'true'); }
+        if (field) field.focus();
+      }
+
+      // Re-validate as the user fixes things (clear the error once the input is valid).
+      boxEl.addEventListener('click', clearErrors);
+      toInput.addEventListener('input', function () {
+        if (!errEl.hidden && recipientCount()) clearErrors();
+      });
+      body.addEventListener('input', function () {
+        if (!errEl.hidden && body.value.trim()) clearErrors();
+      });
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        clearErrors();
+
+        if (!isRoomDest() && recipientCount() === 0) {
+          return fail('Add at least one person to send to.', toInput, boxEl);
+        }
+        if (!body.value.trim()) {
+          return fail('Write a message before sending.', body, body);
+        }
+
+        // Optimistic pending → sent, then leave for the conversation.
+        sendBtn.disabled = true;
+        sendBtn.setAttribute('aria-busy', 'true');
+        sendBtn.textContent = 'Sending…';
+        setTimeout(function () {
+          sendBtn.removeAttribute('aria-busy');
+          sendBtn.textContent = 'Sent ✓';
+          setTimeout(function () { window.location = 'essential-messages.html'; }, 300);
+        }, 450);
       });
     })();
   </script>

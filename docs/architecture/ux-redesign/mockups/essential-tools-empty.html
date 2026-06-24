@@ -30,6 +30,8 @@
     .empty-hero .empty-title { margin-top: var(--space-4); font-size: var(--text-xl); font-weight: var(--fw-semibold); color: var(--fg); }
     .empty-hero .empty-desc { margin: var(--space-2) auto 0; font-size: var(--text-md); color: var(--fg-muted); max-width: 52ch; line-height: var(--lh-relaxed); }
     .empty-hero .empty-cta { margin-top: var(--space-6); }
+    .empty-hero .empty-effort { margin: var(--space-3) auto 0; font-size: var(--text-sm); color: var(--fg-muted); }
+    .empty-hero .empty-effort .pip { color: var(--accent); margin-right: var(--space-1); }
 
     /* Ghost preview — what it will look like, dimmed */
     .ghost-cap { text-align: center; font-size: var(--text-xs); color: var(--fg-subtle); margin: var(--space-8) 0 var(--space-3); }
@@ -60,7 +62,7 @@
       <a href="essential-find.html">Find…</a>
     </nav>
     <span class="u-grow"></span>
-    <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
     <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
     <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
   </header>
@@ -84,6 +86,7 @@
         <p class="empty-desc">Link Claude Code, Codex, OpenCode, or another tool so Opzava can run tasks and keep an eye on them for you.</p>
         <div class="empty-cta">
           <a class="btn btn-primary" href="essential-connect-wizard.html" style="height:44px;padding:0 var(--space-6);font-size:var(--text-md)"><span aria-hidden="true">＋</span> Connect a tool →</a>
+          <p class="empty-effort"><span class="pip" aria-hidden="true">✦</span> Takes about a minute — pick a tool and copy one command.</p>
         </div>
       </div>
 

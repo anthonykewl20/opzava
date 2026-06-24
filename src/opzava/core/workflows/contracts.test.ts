@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  transitionStepRunStatus,
-  transitionWorkflowRunStatus,
-  parseWorkflowDefinition,
-  parseWorkflowRun,
-  parseStepRun,
-} from './contracts'
+import { parseWorkflowDefinition } from './contracts'
+import * as contracts from './contracts'
 
 describe('Opzava workflow contracts', () => {
   it('accepts a versioned workflow definition with explicit step graph edges', () => {
@@ -112,45 +107,25 @@ describe('Opzava workflow contracts', () => {
     ).toThrow(/cycle/i)
   })
 
-  it('allows only explicit workflow run state transitions', () => {
-    const run = parseWorkflowRun({
-      schemaVersion: 1,
-      runId: 'run_001',
-      workflowId: 'content-draft-workflow',
-      workflowVersion: 1,
-      status: 'queued',
-      actorId: 'admin:1',
-      currentStepId: null,
-      startedAt: null,
-      finishedAt: null,
-    })
+  it('does not export the dead run/step-run machinery', () => {
+    // Guardrail: parseWorkflowRun/parseStepRun/transitionWorkflowRunStatus/
+    // transitionStepRunStatus and their schemas were dead surface with zero
+    // production consumers and have been removed. Only parseWorkflowDefinition
+    // (plus the version constant and definition schema) remains.
+    const exports = Object.keys(contracts).sort()
 
-    const running = transitionWorkflowRunStatus(run, 'running')
-    const blocked = transitionWorkflowRunStatus(running, 'blocked')
-
-    expect(running.status).toBe('running')
-    expect(blocked.status).toBe('blocked')
-    expect(() => transitionWorkflowRunStatus(blocked, 'succeeded')).toThrow(/invalid workflow transition/i)
-  })
-
-  it('allows only explicit step run state transitions', () => {
-    const step = parseStepRun({
-      schemaVersion: 1,
-      stepRunId: 'step_run_001',
-      runId: 'run_001',
-      stepId: 'idea-intake',
-      status: 'pending',
-      inputArtifactIds: [],
-      outputArtifactIds: [],
-      attemptCount: 0,
-      failureReason: null,
-    })
-
-    const running = transitionStepRunStatus(step, 'running')
-    const succeeded = transitionStepRunStatus(running, 'succeeded')
-
-    expect(running.status).toBe('running')
-    expect(succeeded.status).toBe('succeeded')
-    expect(() => transitionStepRunStatus(succeeded, 'running')).toThrow(/invalid step transition/i)
+    expect(exports).toEqual(
+      ['WORKFLOW_CONTRACT_SCHEMA_VERSION', 'parseWorkflowDefinition', 'workflowDefinitionSchema'].sort(),
+    )
+    for (const removed of [
+      'parseWorkflowRun',
+      'parseStepRun',
+      'transitionWorkflowRunStatus',
+      'transitionStepRunStatus',
+      'workflowRunSchema',
+      'stepRunSchema',
+    ]) {
+      expect(contracts).not.toHaveProperty(removed)
+    }
   })
 })

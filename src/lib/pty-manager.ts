@@ -7,6 +7,7 @@
 
 import { type IPty } from 'node-pty'
 import { execFileSync } from 'child_process'
+import path from 'node:path'
 import { logger } from './logger'
 
 const log = logger.child({ module: 'pty-manager' })
@@ -201,6 +202,70 @@ class PtySession {
 const ptyPool = new Map<string, PtySession>()
 let nextId = 1
 
+// Live-session provider seam. In the standalone deployment the real PTYs are
+// owned by the .cjs WebSocket runtime (scripts/pty-websocket-standalone.cjs)
+// in the same process as the Next server — not this TS pool. So GET
+// /api/pty/attach must read from whichever runtime actually owns them. On the
+// first read, listPtySessions() lazily attaches the in-process .cjs provider
+// (when present); in dev/legacy where the .cjs isn't loaded, the local pool
+// remains the source of truth, preserving prior behavior.
+export interface PtyLiveSession {
+  sessionId: string
+  kind: string
+  mode: 'readonly' | 'interactive'
+  createdAt: number
+}
+let liveSessionProvider: (() => PtyLiveSession[]) | null = null
+// One-shot attach guard: the provider is resolved at most once per process.
+let liveProviderResolved = false
+
+/** Register the runtime that owns live PTYs (explicit seam; idempotent). */
+export function registerPtySessionProvider(provider: () => PtyLiveSession[]): void {
+  liveSessionProvider = provider
+  liveProviderResolved = true
+}
+
+/** Clear the provider (test/dynamic-reconfig seam; idempotent). */
+export function resetPtySessionProvider(): void {
+  liveSessionProvider = null
+  liveProviderResolved = false
+}
+
+/**
+ * Attach the in-process .cjs standalone provider, if that module is already
+ * loaded in this process. The standalone bootstrapper (scripts/mc-server.cjs)
+ * requires scripts/pty-websocket-standalone.cjs before the Next server starts,
+ * so in standalone the module is in the require cache and shares the one
+ * `activePtys` map that /ws/pty populates. Reusing the cached instance (rather
+ * than require()-ing a fresh copy) is what makes the live set visible here.
+ *
+ * Gating on require-cache presence is deterministic and side-effect-free: in
+ * dev the .cjs is not loaded this way, so the local pool stays the source of
+ * truth, preserving prior behavior. Tests use the explicit registration seam
+ * (registerPtySessionProvider), so auto-attach is skipped under the test runner.
+ * Idempotent — resolved at most once.
+ */
+function attachStandaloneProviderIfPresent(): void {
+  if (liveProviderResolved) return
+  liveProviderResolved = true
+  if (process.env.VITEST) return
+  try {
+    const moduleCache = require.cache as NodeJS.Dict<{ exports: unknown }>
+    const cachedKey = Object.keys(moduleCache).find((k) =>
+      k.endsWith(path.join('scripts', 'pty-websocket-standalone.cjs'))
+    )
+    if (!cachedKey) return
+    const standalone = moduleCache[cachedKey]!.exports as {
+      listActivePtySessions?: () => PtyLiveSession[]
+    }
+    if (typeof standalone.listActivePtySessions === 'function') {
+      liveSessionProvider = standalone.listActivePtySessions
+    }
+  } catch {
+    // Standalone module not present in this process — local pool stays source.
+  }
+}
+
 /** Check if tmux is available on the system */
 export function isTmuxAvailable(): boolean {
   try {
@@ -270,9 +335,49 @@ export function getPtySession(id: string): PtySession | undefined {
   return ptyPool.get(id)
 }
 
-/** Get all active PTY sessions */
+/** Get all active PTY sessions — live runtime first, local pool merged in. */
 export function listPtySessions(): PtySessionInfo[] {
-  return Array.from(ptyPool.values()).map((s) => s.info)
+  const live = readLiveSessions()
+  const liveIds = new Set<string>()
+
+  const merged: PtySessionInfo[] = live.map((s) => {
+    // The standalone runtime owns the process; it does not track per-viewer
+    // counts or a pool id, so synthesize a stable id and default clientCount.
+    const id = `live:${s.sessionId}:${s.kind}`
+    liveIds.add(s.sessionId)
+    return {
+      id,
+      sessionId: s.sessionId,
+      kind: s.kind,
+      mode: s.mode,
+      createdAt: s.createdAt,
+      clientCount: 0,
+    }
+  })
+
+  for (const session of ptyPool.values()) {
+    // Avoid double-counting a session both runtimes happen to hold.
+    if (liveIds.has(session.sessionId)) continue
+    merged.push(session.info)
+  }
+
+  return merged
+}
+
+/**
+ * Read live sessions from the registered provider, fault-tolerant: a provider
+ * failure must never make GET /api/pty/attach 500 — fall back to the pool only.
+ */
+function readLiveSessions(): PtyLiveSession[] {
+  attachStandaloneProviderIfPresent()
+  if (!liveSessionProvider) return []
+  try {
+    const sessions = liveSessionProvider()
+    return Array.isArray(sessions) ? sessions.map((s) => ({ ...s })) : []
+  } catch (error) {
+    log.warn({ error: error instanceof Error ? error.message : String(error) }, 'live PTY provider failed; falling back to local pool')
+    return []
+  }
 }
 
 /** Dispose a specific PTY session */

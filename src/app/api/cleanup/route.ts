@@ -4,6 +4,7 @@ import { getDatabase, logAuditEvent } from '@/lib/db'
 import { config } from '@/lib/config'
 import { heavyLimiter } from '@/lib/rate-limit'
 import { countStaleGatewaySessions, pruneGatewaySessionsOlderThan } from '@/lib/sessions'
+import { writeFileAtomic } from '@/lib/atomic-write'
 
 interface CleanupResult {
   table: string
@@ -132,7 +133,7 @@ export async function POST(request: NextRequest) {
   const ret = config.retention
   if (ret.tokenUsage > 0) {
     try {
-      const { readFile, writeFile } = require('fs/promises')
+      const { readFile } = require('fs/promises')
       const raw = await readFile(config.tokensPath, 'utf-8')
       const data = JSON.parse(raw)
       const cutoffMs = Date.now() - ret.tokenUsage * 86400000
@@ -140,7 +141,7 @@ export async function POST(request: NextRequest) {
       const removed = data.length - kept.length
 
       if (!dryRun && removed > 0) {
-        await writeFile(config.tokensPath, JSON.stringify(kept, null, 2))
+        await writeFileAtomic(config.tokensPath, JSON.stringify(kept, null, 2))
       }
 
       results.push({

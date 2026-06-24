@@ -1710,38 +1710,36 @@ export async function autoRouteInboxTasks(deps: TaskDispatchDeps): Promise<{ ok:
       'SELECT COUNT(*) as c FROM tasks WHERE assigned_to = ? AND status = \'in_progress\' AND workspace_id = ?'
     ).get(best.name, task.workspace_id) as { c: number }).c
 
-    if (inProgressCount >= 3) {
-      // Try next best agent
-      const alt = scored.find(s => {
-        const c = (db.prepare(
-          'SELECT COUNT(*) as c FROM tasks WHERE assigned_to = ? AND status = \'in_progress\' AND workspace_id = ?'
-        ).get(s.agent.name, task.workspace_id) as { c: number }).c
-        return c < 3
-      })
-      if (!alt) continue // all agents at capacity
-      db.prepare('UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ?')
-        .run('assigned', alt.agent.name, now, task.id)
+    // Resolve the candidate agent (and its score) for this task. When the
+    // best-scoring agent is at capacity, fall back to the next under-capacity
+    // agent; if every candidate is saturated, skip the task.
+    const candidate = inProgressCount >= 3
+      ? scored.find(s => {
+          const c = (db.prepare(
+            'SELECT COUNT(*) as c FROM tasks WHERE assigned_to = ? AND status = \'in_progress\' AND workspace_id = ?'
+          ).get(s.agent.name, task.workspace_id) as { c: number }).c
+          return c < 3
+        })
+      : { agent: best, score: scored[0].score }
+    if (!candidate) continue // all agents at capacity
 
-      deps.logActivity('task_auto_routed', 'task', task.id, 'scheduler',
-        `Auto-assigned "${task.title}" to ${alt.agent.name} (${alt.agent.role}, score: ${alt.score})`,
-        { agent: alt.agent.name, role: alt.agent.role, score: alt.score },
-        task.workspace_id)
+    // Atomically claim the task: only flip inbox -> assigned if the row is
+    // STILL 'inbox'. If two autoRouteInboxTasks ticks race on the same inbox
+    // task, exactly one UPDATE reports changes=1 and the loser skips silently
+    // — no event, no activity, no outbound sync. Mirrors dispatchAssignedTasks
+    // (WHERE id = ? AND status = 'assigned', line ~1288).
+    const claim = db.prepare(
+      'UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ? AND status = ?'
+    ).run('assigned', candidate.agent.name, now, task.id, 'inbox')
 
-      deps.broadcast('task.status_changed', { id: task.id, status: 'assigned', previous_status: 'inbox', assigned_to: alt.agent.name })
-      syncAndEscalateIfFailed(deps, task as any, 'assigned')
-      routed++
-      continue
-    }
-
-    db.prepare('UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ?')
-      .run('assigned', best.name, now, task.id)
+    if (claim.changes === 0) continue // lost the claim race; skip with no side effects
 
     deps.logActivity('task_auto_routed', 'task', task.id, 'scheduler',
-      `Auto-assigned "${task.title}" to ${best.name} (${best.role}, score: ${scored[0].score})`,
-      { agent: best.name, role: best.role, score: scored[0].score },
+      `Auto-assigned "${task.title}" to ${candidate.agent.name} (${candidate.agent.role}, score: ${candidate.score})`,
+      { agent: candidate.agent.name, role: candidate.agent.role, score: candidate.score },
       task.workspace_id)
 
-    deps.broadcast('task.status_changed', { id: task.id, status: 'assigned', previous_status: 'inbox', assigned_to: best.name })
+    deps.broadcast('task.status_changed', { id: task.id, status: 'assigned', previous_status: 'inbox', assigned_to: candidate.agent.name })
     syncAndEscalateIfFailed(deps, task as any, 'assigned')
     routed++
   }

@@ -93,7 +93,6 @@ function parseStoredEvent(row: {
 
 export function recordServerEvent(input: Omit<ServerEvent, 'id' | 'workspace_id'>): StoredServerEvent {
   const db = getDatabase()
-  pruneRealtimeEvents()
   const workspaceId = workspaceIdFromData(input.type, input.data)
   const result = db.prepare(`
     INSERT INTO realtime_events (type, data, timestamp, workspace_id)
@@ -126,6 +125,40 @@ export function pruneRealtimeEvents(now: number = Date.now()): void {
   `).get(SSE_RETENTION_MAX_ROWS - 1) as { id?: number } | undefined
   if (typeof threshold?.id === 'number') {
     db.prepare('DELETE FROM realtime_events WHERE id < ?').run(threshold.id)
+  }
+}
+
+let prunerHandle: ReturnType<typeof setInterval> | null = null
+
+/**
+ * Prune the realtime_events retention window on a periodic timer, OFF the broadcast
+ * hot path. recordServerEvent no longer prunes inline (P3-4), so publishing never pays
+ * the DELETE + COUNT while a caller holds a write lock. Idempotent: one timer/process.
+ */
+export function startRealtimePruner(): void {
+  if (prunerHandle) return
+  const tick = () => {
+    try {
+      pruneRealtimeEvents()
+    } catch {
+      // best-effort; a failed prune must not down the process
+    }
+  }
+  tick()
+  prunerHandle = setInterval(tick, SSE_PRUNE_INTERVAL_MS)
+  // unref() so the pruner never keeps the event loop alive on its own (PROC-2).
+  prunerHandle.unref?.()
+}
+
+/**
+ * Stop the realtime retention pruner and clear its handle (PROC-2). Idempotent:
+ * a no-op when the pruner was never started or already stopped, so it is safe to
+ * call from a coordinated process-shutdown path alongside stopScheduler().
+ */
+export function stopRealtimePruner(): void {
+  if (prunerHandle) {
+    clearInterval(prunerHandle)
+    prunerHandle = null
   }
 }
 

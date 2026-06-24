@@ -4,6 +4,7 @@ import { requireRole } from '@/lib/auth';
 import { mutationLimiter } from '@/lib/rate-limit';
 import { validateBody, notificationActionSchema } from '@/lib/validation';
 import { logger } from '@/lib/logger';
+import { eventBus } from '@/lib/event-bus';
 
 /**
  * GET /api/notifications - Get notifications for a specific recipient
@@ -154,6 +155,11 @@ export async function PUT(request: NextRequest) {
     const now = Math.floor(Date.now() / 1000);
     
     if (markAllRead && recipient) {
+      const unreadRows = db.prepare(`
+        SELECT id FROM notifications
+        WHERE recipient = ? AND read_at IS NULL AND workspace_id = ?
+      `).all(recipient, workspaceId) as Array<{ id: number }>
+
       // Mark all notifications as read for this recipient
       const stmt = db.prepare(`
         UPDATE notifications 
@@ -162,12 +168,29 @@ export async function PUT(request: NextRequest) {
       `);
       
       const result = stmt.run(now, recipient, workspaceId);
+      for (const row of unreadRows) {
+        eventBus.broadcast('notification.read', { id: row.id, read_at: now, workspace_id: workspaceId })
+      }
       
       return NextResponse.json({ 
         success: true, 
         markedAsRead: result.changes 
       });
     } else if (ids && Array.isArray(ids)) {
+      if (ids.length === 0) {
+        return NextResponse.json({
+          success: true,
+          markedAsRead: 0,
+        });
+      }
+
+      const unreadRows = ids.length > 0
+        ? db.prepare(`
+            SELECT id FROM notifications
+            WHERE id IN (${ids.map(() => '?').join(',')}) AND read_at IS NULL AND workspace_id = ?
+          `).all(...ids, workspaceId) as Array<{ id: number }>
+        : []
+
       // Mark specific notifications as read
       const placeholders = ids.map(() => '?').join(',');
       const stmt = db.prepare(`
@@ -177,6 +200,9 @@ export async function PUT(request: NextRequest) {
       `);
       
       const result = stmt.run(now, ...ids, workspaceId);
+      for (const row of unreadRows) {
+        eventBus.broadcast('notification.read', { id: row.id, read_at: now, workspace_id: workspaceId })
+      }
       
       return NextResponse.json({ 
         success: true, 

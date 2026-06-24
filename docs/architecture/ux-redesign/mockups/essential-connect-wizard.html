@@ -30,6 +30,10 @@
     .wiz-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); flex: 1 1 auto;  margin: 0;}
     .wiz-x { width: 30px; height: 30px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font-size: 17px; cursor: pointer; flex: none; }
     .wiz-steps { padding: 0 var(--space-6) var(--space-4); }
+    /* Goal-Gradient (item #24): step 1 is never 0% — the rail shows an early
+       partial fill + a "4 quick steps" count so the flow reads as begun. */
+    .wiz-stepcount { display: block; margin-top: var(--space-2); font-size: var(--text-xs); color: var(--fg-subtle); }
+    .sb-step-bar[data-fill="early"] { background: linear-gradient(to right, var(--accent) 28%, var(--border) 28%); }
     .wiz-body { padding: var(--space-2) var(--space-6) var(--space-5); }
     .wiz-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); }
     .wiz-foot .u-grow { flex: 1 1 auto; }
@@ -65,6 +69,13 @@
     /* Step 4 — verify */
     .verify { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
     .verify-sub { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: 2px; }
+    /* item #23: the two possible outcomes are PREVIEWS of what happens next, not
+       live results — demoted behind a labelled caption so they never read as a
+       second contradictory state stacked under the live waiting state. */
+    .verify-alts { margin-top: var(--space-4); border-top: 1px dashed var(--border); padding-top: var(--space-4); }
+    .verify-alt + .verify-alt { margin-top: var(--space-3); }
+    .verify-alt-cap { display: block; font-size: var(--text-xs); color: var(--fg-subtle); font-weight: var(--fw-semibold); margin-bottom: var(--space-2); }
+    .verify-alt .sb-alert { opacity: .82; }
 
     @media (max-width: 640px) { .topnav { display: none; } .tw-grid { grid-template-columns: 1fr; } }
   </style>
@@ -86,7 +97,7 @@
       <a href="essential-find.html">Find…</a>
     </nav>
     <span class="u-grow"></span>
-    <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
     <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
     <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
   </header>
@@ -113,15 +124,16 @@
         <button class="wiz-x" type="button" aria-label="Close">✕</button>
       </div>
       <div class="wiz-steps">
-        <div class="sb-steps" aria-label="Step 1 of 4">
+        <div class="sb-steps" aria-label="Step 1 of 4 — in progress">
           <span class="sb-step" data-state="current"><span class="sb-step-dot">1</span> Pick a tool</span>
-          <span class="sb-step-bar"></span>
+          <span class="sb-step-bar" data-fill="early"></span>
           <span class="sb-step"><span class="sb-step-dot">2</span></span>
           <span class="sb-step-bar"></span>
           <span class="sb-step"><span class="sb-step-dot">3</span></span>
           <span class="sb-step-bar"></span>
           <span class="sb-step"><span class="sb-step-dot">4</span></span>
         </div>
+        <span class="wiz-stepcount">4 quick steps — you're on step 1.</span>
       </div>
       <div class="wiz-body">
         <div class="tw-group">On your computer</div>
@@ -268,25 +280,36 @@
         </div>
       </div>
       <div class="wiz-body">
-        <!-- waiting state -->
-        <div class="verify">
+        <!-- LIVE state — the only current state by default (item #23). -->
+        <div class="verify" role="status" aria-live="polite">
           <span class="sb-spinner" aria-hidden="true"></span>
-          <div><div style="font-size:var(--text-sm);font-weight:var(--fw-medium);color:var(--fg)"><span aria-hidden="true">◌</span> Waiting for handshake…</div><div class="verify-sub">This updates the moment Claude Code checks in — you can leave this open.</div></div>
+          <div><div style="font-size:var(--text-sm);font-weight:var(--fw-medium);color:var(--fg)"><span aria-hidden="true">◌</span> Waiting for Claude Code to check in…</div><div class="verify-sub">This updates by itself the moment it connects — you can leave this open.</div></div>
         </div>
 
-        <!-- the moment it checks in → -->
-        <p style="font-size:var(--text-xs);color:var(--fg-subtle);margin:var(--space-4) 0 var(--space-2)">The moment it connects, you'll see:</p>
-        <div class="sb-alert sb-alert--success">
-          <div class="sb-alert-title"><span aria-hidden="true">✓</span> Connected</div>
-          <div class="sb-alert-desc">Claude Code is linked and showing in your tools.</div>
+        <!-- PREVIEWS of the two possible outcomes — captioned as alternates, not
+             live results, so they never read as contradictory stacked states. -->
+        <div class="verify-alts" aria-label="What happens next">
+          <div class="verify-alt">
+            <span class="verify-alt-cap">When it checks in →</span>
+            <div class="sb-alert sb-alert--success" aria-hidden="true">
+              <div class="sb-alert-title"><span aria-hidden="true">✓</span> Connected</div>
+              <div class="sb-alert-desc">Claude Code is linked and showing in your tools.</div>
+            </div>
+          </div>
+          <div class="verify-alt">
+            <span class="verify-alt-cap">If you used MCP →</span>
+            <p style="font-size:var(--text-sm);color:var(--fg-muted);margin:0;line-height:var(--lh-normal)">An MCP link can't be checked here automatically. In your tool, ask Claude Code to list its connections and confirm Opzava is there, then <a href="essential-tools.html" class="u-accent">tell us it's confirmed</a>.</p>
+          </div>
         </div>
 
-        <p style="font-size:var(--text-xs);color:var(--fg-subtle);margin-top:var(--space-4)">Added via MCP and nothing yet? MCP can't be auto-checked — run <code style="font-family:var(--font-mono)">claude mcp list</code> to confirm Opzava is there, then <a href="essential-tools.html" class="u-accent">I've confirmed it</a>.</p>
-        <p class="wiz-disc" style="margin-top:var(--space-2)">▸ Taking a while? Two quick things to check</p>
+        <p class="wiz-disc" style="margin-top:var(--space-4)">▸ Taking a while? Two quick things to check</p>
       </div>
       <div class="wiz-foot">
         <button class="btn btn-ghost" type="button">← Back</button>
-        <a class="btn btn-primary" href="essential-tools.html">Done</a>
+        <div class="u-row" style="gap:var(--space-2)">
+          <a class="btn" href="essential-tools.html">Didn't connect? Get help</a>
+          <a class="btn btn-primary" href="essential-tools.html">Done</a>
+        </div>
       </div>
     </div>
 

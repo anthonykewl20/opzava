@@ -144,9 +144,11 @@ export function createGuardedCampaignSendExecutor(deps: GuardedCampaignSendExecu
         return
       }
 
-      // The reservation slice is not wired here yet; the runner's atomic job lease keeps a single
-      // worker per job, so 'reserved-elsewhere' is unreachable. Treat it conservatively as a
-      // retryable provider error rather than a silent success.
+      // The reservation slice IS wired: the runtime factory (createExternalCallReservation)
+      // supplies `deps.reservation`, which is passed into the guard's reserve-before-execute
+      // boundary above. 'reserved-elsewhere' is therefore a real concurrent-contention outcome —
+      // another caller already holds the atomic reservation for this idempotency key — handled
+      // conservatively as a retryable provider error rather than a silent success.
       if (result.outcome === 'reserved-elsewhere') {
         throw new RunnerExecutionError('provider-error', `campaign-send job ${job.jobId} reserved elsewhere`)
       }

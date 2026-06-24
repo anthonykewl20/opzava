@@ -492,8 +492,11 @@ export function initScheduler() {
     })
   }
 
-  // Start the tick loop
+  // Start the tick loop. unref() so this timer never keeps the event loop alive
+  // on its own (PROC-2) — the server's own listeners hold the process; the
+  // scheduler must not be the lone reason Node refuses to exit.
   tickInterval = setInterval(tick, TICK_MS)
+  tickInterval.unref?.()
   logger.info('Scheduler initialized - backup at ~3AM, cleanup at ~4AM, heartbeat every 5m, webhook/claude/skill/local-agent/gateway-agent sync every 60s')
 }
 

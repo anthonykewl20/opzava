@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { createHmac } from 'crypto'
-import { verifyWebhookSignature, nextRetryDelay } from '../webhooks'
+import {
+  verifyWebhookSignature,
+  nextRetryDelay,
+  isBlockedWebhookUrl,
+  deliverWebhookPublic,
+} from '../webhooks'
 
 describe('verifyWebhookSignature', () => {
   const secret = 'test-secret-key-1234'
@@ -78,5 +83,153 @@ describe('circuit breaker logic', () => {
     expect(isCircuitOpen(4)).toBe(false)
     expect(isCircuitOpen(5)).toBe(true)
     expect(isCircuitOpen(10)).toBe(true)
+  })
+})
+
+describe('isBlockedWebhookUrl (SSRF classification)', () => {
+  // Loopback
+  it.each([
+    'http://127.0.0.1/x',
+    'http://127.1.2.3/x',
+    'http://localhost/x',
+    'http://[::1]/x',
+    'http://0.0.0.0/x',
+  ])('blocks loopback %s', (url) => {
+    expect(isBlockedWebhookUrl(url)).toBe(true)
+  })
+
+  // Link-local + cloud metadata
+  it.each([
+    'http://169.254.169.254/latest/meta-data',
+    'http://169.254.170.2/x',
+    'http://metadata.google.internal/x',
+  ])('blocks link-local / metadata %s', (url) => {
+    expect(isBlockedWebhookUrl(url)).toBe(true)
+  })
+
+  // RFC1918 / private
+  it.each([
+    'http://10.0.0.1/x',
+    'http://172.16.0.1/x',
+    'http://172.31.255.255/x',
+    'http://192.168.1.1/x',
+  ])('blocks private RFC1918 %s', (url) => {
+    expect(isBlockedWebhookUrl(url)).toBe(true)
+  })
+
+  // Encoded IP forms must not bypass the check
+  it.each([
+    'http://2130706433/x', // decimal 127.0.0.1
+    'http://0x7f000001/x', // hex 127.0.0.1
+    'http://0177.0.0.1/x', // octal 127.0.0.1
+  ])('blocks encoded-IP loopback %s', (url) => {
+    expect(isBlockedWebhookUrl(url)).toBe(true)
+  })
+
+  it.each(['https://example.com/hook', 'https://1.1.1.1/hook'])(
+    'allows public %s',
+    (url) => {
+      expect(isBlockedWebhookUrl(url)).toBe(false)
+    },
+  )
+
+  it('rejects non-http(s) schemes as blocked', () => {
+    expect(isBlockedWebhookUrl('file:///etc/passwd')).toBe(true)
+    expect(isBlockedWebhookUrl('gopher://x')).toBe(true)
+  })
+
+  it('allows a blocked host when present in the allowlist env', () => {
+    const prev = process.env.MC_WEBHOOK_ALLOW_PRIVATE
+    process.env.MC_WEBHOOK_ALLOW_PRIVATE = '10.0.0.1'
+    try {
+      expect(isBlockedWebhookUrl('http://10.0.0.1/x')).toBe(false)
+      // Other private addresses still blocked
+      expect(isBlockedWebhookUrl('http://192.168.1.1/x')).toBe(true)
+    } finally {
+      if (prev === undefined) delete process.env.MC_WEBHOOK_ALLOW_PRIVATE
+      else process.env.MC_WEBHOOK_ALLOW_PRIVATE = prev
+    }
+  })
+})
+
+describe('deliverWebhookPublic SSRF protection', () => {
+  const fetchMock = vi.fn()
+  const warnSpy = vi.fn()
+  let dbPrepare: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValue(new Response('ok', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    dbPrepare = vi.fn(() => ({
+      run: vi.fn().mockReturnValue({ lastInsertRowid: 1, changes: 1 }),
+      get: vi.fn().mockReturnValue({ consecutive_failures: 0 }),
+      all: vi.fn().mockReturnValue([]),
+    })) as ReturnType<typeof vi.fn>
+
+    vi.doMock('@/lib/db', () => ({
+      getDatabase: () => ({ prepare: dbPrepare }),
+    }))
+    vi.doMock('@/lib/logger', () => ({
+      logger: { error: vi.fn(), warn: warnSpy, info: vi.fn() },
+    }))
+    vi.doMock('@/lib/event-bus', () => ({ eventBus: { on: vi.fn() }, type: '' }))
+  })
+
+  // Re-import after the mocks above are registered so the module picks up the
+  // stubbed logger/db rather than the real ones captured by the top-level import.
+  async function loadDeliver() {
+    const mod = await import('../webhooks')
+    return mod.deliverWebhookPublic
+  }
+
+  afterEach(() => {
+    vi.doUnmock('@/lib/db')
+    vi.doUnmock('@/lib/logger')
+    vi.doUnmock('@/lib/event-bus')
+    vi.unstubAllGlobals()
+  })
+
+  it('blocks a loopback URL at fetch time and does not call fetch', async () => {
+    const deliver = await loadDeliver()
+    const webhook = {
+      id: 1,
+      name: 'h',
+      url: 'http://127.0.0.1:9999/secret',
+      secret: null,
+      events: '["*"]',
+      enabled: 1,
+      workspace_id: 1,
+    }
+
+    const result = await deliver(webhook as any, 'test.ping', {})
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.success).toBe(false)
+    expect(result.status_code).toBeNull()
+    expect(result.error).toMatch(/internal|private|blocked|SSRF/i)
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it('blocks a cloud-metadata URL at fetch time and does not call fetch', async () => {
+    const deliver = await loadDeliver()
+    const webhook = {
+      id: 2,
+      name: 'h',
+      url: 'http://169.254.169.254/latest/meta-data/',
+      secret: null,
+      events: '["*"]',
+      enabled: 1,
+      workspace_id: 1,
+    }
+
+    const result = await deliver(webhook as any, 'test.ping', {})
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/internal|private|blocked|SSRF/i)
   })
 })

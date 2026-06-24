@@ -55,16 +55,22 @@ export function createExponentialRetryPolicy(options: ExponentialRetryPolicyOpti
 function calculateCappedDelayMs(options: ExponentialRetryPolicyOptions, attemptNumber: number): number {
   const retrySteps = attemptNumber - 1
 
+  let base: number
   if (retrySteps === 0 || options.initialDelayMs >= options.maxDelayMs) {
-    return Math.min(options.initialDelayMs, options.maxDelayMs)
+    base = Math.min(options.initialDelayMs, options.maxDelayMs)
+  } else {
+    const stepsToCap = Math.ceil(Math.log(options.maxDelayMs / options.initialDelayMs) / Math.log(options.multiplier))
+    base = retrySteps >= stepsToCap
+      ? options.maxDelayMs
+      : Math.min(Math.trunc(options.initialDelayMs * (options.multiplier ** retrySteps)), options.maxDelayMs)
   }
 
-  const stepsToCap = Math.ceil(Math.log(options.maxDelayMs / options.initialDelayMs) / Math.log(options.multiplier))
-  if (retrySteps >= stepsToCap) {
-    return options.maxDelayMs
-  }
-
-  return Math.min(Math.trunc(options.initialDelayMs * (options.multiplier ** retrySteps)), options.maxDelayMs)
+  // Per-call jitter (0..25% of base) de-synchronizes burst failures so a cohort of
+  // simultaneous crashes does not retry as a single thundering herd. Capped so the
+  // jittered delay never exceeds maxDelayMs.
+  const jitterRange = Math.min(Math.trunc(base * 0.25), options.maxDelayMs - base)
+  const jitter = Math.floor(Math.random() * (jitterRange + 1))
+  return base + jitter
 }
 
 function assertPositiveInteger(value: number, name: string): void {

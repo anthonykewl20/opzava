@@ -108,7 +108,7 @@ describe('Opzava approved live execution with atomic reservation', () => {
     expect(adapter.execute).toHaveBeenCalledTimes(0)
   })
 
-  it('releases the reservation when the executed action fails, so a retry can win again', async () => {
+  it('retains the reservation when the executed action fails, so a retry cannot re-send it', async () => {
     const { repo, lookup, reservation } = setup()
 
     const result = await executeApprovedLiveProviderActionOnce({
@@ -123,12 +123,14 @@ describe('Opzava approved live execution with atomic reservation', () => {
     })
 
     expect(result.ok).toBe(true)
+    // A transient/ambiguous failure is retained: a retry short-circuits via the persisted failed
+    // record (already-executed) and the reservation stays held so a parallel caller cannot re-win.
     const reReserve = reservation.reserve.reserveExternalCall({
       idempotencyKey: 'workflow:run_001:step:seo-brief:provider:v1',
       externalCallId: 'external_call_retry',
       reservedAt: '2026-06-15T00:00:05.000Z',
     })
-    expect(reReserve.outcome).toBe('reserved')
+    expect(reReserve.outcome).toBe('already-reserved')
   })
 
   it('keeps the reservation when the executed action succeeds, so a duplicate reserve loses', async () => {

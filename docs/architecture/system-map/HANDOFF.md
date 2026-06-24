@@ -1,5 +1,11 @@
 # Session Handoff — Remediation push → release 2.1.0 cut
 
+> **🗂️ CLOSED / SUPERSEDED (2026-06-23).** This is a historical point-in-time handoff. Its open action —
+> "merge PR #8" — is **done**: the ledger + remediation merged to `main` (work has since progressed past
+> PR #13). All findings F1–F14 are resolved and release 2.1.0 is cut. For current state read the living
+> [`README.md`](./README.md) and [`91-remediation-plan.md`](./91-remediation-plan.md) (✅ all phases done).
+> Everything below is kept only as a record; the "To resume next session" steps are obsolete.
+
 **Date:** 2026-06-22 · **Branch:** `docs/system-map-ledger` · **PR:** #8 (open, CI green, mergeable)
 **Working tree:** clean. Resume by reading this file + `91-remediation-plan.md`.
 

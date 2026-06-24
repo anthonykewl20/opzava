@@ -136,7 +136,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative">
         <span aria-hidden="true">🔔</span>
         <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span>
@@ -392,7 +392,7 @@
               <button class="mention-item" role="option" type="button" data-name="Iris" data-ai="1"><span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-6)" aria-hidden="true">I</span><span class="mention-nm">Iris</span><span class="mention-sub">✦ assistant</span></button>
               <button class="mention-item" role="option" type="button" data-name="team"><span class="mention-at" aria-hidden="true">@</span><span class="mention-nm">team</span><span class="mention-sub">everyone here</span></button>
             </div>
-            <div class="composer" role="form" aria-label="Write to the team">
+            <form class="composer" id="composerForm" aria-label="Write to the team">
               <label for="teamMsg" class="u-sr-only">Write to the team</label>
               <input
                 id="teamMsg"
@@ -404,8 +404,8 @@
               >
               <div class="composer-sep" aria-hidden="true"></div>
               <button class="btn btn-ghost btn-sm" type="button" aria-label="Mention someone" title="Mention someone">@</button>
-              <button class="btn btn-primary btn-sm" type="button" id="sendBtn" aria-label="Send message">Send</button>
-            </div>
+              <button class="btn btn-primary btn-sm" type="submit" id="sendBtn" aria-label="Send message">Send</button>
+            </form>
             <p class="u-muted" style="font-size:var(--text-sm);margin-top:var(--space-2);padding:0 var(--space-1)">
               This room is for the human team. To chat with your AI assistant, use the <a href="#" class="msg-link" id="goToAssistant2">✦ Ask your assistant</a> tab.
             </p>
@@ -488,6 +488,7 @@
       // ── Composer: send → append message ─────────────────────────────
       var input   = document.getElementById('teamMsg');
       var sendBtn = document.getElementById('sendBtn');
+      var form    = document.getElementById('composerForm');
       var log     = document.querySelector('.msg-log');
 
       function sendMessage() {
@@ -519,9 +520,13 @@
         return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
       }
 
-      sendBtn.addEventListener('click', sendMessage);
-      input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+      // Real form submit handles both the Send button (type=submit) and
+      // Enter-in-input natively. The @-mention script's keydown handler runs
+      // first and only intercepts Enter while its popup is open, so a closed
+      // popup falls through to this submit.
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        sendMessage();
       });
 
       // ── Offline detection ────────────────────────────────────────────

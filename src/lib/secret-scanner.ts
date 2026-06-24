@@ -100,17 +100,3 @@ export function scanForSecrets(text: string): SecretMatch[] {
 
   return matches
 }
-
-export function redactSecrets(text: string): string {
-  let result = text
-  for (const pattern of SECRET_PATTERNS) {
-    pattern.regex.lastIndex = 0
-    result = result.replace(pattern.regex, (match) => {
-      if (match.length > 12) {
-        return match.slice(0, 6) + '***REDACTED***' + match.slice(-3)
-      }
-      return match.slice(0, 3) + '***REDACTED***'
-    })
-  }
-  return result
-}

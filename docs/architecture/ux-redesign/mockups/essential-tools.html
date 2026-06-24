@@ -75,7 +75,7 @@
       <a href="essential-find.html">Find…</a>
     </nav>
     <span class="u-grow"></span>
-    <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
     <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
     <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
   </header>
@@ -92,7 +92,7 @@
       <div>
         <h1 class="pg-title">Your tools</h1>
       </div>
-      <a class="btn btn-primary" href="essential-connect-wizard.html"><span aria-hidden="true">＋</span> Connect another</a>
+      <a class="btn btn-ghost" href="essential-connect-wizard.html"><span aria-hidden="true">＋</span> Connect another</a>
     </div>
     <p class="pg-sub">The terminal and desktop tools linked to your Opzava account. Opzava runs your tasks through these and keeps an eye on them.</p>
 
@@ -158,7 +158,7 @@
           </div>
           <span class="sb-badge sb-badge--outline st"><span class="g" aria-hidden="true">○</span> Disconnected</span>
           <span class="tool-meta">last seen 2h ago</span>
-          <a class="btn btn-ghost btn-sm" href="essential-connect-wizard.html">Reconnect</a>
+          <button class="btn btn-ghost btn-sm js-connect" type="button" data-href="essential-connect-wizard.html" data-pending="Reconnecting…">Reconnect</button>
           <button class="tool-more" type="button" aria-label="More actions for Codex Desktop">⋯</button>
         </div>
         <details class="tool-details">
@@ -195,7 +195,7 @@
             <div class="tool-via">run a fleet · via Gateway</div>
           </div>
           <span class="sb-badge sb-badge--accent st"><span class="g" aria-hidden="true">＋</span> Not linked</span>
-          <a class="btn btn-primary btn-sm" href="essential-connect-wizard.html">Connect</a>
+          <button class="btn btn-primary btn-sm js-connect" type="button" data-href="essential-connect-wizard.html" data-pending="Connecting…">Connect</button>
           <button class="tool-more" type="button" aria-label="More actions for OpenClaw">⋯</button>
         </div>
       </div>
@@ -216,6 +216,9 @@
 
     </div>
 
+    <!-- Within-400ms feedback for the action buttons (Connect / Reconnect) -->
+    <div id="toolStatus" class="u-sr-only" role="status" aria-live="polite"></div>
+
     <!-- Quiet legend — status is read by glyph + word, never colour -->
     <div class="legend" aria-label="What the marks mean">
       <span><span class="g" aria-hidden="true">✦</span> Active</span>
@@ -227,5 +230,42 @@
 
   </div><!-- /.bc-wrap -->
 </div><!-- /.bc -->
+
+<!-- Page-local: within-400ms pending → confirm feedback on Connect / Reconnect -->
+<script>
+  (function () {
+    var status = document.getElementById('toolStatus');
+    function announce(msg) { if (status) { status.textContent = ''; status.textContent = msg; } }
+
+    document.querySelectorAll('.js-connect').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.disabled) return;
+        var href = btn.getAttribute('data-href');
+        var pending = btn.getAttribute('data-pending') || 'Working…';
+        var item = btn.closest('.tool-item');
+        var nameEl = item && item.querySelector('.tool-name');
+        var tool = nameEl ? nameEl.textContent : '';
+        var label = btn.textContent;
+
+        // Optimistic pending state (well under the 400ms Doherty threshold).
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+        btn.textContent = pending;
+        announce((tool ? tool + ': ' : '') + pending);
+
+        // Brief working state, then hand off to the connect wizard.
+        setTimeout(function () {
+          announce((tool ? tool + ': ' : '') + 'opening the connect steps…');
+          if (href) window.location.href = href;
+          else {
+            btn.disabled = false;
+            btn.removeAttribute('aria-busy');
+            btn.textContent = label;
+          }
+        }, 320);
+      });
+    });
+  })();
+</script>
 </body>
 </html>

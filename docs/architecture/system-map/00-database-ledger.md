@@ -4,7 +4,7 @@
 > This ledger is the authoritative table inventory; every other zone doc references it.
 >
 > **✅ Second-pass verified:** every table / column / migration claim below was re-checked against source
-> (`schema.sql`, `migrations.ts`, the opzava repos). 48 inherited migrations (ids 001–050, 030/031 absent),
+> (`schema.sql`, `migrations.ts`, the opzava repos). 51 inherited migrations (ids 001–053, 030/031 absent),
 > `035` drops+recreates `api_keys`, and all six opzava module-table column sets confirmed. Corrections logged
 > in [`99-verification-register.md`](./99-verification-register.md).
 
@@ -26,7 +26,7 @@
   additive `ALTER TABLE … ADD COLUMN` guarded by `PRAGMA table_info` existence checks (idempotent).
 - Plugins inject via `registerMigrations()`; the opzava runner registers 3 migrations this way
   (`registerOpzavaRunnerMigrations()`, called from `db.ts:69`).
-- **48 inherited migrations**, ids `001`–`050` with exactly **two genuine gaps: `030` and `031`
+- **51 inherited migrations**, ids `001`–`053` with exactly **two genuine gaps: `030` and `031`
   are absent** ✅ (verified by extracting all ids). `035_api_keys_v2` explicitly **drops & recreates**
   `api_keys` because "previous migrations (027/030) may have created an api_keys table with a
   different schema" ✅ (`migrations.ts:1048-1082`). → **Parity risk:** a fresh install vs. an
@@ -37,12 +37,12 @@
 
 ---
 
-## Complete table inventory (58 tables) ✅
+## Complete table inventory (59 tables) ✅
 
 Grouped by owner. "Created by" tells you where the DDL lives — this is the difference between a
 migration-managed table and a lazily-provisioned one.
 
-### Engine A — inherited base (46 tables, `src/lib`)
+### Engine A — inherited base (48 tables, `src/lib`)
 
 | domain | tables | created by |
 |--------|--------|-----------|
@@ -53,7 +53,7 @@ migration-managed table and a lazily-provisioned one.
 | Collaboration / feed | `activities`, `notifications`, `messages` | schema.sql + 004 |
 | Workflows / pipelines | `workflow_templates`, `workflow_pipelines`, `pipeline_runs` | migrations 006/009 |
 | Runs / evals | `runs`, `eval_runs`, `eval_golden_sets`, `eval_traces` | migrations 046/038 |
-| Integrations / ops | `webhooks`, `webhook_deliveries`, `github_syncs`, `gateway_health_logs`, `alert_rules`, `settings`, `token_usage`, `claude_sessions`, `skills` | migrations 008/017/041/011/010/018/020/033 |
+| Integrations / ops | `webhooks`, `webhook_deliveries`, `github_syncs`, `gateway_health_logs`, `alert_rules`, `settings`, `token_usage`, `claude_sessions`, `skills`, `realtime_events` | migrations 008/017/041/011/010/018/020/033/053 |
 | Memory (FTS) | `memory_fts` (FTS5 virtual), `memory_fts_meta` | migration 048 |
 | Meta | `schema_migrations` | migrations runner |
 | **Lazy (NOT in migrations)** | `gateways` | ⚠️ created by API routes on demand: `api/gateways/route.ts:24`, `health/route.ts:7`, `connect/route.ts:104` |
@@ -182,6 +182,11 @@ UNIQUE · `soul_content` · `status DEFAULT 'offline'` · `last_seen` · `last_a
 **Workspace scoping invariant** ✅: migrations 021/022/023 add `workspace_id` (default 1) to ~19
 tables; the default workspace row `id=1` always exists. Sessions/api-keys also carry `tenant_id`.
 **All opzava tables are single-workspace** (no tenant column) — a tenant-isolation gap to audit.
+
+**`realtime_events`** ✅ (`migrations.ts`, migration `053_realtime_events`): durable SSE replay log with
+`id INTEGER PRIMARY KEY AUTOINCREMENT`, `type`, JSON `data`, `timestamp`, nullable `workspace_id`, and indexes
+on `(id)`, `(workspace_id, id)`, and `timestamp`. `/api/events` and `/api/v1/runs/stream` replay rows by
+`Last-Event-ID` and workspace.
 
 **Secrets-in-DB invariant** ✅: session tokens and API keys are stored only as **SHA-256 hashes**
 (migration `043` hashed legacy plaintext). A row written to `settings` under `security.api_key`

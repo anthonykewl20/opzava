@@ -161,24 +161,41 @@
           </select>
         </div>
 
-        <!-- ✦ Atlas offer (an offer, not the primary action) -->
+        <!-- ✦ Atlas offer (an offer, not the primary action).
+             AI honesty: nothing is generated until YOU press ✦ Expand. The card
+             holds only the offer + trigger; results are revealed after a brief
+             working state, never pre-rendered as already-done. -->
         <div class="field">
           <div class="ai-card" aria-label="Atlas offer">
             <div class="ai-card-row">
               <span class="sb-badge sb-badge--accent"><span aria-hidden="true">✦</span> Atlas</span>
-              <span class="u-subtle" style="font-size:var(--text-xs)">drafted — you choose</span>
+              <span class="u-subtle" style="font-size:var(--text-xs)">offered — you choose</span>
             </div>
-            <p class="ai-offer">Atlas can expand this, find similar ideas, or suggest research. Add any you like:</p>
+            <p class="ai-offer">Atlas can expand this idea, find similar ones on the board, or suggest research — only when you ask.</p>
 
-            <div class="ai-exp">
-              <span class="ai-exp-text"><span class="g" aria-hidden="true">✦</span> Tiered perks — bigger reward as a friend stays active past 30 days.</span>
-              <button class="btn btn-ghost btn-sm" type="button">Add</button>
-              <button class="btn btn-ghost btn-sm" type="button" aria-label="Dismiss">Dismiss</button>
+            <!-- Trigger: ghost, not primary. The one btn-primary stays "Add idea". -->
+            <div class="ai-card-row">
+              <button class="btn btn-ghost btn-sm" type="button" id="aiExpandBtn" style="color:var(--accent)" aria-controls="aiWorking aiResults"><span aria-hidden="true">✦</span> Expand this idea</button>
             </div>
-            <div class="ai-exp">
-              <span class="ai-exp-text"><span class="g" aria-hidden="true">✦</span> Similar idea on the board: “Partner spotlight swap” under <strong>#partnerships</strong>.</span>
-              <button class="btn btn-ghost btn-sm" type="button">Add</button>
-              <button class="btn btn-ghost btn-sm" type="button" aria-label="Dismiss">Dismiss</button>
+
+            <!-- Working state: hidden until ✦ Expand is pressed; shown for >400ms. -->
+            <div class="ai-exp" id="aiWorking" role="status" aria-live="polite" hidden>
+              <span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span>
+              <span class="ai-exp-text"><strong>✦ Atlas</strong> is thinking about this idea…</span>
+            </div>
+
+            <!-- Results: revealed only after the working state completes. -->
+            <div id="aiResults" hidden>
+              <div class="ai-exp">
+                <span class="ai-exp-text"><span class="g" aria-hidden="true">✦</span> Tiered perks — bigger reward as a friend stays active past 30 days.</span>
+                <button class="btn btn-ghost btn-sm" type="button">Add</button>
+                <button class="btn btn-ghost btn-sm" type="button" aria-label="Dismiss">Dismiss</button>
+              </div>
+              <div class="ai-exp" style="margin-top:var(--space-2)">
+                <span class="ai-exp-text"><span class="g" aria-hidden="true">✦</span> Similar idea on the board: “Partner spotlight swap” under <strong>#partnerships</strong>.</span>
+                <button class="btn btn-ghost btn-sm" type="button">Add</button>
+                <button class="btn btn-ghost btn-sm" type="button" aria-label="Dismiss">Dismiss</button>
+              </div>
             </div>
           </div>
         </div>
@@ -205,6 +222,26 @@
           });
           tagInput.value = chip.textContent.trim();
         });
+      });
+    })();
+
+    // ✦ Expand: AI honesty — generate nothing until the user asks. On press,
+    // show a brief (>400ms) working state, then reveal the expansions. The
+    // results are never pre-rendered as already-done.
+    (function () {
+      var btn = document.getElementById('aiExpandBtn');
+      var working = document.getElementById('aiWorking');
+      var results = document.getElementById('aiResults');
+      if (!btn || !working || !results) return;
+      btn.addEventListener('click', function () {
+        if (!results.hidden) return;            // already revealed
+        btn.disabled = true;
+        working.hidden = false;                 // announce via role=status
+        window.setTimeout(function () {
+          working.hidden = true;
+          results.hidden = false;
+          btn.hidden = true;                    // offer consumed
+        }, 650);                                // >400ms working state
       });
     })();
   </script>

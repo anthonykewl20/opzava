@@ -3583,6 +3583,251 @@
         }
       }
     },
+    "/api/v1/runs": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "List agent runs",
+        "description": "List agent runs with optional filtering. Query params: agent_id, status, since, task_id, limit, offset. Requires the `viewer` role.",
+        "operationId": "listRuns",
+        "parameters": [
+          { "in": "query", "name": "agent_id", "schema": { "type": "string" } },
+          { "in": "query", "name": "status", "schema": { "type": "string" } },
+          { "in": "query", "name": "since", "schema": { "type": "string" } },
+          { "in": "query", "name": "task_id", "schema": { "type": "string" } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer" } },
+          { "in": "query", "name": "offset", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent runs matching the filter",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": {
+            "description": "Internal server error",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Ops"],
+        "summary": "Report a new agent run",
+        "description": "Report a new agent run per the Agent-Run-Protocol. Requires the `operator` role.",
+        "operationId": "createRun",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["agent_id", "status", "started_at"],
+                "properties": {
+                  "agent_id": { "type": "string" },
+                  "status": { "type": "string" },
+                  "started_at": { "type": "string" },
+                  "cost": { "type": "object" },
+                  "provenance": { "type": "object" },
+                  "steps": { "type": "array", "items": { "type": "object" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Run created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "id": { "type": "string" }, "run_hash": { "type": "string" } }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": {
+            "description": "Internal server error",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/stream": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "SSE stream of agent-run events",
+        "description": "Server-Sent Events stream of Agent-Run-Protocol events (run.created, run.updated, run.completed, run.eval_attached). Supports `Last-Event-ID` header and `lastEventId` query for replay. Requires the `viewer` role.",
+        "operationId": "streamRuns",
+        "responses": {
+          "200": {
+            "description": "SSE event stream",
+            "content": { "text/event-stream": { "schema": { "type": "string" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "Get a single agent run",
+        "operationId": "getRun",
+        "parameters": [{ "in": "path", "name": "run_id", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "The agent run",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": {
+            "description": "Internal server error",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } }
+          }
+        }
+      },
+      "patch": {
+        "tags": ["Ops"],
+        "summary": "Update an agent run",
+        "description": "Update a run (status, outcome, cost, steps, etc.). Requires the `operator` role.",
+        "operationId": "updateRun",
+        "parameters": [{ "in": "path", "name": "run_id", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated agent run",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": {
+            "description": "Internal server error",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/provenance": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "Get the provenance record for a run",
+        "operationId": "getRunProvenance",
+        "parameters": [{ "in": "path", "name": "run_id", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "The run provenance record",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": {
+            "description": "Internal server error",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/eval": {
+      "put": {
+        "tags": ["Ops"],
+        "summary": "Attach or update an eval result for a run",
+        "description": "Attach or update an eval result on a run. Requires the `operator` role.",
+        "operationId": "attachRunEval",
+        "parameters": [{ "in": "path", "name": "run_id", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["pass", "score"],
+                "properties": {
+                  "pass": { "type": "boolean" },
+                  "score": { "type": "number" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated agent run",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": {
+            "description": "Internal server error",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } }
+          }
+        }
+      }
+    },
+    "/api/v1/evals/leaderboard": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "Get the eval leaderboard",
+        "description": "Get the eval leaderboard. Query params: benchmark_id, limit. Requires the `viewer` role.",
+        "operationId": "getEvalsLeaderboard",
+        "parameters": [
+          { "in": "query", "name": "benchmark_id", "schema": { "type": "string" } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Leaderboard entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "entries": { "type": "array", "items": { "type": "object" } } }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "500": {
+            "description": "Internal server error",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } }
+          }
+        }
+      }
+    },
+    "/api/mcp-audit/verify": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Verify MCP audit record integrity",
+        "description": "Verify the cryptographic integrity of MCP audit records. Single-record verification by `id`, or batch verification by time range (`hours`, `workspace_id`). Requires the `admin` role.",
+        "operationId": "verifyMcpAudit",
+        "parameters": [
+          { "in": "query", "name": "id", "schema": { "type": "integer" }, "description": "Single record id to verify" },
+          { "in": "query", "name": "hours", "schema": { "type": "integer" }, "description": "Batch window in hours (default 24)" },
+          { "in": "query", "name": "workspace_id", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verification result",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
     "/api/docs": {
       "get": {
         "tags": [
@@ -12111,6 +12356,22 @@
         }
       }
     },
+    "/api/ops/chat-metrics": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "Get realtime/SSE chat gauges",
+        "description": "Best-effort, no-SLA gauges for the realtime/SSE subsystem. Admin-gated.",
+        "operationId": "getOpsChatMetrics",
+        "responses": {
+          "200": {
+            "description": "Realtime chat gauge values",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
     "/api/ops/costs": {
       "get": {
         "tags": ["Ops"],
@@ -12354,6 +12615,34 @@
               }
             }
           }
+        }
+      }
+    },
+    "/api/ops/runs/{id}": {
+      "get": {
+        "tags": ["Ops"],
+        "summary": "Get a single WorkflowRun (reconstructed from operational events)",
+        "description": "Reconstructs a single opzava WorkflowRun from its operational events. Admin-gated. Returns 404 when the run has no recorded events.",
+        "operationId": "getOpsRun",
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "The reconstructed run and its events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "run": { "type": "object" },
+                    "events": { "type": "array", "items": { "type": "object" } }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     },

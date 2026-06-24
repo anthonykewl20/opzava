@@ -26,6 +26,13 @@ other code — the surface is the HTTP endpoint itself.
   `run.created`, `run.updated`, `run.completed`, `run.eval_attached`). Adds response header
   `X-Agent-Run-Protocol: 0.1.0`.
 
+Both routes are thin: they resolve auth/workspace, build a per-route `filter` predicate, and
+delegate to `createSseStream` (`src/lib/sse-stream.ts`), which owns the shared transport skeleton
+(stream lifecycle, backpressure teardown, retry/connected frames, heartbeat, outbox poll,
+strict-monotonic cursor discipline, and the resync sentinel). The shared module is part of this
+surface's scope; the per-route `filter` branches (chat DM ACL + `?types=` for events; `RUN_EVENT_TYPES`
+for runs) are the only behavior that differs between the two endpoints.
+
 Inbound callers: the browser client via `src/lib/use-server-events.ts` (`useServerEvents()`,
 mounted once in `src/app/[[...panel]]/page.tsx:136`) for `/api/events`. `/api/v1/runs/stream`
 is a public protocol surface (docs-parity tracked, no first-party UI consumer in `src/`).
@@ -36,10 +43,12 @@ Tests: `src/lib/__tests__/events-route.test.ts`, `src/lib/__tests__/runs-stream-
 **Outbound** (what these import) — all Engine A (`src/lib`), no `src/opzava` edge:
 
 - `@/lib/auth` — `requireRole` (auth + workspace/role resolution).
-- `@/lib/event-bus` — `eventBus`, `ServerEvent` type (in-process fanout accelerator).
-- `@/lib/realtime-events` — `formatSseFrame`, `formatSseRetryFrame`, `parseLastEventId`,
-  `readServerEventsAfter`, `serverEventWorkspaceId`, `minRealtimeEventId` (events only),
-  `SSE_HEARTBEAT_MS`, `SSE_POLL_MS`.
+- `@/lib/event-bus` — `ServerEvent` type (in-process fanout accelerator, consumed by the shared transport).
+- `@/lib/sse-stream` — `createSseStream`, `SseFilterResult` (the shared SSE transport; see below).
+- `@/lib/realtime-events` — `parseLastEventId` (cursor parsing). The remaining transport primitives
+  (`formatSseFrame`, `formatSseRetryFrame`, `readServerEventsAfter`, `serverEventWorkspaceId`,
+  `minRealtimeEventId`, `SSE_HEARTBEAT_MS`, `SSE_POLL_MS`) are now consumed by `createSseStream`
+  in `src/lib/sse-stream.ts`, not by the routes directly.
 
 No import of `@/opzava/**`. This is correct: the SSE transport is inherited infrastructure
 below the engine bridge.
@@ -88,12 +97,13 @@ below the engine bridge.
   customization** (backpressure, ACL, proxy headers, replay correctness). If a new event
   type must be transported, the broadcaster in `src/opzava/**` emits it; this surface only
   forwards it subject to the workspace + chat ACL above.
-- **`/api/v1/runs/stream` duplicates ~100 lines** of `/api/events`
-  (`highWaterMark`/`safeEnqueue`/`stop`/`sendEvent`/`replay`/`abort`/`cancel`) with zero
-  shared code and ignores `?types=`. Tracked as I20 (extract a shared SSE module). When
-  refactoring, do NOT regress the events-only invariants (chat DM ACL, resync sentinel,
-  `?types=`) by accidentally sharing the narrow runs behavior — share the safe transport
-  primitives, keep the per-route filter/ACL branches distinct.
+- **Shared SSE transport** (`src/lib/sse-stream.ts`, `createSseStream`). The ~100 duplicated
+  lines (`highWaterMark`/`safeEnqueue`/`stop`/`sendEvent`/`replay`/`abort`/`cancel`) that
+  previously appeared verbatim in both routes now live here once (was I20). The shared module
+  owns the transport skeleton + the strict-monotonic cursor discipline (invariant #3, the
+  idempotency primitive) + the resync sentinel; the per-route `filter` predicate keeps the
+  distinct behavior (chat DM ACL + `?types=` for events; `RUN_EVENT_TYPES` for runs) so the
+  events-only invariants can never be regressed by sharing the narrow runs behavior.
 
 ## Editor guardrails
 
@@ -110,10 +120,12 @@ carries its severity; do not "fix" without a deliberate decision.
   trusted workspace). Preserve the existing predicate verbatim.
 
 - **P1-4. SSE replay silently drops events past the 200-row/7-day cap — no resync sentinel**
-  — CLOSED in `/api/events` (`events/route.ts:108-128` + `minRealtimeEventId`). The
-  `resync.required` frame + `lastSentId = minId-1` jump are load-bearing; do not remove
-  them. NOTE: `/api/v1/runs/stream` does NOT emit the resync sentinel — its replay can still
-  silently gap past retention. Do not assume both routes share this protection.
+  — CLOSED in `/api/events` and now ALSO in `/api/v1/runs/stream`. Both routes delegate to
+  `createSseStream` (`src/lib/sse-stream.ts`), which emits the `resync.required` frame +
+  `lastSentId = minId-1` jump when `emitResyncSentinel: true`. Both routes pass
+  `emitResyncSentinel: true`. The frame carries no numeric id and never advances the durable
+  cursor; `resyncSentinelEmitted` latches once per connection. Do not remove this protection
+  from either route.
 
 - **P2-3. ⟐ Reconnect storm — fixed `retry:5000` + browser-native lockstep reconnect** —
   PARTIALLY CLOSED: `formatSseRetryFrame(base=5000, jitter=2000)` now adds per-connection
@@ -127,9 +139,11 @@ carries its severity; do not "fix" without a deliberate decision.
   id to `connected` or `resync.required`.
 
 - **(review §2.2 #4) `/api/v1/runs/stream` ignores `?types=` entirely** (hardcoded
-  `RUN_EVENT_TYPES`) and shares zero common code with `/api/events` despite ~100 duplicated
-  lines — a DRY violation and maintenance hazard (I20). When touching one route, audit the
-  other for the same defect.
+  `RUN_EVENT_TYPES`) and previously shared zero common code with `/api/events` despite ~100
+  duplicated lines — RESOLVED: both routes now delegate to `createSseStream`
+  (`src/lib/sse-stream.ts`). The `?types=` filter lives only in the events route's `filter`
+  predicate; the runs route's `filter` hardcodes `RUN_EVENT_TYPES`. When touching one route,
+  audit the other's `filter` for the same defect.
 
 - **(review §3, P2-2 refutation) The 1s outbox poll is a CORRECTNESS parameter, not just
   perf.** `setInterval(replayFromStore, SSE_POLL_MS)` is the cross-process bridge: events

@@ -466,41 +466,43 @@ export function getUserFromRequest(request: Request): User | null {
     if (user) return { ...user, agent_name: agentName }
   }
 
-  // Check API key - DB override first, then env var
+  // Check API key - DB override first, then env var.
+  // SEC-9: resolveActiveApiKey is gated on an api-key header being present so
+  // cookie-session and unauthenticated requests never touch the settings table.
   const apiKey = extractApiKeyFromHeaders(request.headers)
-  const configuredApiKey = resolveActiveApiKey()
 
-  if (configuredApiKey && apiKey && safeCompare(apiKey, configuredApiKey)) {
-    // FR-D2: Log warning when global admin API key is used.
-    // Prefer agent-scoped keys (POST /api/agents/{id}/keys) for least-privilege access.
-    try {
-      logSecurityEvent({
-        event_type: 'global_api_key_used',
-        severity: 'info',
-        source: 'auth',
-        agent_name: agentName || undefined,
-        detail: JSON.stringify({ hint: 'Consider using agent-scoped API keys for least-privilege access' }),
-        ip_address: request.headers.get('x-real-ip') || 'unknown',
+  if (apiKey) {
+    const configuredApiKey = resolveActiveApiKey()
+    if (configuredApiKey && safeCompare(apiKey, configuredApiKey)) {
+      // FR-D2: Log warning when global admin API key is used.
+      // Prefer agent-scoped keys (POST /api/agents/{id}/keys) for least-privilege access.
+      try {
+        logSecurityEvent({
+          event_type: 'global_api_key_used',
+          severity: 'info',
+          source: 'auth',
+          agent_name: agentName || undefined,
+          detail: JSON.stringify({ hint: 'Consider using agent-scoped API keys for least-privilege access' }),
+          ip_address: request.headers.get('x-real-ip') || 'unknown',
+          workspace_id: getDefaultWorkspaceContext().workspaceId,
+          tenant_id: getDefaultWorkspaceContext().tenantId,
+        })
+      } catch { /* startup race */ }
+      return {
+        id: 0,
+        username: 'api',
+        display_name: 'API Access',
+        role: 'admin',
         workspace_id: getDefaultWorkspaceContext().workspaceId,
         tenant_id: getDefaultWorkspaceContext().tenantId,
-      })
-    } catch { /* startup race */ }
-    return {
-      id: 0,
-      username: 'api',
-      display_name: 'API Access',
-      role: 'admin',
-      workspace_id: getDefaultWorkspaceContext().workspaceId,
-      tenant_id: getDefaultWorkspaceContext().tenantId,
-      created_at: 0,
-      updated_at: 0,
-      last_login_at: null,
-      agent_name: agentName,
+        created_at: 0,
+        updated_at: 0,
+        last_login_at: null,
+        agent_name: agentName,
+      }
     }
-  }
 
-  // Agent-scoped API keys
-  if (apiKey) {
+    // Agent-scoped API keys
     try {
       const db = getDatabase()
       const keyHash = hashApiKey(apiKey)
@@ -550,12 +552,12 @@ export function getUserFromRequest(request: Request): User | null {
     } catch {
       // ignore missing table / startup race
     }
-  }
 
-  // Plugin hook: allow Pro (or other extensions) to resolve custom API keys
-  if (apiKey && _authResolverHook) {
-    const resolved = _authResolverHook(apiKey, agentName)
-    if (resolved) return resolved
+    // Plugin hook: allow Pro (or other extensions) to resolve custom API keys
+    if (_authResolverHook) {
+      const resolved = _authResolverHook(apiKey, agentName)
+      if (resolved) return resolved
+    }
   }
 
   return null
@@ -563,17 +565,51 @@ export function getUserFromRequest(request: Request): User | null {
 
 /**
  * Resolve the active API key: check DB settings override first, then env var.
+ *
+ * SEC-9: the DB-stored value is cached with a short TTL so that
+ * cookie-session / headerless requests (which never call this function — see
+ * getUserFromRequest) and api-key bursts do not issue a SELECT-from-settings on
+ * every authenticated request. The cache is invalidated by
+ * invalidateActiveApiKeyCache(), which settings writers (e.g. key rotation)
+ * call after persisting a new value.
+ *
+ * Concurrency: better-sqlite3 is synchronous and Node serves one JS statement
+ * at a time, so the cache slot assignment below is atomic — no lock is needed.
+ * On a cache miss the SELECT runs once per window per process; across
+ * horizontal-scale replicas each replica maintains its own ~20s window, so a
+ * rotated key propagates within TTL even without coordination.
  */
+const ACTIVE_API_KEY_TTL_MS = 20_000
+let _activeApiKeyCache: { value: string; expiresAt: number } | null = null
+
+/**
+ * Drop the cached active API key. Call after any write to the
+ * `security.api_key` settings row so the new value is visible immediately.
+ */
+export function invalidateActiveApiKeyCache(): void {
+  _activeApiKeyCache = null
+}
+
 function resolveActiveApiKey(): string {
+  const now = Date.now()
+  if (_activeApiKeyCache && _activeApiKeyCache.expiresAt > now) {
+    return _activeApiKeyCache.value
+  }
   try {
     const db = getDatabase()
     const row = db.prepare(
       "SELECT value FROM settings WHERE key = 'security.api_key'"
     ).get() as { value: string } | undefined
-    if (row?.value) return row.value
+    if (row?.value) {
+      _activeApiKeyCache = { value: row.value, expiresAt: now + ACTIVE_API_KEY_TTL_MS }
+      return row.value
+    }
   } catch {
-    // DB not ready yet — fall back to env
+    // DB not ready yet — fall back to env. Leave the cache cold so the next
+    // call retries the DB once it's available.
   }
+  // Env fallback: not cached (cheap to re-read) so a DB that comes online
+  // later can override it without waiting out a TTL.
   return (process.env.API_KEY || '').trim()
 }
 

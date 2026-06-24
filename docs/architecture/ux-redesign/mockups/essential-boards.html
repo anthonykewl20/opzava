@@ -30,6 +30,9 @@
     .rollup-stats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
     .rollup-stat { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-sm); color: var(--fg-muted); font-weight: var(--fw-medium); }
     .rollup-sep { color: var(--border-strong); }
+    /* Quiet inline rollup link — the per-board "Review"/"Fix" callouts are the canonical, granular path; this only points at the same inbox without competing with them. */
+    .rollup-link { flex: none; font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--accent); text-decoration: none; white-space: nowrap; }
+    .rollup-link:hover { text-decoration: underline; }
 
     /* ── Board summary grid ───────────────────────────────────────────────────── */
     .boards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--space-5); align-items: start; }
@@ -58,11 +61,9 @@
     .board-foot { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-1); padding-top: var(--space-3); border-top: 1px solid var(--border); }
     .open-board { margin-left: auto; color: var(--accent); font-weight: var(--fw-medium); }
 
-    .async-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--space-5); align-items: start; }
-
     /* ── Mobile: single column ────────────────────────────────────────────────── */
     @media (max-width: 700px) {
-      .boards-grid, .async-grid { grid-template-columns: 1fr; }
+      .boards-grid { grid-template-columns: 1fr; }
       .rollup { flex-wrap: wrap; }
       .topnav { display: none; }
     }
@@ -85,7 +86,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -111,7 +112,7 @@
             <span class="rollup-sep" aria-hidden="true">·</span>
             <span class="rollup-stat"><span class="dot dot-danger" aria-hidden="true"></span> 1 blocked</span>
           </div>
-          <a class="btn" href="mention-inbox.html" role="button">What needs me</a>
+          <a class="rollup-link" href="mention-inbox.html">See all in one place →</a>
         </div>
 
         <!-- ── Board summary grid (severity-first) ──────────────────────────── -->
@@ -309,42 +310,6 @@
           </div>
 
         </div><!-- /.boards-grid -->
-
-        <!-- ── Async states (secondary, clearly labelled) ───────────────────── -->
-        <h2 style="margin-top:var(--space-10);margin-bottom:var(--space-2)">States</h2>
-        <p class="u-muted" style="font-size:var(--text-sm);margin-bottom:var(--space-4)">
-          How this view appears while loading, and when you have no boards yet.
-        </p>
-        <div class="async-grid">
-
-          <!-- Loading skeleton -->
-          <div class="card board" aria-label="Loading a board summary" aria-busy="true">
-            <div class="board-head">
-              <span class="skeleton" style="width:11px;height:11px;border-radius:50%"></span>
-              <span class="skeleton sk-line u-grow" style="height:18px;max-width:160px"></span>
-              <span class="skeleton" style="width:78px;height:22px;border-radius:var(--radius-full)"></span>
-            </div>
-            <div>
-              <span class="skeleton" style="display:block;width:100%;height:9px;border-radius:var(--radius-full)"></span>
-              <span class="skeleton sk-line" style="margin-top:var(--space-2);height:13px;max-width:220px"></span>
-            </div>
-            <div class="board-foot">
-              <span class="skeleton" style="width:26px;height:26px;border-radius:50%"></span>
-              <span class="skeleton sk-line" style="margin-left:auto;height:15px;max-width:96px"></span>
-            </div>
-          </div>
-
-          <!-- Empty state -->
-          <div class="card empty" style="display:flex;flex-direction:column;align-items:center;justify-content:center">
-            <div class="empty-icon" aria-hidden="true">▦</div>
-            <div class="empty-title">No boards yet</div>
-            <div class="empty-desc">Create a project to get a board.</div>
-            <div class="empty-cta">
-              <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
-            </div>
-          </div>
-
-        </div><!-- /.async-grid -->
 
       </div><!-- /.bc-wrap -->
     </main>

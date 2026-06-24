@@ -58,6 +58,17 @@
     .asset-empty { display: none; }
     .asset-empty.is-visible { display: flex; }
 
+    /* Cards filtered out by an active filter (state-driven, not text regex) */
+    .asset-card[hidden] { display: none; }
+
+    /* No-match note when a filter combination leaves zero cards */
+    .asset-nomatch { display: none; }
+    .asset-nomatch.is-visible { display: flex; }
+    .btn-link { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
+
+    /* Active-filter trigger reflects the chosen value */
+    .filter-bar .btn[data-active="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-soft); }
+
     /* Loading skeleton placeholder */
     .asset-grid--loading .asset-card { pointer-events: none; }
 
@@ -65,7 +76,11 @@
     .feed { display: flex; flex-direction: column; gap: 0; }
     .feed-item { display: flex; align-items: baseline; gap: var(--space-4); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
     .feed-item:last-child { border-bottom: 0; }
-    .feed-ava { width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; align-self: flex-start; margin-top: 2px; }
+    /* AI vs human is shown by SHAPE, never a second hue: humans = circle, AI = rounded-square + ✦ glyph */
+    .feed-ava { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; align-self: flex-start; margin-top: 2px; }
+    .feed-ava--human { border-radius: 50%; }
+    .feed-ava--ai { border-radius: var(--radius-md); position: relative; }
+    .feed-ava--ai::after { content: "✦"; position: absolute; bottom: -4px; right: -4px; font-size: 8px; line-height: 1; color: var(--accent); background: var(--surface); border-radius: 50%; padding: 1px; }
     .feed-body { flex: 1 1 auto; min-width: 0; line-height: var(--lh-normal); }
     .feed-time { font-size: var(--text-xs); color: var(--fg-subtle); white-space: nowrap; flex: none; align-self: flex-start; margin-top: 3px; }
 
@@ -97,7 +112,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative">
         <span aria-hidden="true">🔔</span>
         <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span>
@@ -126,33 +141,33 @@
         <!-- ── Filter bar ─────────────────────────────────────────────────── -->
         <div class="filter-bar" role="toolbar" aria-label="Filter and upload">
           <div style="position:relative">
-            <button class="btn btn-ghost btn-sm" id="campaignFilterBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
-              Campaign <span aria-hidden="true">▾</span>
+            <button class="btn btn-ghost btn-sm" id="campaignFilterBtn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="campaignFilterMenu" data-active="false">
+              <span class="filter-label">Campaign: <span class="filter-value">All</span></span> <span aria-hidden="true">▾</span>
             </button>
             <div class="sb-menu" id="campaignFilterMenu" role="listbox" aria-label="Filter by campaign" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:var(--z-dropdown);min-width:200px">
               <div class="sb-menu-label">Campaign</div>
-              <button class="sb-menu-item" role="option" type="button" aria-selected="true">All campaigns <span class="sb-shortcut">current</span></button>
-              <button class="sb-menu-item" role="option" type="button">June Launch</button>
-              <button class="sb-menu-item" role="option" type="button">Webinar promo</button>
-              <button class="sb-menu-item" role="option" type="button">Fall Newsletter</button>
-              <button class="sb-menu-item" role="option" type="button">Product Hunt push</button>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="true" aria-current="true" data-value="all" data-short="All">All campaigns <span class="sb-shortcut">current</span></button>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="false" data-value="june launch" data-short="June Launch">June Launch</button>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="false" data-value="webinar promo" data-short="Webinar promo">Webinar promo</button>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="false" data-value="fall newsletter" data-short="Fall Newsletter">Fall Newsletter</button>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="false" data-value="product hunt push" data-short="Product Hunt push">Product Hunt push</button>
             </div>
           </div>
           <div style="position:relative">
-            <button class="btn btn-ghost btn-sm" id="typeFilterBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
-              Type <span aria-hidden="true">▾</span>
+            <button class="btn btn-ghost btn-sm" id="typeFilterBtn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="typeFilterMenu" data-active="false">
+              <span class="filter-label">Type: <span class="filter-value">All</span></span> <span aria-hidden="true">▾</span>
             </button>
             <div class="sb-menu" id="typeFilterMenu" role="listbox" aria-label="Filter by file type" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:var(--z-dropdown);min-width:180px">
               <div class="sb-menu-label">File type</div>
-              <button class="sb-menu-item" role="option" type="button" aria-selected="true">All types <span class="sb-shortcut">current</span></button>
-              <button class="sb-menu-item" role="option" type="button">image</button>
-              <button class="sb-menu-item" role="option" type="button">html</button>
-              <button class="sb-menu-item" role="option" type="button">doc</button>
-              <button class="sb-menu-item" role="option" type="button">video</button>
-              <button class="sb-menu-item" role="option" type="button">zip</button>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="true" aria-current="true" data-value="all" data-short="All">All types <span class="sb-shortcut">current</span></button>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="false" data-value="image" data-short="image">image</button>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="false" data-value="html" data-short="html">html</button>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="false" data-value="doc" data-short="doc">doc</button>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="false" data-value="video" data-short="video">video</button>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="false" data-value="zip" data-short="zip">zip</button>
             </div>
           </div>
-          <span class="u-subtle" style="font-size:var(--text-xs)">24 files · 18 approved · 6 in review</span>
+          <span class="u-subtle" id="assetCount" aria-live="polite" style="font-size:var(--text-xs)">9 files · 5 approved · 4 in review</span>
           <span class="u-grow"></span>
           <a href="essential-upload.html" class="btn btn-primary btn-sm"><span aria-hidden="true">＋</span> Upload</a>
         </div>
@@ -195,7 +210,7 @@
         <div class="asset-grid" id="assetGrid" aria-label="Asset files">
 
           <!-- 1. hero-launch.png — Approved -->
-          <div class="card asset-card">
+          <div class="card asset-card" data-campaign="june launch" data-type="image" data-state="approved">
             <span class="asset-type-label">image</span>
             <a href="essential-card.html" class="asset-name">hero-launch.png</a>
             <p class="asset-meta">image · 1.2 MB</p>
@@ -206,7 +221,7 @@
           </div>
 
           <!-- 2. webinar-banner.png — In review -->
-          <div class="card asset-card">
+          <div class="card asset-card" data-campaign="webinar promo" data-type="image" data-state="review">
             <span class="asset-type-label">image</span>
             <a href="essential-card.html" class="asset-name">webinar-banner.png</a>
             <p class="asset-meta">image · 800 KB</p>
@@ -217,7 +232,7 @@
           </div>
 
           <!-- 3. june-email.html — Approved -->
-          <div class="card asset-card">
+          <div class="card asset-card" data-campaign="june launch" data-type="html" data-state="approved">
             <span class="asset-type-label">html</span>
             <a href="essential-card.html" class="asset-name">june-email.html</a>
             <p class="asset-meta">html · email · 42 KB</p>
@@ -228,7 +243,7 @@
           </div>
 
           <!-- 4. brand-voice.md — Approved (all campaigns) -->
-          <div class="card asset-card">
+          <div class="card asset-card" data-campaign="all campaigns" data-type="doc" data-state="approved">
             <span class="asset-type-label">doc</span>
             <a href="essential-card.html" class="asset-name">brand-voice.md</a>
             <p class="asset-meta">doc · guideline · 18 KB</p>
@@ -239,7 +254,7 @@
           </div>
 
           <!-- 5. logo-pack.zip — Approved -->
-          <div class="card asset-card">
+          <div class="card asset-card" data-campaign="all campaigns" data-type="zip" data-state="approved">
             <span class="asset-type-label">zip</span>
             <a href="essential-card.html" class="asset-name">logo-pack.zip</a>
             <p class="asset-meta">zip · brand kit · 3.8 MB</p>
@@ -250,7 +265,7 @@
           </div>
 
           <!-- 6. social-carousel-v2.mp4 — In review -->
-          <div class="card asset-card">
+          <div class="card asset-card" data-campaign="webinar promo" data-type="video" data-state="review">
             <span class="asset-type-label">video</span>
             <a href="essential-card.html" class="asset-name">social-carousel-v2.mp4</a>
             <p class="asset-meta">video · social · 14.2 MB</p>
@@ -261,7 +276,7 @@
           </div>
 
           <!-- 7. paid-ad-copy.md — In review (✦ Atlas drafted) -->
-          <div class="card asset-card">
+          <div class="card asset-card" data-campaign="june launch" data-type="doc" data-state="review">
             <span class="asset-type-label">doc</span>
             <a href="essential-card.html" class="asset-name">paid-ad-copy.md</a>
             <p class="asset-meta">doc · ad copy · 8 KB</p>
@@ -275,7 +290,7 @@
           </div>
 
           <!-- 8. q3-launch-brief.md — Approved -->
-          <div class="card asset-card">
+          <div class="card asset-card" data-campaign="june launch" data-type="doc" data-state="approved">
             <span class="asset-type-label">doc</span>
             <a href="essential-card.html" class="asset-name">q3-launch-brief.md</a>
             <p class="asset-meta">doc · brief · 22 KB</p>
@@ -286,7 +301,7 @@
           </div>
 
           <!-- 9. webinar-lp-copy.md — In review -->
-          <div class="card asset-card">
+          <div class="card asset-card" data-campaign="webinar promo" data-type="doc" data-state="review">
             <span class="asset-type-label">doc</span>
             <a href="essential-card.html" class="asset-name">webinar-lp-copy.md</a>
             <p class="asset-meta">doc · landing page · 11 KB</p>
@@ -298,6 +313,13 @@
 
         </div>
 
+        <!-- No-match note when an active filter combination hides every card -->
+        <div class="empty asset-nomatch" id="assetNoMatch" aria-live="polite" style="margin-bottom:var(--space-8)">
+          <span class="empty-icon" aria-hidden="true">📎</span>
+          <p class="empty-title">No files match these filters</p>
+          <p class="empty-desc">Try a different campaign or file type, or <button type="button" class="btn-link" id="clearFiltersBtn">clear all filters</button>.</p>
+        </div>
+
         <!-- ── Latest activity ────────────────────────────────────────────── -->
         <div class="card" style="margin-bottom:var(--space-8)">
           <div class="card-header">
@@ -307,15 +329,15 @@
           <div class="feed">
 
             <div class="feed-item">
-              <span class="feed-ava" style="background:var(--chart-1)" aria-hidden="true">At</span>
+              <span class="feed-ava feed-ava--ai" style="background:var(--chart-1)" aria-label="Atlas, AI teammate">At</span>
               <div class="feed-body">
-                <strong>Atlas</strong> uploaded <a href="essential-card.html">paid-ad-copy.md</a> and sent it for review — June Launch.
+                <strong>Atlas</strong> <span class="u-subtle" style="font-size:var(--text-xs)">✦ AI</span> uploaded <a href="essential-card.html">paid-ad-copy.md</a> and sent it for review — June Launch.
               </div>
               <span class="feed-time">1h ago</span>
             </div>
 
             <div class="feed-item">
-              <span class="feed-ava" style="background:var(--chart-3)" aria-hidden="true">M</span>
+              <span class="feed-ava feed-ava--human" style="background:var(--chart-3)" aria-hidden="true">M</span>
               <div class="feed-body">
                 <strong>Maria</strong> approved <a href="essential-card.html">hero-launch.png</a>.
               </div>
@@ -323,7 +345,7 @@
             </div>
 
             <div class="feed-item">
-              <span class="feed-ava" style="background:var(--chart-2)" aria-hidden="true">D</span>
+              <span class="feed-ava feed-ava--human" style="background:var(--chart-2)" aria-hidden="true">D</span>
               <div class="feed-body">
                 <strong>Dan</strong> uploaded <a href="essential-card.html">webinar-banner.png</a> (v2) and requested review.
               </div>
@@ -331,7 +353,7 @@
             </div>
 
             <div class="feed-item">
-              <span class="feed-ava" style="background:var(--chart-3)" aria-hidden="true">M</span>
+              <span class="feed-ava feed-ava--human" style="background:var(--chart-3)" aria-hidden="true">M</span>
               <div class="feed-body">
                 <strong>Maria</strong> approved <a href="essential-card.html">june-email.html</a> — final version locked.
               </div>
@@ -339,7 +361,7 @@
             </div>
 
             <div class="feed-item">
-              <span class="feed-ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+              <span class="feed-ava feed-ava--human" style="background:var(--chart-2)" aria-hidden="true">AG</span>
               <div class="feed-body">
                 <strong>You</strong> uploaded <a href="essential-card.html">q3-launch-brief.md</a> to Assets.
               </div>
@@ -386,28 +408,113 @@
         }
       });
 
-      // Filter selection — highlight chosen option and update button label
+      // ── State-driven filtering (drives off data-* on each card, never a
+      //    regex over rendered text). Selected value is read from the chosen
+      //    option's data-value and applied against card data-campaign/data-type.
+      var grid = document.getElementById('assetGrid');
+      var cards = grid ? Array.prototype.slice.call(grid.querySelectorAll('.asset-card')) : [];
+      var countEl = document.getElementById('assetCount');
+      var noMatchEl = document.getElementById('assetNoMatch');
+      var selected = { campaign: 'all', type: 'all' };
+
+      // Map each filter menu to the card data attribute it constrains.
+      var menuToKey = { campaignFilterMenu: 'campaign', typeFilterMenu: 'type' };
+
+      function applyFilters() {
+        var visible = 0, approved = 0, review = 0;
+        cards.forEach(function (card) {
+          var campaign = (card.getAttribute('data-campaign') || '').toLowerCase();
+          var type = (card.getAttribute('data-type') || '').toLowerCase();
+          // 'all campaigns' assets are cross-campaign — they match any campaign filter.
+          var campaignOk = selected.campaign === 'all' ||
+                           campaign === selected.campaign ||
+                           campaign === 'all campaigns';
+          var typeOk = selected.type === 'all' || type === selected.type;
+          var show = campaignOk && typeOk;
+          if (show) {
+            card.removeAttribute('hidden');
+            visible++;
+            if (card.getAttribute('data-state') === 'approved') approved++;
+            else if (card.getAttribute('data-state') === 'review') review++;
+          } else {
+            card.setAttribute('hidden', '');
+          }
+        });
+        if (countEl) {
+          countEl.textContent = visible + (visible === 1 ? ' file · ' : ' files · ') +
+            approved + ' approved · ' + review + ' in review';
+        }
+        if (noMatchEl) noMatchEl.classList.toggle('is-visible', visible === 0);
+      }
+
+      // Filter selection — set state, reflect on trigger, re-run the filter.
       document.querySelectorAll('.sb-menu [role="option"]').forEach(function (opt) {
         opt.addEventListener('click', function (e) {
           e.stopPropagation();
           var menu = opt.closest('.sb-menu');
+          var key = menuToKey[menu.id];
           menu.querySelectorAll('[role="option"]').forEach(function (o) {
             o.setAttribute('aria-selected', 'false');
+            o.removeAttribute('aria-current');
             var s = o.querySelector('.sb-shortcut');
             if (s) s.remove();
           });
           opt.setAttribute('aria-selected', 'true');
+          opt.setAttribute('aria-current', 'true');
           var shortcut = document.createElement('span');
           shortcut.className = 'sb-shortcut';
           shortcut.textContent = 'current';
           opt.appendChild(shortcut);
-          // Update the button label
-          var btn = document.querySelector('[aria-controls="' + menu.id + '"]') ||
-                    document.querySelector('[aria-haspopup][id]');
-          // close
+
+          // Reflect the chosen value on the trigger button.
+          var value = opt.getAttribute('data-value') || 'all';
+          var short = opt.getAttribute('data-short') || 'All';
+          var trigger = document.querySelector('[aria-controls="' + menu.id + '"]') ||
+                        menu.parentNode.querySelector('[aria-haspopup]');
+          if (trigger) {
+            var valEl = trigger.querySelector('.filter-value');
+            if (valEl) valEl.textContent = short;
+            trigger.setAttribute('data-active', value === 'all' ? 'false' : 'true');
+          }
+
+          if (key) selected[key] = value;
+          applyFilters();
           menu.style.display = 'none';
+          if (trigger) { trigger.setAttribute('aria-expanded', 'false'); trigger.focus(); }
         });
       });
+
+      // Clear-all-filters escape from the no-match note.
+      var clearBtn = document.getElementById('clearFiltersBtn');
+      if (clearBtn) {
+        clearBtn.addEventListener('click', function () {
+          selected = { campaign: 'all', type: 'all' };
+          document.querySelectorAll('.sb-menu').forEach(function (menu) {
+            var opts = menu.querySelectorAll('[role="option"]');
+            opts.forEach(function (o, i) {
+              var isAll = o.getAttribute('data-value') === 'all';
+              o.setAttribute('aria-selected', isAll ? 'true' : 'false');
+              if (isAll) o.setAttribute('aria-current', 'true'); else o.removeAttribute('aria-current');
+              var s = o.querySelector('.sb-shortcut');
+              if (s) s.remove();
+              if (isAll) {
+                var sc = document.createElement('span');
+                sc.className = 'sb-shortcut';
+                sc.textContent = 'current';
+                o.appendChild(sc);
+              }
+            });
+          });
+          document.querySelectorAll('.filter-bar .btn[data-active]').forEach(function (t) {
+            t.setAttribute('data-active', 'false');
+            var v = t.querySelector('.filter-value');
+            if (v) v.textContent = 'All';
+          });
+          applyFilters();
+          var campBtn = document.getElementById('campaignFilterBtn');
+          if (campBtn) campBtn.focus();
+        });
+      }
     })();
   </script>
 </body>

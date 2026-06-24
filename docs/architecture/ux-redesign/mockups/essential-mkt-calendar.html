@@ -39,10 +39,21 @@
     .cal-grid-wrap { min-width: 0; }
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
     .cal-dow { background: var(--surface-2); padding: var(--space-2) var(--space-3); font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); text-align: center; text-transform: uppercase; letter-spacing: .04em; }
-    .cal-cell { background: var(--surface); min-height: 96px; padding: var(--space-2) var(--space-2) var(--space-3); display: flex; flex-direction: column; gap: 3px; align-items: stretch; }
+    .cal-cell { background: var(--surface); min-height: 96px; padding: var(--space-2) var(--space-2) var(--space-3); display: flex; flex-direction: column; gap: 3px; align-items: stretch; position: relative; }
     .cal-cell--empty { background: var(--surface-2); }
+    /* Day number is a REAL focusable control: it exposes the date to AT and opens that day's view. */
     .cal-cell--today .cal-day-num { background: var(--accent); color: var(--accent-fg); border-radius: var(--radius-full); width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
-    .cal-day-num { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-muted); margin-bottom: 2px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
+    .cal-cell--today .cal-day-num:hover { color: var(--accent-fg); }
+    .cal-day-num { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-muted); margin-bottom: 2px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; background: none; border: 0; font-family: inherit; padding: 0; cursor: pointer; }
+    .cal-day-num:hover { color: var(--fg); }
+    .cal-day-num:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--radius-full); }
+
+    /* Real focusable add-event affordance — replaces the old hover-only ::after.
+       Hidden until the cell is hovered or anything inside it is focused, but always keyboard-reachable. */
+    .cal-add { position: absolute; top: 4px; right: 5px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--fg-muted); font-size: var(--text-sm); line-height: 1; cursor: pointer; padding: 0; opacity: 0; transition: opacity var(--dur-fast); }
+    .cal-cell:hover .cal-add, .cal-cell:focus-within .cal-add { opacity: 1; }
+    .cal-add:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+    .cal-add:hover { background: var(--surface-3); color: var(--fg); }
 
     /* ── Event chip ─────────────────────────────────────────────────── */
     /* NO nested <a> inside a chip that is itself inside an <a> — chips are <div> */
@@ -81,12 +92,23 @@
     .cal-week-view.is-active { display: block; }
     .cal-month-view.is-hidden { display: none; }
 
-    /* ── Mobile collapse ─────────────────────────────────────────────── */
-    /* On small screens: hide the month grid, show only the Coming Up rail + legend */
+    /* ── Month agenda (mobile-only full scrollable list of the whole month) ── */
+    /* Hidden on desktop; on phones it REPLACES the unusable 7-col grid so the
+       complete month is still reachable as a single scrollable agenda. */
+    .cal-agenda { display: none; }
+    .cal-agenda-day { padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+    .cal-agenda-day:last-child { border-bottom: none; }
+    .cal-agenda-date { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); text-transform: uppercase; letter-spacing: .04em; margin-bottom: var(--space-2); }
+    .cal-agenda-date .cal-agenda-today { color: var(--accent); }
+    .cal-agenda-list { display: flex; flex-direction: column; gap: var(--space-2); }
+
+    /* ── Mobile layout ──────────────────────────────────────────────── */
     @media (max-width: 640px) {
       .cal-layout { grid-template-columns: 1fr; }
-      /* hide month grid on mobile — scrollable list is the Coming Up rail */
-      .cal-grid-wrap { display: none; }
+      /* The 7-col grid is unusable on a phone — hide it and show the full
+         scrollable month agenda instead (every event, not just the 7-day rail). */
+      .cal-month-view, .cal-week-view { display: none !important; }
+      .cal-agenda { display: block; max-height: 70vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
       .cal-rail { position: static; }
       .cal-toolbar { gap: var(--space-2); }
       .cal-month-nav { margin-top: var(--space-2); }
@@ -111,7 +133,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
     <span class="u-grow"></span>
-    <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
     <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative">
       <span aria-hidden="true">🔔</span>
       <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span>
@@ -230,13 +252,16 @@
 
               <!-- Week 1: Jun 1–7 (Jun 1 = Monday) -->
               <div class="cal-cell" role="gridcell" aria-label="June 1">
-                <span class="cal-day-num" aria-hidden="true">1</span>
+                <button class="cal-day-num" type="button" data-day="1" aria-label="Open June 1">1</button>
+                <button class="cal-add" type="button" data-add-day="1" aria-label="Add an event on June 1"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 2">
-                <span class="cal-day-num" aria-hidden="true">2</span>
+                <button class="cal-day-num" type="button" data-day="2" aria-label="Open June 2">2</button>
+                <button class="cal-add" type="button" data-add-day="2" aria-label="Add an event on June 2"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 3, 1 event">
-                <span class="cal-day-num" aria-hidden="true">3</span>
+                <button class="cal-day-num" type="button" data-day="3" aria-label="Open June 3">3</button>
+                <button class="cal-add" type="button" data-add-day="3" aria-label="Add an event on June 3"><span aria-hidden="true">＋</span></button>
                 <div class="cal-chip" role="button" tabindex="0" aria-label="Q3 Kickoff blog post · blog · Fall Newsletter · scheduled" onclick="">
                   <span class="cal-chip-title">Q3 Kickoff post</span>
                   <span class="cal-chip-meta">
@@ -248,10 +273,12 @@
                 </div>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 4">
-                <span class="cal-day-num" aria-hidden="true">4</span>
+                <button class="cal-day-num" type="button" data-day="4" aria-label="Open June 4">4</button>
+                <button class="cal-add" type="button" data-add-day="4" aria-label="Add an event on June 4"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 5, 3 events">
-                <span class="cal-day-num" aria-hidden="true">5</span>
+                <button class="cal-day-num" type="button" data-day="5" aria-label="Open June 5">5</button>
+                <button class="cal-add" type="button" data-add-day="5" aria-label="Add an event on June 5"><span aria-hidden="true">＋</span></button>
                 <div class="cal-chip" role="button" tabindex="0" aria-label="June newsletter · email · June Launch · scheduled">
                   <span class="cal-chip-title">June newsletter</span>
                   <span class="cal-chip-meta">
@@ -281,15 +308,18 @@
                 </div>
               </div>
               <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 6, weekend">
-                <span class="cal-day-num" style="color:var(--fg-subtle)" aria-hidden="true">6</span>
+                <button class="cal-day-num" style="color:var(--fg-subtle)" type="button" data-day="6" aria-label="Open June 6">6</button>
+                <button class="cal-add" type="button" data-add-day="6" aria-label="Add an event on June 6"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 7, weekend">
-                <span class="cal-day-num" style="color:var(--fg-subtle)" aria-hidden="true">7</span>
+                <button class="cal-day-num" style="color:var(--fg-subtle)" type="button" data-day="7" aria-label="Open June 7">7</button>
+                <button class="cal-add" type="button" data-add-day="7" aria-label="Add an event on June 7"><span aria-hidden="true">＋</span></button>
               </div>
 
               <!-- Week 2: Jun 8–14 -->
               <div class="cal-cell" role="gridcell" aria-label="June 8, 1 event">
-                <span class="cal-day-num" aria-hidden="true">8</span>
+                <button class="cal-day-num" type="button" data-day="8" aria-label="Open June 8">8</button>
+                <button class="cal-add" type="button" data-add-day="8" aria-label="Add an event on June 8"><span aria-hidden="true">＋</span></button>
                 <div class="cal-chip" role="button" tabindex="0" aria-label="IG carousel · social · Webinar promo · published">
                   <span class="cal-chip-title">IG carousel</span>
                   <span class="cal-chip-meta">
@@ -301,10 +331,12 @@
                 </div>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 9">
-                <span class="cal-day-num" aria-hidden="true">9</span>
+                <button class="cal-day-num" type="button" data-day="9" aria-label="Open June 9">9</button>
+                <button class="cal-add" type="button" data-add-day="9" aria-label="Add an event on June 9"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 10, 2 events">
-                <span class="cal-day-num" aria-hidden="true">10</span>
+                <button class="cal-day-num" type="button" data-day="10" aria-label="Open June 10">10</button>
+                <button class="cal-add" type="button" data-add-day="10" aria-label="Add an event on June 10"><span aria-hidden="true">＋</span></button>
                 <div class="cal-chip" role="button" tabindex="0" aria-label="IG story series · social · June Launch · published">
                   <span class="cal-chip-title">IG story series</span>
                   <span class="cal-chip-meta">
@@ -325,10 +357,12 @@
                 </div>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 11">
-                <span class="cal-day-num" aria-hidden="true">11</span>
+                <button class="cal-day-num" type="button" data-day="11" aria-label="Open June 11">11</button>
+                <button class="cal-add" type="button" data-add-day="11" aria-label="Add an event on June 11"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 12, 1 event">
-                <span class="cal-day-num" aria-hidden="true">12</span>
+                <button class="cal-day-num" type="button" data-day="12" aria-label="Open June 12">12</button>
+                <button class="cal-add" type="button" data-add-day="12" aria-label="Add an event on June 12"><span aria-hidden="true">＋</span></button>
                 <div class="cal-chip" role="button" tabindex="0" aria-label="Webinar invite email · email · Webinar promo · scheduled">
                   <span class="cal-chip-title">Webinar invite</span>
                   <span class="cal-chip-meta">
@@ -340,18 +374,22 @@
                 </div>
               </div>
               <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 13, weekend">
-                <span class="cal-day-num" style="color:var(--fg-subtle)" aria-hidden="true">13</span>
+                <button class="cal-day-num" style="color:var(--fg-subtle)" type="button" data-day="13" aria-label="Open June 13">13</button>
+                <button class="cal-add" type="button" data-add-day="13" aria-label="Add an event on June 13"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 14, weekend">
-                <span class="cal-day-num" style="color:var(--fg-subtle)" aria-hidden="true">14</span>
+                <button class="cal-day-num" style="color:var(--fg-subtle)" type="button" data-day="14" aria-label="Open June 14">14</button>
+                <button class="cal-add" type="button" data-add-day="14" aria-label="Add an event on June 14"><span aria-hidden="true">＋</span></button>
               </div>
 
               <!-- Week 3: Jun 15–21 -->
               <div class="cal-cell" role="gridcell" aria-label="June 15">
-                <span class="cal-day-num" aria-hidden="true">15</span>
+                <button class="cal-day-num" type="button" data-day="15" aria-label="Open June 15">15</button>
+                <button class="cal-add" type="button" data-add-day="15" aria-label="Add an event on June 15"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 16, 1 event">
-                <span class="cal-day-num" aria-hidden="true">16</span>
+                <button class="cal-day-num" type="button" data-day="16" aria-label="Open June 16">16</button>
+                <button class="cal-add" type="button" data-add-day="16" aria-label="Add an event on June 16"><span aria-hidden="true">＋</span></button>
                 <div class="cal-chip" role="button" tabindex="0" aria-label="Product Hunt teaser · social · Product Hunt push · draft">
                   <span class="cal-chip-title">PH teaser post</span>
                   <span class="cal-chip-meta">
@@ -363,10 +401,12 @@
                 </div>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 17">
-                <span class="cal-day-num" aria-hidden="true">17</span>
+                <button class="cal-day-num" type="button" data-day="17" aria-label="Open June 17">17</button>
+                <button class="cal-add" type="button" data-add-day="17" aria-label="Add an event on June 17"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 18, 2 events">
-                <span class="cal-day-num" aria-hidden="true">18</span>
+                <button class="cal-day-num" type="button" data-day="18" aria-label="Open June 18">18</button>
+                <button class="cal-add" type="button" data-add-day="18" aria-label="Add an event on June 18"><span aria-hidden="true">＋</span></button>
                 <div class="cal-chip" role="button" tabindex="0" aria-label="LinkedIn thread · social · Webinar promo · scheduled">
                   <span class="cal-chip-title">LinkedIn thread</span>
                   <span class="cal-chip-meta">
@@ -387,7 +427,8 @@
                 </div>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 19, 1 event">
-                <span class="cal-day-num" aria-hidden="true">19</span>
+                <button class="cal-day-num" type="button" data-day="19" aria-label="Open June 19">19</button>
+                <button class="cal-add" type="button" data-add-day="19" aria-label="Add an event on June 19"><span aria-hidden="true">＋</span></button>
                 <div class="cal-chip" role="button" tabindex="0" aria-label="Paid: launch ad set · paid · June Launch · scheduled">
                   <span class="cal-chip-title">Paid: launch set</span>
                   <span class="cal-chip-meta">
@@ -399,18 +440,22 @@
                 </div>
               </div>
               <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 20, weekend">
-                <span class="cal-day-num" style="color:var(--fg-subtle)" aria-hidden="true">20</span>
+                <button class="cal-day-num" style="color:var(--fg-subtle)" type="button" data-day="20" aria-label="Open June 20">20</button>
+                <button class="cal-add" type="button" data-add-day="20" aria-label="Add an event on June 20"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 21, weekend">
-                <span class="cal-day-num" style="color:var(--fg-subtle)" aria-hidden="true">21</span>
+                <button class="cal-day-num" style="color:var(--fg-subtle)" type="button" data-day="21" aria-label="Open June 21">21</button>
+                <button class="cal-add" type="button" data-add-day="21" aria-label="Add an event on June 21"><span aria-hidden="true">＋</span></button>
               </div>
 
               <!-- Week 4: Jun 22–28 -->
               <div class="cal-cell" role="gridcell" aria-label="June 22">
-                <span class="cal-day-num" aria-hidden="true">22</span>
+                <button class="cal-day-num" type="button" data-day="22" aria-label="Open June 22">22</button>
+                <button class="cal-add" type="button" data-add-day="22" aria-label="Add an event on June 22"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell cal-cell--today" role="gridcell" aria-label="June 23, today, 1 event" aria-current="date">
-                <span class="cal-day-num" aria-hidden="true">23</span>
+                <button class="cal-day-num" type="button" data-day="23" aria-label="Open June 23">23</button>
+                <button class="cal-add" type="button" data-add-day="23" aria-label="Add an event on June 23"><span aria-hidden="true">＋</span></button>
                 <div class="cal-chip" role="button" tabindex="0" aria-label="Launch blog post · blog · June Launch · scheduled">
                   <span class="cal-chip-title">Launch blog post</span>
                   <span class="cal-chip-meta">
@@ -422,13 +467,16 @@
                 </div>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 24">
-                <span class="cal-day-num" aria-hidden="true">24</span>
+                <button class="cal-day-num" type="button" data-day="24" aria-label="Open June 24">24</button>
+                <button class="cal-add" type="button" data-add-day="24" aria-label="Add an event on June 24"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 25">
-                <span class="cal-day-num" aria-hidden="true">25</span>
+                <button class="cal-day-num" type="button" data-day="25" aria-label="Open June 25">25</button>
+                <button class="cal-add" type="button" data-add-day="25" aria-label="Add an event on June 25"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 26, 1 event">
-                <span class="cal-day-num" aria-hidden="true">26</span>
+                <button class="cal-day-num" type="button" data-day="26" aria-label="Open June 26">26</button>
+                <button class="cal-add" type="button" data-add-day="26" aria-label="Add an event on June 26"><span aria-hidden="true">＋</span></button>
                 <div class="cal-chip" role="button" tabindex="0" aria-label="June newsletter resend · email · June Launch · draft">
                   <span class="cal-chip-title">Newsletter resend</span>
                   <span class="cal-chip-meta">
@@ -440,18 +488,22 @@
                 </div>
               </div>
               <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 27, weekend">
-                <span class="cal-day-num" style="color:var(--fg-subtle)" aria-hidden="true">27</span>
+                <button class="cal-day-num" style="color:var(--fg-subtle)" type="button" data-day="27" aria-label="Open June 27">27</button>
+                <button class="cal-add" type="button" data-add-day="27" aria-label="Add an event on June 27"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 28, weekend">
-                <span class="cal-day-num" style="color:var(--fg-subtle)" aria-hidden="true">28</span>
+                <button class="cal-day-num" style="color:var(--fg-subtle)" type="button" data-day="28" aria-label="Open June 28">28</button>
+                <button class="cal-add" type="button" data-add-day="28" aria-label="Add an event on June 28"><span aria-hidden="true">＋</span></button>
               </div>
 
               <!-- Week 5: Jun 29–30 + overflow padding -->
               <div class="cal-cell" role="gridcell" aria-label="June 29">
-                <span class="cal-day-num" aria-hidden="true">29</span>
+                <button class="cal-day-num" type="button" data-day="29" aria-label="Open June 29">29</button>
+                <button class="cal-add" type="button" data-add-day="29" aria-label="Add an event on June 29"><span aria-hidden="true">＋</span></button>
               </div>
               <div class="cal-cell" role="gridcell" aria-label="June 30, 1 event">
-                <span class="cal-day-num" aria-hidden="true">30</span>
+                <button class="cal-day-num" type="button" data-day="30" aria-label="Open June 30">30</button>
+                <button class="cal-add" type="button" data-add-day="30" aria-label="Add an event on June 30"><span aria-hidden="true">＋</span></button>
                 <div class="cal-chip" role="button" tabindex="0" aria-label="Q3 wrap-up email · email · Fall Newsletter · draft">
                   <span class="cal-chip-title">Q3 wrap-up email</span>
                   <span class="cal-chip-meta">
@@ -471,6 +523,155 @@
 
             </div><!-- /.cal-grid -->
           </div><!-- /.cal-month-view -->
+
+          <!-- ── Mobile month agenda ──────────────────────────────────────
+               The 7-column grid is unusable on a phone, so on ≤640px we show
+               this instead: a full, scrollable agenda of every event in June,
+               grouped by day. Each row is the same chip control as the grid. -->
+          <section class="cal-agenda" id="monthAgenda" aria-label="June 2026 agenda — all content, grouped by day">
+
+            <div class="cal-agenda-day">
+              <p class="cal-agenda-date">Wed · Jun 3</p>
+              <div class="cal-agenda-list">
+                <div class="cal-chip" role="button" tabindex="0" aria-label="Q3 Kickoff blog post · blog · Fall Newsletter · scheduled · June 3" data-agenda-day="3">
+                  <span class="cal-chip-title">Q3 Kickoff post</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">blog</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">Fall Newsletter</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cal-agenda-day">
+              <p class="cal-agenda-date">Fri · Jun 5</p>
+              <div class="cal-agenda-list">
+                <div class="cal-chip" role="button" tabindex="0" aria-label="June newsletter · email · June Launch · scheduled · June 5" data-agenda-day="5">
+                  <span class="cal-chip-title">June newsletter</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">email</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">June Launch</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+                <div class="cal-chip" role="button" tabindex="0" aria-label="IG teaser reel · social · June Launch · draft · June 5" data-agenda-day="5">
+                  <span class="cal-chip-title">IG teaser reel</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">social</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">June Launch</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">○</span> draft</span>
+                </div>
+                <div class="cal-chip" role="button" tabindex="0" aria-label="Paid: retargeting set · paid · June Launch · draft · June 5" data-agenda-day="5">
+                  <span class="cal-chip-title">Paid: retargeting</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">paid</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">June Launch</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">○</span> draft</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cal-agenda-day">
+              <p class="cal-agenda-date">Mon · Jun 8</p>
+              <div class="cal-agenda-list">
+                <div class="cal-chip" role="button" tabindex="0" aria-label="IG carousel · social · Webinar promo · published · June 8" data-agenda-day="8">
+                  <span class="cal-chip-title">IG carousel</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">social</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">Webinar promo</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">✓</span> published</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cal-agenda-day">
+              <p class="cal-agenda-date">Wed · Jun 10</p>
+              <div class="cal-agenda-list">
+                <div class="cal-chip" role="button" tabindex="0" aria-label="IG story series · social · June Launch · published · June 10" data-agenda-day="10">
+                  <span class="cal-chip-title">IG story series</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">social</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">June Launch</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">✓</span> published</span>
+                </div>
+                <div class="cal-chip" role="button" tabindex="0" aria-label="LinkedIn article · social · Webinar promo · scheduled · June 10" data-agenda-day="10">
+                  <span class="cal-chip-title">LinkedIn article</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">social</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">Webinar promo</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cal-agenda-day">
+              <p class="cal-agenda-date">Fri · Jun 12</p>
+              <div class="cal-agenda-list">
+                <div class="cal-chip" role="button" tabindex="0" aria-label="Webinar invite email · email · Webinar promo · scheduled · June 12" data-agenda-day="12">
+                  <span class="cal-chip-title">Webinar invite</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">email</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">Webinar promo</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cal-agenda-day">
+              <p class="cal-agenda-date">Tue · Jun 16</p>
+              <div class="cal-agenda-list">
+                <div class="cal-chip" role="button" tabindex="0" aria-label="Product Hunt teaser · social · Product Hunt push · draft · June 16" data-agenda-day="16">
+                  <span class="cal-chip-title">PH teaser post</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">social</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">Product Hunt push</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">○</span> draft</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cal-agenda-day">
+              <p class="cal-agenda-date">Thu · Jun 18</p>
+              <div class="cal-agenda-list">
+                <div class="cal-chip" role="button" tabindex="0" aria-label="LinkedIn thread · social · Webinar promo · scheduled · June 18" data-agenda-day="18">
+                  <span class="cal-chip-title">LinkedIn thread</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">social</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">Webinar promo</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+                <div class="cal-chip" role="button" tabindex="0" aria-label="Webinar reminder email · email · Webinar promo · draft · June 18" data-agenda-day="18">
+                  <span class="cal-chip-title">Webinar reminder</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">email</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">Webinar promo</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">○</span> draft</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cal-agenda-day">
+              <p class="cal-agenda-date">Fri · Jun 19</p>
+              <div class="cal-agenda-list">
+                <div class="cal-chip" role="button" tabindex="0" aria-label="Paid: launch ad set · paid · June Launch · scheduled · June 19" data-agenda-day="19">
+                  <span class="cal-chip-title">Paid: launch set</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">paid</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">June Launch</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cal-agenda-day">
+              <p class="cal-agenda-date"><span class="cal-agenda-today">Tue · Jun 23 · today</span></p>
+              <div class="cal-agenda-list">
+                <div class="cal-chip" role="button" tabindex="0" aria-label="Launch blog post · blog · June Launch · scheduled · June 23" data-agenda-day="23">
+                  <span class="cal-chip-title">Launch blog post</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">blog</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">June Launch</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cal-agenda-day">
+              <p class="cal-agenda-date">Fri · Jun 26</p>
+              <div class="cal-agenda-list">
+                <div class="cal-chip" role="button" tabindex="0" aria-label="June newsletter resend · email · June Launch · draft · June 26" data-agenda-day="26">
+                  <span class="cal-chip-title">Newsletter resend</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">email</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">June Launch</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">○</span> draft</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cal-agenda-day">
+              <p class="cal-agenda-date">Tue · Jun 30</p>
+              <div class="cal-agenda-list">
+                <div class="cal-chip" role="button" tabindex="0" aria-label="Q3 wrap-up email · email · Fall Newsletter · draft · June 30" data-agenda-day="30">
+                  <span class="cal-chip-title">Q3 wrap-up email</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-channel">email</span><span class="cal-chip-sep">·</span><span class="cal-chip-campaign">Fall Newsletter</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">○</span> draft</span>
+                </div>
+              </div>
+            </div>
+
+          </section><!-- /.cal-agenda -->
 
           <!-- Week view (hidden by default) -->
           <div class="cal-week-view" id="weekView" aria-label="Week view — Jun 23–29, 2026">
@@ -515,6 +716,22 @@
             <p class="empty-desc">Change the channel or campaign filter, or add the first event.</p>
             <a href="essential-event-new.html" class="btn btn-primary empty-cta"><span aria-hidden="true">＋</span> Add event</a>
           </div>
+
+          <!-- ── Day view — opened by a day-number button; collapsed by default ──────
+               Cross-project: shows everything landing on that day, not just this
+               campaign's pieces. Items + the add-event affordance are populated by JS. -->
+          <section class="cal-day-detail" id="dayDetail" aria-label="Selected day" tabindex="-1">
+            <div class="cal-day-detail-head">
+              <h3 id="dayDetailTitle">Day</h3>
+              <span class="cal-day-detail-count" id="dayDetailCount"></span>
+              <button class="cal-day-detail-close" type="button" id="dayDetailClose" aria-label="Close day view">×</button>
+            </div>
+            <div class="cal-day-detail-list" id="dayDetailList"></div>
+            <p class="cal-day-detail-empty" id="dayDetailEmpty" hidden>Nothing scheduled for this day yet.</p>
+            <div class="cal-day-detail-foot">
+              <a class="btn btn-ghost btn-sm" id="dayDetailAdd" href="essential-event-new.html"><span aria-hidden="true">＋</span> Add an event on this day</a>
+            </div>
+          </section>
 
         </div><!-- /.cal-grid-wrap -->
 
@@ -741,10 +958,18 @@
   .mcd-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
   .mcd-composer { display: flex; gap: var(--space-2); }
   .mcd-composer .textarea { flex: 1; min-height: 60px; }
-  /* a quiet, discoverable "add on this day" hint on cell hover */
-  .cal-grid .cal-cell { position: relative; }
-  .cal-grid .cal-cell:not(.cal-cell--empty):hover { cursor: pointer; }
-  .cal-grid .cal-cell:not(.cal-cell--empty):hover::after { content: '＋ add'; position: absolute; top: 4px; right: 6px; font-size: var(--text-xs); color: var(--fg-subtle); pointer-events: none; }
+
+  /* ── Day view panel — collapsed by default, opened by a day-number button ── */
+  .cal-day-detail { display: none; margin-top: var(--space-5); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-5); }
+  .cal-day-detail.is-open { display: block; }
+  .cal-day-detail-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+  .cal-day-detail-head h3 { font-size: var(--text-md); font-weight: var(--fw-semibold); color: var(--fg); margin: 0; }
+  .cal-day-detail-count { font-size: var(--text-xs); color: var(--fg-muted); }
+  .cal-day-detail-close { margin-left: auto; background: none; border: 1px solid var(--border); border-radius: var(--radius-md); width: 30px; height: 30px; font-size: var(--text-md); color: var(--fg-muted); cursor: pointer; }
+  .cal-day-detail-close:hover { background: var(--surface-2); color: var(--fg); }
+  .cal-day-detail-list { display: flex; flex-direction: column; gap: var(--space-2); }
+  .cal-day-detail-empty { font-size: var(--text-sm); color: var(--fg-muted); margin: 0; }
+  .cal-day-detail-foot { margin-top: var(--space-4); }
 </style>
 <div class="scrim" id="mcScrim" role="dialog" aria-modal="true" aria-labelledby="mcd-title">
   <aside class="drawer">
@@ -794,7 +1019,9 @@
       var s = ((chip.getAttribute('aria-label') || '') + ' ' + ((chip.querySelector('.cal-chip-status') || {}).textContent || '')).toLowerCase();
       var st = { g: '●', l: 'Scheduled' }; for (var i = 0; i < ST.length; i++) { if (s.indexOf(ST[i][0]) !== -1) { st = ST[i][1]; break; } }
       var m = CH[ch] || { eb: 'Content', who: 'Atlas', init: 'A', ai: true, c: 'var(--chart-2)' };
-      var cell = chip.closest('.cal-cell'); var day = cell ? ((cell.querySelector('.cal-day-num') || {}).textContent || '').trim() : '';
+      var cell = chip.closest('.cal-cell');
+      var day = cell ? ((cell.querySelector('.cal-day-num') || {}).textContent || '').trim()
+                     : (chip.getAttribute('data-agenda-day') || '').trim();
       $('mcd-title').textContent = title;
       $('mcd-eyebrow').textContent = (m.ai ? '✦ ' : '') + m.eb;
       var av = $('mcd-av'); av.textContent = m.init; av.style.background = m.c; av.className = 'sb-avatar sb-avatar--sm' + (m.ai ? ' sb-avatar--ai' : '');
@@ -810,17 +1037,89 @@
       $('mcd-actions').innerHTML = acts;
       open();
     }
+    // Every content chip (month grid + mobile agenda) opens the piece drawer.
     document.querySelectorAll('.cal-chip[role="button"]').forEach(function (chip) {
       chip.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); fill(chip); });
     });
-    // click an empty part of a day cell → add an event on that day
-    document.querySelectorAll('.cal-grid .cal-cell').forEach(function (cell) {
-      var num = cell.querySelector('.cal-day-num'); if (!num || !num.textContent.trim()) return;
-      cell.addEventListener('click', function (e) { if (e.target.closest('.cal-chip')) return; location.href = 'essential-event-new.html'; });
+
+    /* ── Day view (opened by a day-number button) ──────────────────────
+       A real, focusable day control that exposes the date to AT and opens a
+       cross-project view of everything landing on that day. */
+    var dayDetail = $('dayDetail');
+    var dayTitle = $('dayDetailTitle');
+    var dayCount = $('dayDetailCount');
+    var dayList = $('dayDetailList');
+    var dayEmpty = $('dayDetailEmpty');
+    var dayAdd = $('dayDetailAdd');
+    var dayClose = $('dayDetailClose');
+    var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var lastDayTrigger = null;
+
+    function cloneChipInto(srcChip, container) {
+      var node = srcChip.cloneNode(true);
+      node.removeAttribute('data-agenda-day');
+      node.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); fill(srcChip); });
+      node.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fill(srcChip); }
+      });
+      container.appendChild(node);
+    }
+
+    function openDay(day, trigger) {
+      if (!dayDetail) return;
+      lastDayTrigger = trigger || null;
+      var dow = DOW[new Date(2026, 5, Number(day)).getDay()];
+      var isToday = String(day) === '23';
+      dayTitle.textContent = dow + ' · June ' + day + (isToday ? ' · today' : '');
+      dayDetail.setAttribute('aria-label', 'Content on June ' + day);
+
+      // Pull this day's chips from the month grid (the source of truth).
+      dayList.innerHTML = '';
+      var cell = document.querySelector('#monthView .cal-cell [data-day="' + day + '"]');
+      cell = cell ? cell.closest('.cal-cell') : null;
+      var chips = cell ? cell.querySelectorAll('.cal-chip[role="button"]') : [];
+      chips.forEach(function (c) { cloneChipInto(c, dayList); });
+
+      var n = chips.length;
+      dayCount.textContent = n ? (n + (n === 1 ? ' item' : ' items')) : '';
+      dayEmpty.hidden = n !== 0;
+      if (dayAdd) dayAdd.setAttribute('aria-label', 'Add an event on June ' + day);
+
+      dayDetail.classList.add('is-open');
+      dayDetail.focus();
+      dayDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    function closeDay() {
+      if (!dayDetail) return;
+      dayDetail.classList.remove('is-open');
+      if (lastDayTrigger && document.contains(lastDayTrigger)) lastDayTrigger.focus();
+    }
+
+    // Day-number button → open that day's view. (Stop the click bubbling so the
+    // cell's own handler doesn't also fire.)
+    document.querySelectorAll('#monthView .cal-day-num[data-day]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        openDay(btn.getAttribute('data-day'), btn);
+      });
     });
+    // Real focusable per-day add affordance → go straight to the add-event flow.
+    document.querySelectorAll('.cal-add[data-add-day]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        location.href = 'essential-event-new.html';
+      });
+    });
+    if (dayClose) dayClose.addEventListener('click', closeDay);
+
     document.querySelectorAll('[data-mcd-close]').forEach(function (b) { b.addEventListener('click', close); });
     scrim.addEventListener('click', function (e) { if (e.target === scrim) close(); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && scrim.classList.contains('is-open')) close(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      // Esc closes the piece drawer first, then the day view — never hard-navigates.
+      if (scrim.classList.contains('is-open')) { close(); return; }
+      if (dayDetail && dayDetail.classList.contains('is-open')) { closeDay(); }
+    });
   })();
 </script>
 </body>

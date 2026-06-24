@@ -27,7 +27,15 @@
     .back-link { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
     .back-link:hover { color: var(--fg); text-decoration: none; }
     .ctx-sep { color: var(--fg-subtle); }
-    .page-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-8); }
+    .page-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-5); }
+
+    /* Waiting-on-you / progress band (Zeigarnik / Goal-Gradient) — label+glyph, deep-links to the work.
+       Left rule is a structural emphasis, not a status hue on a label; counts decrement as items clear. */
+    .needs-band { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-7); border-left: 3px solid var(--accent); }
+    .needs-band-glyph { flex: none; color: var(--fg-subtle); line-height: 1; font-size: var(--text-md); }
+    .needs-band-text { flex: 1 1 auto; min-width: 0; font-size: var(--text-base); color: var(--fg); }
+    .needs-band-text strong { font-weight: var(--fw-semibold); }
+    .needs-band-sub { font-size: var(--text-xs); color: var(--fg-muted); }
 
     /* To-do list card */
     .todo-list { margin-bottom: var(--space-6); }
@@ -52,6 +60,9 @@
     .todo-mini { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
     .todo-working { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--accent); font-weight: var(--fw-medium); white-space: nowrap; }
     .assignee { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-xs); color: var(--fg-muted); white-space: nowrap; }
+    /* One due-date grammar across every row: neutral badge + the ◷ waiting glyph + "Due X" label
+       (status by glyph+label, never a traffic-light hue — replaces the old badge-warning/dot-warning). */
+    .due-glyph { color: var(--fg-subtle); line-height: 1; }
 
     .todo-add-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-5); }
     .todo-add-btn { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--fg-subtle); background: none; border: none; cursor: pointer; padding: 0; font: inherit; }
@@ -82,7 +93,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
       <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -101,6 +112,19 @@
           <a href="essential-todo-new.html" class="btn btn-primary"><span aria-hidden="true">＋</span> Add a to-do</a>
         </div>
 
+        <!-- ── Progress band (Zeigarnik pull → one-click path to the work needing you) ── -->
+        <div class="card needs-band" role="status" aria-label="Your to-dos: 10 open, 8 due this week, 1 draft ready for your review"
+             data-open="10" data-due-week="8" data-drafts="1">
+          <span class="needs-band-glyph" aria-hidden="true">◷</span>
+          <div class="needs-band-text">
+            <strong><span data-count="open">10</span> open</strong>
+            · <span data-count="due-week">8</span> due this week
+            · <span data-count="drafts">1</span> draft ready for your review.
+            <span class="needs-band-sub">·&nbsp;<span data-count="done">4</span> done so far</span>
+          </div>
+          <a class="btn" href="#t1-3-row" role="button">Review the draft</a>
+        </div>
+
         <!-- LIST 1: June newsletter -->
         <article class="card todo-list" aria-label="To-do list: June newsletter">
           <div class="todo-list-header">
@@ -115,7 +139,7 @@
             <div class="todo-meta">
               <span class="todo-working"><span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span> Working…</span>
               <span class="todo-mini" aria-label="1 comment"><span aria-hidden="true">💬</span> 1</span>
-              <span class="badge badge-warning"><span class="dot dot-warning" aria-hidden="true"></span> Today</span>
+              <span class="badge due-badge" data-due="week" aria-label="Due today"><span class="due-glyph" aria-hidden="true">◷</span> Due today</span>
               <span class="assignee"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-1)" aria-hidden="true">A</span> Atlas</span>
             </div>
           </div>
@@ -124,18 +148,18 @@
             <label class="todo-check" for="t1-2" aria-label="Mark done"><input class="todo-cb" type="checkbox" id="t1-2"></label>
             <span class="todo-label">Pull together three customer quotes for the success story</span>
             <div class="todo-meta">
-              <span class="badge badge-warning"><span class="dot dot-warning" aria-hidden="true"></span> Today</span>
+              <span class="badge due-badge" data-due="week" aria-label="Due today"><span class="due-glyph" aria-hidden="true">◷</span> Due today</span>
               <span class="assignee"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-3)" aria-hidden="true">I</span> Iris</span>
             </div>
           </div>
 
-          <div class="todo-row">
+          <div class="todo-row" id="t1-3-row">
             <label class="todo-check" for="t1-3" aria-label="Mark done"><input class="todo-cb" type="checkbox" id="t1-3"></label>
             <span class="todo-label">Write the product spotlight section (3 new features)</span>
             <div class="todo-meta">
-              <span class="sb-badge sb-badge--accent">Draft ready · review</span>
+              <span class="sb-badge sb-badge--accent" data-draft-ready="true">Draft ready · review</span>
               <span class="todo-mini" aria-label="2 comments"><span aria-hidden="true">💬</span> 2</span>
-              <span class="badge"><span aria-hidden="true"></span> Fri</span>
+              <span class="badge due-badge" data-due="week" aria-label="Due Friday"><span class="due-glyph" aria-hidden="true">◷</span> Due Fri</span>
               <span class="assignee"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-1)" aria-hidden="true">A</span> Atlas</span>
             </div>
           </div>
@@ -171,7 +195,7 @@
             <span class="todo-label">Research key themes from the last 90 days of AI news</span>
             <div class="todo-meta">
               <span class="todo-working"><span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span> Working…</span>
-              <span class="badge badge-warning"><span class="dot dot-warning" aria-hidden="true"></span> Today</span>
+              <span class="badge due-badge" data-due="week" aria-label="Due today"><span class="due-glyph" aria-hidden="true">◷</span> Due today</span>
               <span class="assignee"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-4)" aria-hidden="true">N</span> Nexus</span>
             </div>
           </div>
@@ -180,7 +204,7 @@
             <label class="todo-check" for="t2-2" aria-label="Mark done"><input class="todo-cb" type="checkbox" id="t2-2"></label>
             <span class="todo-label">Draft the first 600 words — hook, context, and first trend</span>
             <div class="todo-meta">
-              <span class="badge"><span aria-hidden="true"></span> Fri</span>
+              <span class="badge due-badge" data-due="week" aria-label="Due Friday"><span class="due-glyph" aria-hidden="true">◷</span> Due Fri</span>
               <span class="assignee"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-1)" aria-hidden="true">A</span> Atlas</span>
             </div>
           </div>
@@ -190,7 +214,7 @@
             <span class="todo-label">Find 2–3 real-world examples to support each trend</span>
             <div class="todo-meta">
               <span class="todo-mini" aria-label="1 comment"><span aria-hidden="true">💬</span> 1</span>
-              <span class="badge"><span aria-hidden="true"></span> Fri</span>
+              <span class="badge due-badge" data-due="week" aria-label="Due Friday"><span class="due-glyph" aria-hidden="true">◷</span> Due Fri</span>
               <span class="assignee"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-4)" aria-hidden="true">N</span> Nexus</span>
             </div>
           </div>
@@ -199,7 +223,7 @@
             <label class="todo-check" for="t2-4" aria-label="Mark done"><input class="todo-cb" type="checkbox" id="t2-4"></label>
             <span class="todo-label">Write a closing take — what this means for small teams</span>
             <div class="todo-meta">
-              <span class="badge"><span aria-hidden="true"></span> Mon</span>
+              <span class="badge due-badge" data-due="next" aria-label="Due Monday"><span class="due-glyph" aria-hidden="true">◷</span> Due Mon</span>
               <span class="assignee"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-1)" aria-hidden="true">A</span> Atlas</span>
             </div>
           </div>
@@ -229,7 +253,7 @@
             <span class="todo-label">Write LinkedIn post announcing the blog article</span>
             <div class="todo-meta">
               <span class="todo-working"><span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span> Working…</span>
-              <span class="badge badge-warning"><span class="dot dot-warning" aria-hidden="true"></span> Today</span>
+              <span class="badge due-badge" data-due="week" aria-label="Due today"><span class="due-glyph" aria-hidden="true">◷</span> Due today</span>
               <span class="assignee"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-5)" aria-hidden="true">E</span> Echo</span>
             </div>
           </div>
@@ -239,7 +263,7 @@
             <span class="todo-label">Draft 3 Twitter/X posts from the newsletter highlights</span>
             <div class="todo-meta">
               <span class="todo-mini" aria-label="1 comment"><span aria-hidden="true">💬</span> 1</span>
-              <span class="badge"><span aria-hidden="true"></span> Fri</span>
+              <span class="badge due-badge" data-due="week" aria-label="Due Friday"><span class="due-glyph" aria-hidden="true">◷</span> Due Fri</span>
               <span class="assignee"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-5)" aria-hidden="true">E</span> Echo</span>
             </div>
           </div>
@@ -248,7 +272,7 @@
             <label class="todo-check" for="t3-3" aria-label="Mark done"><input class="todo-cb" type="checkbox" id="t3-3"></label>
             <span class="todo-label">Schedule all posts for the week at optimal times</span>
             <div class="todo-meta">
-              <span class="badge"><span aria-hidden="true"></span> Mon</span>
+              <span class="badge due-badge" data-due="next" aria-label="Due Monday"><span class="due-glyph" aria-hidden="true">◷</span> Due Mon</span>
               <span class="assignee"><span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-2)" aria-hidden="true">C</span> Cipher</span>
             </div>
           </div>
@@ -268,5 +292,83 @@
       </div>
     </main>
   </div>
+
+  <script>
+    /* Item #10 — Zeigarnik / Goal-Gradient: the "waiting on you" band decrements as you clear work.
+       Counts are recomputed from live row state (idempotent — re-toggling a check stays correct),
+       the deep-link scrolls to and focuses the draft awaiting your review. No traffic-light hues. */
+    (function () {
+      var band = document.querySelector('.needs-band');
+      if (!band) return;
+
+      var openEl   = band.querySelector('[data-count="open"]');
+      var dueEl    = band.querySelector('[data-count="due-week"]');
+      var draftEl  = band.querySelector('[data-count="drafts"]');
+      var doneEl   = band.querySelector('[data-count="done"]');
+      var reviewBtn = band.querySelector('a[role="button"]');
+
+      function rowDone(row) {
+        var cb = row.querySelector('input.todo-cb');
+        return !!(cb && cb.checked);
+      }
+
+      function recount() {
+        var rows = document.querySelectorAll('.todo-row');
+        var open = 0, due = 0, drafts = 0, done = 0;
+        rows.forEach(function (row) {
+          if (rowDone(row)) { done++; return; }   // cleared items leave the open tally
+          open++;
+          if (row.querySelector('[data-due="week"]')) due++;
+          if (row.querySelector('[data-draft-ready="true"]')) drafts++;
+        });
+
+        if (openEl)  openEl.textContent  = open;
+        if (dueEl)   dueEl.textContent   = due;
+        if (draftEl) draftEl.textContent = drafts;
+        if (doneEl)  doneEl.textContent  = done;
+
+        band.setAttribute('data-open', open);
+        band.setAttribute('data-due-week', due);
+        band.setAttribute('data-drafts', drafts);
+        band.setAttribute(
+          'aria-label',
+          'Your to-dos: ' + open + ' open, ' + due + ' due this week, ' +
+          drafts + ' draft' + (drafts === 1 ? '' : 's') + ' ready for your review'
+        );
+
+        // When nothing is left for you to review, the deep-link has no honest destination.
+        if (reviewBtn) reviewBtn.hidden = drafts === 0;
+      }
+
+      // Optimistic clear: toggling a check updates its own label, then the band recomputes.
+      document.querySelectorAll('input.todo-cb').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+          var row = cb.closest('.todo-row');
+          if (row) {
+            var check = row.querySelector('.todo-check');
+            var label = row.querySelector('.todo-label');
+            if (check) check.classList.toggle('checked', cb.checked);
+            if (label) label.classList.toggle('done', cb.checked);
+          }
+          recount();
+        });
+      });
+
+      // Deep-link: scroll to the draft row and move focus to it (Esc-free, single click).
+      if (reviewBtn) {
+        reviewBtn.addEventListener('click', function (e) {
+          var id = (reviewBtn.getAttribute('href') || '').replace('#', '');
+          var target = id && document.getElementById(id);
+          if (!target) return;
+          e.preventDefault();
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+          target.focus({ preventScroll: true });
+        });
+      }
+
+      recount();
+    })();
+  </script>
 </body>
 </html>

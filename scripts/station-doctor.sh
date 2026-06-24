@@ -6,14 +6,23 @@
 
 set -euo pipefail
 
-MC_PORT="${1:-3000}"
+MC_PORT=3000
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Parse args
-for arg in "$@"; do
-  case "$arg" in
-    --port) shift; MC_PORT="$1"; shift ;;
+# Parse args — owns all positional/flag parsing (mirrors notification-daemon.sh).
+# NB: a single `while [[ $# -gt 0 ]]` loop is the only place MC_PORT is set from
+# argv, so it can never hold the literal "--port" token.
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port)
+      MC_PORT="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
   esac
 done
 

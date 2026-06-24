@@ -129,6 +129,12 @@
     .cal-legend-item { display: inline-flex; align-items: center; gap: 5px; }
     .cal-legend-note { font-size: var(--text-xs); color: var(--fg-subtle); font-style: italic; }
     .cal-legend-label { font-weight: var(--fw-semibold); color: var(--fg-subtle); }
+    .cal-legend-disclosure { padding: var(--space-2) 0; }
+    .cal-legend-disclosure > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-sm); color: var(--fg-muted); }
+    .cal-legend-disclosure > summary::-webkit-details-marker { display: none; }
+    .cal-legend-disclosure > summary::before { content: "▸"; font-size: var(--text-xs); color: var(--fg-subtle); transition: transform var(--dur-fast); }
+    .cal-legend-disclosure[open] > summary::before { transform: rotate(90deg); }
+    .cal-legend-disclosure > summary:hover { color: var(--fg); }
 
     /* ── Month nav ──────────────────────────────────────────────────── */
     .cal-month-nav { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
@@ -192,7 +198,7 @@
       <a href="essential-find.html">Find…</a>
     </nav>
     <span class="u-grow"></span>
-    <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
     <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
     <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
   </header>
@@ -246,15 +252,15 @@
           </div>
           <div class="wb-row">
             <span class="wb-text"><span class="wb-glyph" aria-hidden="true">✦</span> Atlas refreshes the help-centre FAQ tomorrow, 9:00–9:40 am — running now.</span>
-            <button class="btn btn-ghost btn-sm" type="button" aria-label="Acknowledge the FAQ refresh run">OK</button>
           </div>
           <div class="wb-row">
             <span class="wb-text"><span class="wb-glyph" aria-hidden="true">🗓</span> Customer call Thursday at 2:00 pm, and the Team sync next Tuesday.</span>
-            <button class="btn btn-ghost btn-sm" type="button" aria-label="Acknowledge upcoming meetings">OK</button>
           </div>
           <div class="wb-row">
             <span class="wb-text"><span class="wb-glyph" aria-hidden="true">🎯</span> Q2 content goal check-in is due — Atlas will draft it for your sign-off.</span>
-            <button class="btn btn-ghost btn-sm" type="button" aria-label="Acknowledge the goal check-in">OK</button>
+          </div>
+          <div class="u-row" style="justify-content:flex-end;margin-top:var(--space-1)">
+            <button class="btn btn-ghost btn-sm" type="button" id="weekBriefGotIt" aria-label="Got it — dismiss this week's brief">Got it</button>
           </div>
         </div>
       </details>
@@ -577,28 +583,30 @@
             </div>
           </div>
 
-          <!-- Two-row legend -->
-          <div class="cal-legend" role="note" aria-label="Schedule legend" style="flex-direction:column;align-items:flex-start;gap:var(--space-1)">
-            <div class="u-row" style="gap:var(--space-4);flex-wrap:wrap">
-              <span class="cal-legend-label">Types:</span>
-              <span class="cal-legend-item"><span aria-hidden="true">🗓</span> meeting</span>
-              <span class="cal-legend-item"><span aria-hidden="true">✓</span> to-do due</span>
-              <span class="cal-legend-item"><span aria-hidden="true">🎯</span> goal</span>
-              <span class="cal-legend-item"><span aria-hidden="true">✦</span> agent run (AI)</span>
+          <!-- Legend — folded into a "what do these mean?" disclosure, trimmed to the statuses actually on this month -->
+          <details class="cal-legend-disclosure">
+            <summary class="cal-legend-summary"><span class="cal-legend-label">What do these mean?</span></summary>
+            <div class="cal-legend" role="note" aria-label="Schedule legend" style="flex-direction:column;align-items:flex-start;gap:var(--space-1);margin-top:var(--space-2)">
+              <div class="u-row" style="gap:var(--space-4);flex-wrap:wrap">
+                <span class="cal-legend-label">Types:</span>
+                <span class="cal-legend-item"><span aria-hidden="true">🗓</span> meeting</span>
+                <span class="cal-legend-item"><span aria-hidden="true">✓</span> to-do due</span>
+                <span class="cal-legend-item"><span aria-hidden="true">🎯</span> goal</span>
+                <span class="cal-legend-item"><span aria-hidden="true">✦</span> agent run (AI)</span>
+              </div>
+              <div class="u-row" style="gap:var(--space-4);flex-wrap:wrap">
+                <span class="cal-legend-label">Status:</span>
+                <span class="cal-legend-item"><span aria-hidden="true">●</span> scheduled</span>
+                <span class="cal-legend-item"><span aria-hidden="true">◦</span> upcoming/queued</span>
+                <span class="cal-legend-item"><span aria-hidden="true">◷</span> window</span>
+                <span class="cal-legend-item"><span aria-hidden="true">◐</span> running</span>
+                <span class="cal-legend-item"><span aria-hidden="true">✓</span> done</span>
+                <span class="cal-legend-item"><span aria-hidden="true">◴</span> on track</span>
+                <span class="cal-legend-item"><span aria-hidden="true">◑</span> at risk</span>
+              </div>
+              <span class="cal-legend-note">(type + status by glyph + label, never colour · ✦ = AI work · plain = human)</span>
             </div>
-            <div class="u-row" style="gap:var(--space-4);flex-wrap:wrap">
-              <span class="cal-legend-label">Status:</span>
-              <span class="cal-legend-item"><span aria-hidden="true">●</span> scheduled</span>
-              <span class="cal-legend-item"><span aria-hidden="true">◦</span> upcoming/queued</span>
-              <span class="cal-legend-item"><span aria-hidden="true">◷</span> window</span>
-              <span class="cal-legend-item"><span aria-hidden="true">◐</span> running</span>
-              <span class="cal-legend-item"><span aria-hidden="true">✓</span> done</span>
-              <span class="cal-legend-item"><span aria-hidden="true">◴</span> on track</span>
-              <span class="cal-legend-item"><span aria-hidden="true">◑</span> at risk</span>
-              <span class="cal-legend-item"><span aria-hidden="true">⏸</span> paused/skipped</span>
-            </div>
-            <span class="cal-legend-note">(type + status by glyph + label, never colour · ✦ = AI work · plain = human)</span>
-          </div>
+          </details>
 
         </div><!-- /.cal-grid-wrap -->
 
@@ -656,8 +664,8 @@
 
       </div><!-- /.sched-layout -->
 
-      <!-- ── Day-detail panel (Level 2) — rendered OPEN for Jun 24 ──────── -->
-      <section class="day-detail is-open" id="dayDetail" aria-label="Items on June 24">
+      <!-- ── Day-detail panel (Level 2) — collapsed by default; opens on a day click ──────── -->
+      <section class="day-detail" id="dayDetail" aria-label="Items on June 24">
         <div class="day-detail-head">
           <h3 id="dayDetailTitle">Wednesday · June 24 · today</h3>
           <span class="day-detail-count" id="dayDetailCount">4 items</span>
@@ -937,15 +945,58 @@
       });
     });
 
-    /* ── Day-detail panel (Level 2) ───────────────────────────────── */
+    /* ── Day-detail panel (Level 2) — collapsed by default, opens on a day click ──── */
     var dayDetail = document.getElementById('dayDetail');
     var dayDetailClose = document.getElementById('dayDetailClose');
-    function openDay() {
-      if (dayDetail) { dayDetail.classList.add('is-open'); dayDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+    var dayDetailTitle = document.getElementById('dayDetailTitle');
+    var dayDetailCount = document.getElementById('dayDetailCount');
+    var dayReturnFocus = null;            // restore focus to the day that opened the panel
+
+    // Day numbers (1-based) → label + item count. Only Jun 24 has the populated detail below;
+    // every other day opens the same panel honestly retitled with an empty state.
+    var DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    var DAY_ITEMS = { 2: 1, 4: 1, 9: 2, 11: 1, 12: 1, 15: 1, 16: 1, 17: 1, 19: 1, 23: 1, 24: 4, 25: 1, 26: 1, 28: 1, 29: 1, 30: 2 };
+    var populatedRows = dayDetail ? Array.prototype.slice.call(dayDetail.querySelectorAll('.day-group-label, .day-row')) : [];
+    var emptyNote = null;
+
+    function setDayContent(day) {
+      if (!dayDetail) return;
+      var n = parseInt(day, 10);
+      var count = DAY_ITEMS[n] || 0;
+      // June 1 2026 is a Monday → weekday index = (n + 0) % 7 with Jun 1 = Monday(1)
+      var dow = DOW[(n) % 7];
+      if (dayDetailTitle) dayDetailTitle.textContent = dow + ' · June ' + n + (n === 24 ? ' · today' : '');
+      if (dayDetailCount) dayDetailCount.textContent = count === 0 ? 'No items' : (count + (count === 1 ? ' item' : ' items'));
+      dayDetail.setAttribute('aria-label', 'Items on June ' + n);
+      // Show the pre-built rows only for the day they describe (Jun 24); otherwise an empty note.
+      var showPopulated = (n === 24);
+      populatedRows.forEach(function (el) { el.style.display = showPopulated ? '' : 'none'; });
+      if (!emptyNote) {
+        emptyNote = document.createElement('p');
+        emptyNote.className = 'day-row-meta';
+        emptyNote.style.padding = 'var(--space-3) 0';
+        emptyNote.textContent = 'Nothing scheduled on this day.';
+        dayDetail.appendChild(emptyNote);
+      }
+      emptyNote.hidden = showPopulated;
     }
-    function closeDay() { if (dayDetail) dayDetail.classList.remove('is-open'); }
+
+    function openDay(day, trigger) {
+      if (!dayDetail) return;
+      dayReturnFocus = trigger || null;
+      setDayContent(day);
+      dayDetail.classList.add('is-open');
+      dayDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      if (dayDetailClose) dayDetailClose.focus();
+    }
+    function closeDay() {
+      if (!dayDetail) return;
+      dayDetail.classList.remove('is-open');
+      if (dayReturnFocus && typeof dayReturnFocus.focus === 'function') dayReturnFocus.focus();
+      dayReturnFocus = null;
+    }
     document.querySelectorAll('.cal-day-num, .cal-more').forEach(function (el) {
-      el.addEventListener('click', function (e) { e.stopPropagation(); openDay(); });
+      el.addEventListener('click', function (e) { e.stopPropagation(); openDay(el.getAttribute('data-day'), el); });
     });
     if (dayDetailClose) dayDetailClose.addEventListener('click', closeDay);
 
@@ -987,8 +1038,20 @@
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
       if (scrim && scrim.classList.contains('is-open')) { closeDrawer(); return; }
+      if (dayDetail && dayDetail.classList.contains('is-open')) { closeDay(); return; }
       closeMenu();
     });
+
+    /* ── Atlas "Here's your week" brief: single "Got it" dismiss (acknowledge once) ─ */
+    var weekBrief = document.getElementById('weekBrief');
+    var weekBriefGotIt = document.getElementById('weekBriefGotIt');
+    if (weekBriefGotIt && weekBrief) {
+      weekBriefGotIt.addEventListener('click', function () {
+        weekBrief.open = false;          // collapse the brief; the actionable Reschedule row stays in the grid/rail
+        var summary = weekBrief.querySelector('summary');
+        if (summary) summary.focus();
+      });
+    }
 
     /* ── Show ▾ type filter ───────────────────────────────────────── */
     var showBtn = document.getElementById('showBtn');

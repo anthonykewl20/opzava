@@ -68,7 +68,7 @@
         <a href="essential-find.html">Find…</a>
       </nav>
       <span class="u-grow"></span>
-      <a class="btn btn-primary" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
       <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications"><span aria-hidden="true">🔔</span></a>
       <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
     </header>
@@ -99,7 +99,7 @@
                 </div>
               </div>
               <div class="u-row" style="gap:var(--space-2)">
-                <button class="btn btn-primary" id="doneBtn" type="button"><span aria-hidden="true">✓</span> Mark done</button>
+                <button class="btn" id="doneBtn" type="button"><span aria-hidden="true">✓</span> Mark done</button>
                 <div style="position:relative">
                   <button class="btn-icon btn" id="menuBtn" type="button" aria-label="Card actions" aria-haspopup="menu"><span aria-hidden="true">⋯</span></button>
                   <div class="sb-menu" id="cardMenu" style="display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:var(--z-dropdown)" role="menu">
@@ -145,14 +145,14 @@
 
             <!-- Tabs separate the concerns: easy to digest + navigate -->
             <div class="sb-tabs" role="tablist" aria-label="Card sections">
-              <button type="button" class="sb-tab" role="tab" data-panel="p-overview" aria-selected="true">Overview</button>
-              <button type="button" class="sb-tab" role="tab" data-panel="p-airun" aria-selected="false">AI Run</button>
-              <button type="button" class="sb-tab" role="tab" data-panel="p-evidence" aria-selected="false">Evidence &amp; Files <span class="sb-badge sb-badge--secondary" style="height:18px;margin-left:4px">5</span></button>
-              <button type="button" class="sb-tab" role="tab" data-panel="p-quality" aria-selected="false">Quality Review</button>
+              <button type="button" class="sb-tab" id="tab-overview" role="tab" data-panel="p-overview" aria-controls="p-overview" aria-selected="true" tabindex="0">Overview</button>
+              <button type="button" class="sb-tab" id="tab-airun" role="tab" data-panel="p-airun" aria-controls="p-airun" aria-selected="false" tabindex="-1">AI Run</button>
+              <button type="button" class="sb-tab" id="tab-evidence" role="tab" data-panel="p-evidence" aria-controls="p-evidence" aria-selected="false" tabindex="-1">Evidence &amp; Files <span class="sb-badge sb-badge--secondary" style="height:18px;margin-left:4px">5</span></button>
+              <button type="button" class="sb-tab" id="tab-quality" role="tab" data-panel="p-quality" aria-controls="p-quality" aria-selected="false" tabindex="-1">Quality Review</button>
             </div>
 
             <!-- ── Overview ─────────────────────────────────────────────────── -->
-            <section class="tabpanel" id="p-overview" role="tabpanel" style="margin-top:var(--space-5)">
+            <section class="tabpanel" id="p-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0" style="margin-top:var(--space-5)">
               <p style="line-height:var(--lh-normal)">A customer can't finish signing in: after entering their 2-factor code the page shows "invalid token". Echo reproduced it on a test account — the code seems to expire a few seconds early.</p>
 
               <h2 class="sec-h">Steps <span class="u-subtle" style="font-size:var(--text-xs);font-weight:400">· 2 of 4 done</span></h2>
@@ -209,13 +209,13 @@
                     </div>
                   </div>
                   <div class="typing" id="you" style="display:none;padding:0"><span class="u-subtle">You're typing</span><span class="dots human" aria-hidden="true"><i></i><i></i><i></i></span></div>
-                  <div><button class="btn btn-primary" type="button">Post comment</button></div>
+                  <div><button class="btn" type="button">Post comment</button></div>
                 </div>
               </div>
             </section>
 
             <!-- ── AI Run (terminal-style trace) ────────────────────────────── -->
-            <section class="tabpanel" id="p-airun" role="tabpanel" hidden style="margin-top:var(--space-5)">
+            <section class="tabpanel" id="p-airun" role="tabpanel" aria-labelledby="tab-airun" tabindex="0" hidden style="margin-top:var(--space-5)">
               <div class="u-between" style="margin-bottom:var(--space-3)">
                 <p class="u-muted" style="font-size:var(--text-sm)">How <strong>Echo</strong> worked this card, step by step — so you and other agents can audit what it did.</p>
                 <span class="u-row u-subtle" style="font-size:var(--text-xs);gap:6px"><span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span> live · 2m 14s</span>
@@ -238,7 +238,7 @@
             </section>
 
             <!-- ── Evidence & Files ─────────────────────────────────────────── -->
-            <section class="tabpanel" id="p-evidence" role="tabpanel" hidden style="margin-top:var(--space-5)">
+            <section class="tabpanel" id="p-evidence" role="tabpanel" aria-labelledby="tab-evidence" tabindex="0" hidden style="margin-top:var(--space-5)">
               <h2 class="sec-h" style="margin-top:0">Screenshots &amp; video</h2>
               <div class="ev-grid">
                 <div><div class="ev-thumb" style="background:linear-gradient(135deg,var(--chart-1),var(--chart-6))"><span aria-hidden="true">🖼</span></div><div class="ev-cap">error-screen.png · 1440×900 · 240 KB</div></div>
@@ -259,7 +259,7 @@
             </section>
 
             <!-- ── Quality Review ───────────────────────────────────────────── -->
-            <section class="tabpanel" id="p-quality" role="tabpanel" hidden style="margin-top:var(--space-5)">
+            <section class="tabpanel" id="p-quality" role="tabpanel" aria-labelledby="tab-quality" tabindex="0" hidden style="margin-top:var(--space-5)">
               <div class="sb-alert sb-alert--warning" role="status">
                 <span class="ico" aria-hidden="true">⚠</span>
                 <span class="sb-alert-title">Changes requested before this goes to the customer</span>
@@ -302,13 +302,27 @@
 
   <script>
     (function () {
-      // Tabs
-      document.querySelectorAll('.sb-tab').forEach(function (t) {
-        t.addEventListener('click', function () {
-          document.querySelectorAll('.sb-tab').forEach(function (x) { x.setAttribute('aria-selected', 'false'); });
-          document.querySelectorAll('.tabpanel').forEach(function (p) { p.hidden = true; });
-          t.setAttribute('aria-selected', 'true');
-          document.getElementById(t.dataset.panel).hidden = false;
+      // Tabs — ARIA tab pattern: roving tabindex (only the selected tab is
+      // tabbable) + Arrow/Home/End keys move selection and focus together.
+      var tabs = Array.prototype.slice.call(document.querySelectorAll('.sb-tab'));
+      function selectTab(t, focusIt) {
+        tabs.forEach(function (x) {
+          var on = x === t;
+          x.setAttribute('aria-selected', on ? 'true' : 'false');
+          x.tabIndex = on ? 0 : -1;
+          document.getElementById(x.dataset.panel).hidden = !on;
+        });
+        if (focusIt) t.focus();
+      }
+      tabs.forEach(function (t) {
+        t.addEventListener('click', function () { selectTab(t, false); });
+        t.addEventListener('keydown', function (e) {
+          var i = tabs.indexOf(t), nx = null;
+          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nx = tabs[(i + 1) % tabs.length];
+          else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') nx = tabs[(i - 1 + tabs.length) % tabs.length];
+          else if (e.key === 'Home') nx = tabs[0];
+          else if (e.key === 'End') nx = tabs[tabs.length - 1];
+          if (nx) { e.preventDefault(); selectTab(nx, true); }
         });
       });
       // Copy ID
@@ -326,12 +340,48 @@
       document.querySelector('.card').addEventListener('contextmenu', function (e) {
         e.preventDefault(); menu.style.display = 'block';
       });
-      // Alert-dialog
+      // Alert-dialog — modal contract: trap Tab inside, mark the background
+      // inert, move focus in on open, and restore focus to the trigger on close.
       var dlg = document.getElementById('doneDlg');
-      document.getElementById('doneBtn').addEventListener('click', function () { dlg.classList.add('open'); });
-      dlg.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', function () { dlg.classList.remove('open'); }); });
-      dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.classList.remove('open'); });
-      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') dlg.classList.remove('open'); });
+      var doneBtn = document.getElementById('doneBtn');
+      var bgRegions = Array.prototype.slice.call(document.querySelectorAll('.topbar, main'));
+      var dlgTrigger = null;
+      function setBgInert(on) {
+        bgRegions.forEach(function (r) {
+          r.inert = on;
+          if (on) r.setAttribute('aria-hidden', 'true'); else r.removeAttribute('aria-hidden');
+        });
+      }
+      function dlgFocusables() {
+        return Array.prototype.slice.call(
+          dlg.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+        ).filter(function (el) { return !el.disabled && el.offsetParent !== null; });
+      }
+      function openDlg() {
+        dlgTrigger = document.activeElement;
+        dlg.classList.add('open');
+        setBgInert(true);
+        var f = dlgFocusables();
+        if (f.length) f[0].focus();
+      }
+      function closeDlg() {
+        if (!dlg.classList.contains('open')) return;
+        dlg.classList.remove('open');
+        setBgInert(false);
+        (dlgTrigger || doneBtn).focus();
+      }
+      doneBtn.addEventListener('click', openDlg);
+      dlg.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', closeDlg); });
+      dlg.addEventListener('click', function (e) { if (e.target === dlg) closeDlg(); });
+      dlg.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { e.preventDefault(); closeDlg(); return; }
+        if (e.key !== 'Tab') return;
+        var f = dlgFocusables();
+        if (!f.length) return;
+        var first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      });
       // Live "you're typing…"
       var ta = document.getElementById('c'), you = document.getElementById('you'), mate = document.getElementById('mate');
       ta.addEventListener('input', function () { you.style.display = ta.value.trim() ? 'flex' : 'none'; if (mate && ta.value.trim()) mate.style.display = 'none'; });

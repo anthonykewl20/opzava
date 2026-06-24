@@ -11,15 +11,20 @@
 > surfaces)*; the **secret-storage approach** (F4) → [ARD 0008](../../ard/0008-secret-storage-and-resolution.md)
 > *(environment-provided secret references; no cleartext at rest)*. No item is decision-gated anymore.
 
+> **Status (2026-06-23):** **all phases complete** — every finding F1–F14 is resolved and gated; release
+> 2.1.0 is cut. The phase/finding markers below are updated to ✅; any "Remaining"/"pending" prose inside a
+> finding body is **historical** (it records the state at the time that bullet was written) unless the
+> finding's top-line status says otherwise.
+
 ## At a glance
 
 | Phase | Findings | Theme | Gate before merge |
 |------|----------|-------|-------------------|
 | **0 — Guardrails** ✅ | F8, F11 | Cheap correctness + stop regressions | **DONE** — governance gates in CI; cron bug fixed |
-| **1 — Make the live path safe** 🔴 🔄 | F4, F1 | The only live side effect (campaign send) is currently unsafe | live send is approval+idempotency+receipt gated; no cleartext secret on the wire |
-| **2 — Enforce product-integrity gates** 🔴 | F10, F3, F9 | "Anti-slop / fact-check / approval before draft" is currently decorative | a failed quality verdict halts the run; one orchestrator |
-| **3 — Make the durable runner real** 🟠 | F5, F6, F2 | Runner is built but never runs in background; admin config inert | daemon runs; retries/recovery/limits enforced; agent boundary defined |
-| **4 — Hygiene / debt** 🟡 | F7, F12 | Hardcoded models + ungated brand residue | governance tests cover both |
+| **1 — Make the live path safe** ✅ | F4, F1 | The only live side effect (campaign send) was unsafe | **DONE** — live send is approval+idempotency+receipt gated; no cleartext secret on the wire |
+| **2 — Enforce product-integrity gates** ✅ | F10, F3, F9 | "Anti-slop / fact-check / approval before draft" was decorative | **DONE** — a failed quality verdict halts the run at a single chokepoint |
+| **3 — Make the durable runner real** ✅ | F5, F6, F2 | Runner was built but never ran in background; admin config inert | **DONE** — daemon runs; retries/recovery/limits enforced; agent boundary defined |
+| **4 — Hygiene / debt** ✅ | F7, F12 | Hardcoded models + ungated brand residue | **DONE** — governance tests cover both |
 
 > **Sequencing rationale.** F4+F1 are first because the campaign Resend send is the *one shipping live external
 > side effect* and it is unsafe on two axes at once (reads cleartext secrets **and** bypasses the
@@ -55,13 +60,15 @@
 
 ---
 
-## Phase 1 — Make the one live path safe 🔴 (highest; ~3–5 days)
+## Phase 1 — Make the one live path safe — ✅ DONE (was 🔴 highest; ~3–5 days)
 
 > The campaign Resend send (`POST /api/campaigns/[id]/run`) is the only live external side effect. Today it
 > (a) reads `resend_api_key` cleartext from `settings` and (b) calls `adapter.execute()` directly, skipping the
 > built-and-tested approval/reservation/idempotency/cost boundary. Fix both on this shared code path together.
 
-### F4 — Real `SecretResolver` on the live path 🔴 🔄 (ARD 0008 accepted)
+### F4 — Real `SecretResolver` on the live path ✅ DONE (ARD 0008)
+> **✅ Status: DONE (milestone 2, 2026-06-22).** The live send resolves the key from env (no cleartext at
+> rest) **and** F1's guard wiring landed end-to-end; the "Remaining" notes below are historical.
 - **Decision:** ✅ [ARD 0008](../../ard/0008-secret-storage-and-resolution.md) — secrets resolve from the
   environment (`SecretReference.id` names an env var / Docker `_FILE` secret); the DB stores **only
   references**, never cleartext; resolver is an interface seam (encrypted-column / KMS reachable later).
@@ -91,7 +98,10 @@
   resolve; ✅ key no longer read cleartext on the send path. Pending: redacted audit/cost receipt (lands with
   F1), and removing the key from settings storage.
 
-### F1 — Approval-gate the live send + receipts 🔴 🔄
+### F1 — Approval-gate the live send + receipts ✅ DONE
+> **✅ Status: DONE + ENABLED (milestone 2, 2026-06-22).** Composition shipped (see "Composition DONE +
+> ENABLED" below); the only follow-up is the *atomic* reserve-before-execute, covered today by the runner's
+> atomic job lease.
 - **Done (core safety):** the hardcoded `approvalGranted: true` is **gone**. Approving a campaign now mints a
   real, persisted `Approval` (status `approved`, target `external-action:<campaignId>`, action `campaign.send`)
   **atomically** with the campaign transition; `runApprovedCampaign` loads it and **refuses to send unless it is
@@ -126,7 +136,7 @@
 
 ---
 
-## Phase 2 — Enforce product-integrity gates 🔴 (~3–4 days)
+## Phase 2 — Enforce product-integrity gates — ✅ DONE (was 🔴; ~3–4 days)
 
 ### F10 — Single enforcement chokepoint (drift risk eliminated) ✅
 - **Done (intent met):** rather than merge the two orchestrators (a risky refactor — the sync/mock executor
@@ -156,7 +166,7 @@
 
 ---
 
-## Phase 3 — Make the durable runner real 🟠 (Q1 resolved → ARD 0007; ~4–6 days)
+## Phase 3 — Make the durable runner real — ✅ DONE (was 🟠; Q1 resolved → ARD 0007; ~4–6 days)
 
 > **Q1 is resolved** ([ARD 0007](../../ard/0007-engine-separation-and-surface-unification.md): *separate
 > engines, unified surfaces*). The opzava runner daemon and admin settings are built **opzava-side, beside the
@@ -219,9 +229,12 @@
 
 ---
 
-## Phase 4 — Hygiene / debt 🟡 (~2–3 days)
+## Phase 4 — Hygiene / debt — ✅ DONE (was 🟡; ~2–3 days)
 
-### F7 — Centralize model ids + pricing out of `src/lib`
+### F7 — Centralize model ids + pricing out of `src/lib` ✅ DONE
+> **✅ Status: DONE (with F14).** All twelve inherited model-id/pricing sites route through
+> `src/lib/model-config.ts`; `test/no-hardcoded-models.test.mjs` enforces it (283 governance tests green).
+> The plan below is the original change spec.
 - **Change:** move the hardcoded model literals/pricing (`agent-templates.ts`, `task-dispatch.ts:479-523`,
   `token-pricing.ts:13-55`, `agent-runtimes.ts:122`) into admin-config; add a governance test banning
   `claude-<family>-<version>` literals in source (the opzava namespace already complies).
@@ -229,7 +242,11 @@
 - **Effort:** M · **Risk:** low-med · **Done-gate:** the new gate fails on a hardcoded id; runtime reads models
   from config.
 
-### F12 — Extend the branding gate to `scripts/` and fix residue
+### F12 — Extend the branding gate to `scripts/` and fix residue ✅ DONE
+> **✅ Status: DONE.** `scripts/mc-mcp-server.cjs` reports `serverInfo.name = 'opzava'`, and
+> `test/branding.test.mjs` has a dedicated `scripts/` invariant. Residual `mission-control` strings in
+> `scripts/` are sanctioned inherited references (the `MISSION_CONTROL_*` env vars, the `mission-control.db`
+> filename, `~/.mission-control`).
 - **Change:** widen `test/branding.test.mjs:75-91` to scan `scripts/`; fix `mc-mcp-server.cjs:734`
   (`serverInfo.name='mission-control'`) and the other `mission-control` residue in shell/TS scripts.
 - **Files:** `test/branding.test.mjs`, `scripts/*`. **Effort:** M · **Risk:** low · **Done-gate:** branding gate
