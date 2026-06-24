@@ -248,7 +248,17 @@ export const accessRequestActionSchema = z.object({
 export const connectSchema = z.object({
   tool_name: z.string().min(1, 'Tool name is required').max(100),
   tool_version: z.string().max(50).optional(),
-  agent_name: z.string().min(1, 'Agent name is required').max(100),
+  // B3: agent_name allowlist — secure charset (no path separators / control chars /
+  // leading dot-or-dash) to block name-squatting + traversal, but permissive enough
+  // for real agent names (uppercase, spaces, dots) so existing agents still connect.
+  agent_name: z
+    .string()
+    .min(1, 'Agent name is required')
+    .max(100)
+    .regex(
+      /^[A-Za-z0-9][A-Za-z0-9 _.\-]{1,62}$/,
+      'Agent name must be 2-63 chars (letters, digits, spaces, underscore, dot, or hyphen) and contain no path separators',
+    ),
   agent_role: z.string().max(100).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 })

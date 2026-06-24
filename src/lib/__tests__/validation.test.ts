@@ -11,7 +11,34 @@ import {
   createPipelineSchema,
   createWorkflowSchema,
   createMessageSchema,
+  connectSchema,
 } from '@/lib/validation'
+
+describe('connectSchema agent_name allowlist (B3)', () => {
+  const base = { tool_name: 'claude-code' }
+  const parse = (agent_name: string) => connectSchema.safeParse({ ...base, agent_name })
+
+  it('accepts real agent names (lowercase, uppercase, spaces, dots, hyphens)', () => {
+    for (const name of ['agent-a', 'Atlas', 'Repo Steward', 'agent_42', 'svc.v1']) {
+      expect(parse(name).success, `expected "${name}" to be valid`).toBe(true)
+    }
+  })
+
+  it('rejects path separators, traversal, control chars, and leading dot/dash', () => {
+    for (const name of [
+      '../../etc/passwd', // traversal
+      'a/b',              // path separator
+      'a\\b',             // backslash
+      '.hidden',          // leading dot
+      '-dash',            // leading dash
+      'a\tb',             // control char (tab)
+      '',                 // empty
+      'a',                // too short (min 2)
+    ]) {
+      expect(parse(name).success, `expected "${name}" to be rejected`).toBe(false)
+    }
+  })
+})
 
 describe('createTaskSchema', () => {
   it('accepts valid input with defaults', () => {

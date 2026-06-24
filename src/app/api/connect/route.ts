@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
+import { requireAgentSelfAccess } from '@/lib/enforcement/workspace-scope'
 import { validateBody, connectSchema } from '@/lib/validation'
 import { eventBus } from '@/lib/event-bus'
 import { randomUUID } from 'crypto'
@@ -23,14 +24,40 @@ export async function POST(request: NextRequest) {
   const now = Math.floor(Date.now() / 1000)
   const workspaceId = auth.user.workspace_id ?? 1;
 
+  // Principal-binding (B3): a scoped operator key may only connect as its OWN agent
+  // — blocks impersonation by connecting under an existing agent's name. Admins and
+  // human operators (no agent_name) are exempt.
+  const selfDeny = requireAgentSelfAccess(auth.user, agent_name)
+  if (selfDeny) return selfDeny
+
   // Find or create agent
   let agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(agent_name, workspaceId) as any
   if (!agent) {
-    const result = db.prepare(
-      `INSERT INTO agents (name, role, status, created_at, updated_at, workspace_id)
-       VALUES (?, ?, 'online', ?, ?, ?)`
-    ).run(agent_name, agent_role || 'cli', now, now, workspaceId)
-    agent = { id: result.lastInsertRowid, name: agent_name }
+    // Auto-provisioning a new agent is admin-only (B3): an operator-scoped key must
+    // not mint arbitrary agents (name squatting / impersonation). Operators connecting
+    // to a not-yet-provisioned agent get a clear 403 instead of a silent create.
+    if (auth.user.role !== 'admin') {
+      return NextResponse.json(
+        { error: `Agent "${agent_name}" not found; provisioning a new agent requires admin role.` },
+        { status: 403 },
+      )
+    }
+    try {
+      const result = db.prepare(
+        `INSERT INTO agents (name, role, status, created_at, updated_at, workspace_id)
+         VALUES (?, ?, 'online', ?, ?, ?)`
+      ).run(agent_name, agent_role || 'cli', now, now, workspaceId)
+      agent = { id: result.lastInsertRowid, name: agent_name }
+    } catch (err: any) {
+      // Collision: a concurrent connect created the agent between our SELECT and INSERT.
+      // Re-read instead of failing (409 would also be valid, but find-or-create semantics
+      // resolve to the now-existing agent).
+      const existing = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(agent_name, workspaceId) as any
+      if (!existing) {
+        return NextResponse.json({ error: `Failed to register agent: ${err.message}` }, { status: 409 })
+      }
+      agent = existing
+    }
     db_helpers.logActivity('agent_created', 'agent', agent.id as number, 'system',
       `Auto-created agent "${agent_name}" via direct CLI connection`, undefined, workspaceId)
     eventBus.broadcast('agent.created', { id: agent.id, name: agent_name })

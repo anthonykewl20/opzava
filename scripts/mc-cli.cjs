@@ -106,7 +106,11 @@ function loadProfile(name) {
     };
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const raw = fs.readFileSync(p, 'utf8')
+    // B3: tighten any pre-existing world-readable profile to 0o600 (best-effort —
+    // an odd filesystem that rejects chmod must not break profile loading).
+    try { fs.chmodSync(p, 0o600) } catch { /* best-effort */ }
+    const parsed = JSON.parse(raw)
     return {
       name,
       url: parsed.url || process.env.MC_URL || 'http://127.0.0.1:3000',
@@ -126,7 +130,9 @@ function loadProfile(name) {
 function saveProfile(profile) {
   const p = profilePath(profile.name);
   ensureParentDir(p);
-  fs.writeFileSync(p, `${JSON.stringify(profile, null, 2)}\n`, 'utf8');
+  // B3: persist credentials at 0o600 (was the fs default 0644 = world/group-readable,
+  // letting any co-located user/process read the API key + session cookie).
+  fs.writeFileSync(p, `${JSON.stringify(profile, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
 function normalizeBaseUrl(url) {
