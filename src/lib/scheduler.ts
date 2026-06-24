@@ -18,6 +18,7 @@ const BACKUP_DIR = join(dirname(config.dbPath), 'backups')
 const DAILY_MS = 24 * 60 * 60 * 1000
 const FIVE_MINUTES_MS = 5 * 60 * 1000
 const TICK_MS = 60 * 1000 // Check every minute
+const WAL_CHECKPOINT_MS = 10 * 60 * 1000 // WAL checkpoint cadence (PASSIVE frequently; TRUNCATE off-peak)
 
 // ---------------------------------------------------------------------------
 // Scheduled-task registry.
@@ -98,6 +99,15 @@ export const SCHEDULED_TASKS: readonly ScheduledTaskSpec[] = [
     intervalMs: DAILY_MS,
     firstRunDelay: () => getNextDailyMs(4), // ~4 AM UTC
     handler: () => runCleanup(),
+  },
+  {
+    id: 'wal_checkpoint',
+    name: 'WAL Checkpoint',
+    settingKey: 'general.wal_checkpoint',
+    defaultEnabled: true,
+    intervalMs: WAL_CHECKPOINT_MS,
+    firstRunDelay: () => 60_000, // first checkpoint 60s after startup
+    handler: () => runWalCheckpoint(),
   },
   {
     id: 'agent_heartbeat',
@@ -349,6 +359,28 @@ async function runCleanup(): Promise<{ ok: boolean; message: string }> {
     return { ok: true, message: `Cleaned ${totalDeleted} stale record${totalDeleted === 1 ? '' : 's'}${analyzed ? ' and updated query planner statistics' : ''}` }
   } catch (err: any) {
     return { ok: false, message: `Cleanup failed: ${err.message}` }
+  }
+}
+
+/**
+ * Checkpoint the WAL so the -wal file stays bounded. PASSIVE is non-blocking and
+ * runs every WAL_CHECKPOINT_MS; TRUNCATE (which truncates -wal to zero and
+ * briefly blocks writers) is reserved for the 3-5 AM UTC off-peak window so it
+ * never contends with live dispatch. Without this the -wal grows unbounded on a
+ * long-running standalone deploy — the operational failure mode the durability
+ * spine previously had no answer for (see ARD 0011 / MASTER-PLAN A0). The
+ * leader-heartbeat write (G1) is counted into this cadence.
+ */
+async function runWalCheckpoint(): Promise<{ ok: boolean; message: string }> {
+  try {
+    const db = getDatabase()
+    const hourUtc = new Date().getUTCHours()
+    const offPeak = hourUtc >= 3 && hourUtc < 5
+    const mode = offPeak ? 'TRUNCATE' : 'PASSIVE'
+    const row = (offPeak ? db.pragma('wal_checkpoint(TRUNCATE)') : db.pragma('wal_checkpoint(PASSIVE)')) as Array<{ busy: number; log: number; checkpointed: number }>
+    return { ok: true, message: `WAL checkpoint (${mode}): checkpointed ${row[0]?.checkpointed ?? 0} frame(s)` }
+  } catch (err: any) {
+    return { ok: false, message: `WAL checkpoint failed: ${err.message}` }
   }
 }
 

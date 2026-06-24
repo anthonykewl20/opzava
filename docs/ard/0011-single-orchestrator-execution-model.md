@@ -51,9 +51,11 @@ Two consequences make this load-bearing:
 - **Status quo.** Rejected: the horizontal-scale contradiction is a guaranteed double-dispatch at 2 replicas, not a low-probability race.
 - **External coordinator (Redis/etcd) for leader election.** Rejected for now: a SQLite advisory lock is dependency-free and sufficient; revisit only if read-replica fan-out exceeds SQLite's limits.
 
-## Durability decision (placeholder — filled when MASTER-PLAN A0 lands)
+## Durability decision (recorded by MASTER-PLAN A0, 2026-06-25)
 
-A0 records the `synchronous` level choice here: **default** keep `synchronous=NORMAL` (`db.ts:56`) + a mandatory default-on `wal_checkpoint` task; **recommended** upgrade to FULL for a control plane that records costs (benchmark-gated). The transactional write spine (A2) + the checkpoint close the residual crash-window either way. *This section is filled by the engineer executing A0.*
+**Decision: keep `synchronous = NORMAL` (`db.ts:56`) + a mandatory default-on `wal_checkpoint` scheduler task.** Rationale: NORMAL trades a small residual crash-window (the last few committed autocommits may not survive an OOM/`kill -9`) for ~2× write throughput, which matters because the spine is single-writer SQLite. That residual window is closed by the **transactional write spine (A2)** — once status flips + dependent writes commit in one `BEGIN IMMEDIATE` tx, the all-or-nothing boundary is inside the transaction regardless of NORMAL — and by the new **`wal_checkpoint` task** (`scheduler.ts`, `defaultEnabled: true`, PASSIVE every 10 min + TRUNCATE in the 3–5 AM UTC off-peak window) which bounds `-wal` growth that previously had no remedy.
+
+`synchronous = FULL` remains the recommended upgrade for a cost-recording control plane if a future benchmark on the operator's real workload shows the throughput cost is acceptable; the change is one `db.pragma` line and is recorded here when made. Until then NORMAL + the transactional spine + the checkpoint is the durability contract A2–A4 build against.
 
 ## References
 

@@ -11,7 +11,7 @@ Exported from `src/lib/scheduler.ts` (no barrel; `src/lib` is flat).
 Registry (the single source of truth for every scheduled task):
 - `ScheduledTaskSpec` (`scheduler.ts:42`) — `{ id, name, settingKey, defaultEnabled, intervalMs, firstRunDelay(now), handler(ctx) }`.
 - `ScheduledTaskContext` (`scheduler.ts:36`) — `{ manual: boolean }` passed to every handler; `manual` distinguishes a `triggerTask()` call from a scheduled tick.
-- `SCHEDULED_TASKS` (`scheduler.ts:83`) — `readonly` array of all 12 specs. initScheduler, `tick`, `getSchedulerStatus`, and `triggerTask` all derive from this.
+- `SCHEDULED_TASKS` (`scheduler.ts:83`) — `readonly` array of all 13 specs. initScheduler, `tick`, `getSchedulerStatus`, and `triggerTask` all derive from this.
 - `getRegisteredTaskIds()` (`scheduler.ts:195`) — the id list the API route uses as its allow-list.
 
 Lifecycle + API:
@@ -20,7 +20,7 @@ Lifecycle + API:
 - `triggerTask(taskId)` (`scheduler.ts:568`) — runs a task's handler with `{ manual: true }` immediately (for `POST /api/scheduler`).
 - `stopScheduler()` (`scheduler.ts:575`) — clears the tick interval.
 
-Internal helpers (not exported): `runBackup`, `runCleanup`, `runHeartbeatCheck`, `syncAgentLiveStatuses`, `runTaskDispatchChain`, `runGatewayAgentSync`, `tick`, `getNextDailyMs`, `isSettingEnabled`, `getSettingNumber`, `getEnvNumber`.
+Internal helpers (not exported): `runBackup`, `runCleanup`, `runWalCheckpoint`, `runHeartbeatCheck`, `syncAgentLiveStatuses`, `runTaskDispatchChain`, `runGatewayAgentSync`, `tick`, `getNextDailyMs`, `isSettingEnabled`, `getSettingNumber`, `getEnvNumber`.
 
 ## Dependencies
 - **Outbound** (what this imports): inherited `src/lib` only — `db`, `agent-sync`, `config`, `logger`, `webhooks`, `claude-sessions`, `sessions`, `event-bus`, `skill-sync`, `local-agent-sync`, `task-dispatch` (`makeDefaultDeps` + the five orchestrators), `recurring-tasks`. Inherited-engine module — does not cross into `src/opzava` (ARD 0007 / `test/engine-boundary.test.mjs`).
@@ -38,7 +38,7 @@ Internal helpers (not exported): `runBackup`, `runCleanup`, `runHeartbeatCheck`,
 
 ## Harmony rules
 - **Engine:** inherited `src/lib` (Engine-A live surface). It coexists with the opzava `platform/runner` maintenance daemon as a **separate timer** — the two engines are not merged (ARD 0007, `test/engine-boundary.test.mjs`). The scheduler owns the task lifecycle + retention; the runner owns campaign-send durability. Do not fold one into the other.
-- **Dead-surface / dead-wired:** none. All 12 registry entries are live and gated by real settings.
+- **Dead-surface / dead-wired:** none. All 13 registry entries are live and gated by real settings.
 
 ## Editor guardrails
 Copied verbatim from `docs/architecture/system-map/92-stale-findings.md` (scheduler entries):

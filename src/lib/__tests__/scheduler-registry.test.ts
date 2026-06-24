@@ -51,12 +51,14 @@ describe('scheduler registry', () => {
   })
 
   it('registry covers exactly the previously-hardcoded tasks', () => {
-    // These 12 ids were each `tasks.set(...)` in the pre-refactor initScheduler.
+    // These ids were each `tasks.set(...)` in the pre-refactor initScheduler.
     // Losing any one is a behavior regression (the API route's allow-list,
     // triggerTask, and the settings gates all depend on every id existing).
+    // `wal_checkpoint` (MASTER-PLAN A0) is the one addition since.
     const expected = [
       'auto_backup',
       'auto_cleanup',
+      'wal_checkpoint',
       'agent_heartbeat',
       'webhook_retry',
       'claude_session_scan',
@@ -78,6 +80,7 @@ describe('scheduler registry', () => {
     const expected: Record<string, { settingKey: string; defaultEnabled: boolean }> = {
       auto_backup: { settingKey: 'general.auto_backup', defaultEnabled: false },
       auto_cleanup: { settingKey: 'general.auto_cleanup', defaultEnabled: false },
+      wal_checkpoint: { settingKey: 'general.wal_checkpoint', defaultEnabled: true },
       agent_heartbeat: { settingKey: 'general.agent_heartbeat', defaultEnabled: true },
       webhook_retry: { settingKey: 'webhooks.retry_enabled', defaultEnabled: true },
       claude_session_scan: { settingKey: 'general.claude_session_scan', defaultEnabled: true },
@@ -101,11 +104,13 @@ describe('scheduler registry', () => {
     const byId = new Map(SCHEDULED_TASKS.map((t) => [t.id, t]))
     const DAILY = 24 * 60 * 60 * 1000
     const FIVE_MIN = 5 * 60 * 1000
+    const TEN_MIN = 10 * 60 * 1000
     const TICK = 60 * 1000
-    // auto_backup / auto_cleanup run daily; agent_heartbeat every 5m; the rest
-    // tick every 60s (claude_session_scan may be env-tuned but is >= TICK here).
+    // auto_backup / auto_cleanup run daily; wal_checkpoint every 10m; agent_heartbeat
+    // every 5m; the rest tick every 60s (claude_session_scan may be env-tuned but is >= TICK here).
     expect(byId.get('auto_backup')!.intervalMs).toBe(DAILY)
     expect(byId.get('auto_cleanup')!.intervalMs).toBe(DAILY)
+    expect(byId.get('wal_checkpoint')!.intervalMs).toBe(TEN_MIN)
     expect(byId.get('agent_heartbeat')!.intervalMs).toBe(FIVE_MIN)
     for (const id of [
       'webhook_retry', 'skill_sync', 'local_agent_sync', 'gateway_agent_sync',
