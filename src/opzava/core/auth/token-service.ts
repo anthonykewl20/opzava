@@ -147,6 +147,7 @@ export function resolveDeviceToken(deps: DeviceTokenDeps, bearer: string): Devic
   deps.db.prepare('UPDATE device_tokens SET last_seen_at = ? WHERE id = ?').run(deps.now(), row.id)
 
   return {
+    tokenId: row.id,
     userId: row.user_id,
     workspaceId: row.workspace_id,
     agentName: null,

@@ -52,6 +52,7 @@ export interface IssuedTokenPair {
 }
 
 export interface DevicePrincipal {
+  tokenId: number
   userId: number
   workspaceId: number
   agentName: string | null

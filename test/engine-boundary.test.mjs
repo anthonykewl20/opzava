@@ -88,11 +88,14 @@ function importsOpzava(source) {
 //   - status-actions.ts: health-action provider-readiness (content resolvers + env secret resolver)
 //   - logger.ts: log shipping into opzava observability
 //   - db.ts: opzava runner migration registration + maintenance-boot bridge (ARD 0007 coexistence)
+//   - auth.ts: device-token resolution (B1b) — resolveDeviceToken from core/auth, the fused
+//     principal-binding seam so device tokens share one authz path with agent-scoped keys
 // Adding a new crossing requires a deliberate entry here so the boundary stays machine-checkable.
 const SANCTIONED_LIB_OPZAVA_IMPORTERS = new Set([
   'src/lib/status-actions.ts',
   'src/lib/logger.ts',
   'src/lib/db.ts',
+  'src/lib/auth.ts',
 ]);
 
 // SQL references to the inherited `agents` table. The word "agents" appears widely in

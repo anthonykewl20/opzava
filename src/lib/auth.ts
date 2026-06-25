@@ -4,6 +4,7 @@ import { hashPassword, verifyPassword, verifyPasswordWithRehashCheck } from './p
 import { logSecurityEvent } from './security-events'
 import { extractClientIpFromTrusted } from './request'
 import { parseMcSessionCookieHeader } from './session-cookie'
+import { resolveDeviceToken } from '@/opzava/core/auth/token-service'
 
 // Trusted IPs for proxy auth header (comma-separated)
 const PROXY_AUTH_TRUSTED_IPS = new Set(
@@ -551,6 +552,45 @@ export function getUserFromRequest(request: Request): User | null {
       }
     } catch {
       // ignore missing table / startup race
+    }
+
+    // Device-authorization tokens (B1b, fused with principal-binding D-5). A Bearer that
+    // is not an agent API key may be a device token — resolve it via core/auth. Sits AFTER
+    // agent_api_keys (agent keys win) and BEFORE the plugin hook. Device tokens are
+    // principal-bound + scope-capped (never admin) by core/auth.
+    try {
+      const db = getDatabase()
+      const principal = resolveDeviceToken(
+        {
+          db,
+          now: () => Math.floor(Date.now() / 1000),
+          deriveRole: (scopes: string[]) => deriveRoleFromScopes(new Set(scopes)),
+          ...(process.env.MC_DEVICE_INSTANT_REVOKE === '1'
+            ? {
+                isAccessHashRevoked: (hash: string) =>
+                  !!db.prepare('SELECT 1 FROM revoked_access_tokens WHERE access_token_hash = ?').get(hash),
+              }
+            : {}),
+        },
+        apiKey,
+      )
+      if (principal) {
+        const now = Math.floor(Date.now() / 1000)
+        return {
+          id: -principal.tokenId,
+          username: `device:${principal.deviceId}`,
+          display_name: `Device ${principal.deviceId}`,
+          role: principal.role,
+          workspace_id: principal.workspaceId,
+          tenant_id: getDefaultWorkspaceContext().tenantId,
+          created_at: 0,
+          updated_at: now,
+          last_login_at: now,
+          agent_name: principal.agentName,
+        }
+      }
+    } catch {
+      // ignore missing device_tokens table / startup race
     }
 
     // Plugin hook: allow Pro (or other extensions) to resolve custom API keys
