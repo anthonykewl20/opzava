@@ -30,7 +30,7 @@ export function makeTaskExecutor(deps: ExecutorDeps): TaskExecutor {
     async execute({ task, plan }, signal) {
       const prompt = buildTaskPrompt(task)
       try {
-        const result = await deps.provider.invoke({ task, prompt, plan, signal })
+        const result = await deps.provider.invoke({ prompt, model: plan.model, signal })
         if (result.usage) deps.usageSink.record(task, result.usage)
 
         if (result.deferred) {

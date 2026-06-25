@@ -31,9 +31,9 @@ export interface TokenUsage {
 }
 
 export interface ProviderInvokeInput {
-  readonly task: ExecutorTask
+  /** The fully-built prompt. Callers (TaskExecutor / review step) own prompt construction. */
   readonly prompt: string
-  readonly plan: ExecutorPlan
+  readonly model: string
   readonly signal?: AbortSignal
 }
 
