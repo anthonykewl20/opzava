@@ -100,3 +100,49 @@ describe('main migrations — 056 quality_reviews.source (B2)', () => {
     expect(applied?.id).toBe('056_quality_reviews_source')
   })
 })
+
+describe('main migrations — 058 device_tokens / oauth_device_sessions / denylist (D1)', () => {
+  let db: Database.Database | null = null
+
+  afterEach(() => {
+    db?.close()
+    db = null
+  })
+
+  it('creates the three device-auth tables', () => {
+    db = new Database(':memory:')
+    runMigrations(db)
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('device_tokens', 'oauth_device_sessions', 'revoked_access_tokens') ORDER BY name",
+      )
+      .all() as Array<{ name: string }>
+    expect(tables.map((t) => t.name)).toEqual([
+      'device_tokens',
+      'oauth_device_sessions',
+      'revoked_access_tokens',
+    ])
+  })
+
+  it('device_tokens enforces UNIQUE(workspace_id, access_token_hash), workspace-scoped', () => {
+    db = new Database(':memory:')
+    runMigrations(db)
+    const ins = db.prepare(
+      'INSERT INTO device_tokens (user_id, workspace_id, device_id, access_token_hash, refresh_token_hash, rotation_chain_id, access_expires_at, refresh_expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    )
+    ins.run(1, 1, 'd1', 'ah1', 'rh1', 'c1', 100, 200)
+    expect(() => ins.run(1, 1, 'd2', 'ah1', 'rh2', 'c1', 100, 200)).toThrow() // dup (ws1, ah1)
+    expect(() => ins.run(1, 2, 'd3', 'ah1', 'rh3', 'c1', 100, 200)).not.toThrow() // same hash, diff workspace
+  })
+
+  it('is recorded + idempotent', () => {
+    db = new Database(':memory:')
+    runMigrations(db)
+    const row = db
+      .prepare("SELECT id FROM schema_migrations WHERE id = '058_device_tokens_oauth_sessions_denylist'")
+      .get() as { id: string } | undefined
+    expect(row?.id).toBe('058_device_tokens_oauth_sessions_denylist')
+    // Idempotent re-run: a throw fails the test.
+    runMigrations(db)
+  })
+})

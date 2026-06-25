@@ -1547,6 +1547,78 @@ const migrations: Migration[] = [
       db.exec(`UPDATE quality_reviews SET source = 'model' WHERE reviewer = 'aegis' AND source = 'human'`)
       db.exec(`CREATE INDEX IF NOT EXISTS idx_quality_reviews_source ON quality_reviews(source)`)
     }
+  },
+  {
+    id: '058_device_tokens_oauth_sessions_denylist',
+    up(db: Database.Database) {
+      // D1 (device-auth, RFC 8628): three tables. device_tokens mirrors agent_api_keys
+      // (040) + the rotation chain; oauth_device_sessions clones the access-requests
+      // approval template; revoked_access_tokens is the optional MC_DEVICE_INSTANT_REVOKE
+      // denylist. Folded into one migration (no separate 059) per MASTER-PLAN D1.
+      // workspace_id is NOT NULL with NO default — D2 requires an explicit workspace_id
+      // at issuance (closes the cross-tenant trap at the schema).
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS device_tokens (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          workspace_id INTEGER NOT NULL,
+          device_id TEXT NOT NULL,
+          device_label TEXT,
+          client_kind TEXT NOT NULL DEFAULT 'public',
+          scopes TEXT NOT NULL DEFAULT '[]',
+          access_token_hash TEXT NOT NULL,
+          refresh_token_hash TEXT NOT NULL,
+          refresh_token_prev_hash TEXT,
+          rotation_chain_id TEXT NOT NULL,
+          rotation_seq INTEGER NOT NULL DEFAULT 1,
+          access_expires_at INTEGER NOT NULL,
+          refresh_expires_at INTEGER NOT NULL,
+          rotated_at INTEGER,
+          last_seen_at INTEGER,
+          last_used_ip TEXT,
+          revoked_at INTEGER,
+          revoke_reason TEXT,
+          audience TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          UNIQUE(workspace_id, access_token_hash),
+          UNIQUE(workspace_id, refresh_token_hash)
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_device_tokens_rotation_chain_id ON device_tokens(rotation_chain_id)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_device_tokens_user_id ON device_tokens(user_id)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_device_tokens_device_id ON device_tokens(device_id)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_device_tokens_refresh_token_hash ON device_tokens(refresh_token_hash)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_device_tokens_access_expires_at ON device_tokens(access_expires_at)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_device_tokens_revoked_at ON device_tokens(revoked_at)`)
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS oauth_device_sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_code_canonical TEXT NOT NULL UNIQUE,
+          device_code_hash TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          user_id INTEGER,
+          scopes TEXT,
+          client_label TEXT,
+          requested_by_ip TEXT,
+          expires_at INTEGER NOT NULL,
+          approved_at INTEGER,
+          approved_by TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_oauth_device_sessions_status ON oauth_device_sessions(status)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_oauth_device_sessions_expires_at ON oauth_device_sessions(expires_at)`)
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS revoked_access_tokens (
+          access_token_hash TEXT PRIMARY KEY,
+          revoked_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          reason TEXT
+        )
+      `)
+    }
   }
 ]
 
