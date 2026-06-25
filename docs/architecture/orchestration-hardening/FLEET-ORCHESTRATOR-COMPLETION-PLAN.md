@@ -4,6 +4,16 @@
 > **design authority:** [ARD 0026](../../ard/0026-agent-fleet-and-main-orchestrator.md) (decisions 1–5 + hardening H1–H8) · [ARD 0025](../../ard/0025-task-dispatch-decomposition.md) (spine/executor/review) · [ARD 0014](../../ard/0014-workflow-engine.md) (graph core) · [ARD 0015](../../ard/0015-team-execution-and-surfaces-architecture.md) (single-operator, typed, delegated) · [MASTER-PLAN](MASTER-PLAN.md) (foundational A/G tracks) · codebase-design seam picks (gate + capacity, this session) · [CONTEXT.md](../../../CONTEXT.md)
 > **gate before code:** grilling ✅ · domain-modeling ✅ · codebase-design (design-it-twice) ✅ · ARD ✅. This plan is the verified bridge to `/tdd`.
 
+## Progress (updated 2026-06-26)
+
+The **in-memory decompose-and-execute pipeline is complete** — `decomposeAndExecute(card)` runs propose→gate→persist→hydrate→execute end-to-end; full suite 899 tests green, typecheck 0, governance green. 12 commits on `feat/orchestration-hardening`.
+
+**✅ Done (built + TDD'd):** `F1` migration 059 · `F2` core/model-tier · `S0`+`S1` TaskKanban spine + atomic AccountCapacity · `D0` CardDecomposition + rollup · `G0` OrchestrationPolicyGate · `R0` core/reviews (default-DENY) · `X0` TaskExecutor + ProviderPort (prompt-centric) · `E0` dispatch/review step adapters + engine execution · `M1` executeDecompose · `M2` proposeDecomposition (frontier-locked) + runDecomposition · `M3` core/routing strength matcher + hydration wiring · `decomposeAndExecute` capstone + `hydrateGraph`. `L0` leader-lock **primitive** pre-existing (verified).
+
+**◐ Partial:** `S2` lease (armed in the spine; not yet on the live claim sites) · `M4` frontier-lock (enforced at the proposal site; config-save/dispatch enforcement pending) · `V0` governance (architecture/engine-boundary/migration-id green; e2e pending).
+
+**⬜ Remaining (Phase 2 — integration):** `F0` ExecutionPlan-as-routing-authority · `T0` triage · `E1` runner-as-Engine-B · real `ProviderPort` adapters (creds) · `L0` scheduler-gating (2-replica validation) · Slice-3 dispatch rewire · `C0` Executor first-class · `K0` cost · `M5` degradation · API/UI · e2e. `CONTEXT.md` term sync is blocked by the unrelated content-pipeline edit.
+
 ## 0. Scope & completion contract
 
 **In scope (the full fleet capability, end-to-end):** the `MainOrchestrator` that plans work as graphs the engine runs, the `OrchestrationPolicyGate` that confirms its plans, the per-`AgentAccountProfile` `AccountCapacity` cap, `ModelTier` + the hard frontier-lock, `CardDecomposition` (simple→graph promotion), the `needs_decomposition` triage, `Executor` first-class, graph execution wired to the runner + Aegis-as-`ReviewStrategy`, cost attribution, and the API + UI surfaces — with failure + empty states, governance invariants, and e2e proof. No stubs, no mock-only paths, no TODO-driven logic.
