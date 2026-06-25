@@ -14,6 +14,32 @@ The **in-memory decompose-and-execute pipeline is complete** — `decomposeAndEx
 
 **⬜ Remaining (Phase 2 — integration):** `F0` ExecutionPlan-as-routing-authority · `T0` triage · `E1` runner-as-Engine-B · real `ProviderPort` adapters (creds) · `L0` scheduler-gating (2-replica validation) · Slice-3 dispatch rewire · `C0` Executor first-class · `K0` cost · `M5` degradation · API/UI · e2e. `CONTEXT.md` term sync is blocked by the unrelated content-pipeline edit.
 
+## ▶ Resume point — next session (2026-06-26)
+
+**State:** the in-memory orchestration core is complete (see §Progress) — 15 commits pushed through `54edae6` on `feat/orchestration-hardening`; `decomposeAndExecute(card)` runs propose→gate→persist→hydrate→execute; 904 tests green, typecheck 0.
+
+**This session's grilling — the provider/model strategy** (the cost-efficient model layer). Key reframe: the **frontier-lock is a capability *tier*, not the Claude brand** (`ModelTier`), so "do we need Claude?" splits by role:
+
+- **Orchestrator** (singleton, low-volume, frontier-locked) → **GPT via Codex CLI / ChatGPT subscription** — true frontier, **flat-rate** (the Codex sub, *not* the OpenAI API), and it **offloads the Claude sub** so interactive Claude Code never contends with the fleet. Auth is already detected: `provider-subscriptions.ts` reads `~/.codex/auth.json` (`auth_mode:"chatgpt"`).
+- **Workers** (many, volume, standard/economy tier) → a **cheap model pool**: GLM · Mimo (+ optionally MiniMax / Kimi). All speak the **OpenAI-compatible** API → they ride the existing `callOpenAICompatible` path (`task-dispatch.ts:837`); each is just an `AccountProfile` (base-url + key + model) in `AdminConfig` — **config, not code**. Routed per `TaskType` by the **M3 strength matcher** (`core/routing`, built).
+- **Claude Max 5x** → reserved for the operator's **interactive Claude Code**; the fleet never touches it.
+- **Avoided:** the Anthropic API key and the OpenAI API key — both pay-per-use traps. Only the cheap worker models could be pay-per-use, bounded by the `AccountCapacity` cap.
+
+Operator accounts (stated): GPT Plus ×20 · Claude Max 5x · GLM · Mimo; can add MiniMax / Kimi.
+
+**⛔ OPEN QUESTION — resume HERE:**
+1. Are the cheap worker models **flat-rate** (a GLM/Kimi *coding plan* / subscription) or **pay-per-use** (API key / OpenRouter)? → flat-rate = zero pay-per-use anywhere; API = cheap + capped.
+2. Which **one** cheap model to wire first as the v1 worker `AccountProfile`? (Recommend whichever is flat-rate — likely GLM.)
+3. (Minor / now moot for workers) "GPT Plus ×20" = 20 accounts vs one high-tier — only affects orchestrator headroom; one suffices.
+
+**Next build steps (once the open Q is answered):**
+1. **Codex-CLI `ProviderPort` adapter** (GPT orchestrator) — the analog of `callClaudeViaCli` (`task-dispatch.ts:778`); verify the headless `codex` print/JSON invocation; TDD with a stubbed spawn, then live.
+2. **Worker `AccountProfile`** for the chosen cheap model via the existing OpenAI-compatible path (config + a routing test).
+3. **`ModelTier` seed + `AccountRouting` defaults**: GPT-top → frontier (orchestrator); cheap models → standard/economy (workers, per `TaskType`).
+4. Live-verify the real providers end-to-end.
+
+**Still Phase-2 (needs operator):** real-provider live runs · `L0` scheduler-gating (2-replica validation) · Slice-3 dispatch rewire (golden-parity) · API/UI · e2e. `CONTEXT.md` orchestration-term sync is still blocked by the unrelated content-pipeline edit in the working tree.
+
 ## 0. Scope & completion contract
 
 **In scope (the full fleet capability, end-to-end):** the `MainOrchestrator` that plans work as graphs the engine runs, the `OrchestrationPolicyGate` that confirms its plans, the per-`AgentAccountProfile` `AccountCapacity` cap, `ModelTier` + the hard frontier-lock, `CardDecomposition` (simple→graph promotion), the `needs_decomposition` triage, `Executor` first-class, graph execution wired to the runner + Aegis-as-`ReviewStrategy`, cost attribution, and the API + UI surfaces — with failure + empty states, governance invariants, and e2e proof. No stubs, no mock-only paths, no TODO-driven logic.
