@@ -89,7 +89,22 @@ function makeFakeDeps(overrides: {
   const deps: TaskDispatchDeps = {
     db: makeFakeDb(state) as TaskDispatchDeps['db'],
     broadcast: (type, payload) => { broadcasts.push({ type, payload }) },
-    logActivity: (...args: unknown[]) => { activities.push(args) },
+    logActivity: (...args: unknown[]) => {
+      activities.push(args)
+      // logActivity now returns its broadcast payload (A2 tx-deferral); the dispatch
+      // code ignores it, so a shape-only stub satisfies the type.
+      return {
+        id: 0,
+        type: String(args[0] ?? ''),
+        entity_type: String(args[1] ?? ''),
+        entity_id: Number(args[2] ?? 0),
+        actor: String(args[3] ?? ''),
+        description: String(args[4] ?? ''),
+        data: args[5] ?? null,
+        created_at: 0,
+        workspace_id: Number(args[6] ?? 1),
+      }
+    },
     syncTaskOutbound: (task, workspaceId) => { syncOutbound.push({ task, workspaceId }) },
     clock: {
       now: () => fixedTime,

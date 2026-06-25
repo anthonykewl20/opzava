@@ -117,6 +117,14 @@ describe('logActivity', () => {
       'update', 'agent', 2, 'bob', 'Updated agent', JSON.stringify(data), 1,
     )
   })
+
+  it('A2: suppresses the broadcast and returns the payload when broadcast:false (tx deferral)', () => {
+    const payload = db_helpers.logActivity('task_created', 'task', 1, 'alice', 'Created', undefined, 1, { broadcast: false })
+
+    expect(mockRun).toHaveBeenCalled()
+    expect(mockBroadcast).not.toHaveBeenCalled()
+    expect(payload).toEqual(expect.objectContaining({ type: 'task_created', entity_id: 1, actor: 'alice' }))
+  })
 })
 
 describe('createNotification', () => {
@@ -146,6 +154,14 @@ describe('createNotification', () => {
     expect(mockRun).toHaveBeenCalledWith(
       'bob', 'alert', 'Alert', 'CPU high', 'agent', 5, 1,
     )
+  })
+
+  it('A2: suppresses the broadcast and returns the payload when broadcast:false (tx deferral)', () => {
+    const payload = db_helpers.createNotification('alice', 'mention', 'M', 'msg', 'task', 1, 1, { broadcast: false })
+
+    expect(mockRun).toHaveBeenCalled()
+    expect(mockBroadcast).not.toHaveBeenCalled()
+    expect(payload).toEqual(expect.objectContaining({ recipient: 'alice', type: 'mention' }))
   })
 })
 

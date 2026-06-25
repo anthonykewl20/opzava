@@ -458,7 +458,8 @@ export const db_helpers = {
     actor: string,
     description: string,
     data?: any,
-    workspaceId: number = 1
+    workspaceId: number = 1,
+    opts: { broadcast?: boolean } = {}
   ) => {
     const db = getDatabase();
     const stmt = db.prepare(`
@@ -480,8 +481,14 @@ export const db_helpers = {
       workspace_id: workspaceId,
     };
 
-    // Broadcast to SSE clients (webhooks listen here too)
-    eventBus.broadcast('activity.created', activityPayload);
+    // Broadcast to SSE clients (webhooks listen here too). Skipped when the caller is
+    // writing inside a transaction (A2): the broadcast must fire AFTER commit, else a
+    // rollback would announce an activity for a row that was discarded. The caller fires
+    // the returned payload itself once the transaction commits.
+    if (opts.broadcast !== false) {
+      eventBus.broadcast('activity.created', activityPayload);
+    }
+    return activityPayload;
   },
 
   /**
@@ -494,7 +501,8 @@ export const db_helpers = {
     message: string,
     source_type?: string,
     source_id?: number,
-    workspaceId: number = 1
+    workspaceId: number = 1,
+    opts: { broadcast?: boolean } = {}
   ) => {
     const db = getDatabase();
     const stmt = db.prepare(`
@@ -516,10 +524,11 @@ export const db_helpers = {
       workspace_id: workspaceId,
     };
 
-    // Broadcast to SSE clients (webhooks listen here too)
-    eventBus.broadcast('notification.created', notificationPayload);
-
-    return result;
+    // See logActivity: skipped inside a transaction so the broadcast fires post-commit.
+    if (opts.broadcast !== false) {
+      eventBus.broadcast('notification.created', notificationPayload);
+    }
+    return notificationPayload;
   },
 
   /**

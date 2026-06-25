@@ -252,6 +252,10 @@ async function handlePost(request: NextRequest) {
       if (existing) return respondIdempotent(existing.id)
     }
 
+    // A2: broadcasts produced inside the transaction (broadcast:false on the helpers)
+    // are collected here and fired only after the transaction commits.
+    const pendingBroadcasts: Array<() => void> = []
+
     const createTaskTx = db.transaction(() => {
       db.prepare(`
         UPDATE projects
@@ -299,7 +303,43 @@ async function handlePost(request: NextRequest) {
         workspaceId,
         client_request_id ?? null
       )
-      return Number(dbResult.lastInsertRowid)
+      const newTaskId = Number(dbResult.lastInsertRowid)
+
+      // A2: dependent writes (activity log + subscriptions + notifications) are part of
+      // the SAME transaction as the task INSERT — atomic. Broadcasts are suppressed here
+      // (broadcast:false) and collected; the caller fires them AFTER commit so a rollback
+      // never announces a discarded task.
+      const activity = db_helpers.logActivity('task_created', 'task', newTaskId, actor, `Created task: ${title}`, {
+        title,
+        status: normalizedStatus,
+        priority,
+        assigned_to: finalAssignedTo,
+        ...(outcome ? { outcome } : {}),
+      }, workspaceId, { broadcast: false })
+      pendingBroadcasts.push(() => eventBus.broadcast('activity.created', activity))
+
+      if (actor) {
+        db_helpers.ensureTaskSubscription(newTaskId, actor, workspaceId)
+      }
+      for (const recipient of mentionResolution.recipients) {
+        db_helpers.ensureTaskSubscription(newTaskId, recipient, workspaceId)
+        if (recipient === actor) continue
+        const mention = db_helpers.createNotification(
+          recipient, 'mention', 'You were mentioned in a task description',
+          `${actor} mentioned you in task "${title}"`, 'task', newTaskId, workspaceId, { broadcast: false },
+        )
+        pendingBroadcasts.push(() => eventBus.broadcast('notification.created', mention))
+      }
+      if (finalAssignedTo) {
+        db_helpers.ensureTaskSubscription(newTaskId, finalAssignedTo, workspaceId)
+        const assignment = db_helpers.createNotification(
+          finalAssignedTo, 'assignment', 'Task Assigned',
+          `You have been assigned to task: ${title}`, 'task', newTaskId, workspaceId, { broadcast: false },
+        )
+        pendingBroadcasts.push(() => eventBus.broadcast('notification.created', assignment))
+      }
+
+      return newTaskId
     })
 
     let taskId: number
@@ -317,47 +357,10 @@ async function handlePost(request: NextRequest) {
       throw err
     }
 
-    // Log activity
-    db_helpers.logActivity('task_created', 'task', taskId, actor, `Created task: ${title}`, {
-      title,
-      status: normalizedStatus,
-      priority,
-      assigned_to: finalAssignedTo,
-      ...(outcome ? { outcome } : {})
-    }, workspaceId);
+    // A2: fire the deferred broadcasts now (post-commit). On a UNIQUE-race or other
+    // throw the try/catch above returned, so these never fire for a discarded task.
+    for (const fire of pendingBroadcasts) fire()
 
-    if (actor) {
-      db_helpers.ensureTaskSubscription(taskId, actor, workspaceId)
-    }
-
-    for (const recipient of mentionResolution.recipients) {
-      db_helpers.ensureTaskSubscription(taskId, recipient, workspaceId);
-      if (recipient === actor) continue;
-      db_helpers.createNotification(
-        recipient,
-        'mention',
-        'You were mentioned in a task description',
-        `${actor} mentioned you in task "${title}"`,
-        'task',
-        taskId,
-        workspaceId
-      );
-    }
-
-    // Create notification if assigned (including coordinator auto-routing)
-    if (finalAssignedTo) {
-      db_helpers.ensureTaskSubscription(taskId, finalAssignedTo, workspaceId)
-      db_helpers.createNotification(
-        finalAssignedTo,
-        'assignment',
-        'Task Assigned',
-        `You have been assigned to task: ${title}`,
-        'task',
-        taskId,
-        workspaceId
-      );
-    }
-    
     // Fetch the created task
     const createdTask = db.prepare(`
       SELECT t.*, p.name as project_name, p.ticket_prefix as project_prefix
