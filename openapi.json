@@ -2192,6 +2192,273 @@
         }
       }
     },
+    "/api/auth/device/code": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Device-authorization request (RFC 8628 §3.1)",
+        "operationId": "deviceAuthorizationCode",
+        "security": [],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "client_id": {
+                    "type": "string"
+                  },
+                  "client_label": {
+                    "type": "string"
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Device + user code issued (RFC 8628 §3.2). The agent polls /api/auth/device/token with grant_type=device_code while the user approves at verification_uri.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "device_code",
+                    "user_code",
+                    "verification_uri",
+                    "expires_in",
+                    "interval"
+                  ],
+                  "properties": {
+                    "device_code": {
+                      "type": "string"
+                    },
+                    "user_code": {
+                      "type": "string"
+                    },
+                    "verification_uri": {
+                      "type": "string"
+                    },
+                    "expires_in": {
+                      "type": "integer"
+                    },
+                    "interval": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/auth/device/token": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Device-authorization token endpoint (device_code + refresh_token grants)",
+        "operationId": "deviceAuthorizationToken",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "grant_type"
+                ],
+                "properties": {
+                  "grant_type": {
+                    "type": "string",
+                    "enum": [
+                      "device_code",
+                      "refresh_token"
+                    ]
+                  },
+                  "device_code": {
+                    "type": "string",
+                    "description": "Required when grant_type=device_code."
+                  },
+                  "refresh_token": {
+                    "type": "string",
+                    "description": "Required when grant_type=refresh_token."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token pair issued (or rotated). access_token is a Bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "access_token": {
+                      "type": "string"
+                    },
+                    "refresh_token": {
+                      "type": "string"
+                    },
+                    "token_type": {
+                      "type": "string"
+                    },
+                    "expires_in": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request, unsupported_grant_type, authorization_pending, or expired_token (RFC 8628 §3.5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_grant or access_denied (token revoked, reuse detected, or session denied).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already_rotated — a concurrent refresh won; keep using the current token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/auth/device/approve": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Approve or deny a pending device-authorization session (RFC 8628 browser leg)",
+        "operationId": "deviceAuthorizationApprove",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "user_code",
+                  "action"
+                ],
+                "properties": {
+                  "user_code": {
+                    "type": "string"
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "approve",
+                      "deny"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session decided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "approved",
+                        "denied"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "No such session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Session already decided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Session expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
     "/api/auth/google": {
       "post": {
         "tags": [
