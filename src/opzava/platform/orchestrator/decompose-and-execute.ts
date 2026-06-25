@@ -1,4 +1,6 @@
 import type { GateDenial } from '@/opzava/core/orchestration-policy/contracts'
+import type { AgentCapability } from '@/opzava/core/routing/contracts'
+import { assignWorker } from '@/opzava/core/routing/assign-worker'
 import { executeGraph } from '@/opzava/core/workflow-engine/engine'
 import type { StepContract, WorkflowGraph } from '@/opzava/core/workflow-engine/contracts'
 import type { ProviderPort, TaskExecutor } from '@/opzava/platform/execution/contracts'
@@ -19,7 +21,10 @@ import { runDecomposition, type RunDecompositionDeps, type RunDecompositionInput
 
 export interface HydrateOptions {
   readonly card: ProposeCard
-  readonly workerModel: string
+  /** The fleet — each dispatch step is assigned to its best-fit agent (strength match, M3). */
+  readonly agents: readonly AgentCapability[]
+  /** Model used when no agent matches (empty fleet / zero score is still assigned, so this is rare). */
+  readonly fallbackModel: string
 }
 
 export function hydrateGraph(graph: WorkflowGraph, opts: HydrateOptions): WorkflowGraph {
@@ -32,12 +37,15 @@ export function hydrateGraph(graph: WorkflowGraph, opts: HydrateOptions): Workfl
   const steps = graph.steps.map((s) => {
     if (s.kind === DISPATCH_STEP_KIND) {
       const intent = typeof s.data.intent === 'string' && s.data.intent ? s.data.intent : opts.card.title
+      // M3: assign the step to its best-fit agent by strength; use that agent's model.
+      const assigned = assignWorker(intent, opts.agents)
+      const model = assigned?.agent.model ?? opts.fallbackModel
       return {
         ...s,
         data: {
           ...s.data,
           task: { id: opts.card.id, title: intent, description: opts.card.description ?? null },
-          plan: { model: opts.workerModel },
+          plan: { model, agent: assigned?.agent.name ?? null },
         },
       }
     }
@@ -54,7 +62,9 @@ export function hydrateGraph(graph: WorkflowGraph, opts: HydrateOptions): Workfl
 }
 
 export interface DecomposeAndExecuteInput extends RunDecompositionInput {
-  readonly workerModel: string
+  /** The fleet available to execute the graph's dispatch steps (strength-matched, M3). */
+  readonly agents: readonly AgentCapability[]
+  readonly fallbackModel: string
   readonly reviewModel: string
 }
 
@@ -82,7 +92,7 @@ export async function decomposeAndExecute(
   // 4. Hydrate the persisted structure into an executable graph.
   const graph = deps.decomposition.getActiveGraph(input.card.id)
   if (!graph) return { kind: 'gate-rejected', denials: [] } // defensive: a persisted graph must exist
-  const hydrated = hydrateGraph(graph, { card: input.card, workerModel: input.workerModel })
+  const hydrated = hydrateGraph(graph, { card: input.card, agents: input.agents, fallbackModel: input.fallbackModel })
 
   // 5. Execute through the workflow-engine with the dispatch/review step adapters.
   const contracts = new Map<string, StepContract>([

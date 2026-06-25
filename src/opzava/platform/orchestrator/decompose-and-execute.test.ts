@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { runMigrations } from '@/lib/migrations'
 import type { GatePolicy } from '@/opzava/core/orchestration-policy/contracts'
+import type { AgentCapability } from '@/opzava/core/routing/contracts'
 import type { WorkflowGraph } from '@/opzava/core/workflow-engine/contracts'
 import { makeTaskExecutor } from '@/opzava/platform/execution/executor'
 import { makeInMemoryProvider } from '@/opzava/platform/execution/in-memory-provider'
@@ -11,6 +12,7 @@ import { makeCardDecomposition } from '@/opzava/platform/task-state/decompositio
 import { decomposeAndExecute, hydrateGraph, type DecomposeAndExecuteDeps } from './decompose-and-execute'
 
 const card = { id: 5, title: 'Add rate limiting', description: 'throttle the API' }
+const fleet: AgentCapability[] = [{ name: 'devbot', role: 'coder', capabilities: ['code'], model: 'm-coder' }]
 
 const proposed: WorkflowGraph = {
   steps: [
@@ -21,22 +23,22 @@ const proposed: WorkflowGraph = {
 }
 
 describe('hydrateGraph', () => {
-  it('fills a dispatch step with an executor-ready task + plan', () => {
-    const out = hydrateGraph(proposed, { card, workerModel: 'claude-sonnet-4-6' })
+  it('fills a dispatch step with a task + the strength-matched agent model', () => {
+    const out = hydrateGraph(proposed, { card, agents: fleet, fallbackModel: 'fb' })
     const s1 = out.steps.find((s) => s.id === 's1')!
     expect((s1.data.task as { id: number }).id).toBe(5)
-    expect((s1.data.plan as { model: string }).model).toBe('claude-sonnet-4-6')
+    expect((s1.data.plan as { model: string }).model).toBe('m-coder') // devbot won the assignment
   })
 
   it('fills a review step with the title + the upstream sourceStep (from its in-edge)', () => {
-    const out = hydrateGraph(proposed, { card, workerModel: 'm' })
+    const out = hydrateGraph(proposed, { card, agents: fleet, fallbackModel: 'm' })
     const s2 = out.steps.find((s) => s.id === 's2')!
     expect(s2.data.title).toBe('Add rate limiting')
     expect(s2.data.sourceStep).toBe('s1') // source of s2's in-edge
   })
 
   it('preserves the edges', () => {
-    const out = hydrateGraph(proposed, { card, workerModel: 'm' })
+    const out = hydrateGraph(proposed, { card, agents: fleet, fallbackModel: 'm' })
     expect(out.edges).toEqual(proposed.edges)
   })
 })
@@ -77,7 +79,7 @@ describe('decomposeAndExecute (the full fleet flow: propose → gate → persist
     }
   }
 
-  const input = { workspaceId: 1, card, model: FRONTIER, policy, workerModel: 'claude-sonnet-4-6', reviewModel: 'claude-sonnet-4-6' }
+  const input = { workspaceId: 1, card, model: FRONTIER, policy, agents: fleet, fallbackModel: 'claude-sonnet-4-6', reviewModel: 'claude-sonnet-4-6' }
 
   it('runs a card all the way to a succeeded graph execution', async () => {
     const outcome = await decomposeAndExecute(input, deps(graphJson()))
