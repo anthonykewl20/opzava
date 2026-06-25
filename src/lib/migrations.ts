@@ -1549,6 +1549,67 @@ const migrations: Migration[] = [
     }
   },
   {
+    id: '059_orchestration_fleet_schema',
+    up(db: Database.Database) {
+      // Orchestration-fleet schema (ARD 0026 H4/H5 + ARD 0025; completion-plan F1):
+      // 1. tasks.account_profile — the AgentAccountProfile that claimed the task
+      //    (per-account capacity key); nullable so existing rows are unaffected.
+      //    Covering index over (account_profile, workspace_id, status) for fleet
+      //    scheduler queries.
+      // 2. opzava_card_workflow_graph — decomposed Card → WorkflowGraph linkage.
+      //    Partial unique index on (task_id) WHERE status='active' enforces that a
+      //    Card has at most ONE active decomposition (idempotency invariant).
+      // 3. opzava_orchestration_audit — append-only log of orchestration decisions
+      //    (dispatch, deny, retry, escalate). Index on (workspace_id, created_at)
+      //    for time-range audit queries.
+      const taskCols = db.prepare(`PRAGMA table_info(tasks)`).all() as Array<{ name: string }>
+      if (!taskCols.some((c) => c.name === 'account_profile')) {
+        db.exec(`ALTER TABLE tasks ADD COLUMN account_profile TEXT`)
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_tasks_account_profile_status ON tasks(account_profile, workspace_id, status)`,
+      )
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS opzava_card_workflow_graph (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id INTEGER NOT NULL,
+          workspace_id INTEGER NOT NULL,
+          graph_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active',
+          created_at TEXT,
+          updated_at TEXT
+        )
+      `)
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_opzava_card_workflow_graph_task_id ON opzava_card_workflow_graph(task_id)`,
+      )
+      // Partial unique: a card has at most ONE active decomposition.
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_opzava_card_workflow_graph_active_task
+          ON opzava_card_workflow_graph(task_id)
+          WHERE status = 'active'
+      `)
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS opzava_orchestration_audit (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          workspace_id INTEGER NOT NULL,
+          action_kind TEXT NOT NULL,
+          card_id INTEGER,
+          graph_id TEXT,
+          step_id TEXT,
+          verdict TEXT NOT NULL,
+          denials_json TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_opzava_orchestration_audit_workspace_created_at ON opzava_orchestration_audit(workspace_id, created_at)`,
+      )
+    }
+  },
+  {
     id: '058_device_tokens_oauth_sessions_denylist',
     up(db: Database.Database) {
       // D1 (device-auth, RFC 8628): three tables. device_tokens mirrors agent_api_keys

@@ -132,4 +132,39 @@ CREATE INDEX IF NOT EXISTS idx_quality_reviews_reviewer ON quality_reviews(revie
 CREATE INDEX IF NOT EXISTS idx_gateway_health_logs_gateway_id ON gateway_health_logs(gateway_id);
 CREATE INDEX IF NOT EXISTS idx_gateway_health_logs_probed_at ON gateway_health_logs(probed_at);
 
+-- Migration 059 (orchestration-fleet-schema):
+-- tasks.account_profile is added by ALTER TABLE in the migration runner.
+-- The two tables below are created by the same migration.
+
+-- Orchestration: decomposed Card → WorkflowGraph linkage
+CREATE TABLE IF NOT EXISTS opzava_card_workflow_graph (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,       -- references tasks.id by value (no FK)
+    workspace_id INTEGER NOT NULL,
+    graph_json TEXT NOT NULL,       -- serialised WorkflowGraph
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT,
+    updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_opzava_card_workflow_graph_task_id ON opzava_card_workflow_graph(task_id);
+-- At most ONE active decomposition per Card (idempotency invariant).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_opzava_card_workflow_graph_active_task
+    ON opzava_card_workflow_graph(task_id)
+    WHERE status = 'active';
+
+-- Orchestration: append-only audit log for dispatch/deny/retry/escalate decisions
+CREATE TABLE IF NOT EXISTS opzava_orchestration_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL,
+    action_kind TEXT NOT NULL,   -- e.g. dispatch | deny | retry | escalate
+    card_id INTEGER,
+    graph_id TEXT,
+    step_id TEXT,
+    verdict TEXT NOT NULL,
+    denials_json TEXT,           -- JSON array of denial reasons
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_opzava_orchestration_audit_workspace_created_at
+    ON opzava_orchestration_audit(workspace_id, created_at);
+
 -- Sample data intentionally omitted - seed in dev scripts if needed.
