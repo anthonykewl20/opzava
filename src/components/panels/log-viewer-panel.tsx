@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
-import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
 import { useMissionControl } from '@/store'
 import { useSmartPoll } from '@/lib/use-smart-poll'
@@ -27,6 +26,57 @@ function downloadFile(content: string, filename: string, mime: string) {
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+const LEVELS = ['', 'info', 'warn', 'error', 'debug'] as const
+type Level = (typeof LEVELS)[number]
+const LEVEL_LABELS: Record<Level, string> = {
+  '': 'All',
+  info: 'Info',
+  warn: 'Warn',
+  error: 'Error',
+  debug: 'Debug',
+}
+
+function levelDotClass(level: string): string {
+  switch (level.toLowerCase()) {
+    case 'error':
+      return 'dot dot-danger'
+    case 'warn':
+      return 'dot dot-warning'
+    default:
+      return 'dot'
+  }
+}
+
+const TIME_STYLE: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-xs)',
+  color: 'var(--fg-subtle)',
+  minWidth: 72,
+  flex: 'none',
+}
+
+const LEVEL_CELL_STYLE: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  flex: 'none',
+  minWidth: 78,
+  fontSize: 'var(--text-xs)',
+  color: 'var(--fg-muted)',
+}
+
+const ROW_STYLE: React.CSSProperties = {
+  borderBottom: '1px solid var(--border)',
+}
+
+const ROW_MAIN_STYLE: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 'var(--space-3)',
+  minHeight: 40,
+  padding: '0 var(--space-5)',
 }
 
 export function LogViewerPanel() {
@@ -169,26 +219,6 @@ export function LogViewerPanel() {
     }
   }
 
-  const getLogLevelColor = (level: string) => {
-    switch (level.toLowerCase()) {
-      case 'error': return 'text-red-400'
-      case 'warn': return 'text-yellow-400'
-      case 'info': return 'text-blue-400'
-      case 'debug': return 'text-muted-foreground'
-      default: return 'text-foreground'
-    }
-  }
-
-  const getLogLevelBg = (level: string) => {
-    switch (level.toLowerCase()) {
-      case 'error': return 'bg-red-500/10 border-red-500/20'
-      case 'warn': return 'bg-yellow-500/10 border-yellow-500/20'
-      case 'info': return 'bg-blue-500/10 border-blue-500/20'
-      case 'debug': return 'bg-gray-500/10 border-gray-500/20'
-      default: return 'bg-secondary border-border'
-    }
-  }
-
   const filteredLogs = logs.filter(entry => {
     if (logFilters.level && entry.level !== logFilters.level) return false
     if (logFilters.source && entry.source !== logFilters.source) return false
@@ -215,197 +245,300 @@ export function LogViewerPanel() {
   log.debug(`Store has ${logs.length} logs, filtered to ${filteredLogs.length}`)
 
   return (
-    <div className="flex flex-col h-full p-6 space-y-4">
-      <div className="border-b border-border pb-4">
-        <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          {t('description')}
-          {logFilePath && (
-            <span className="ml-3 font-mono text-xs text-muted-foreground/70">{logFilePath}</span>
-          )}
-        </p>
+    <div className="opzava-ds h-full flex flex-col" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
+
+      {/* ── Panel header ── */}
+      <div
+        className="flex justify-between items-start p-4 flex-shrink-0"
+        style={{ borderBottom: '1px solid var(--border)' }}
+      >
+        <div>
+          <h2 className="font-semibold" style={{ fontSize: 'var(--text-lg)' }}>{t('title')}</h2>
+          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
+            {t('description')}
+            {logFilePath && (
+              <span
+                style={{
+                  marginLeft: 'var(--space-2)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--fg-subtle)',
+                }}
+              >
+                {logFilePath}
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={handleExportText}
+            disabled={filteredLogs.length === 0}
+            className="btn btn-sm btn-ghost"
+          >
+            {t('exportLog')}
+          </button>
+          <button
+            type="button"
+            onClick={handleExportJson}
+            disabled={filteredLogs.length === 0}
+            className="btn btn-sm btn-ghost"
+          >
+            {t('exportJson')}
+          </button>
+          <button
+            type="button"
+            onClick={clearLogs}
+            className="btn btn-sm btn-danger"
+          >
+            {t('clear')}
+          </button>
+        </div>
       </div>
 
-      {/* Filters and Controls */}
-      <div className="bg-card border border-border rounded-lg p-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-          {/* Level Filter */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              {t('filterLevel')}
-            </label>
-            <select
-              value={logFilters.level || ''}
-              onChange={(e) => handleFilterChange({ level: e.target.value || undefined })}
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              <option value="">{t('allLevels')}</option>
-              <option value="error">{t('levelError')}</option>
-              <option value="warn">{t('levelWarning')}</option>
-              <option value="info">{t('levelInfo')}</option>
-              <option value="debug">{t('levelDebug')}</option>
-            </select>
-          </div>
+      {/* ── Log stream card ── */}
+      <section className="flex-1 min-h-0 flex flex-col p-4" aria-label={t('title')}>
+        <div className="card flex flex-col flex-1 min-h-0">
 
-          {/* Source Filter */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              {t('filterSource')}
-            </label>
+          {/* Filter toolbar */}
+          <div
+            className="card-header flex-shrink-0"
+            style={{ flexWrap: 'wrap', rowGap: 'var(--space-3)', justifyContent: 'flex-start' }}
+          >
+            {/* Search input with "/" shortcut hint */}
+            <div style={{ position: 'relative', flex: '0 1 260px', minWidth: 180 }}>
+              <input
+                type="text"
+                value={logFilters.search || ''}
+                onChange={(e) => handleFilterChange({ search: e.target.value || undefined })}
+                placeholder={t('searchPlaceholder')}
+                className="input"
+                aria-label={t('filterSearch')}
+                style={{ paddingRight: 30 }}
+              />
+              <kbd
+                className="kbd"
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  right: 8,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  pointerEvents: 'none',
+                }}
+              >
+                /
+              </kbd>
+            </div>
+
+            {/* Level filter as tab strip */}
+            <div
+              className="tabs"
+              role="tablist"
+              aria-label={t('filterLevel')}
+              style={{ flex: 'none', borderBottom: 'none' }}
+            >
+              {LEVELS.map((lvl) => {
+                const selected = lvl === '' ? !logFilters.level : logFilters.level === lvl
+                return (
+                  <button
+                    key={lvl || 'all'}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    className={`tab${selected ? ' active' : ''}`}
+                    onClick={() => handleFilterChange({ level: lvl || undefined })}
+                  >
+                    {LEVEL_LABELS[lvl]}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Source select */}
             <select
               value={logFilters.source || ''}
               onChange={(e) => handleFilterChange({ source: e.target.value || undefined })}
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="select"
+              aria-label={t('filterSource')}
+              style={{ width: 'auto', minWidth: 168, flex: 'none' }}
             >
               <option value="">{t('allSources')}</option>
               {availableSources.map((source) => (
                 <option key={source} value={source}>{source}</option>
               ))}
             </select>
-          </div>
 
-          {/* Session Filter */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              {t('filterSession')}
-            </label>
+            {/* Session filter */}
             <input
               type="text"
               value={logFilters.session || ''}
               onChange={(e) => handleFilterChange({ session: e.target.value || undefined })}
               placeholder={t('sessionPlaceholder')}
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground placeholder-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="input"
+              aria-label={t('filterSession')}
+              style={{ flex: '0 1 140px', minWidth: 100 }}
             />
-          </div>
 
-          {/* Search Filter */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              {t('filterSearch')}
-            </label>
-            <input
-              type="text"
-              value={logFilters.search || ''}
-              onChange={(e) => handleFilterChange({ search: e.target.value || undefined })}
-              placeholder={t('searchPlaceholder')}
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground placeholder-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
+            {/* Spacer pushes live control to the right */}
+            <div style={{ flex: 1 }} />
 
-          {/* Controls */}
-          <div className="flex items-end space-x-2">
-            <Button
-              onClick={() => setIsAutoScroll(!isAutoScroll)}
-              variant={isAutoScroll ? 'success' : 'outline'}
-            >
-              {isAutoScroll ? t('auto') : t('manual')}
-            </Button>
-            <Button
-              onClick={handleScrollToBottom}
-              className="bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30"
-            >
-              {t('bottom')}
-            </Button>
-          </div>
-
-          {/* Export & Clear */}
-          <div className="flex items-end space-x-2">
-            <Button
-              onClick={handleExportText}
-              disabled={filteredLogs.length === 0}
-              className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-40"
-            >
-              {t('exportLog')}
-            </Button>
-            <Button
-              onClick={handleExportJson}
-              disabled={filteredLogs.length === 0}
-              className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-40"
-            >
-              {t('exportJson')}
-            </Button>
-            <Button
-              onClick={clearLogs}
-              variant="destructive"
-            >
-              {t('clear')}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* Log Stats */}
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <div className="flex items-center gap-3">
-          <span>{t('showing', { filtered: filteredLogs.length, total: logs.length })}</span>
-          {isBufferFull && (
-            <span className="px-2 py-0.5 rounded text-xs bg-yellow-500/15 text-yellow-400 border border-yellow-500/25">
-              {t('bufferFull', { max: MAX_LOG_BUFFER })}
-            </span>
-          )}
-        </div>
-        <div>
-          {t('autoScroll')}: {isAutoScroll ? t('on') : t('off')} •
-          {t('lastUpdated')}: {logs.length > 0 ? new Date(logs[0]?.timestamp).toLocaleTimeString() : t('never')}
-        </div>
-      </div>
-
-      {/* Log Display */}
-      <div className="flex-1 bg-card border border-border rounded-lg overflow-hidden">
-        <div 
-          ref={logContainerRef}
-          className="h-full overflow-auto p-4 space-y-2 font-mono text-sm"
-        >
-          {isLoading ? (
-            <Loader variant="panel" label="Loading logs" />
-          ) : filteredLogs.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-muted-foreground">
-              {t('noLogs')}
-            </div>
-          ) : (
-            filteredLogs.map((log) => (
-              <div 
-                key={log.id} 
-                className={`border-l-4 pl-4 py-2 rounded-r-md ${getLogLevelBg(log.level)}`}
+            {/* Scroll-to-bottom + live tailing toggle */}
+            <div className="flex items-center gap-2" style={{ flex: 'none' }}>
+              <button
+                type="button"
+                onClick={handleScrollToBottom}
+                className="btn btn-sm btn-ghost"
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2 text-xs">
-                      <span className="text-muted-foreground">
-                        {new Date(log.timestamp).toLocaleTimeString()}
-                      </span>
-                      <span className={`font-medium uppercase ${getLogLevelColor(log.level)}`}>
-                        {log.level}
-                      </span>
-                      <span className="text-muted-foreground">
-                        [{log.source}]
-                      </span>
-                      {log.session && (
-                        <span className="text-muted-foreground">
-                          session:{log.session}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-1 text-foreground break-words">
-                      {log.message}
-                    </div>
-                    {log.data && (
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-                          {t('additionalData')}
-                        </summary>
-                        <pre className="mt-1 text-xs text-muted-foreground overflow-auto">
-                          {JSON.stringify(log.data, null, 2)}
-                        </pre>
-                      </details>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))
+                {t('bottom')}
+              </button>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isAutoScroll}
+                onClick={() => setIsAutoScroll(!isAutoScroll)}
+                className="btn btn-sm"
+                style={
+                  isAutoScroll
+                    ? { background: 'var(--accent-soft)', borderColor: 'var(--accent-border)', color: 'var(--accent)' }
+                    : {}
+                }
+              >
+                <span className={`dot dot-success${isAutoScroll ? ' live' : ''}`} aria-hidden />
+                {isAutoScroll ? t('auto') : t('manual')}
+              </button>
+            </div>
+          </div>
+
+          {/* Buffer-full warning */}
+          {isBufferFull && (
+            <div
+              className="banner banner-warning"
+              style={{ margin: 'var(--space-3) var(--space-5) 0', flex: 'none' }}
+            >
+              {t('bufferFull', { max: MAX_LOG_BUFFER })}
+            </div>
           )}
+
+          {/* Dense log stream */}
+          <div
+            ref={logContainerRef}
+            className="flex-1 min-h-0 overflow-auto"
+            role="log"
+            aria-live="polite"
+            aria-label={`${t('title')} stream`}
+          >
+            {isLoading ? (
+              <div className="flex items-center justify-center h-32">
+                <Loader variant="inline" label="Loading logs" />
+              </div>
+            ) : filteredLogs.length === 0 ? (
+              <div className="empty">
+                <div className="empty-icon" aria-hidden>≡</div>
+                <div className="empty-title">{t('noLogs')}</div>
+                <div className="empty-desc">{t('description')}</div>
+              </div>
+            ) : (
+              filteredLogs.map((entry) => (
+                <div key={entry.id} style={ROW_STYLE}>
+                  {/* Main row: time | level (dot+label) | source badge | session? | message */}
+                  <div style={ROW_MAIN_STYLE}>
+                    <time style={TIME_STYLE}>
+                      {new Date(entry.timestamp).toLocaleTimeString()}
+                    </time>
+                    <span style={LEVEL_CELL_STYLE}>
+                      <span className={levelDotClass(entry.level)} aria-hidden />
+                      {entry.level.charAt(0).toUpperCase() + entry.level.slice(1)}
+                    </span>
+                    <span style={{ flex: 'none', width: 96 }}>
+                      <span className="badge">{entry.source}</span>
+                    </span>
+                    {entry.session && (
+                      <span
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: 'var(--text-xs)',
+                          color: 'var(--fg-subtle)',
+                          flex: 'none',
+                          maxWidth: 80,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={entry.session}
+                      >
+                        {entry.session.slice(0, 8)}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 'var(--text-xs)',
+                        color: 'var(--fg)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={entry.message}
+                    >
+                      {entry.message}
+                    </span>
+                  </div>
+                  {/* Optional data expansion — below the row, not inline */}
+                  {entry.data && (
+                    <details style={{ padding: '0 var(--space-5) var(--space-2)' }}>
+                      <summary
+                        style={{
+                          cursor: 'pointer',
+                          fontSize: 'var(--text-xs)',
+                          color: 'var(--fg-subtle)',
+                        }}
+                      >
+                        {t('additionalData')}
+                      </summary>
+                      <pre
+                        style={{
+                          marginTop: 'var(--space-1)',
+                          padding: 'var(--space-2)',
+                          overflow: 'auto',
+                          maxHeight: 128,
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: 'var(--text-xs)',
+                          color: 'var(--fg-muted)',
+                          background: 'var(--surface-2)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-sm)',
+                        }}
+                      >
+                        {JSON.stringify(entry.data, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="card-footer flex-shrink-0" style={{ background: 'var(--surface)' }}>
+            <div className="flex justify-between items-center">
+              <span className="hint">
+                {t('showing', { filtered: filteredLogs.length, total: logs.length })}
+              </span>
+              <span className="hint">
+                {t('autoScroll')}: {isAutoScroll ? t('on') : t('off')} ·{' '}
+                {t('lastUpdated')}:{' '}
+                {logs.length > 0 ? new Date(logs[0]?.timestamp).toLocaleTimeString() : t('never')}
+              </span>
+            </div>
+          </div>
+
         </div>
-      </div>
+      </section>
+
     </div>
   )
 }
