@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
-import { Button } from '@/components/ui/button'
+import { Loader } from '@/components/ui/loader'
 import { apiFetch, ApiError } from '@/lib/api-client'
 
 /** Pull a server-provided `error` string out of an ApiError's parsed payload, if present. */
@@ -61,6 +61,31 @@ interface LinkedTask {
   }
 }
 
+type TabFilter = 'all' | 'needs-triage' | 'ready-for-agent' | 'ready-for-human' | 'in-progress' | 'closed'
+
+const MONO: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-xs)',
+  color: 'var(--fg-subtle)',
+}
+
+/** Inline spinner — reuses Tailwind animate-spin, styled with CSS vars. */
+function SmallSpinner() {
+  return (
+    <span
+      aria-hidden
+      className="animate-spin inline-block flex-none"
+      style={{
+        width: 12,
+        height: 12,
+        border: '2px solid currentColor',
+        borderTopColor: 'transparent',
+        borderRadius: '50%',
+      }}
+    />
+  )
+}
+
 export function GitHubSyncPanel() {
   const t = useTranslations('githubSync')
   // Connection status
@@ -97,6 +122,9 @@ export function GitHubSyncPanel() {
   // Feedback
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Tab filter — UI-only, never triggers an API call
+  const [tabFilter, setTabFilter] = useState<TabFilter>('all')
 
   const showFeedback = (ok: boolean, text: string) => {
     setFeedback({ ok, text })
@@ -142,7 +170,7 @@ export function GitHubSyncPanel() {
         redirectOnUnauthenticated: false,
       })
       const linked = (data.tasks || []).filter(
-        (t: LinkedTask) => t.metadata?.github_repo
+        (task: LinkedTask) => task.metadata?.github_repo
       )
       setLinkedTasks(linked)
     } catch { /* ignore */ }
@@ -294,113 +322,490 @@ export function GitHubSyncPanel() {
     }
   }
 
+  // ── Derived display data ──────────────────────────────────────────────────
+  const hasPreview = previewIssues.length > 0
+  const agentNameSet = new Set(agents.map(a => a.name))
+
+  // Triage pipeline counts.
+  // When previewIssues are loaded (after a fetch), count by GitHub label name (accurate).
+  // Fallback to linkedTask.status for a rough approximation when no preview is active.
+  const triageCounts = {
+    needsTriage: hasPreview
+      ? previewIssues.filter(i => i.labels.some(l => l.name === 'needs-triage')).length
+      : linkedTasks.filter(task => task.status === 'pending' || task.status === 'backlog').length,
+    readyForAgent: hasPreview
+      ? previewIssues.filter(i => i.labels.some(l => l.name === 'ready-for-agent')).length
+      : linkedTasks.filter(task => task.status === 'ready').length,
+    readyForHuman: hasPreview
+      ? previewIssues.filter(i => i.labels.some(l => l.name === 'ready-for-human')).length
+      : 0,
+    inProgress: hasPreview
+      ? previewIssues.filter(i => i.labels.some(l => l.name === 'in-progress')).length
+      : linkedTasks.filter(task => task.status === 'in_progress').length,
+    closed: hasPreview
+      ? previewIssues.filter(i => i.state === 'closed').length
+      : linkedTasks.filter(task => task.metadata.github_state === 'closed').length,
+  }
+
+  // Issues table source: previewIssues (richer GitHub data) > linkedTasks (fallback)
+  const filteredPreview = previewIssues.filter(issue => {
+    if (tabFilter === 'all') return true
+    if (tabFilter === 'closed') return issue.state === 'closed'
+    if (tabFilter === 'in-progress') return issue.labels.some(l => l.name === 'in-progress')
+    return issue.labels.some(l => l.name === tabFilter)
+  })
+
+  const filteredLinked = linkedTasks.filter(task => {
+    if (tabFilter === 'all') return true
+    if (tabFilter === 'closed') return task.metadata.github_state === 'closed' || task.status === 'completed'
+    if (tabFilter === 'in-progress') return task.status === 'in_progress'
+    return false // triage-label tabs can't be filtered from LinkedTask — no label field
+  })
+
+  // Last successful sync timestamp for footer hint
+  const lastSync = syncHistory.length > 0
+    ? new Date(syncHistory[0].created_at * 1000).toLocaleString()
+    : null
+
+  const linkedProjects = projects.filter(p => p.github_repo)
+
+  // ── Loading state ─────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center gap-3 min-h-[200px]">
-        <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        <span className="text-sm text-muted-foreground">{t('loading')}</span>
+      <div
+        className="opzava-ds flex items-center justify-center"
+        style={{ background: 'var(--bg)', color: 'var(--fg)', minHeight: 200 }}
+      >
+        <Loader variant="inline" label={t('loading')} />
       </div>
     )
   }
 
+  // ── Rendered panel ────────────────────────────────────────────────────────
   return (
-    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="opzava-ds p-6 space-y-5" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
+
+      {/* ── Page header ──────────────────────────────────────────────────── */}
+      <div className="page-header">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">{t('title')}</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <h1 className="page-title font-semibold">{t('title')}</h1>
+          <p className="page-sub">
             {t('subtitle')}
+            {tokenStatus?.connected && (
+              <span style={{ marginLeft: 'var(--space-2)', color: 'var(--fg-subtle)' }}>
+                · {t('connectedAs', { user: tokenStatus.user || 'connected' })}
+              </span>
+            )}
           </p>
         </div>
-        {/* Connection status badge */}
-        <div className="flex items-center gap-2">
-          <span className={`text-2xs px-2 py-1 rounded flex items-center gap-1.5 ${
-            tokenStatus?.connected
-              ? 'bg-green-500/10 text-green-400'
-              : 'bg-destructive/10 text-destructive'
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${
-              tokenStatus?.connected ? 'bg-green-500' : 'bg-destructive'
-            }`} />
-            {tokenStatus?.connected
-              ? t('connectedAs', { user: tokenStatus.user || 'connected' })
-              : t('notConfigured')}
-          </span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handlePreview}
+            disabled={previewing || !repo}
+            className="btn"
+          >
+            {previewing ? <SmallSpinner /> : (
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            )}
+            {t('buttonPreview')}
+          </button>
+          <button
+            type="button"
+            onClick={handleImport}
+            disabled={syncing || !repo}
+            className="btn btn-primary"
+          >
+            {syncing ? <SmallSpinner /> : (
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <path d="M8 2v8M5 7l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M3 12v2h10v-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            )}
+            {t('buttonImport')}
+          </button>
         </div>
       </div>
 
-      {/* Not configured notice */}
+      {/* ── Not-configured warning ────────────────────────────────────────── */}
       {tokenStatus && !tokenStatus.connected && (
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
-          <div className="flex items-start gap-3">
-            <span className="text-amber-400 text-lg mt-0.5">!</span>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">{t('tokenNotConfigured')}</p>
-              <p className="text-xs text-muted-foreground">
-                {t.rich('tokenNotConfiguredDesc', { code: (chunks) => <code className="px-1 py-0.5 rounded bg-secondary text-foreground font-mono text-2xs">{chunks}</code> })}
-              </p>
+        <div className="banner banner-warning" role="alert">
+          <span aria-hidden style={{ fontWeight: 600, color: 'var(--warning)', flexShrink: 0 }}>!</span>
+          <div>
+            <div className="font-medium" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)' }}>
+              {t('tokenNotConfigured')}
+            </div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
+              {t.rich('tokenNotConfiguredDesc', {
+                code: (chunks) => (
+                  <code style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 'var(--text-xs)',
+                    background: 'var(--surface-3)',
+                    padding: '1px 4px',
+                    borderRadius: 'var(--radius-sm)',
+                  }}>
+                    {chunks}
+                  </code>
+                ),
+              })}
             </div>
           </div>
         </div>
       )}
 
-      {/* Feedback */}
+      {/* ── Feedback banner ───────────────────────────────────────────────── */}
       {feedback && (
-        <div className={`rounded-lg p-3 text-xs font-medium ${
-          feedback.ok ? 'bg-green-500/10 text-green-400' : 'bg-destructive/10 text-destructive'
-        }`}>
-          {feedback.text}
+        <div className={`banner${feedback.ok ? '' : ' banner-danger'}`} role="alert">
+          <span aria-hidden style={{ color: feedback.ok ? 'var(--success)' : 'var(--danger)', fontWeight: 600, flexShrink: 0 }}>
+            {feedback.ok ? '✓' : '!'}
+          </span>
+          <span style={{ flex: 1, fontSize: 'var(--text-sm)' }}>{feedback.text}</span>
         </div>
       )}
 
-      {/* Sync result banner */}
+      {/* ── Sync result banner ────────────────────────────────────────────── */}
       {syncResult && (
-        <div className="rounded-lg p-3 text-xs bg-blue-500/10 text-blue-400 flex items-center gap-4">
-          <span>{t('syncResultImported', { count: syncResult.imported })}</span>
-          <span>{t('syncResultSkipped', { count: syncResult.skipped })}</span>
-          {syncResult.errors > 0 && <span className="text-destructive">{t('syncResultErrors', { count: syncResult.errors })}</span>}
+        <div className="banner banner-info" role="status">
+          <span style={{ flex: 1, fontSize: 'var(--text-sm)', color: 'var(--fg-muted)' }}>
+            {t('syncResultImported', { count: syncResult.imported })}
+            {' · '}
+            {t('syncResultSkipped', { count: syncResult.skipped })}
+            {syncResult.errors > 0 && (
+              <span style={{ color: 'var(--danger)', marginLeft: 'var(--space-3)' }}>
+                {t('syncResultErrors', { count: syncResult.errors })}
+              </span>
+            )}
+          </span>
         </div>
       )}
 
-      {/* Import Issues Form */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-border">
-          <h3 className="text-sm font-medium text-foreground">{t('importIssues')}</h3>
+      {/* ── Triage pipeline ───────────────────────────────────────────────── */}
+      <section aria-labelledby="gh-pipeline-lbl">
+        <div className="section-label" id="gh-pipeline-lbl" style={{ paddingLeft: 0 }}>
+          Triage pipeline
         </div>
-        <div className="p-4 space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Repo input */}
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">{t('labelRepository')}</label>
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: 'var(--space-2)', overflowX: 'auto' }}>
+
+          <div className="stat" style={{ flex: '1 1 0', minWidth: 140, borderLeft: '3px solid var(--accent)' }}>
+            <div className="stat-label">Needs triage</div>
+            <div className="stat-value">{triageCounts.needsTriage}</div>
+            <div className="stat-delta" style={{ color: 'var(--fg-subtle)' }}>no label yet</div>
+          </div>
+
+          <span aria-hidden style={{ flex: 'none', alignSelf: 'center', color: 'var(--fg-subtle)', fontSize: 'var(--text-base)' }}>→</span>
+
+          <div className="stat" style={{ flex: '1 1 0', minWidth: 140 }}>
+            <div className="stat-label">Ready for agent</div>
+            <div className="stat-value">{triageCounts.readyForAgent}</div>
+            <div className="stat-delta" style={{ color: 'var(--fg-subtle)' }}>fleet can pick up</div>
+          </div>
+
+          <span aria-hidden style={{ flex: 'none', alignSelf: 'center', color: 'var(--fg-subtle)', fontSize: 'var(--text-base)' }}>→</span>
+
+          <div className="stat" style={{ flex: '1 1 0', minWidth: 140, borderLeft: '3px solid var(--accent)' }}>
+            <div className="stat-label">Ready for human</div>
+            <div className="stat-value">{triageCounts.readyForHuman}</div>
+            <div className="stat-delta" style={{ color: 'var(--fg-subtle)' }}>you must act</div>
+          </div>
+
+          <span aria-hidden style={{ flex: 'none', alignSelf: 'center', color: 'var(--fg-subtle)', fontSize: 'var(--text-base)' }}>→</span>
+
+          <div className="stat" style={{ flex: '1 1 0', minWidth: 140 }}>
+            <div className="stat-label">In progress</div>
+            <div className="stat-value">{triageCounts.inProgress}</div>
+            <div className="stat-delta" style={{ color: 'var(--fg-subtle)' }}>being worked</div>
+          </div>
+
+          <span aria-hidden style={{ flex: 'none', alignSelf: 'center', color: 'var(--fg-subtle)', fontSize: 'var(--text-base)' }}>→</span>
+
+          <div className="stat" style={{ flex: '1 1 0', minWidth: 140 }}>
+            <div className="stat-label">Closed</div>
+            <div className="stat-value">{triageCounts.closed}</div>
+            <div className="stat-delta" style={{ color: 'var(--fg-subtle)' }}>done / closed</div>
+          </div>
+
+        </div>
+      </section>
+
+      {/* ── Issues table (previewIssues › linkedTasks fallback) ───────────── */}
+      <section aria-label="Synced GitHub issues">
+        <div className="card">
+
+          {/* Filter tabs */}
+          <div className="tabs" role="tablist" aria-label="Filter issues">
+            {(['all', 'needs-triage', 'ready-for-agent', 'ready-for-human', 'in-progress', 'closed'] as TabFilter[]).map(tab => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={tabFilter === tab}
+                onClick={() => setTabFilter(tab)}
+                className={`tab${tabFilter === tab ? ' active' : ''}`}
+              >
+                {tab === 'all' ? 'All' : tab}
+              </button>
+            ))}
+          </div>
+
+          {/* Table body — previewIssues when available, else linkedTasks */}
+          {hasPreview ? (
+            filteredPreview.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="table table-compact">
+                  <caption className="sr-only">
+                    {t('previewTitle', { count: previewIssues.length })}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">#</th>
+                      <th scope="col">{t('colTitle')}</th>
+                      <th scope="col">Assignee</th>
+                      <th scope="col">Updated</th>
+                      <th scope="col">{t('colState')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPreview.map(issue => {
+                      const isAgent = issue.assignee ? agentNameSet.has(issue.assignee.login) : false
+                      return (
+                        <tr key={issue.number}>
+                          <td style={{ width: 56 }}>
+                            <span style={{ ...MONO, color: 'var(--fg-muted)' }}>#{issue.number}</span>
+                          </td>
+                          <td>
+                            <a
+                              href={issue.html_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-medium"
+                              style={{
+                                color: 'var(--fg)',
+                                fontSize: 'var(--text-sm)',
+                                lineHeight: 'var(--lh-snug)',
+                                textDecoration: 'none',
+                              }}
+                              onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent)')}
+                              onMouseLeave={e => (e.currentTarget.style.color = 'var(--fg)')}
+                            >
+                              {issue.title}
+                            </a>
+                            {issue.labels.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {issue.labels.map(l => (
+                                  <span key={l.name} className="badge">{l.name}</span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            {issue.assignee ? (
+                              <span className="flex items-center gap-1.5">
+                                {isAgent ? (
+                                  <>
+                                    <span className="sr-only">AI agent: </span>
+                                    <span aria-hidden style={{ color: 'var(--accent)', fontSize: 'var(--text-base)', lineHeight: 1 }}>✦</span>
+                                  </>
+                                ) : (
+                                  <span
+                                    aria-hidden
+                                    style={{
+                                      width: 22,
+                                      height: 22,
+                                      borderRadius: 'var(--radius-full)',
+                                      background: 'var(--surface-3)',
+                                      border: '1px solid var(--border-strong)',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      fontSize: 10,
+                                      color: 'var(--fg-muted)',
+                                      fontWeight: 600,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {issue.assignee.login.slice(0, 2).toUpperCase()}
+                                  </span>
+                                )}
+                                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                                  {issue.assignee.login}
+                                </span>
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>Unassigned</span>
+                            )}
+                          </td>
+                          <td style={MONO}>
+                            {new Date(issue.updated_at).toLocaleDateString()}
+                          </td>
+                          <td>
+                            <span className="flex items-center gap-1.5">
+                              <span className={`dot ${issue.state === 'open' ? 'dot-accent' : ''}`} aria-hidden />
+                              <span style={{ fontSize: 'var(--text-xs)', color: issue.state === 'closed' ? 'var(--fg-muted)' : 'var(--fg)' }}>
+                                {issue.state}
+                              </span>
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="empty">
+                <div className="empty-icon" aria-hidden>○</div>
+                <div className="empty-title">No issues match this filter</div>
+              </div>
+            )
+          ) : linkedTasks.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="table table-compact">
+                <caption className="sr-only">
+                  {t('linkedTasksWithCount', { count: linkedTasks.length })}
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">{t('colTask')}</th>
+                    <th scope="col">{t('colStatus')}</th>
+                    <th scope="col">{t('colSynced')}</th>
+                    <th scope="col">{t('colState')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(tabFilter === 'all' ? linkedTasks : filteredLinked).map(task => {
+                    const ghState = task.metadata.github_state
+                    const isClosed = ghState === 'closed' || task.status === 'completed'
+                    const isInProgress = task.status === 'in_progress'
+                    const stateDot = isClosed ? '' : isInProgress ? 'dot-warning' : 'dot-accent'
+                    const stateLabel = isClosed ? t('stateClosed') : isInProgress ? 'In progress' : t('stateOpen')
+                    return (
+                      <tr key={task.id}>
+                        <td style={{ width: 56 }}>
+                          {task.metadata.github_issue_number ? (
+                            <span style={{ ...MONO, color: 'var(--fg-muted)' }}>
+                              #{task.metadata.github_issue_number}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--fg-subtle)' }}>—</span>
+                          )}
+                        </td>
+                        <td>
+                          {task.metadata.github_issue_url ? (
+                            <a
+                              href={task.metadata.github_issue_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-medium"
+                              style={{ color: 'var(--fg)', fontSize: 'var(--text-sm)', textDecoration: 'none' }}
+                              onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent)')}
+                              onMouseLeave={e => (e.currentTarget.style.color = 'var(--fg)')}
+                            >
+                              {task.title}
+                            </a>
+                          ) : (
+                            <span className="font-medium" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)' }}>
+                              {task.title}
+                            </span>
+                          )}
+                          <div className="flex gap-1 mt-1.5">
+                            <span className="badge">{task.priority}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className="badge">{task.status}</span>
+                        </td>
+                        <td style={MONO}>
+                          {task.metadata.github_synced_at
+                            ? new Date(task.metadata.github_synced_at).toLocaleDateString()
+                            : '—'}
+                        </td>
+                        <td>
+                          <span className="flex items-center gap-1.5">
+                            <span className={`dot ${stateDot}`} aria-hidden />
+                            <span style={{ fontSize: 'var(--text-xs)', color: isClosed ? 'var(--fg-muted)' : 'var(--fg)' }}>
+                              {stateLabel}
+                            </span>
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty">
+              <div className="empty-icon" aria-hidden>⊙</div>
+              <div className="empty-title">{t('noLinkedTasks')}</div>
+              <div className="empty-desc">{t('subtitle')}</div>
+            </div>
+          )}
+
+          {/* Footer hint */}
+          <div className="card-footer">
+            <p className="hint">
+              {hasPreview
+                ? t('previewTitle', { count: filteredPreview.length })
+                : linkedTasks.length > 0
+                  ? t('linkedTasksWithCount', { count: linkedTasks.length })
+                  : t('noLinkedTasks')
+              }
+              {lastSync && (
+                <span style={{ marginLeft: 'var(--space-3)', color: 'var(--fg-subtle)' }}>
+                  · last sync{' '}
+                  <span style={{ fontFamily: 'var(--font-mono)' }}>{lastSync}</span>
+                </span>
+              )}
+            </p>
+          </div>
+
+        </div>
+      </section>
+
+      {/* ── Import form ───────────────────────────────────────────────────── */}
+      <div className="card">
+        <div className="card-header">
+          <h2 className="card-title">{t('importIssues')}</h2>
+        </div>
+        <div className="card-body">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+            <div className="field">
+              <label className="hint" htmlFor="gh-repo">{t('labelRepository')}</label>
               <input
+                id="gh-repo"
                 type="text"
                 value={repo}
                 onChange={e => setRepo(e.target.value)}
                 placeholder={t('placeholderRepo')}
-                className="w-full px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                className="input"
               />
             </div>
 
-            {/* Label filter */}
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">{t('labelLabels')}</label>
+            <div className="field">
+              <label className="hint" htmlFor="gh-labels">{t('labelLabels')}</label>
               <input
+                id="gh-labels"
                 type="text"
                 value={labelFilter}
                 onChange={e => setLabelFilter(e.target.value)}
                 placeholder={t('placeholderLabels')}
-                className="w-full px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                className="input"
               />
             </div>
 
-            {/* State filter */}
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">{t('labelState')}</label>
+            <div className="field">
+              <label className="hint" htmlFor="gh-state">{t('labelState')}</label>
               <select
+                id="gh-state"
                 value={stateFilter}
-                onChange={e => setStateFilter(e.target.value as any)}
-                className="w-full px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                onChange={e => setStateFilter(e.target.value as 'open' | 'closed' | 'all')}
+                className="select"
               >
                 <option value="open">{t('stateOpen')}</option>
                 <option value="closed">{t('stateClosed')}</option>
@@ -408,13 +813,13 @@ export function GitHubSyncPanel() {
               </select>
             </div>
 
-            {/* Assign to agent */}
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">{t('labelAssignAgent')}</label>
+            <div className="field">
+              <label className="hint" htmlFor="gh-agent">{t('labelAssignAgent')}</label>
               <select
+                id="gh-agent"
                 value={assignAgent}
                 onChange={e => setAssignAgent(e.target.value)}
-                className="w-full px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className="select"
               >
                 <option value="">{t('unassigned')}</option>
                 {agents.map(a => (
@@ -422,292 +827,147 @@ export function GitHubSyncPanel() {
                 ))}
               </select>
             </div>
-          </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-2 pt-1">
-            <Button
-              onClick={handlePreview}
-              disabled={previewing || !repo}
-              variant="outline"
-              size="xs"
-              className="flex items-center gap-1.5"
-            >
-              {previewing ? (
-                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="7" cy="7" r="5" />
-                  <path d="M11 11l3 3" />
-                </svg>
-              )}
-              {t('buttonPreview')}
-            </Button>
-            <Button
-              onClick={handleImport}
-              disabled={syncing || !repo}
-              size="xs"
-              className={`flex items-center gap-1.5 ${
-                !repo ? 'bg-muted text-muted-foreground cursor-not-allowed' : ''
-              }`}
-            >
-              {syncing ? (
-                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 2v8M5 7l3 3 3-3" />
-                  <path d="M3 12v2h10v-2" />
-                </svg>
-              )}
-              {t('buttonImport')}
-            </Button>
           </div>
         </div>
       </div>
 
-      {/* Two-Way Sync */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <h3 className="text-sm font-medium text-foreground">{t('twoWaySync')}</h3>
-          <Button
-            variant="outline"
-            size="xs"
+      {/* ── Two-way sync ──────────────────────────────────────────────────── */}
+      <div className="card">
+        <div className="card-header">
+          <h2 className="card-title">{t('twoWaySync')}</h2>
+          <button
+            type="button"
+            className="btn btn-sm"
             onClick={handleSyncAll}
             disabled={syncingProjectId !== null}
-            className="flex items-center gap-1.5"
           >
+            {syncingProjectId === -1 && <SmallSpinner />}
             {t('syncAll')}
-          </Button>
+          </button>
         </div>
-        <div className="divide-y divide-border/50">
-          {projects.filter(p => p.github_repo).map(project => (
-            <div key={project.id} className="px-4 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className={`w-2 h-2 rounded-full ${project.github_sync_enabled ? 'bg-green-500' : 'bg-muted-foreground/30'}`} />
-                <div>
-                  <div className="text-sm text-foreground">{project.name}</div>
-                  <div className="text-xs text-muted-foreground font-mono">{project.github_repo}</div>
+
+        {linkedProjects.length > 0 ? (
+          <div style={{ borderTop: '1px solid var(--border)' }}>
+            {linkedProjects.map(project => (
+              <div
+                key={project.id}
+                className="flex items-center justify-between"
+                style={{
+                  padding: 'var(--space-3) var(--space-5)',
+                  borderBottom: '1px solid var(--border)',
+                }}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span
+                    className={`dot ${project.github_sync_enabled ? 'dot-success' : ''}`}
+                    aria-label={project.github_sync_enabled ? 'Sync enabled' : 'Sync disabled'}
+                  />
+                  <div className="min-w-0">
+                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)', fontWeight: 500 }}>
+                      {project.name}
+                    </div>
+                    <div style={{ ...MONO, marginTop: 2, color: 'var(--fg-subtle)' }}>
+                      {project.github_repo}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => handleToggleSync(project)}
+                  >
+                    {project.github_sync_enabled ? t('disableSync') : t('enableSync')}
+                  </button>
+                  {project.github_sync_enabled && (
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => handleSyncProject(project.id)}
+                      disabled={syncingProjectId === project.id}
+                    >
+                      {syncingProjectId === project.id ? <SmallSpinner /> : (
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+                          <path d="M2 8a6 6 0 0110.472-4M14 8a6 6 0 01-10.472 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                          <path d="M13 2v4h-4M3 14v-4h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                        </svg>
+                      )}
+                      {t('syncButton')}
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="xs"
-                  onClick={() => handleToggleSync(project)}
-                  className="text-xs"
-                >
-                  {project.github_sync_enabled ? t('disableSync') : t('enableSync')}
-                </Button>
-                {project.github_sync_enabled && (
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    onClick={() => handleSyncProject(project.id)}
-                    disabled={syncingProjectId === project.id}
-                    className="flex items-center gap-1.5"
-                  >
-                    {syncingProjectId === project.id ? (
-                      <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2 8a6 6 0 0110.472-4M14 8a6 6 0 01-10.472 4" />
-                        <path d="M13 2v4h-4M3 14v-4h4" />
-                      </svg>
-                    )}
-                    {t('syncButton')}
-                  </Button>
-                )}
-              </div>
-            </div>
-          ))}
-          {projects.filter(p => p.github_repo).length === 0 && (
-            <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-              {t('noProjectsLinked')}
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="empty">
+            <div className="empty-icon" aria-hidden>⊙</div>
+            <div className="empty-title">{t('noProjectsLinked')}</div>
+          </div>
+        )}
       </div>
 
-      {/* Issue Preview Table */}
-      {previewIssues.length > 0 && (
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-            <h3 className="text-sm font-medium text-foreground">
-              {t('previewTitle', { count: previewIssues.length })}
-            </h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="text-left px-4 py-2 font-medium">{t('colNumber')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colTitle')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colLabels')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colState')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colCreated')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {previewIssues.map(issue => (
-                  <tr key={issue.number} className="border-b border-border/50 hover:bg-secondary/50">
-                    <td className="px-4 py-2 text-muted-foreground">{issue.number}</td>
-                    <td className="px-4 py-2 text-foreground max-w-[300px] truncate">
-                      <a
-                        href={issue.html_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="hover:text-primary transition-colors"
-                      >
-                        {issue.title}
-                      </a>
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="flex flex-wrap gap-1">
-                        {issue.labels.map(l => (
-                          <span
-                            key={l.name}
-                            className="px-1.5 py-0.5 rounded text-2xs bg-secondary text-muted-foreground"
-                          >
-                            {l.name}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2">
-                      <span className={`px-1.5 py-0.5 rounded text-2xs ${
-                        issue.state === 'open'
-                          ? 'bg-green-500/10 text-green-400'
-                          : 'bg-purple-500/10 text-purple-400'
-                      }`}>
-                        {issue.state}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {new Date(issue.created_at).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Sync History */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-border">
-          <h3 className="text-sm font-medium text-foreground">{t('syncHistory')}</h3>
+      {/* ── Sync history ──────────────────────────────────────────────────── */}
+      <div className="card">
+        <div className="card-header">
+          <h2 className="card-title">{t('syncHistory')}</h2>
         </div>
         {syncHistory.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="table table-compact">
+              <caption className="sr-only">{t('syncHistory')}</caption>
               <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="text-left px-4 py-2 font-medium">{t('colRepo')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colIssues')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colStatus')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colSyncedAt')}</th>
+                <tr>
+                  <th scope="col">{t('colRepo')}</th>
+                  <th scope="col">{t('colIssues')}</th>
+                  <th scope="col">{t('colStatus')}</th>
+                  <th scope="col">{t('colSyncedAt')}</th>
                 </tr>
               </thead>
               <tbody>
-                {syncHistory.map(sync => (
-                  <tr key={sync.id} className="border-b border-border/50 hover:bg-secondary/50">
-                    <td className="px-4 py-2 font-mono text-foreground">{sync.repo}</td>
-                    <td className="px-4 py-2 text-muted-foreground">{sync.issue_count}</td>
-                    <td className="px-4 py-2">
-                      <span className={`px-1.5 py-0.5 rounded text-2xs ${
-                        sync.status === 'success'
-                          ? 'bg-green-500/10 text-green-400'
-                          : sync.status === 'partial'
-                          ? 'bg-yellow-500/10 text-yellow-400'
-                          : 'bg-destructive/10 text-destructive'
-                      }`}>
-                        {sync.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {new Date(sync.created_at * 1000).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
+                {syncHistory.map(sync => {
+                  const statusDot =
+                    sync.status === 'success' ? 'dot-success' :
+                    sync.status === 'partial'  ? 'dot-warning' :
+                    'dot-danger'
+                  return (
+                    <tr key={sync.id}>
+                      <td>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg)' }}>
+                          {sync.repo}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                          {sync.issue_count}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="flex items-center gap-1.5">
+                          <span className={`dot ${statusDot}`} aria-hidden />
+                          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                            {sync.status}
+                          </span>
+                        </span>
+                      </td>
+                      <td style={MONO}>
+                        {new Date(sync.created_at * 1000).toLocaleString()}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         ) : (
-          <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-            {t('noSyncHistory')}
+          <div className="empty">
+            <div className="empty-icon" aria-hidden>⊙</div>
+            <div className="empty-title">{t('noSyncHistory')}</div>
           </div>
         )}
       </div>
 
-      {/* Linked Tasks */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-border">
-          <h3 className="text-sm font-medium text-foreground">
-            {linkedTasks.length > 0 ? t('linkedTasksWithCount', { count: linkedTasks.length }) : t('linkedTasks')}
-          </h3>
-        </div>
-        {linkedTasks.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="text-left px-4 py-2 font-medium">{t('colTask')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colStatus')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colPriority')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colGitHub')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colSynced')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linkedTasks.map(task => (
-                  <tr key={task.id} className="border-b border-border/50 hover:bg-secondary/50">
-                    <td className="px-4 py-2 text-foreground max-w-[250px] truncate">{task.title}</td>
-                    <td className="px-4 py-2">
-                      <span className="px-1.5 py-0.5 rounded text-2xs bg-secondary text-muted-foreground">
-                        {task.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2">
-                      <span className={`px-1.5 py-0.5 rounded text-2xs ${
-                        task.priority === 'critical' ? 'bg-red-500/10 text-red-400' :
-                        task.priority === 'high' ? 'bg-orange-500/10 text-orange-400' :
-                        task.priority === 'low' ? 'bg-blue-500/10 text-blue-400' :
-                        'bg-secondary text-muted-foreground'
-                      }`}>
-                        {task.priority}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2">
-                      {task.metadata.github_issue_url ? (
-                        <a
-                          href={task.metadata.github_issue_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline font-mono"
-                        >
-                          {task.metadata.github_repo}#{task.metadata.github_issue_number}
-                        </a>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {task.metadata.github_synced_at
-                        ? new Date(task.metadata.github_synced_at).toLocaleDateString()
-                        : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-            {t('noLinkedTasks')}
-          </div>
-        )}
-      </div>
     </div>
   )
 }
