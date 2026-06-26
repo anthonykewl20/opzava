@@ -19,76 +19,108 @@ interface ArtifactDetail extends ArtifactSummary {
   lineage: { inputArtifactIds: string[] }
 }
 
-const VALIDATION_STYLES: Record<string, string> = {
-  valid: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-  pending: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  invalid: 'bg-red-500/10 text-red-400 border-red-500/20',
+// Validation status → DS .badge modifier — label+badge only, no rainbow colour map.
+function validationBadgeClass(status: string): string {
+  if (status === 'valid') return 'badge badge-success'
+  if (status === 'pending') return 'badge badge-warning'
+  if (status === 'invalid') return 'badge badge-danger'
+  return 'badge'
 }
 
-function ValidationPill({ status }: { status: string }) {
-  const style = VALIDATION_STYLES[status] ?? 'bg-surface-1/40 text-muted-foreground border-border/30'
-  return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border ${style}`}>
-      {status}
-    </span>
-  )
+const MONO_STYLE: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-xs)',
+  color: 'var(--fg-subtle)',
 }
 
-function ArtifactRow({ summary, onOpen }: { summary: ArtifactSummary; onOpen: (id: string) => void }) {
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={() => onOpen(summary.artifactId)}
-        className="w-full text-left rounded-lg border border-border/30 bg-surface-1/20 p-3 hover:border-void-cyan/30 transition-colors"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-sm font-medium truncate">{summary.artifactType}</span>
-            <ValidationPill status={summary.validationStatus} />
-          </div>
-          <span className="text-[11px] text-muted-foreground font-mono shrink-0">{summary.artifactId}</span>
-        </div>
-        <p className="text-[11px] text-muted-foreground mt-0.5">
-          step {summary.sourceStepRunId} · {summary.inputArtifactIds.length} lineage input(s)
-        </p>
-      </button>
-    </li>
-  )
-}
+// Section sub-label inside card-body (no horizontal padding override needed here)
+const SUB_LABEL_STYLE: React.CSSProperties = { padding: '0 0 var(--space-2)' }
 
 function ArtifactDetailView({ artifact, onBack }: { artifact: ArtifactDetail; onBack: () => void }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      {/* Back nav + validation badge */}
       <div className="flex items-center justify-between gap-3">
-        <button type="button" onClick={onBack} className="text-[11px] text-void-cyan hover:text-void-cyan/80">
+        <button type="button" onClick={onBack} className="btn btn-ghost btn-sm">
           ← Back to list
         </button>
-        <ValidationPill status={artifact.validation.status} />
+        <span className={validationBadgeClass(artifact.validation.status)}>
+          {artifact.validation.status}
+        </span>
       </div>
-      <div>
-        <h3 className="text-sm font-semibold">{artifact.artifactType}</h3>
-        <p className="text-[11px] text-muted-foreground font-mono">{artifact.artifactId}</p>
-      </div>
-      <div className="rounded-lg border border-border/30 bg-surface-1/20 p-3">
-        <div className="text-[11px] font-medium text-foreground/90 mb-1">Lineage</div>
-        {artifact.lineage.inputArtifactIds.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground">No upstream inputs.</p>
-        ) : (
-          <ul className="flex flex-wrap gap-1.5">
-            {artifact.lineage.inputArtifactIds.map((id) => (
-              <li key={id} className="rounded-full border border-border/30 bg-surface-1/30 px-2 py-0.5 text-[11px] font-mono">
-                {id}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <div className="rounded-lg border border-border/30 bg-surface-1/20 p-3">
-        <div className="text-[11px] font-medium text-foreground/90 mb-1">Content</div>
-        <pre className="text-[11px] text-foreground/80 whitespace-pre-wrap break-words overflow-x-auto max-h-96">
-          {JSON.stringify(artifact.content, null, 2)}
-        </pre>
+
+      <div className="card">
+        <div className="card-header">
+          <h3 className="card-title">{artifact.artifactType}</h3>
+          {/* artifact ID is a machine identifier — always mono */}
+          <span style={MONO_STYLE}>{artifact.artifactId}</span>
+        </div>
+
+        <div className="card-body space-y-4">
+
+          {/* Step source — all artifacts come from workflow step runs (system ⚙) */}
+          <div>
+            <div className="section-label" style={SUB_LABEL_STYLE}>Step run</div>
+            <span className="inline-flex items-center gap-1.5">
+              {/* ⚙ = system/workflow runner; API has no actor/creator field */}
+              <span aria-hidden style={{ color: 'var(--fg-subtle)', fontSize: 'var(--text-sm)' }}>⚙</span>
+              <span style={MONO_STYLE}>{artifact.sourceStepRunId}</span>
+            </span>
+          </div>
+
+          {/* Lineage inputs */}
+          <div>
+            <div className="section-label" style={SUB_LABEL_STYLE}>Lineage inputs</div>
+            {artifact.lineage.inputArtifactIds.length === 0 ? (
+              <p className="hint">No upstream inputs.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {artifact.lineage.inputArtifactIds.map((id) => (
+                  <span
+                    key={id}
+                    className="badge"
+                    style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}
+                  >
+                    {id}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Validation note (optional) */}
+          {artifact.validation.message && (
+            <div>
+              <div className="section-label" style={SUB_LABEL_STYLE}>Validation note</div>
+              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-muted)' }}>
+                {artifact.validation.message}
+              </p>
+            </div>
+          )}
+
+          {/* Content */}
+          <div>
+            <div className="section-label" style={SUB_LABEL_STYLE}>Content</div>
+            <pre
+              className="overflow-auto"
+              style={{
+                maxHeight: 384,
+                padding: 'var(--space-3)',
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--fg-muted)',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+              }}
+            >
+              {JSON.stringify(artifact.content, null, 2)}
+            </pre>
+          </div>
+
+        </div>
       </div>
     </div>
   )
@@ -145,56 +177,168 @@ export function ArtifactsPanel() {
   }, [items])
 
   return (
-    <div className="p-4 md:p-6 space-y-4 max-w-4xl mx-auto">
-      <div>
-        <h2 className="text-lg font-semibold">Artifacts</h2>
-        <p className="text-sm text-muted-foreground">
-          Validated content artifacts produced by workflow runs. Open one to inspect its lineage and content.
-        </p>
+    <div
+      className="opzava-ds p-6 space-y-4 max-w-4xl mx-auto"
+      style={{ background: 'var(--bg)', color: 'var(--fg)' }}
+    >
+      {/* Page header */}
+      <div className="page-header">
+        <div>
+          <h2 className="page-title font-semibold">Artifacts</h2>
+          <p className="page-sub">Validated content artifacts produced by workflow runs. Open one to inspect its lineage and content.</p>
+        </div>
       </div>
 
+      {/* Error banner */}
       {error && (
-        <div className="px-3 py-2 rounded-md text-sm border border-red-500/20 bg-red-500/10 text-red-400">
-          {error}
+        <div className="banner banner-danger">
+          <span className="flex-1">{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="btn btn-ghost btn-icon btn-sm"
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
         </div>
       )}
 
+      {/* Detail view */}
       {detail ? (
         <ArtifactDetailView artifact={detail} onBack={() => setDetail(null)} />
       ) : loading ? (
-        <Loader variant="panel" label="Loading artifacts" />
+        <div className="flex items-center justify-center" style={{ minHeight: 160 }}>
+          <Loader variant="panel" label="Loading artifacts" />
+        </div>
       ) : (
-        <>
-          {types.length > 1 && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {types.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setTypeFilter(t)}
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium border transition-colors ${
-                    typeFilter === t
-                      ? 'bg-void-cyan/10 text-void-cyan border-void-cyan/30'
-                      : 'bg-surface-1/30 text-muted-foreground border-border/30 hover:text-foreground'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
+        <section aria-labelledby="artifacts-heading">
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title" id="artifacts-heading">Recent artifacts</h3>
+              <span className="badge">{items.length} shown</span>
             </div>
-          )}
-          {items.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border/30 bg-surface-1/10 p-8 text-center text-sm text-muted-foreground">
-              No artifacts yet. Workflow runs will record their artifacts here.
+
+            {/* Type filter strip */}
+            {types.length > 1 && (
+              <div
+                className="flex flex-wrap gap-1.5 px-5 py-3"
+                style={{ borderBottom: '1px solid var(--border)' }}
+              >
+                {types.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTypeFilter(t)}
+                    className={`btn btn-sm ${typeFilter === t ? 'btn-primary' : 'btn-ghost'}`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Empty state */}
+            {items.length === 0 ? (
+              <div className="empty">
+                <div className="empty-icon" aria-hidden>◻</div>
+                <div className="empty-title">No artifacts yet</div>
+                <div className="empty-desc">Workflow runs will record their artifacts here.</div>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                {/*
+                  Columns adapted from real API data (no "name" or "creator" fields):
+                  - Artifact ID  → mono identifier (plays "Name" role)
+                  - Type         → artifactType as .badge
+                  - Source       → sourceStepRunId with ⚙ glyph (all artifacts are system/step-run produced)
+                  - Validation   → validationStatus as DS badge (success/warning/danger) — no rainbow map
+                  - Lineage      → inputArtifactIds.length count
+                  - Open         → dedicated button preserving the original click-to-drill-in behaviour
+                */}
+                <table className="table table-compact" aria-label="Artifacts list">
+                  <caption className="sr-only">
+                    Artifacts produced by workflow step runs — ID, type, step source, validation
+                    status, and lineage input count. Showing {items.length} artifact
+                    {items.length !== 1 ? 's' : ''}.
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Artifact ID</th>
+                      <th scope="col">Type</th>
+                      <th scope="col">Source</th>
+                      <th scope="col">Validation</th>
+                      <th scope="col" className="num">Lineage</th>
+                      <th scope="col"><span className="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((a) => (
+                      <tr key={a.artifactId}>
+                        <td>
+                          <span
+                            className="font-medium"
+                            style={{
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: 'var(--text-xs)',
+                              color: 'var(--fg)',
+                            }}
+                          >
+                            {a.artifactId}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="badge">{a.artifactType}</span>
+                        </td>
+                        <td>
+                          {/* All artifacts are system-produced by step runs — ⚙ glyph, never ✦ AI */}
+                          <span className="inline-flex items-center gap-1.5">
+                            <span
+                              aria-hidden
+                              style={{ color: 'var(--fg-subtle)', fontSize: 'var(--text-sm)' }}
+                            >
+                              ⚙
+                            </span>
+                            <span
+                              className="truncate"
+                              style={{ ...MONO_STYLE, maxWidth: 140 }}
+                            >
+                              {a.sourceStepRunId}
+                            </span>
+                          </span>
+                        </td>
+                        <td>
+                          <span className={validationBadgeClass(a.validationStatus)}>
+                            {a.validationStatus}
+                          </span>
+                        </td>
+                        <td className="num" style={MONO_STYLE}>
+                          {a.inputArtifactIds.length}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            onClick={() => { void open(a.artifactId) }}
+                            className="btn btn-ghost btn-sm"
+                            aria-label={`Open artifact ${a.artifactId}`}
+                          >
+                            Open ›
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="card-footer">
+              <p className="hint">
+                {items.length} artifact{items.length !== 1 ? 's' : ''} · click Open to inspect lineage and content
+              </p>
             </div>
-          ) : (
-            <ul className="space-y-2">
-              {items.map((a) => (
-                <ArtifactRow key={a.artifactId} summary={a} onOpen={open} />
-              ))}
-            </ul>
-          )}
-        </>
+          </div>
+        </section>
       )}
     </div>
   )
