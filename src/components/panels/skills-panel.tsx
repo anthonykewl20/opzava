@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { useMissionControl } from '@/store'
-import { Button } from '@/components/ui/button'
 
 interface SkillSummary {
   id: string
@@ -67,6 +66,17 @@ function getSourceLabel(source: string): string {
   }
   return source
 }
+
+// Source glyph: openclaw/workspace = ✦ AI-rooted; project/user = ⚙ local; unknown = ⚙
+function sourceGlyph(source: string): { glyph: string; srLabel: string } {
+  if (source === 'openclaw' || source.startsWith('workspace')) return { glyph: '✦', srLabel: 'AI gateway: ' }
+  return { glyph: '⚙', srLabel: 'local: ' }
+}
+
+const MONO: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }
+const SUBTLE: React.CSSProperties = { color: 'var(--fg-subtle)' }
+const MUTED: React.CSSProperties = { color: 'var(--fg-muted)' }
+const ROW_BORDER: React.CSSProperties = { borderBottom: '1px solid var(--border)' }
 
 export function SkillsPanel() {
   const t = useTranslations('skills')
@@ -133,9 +143,9 @@ export function SkillsPanel() {
     async function run() {
       try {
         await loadSkills({ initial: true })
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!cancelled) {
-          setError(err?.message || 'Failed to load skills')
+          setError((err instanceof Error ? err.message : null) || 'Failed to load skills')
           setLoading(false)
         }
       }
@@ -181,8 +191,8 @@ export function SkillsPanel() {
         const body = await res.json()
         if (!res.ok) throw new Error(body?.error || 'Failed to load SKILL.md')
         if (!cancelled) setSelectedContent(body as SkillContentResponse)
-      } catch (err: any) {
-        if (!cancelled) setDrawerError(err?.message || 'Failed to load SKILL.md')
+      } catch (err: unknown) {
+        if (!cancelled) setDrawerError((err instanceof Error ? err.message : null) || 'Failed to load SKILL.md')
       } finally {
         if (!cancelled) setDrawerLoading(false)
       }
@@ -208,8 +218,8 @@ export function SkillsPanel() {
     setLoading(true)
     try {
       await loadSkills()
-    } catch (err: any) {
-      setError(err?.message || 'Failed to refresh skills')
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : null) || 'Failed to refresh skills')
     } finally {
       setLoading(false)
     }
@@ -232,8 +242,8 @@ export function SkillsPanel() {
       if (!res.ok) throw new Error(body?.error || 'Failed to create skill')
       setCreateName('')
       await loadSkills()
-    } catch (err: any) {
-      setCreateError(err?.message || 'Failed to create skill')
+    } catch (err: unknown) {
+      setCreateError((err instanceof Error ? err.message : null) || 'Failed to create skill')
     } finally {
       setSaving(false)
     }
@@ -257,8 +267,8 @@ export function SkillsPanel() {
       if (!res.ok) throw new Error(body?.error || 'Failed to save skill')
       await loadSkills()
       setSelectedContent((prev) => prev ? { ...prev, content: draftContent } : prev)
-    } catch (err: any) {
-      setDrawerError(err?.message || 'Failed to save skill')
+    } catch (err: unknown) {
+      setDrawerError((err instanceof Error ? err.message : null) || 'Failed to save skill')
     } finally {
       setSaving(false)
     }
@@ -278,8 +288,8 @@ export function SkillsPanel() {
       setSelectedSkill(null)
       setSelectedContent(null)
       await loadSkills()
-    } catch (err: any) {
-      setDrawerError(err?.message || 'Failed to delete skill')
+    } catch (err: unknown) {
+      setDrawerError((err instanceof Error ? err.message : null) || 'Failed to delete skill')
     } finally {
       setSaving(false)
     }
@@ -296,8 +306,8 @@ export function SkillsPanel() {
       if (!res.ok) throw new Error(body?.error || 'Search failed')
       setRegistryResults(body?.skills || [])
       setRegistrySearched(true)
-    } catch (err: any) {
-      setRegistryError(err?.message || 'Search failed')
+    } catch (err: unknown) {
+      setRegistryError((err instanceof Error ? err.message : null) || 'Search failed')
     } finally {
       setRegistryLoading(false)
     }
@@ -334,8 +344,8 @@ export function SkillsPanel() {
         setInstallModal({ slug, name: displayName, step: 'done', message: body?.message || 'Installed successfully', securityStatus: body?.securityReport?.status })
         await loadSkills()
       }
-    } catch (err: any) {
-      setInstallModal({ slug, name: displayName, step: 'error', message: err?.message || 'Network error' })
+    } catch (err: unknown) {
+      setInstallModal({ slug, name: displayName, step: 'error', message: (err instanceof Error ? err.message : null) || 'Network error' })
     } finally {
       setInstalling(null)
     }
@@ -393,53 +403,74 @@ export function SkillsPanel() {
     await loadSkills()
   }
 
+  // DS-aligned security indicator: dot (success/warning/danger) + label. No rainbow.
   const securityBadge = (status?: string | null) => {
-    if (!status || status === 'unchecked') return <span className="text-2xs text-muted-foreground/50">unchecked</span>
-    if (status === 'clean') return <span className="text-2xs text-emerald-400">clean</span>
-    if (status === 'warning') return <span className="text-2xs text-amber-400">warning</span>
-    if (status === 'rejected') return <span className="text-2xs text-rose-400">rejected</span>
-    return null
+    if (!status || status === 'unchecked') {
+      return <span style={{ ...MONO, ...SUBTLE }}>unchecked</span>
+    }
+    const dotClass =
+      status === 'clean' ? 'dot dot-success' :
+      status === 'warning' ? 'dot dot-warning' :
+      status === 'rejected' ? 'dot dot-danger' : 'dot'
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span className={dotClass} aria-hidden />
+        <span style={{ ...MONO, ...MUTED }}>{status}</span>
+      </span>
+    )
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-4">
+    <div className="opzava-ds p-4 md:p-6 max-w-6xl mx-auto space-y-4" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
+
+      {/* Page header + tabs */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">{t('title')}</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <h2 className="font-semibold" style={{ fontSize: 'var(--text-lg)' }}>{t('title')}</h2>
+          <p className="page-sub mt-0.5">
             {t('subtitle')} {dashboardMode === 'local' ? t('localMode') : t('gatewayMode')}.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="tabs" style={{ border: 0 }}>
           <button
+            type="button"
             onClick={() => setActiveTab('installed')}
-            className={`px-3 py-1.5 text-xs rounded-md transition-colors ${activeTab === 'installed' ? 'bg-primary text-primary-foreground' : 'bg-secondary/50 text-muted-foreground hover:text-foreground'}`}
+            className={`tab${activeTab === 'installed' ? ' active' : ''}`}
           >
             {t('tabInstalled')}
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('registry')}
-            className={`px-3 py-1.5 text-xs rounded-md transition-colors ${activeTab === 'registry' ? 'bg-primary text-primary-foreground' : 'bg-secondary/50 text-muted-foreground hover:text-foreground'}`}
+            className={`tab${activeTab === 'registry' ? ' active' : ''}`}
           >
             {t('tabRegistry')}
           </button>
         </div>
       </div>
 
+      {/* Install message banner */}
       {installMessage && (
-        <div className={`rounded-lg border px-4 py-2 text-xs ${
+        <div className={`banner${
           installMessage.startsWith('Failed') || installMessage.startsWith('Install error')
-            ? 'bg-destructive/10 border-destructive/30 text-destructive'
-            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+            ? ' banner-danger'
+            : ''
         }`}>
-          {installMessage}
+          <span className="flex-1">{installMessage}</span>
         </div>
       )}
 
+      {/* ── INSTALLED TAB ── */}
       {activeTab === 'installed' && (
         <>
+          {/* Search */}
           <div className="relative">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
+              style={{ color: 'var(--fg-subtle)' }}
+              viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+              aria-hidden
+            >
               <circle cx="7" cy="7" r="4.5" />
               <path d="M10.5 10.5L14 14" />
             </svg>
@@ -447,37 +478,43 @@ export function SkillsPanel() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t('searchPlaceholder')}
-              className="h-9 w-full rounded-md border border-border bg-secondary/50 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40"
+              className="input"
+              style={{ paddingLeft: 36 }}
             />
             {query && (
               <button
+                type="button"
                 onClick={() => setQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground text-xs"
+                className="btn btn-ghost btn-icon btn-sm absolute right-1 top-1/2 -translate-y-1/2"
                 title="Clear"
+                style={{ height: 28, width: 28, fontSize: 'var(--text-xs)' }}
               >
                 ✕
               </button>
             )}
           </div>
           {query && (
-            <div className="text-2xs text-muted-foreground">
+            <p style={{ fontSize: 'var(--text-xs)', ...MUTED }}>
               {t('searchResults', { count: filtered.length, total: skillsTotal, query })}
-            </div>
+            </p>
           )}
 
-          <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+          {/* Disk sync + create */}
+          <div className="card card-body space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-xs text-muted-foreground">{t('diskSyncActive')}</div>
+              <p style={{ fontSize: 'var(--text-xs)', ...MUTED }}>{t('diskSyncActive')}</p>
               <div className="flex items-center gap-1.5">
-                <Button
-                  variant="outline"
-                  size="xs"
+                <button
+                  type="button"
+                  className="btn btn-sm"
                   onClick={scanAllSkills}
                   disabled={loading || saving || !!scanAll?.running}
                 >
                   {scanAll?.running ? t('scanningProgress', { done: scanAll.done, total: scanAll.total }) : t('scanAll')}
-                </Button>
-                <Button variant="outline" size="xs" onClick={refresh} disabled={loading || saving}>{t('refreshNow')}</Button>
+                </button>
+                <button type="button" className="btn btn-sm" onClick={refresh} disabled={loading || saving}>
+                  {t('refreshNow')}
+                </button>
               </div>
             </div>
 
@@ -486,37 +523,54 @@ export function SkillsPanel() {
               <div className="space-y-2">
                 {scanAll.running && (
                   <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-2xs text-muted-foreground">
-                      <span>{t('scanning')} <span className="text-foreground font-medium">{scanAll.current}</span></span>
-                      <span>{scanAll.done}/{scanAll.total}</span>
+                    <div className="flex items-center justify-between" style={{ fontSize: 'var(--text-xs)', ...MUTED }}>
+                      <span>
+                        {t('scanning')}{' '}
+                        <span className="font-semibold" style={{ color: 'var(--fg)' }}>{scanAll.current}</span>
+                      </span>
+                      <span style={MONO}>{scanAll.done}/{scanAll.total}</span>
                     </div>
-                    <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-primary transition-all duration-300"
-                        style={{ width: `${(scanAll.done / scanAll.total) * 100}%` }}
-                      />
+                    <div className="progress">
+                      <i style={{ width: `${(scanAll.done / scanAll.total) * 100}%` }} />
                     </div>
                   </div>
                 )}
                 {!scanAll.running && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 text-2xs">
-                      <span className="text-emerald-400">{scanAll.results.clean} clean</span>
-                      {scanAll.results.warning > 0 && <span className="text-amber-400">{scanAll.results.warning} warning</span>}
-                      {scanAll.results.rejected > 0 && <span className="text-rose-400">{scanAll.results.rejected} rejected</span>}
-                      {scanAll.results.error > 0 && <span className="text-destructive">{scanAll.results.error} errors</span>}
-                      <span className="text-muted-foreground">— {t('skillsScanned', { count: scanAll.total })}</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="badge badge-success">{scanAll.results.clean} clean</span>
+                      {scanAll.results.warning > 0 && (
+                        <span className="badge badge-warning">{scanAll.results.warning} warning</span>
+                      )}
+                      {scanAll.results.rejected > 0 && (
+                        <span className="badge badge-danger">{scanAll.results.rejected} rejected</span>
+                      )}
+                      {scanAll.results.error > 0 && (
+                        <span className="badge badge-danger">{scanAll.results.error} errors</span>
+                      )}
+                      <span style={{ fontSize: 'var(--text-xs)', ...SUBTLE }}>
+                        — {t('skillsScanned', { count: scanAll.total })}
+                      </span>
                     </div>
-                    <button onClick={() => setScanAll(null)} className="text-2xs text-muted-foreground/50 hover:text-foreground">{t('dismiss')}</button>
+                    <button
+                      type="button"
+                      onClick={() => setScanAll(null)}
+                      className="btn btn-ghost btn-sm"
+                    >
+                      {t('dismiss')}
+                    </button>
                   </div>
                 )}
               </div>
             )}
+
+            {/* Create skill form */}
             <div className="grid grid-cols-1 md:grid-cols-[240px_1fr_auto] gap-2">
               <select
                 value={createSource}
                 onChange={(e) => setCreateSource(e.target.value)}
-                className="h-9 rounded-md border border-border bg-secondary/50 px-2 text-xs text-foreground"
+                className="select"
+                style={{ height: 36, fontSize: 'var(--text-xs)' }}
               >
                 <option value="user-agents">{SOURCE_LABELS['user-agents']}</option>
                 <option value="user-codex">{SOURCE_LABELS['user-codex']}</option>
@@ -531,102 +585,160 @@ export function SkillsPanel() {
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
                 placeholder="new-skill-name"
-                className="h-9 rounded-md border border-border bg-secondary/50 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                className="input"
+                style={{ height: 36 }}
               />
-              <Button variant="default" size="sm" onClick={createSkill} disabled={saving || !createName.trim()}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={createSkill}
+                disabled={saving || !createName.trim()}
+              >
                 {t('addSkill')}
-              </Button>
+              </button>
             </div>
             <textarea
               value={createContent}
               onChange={(e) => setCreateContent(e.target.value)}
-              className="w-full h-24 rounded-md border border-border bg-secondary/30 p-2 text-xs text-foreground font-mono focus:outline-none"
+              className="textarea"
+              style={{ minHeight: 96, ...MONO }}
               placeholder={t('initialContent')}
             />
-            {createError && <p className="text-xs text-destructive">{createError}</p>}
+            {createError && (
+              <div className="banner banner-danger" style={{ fontSize: 'var(--text-xs)' }}>
+                {createError}
+              </div>
+            )}
           </div>
 
+          {/* Skill list */}
           {loading ? (
-            <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">{t('loadingSkills')}</div>
+            <div className="empty">
+              <div className="empty-icon" aria-hidden>◌</div>
+              <div className="empty-title">{t('loadingSkills')}</div>
+            </div>
           ) : error ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-6 text-sm text-destructive">{error}</div>
+            <div className="banner banner-danger">{error}</div>
           ) : (
             <>
+              {/* Source group cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {activeRoot && (
                   <button
+                    type="button"
                     onClick={() => setActiveRoot(null)}
-                    className="col-span-full text-left text-2xs text-primary hover:underline"
+                    className="btn btn-ghost btn-sm col-span-full justify-start"
+                    style={{ fontSize: 'var(--text-xs)' }}
                   >
-                    {t('showAllRoots')}
+                    ← {t('showAllRoots')}
                   </button>
                 )}
-                {(skillGroups || []).filter(g => g.skills.length > 0 || ['user-agents', 'user-codex', 'openclaw', 'workspace'].includes(g.source) || g.source.startsWith('workspace-')).map((group) => (
-                  <button
-                    key={group.source}
-                    onClick={() => setActiveRoot(activeRoot === group.source ? null : group.source)}
-                    className={`rounded-lg border bg-card p-3 text-left transition-colors ${
-                      activeRoot === group.source
-                        ? 'border-primary ring-1 ring-primary/30'
-                        : group.source === 'openclaw' ? 'border-cyan-500/30 hover:border-cyan-500/50'
-                        : group.source.startsWith('workspace-') ? 'border-violet-500/30 hover:border-violet-500/50'
-                        : 'border-border hover:border-border/80'
-                    }`}
-                  >
-                    <div className="text-xs font-medium text-muted-foreground">{getSourceLabel(group.source)}</div>
-                    <div className="mt-1 text-lg font-semibold text-foreground">{group.skills.length}</div>
-                    <div className="mt-1 text-2xs text-muted-foreground truncate">{group.path}</div>
-                  </button>
-                ))}
+                {(skillGroups || [])
+                  .filter(g => g.skills.length > 0 || ['user-agents', 'user-codex', 'openclaw', 'workspace'].includes(g.source) || g.source.startsWith('workspace-'))
+                  .map((group) => {
+                    const { glyph, srLabel } = sourceGlyph(group.source)
+                    const isActive = activeRoot === group.source
+                    return (
+                      <button
+                        key={group.source}
+                        type="button"
+                        onClick={() => setActiveRoot(isActive ? null : group.source)}
+                        className="card card-body text-left"
+                        style={{
+                          border: isActive ? '1px solid var(--accent)' : undefined,
+                          boxShadow: isActive ? '0 0 0 2px var(--accent-soft)' : undefined,
+                        }}
+                      >
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span
+                            aria-hidden
+                            style={{
+                              fontSize: 'var(--text-base)',
+                              color: glyph === '✦' ? 'var(--accent)' : 'var(--fg-subtle)',
+                            }}
+                          >
+                            {glyph}
+                          </span>
+                          <span className="sr-only">{srLabel}</span>
+                          <span style={{ fontSize: 'var(--text-xs)', ...MUTED }}>{getSourceLabel(group.source)}</span>
+                        </div>
+                        <div className="font-semibold" style={{ fontSize: 'var(--text-xl)' }}>{group.skills.length}</div>
+                        <div className="mt-1 truncate" style={{ ...MONO, ...SUBTLE }}>{group.path}</div>
+                      </button>
+                    )
+                  })}
               </div>
 
-              <div className="rounded-lg border border-border bg-card overflow-hidden">
-                <div className="px-4 py-3 border-b border-border text-xs text-muted-foreground">
-                  {t('skillCount', { count: filtered.length, total: skillsTotal })}
+              {/* Skill table */}
+              <div className="card">
+                <div className="card-header">
+                  <span className="card-title" style={{ fontSize: 'var(--text-sm)' }}>
+                    {t('skillCount', { count: filtered.length, total: skillsTotal })}
+                  </span>
                 </div>
                 {filtered.length === 0 ? (
-                  <div className="px-4 py-6 text-sm text-muted-foreground">{t('noMatch')}</div>
-                ) : (
-                  <div className="divide-y divide-border">
-                    {filtered.map((skill) => (
-                      <div key={skill.id} className="px-4 py-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-2">
-                            <div className="font-medium text-sm text-foreground">{skill.name}</div>
-                            {skill.registry_slug && (
-                              <span className="text-2xs rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30 px-1.5 py-0.5">
-                                registry
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {securityBadge(skill.security_status)}
-                            <span className={`text-2xs rounded-full border px-2 py-0.5 ${
-                              skill.source === 'openclaw'
-                                ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
-                                : skill.source.startsWith('workspace-')
-                                  ? 'bg-violet-500/10 text-violet-400 border-violet-500/30'
-                                  : skill.source.startsWith('project-')
-                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                                    : 'border-border text-muted-foreground'
-                            }`}>
-                              {getSourceLabel(skill.source)}
-                            </span>
-                            <Button variant="outline" size="xs" onClick={() => checkSecurity(skill)}>
-                              {t('scan')}
-                            </Button>
-                            <Button variant="outline" size="xs" onClick={() => setSelectedSkill(skill)}>
-                              {t('view')}
-                            </Button>
-                          </div>
-                        </div>
-                        {skill.description && (
-                          <p className="mt-1 text-xs text-muted-foreground">{skill.description}</p>
-                        )}
-                        <p className="mt-1 text-2xs text-muted-foreground/70 break-all">{skill.path}</p>
-                      </div>
-                    ))}
+                  <div className="empty">
+                    <div className="empty-icon" aria-hidden>✦</div>
+                    <div className="empty-title">{t('noMatch')}</div>
                   </div>
+                ) : (
+                  <table className="table table-compact">
+                    <caption className="sr-only">
+                      Installed skills — name, source location, security status, and actions.
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">{t('tabInstalled')}</th>
+                        <th scope="col">Source</th>
+                        <th scope="col">Security</th>
+                        <th scope="col" style={{ width: 120 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((skill) => (
+                        <tr key={skill.id}>
+                          <td>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg)' }}>
+                                {skill.name}
+                              </span>
+                              {skill.registry_slug && (
+                                <span className="badge badge-accent">registry</span>
+                              )}
+                            </div>
+                            {skill.description && (
+                              <p className="mt-0.5 truncate" style={{ fontSize: 'var(--text-xs)', ...MUTED }}>{skill.description}</p>
+                            )}
+                            <p className="mt-0.5 break-all" style={{ ...MONO, ...SUBTLE }}>{skill.path}</p>
+                          </td>
+                          <td>
+                            <span className="badge">{getSourceLabel(skill.source)}</span>
+                          </td>
+                          <td>
+                            {securityBadge(skill.security_status)}
+                          </td>
+                          <td>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                onClick={() => checkSecurity(skill)}
+                              >
+                                {t('scan')}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                onClick={() => setSelectedSkill(skill)}
+                              >
+                                {t('view')}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 )}
               </div>
             </>
@@ -634,14 +746,20 @@ export function SkillsPanel() {
         </>
       )}
 
+      {/* ── REGISTRY TAB ── */}
       {activeTab === 'registry' && (
         <>
-          <div className="rounded-lg border border-border bg-card p-3 space-y-3">
+          <div className="card card-body space-y-3">
             <div className="flex items-center gap-2">
               <select
                 value={registrySource}
-                onChange={(e) => { setRegistrySource(e.target.value as 'clawhub' | 'skills-sh' | 'awesome-openclaw'); setRegistryResults([]); setRegistrySearched(false) }}
-                className="h-9 rounded-md border border-border bg-secondary/50 px-2 text-xs text-foreground"
+                onChange={(e) => {
+                  setRegistrySource(e.target.value as 'clawhub' | 'skills-sh' | 'awesome-openclaw')
+                  setRegistryResults([])
+                  setRegistrySearched(false)
+                }}
+                className="select"
+                style={{ width: 'auto', minWidth: 160, height: 36, fontSize: 'var(--text-xs)' }}
               >
                 <option value="clawhub">ClawdHub</option>
                 <option value="skills-sh">skills.sh</option>
@@ -652,18 +770,25 @@ export function SkillsPanel() {
                 onChange={(e) => setRegistryQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && searchRegistry()}
                 placeholder={t('registrySearchPlaceholder')}
-                className="h-9 flex-1 rounded-md border border-border bg-secondary/50 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                className="input"
+                style={{ flex: 1, height: 36 }}
               />
-              <Button variant="default" size="sm" onClick={searchRegistry} disabled={registryLoading || !registryQuery.trim()}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={searchRegistry}
+                disabled={registryLoading || !registryQuery.trim()}
+              >
                 {registryLoading ? t('searching') : t('search')}
-              </Button>
+              </button>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{t('installTo')}</span>
+              <span style={{ fontSize: 'var(--text-xs)', ...MUTED }}>{t('installTo')}</span>
               <select
                 value={installTarget}
                 onChange={(e) => setInstallTarget(e.target.value)}
-                className="h-7 rounded-md border border-border bg-secondary/50 px-2 text-xs text-foreground"
+                className="select"
+                style={{ width: 'auto', height: 30, fontSize: 'var(--text-xs)' }}
               >
                 <option value="user-agents">{SOURCE_LABELS['user-agents']}</option>
                 <option value="user-codex">{SOURCE_LABELS['user-codex']}</option>
@@ -678,200 +803,234 @@ export function SkillsPanel() {
           </div>
 
           {registryError && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {registryError}
-            </div>
+            <div className="banner banner-danger">{registryError}</div>
           )}
 
           {registryResults.length > 0 ? (
-            <div className="rounded-lg border border-border bg-card overflow-hidden">
-              <div className="px-4 py-3 border-b border-border text-xs text-muted-foreground">
-                {registryResults.length} results from {{ clawhub: 'ClawdHub', 'skills-sh': 'skills.sh', 'awesome-openclaw': 'Awesome OpenClaw' }[registrySource]}
+            <div className="card">
+              <div className="card-header">
+                <span className="card-title" style={{ fontSize: 'var(--text-sm)' }}>
+                  {registryResults.length} results
+                </span>
+                <span className="badge">
+                  {{ clawhub: 'ClawdHub', 'skills-sh': 'skills.sh', 'awesome-openclaw': 'Awesome OpenClaw' }[registrySource]}
+                </span>
               </div>
-              <div className="divide-y divide-border">
-                {registryResults.map((skill) => (
-                  <div key={skill.slug} className="px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-medium text-sm text-foreground">{skill.name}</div>
-                        <div className="text-2xs text-muted-foreground mt-0.5">
-                          by {skill.author} • v{skill.version}
-                          {skill.installCount != null && ` • ${skill.installCount} installs`}
+              <table className="table table-compact">
+                <caption className="sr-only">Registry search results — skill name, author, version, and install action.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Skill</th>
+                    <th scope="col">Tags</th>
+                    <th scope="col" style={{ width: 80 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {registryResults.map((skill) => (
+                    <tr key={skill.slug}>
+                      <td>
+                        <div className="font-medium" style={{ color: 'var(--fg)', fontSize: 'var(--text-sm)' }}>{skill.name}</div>
+                        <div style={{ ...MONO, ...SUBTLE }}>
+                          by {skill.author} · v{skill.version}
+                          {skill.installCount != null && ` · ${skill.installCount} installs`}
                         </div>
-                      </div>
-                      <Button
-                        variant="default"
-                        size="xs"
-                        onClick={() => installSkill(skill.slug, skill.name)}
-                        disabled={installing === skill.slug}
-                      >
-                        {installing === skill.slug ? t('installing') : t('install')}
-                      </Button>
-                    </div>
-                    {skill.description && (
-                      <p className="mt-1 text-xs text-muted-foreground">{skill.description}</p>
-                    )}
-                    {skill.tags && skill.tags.length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {skill.tags.slice(0, 5).map((tag) => (
-                          <span key={tag} className="text-2xs rounded-full bg-secondary/50 border border-border px-1.5 py-0.5 text-muted-foreground">
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+                        {skill.description && (
+                          <p className="mt-0.5" style={{ fontSize: 'var(--text-xs)', ...MUTED }}>{skill.description}</p>
+                        )}
+                      </td>
+                      <td>
+                        {skill.tags && skill.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {skill.tags.slice(0, 5).map((tag) => (
+                              <span key={tag} className="badge">{tag}</span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={() => installSkill(skill.slug, skill.name)}
+                          disabled={installing === skill.slug}
+                        >
+                          {installing === skill.slug ? t('installing') : t('install')}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : registryLoading ? (
-            <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">{t('searching')}</div>
+            <div className="empty">
+              <div className="empty-icon" aria-hidden>◌</div>
+              <div className="empty-title">{t('searching')}</div>
+            </div>
           ) : registrySearched ? (
-            <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
-              {t('noRegistryResults', { query: registryQuery, registry: { clawhub: 'ClawdHub', 'skills-sh': 'skills.sh', 'awesome-openclaw': 'Awesome OpenClaw' }[registrySource] })}
+            <div className="empty">
+              <div className="empty-icon" aria-hidden>✦</div>
+              <div className="empty-title">{t('noRegistryResults', { query: registryQuery, registry: { clawhub: 'ClawdHub', 'skills-sh': 'skills.sh', 'awesome-openclaw': 'Awesome OpenClaw' }[registrySource] })}</div>
             </div>
           ) : (
-            <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
-              {t('registryPrompt')}
+            <div className="empty">
+              <div className="empty-icon" aria-hidden>⊞</div>
+              <div className="empty-title">{t('registryPrompt')}</div>
             </div>
           )}
         </>
       )}
 
+      {/* ── INSTALL MODAL (portal) ── */}
       {isMounted && installModal && createPortal(
-        <div className="fixed inset-0 z-[130]">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-card border border-border rounded-lg shadow-2xl overflow-hidden">
-              <div className="px-5 pt-5 pb-4">
-                <h3 className="text-sm font-semibold text-foreground">
-                  {installModal.step === 'done' ? t('skillInstalled') : installModal.step === 'error' ? t('installFailed') : t('installingSkill')}
-                </h3>
-                <p className="text-xs text-muted-foreground mt-1 truncate">{installModal.name}</p>
+        <div
+          className="opzava-ds scrim"
+          style={{ alignItems: 'center', justifyContent: 'center', padding: 'var(--space-4)' }}
+        >
+          <div className="modal" style={{ maxWidth: 440 }}>
+            <div className="card-header">
+              <h3 className="card-title">
+                {installModal.step === 'done' ? t('skillInstalled') :
+                  installModal.step === 'error' ? t('installFailed') : t('installingSkill')}
+              </h3>
+              <p className="truncate" style={{ fontSize: 'var(--text-xs)', ...MUTED }}>{installModal.name}</p>
+            </div>
+
+            <div className="card-body space-y-3">
+              {/* Progress steps */}
+              <div className="space-y-2">
+                <InstallStep
+                  label={t('stepFetching')}
+                  status={
+                    installModal.step === 'fetching' ? 'active' :
+                    (installModal.step === 'error' && !installModal.securityStatus) ? 'error' : 'done'
+                  }
+                />
+                <InstallStep
+                  label={t('stepScanning')}
+                  status={
+                    installModal.step === 'fetching' ? 'pending' :
+                    installModal.step === 'scanning' ? 'active' :
+                    (installModal.step === 'error' && installModal.securityStatus === 'rejected') ? 'error' :
+                    (installModal.step === 'error' && !installModal.securityStatus) ? 'error' :
+                    'done'
+                  }
+                />
+                <InstallStep
+                  label={t('stepWriting')}
+                  status={
+                    ['fetching', 'scanning'].includes(installModal.step) ? 'pending' :
+                    installModal.step === 'writing' ? 'active' :
+                    installModal.step === 'error' ? 'error' : 'done'
+                  }
+                />
               </div>
 
-              <div className="px-5 pb-5 space-y-3">
-                {/* Progress steps */}
-                <div className="space-y-2">
-                  <InstallStep
-                    label={t('stepFetching')}
-                    status={installModal.step === 'fetching' ? 'active' : installModal.step === 'error' && !installModal.securityStatus ? 'error' : 'done'}
-                  />
-                  <InstallStep
-                    label={t('stepScanning')}
-                    status={
-                      installModal.step === 'fetching' ? 'pending'
-                        : installModal.step === 'scanning' ? 'active'
-                        : installModal.step === 'error' && installModal.securityStatus === 'rejected' ? 'error'
-                        : installModal.step === 'error' && !installModal.securityStatus ? 'error'
-                        : 'done'
-                    }
-                  />
-                  <InstallStep
-                    label={t('stepWriting')}
-                    status={
-                      ['fetching', 'scanning'].includes(installModal.step) ? 'pending'
-                        : installModal.step === 'writing' ? 'active'
-                        : installModal.step === 'error' ? 'error'
-                        : 'done'
-                    }
-                  />
+              {/* Result message */}
+              {installModal.message && (installModal.step === 'done' || installModal.step === 'error') && (
+                <div className={`banner${installModal.step === 'error' ? ' banner-danger' : ''}`}>
+                  {installModal.message}
                 </div>
+              )}
 
-                {/* Result message */}
-                {installModal.message && (installModal.step === 'done' || installModal.step === 'error') && (
-                  <div className={`rounded-md border px-3 py-2 text-xs ${
-                    installModal.step === 'error'
-                      ? 'bg-destructive/10 border-destructive/30 text-destructive'
-                      : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                  }`}>
-                    {installModal.message}
-                  </div>
-                )}
-
-                {/* Security badge */}
-                {installModal.securityStatus && installModal.step === 'done' && (
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="text-muted-foreground">{t('security')}</span>
-                    <span className={
-                      installModal.securityStatus === 'clean' ? 'text-emerald-400'
-                        : installModal.securityStatus === 'warning' ? 'text-amber-400'
-                        : 'text-rose-400'
-                    }>{installModal.securityStatus}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Footer */}
-              {(installModal.step === 'done' || installModal.step === 'error') && (
-                <div className="px-5 py-3 border-t border-border flex items-center justify-end gap-2">
-                  {installModal.step === 'done' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => { setInstallModal(null); setActiveTab('installed') }}
-                    >
-                      {t('viewInstalled')}
-                    </Button>
-                  )}
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => setInstallModal(null)}
-                  >
-                    {installModal.step === 'done' ? t('done') : t('close')}
-                  </Button>
+              {/* Security status */}
+              {installModal.securityStatus && installModal.step === 'done' && (
+                <div className="flex items-center gap-2" style={{ fontSize: 'var(--text-xs)' }}>
+                  <span style={MUTED}>{t('security')}</span>
+                  {securityBadge(installModal.securityStatus)}
                 </div>
               )}
             </div>
+
+            {/* Modal footer */}
+            {(installModal.step === 'done' || installModal.step === 'error') && (
+              <div className="card-footer flex items-center justify-end gap-2">
+                {installModal.step === 'done' && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => { setInstallModal(null); setActiveTab('installed') }}
+                  >
+                    {t('viewInstalled')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setInstallModal(null)}
+                >
+                  {installModal.step === 'done' ? t('done') : t('close')}
+                </button>
+              </div>
+            )}
           </div>
         </div>,
         document.body
       )}
 
+      {/* ── DETAIL DRAWER (portal) ── */}
       {isMounted && selectedSkill && createPortal(
-        <div className="fixed inset-0 z-[120]">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setSelectedSkill(null)} />
-          <aside className="absolute right-0 top-0 h-full w-[min(52rem,100vw)] bg-card border-l border-border shadow-2xl flex flex-col">
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-foreground truncate">{selectedSkill.name}</h3>
-                <p className="text-2xs text-muted-foreground truncate">
-                  {selectedSkill.source} • {selectedSkill.path}
+        <div
+          className="opzava-ds scrim"
+          style={{ alignItems: 'stretch' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setSelectedSkill(null) }}
+        >
+          <aside className="drawer" style={{ width: 'min(52rem, 100vw)' }}>
+            {/* Drawer header */}
+            <div className="card-header" style={{ flexShrink: 0 }}>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-semibold truncate" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)' }}>
+                  {selectedSkill.name}
+                </h3>
+                <p className="truncate" style={{ ...MONO, ...SUBTLE }}>
+                  {selectedSkill.source} · {selectedSkill.path}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <Button variant="destructive" size="sm" onClick={deleteSkill} disabled={saving || drawerLoading}>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <button type="button" className="btn btn-danger btn-sm" onClick={deleteSkill} disabled={saving || drawerLoading}>
                   {t('delete')}
-                </Button>
-                <Button variant="outline" size="sm" onClick={saveSkill} disabled={saving || drawerLoading}>
+                </button>
+                <button type="button" className="btn btn-sm" onClick={saveSkill} disabled={saving || drawerLoading}>
                   {t('save')}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setSelectedSkill(null)}>{t('close')}</Button>
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedSkill(null)}>
+                  {t('close')}
+                </button>
               </div>
             </div>
+
+            {/* Drawer content */}
             <div className="flex-1 overflow-y-auto">
               {drawerLoading ? (
-                <div className="p-4 text-sm text-muted-foreground">{t('loadingSkillContent')}</div>
+                <div className="empty">
+                  <div className="empty-icon" aria-hidden>◌</div>
+                  <div className="empty-title">{t('loadingSkillContent')}</div>
+                </div>
               ) : drawerError ? (
-                <div className="p-4 text-sm text-destructive">{drawerError}</div>
+                <div className="banner banner-danger" style={{ margin: 'var(--space-4)' }}>
+                  {drawerError}
+                </div>
               ) : selectedContent ? (
                 <>
                   {selectedContent.security && selectedContent.security.issues.length > 0 && (
-                    <div className={`mx-4 mt-3 rounded-lg border p-3 text-xs ${
-                      selectedContent.security.status === 'rejected'
-                        ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-                        : selectedContent.security.status === 'warning'
-                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                          : 'bg-slate-500/10 border-slate-500/30 text-slate-300'
-                    }`}>
-                      <div className="font-medium mb-1">{t('security')}: {selectedContent.security.status}</div>
+                    <div
+                      className={`banner${
+                        selectedContent.security.status === 'rejected' ? ' banner-danger' :
+                        selectedContent.security.status === 'warning' ? ' banner-warning' : ''
+                      }`}
+                      style={{ margin: 'var(--space-4)', flexDirection: 'column', alignItems: 'flex-start', gap: 'var(--space-2)' }}
+                    >
+                      <div className="font-semibold" style={{ fontSize: 'var(--text-xs)' }}>
+                        {t('security')}: {selectedContent.security.status}
+                      </div>
                       {selectedContent.security.issues.map((issue, i) => (
-                        <div key={i} className="flex items-start gap-1.5 mt-1">
-                          <span className={`mt-0.5 text-2xs font-mono ${
-                            issue.severity === 'critical' ? 'text-rose-400' : issue.severity === 'warning' ? 'text-amber-400' : 'text-slate-400'
-                          }`}>[{issue.severity}]</span>
-                          <span>{issue.description}{issue.line ? ` (line ${issue.line})` : ''}</span>
+                        <div key={i} className="flex items-start gap-1.5">
+                          <span style={{ ...MONO, fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                            [{issue.severity}]
+                          </span>
+                          <span style={{ fontSize: 'var(--text-xs)' }}>
+                            {issue.description}{issue.line ? ` (line ${issue.line})` : ''}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -879,11 +1038,24 @@ export function SkillsPanel() {
                   <textarea
                     value={draftContent}
                     onChange={(e) => setDraftContent(e.target.value)}
-                    className="w-full h-full min-h-[70vh] bg-card p-4 text-xs text-muted-foreground leading-5 font-mono whitespace-pre rounded-none border-0 focus:outline-none"
+                    className="textarea"
+                    style={{
+                      width: '100%',
+                      minHeight: '70vh',
+                      background: 'var(--surface)',
+                      borderRadius: 0,
+                      border: 0,
+                      resize: 'none',
+                      ...MONO,
+                      lineHeight: 1.55,
+                      color: 'var(--fg-muted)',
+                    }}
                   />
                 </>
               ) : (
-                <div className="p-4 text-sm text-muted-foreground">{t('noContent')}</div>
+                <div className="empty">
+                  <div className="empty-title">{t('noContent')}</div>
+                </div>
               )}
             </div>
           </aside>
@@ -897,30 +1069,33 @@ export function SkillsPanel() {
 function InstallStep({ label, status }: { label: string; status: 'pending' | 'active' | 'done' | 'error' }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="w-5 h-5 flex items-center justify-center shrink-0">
+      <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
         {status === 'pending' && (
-          <span className="w-2 h-2 rounded-full bg-muted-foreground/30" />
+          <span className="dot" style={{ width: 8, height: 8 }} aria-hidden />
         )}
         {status === 'active' && (
-          <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+          <span className="dot dot-accent live" style={{ width: 8, height: 8 }} aria-hidden />
         )}
         {status === 'done' && (
-          <svg className="w-4 h-4 text-emerald-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg className="w-4 h-4" style={{ color: 'var(--success)' }} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M3.5 8.5L6.5 11.5L12.5 4.5" />
           </svg>
         )}
         {status === 'error' && (
-          <svg className="w-4 h-4 text-destructive" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg className="w-4 h-4" style={{ color: 'var(--danger)' }} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5" />
           </svg>
         )}
       </div>
-      <span className={`text-xs ${
-        status === 'active' ? 'text-foreground font-medium'
-          : status === 'done' ? 'text-muted-foreground'
-          : status === 'error' ? 'text-destructive'
-          : 'text-muted-foreground/50'
-      }`}>
+      <span style={{
+        fontSize: 'var(--text-xs)',
+        color:
+          status === 'active' ? 'var(--fg)' :
+          status === 'done' ? 'var(--fg-muted)' :
+          status === 'error' ? 'var(--danger)' :
+          'var(--fg-subtle)',
+        fontWeight: status === 'active' ? 600 : undefined,
+      }}>
         {label}
       </span>
     </div>
