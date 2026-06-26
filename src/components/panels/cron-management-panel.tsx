@@ -2,7 +2,6 @@
 
 import { useTranslations } from 'next-intl'
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
 import { useMissionControl, CronJob } from '@/store'
 import { createClientLogger } from '@/lib/client-logger'
@@ -18,20 +17,20 @@ interface DayJobSummary {
   firstRunMs: number
 }
 
-const AGENT_COLORS = [
-  'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-  'bg-amber-500/20 text-amber-300 border-amber-500/30',
-  'bg-purple-500/20 text-purple-300 border-purple-500/30',
-  'bg-rose-500/20 text-rose-300 border-rose-500/30',
-  'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
-  'bg-orange-500/20 text-orange-300 border-orange-500/30',
-  'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
-]
+/** Returns ✦ for AI agents, ⚙ for system/local runners. */
+function agentGlyph(agentId: string): string {
+  if (!agentId || agentId === 'mission-control-local') return '⚙'
+  return '✦'
+}
 
-function getAgentColorClass(agentId: string, allAgents: string[]): string {
-  const idx = allAgents.indexOf(agentId)
-  return AGENT_COLORS[idx >= 0 ? idx % AGENT_COLORS.length : 0]
+/** Maps a run status to a DS dot class + readable label (no traffic-light hue). */
+function runStatusInfo(status?: string): { dotClass: string; label: string } {
+  switch (status) {
+    case 'success': return { dotClass: 'dot dot-success', label: 'OK' }
+    case 'error':   return { dotClass: 'dot dot-danger',  label: 'Failed' }
+    case 'running': return { dotClass: 'dot dot-accent is-running', label: 'Running' }
+    default:        return { dotClass: 'dot', label: '—' }
+  }
 }
 
 /**
@@ -120,6 +119,9 @@ function formatDateLabel(date: Date): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
+const MONO: React.CSSProperties = { fontFamily: 'var(--font-mono)' }
+const MUTED_MONO: React.CSSProperties = { fontFamily: 'var(--font-mono)', color: 'var(--fg-subtle)', fontSize: 'var(--text-xs)' }
+
 export function CronManagementPanel() {
   const t = useTranslations('cronManagement')
   const { cronJobs, setCronJobs, dashboardMode } = useMissionControl()
@@ -159,12 +161,12 @@ export function CronManagementPanel() {
     const now = new Date().getTime()
     const time = new Date(timestamp).getTime()
     const diff = future ? time - now : now - time
-    
+
     const seconds = Math.floor(diff / 1000)
     const minutes = Math.floor(seconds / 60)
     const hours = Math.floor(minutes / 60)
     const days = Math.floor(hours / 24)
-    
+
     if (days > 0) return `${days} day${days > 1 ? 's' : ''} ${future ? 'from now' : 'ago'}`
     if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ${future ? 'from now' : 'ago'}`
     if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''} ${future ? 'from now' : 'ago'}`
@@ -522,24 +524,6 @@ export function CronManagementPanel() {
     loadJobLogs(job)
   }
 
-  const getStatusColor = (status?: string) => {
-    switch (status) {
-      case 'success': return 'text-green-400'
-      case 'error': return 'text-red-400'
-      case 'running': return 'text-blue-400'
-      default: return 'text-muted-foreground'
-    }
-  }
-
-  const getStatusBg = (status?: string) => {
-    switch (status) {
-      case 'success': return 'bg-green-500/20'
-      case 'error': return 'bg-red-500/20'
-      case 'running': return 'bg-blue-500/20'
-      default: return 'bg-gray-500/20'
-    }
-  }
-
   const predefinedSchedules = [
     { label: 'Every minute', value: '* * * * *' },
     { label: 'Every 5 minutes', value: '*/5 * * * *' },
@@ -715,762 +699,1200 @@ export function CronManagementPanel() {
         ? `${formatDateLabel(weekDays[0])} - ${formatDateLabel(weekDays[6])}`
         : calendarDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 
+  // Derived summary stats
+  const enabledCount = cronJobs.filter(j => j.enabled).length
+  const errorCount = cronJobs.filter(j => j.lastStatus === 'error').length
+
+  // Pill style for calendar cells (neutral, no rainbow)
+  const calPill: React.CSSProperties = {
+    fontSize: 'var(--text-xs)',
+    padding: '2px 6px',
+    borderRadius: 'var(--radius-sm)',
+    background: 'var(--surface-3)',
+    color: 'var(--fg-muted)',
+    border: '1px solid var(--border)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  }
+
   return (
-    <div className="p-6 space-y-6">
-      <div className="border-b border-border pb-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
-            <p className="text-muted-foreground mt-2">
-              {t('subtitle')}
-            </p>
-          </div>
-          <div className="flex space-x-2">
-            <Button
-              onClick={loadCronJobs}
-              disabled={isLoading}
-              className="bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30"
-            >
-              {isLoading ? t('loading') : t('refresh')}
-            </Button>
-            <Button
-              onClick={() => setShowAddForm(true)}
-            >
-              {t('addJob')}
-            </Button>
-          </div>
+    <div className="opzava-ds p-6 space-y-6" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
+
+      {/* ── Page header ──────────────────────────────────────────────── */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title font-semibold">{t('title')}</h1>
+          <p className="page-sub">{t('subtitle')}</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={loadCronJobs}
+            disabled={isLoading}
+            className="btn"
+          >
+            {isLoading ? t('loading') : t('refresh')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAddForm(true)}
+            className="btn btn-primary"
+          >
+            {t('addJob')}
+          </button>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Calendar View - Phase A (read-only) */}
-        <div className="lg:col-span-2 bg-card border border-border rounded-lg p-6">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* ── Glanceable stats ─────────────────────────────────────────── */}
+      <section aria-label="Automation summary">
+        <div className="stat-grid">
+          <div className="stat">
+            <div className="stat-label">Active</div>
+            <div className="flex items-center gap-2">
+              <span className="stat-value">{enabledCount}</span>
+              {enabledCount > 0 && <span className="dot dot-success dot-beat" aria-hidden />}
+            </div>
+            <div className="stat-delta" style={{ color: 'var(--fg-subtle)' }}>
+              of {cronJobs.length} enabled
+            </div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">Schedules</div>
+            <div className="stat-value">{cronJobs.length}</div>
+            <div className="stat-delta" style={{ color: 'var(--fg-subtle)' }}>total cron jobs</div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">Failures</div>
+            <div className="flex items-center gap-2">
+              <span className="stat-value">{errorCount}</span>
+              {errorCount > 0 && <span className="dot dot-danger" aria-hidden />}
+            </div>
+            <div className="stat-delta" style={{ color: 'var(--fg-subtle)' }}>last-status error</div>
+          </div>
+        </div>
+      </section>
+
+      <div className="space-y-4">
+
+        {/* ── Calendar View ─────────────────────────────────────────── */}
+        <section aria-labelledby="calendar-heading">
+          <div className="card">
+            <div className="card-header">
               <div>
-                <h2 className="text-xl font-semibold">{t('calendarView')}</h2>
-                <p className="text-sm text-muted-foreground">
-                  {isLocalMode
-                    ? t('calendarViewDescLocal')
-                    : t('calendarViewDesc')}
+                <h2 className="card-title" id="calendar-heading">{t('calendarView')}</h2>
+                <p style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
+                  {isLocalMode ? t('calendarViewDescLocal') : t('calendarViewDesc')}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={() => moveCalendar(-1)}
-                  variant="outline"
-                  size="sm"
+              <div className="flex items-center gap-1 flex-wrap">
+                <button type="button" onClick={() => moveCalendar(-1)} className="btn btn-sm">{t('prev')}</button>
+                <button type="button" onClick={() => setCalendarDate(startOfDay(new Date()))} className="btn btn-sm">{t('today')}</button>
+                <button type="button" onClick={() => moveCalendar(1)} className="btn btn-sm">{t('next')}</button>
+                <span
+                  className="font-medium ml-2"
+                  style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)' }}
                 >
-                  {t('prev')}
-                </Button>
-                <Button
-                  onClick={() => setCalendarDate(startOfDay(new Date()))}
-                  variant="outline"
-                  size="sm"
-                >
-                  {t('today')}
-                </Button>
-                <Button
-                  onClick={() => moveCalendar(1)}
-                  variant="outline"
-                  size="sm"
-                >
-                  {t('next')}
-                </Button>
-                <div className="text-sm font-medium text-foreground ml-1">{calendarRangeLabel}</div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {(['agenda', 'day', 'week', 'month'] as CalendarViewMode[]).map((mode) => (
-                <Button
-                  key={mode}
-                  onClick={() => setCalendarView(mode)}
-                  variant={calendarView === mode ? 'default' : 'outline'}
-                  size="sm"
-                >
-                  {t(`calMode_${mode}` as any)}
-                </Button>
-              ))}
-            </div>
-
-            <div className="grid md:grid-cols-3 gap-3">
-              <input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={t('searchPlaceholder')}
-                className="px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
-              />
-              <select
-                value={agentFilter}
-                onChange={(e) => setAgentFilter(e.target.value)}
-                className="px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
-              >
-                <option value="all">{t('allAgents')}</option>
-                {uniqueAgents.map((agentId) => (
-                  <option key={agentId} value={agentId}>
-                    {agentId}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={stateFilter}
-                onChange={(e) => setStateFilter(e.target.value as 'all' | 'enabled' | 'disabled')}
-                className="px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
-              >
-                <option value="all">{t('allStates')}</option>
-                <option value="enabled">{t('enabled')}</option>
-                <option value="disabled">{t('disabled')}</option>
-              </select>
-            </div>
-            <div className="grid md:grid-cols-3 gap-3">
-              <div className="flex gap-1">
-                {(['all', 'cron', 'every', 'at'] as ScheduleKindFilter[]).map((kind) => (
-                  <Button
-                    key={kind}
-                    onClick={() => setScheduleKindFilter(kind)}
-                    variant={scheduleKindFilter === kind ? 'default' : 'outline'}
-                    size="sm"
-                    className="text-xs"
-                  >
-                    {kind === 'all' ? t('all') : kind}
-                  </Button>
-                ))}
-              </div>
-              <select
-                value={sortField}
-                onChange={(e) => setSortField(e.target.value as SortField)}
-                className="px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
-              >
-                <option value="name">{t('sortName')}</option>
-                <option value="schedule">{t('sortSchedule')}</option>
-                <option value="lastRun">{t('sortLastRun')}</option>
-                <option value="nextRun">{t('sortNextRun')}</option>
-              </select>
-              <Button
-                onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                variant="outline"
-                size="sm"
-                className="text-xs"
-              >
-                {sortDir === 'asc' ? t('ascending') : t('descending')}
-              </Button>
-            </div>
-
-            {calendarView === 'agenda' && (
-              <div className="border border-border rounded-lg overflow-hidden">
-                <div className="max-h-80 overflow-y-auto divide-y divide-border">
-                  {calendarOccurrences.length === 0 ? (
-                    <div className="p-4 text-sm text-muted-foreground">{t('noJobsMatchFilters')}</div>
-                  ) : (
-                    calendarOccurrences.map((row) => (
-                      <Button
-                        key={`agenda-${row.job.id || row.job.name}-${row.atMs}`}
-                        onClick={() => handleJobSelect(row.job)}
-                        variant="ghost"
-                        className="w-full p-3 h-auto text-left flex flex-col md:flex-row md:items-center md:justify-between gap-2"
-                      >
-                        <div>
-                          <div className="font-medium text-foreground">{row.job.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {row.job.agentId || 'system'} · {row.job.enabled ? t('enabled') : t('disabled')} · {row.job.schedule}
-                          </div>
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          {new Date(row.atMs).toLocaleString()}
-                        </div>
-                      </Button>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-
-            {calendarView === 'day' && (
-              <div className="border border-border rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-muted-foreground">{t('uniqueJobs', { count: dayJobSummaries.length })}</span>
-                </div>
-                {dayJobSummaries.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">{t('noJobsForDay')}</div>
-                ) : (
-                  <div className="space-y-1.5 max-h-96 overflow-y-auto">
-                    {dayJobSummaries.map((row) => (
-                      <Button
-                        key={`day-${row.job.id || row.job.name}`}
-                        onClick={() => handleJobSelect(row.job)}
-                        variant="outline"
-                        className={`w-full p-2 h-auto text-left flex items-center justify-between gap-2 border ${getAgentColorClass(row.job.agentId || '', uniqueAgents)}`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-foreground truncate">{row.job.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {row.job.agentId || 'system'} · {describeCronFrequency(row.job.schedule)}
-                          </div>
-                        </div>
-                        <div className="text-xs text-muted-foreground whitespace-nowrap">
-                          {row.runCount > 1 ? t('runsCount', { count: row.runCount }) : new Date(row.firstRunMs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {calendarView === 'week' && (
-              <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
-                {jobsByWeekDay.map(({ date, jobs }) => {
-                  const totalRuns = jobs.reduce((sum, j) => sum + j.runCount, 0)
-                  return (
-                    <div
-                      key={`week-${date.toISOString()}`}
-                      onClick={() => setSelectedCalendarDate(startOfDay(date))}
-                      className={`rounded-lg border p-2 min-h-36 cursor-pointer flex flex-col ${isSameDay(date, selectedCalendarDate) ? 'bg-primary/10 border-primary/40' : 'border-border hover:bg-secondary/50'}`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className={`text-xs font-medium ${isSameDay(date, new Date()) ? 'text-primary' : 'text-muted-foreground'}`}>
-                          {date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}
-                        </span>
-                        {jobs.length > 0 && (
-                          <span className="text-[10px] text-muted-foreground">{t('jobCount', { count: jobs.length })}</span>
-                        )}
-                      </div>
-                      <div className="space-y-1 flex-1 overflow-hidden">
-                        {jobs.slice(0, 5).map((row) => (
-                          <div
-                            key={`week-job-${row.job.id || row.job.name}`}
-                            className={`text-[11px] px-1.5 py-0.5 rounded border truncate ${getAgentColorClass(row.job.agentId || '', uniqueAgents)}`}
-                            title={`${row.job.name} — ${t('runsCount', { count: row.runCount })}`}
-                          >
-                            {row.job.name}
-                          </div>
-                        ))}
-                        {jobs.length > 5 && (
-                          <div className="text-[10px] text-muted-foreground">{t('moreJobs', { count: jobs.length - 5 })}</div>
-                        )}
-                      </div>
-                      {totalRuns > 0 && (
-                        <div className="text-[10px] text-muted-foreground mt-1 pt-1 border-t border-border/50">
-                          {t('totalRunsCount', { count: totalRuns })}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {calendarView === 'month' && (
-              <div className="grid grid-cols-7 gap-2">
-                {jobsByMonthDay.map(({ date, jobs }) => {
-                  const inCurrentMonth = date.getMonth() === calendarDate.getMonth()
-                  const totalRuns = jobs.reduce((sum, j) => sum + j.runCount, 0)
-                  return (
-                    <div
-                      key={`month-${date.toISOString()}`}
-                      onClick={() => setSelectedCalendarDate(startOfDay(date))}
-                      className={`border border-border rounded-lg p-2 min-h-24 cursor-pointer ${inCurrentMonth ? 'bg-transparent' : 'bg-secondary/30'} ${isSameDay(date, selectedCalendarDate) ? 'border-primary/40 bg-primary/10' : 'hover:bg-secondary/50'}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className={`text-xs ${isSameDay(date, new Date()) ? 'text-primary font-semibold' : inCurrentMonth ? 'text-foreground' : 'text-muted-foreground'}`}>
-                          {date.getDate()}
-                        </span>
-                        {jobs.length > 0 && (
-                          <span className="text-[10px] text-muted-foreground">{jobs.length}</span>
-                        )}
-                      </div>
-                      <div className="space-y-0.5 mt-1">
-                        {jobs.slice(0, 3).map((row) => (
-                          <div
-                            key={`month-job-${row.job.id || row.job.name}`}
-                            className={`text-[10px] px-1 py-0.5 rounded border truncate ${getAgentColorClass(row.job.agentId || '', uniqueAgents)}`}
-                            title={`${row.job.name} — ${t('runsCount', { count: row.runCount })}`}
-                          >
-                            {row.job.name}
-                          </div>
-                        ))}
-                        {jobs.length > 3 && <div className="text-[10px] text-muted-foreground">{t('moreJobs', { count: jobs.length - 3 })}</div>}
-                      </div>
-                      {totalRuns > 0 && jobs.length > 0 && (
-                        <div className="text-[9px] text-muted-foreground mt-0.5">{t('runsCount', { count: totalRuns })}</div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {calendarView !== 'agenda' && (
-              <div className="border border-border rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-medium text-foreground">
-                    {selectedCalendarDate.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{t('jobCount', { count: selectedDayJobs.length })}</span>
-                    {selectedDayJobs.length > 0 && (
-                      <span className="text-xs text-muted-foreground">· {t('totalRunsCount', { count: selectedDayJobs.reduce((s, r) => s + r.runCount, 0) })}</span>
-                    )}
-                  </div>
-                </div>
-                {selectedDayJobs.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">{t('noJobsForDay')}</div>
-                ) : (
-                  <div className="space-y-1.5 max-h-72 overflow-y-auto">
-                    {selectedDayJobs.map((row) => (
-                      <Button
-                        key={`selected-day-${row.job.id || row.job.name}`}
-                        onClick={() => handleJobSelect(row.job)}
-                        variant="outline"
-                        className={`w-full text-left p-2 h-auto flex items-center justify-between gap-2 border ${getAgentColorClass(row.job.agentId || '', uniqueAgents)}`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-foreground truncate">{row.job.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {row.job.agentId || 'system'} · {describeCronFrequency(row.job.schedule)}
-                          </div>
-                        </div>
-                        <div className="text-right whitespace-nowrap">
-                          <div className="text-xs text-foreground">{t('runsCount', { count: row.runCount })}</div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {t('firstRun', { time: new Date(row.firstRunMs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) })}
-                          </div>
-                        </div>
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Job List — compact table */}
-        <div className="lg:col-span-2 bg-card border border-border rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">{t('scheduledJobs')}</h2>
-            <span className="text-xs text-muted-foreground">{t('jobsCount', { count: filteredJobs.length, total: cronJobs.length })}</span>
-          </div>
-
-          {isLoading ? (
-            <div className="flex items-center justify-center h-32">
-              <Loader variant="inline" label={t('loadingJobs')} />
-            </div>
-          ) : cronJobs.length === 0 ? (
-            <div className="text-center text-muted-foreground py-8">{t('noCronJobsFound')}</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                    <th className="pb-2 pr-3 font-medium">{t('colJobName')}</th>
-                    <th className="pb-2 pr-3 font-medium">{t('colAgent')}</th>
-                    <th className="pb-2 pr-3 font-medium">{t('colSchedule')}</th>
-                    <th className="pb-2 pr-3 font-medium">{t('colModel')}</th>
-                    <th className="pb-2 pr-3 font-medium">{t('colStatus')}</th>
-                    <th className="pb-2 pr-3 font-medium">{t('colLastRun')}</th>
-                    <th className="pb-2 pr-3 font-medium">{t('colNextRun')}</th>
-                    <th className="pb-2 font-medium text-right">{t('colActions')}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {filteredJobs.map((job, index) => {
-                    const isLocalAutomation = job.delivery === 'local' && job.agentId === 'mission-control-local'
-                    const isSelected = selectedJob?.name === job.name
-                    return (
-                      <tr
-                        key={`${job.name}-${index}`}
-                        onClick={() => handleJobSelect(job)}
-                        className={`cursor-pointer transition-colors ${isSelected ? 'bg-primary/10' : 'hover:bg-secondary/50'}`}
-                      >
-                        <td className="py-2.5 pr-3">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${job.enabled ? 'bg-green-500' : 'bg-gray-500'}`} />
-                            <span className="font-medium text-foreground truncate max-w-48">{job.name}</span>
-                          </div>
-                        </td>
-                        <td className="py-2.5 pr-3">
-                          <span className={`text-xs px-1.5 py-0.5 rounded border ${getAgentColorClass(job.agentId || '', uniqueAgents)}`}>
-                            {job.agentId || 'system'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 pr-3">
-                          <div className="text-xs">
-                            <span className="text-foreground">{describeCronFrequency(job.schedule)}</span>
-                            <div className="text-muted-foreground font-mono text-[10px]">{job.schedule}</div>
-                          </div>
-                        </td>
-                        <td className="py-2.5 pr-3">
-                          {job.model ? (
-                            <span className="text-xs font-mono text-muted-foreground">{job.model}</span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground/50">--</span>
-                          )}
-                        </td>
-                        <td className="py-2.5 pr-3">
-                          {job.lastStatus ? (
-                            <span className={`text-xs px-1.5 py-0.5 rounded ${getStatusBg(job.lastStatus)} ${getStatusColor(job.lastStatus)}`}>
-                              {job.lastStatus}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground/50">--</span>
-                          )}
-                        </td>
-                        <td className="py-2.5 pr-3 text-xs text-muted-foreground whitespace-nowrap">
-                          {job.lastRun ? formatRelativeTime(job.lastRun) : '--'}
-                        </td>
-                        <td className="py-2.5 pr-3 text-xs text-primary/70 whitespace-nowrap">
-                          {job.nextRun ? formatRelativeTime(job.nextRun, true) : '--'}
-                        </td>
-                        <td className="py-2.5 text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              onClick={(e) => { e.stopPropagation(); toggleJob(job) }}
-                              disabled={isLocalAutomation}
-                              size="xs"
-                              variant="outline"
-                              className="text-[10px] h-6 px-1.5"
-                            >
-                              {job.enabled ? t('disable') : t('enable')}
-                            </Button>
-                            <div className="relative">
-                              <div className="flex">
-                                <Button
-                                  onClick={(e) => { e.stopPropagation(); triggerJob(job, 'force') }}
-                                  size="xs"
-                                  variant="outline"
-                                  className="text-[10px] h-6 px-1.5 rounded-r-none border-r-0"
-                                >
-                                  {t('run')}
-                                </Button>
-                                <Button
-                                  onClick={(e) => { e.stopPropagation(); setRunDropdownJobId(prev => prev === (job.id || job.name) ? null : (job.id || job.name)) }}
-                                  size="xs"
-                                  variant="outline"
-                                  className="text-[10px] h-6 px-1 rounded-l-none"
-                                >
-                                  v
-                                </Button>
-                              </div>
-                              {runDropdownJobId === (job.id || job.name) && (
-                                <div className="absolute right-0 top-7 z-20 bg-card border border-border rounded-md shadow-lg py-1 min-w-[140px]">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); triggerJob(job, 'force') }}
-                                    className="w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-secondary/50"
-                                  >
-                                    {t('runNowForce')}
-                                  </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); triggerJob(job, 'due') }}
-                                    className="w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-secondary/50"
-                                  >
-                                    {t('runNowIfDue')}
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                            <Button
-                              onClick={(e) => { e.stopPropagation(); cloneJob(job) }}
-                              disabled={isLocalAutomation}
-                              size="xs"
-                              variant="outline"
-                              className="text-[10px] h-6 px-1.5"
-                            >
-                              {t('clone')}
-                            </Button>
-                            <Button
-                              onClick={(e) => { e.stopPropagation(); handleJobSelect(job); openRunHistory(job) }}
-                              size="xs"
-                              variant="outline"
-                              className="text-[10px] h-6 px-1.5"
-                            >
-                              {t('history')}
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        {/* Job Detail Panel — expanded when a job is selected */}
-        {selectedJob && (
-          <div className="lg:col-span-2 bg-card border border-border rounded-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-foreground">{selectedJob.name}</h2>
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 text-xs rounded-full ${selectedJob.enabled ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'}`}>
-                  {selectedJob.enabled ? t('enabled') : t('disabled')}
+                  {calendarRangeLabel}
                 </span>
-                {selectedJob.lastStatus && (
-                  <span className={`px-2 py-1 text-xs rounded-full ${getStatusBg(selectedJob.lastStatus)} ${getStatusColor(selectedJob.lastStatus)}`}>
-                    {selectedJob.lastStatus}
-                  </span>
-                )}
-                <Button onClick={() => setSelectedJob(null)} variant="ghost" size="sm" className="text-xs">{t('close')}</Button>
               </div>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Left: Configuration */}
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">{t('configuration')}</h3>
-                  <div className="bg-secondary/50 rounded-lg p-4 space-y-3">
-                    <div className="grid grid-cols-[100px_1fr] gap-1 text-sm">
-                      <span className="text-muted-foreground">{t('colSchedule')}</span>
-                      <div>
-                        <code className="font-mono text-foreground">{selectedJob.schedule}</code>
-                        <div className="text-xs text-muted-foreground">{describeCronFrequency(selectedJob.schedule)}</div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-[100px_1fr] gap-1 text-sm">
-                      <span className="text-muted-foreground">{t('colAgent')}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded border w-fit ${getAgentColorClass(selectedJob.agentId || '', uniqueAgents)}`}>
-                        {selectedJob.agentId || 'system'}
-                      </span>
-                    </div>
-                    {selectedJob.model && (
-                      <div className="grid grid-cols-[100px_1fr] gap-1 text-sm">
-                        <span className="text-muted-foreground">{t('colModel')}</span>
-                        <code className="font-mono text-xs text-foreground">{selectedJob.model}</code>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-[100px_1fr] gap-1 text-sm">
-                      <span className="text-muted-foreground">{t('delivery')}</span>
-                      <span className="text-foreground text-xs">{selectedJob.delivery || 'gateway'}</span>
-                    </div>
-                    {selectedJob.delivery === 'local' && selectedJob.agentId === 'mission-control-local' && (
-                      <div className="grid grid-cols-[100px_1fr] gap-1 text-sm">
-                        <span className="text-muted-foreground">{t('source')}</span>
-                        <span className="text-foreground text-xs">{t('localSchedulerAutomation')}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">{t('command')}</h3>
-                  <pre className="bg-secondary/50 rounded-lg p-4 text-xs font-mono text-foreground whitespace-pre-wrap break-all overflow-x-auto max-h-32">{selectedJob.command}</pre>
-                </div>
-
-                <div>
-                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">{t('timing')}</h3>
-                  <div className="bg-secondary/50 rounded-lg p-4 space-y-2">
-                    {selectedJob.lastRun && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">{t('lastRun')}</span>
-                        <span className="text-foreground">{new Date(selectedJob.lastRun).toLocaleString()} ({formatRelativeTime(selectedJob.lastRun)})</span>
-                      </div>
-                    )}
-                    {selectedJob.nextRun && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">{t('nextRun')}</span>
-                        <span className="text-primary">{new Date(selectedJob.nextRun).toLocaleString()} ({formatRelativeTime(selectedJob.nextRun, true)})</span>
-                      </div>
-                    )}
-                    {selectedJob.timezone && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">{t('timezone')}</span>
-                        <span className="text-foreground">{selectedJob.timezone}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex gap-2 flex-wrap">
-                  <Button
-                    onClick={() => triggerJob(selectedJob, 'force')}
-                    size="sm"
-                    className="bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border-blue-500/30"
+            <div className="card-body space-y-4">
+              {/* View mode tabs */}
+              <div className="flex gap-1 flex-wrap">
+                {(['agenda', 'day', 'week', 'month'] as CalendarViewMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setCalendarView(mode)}
+                    className={`btn btn-sm ${calendarView === mode ? 'btn-primary' : ''}`}
                   >
-                    {t('runNowForce')}
-                  </Button>
-                  <Button
-                    onClick={() => triggerJob(selectedJob, 'due')}
-                    size="sm"
-                    className="bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border-blue-500/30"
-                  >
-                    {t('runNowIfDue')}
-                  </Button>
-                  <Button
-                    onClick={() => toggleJob(selectedJob)}
-                    disabled={selectedJob.delivery === 'local' && selectedJob.agentId === 'mission-control-local'}
-                    size="sm"
-                    className={selectedJob.enabled
-                      ? 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 border-yellow-500/30'
-                      : 'bg-green-500/20 text-green-400 hover:bg-green-500/30 border-green-500/30'}
-                  >
-                    {selectedJob.enabled ? t('disable') : t('enable')}
-                  </Button>
-                  <Button
-                    onClick={() => cloneJob(selectedJob)}
-                    disabled={selectedJob.delivery === 'local' && selectedJob.agentId === 'mission-control-local'}
-                    size="sm"
-                    variant="outline"
-                  >
-                    {t('clone')}
-                  </Button>
-                  <Button
-                    onClick={() => openRunHistory(selectedJob)}
-                    size="sm"
-                    variant="outline"
-                  >
-                    {t('history')}
-                  </Button>
-                  <Button
-                    onClick={() => removeJob(selectedJob)}
-                    disabled={selectedJob.delivery === 'local' && selectedJob.agentId === 'mission-control-local'}
-                    variant="destructive"
-                    size="sm"
-                  >
-                    {t('remove')}
-                  </Button>
-                </div>
+                    {t(`calMode_${mode}` as any)}
+                  </button>
+                ))}
               </div>
 
-              {/* Right: Logs */}
-              <div>
-                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">{t('recentLogs')}</h3>
-                <div className="bg-secondary/50 rounded-lg p-4 max-h-80 overflow-y-auto">
-                  {jobLogs.length === 0 ? (
-                    <div className="text-muted-foreground text-sm">{t('noLogsAvailable')}</div>
+              {/* Filters */}
+              <div className="grid md:grid-cols-3 gap-3">
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={t('searchPlaceholder')}
+                  className="input"
+                  style={{ height: 36 }}
+                />
+                <select
+                  value={agentFilter}
+                  onChange={(e) => setAgentFilter(e.target.value)}
+                  className="select"
+                  style={{ height: 36 }}
+                >
+                  <option value="all">{t('allAgents')}</option>
+                  {uniqueAgents.map((agentId) => (
+                    <option key={agentId} value={agentId}>{agentId}</option>
+                  ))}
+                </select>
+                <select
+                  value={stateFilter}
+                  onChange={(e) => setStateFilter(e.target.value as 'all' | 'enabled' | 'disabled')}
+                  className="select"
+                  style={{ height: 36 }}
+                >
+                  <option value="all">{t('allStates')}</option>
+                  <option value="enabled">{t('enabled')}</option>
+                  <option value="disabled">{t('disabled')}</option>
+                </select>
+              </div>
+
+              {/* Kind filter + sort */}
+              <div className="flex flex-wrap gap-2 items-center">
+                <div className="flex gap-1">
+                  {(['all', 'cron', 'every', 'at'] as ScheduleKindFilter[]).map((kind) => (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => setScheduleKindFilter(kind)}
+                      className={`btn btn-sm ${scheduleKindFilter === kind ? 'btn-primary' : ''}`}
+                      style={{ fontSize: 'var(--text-xs)' }}
+                    >
+                      {kind === 'all' ? t('all') : kind}
+                    </button>
+                  ))}
+                </div>
+                <select
+                  value={sortField}
+                  onChange={(e) => setSortField(e.target.value as SortField)}
+                  className="select"
+                  style={{ height: 30, width: 'auto', minWidth: 130, fontSize: 'var(--text-xs)' }}
+                >
+                  <option value="name">{t('sortName')}</option>
+                  <option value="schedule">{t('sortSchedule')}</option>
+                  <option value="lastRun">{t('sortLastRun')}</option>
+                  <option value="nextRun">{t('sortNextRun')}</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                  className="btn btn-sm"
+                  style={{ fontSize: 'var(--text-xs)' }}
+                >
+                  {sortDir === 'asc' ? t('ascending') : t('descending')}
+                </button>
+              </div>
+
+              {/* Agenda view */}
+              {calendarView === 'agenda' && (
+                <div className="card" style={{ overflow: 'hidden' }}>
+                  <div className="max-h-80 overflow-y-auto">
+                    {calendarOccurrences.length === 0 ? (
+                      <div className="empty">
+                        <div className="empty-icon" aria-hidden>⏰</div>
+                        <div className="empty-title">{t('noJobsMatchFilters')}</div>
+                      </div>
+                    ) : (
+                      calendarOccurrences.map((row) => (
+                        <button
+                          key={`agenda-${row.job.id || row.job.name}-${row.atMs}`}
+                          type="button"
+                          onClick={() => handleJobSelect(row.job)}
+                          className="w-full text-left"
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 'var(--space-3)',
+                            padding: 'var(--space-3) var(--space-5)',
+                            background: 'none',
+                            border: 0,
+                            borderBottom: '1px solid var(--border)',
+                            cursor: 'pointer',
+                            color: 'var(--fg)',
+                          } as React.CSSProperties}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                        >
+                          <div>
+                            <div className="font-medium" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)' }}>
+                              {row.job.name}
+                            </div>
+                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                              <span aria-hidden>{agentGlyph(row.job.agentId || '')}</span>{' '}
+                              {row.job.agentId || 'system'} · {row.job.enabled ? t('enabled') : t('disabled')} ·{' '}
+                              <span style={MONO}>{row.job.schedule}</span>
+                            </div>
+                          </div>
+                          <div style={MUTED_MONO}>
+                            {new Date(row.atMs).toLocaleString()}
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Day view */}
+              {calendarView === 'day' && (
+                <div
+                  className="card"
+                  style={{ padding: 'var(--space-3)' }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                      {t('uniqueJobs', { count: dayJobSummaries.length })}
+                    </span>
+                  </div>
+                  {dayJobSummaries.length === 0 ? (
+                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-muted)' }}>{t('noJobsForDay')}</div>
                   ) : (
-                    <div className="space-y-1.5 text-xs font-mono">
-                      {jobLogs.map((logEntry, index) => (
-                        <div key={index} className="text-muted-foreground">
-                          <span className="text-[10px] text-muted-foreground/60">[{new Date(logEntry.timestamp).toLocaleString()}]</span>{' '}
-                          {logEntry.message}
-                        </div>
+                    <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                      {dayJobSummaries.map((row) => (
+                        <button
+                          key={`day-${row.job.id || row.job.name}`}
+                          type="button"
+                          onClick={() => handleJobSelect(row.job)}
+                          className="w-full text-left"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 'var(--space-2)',
+                            padding: 'var(--space-2) var(--space-3)',
+                            background: 'var(--surface-2)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 'var(--radius-md)',
+                            cursor: 'pointer',
+                            color: 'var(--fg)',
+                          }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-3)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div
+                              className="font-medium truncate"
+                              style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)' }}
+                            >
+                              {row.job.name}
+                            </div>
+                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                              <span aria-hidden>{agentGlyph(row.job.agentId || '')}</span>{' '}
+                              {row.job.agentId || 'system'} · {describeCronFrequency(row.job.schedule)}
+                            </div>
+                          </div>
+                          <div style={{ ...MUTED_MONO, whiteSpace: 'nowrap' }}>
+                            {row.runCount > 1
+                              ? t('runsCount', { count: row.runCount })
+                              : new Date(row.firstRunMs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </button>
                       ))}
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* Week view */}
+              {calendarView === 'week' && (
+                <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
+                  {jobsByWeekDay.map(({ date, jobs }) => {
+                    const totalRuns = jobs.reduce((sum, j) => sum + j.runCount, 0)
+                    const isSelected = isSameDay(date, selectedCalendarDate)
+                    const isToday = isSameDay(date, new Date())
+                    return (
+                      <div
+                        key={`week-${date.toISOString()}`}
+                        onClick={() => setSelectedCalendarDate(startOfDay(date))}
+                        style={{
+                          borderRadius: 'var(--radius-lg)',
+                          border: `1px solid ${isSelected ? 'var(--accent-border)' : 'var(--border)'}`,
+                          padding: 'var(--space-2)',
+                          minHeight: 144,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          background: isSelected ? 'var(--accent-soft)' : 'transparent',
+                        }}
+                        onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = 'var(--surface-2)' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = isSelected ? 'var(--accent-soft)' : 'transparent' }}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span
+                            className="font-medium"
+                            style={{
+                              fontSize: 'var(--text-xs)',
+                              color: isToday ? 'var(--accent)' : 'var(--fg-muted)',
+                            }}
+                          >
+                            {date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}
+                          </span>
+                          {jobs.length > 0 && (
+                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                              {t('jobCount', { count: jobs.length })}
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-1 flex-1 overflow-hidden">
+                          {jobs.slice(0, 5).map((row) => (
+                            <div
+                              key={`week-job-${row.job.id || row.job.name}`}
+                              style={calPill}
+                              title={`${row.job.name} — ${t('runsCount', { count: row.runCount })}`}
+                            >
+                              {row.job.name}
+                            </div>
+                          ))}
+                          {jobs.length > 5 && (
+                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                              {t('moreJobs', { count: jobs.length - 5 })}
+                            </div>
+                          )}
+                        </div>
+                        {totalRuns > 0 && (
+                          <div
+                            style={{
+                              fontSize: 'var(--text-xs)',
+                              color: 'var(--fg-subtle)',
+                              marginTop: 4,
+                              paddingTop: 4,
+                              borderTop: '1px solid var(--border)',
+                            }}
+                          >
+                            {t('totalRunsCount', { count: totalRuns })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Month view */}
+              {calendarView === 'month' && (
+                <div className="grid grid-cols-7 gap-2">
+                  {jobsByMonthDay.map(({ date, jobs }) => {
+                    const inCurrentMonth = date.getMonth() === calendarDate.getMonth()
+                    const totalRuns = jobs.reduce((sum, j) => sum + j.runCount, 0)
+                    const isSelected = isSameDay(date, selectedCalendarDate)
+                    const isToday = isSameDay(date, new Date())
+                    return (
+                      <div
+                        key={`month-${date.toISOString()}`}
+                        onClick={() => setSelectedCalendarDate(startOfDay(date))}
+                        style={{
+                          border: `1px solid ${isSelected ? 'var(--accent-border)' : 'var(--border)'}`,
+                          borderRadius: 'var(--radius-lg)',
+                          padding: 'var(--space-2)',
+                          minHeight: 96,
+                          cursor: 'pointer',
+                          background: isSelected
+                            ? 'var(--accent-soft)'
+                            : inCurrentMonth
+                              ? 'transparent'
+                              : 'var(--surface-2)',
+                          opacity: inCurrentMonth ? 1 : 0.6,
+                        }}
+                        onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = 'var(--surface-2)' }}
+                        onMouseLeave={e => {
+                          const bg = isSelected ? 'var(--accent-soft)' : inCurrentMonth ? 'transparent' : 'var(--surface-2)'
+                          ;(e.currentTarget as HTMLDivElement).style.background = bg
+                        }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span
+                            className={isToday ? 'font-semibold' : ''}
+                            style={{
+                              fontSize: 'var(--text-xs)',
+                              color: isToday ? 'var(--accent)' : inCurrentMonth ? 'var(--fg)' : 'var(--fg-subtle)',
+                            }}
+                          >
+                            {date.getDate()}
+                          </span>
+                          {jobs.length > 0 && (
+                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                              {jobs.length}
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-0.5 mt-1">
+                          {jobs.slice(0, 3).map((row) => (
+                            <div
+                              key={`month-job-${row.job.id || row.job.name}`}
+                              style={{ ...calPill, fontSize: '11px', padding: '1px 4px' }}
+                              title={`${row.job.name} — ${t('runsCount', { count: row.runCount })}`}
+                            >
+                              {row.job.name}
+                            </div>
+                          ))}
+                          {jobs.length > 3 && (
+                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                              {t('moreJobs', { count: jobs.length - 3 })}
+                            </div>
+                          )}
+                        </div>
+                        {totalRuns > 0 && jobs.length > 0 && (
+                          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)', marginTop: 2 }}>
+                            {t('runsCount', { count: totalRuns })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Selected day drill-down (day / week / month) */}
+              {calendarView !== 'agenda' && (
+                <div className="card" style={{ padding: 'var(--space-3)' }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)' }}>
+                      {selectedCalendarDate.toLocaleDateString(undefined, {
+                        weekday: 'long', month: 'short', day: 'numeric', year: 'numeric',
+                      })}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                        {t('jobCount', { count: selectedDayJobs.length })}
+                      </span>
+                      {selectedDayJobs.length > 0 && (
+                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                          · {t('totalRunsCount', { count: selectedDayJobs.reduce((s, r) => s + r.runCount, 0) })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {selectedDayJobs.length === 0 ? (
+                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-muted)' }}>{t('noJobsForDay')}</div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                      {selectedDayJobs.map((row) => (
+                        <button
+                          key={`selected-day-${row.job.id || row.job.name}`}
+                          type="button"
+                          onClick={() => handleJobSelect(row.job)}
+                          className="w-full text-left"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 'var(--space-2)',
+                            padding: 'var(--space-2) var(--space-3)',
+                            background: 'var(--surface-2)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 'var(--radius-md)',
+                            cursor: 'pointer',
+                            color: 'var(--fg)',
+                          }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-3)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div
+                              className="font-medium truncate"
+                              style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)' }}
+                            >
+                              {row.job.name}
+                            </div>
+                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                              <span aria-hidden>{agentGlyph(row.job.agentId || '')}</span>{' '}
+                              {row.job.agentId || 'system'} · {describeCronFrequency(row.job.schedule)}
+                            </div>
+                          </div>
+                          <div className="text-right" style={{ whiteSpace: 'nowrap' }}>
+                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg)' }}>
+                              {t('runsCount', { count: row.runCount })}
+                            </div>
+                            <div style={MUTED_MONO}>
+                              {t('firstRun', { time: new Date(row.firstRunMs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) })}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* ── Scheduled Jobs table ──────────────────────────────────── */}
+        <section aria-labelledby="jobs-heading">
+          <div className="card">
+            <div className="card-header">
+              <h2 className="card-title" id="jobs-heading">{t('scheduledJobs')}</h2>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                {t('jobsCount', { count: filteredJobs.length, total: cronJobs.length })}
+              </span>
+            </div>
+
+            {isLoading ? (
+              <div className="flex items-center justify-center" style={{ height: 128 }}>
+                <Loader variant="inline" label={t('loadingJobs')} />
+              </div>
+            ) : cronJobs.length === 0 ? (
+              <div className="empty">
+                <div className="empty-icon" aria-hidden>⏱</div>
+                <div className="empty-title">{t('noCronJobsFound')}</div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="table table-compact">
+                  <caption className="sr-only">{t('scheduledJobs')}</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('colJobName')}</th>
+                      <th scope="col">{t('colAgent')}</th>
+                      <th scope="col">{t('colSchedule')}</th>
+                      <th scope="col">{t('colModel')}</th>
+                      <th scope="col">{t('colStatus')}</th>
+                      <th scope="col">{t('colLastRun')}</th>
+                      <th scope="col">{t('colNextRun')}</th>
+                      <th scope="col" className="num">{t('colActions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredJobs.map((job, index) => {
+                      const isLocalAutomation = job.delivery === 'local' && job.agentId === 'mission-control-local'
+                      const isSelected = selectedJob?.name === job.name
+                      const { dotClass: lastDotClass, label: lastLabel } = runStatusInfo(job.lastStatus)
+                      return (
+                        <tr
+                          key={`${job.name}-${index}`}
+                          onClick={() => handleJobSelect(job)}
+                          style={{
+                            cursor: 'pointer',
+                            background: isSelected ? 'var(--accent-soft)' : undefined,
+                          }}
+                        >
+                          <td>
+                            <div className="flex items-center gap-2">
+                              <span className={`dot ${job.enabled ? 'dot-success' : ''}`} aria-hidden />
+                              <span className="font-medium truncate" style={{ maxWidth: 192, fontSize: 'var(--text-sm)', color: 'var(--fg)' }}>
+                                {job.name}
+                              </span>
+                            </div>
+                          </td>
+                          <td>
+                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                              <span
+                                aria-hidden
+                                style={{
+                                  color: isLocalAutomation ? 'var(--fg-subtle)' : 'var(--accent)',
+                                  marginRight: 4,
+                                }}
+                              >
+                                {agentGlyph(job.agentId || '')}
+                              </span>
+                              {job.agentId || 'system'}
+                            </span>
+                          </td>
+                          <td>
+                            <div>
+                              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg)' }}>
+                                {describeCronFrequency(job.schedule)}
+                              </span>
+                              <div style={{ ...MONO, fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                                {job.schedule}
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            {job.model ? (
+                              <span style={{ ...MONO, fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                                {job.model}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>—</span>
+                            )}
+                          </td>
+                          <td>
+                            {job.lastStatus ? (
+                              <span className="flex items-center gap-1.5">
+                                <span className={lastDotClass} aria-hidden />
+                                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                                  {lastLabel}
+                                </span>
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>—</span>
+                            )}
+                          </td>
+                          <td>
+                            <span style={MUTED_MONO}>
+                              {job.lastRun ? formatRelativeTime(job.lastRun) : '—'}
+                            </span>
+                          </td>
+                          <td>
+                            <span style={{ ...MUTED_MONO, color: 'var(--fg-muted)' }}>
+                              {job.nextRun ? formatRelativeTime(job.nextRun, true) : '—'}
+                            </span>
+                          </td>
+                          <td className="num">
+                            <div className="flex justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); toggleJob(job) }}
+                                disabled={isLocalAutomation}
+                                className="btn btn-sm"
+                                style={{ fontSize: 'var(--text-xs)', height: 26, padding: '0 8px' }}
+                              >
+                                {job.enabled ? t('disable') : t('enable')}
+                              </button>
+                              <div style={{ position: 'relative' }}>
+                                <div className="flex">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); triggerJob(job, 'force') }}
+                                    className="btn btn-sm"
+                                    style={{
+                                      fontSize: 'var(--text-xs)',
+                                      height: 26,
+                                      padding: '0 8px',
+                                      borderRadius: 'var(--radius-md) 0 0 var(--radius-md)',
+                                      borderRight: 0,
+                                    }}
+                                  >
+                                    {t('run')}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setRunDropdownJobId(prev => prev === (job.id || job.name) ? null : (job.id || job.name))
+                                    }}
+                                    className="btn btn-sm"
+                                    style={{
+                                      fontSize: 'var(--text-xs)',
+                                      height: 26,
+                                      padding: '0 6px',
+                                      borderRadius: '0 var(--radius-md) var(--radius-md) 0',
+                                    }}
+                                    aria-label="More run options"
+                                  >
+                                    ▾
+                                  </button>
+                                </div>
+                                {runDropdownJobId === (job.id || job.name) && (
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      right: 0,
+                                      top: 30,
+                                      zIndex: 100,
+                                      background: 'var(--surface)',
+                                      border: '1px solid var(--border)',
+                                      borderRadius: 'var(--radius-md)',
+                                      boxShadow: 'var(--shadow-md)',
+                                      minWidth: 140,
+                                      padding: '4px 0',
+                                    }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); triggerJob(job, 'force') }}
+                                      style={{
+                                        display: 'block',
+                                        width: '100%',
+                                        textAlign: 'left',
+                                        padding: '6px 12px',
+                                        fontSize: 'var(--text-xs)',
+                                        color: 'var(--fg)',
+                                        background: 'none',
+                                        border: 0,
+                                        cursor: 'pointer',
+                                      }}
+                                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                                      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                                    >
+                                      {t('runNowForce')}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); triggerJob(job, 'due') }}
+                                      style={{
+                                        display: 'block',
+                                        width: '100%',
+                                        textAlign: 'left',
+                                        padding: '6px 12px',
+                                        fontSize: 'var(--text-xs)',
+                                        color: 'var(--fg)',
+                                        background: 'none',
+                                        border: 0,
+                                        cursor: 'pointer',
+                                      }}
+                                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                                      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                                    >
+                                      {t('runNowIfDue')}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); cloneJob(job) }}
+                                disabled={isLocalAutomation}
+                                className="btn btn-sm"
+                                style={{ fontSize: 'var(--text-xs)', height: 26, padding: '0 8px' }}
+                              >
+                                {t('clone')}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleJobSelect(job); openRunHistory(job) }}
+                                className="btn btn-sm"
+                                style={{ fontSize: 'var(--text-xs)', height: 26, padding: '0 8px' }}
+                              >
+                                {t('history')}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* ── Job Detail ────────────────────────────────────────────── */}
+        {selectedJob && (
+          <section aria-labelledby="detail-heading">
+            <div className="card">
+              <div className="card-header">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h2 className="card-title" id="detail-heading">{selectedJob.name}</h2>
+                  <span className="flex items-center gap-1.5">
+                    <span className={`dot ${selectedJob.enabled ? 'dot-success' : ''}`} aria-hidden />
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                      {selectedJob.enabled ? t('enabled') : t('disabled')}
+                    </span>
+                  </span>
+                  {selectedJob.lastStatus && (
+                    <span className="flex items-center gap-1.5">
+                      <span className={runStatusInfo(selectedJob.lastStatus).dotClass} aria-hidden />
+                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                        {runStatusInfo(selectedJob.lastStatus).label}
+                      </span>
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedJob(null)}
+                  className="btn btn-ghost btn-sm"
+                >
+                  {t('close')}
+                </button>
+              </div>
+
+              <div className="card-body">
+                <div className="grid md:grid-cols-2 gap-6">
+                  {/* Left: Configuration */}
+                  <div className="space-y-4">
+                    <div>
+                      <div className="section-label" style={{ padding: '0 0 var(--space-2)' }}>
+                        {t('configuration')}
+                      </div>
+                      <div
+                        className="space-y-3"
+                        style={{
+                          background: 'var(--surface-2)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-md)',
+                          padding: 'var(--space-4)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '100px 1fr',
+                            gap: 4,
+                            fontSize: 'var(--text-sm)',
+                          }}
+                        >
+                          <span style={{ color: 'var(--fg-muted)' }}>{t('colSchedule')}</span>
+                          <div>
+                            <code style={{ ...MONO, color: 'var(--fg)' }}>{selectedJob.schedule}</code>
+                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                              {describeCronFrequency(selectedJob.schedule)}
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '100px 1fr',
+                            gap: 4,
+                            fontSize: 'var(--text-sm)',
+                          }}
+                        >
+                          <span style={{ color: 'var(--fg-muted)' }}>{t('colAgent')}</span>
+                          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                            <span aria-hidden style={{ color: selectedJob.agentId === 'mission-control-local' ? 'var(--fg-subtle)' : 'var(--accent)', marginRight: 4 }}>
+                              {agentGlyph(selectedJob.agentId || '')}
+                            </span>
+                            {selectedJob.agentId || 'system'}
+                          </span>
+                        </div>
+                        {selectedJob.model && (
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '100px 1fr',
+                              gap: 4,
+                              fontSize: 'var(--text-sm)',
+                            }}
+                          >
+                            <span style={{ color: 'var(--fg-muted)' }}>{t('colModel')}</span>
+                            <code style={{ ...MONO, fontSize: 'var(--text-xs)', color: 'var(--fg)' }}>
+                              {selectedJob.model}
+                            </code>
+                          </div>
+                        )}
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '100px 1fr',
+                            gap: 4,
+                            fontSize: 'var(--text-sm)',
+                          }}
+                        >
+                          <span style={{ color: 'var(--fg-muted)' }}>{t('delivery')}</span>
+                          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg)' }}>
+                            {selectedJob.delivery || 'gateway'}
+                          </span>
+                        </div>
+                        {selectedJob.delivery === 'local' && selectedJob.agentId === 'mission-control-local' && (
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '100px 1fr',
+                              gap: 4,
+                              fontSize: 'var(--text-sm)',
+                            }}
+                          >
+                            <span style={{ color: 'var(--fg-muted)' }}>{t('source')}</span>
+                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg)' }}>
+                              {t('localSchedulerAutomation')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="section-label" style={{ padding: '0 0 var(--space-2)' }}>
+                        {t('command')}
+                      </div>
+                      <pre
+                        style={{
+                          ...MONO,
+                          fontSize: 'var(--text-xs)',
+                          color: 'var(--fg)',
+                          background: 'var(--surface-2)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-md)',
+                          padding: 'var(--space-4)',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-all',
+                          overflowX: 'auto',
+                          maxHeight: 128,
+                        }}
+                      >
+                        {selectedJob.command}
+                      </pre>
+                    </div>
+
+                    <div>
+                      <div className="section-label" style={{ padding: '0 0 var(--space-2)' }}>
+                        {t('timing')}
+                      </div>
+                      <div
+                        className="space-y-2"
+                        style={{
+                          background: 'var(--surface-2)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-md)',
+                          padding: 'var(--space-4)',
+                        }}
+                      >
+                        {selectedJob.lastRun && (
+                          <div className="flex justify-between" style={{ fontSize: 'var(--text-sm)' }}>
+                            <span style={{ color: 'var(--fg-muted)' }}>{t('lastRun')}</span>
+                            <span style={MUTED_MONO}>
+                              {new Date(selectedJob.lastRun).toLocaleString()} ({formatRelativeTime(selectedJob.lastRun)})
+                            </span>
+                          </div>
+                        )}
+                        {selectedJob.nextRun && (
+                          <div className="flex justify-between" style={{ fontSize: 'var(--text-sm)' }}>
+                            <span style={{ color: 'var(--fg-muted)' }}>{t('nextRun')}</span>
+                            <span style={{ ...MUTED_MONO, color: 'var(--accent)' }}>
+                              {new Date(selectedJob.nextRun).toLocaleString()} ({formatRelativeTime(selectedJob.nextRun, true)})
+                            </span>
+                          </div>
+                        )}
+                        {selectedJob.timezone && (
+                          <div className="flex justify-between" style={{ fontSize: 'var(--text-sm)' }}>
+                            <span style={{ color: 'var(--fg-muted)' }}>{t('timezone')}</span>
+                            <span style={{ color: 'var(--fg)', fontSize: 'var(--text-xs)' }}>
+                              {selectedJob.timezone}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => triggerJob(selectedJob, 'force')}
+                        className="btn btn-sm"
+                      >
+                        {t('runNowForce')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => triggerJob(selectedJob, 'due')}
+                        className="btn btn-sm"
+                      >
+                        {t('runNowIfDue')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleJob(selectedJob)}
+                        disabled={selectedJob.delivery === 'local' && selectedJob.agentId === 'mission-control-local'}
+                        className="btn btn-sm"
+                      >
+                        {selectedJob.enabled ? t('disable') : t('enable')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => cloneJob(selectedJob)}
+                        disabled={selectedJob.delivery === 'local' && selectedJob.agentId === 'mission-control-local'}
+                        className="btn btn-sm"
+                      >
+                        {t('clone')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openRunHistory(selectedJob)}
+                        className="btn btn-sm"
+                      >
+                        {t('history')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeJob(selectedJob)}
+                        disabled={selectedJob.delivery === 'local' && selectedJob.agentId === 'mission-control-local'}
+                        className="btn btn-danger btn-sm"
+                      >
+                        {t('remove')}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Right: Logs */}
+                  <div>
+                    <div className="section-label" style={{ padding: '0 0 var(--space-2)' }}>
+                      {t('recentLogs')}
+                    </div>
+                    <div
+                      style={{
+                        background: 'var(--surface-2)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: 'var(--space-4)',
+                        maxHeight: 320,
+                        overflowY: 'auto',
+                      }}
+                    >
+                      {jobLogs.length === 0 ? (
+                        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-muted)' }}>
+                          {t('noLogsAvailable')}
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {jobLogs.map((logEntry, index) => (
+                            <div key={index} style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', ...MONO }}>
+                              <span style={{ color: 'var(--fg-subtle)' }}>
+                                [{new Date(logEntry.timestamp).toLocaleString()}]
+                              </span>{' '}
+                              {logEntry.message}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          </section>
         )}
-      </div>
 
-      {/* Run History Panel */}
-      {showRunHistory && selectedJob && (
-        <div className="bg-card border border-border rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-foreground">{t('runHistoryTitle', { name: selectedJob.name })}</h2>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{t('totalRuns', { count: runHistoryTotal })}</span>
-              <Button onClick={() => setShowRunHistory(false)} variant="ghost" size="sm" className="text-xs">{t('close')}</Button>
-            </div>
-          </div>
-          <div className="mb-3">
-            <input
-              value={runHistoryQuery}
-              onChange={(e) => {
-                setRunHistoryQuery(e.target.value)
-                loadRunHistory(selectedJob.id || selectedJob.name, 1, e.target.value)
-              }}
-              placeholder={t('filterRunsPlaceholder')}
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
-            />
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="pb-2 pr-3 font-medium">{t('colStatus')}</th>
-                  <th className="pb-2 pr-3 font-medium">{t('delivery')}</th>
-                  <th className="pb-2 pr-3 font-medium">{t('timestamp')}</th>
-                  <th className="pb-2 pr-3 font-medium">{t('duration')}</th>
-                  <th className="pb-2 font-medium">{t('error')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {runHistory.length === 0 ? (
-                  <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">{t('noRunHistoryAvailable')}</td></tr>
-                ) : (
-                  runHistory.map((entry, idx) => {
-                    const ts = entry.timestamp || entry.startedAtMs
-                    return (
-                      <tr key={idx} className="hover:bg-secondary/50">
-                        <td className="py-2 pr-3">
-                          <span className={`text-xs px-1.5 py-0.5 rounded ${getStatusBg(entry.status)} ${getStatusColor(entry.status)}`}>
-                            {entry.status}
-                          </span>
-                        </td>
-                        <td className="py-2 pr-3 text-xs text-muted-foreground">
-                          {entry.deliveryStatus || '--'}
-                        </td>
-                        <td className="py-2 pr-3 text-xs text-muted-foreground whitespace-nowrap">
-                          {ts ? new Date(ts).toLocaleString() : '--'}
-                        </td>
-                        <td className="py-2 pr-3 text-xs text-muted-foreground">
-                          {entry.durationMs ? `${(entry.durationMs / 1000).toFixed(1)}s` : '--'}
-                        </td>
-                        <td className="py-2 text-xs text-red-400 truncate max-w-64">
-                          {entry.error || ''}
+        {/* ── Run History ───────────────────────────────────────────── */}
+        {showRunHistory && selectedJob && (
+          <section aria-labelledby="history-heading">
+            <div className="card">
+              <div className="card-header">
+                <div>
+                  <h2 className="card-title" id="history-heading">
+                    {t('runHistoryTitle', { name: selectedJob.name })}
+                  </h2>
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                    {t('totalRuns', { count: runHistoryTotal })}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRunHistory(false)}
+                  className="btn btn-ghost btn-sm"
+                >
+                  {t('close')}
+                </button>
+              </div>
+
+              <div className="card-body">
+                <div style={{ marginBottom: 'var(--space-3)' }}>
+                  <input
+                    value={runHistoryQuery}
+                    onChange={(e) => {
+                      setRunHistoryQuery(e.target.value)
+                      loadRunHistory(selectedJob.id || selectedJob.name, 1, e.target.value)
+                    }}
+                    placeholder={t('filterRunsPlaceholder')}
+                    className="input"
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="table table-compact">
+                  <caption className="sr-only">{t('runHistoryTitle', { name: selectedJob.name })}</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('colStatus')}</th>
+                      <th scope="col">{t('delivery')}</th>
+                      <th scope="col">{t('timestamp')}</th>
+                      <th scope="col">{t('duration')}</th>
+                      <th scope="col">{t('error')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {runHistory.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} style={{ textAlign: 'center', color: 'var(--fg-muted)' }}>
+                          {t('noRunHistoryAvailable')}
                         </td>
                       </tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-          {runHistoryHasMore && (
-            <div className="mt-3 text-center">
-              <Button
-                onClick={() => loadRunHistory(selectedJob.id || selectedJob.name, runHistoryPage + 1, runHistoryQuery)}
-                variant="outline"
-                size="sm"
-              >
-                {t('loadMore')}
-              </Button>
+                    ) : (
+                      runHistory.map((entry, idx) => {
+                        const ts = entry.timestamp || entry.startedAtMs
+                        const { dotClass, label } = runStatusInfo(entry.status)
+                        return (
+                          <tr key={idx}>
+                            <td>
+                              <span className="flex items-center gap-1.5">
+                                <span className={dotClass} aria-hidden />
+                                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                                  {label}
+                                </span>
+                              </span>
+                            </td>
+                            <td style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                              {entry.deliveryStatus || '—'}
+                            </td>
+                            <td style={MUTED_MONO}>
+                              {ts ? new Date(ts).toLocaleString() : '—'}
+                            </td>
+                            <td style={MUTED_MONO}>
+                              {entry.durationMs ? `${(entry.durationMs / 1000).toFixed(1)}s` : '—'}
+                            </td>
+                            <td
+                              className="truncate"
+                              style={{ fontSize: 'var(--text-xs)', color: 'var(--danger)', maxWidth: 256 }}
+                            >
+                              {entry.error || ''}
+                            </td>
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {runHistoryHasMore && (
+                <div className="card-footer" style={{ textAlign: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() => loadRunHistory(selectedJob.id || selectedJob.name, runHistoryPage + 1, runHistoryQuery)}
+                    className="btn btn-sm"
+                  >
+                    {t('loadMore')}
+                  </button>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      )}
+          </section>
+        )}
 
-      {/* Claude Code Teams Overview */}
-      <ClaudeCodeTeamsSection />
+        {/* ── Claude Code Teams ─────────────────────────────────────── */}
+        <ClaudeCodeTeamsSection />
 
-      {/* Add Job Modal */}
+      </div>
+
+      {/* ── Add Job Modal ─────────────────────────────────────────── */}
       {showAddForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-lg p-6 w-full max-w-2xl m-4">
-            <h2 className="text-xl font-semibold mb-4">{t('addNewCronJob')}</h2>
-            
+        <div className="scrim">
+          <div className="modal" style={{ padding: 'var(--space-6)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 className="card-title" style={{ marginBottom: 'var(--space-4)' }}>
+              {t('addNewCronJob')}
+            </h2>
+
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{t('fieldJobName')}</label>
+              {/* Job name */}
+              <div className="field">
+                <label className="label">{t('fieldJobName')}</label>
                 <input
                   type="text"
                   value={newJob.name}
                   onChange={(e) => setNewJob(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="e.g., daily-backup, system-check"
-                  className={`w-full px-3 py-2 border rounded-md bg-background text-foreground ${formErrors.name ? 'border-red-500' : 'border-border'}`}
+                  className="input"
+                  style={formErrors.name ? { borderColor: 'var(--danger)' } : {}}
                 />
-                {formErrors.name && <div className="mt-1 text-xs text-red-400">{formErrors.name}</div>}
+                {formErrors.name && (
+                  <div className="hint" style={{ color: 'var(--danger)' }}>{formErrors.name}</div>
+                )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{t('fieldSchedule')}</label>
-                <div className="flex space-x-2">
+              {/* Schedule */}
+              <div className="field">
+                <label className="label">{t('fieldSchedule')}</label>
+                <div className="flex gap-2">
                   <input
                     type="text"
                     value={newJob.schedule}
                     onChange={(e) => setNewJob(prev => ({ ...prev, schedule: e.target.value }))}
                     placeholder="0 * * * *"
-                    className={`flex-1 px-3 py-2 border rounded-md bg-background text-foreground font-mono ${formErrors.schedule ? 'border-red-500' : 'border-border'}`}
+                    className="input"
+                    style={{
+                      flex: 1,
+                      ...MONO,
+                      ...(formErrors.schedule ? { borderColor: 'var(--danger)' } : {}),
+                    }}
                   />
                   <select
                     value=""
                     onChange={(e) => e.target.value && setNewJob(prev => ({ ...prev, schedule: e.target.value }))}
-                    className="px-3 py-2 border border-border rounded-md bg-background text-foreground"
+                    className="select"
+                    style={{ width: 'auto' }}
                   >
                     <option value="">{t('quickSelect')}</option>
                     {predefinedSchedules.map((sched) => (
@@ -1479,34 +1901,44 @@ export function CronManagementPanel() {
                   </select>
                 </div>
                 {formErrors.schedule ? (
-                  <div className="mt-1 text-xs text-red-400">{formErrors.schedule}</div>
+                  <div className="hint" style={{ color: 'var(--danger)' }}>{formErrors.schedule}</div>
                 ) : (
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {t('scheduleFormatHint')}
-                  </div>
+                  <div className="hint">{t('scheduleFormatHint')}</div>
                 )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{t('fieldCommand')}</label>
+              {/* Command */}
+              <div className="field">
+                <label className="label">{t('fieldCommand')}</label>
                 <textarea
                   value={newJob.command}
                   onChange={(e) => setNewJob(prev => ({ ...prev, command: e.target.value }))}
                   placeholder="cd /path/to/script && ./script.sh"
-                  className={`w-full px-3 py-2 border rounded-md bg-background text-foreground font-mono h-24 ${formErrors.command ? 'border-red-500' : 'border-border'}`}
+                  className="textarea"
+                  style={{
+                    ...MONO,
+                    ...(formErrors.command ? { borderColor: 'var(--danger)' } : {}),
+                  }}
                 />
-                {formErrors.command && <div className="mt-1 text-xs text-red-400">{formErrors.command}</div>}
+                {formErrors.command && (
+                  <div className="hint" style={{ color: 'var(--danger)' }}>{formErrors.command}</div>
+                )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{t('fieldModelOptional')}</label>
+              {/* Model */}
+              <div className="field">
+                <label className="label">{t('fieldModelOptional')}</label>
                 <input
                   type="text"
                   value={newJob.model}
                   onChange={(e) => setNewJob(prev => ({ ...prev, model: e.target.value }))}
                   list="cron-model-suggestions"
                   placeholder={TEMPLATE_PRIMARY_SONNET}
-                  className={`w-full px-3 py-2 border rounded-md bg-background text-foreground font-mono text-sm ${formErrors.model ? 'border-red-500' : 'border-border'}`}
+                  className="input"
+                  style={{
+                    ...MONO,
+                    ...(formErrors.model ? { borderColor: 'var(--danger)' } : {}),
+                  }}
                 />
                 <datalist id="cron-model-suggestions">
                   {availableModels.map((modelName) => (
@@ -1514,59 +1946,67 @@ export function CronManagementPanel() {
                   ))}
                 </datalist>
                 {formErrors.model ? (
-                  <div className="mt-1 text-xs text-red-400">{formErrors.model}</div>
+                  <div className="hint" style={{ color: 'var(--danger)' }}>{formErrors.model}</div>
                 ) : (
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {t('modelHint')}
-                  </div>
+                  <div className="hint">{t('modelHint')}</div>
                 )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{t('fieldStaggerOptional')}</label>
+              {/* Stagger */}
+              <div className="field">
+                <label className="label">{t('fieldStaggerOptional')}</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={newJob.staggerSeconds}
                     onChange={(e) => setNewJob(prev => ({ ...prev, staggerSeconds: e.target.value }))}
                     placeholder="0"
-                    className={`w-32 px-3 py-2 border rounded-md bg-background text-foreground font-mono text-sm ${formErrors.staggerSeconds ? 'border-red-500' : 'border-border'}`}
+                    className="input"
+                    style={{
+                      width: 128,
+                      ...MONO,
+                      ...(formErrors.staggerSeconds ? { borderColor: 'var(--danger)' } : {}),
+                    }}
                   />
-                  <span className="text-sm text-muted-foreground">{t('seconds')}</span>
+                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-muted)' }}>
+                    {t('seconds')}
+                  </span>
                 </div>
                 {formErrors.staggerSeconds ? (
-                  <div className="mt-1 text-xs text-red-400">{formErrors.staggerSeconds}</div>
+                  <div className="hint" style={{ color: 'var(--danger)' }}>{formErrors.staggerSeconds}</div>
                 ) : (
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {t('staggerHint')}
-                  </div>
+                  <div className="hint">{t('staggerHint')}</div>
                 )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">{t('fieldDescriptionOptional')}</label>
+              {/* Description */}
+              <div className="field">
+                <label className="label">{t('fieldDescriptionOptional')}</label>
                 <input
                   type="text"
                   value={newJob.description}
                   onChange={(e) => setNewJob(prev => ({ ...prev, description: e.target.value }))}
                   placeholder={t('descriptionPlaceholder')}
-                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
+                  className="input"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end space-x-3 mt-6">
-              <Button
+            <div className="flex justify-end gap-3" style={{ marginTop: 'var(--space-6)' }}>
+              <button
+                type="button"
                 onClick={() => setShowAddForm(false)}
-                variant="ghost"
+                className="btn btn-ghost"
               >
                 {t('cancel')}
-              </Button>
-              <Button
+              </button>
+              <button
+                type="button"
                 onClick={addJob}
+                className="btn btn-primary"
               >
                 {t('addJob')}
-              </Button>
+              </button>
             </div>
           </div>
         </div>
@@ -1594,35 +2034,50 @@ function ClaudeCodeTeamsSection() {
   }, {})
 
   return (
-    <div className="bg-card border border-border rounded-lg overflow-hidden">
+    <div className="card" style={{ overflow: 'hidden' }}>
       <button
+        type="button"
         onClick={() => setExpanded(prev => !prev)}
-        className="w-full flex items-center justify-between px-6 py-4 hover:bg-secondary/50 transition-colors text-left"
+        className="w-full text-left"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: 'var(--space-4) var(--space-5)',
+          background: 'none',
+          border: 0,
+          borderBottom: expanded ? '1px solid var(--border)' : 0,
+          cursor: 'pointer',
+          color: 'var(--fg)',
+        }}
+        onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+        onMouseLeave={e => (e.currentTarget.style.background = 'none')}
       >
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold text-foreground">{t('claudeCodeTeams')}</h2>
+          <span className="card-title">{t('claudeCodeTeams')}</span>
           {data.teams.length > 0 && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400">{t('teamsCount', { count: data.teams.length })}</span>
+            <span className="badge">
+              {t('teamsCount', { count: data.teams.length })}
+            </span>
           )}
         </div>
-        <span className="text-muted-foreground text-sm">{expanded ? t('collapse') : t('expand')}</span>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+          {expanded ? t('collapse') : t('expand')}
+        </span>
       </button>
+
       {expanded && (
-        <div className="px-6 pb-6 border-t border-border pt-4 space-y-4">
+        <div className="card-body space-y-4">
           {!loaded ? (
-            <div className="text-sm text-muted-foreground">{t('loading')}</div>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-muted)' }}>{t('loading')}</div>
           ) : data.teams.length === 0 ? (
-            <div className="text-sm text-muted-foreground">{t('noClaudeCodeTeams')}</div>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-muted)' }}>{t('noClaudeCodeTeams')}</div>
           ) : (
             <>
               {Object.keys(statusCounts).length > 0 && (
-                <div className="flex gap-3">
+                <div className="flex gap-2 flex-wrap">
                   {Object.entries(statusCounts).map(([status, count]) => (
-                    <span key={status} className={`text-xs px-2 py-1 rounded ${
-                      status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                      status === 'in_progress' ? 'bg-blue-500/20 text-blue-400' :
-                      'bg-gray-500/20 text-gray-400'
-                    }`}>
+                    <span key={status} className="badge">
                       {status}: {count}
                     </span>
                   ))}
@@ -1630,19 +2085,37 @@ function ClaudeCodeTeamsSection() {
               )}
               <div className="space-y-3">
                 {data.teams.map(team => (
-                  <div key={team.name} className="border border-border rounded-lg p-4">
+                  <div
+                    key={team.name}
+                    style={{
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-lg)',
+                      padding: 'var(--space-4)',
+                    }}
+                  >
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="font-medium text-foreground">{team.name}</span>
-                      <span className="text-xs text-muted-foreground">{t('membersCount', { count: team.members?.length || 0 })}</span>
+                      <span className="font-medium" style={{ color: 'var(--fg)' }}>{team.name}</span>
+                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                        {t('membersCount', { count: team.members?.length || 0 })}
+                      </span>
                       {team.description && (
-                        <span className="text-xs text-muted-foreground truncate">{team.description}</span>
+                        <span className="truncate" style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                          {team.description}
+                        </span>
                       )}
                     </div>
                     {team.members?.length > 0 && (
                       <div className="flex gap-2 flex-wrap">
                         {team.members.map((m: any) => (
-                          <span key={m.agentId} className="text-[11px] px-2 py-0.5 rounded bg-secondary text-foreground">
-                            {m.name} <span className="text-muted-foreground">({m.model || m.agentType})</span>
+                          <span
+                            key={m.agentId}
+                            className="badge"
+                            style={{ fontSize: 'var(--text-xs)' }}
+                          >
+                            ✦ {m.name}{' '}
+                            <span style={{ color: 'var(--fg-subtle)' }}>
+                              ({m.model || m.agentType})
+                            </span>
                           </span>
                         ))}
                       </div>
