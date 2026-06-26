@@ -2,9 +2,42 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
-import { Button } from '@/components/ui/button'
 
 type Tab = 'status' | 'health' | 'models' | 'apicall'
+
+const PRE_STYLE: React.CSSProperties = {
+  background: 'var(--surface-2)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-md)',
+  padding: 'var(--space-4)',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-xs)',
+  color: 'var(--fg-muted)',
+  overflowX: 'auto',
+  maxHeight: '24rem',
+  margin: 0,
+}
+
+const KV_TH_STYLE: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-xs)',
+  color: 'var(--fg-muted)',
+  fontWeight: 500,
+  padding: 'var(--space-2) var(--space-4) var(--space-2) 0',
+  whiteSpace: 'nowrap',
+  verticalAlign: 'top',
+  width: 160,
+}
+
+const KV_TD_STYLE: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-xs)',
+  color: 'var(--fg)',
+  padding: 'var(--space-2) 0',
+  verticalAlign: 'top',
+}
+
+const ROW_BORDER: React.CSSProperties = { borderBottom: '1px solid var(--border)' }
 
 export function DebugPanel() {
   const t = useTranslations('debug')
@@ -18,17 +51,36 @@ export function DebugPanel() {
   }
 
   return (
-    <div className="m-4">
-      <div className="flex gap-1 mb-4 border-b border-border pb-2">
+    <div className="opzava-ds m-4" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
+
+      {/* Advanced warning banner */}
+      <div className="banner banner-warning mb-4" role="note" aria-label="Advanced debugging surface">
+        <svg
+          width="16" height="16" viewBox="0 0 16 16" fill="none"
+          aria-hidden="true"
+          style={{ flex: 'none', color: 'var(--warning)' }}
+        >
+          <path d="M8 2 1.5 13.5h13L8 2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+          <path d="M8 6v4M8 11.5v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+        <span>
+          <strong>Advanced</strong> — internal state for debugging. Changes here can affect the running system.
+        </span>
+      </div>
+
+      {/* Tab bar */}
+      <div className="tabs mb-4" role="tablist" aria-label={t('tabStatus') + ' sections'}>
         {(['status', 'health', 'models', 'apicall'] as const).map((tab) => (
-          <Button
+          <button
             key={tab}
-            variant={activeTab === tab ? 'default' : 'ghost'}
-            size="sm"
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab}
+            className={`tab${activeTab === tab ? ' active' : ''}`}
             onClick={() => setActiveTab(tab)}
           >
             {tabLabels[tab]}
-          </Button>
+          </button>
         ))}
       </div>
 
@@ -66,29 +118,39 @@ function StatusTab() {
   const reachable = data && !data.gatewayReachable === false && data.gatewayReachable !== false
 
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-3">
-        <span className="text-sm text-muted-foreground">{t('gateway')}:</span>
-        {loading ? (
-          <span className="text-xs text-muted-foreground">{t('checking')}</span>
-        ) : (
-          <span
-            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-              reachable
-                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                : 'bg-red-500/20 text-red-400 border border-red-500/30'
-            }`}
-          >
-            {reachable ? t('reachable') : t('unreachable')}
-          </span>
-        )}
-        <Button variant="ghost" size="xs" onClick={fetchStatus} disabled={loading}>
+    <div className="card">
+      {/* Card header: gateway status + refresh */}
+      <div className="card-header">
+        <div className="flex items-center gap-3">
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>{t('gateway')}</span>
+          {loading ? (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>{t('checking')}</span>
+          ) : (
+            <span className="flex items-center gap-1.5" style={{ fontSize: 'var(--text-xs)', color: 'var(--fg)' }}>
+              <span
+                className={`dot ${reachable ? 'dot-success' : 'dot-danger'}`}
+                aria-hidden="true"
+              />
+              {reachable ? t('reachable') : t('unreachable')}
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={fetchStatus}
+          disabled={loading}
+        >
           {t('refresh')}
-        </Button>
+        </button>
       </div>
-      <pre className="bg-secondary rounded-lg p-4 text-xs font-mono overflow-auto max-h-96 text-foreground">
-        {loading ? t('loading') : JSON.stringify(data, null, 2)}
-      </pre>
+
+      {/* Card body: raw JSON */}
+      <div className="card-body">
+        <pre style={PRE_STYLE}>
+          {loading ? t('loading') : JSON.stringify(data, null, 2)}
+        </pre>
+      </div>
     </div>
   )
 }
@@ -133,43 +195,64 @@ function HealthTab() {
   const healthy = data?.healthy === true || (data && !data.error && data.healthy !== false)
 
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-3">
-        <span className="text-sm text-muted-foreground">{t('health')}:</span>
-        {loading ? (
-          <span className="text-xs text-muted-foreground">{t('checking')}</span>
-        ) : (
-          <span
-            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-              healthy
-                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                : 'bg-red-500/20 text-red-400 border border-red-500/30'
-            }`}
+    <div className="card">
+      {/* Card header: health status + actions */}
+      <div className="card-header" style={{ flexWrap: 'wrap', rowGap: 'var(--space-2)' }}>
+        <div className="flex items-center gap-3 flex-1 min-w-0 flex-wrap" style={{ rowGap: 'var(--space-2)' }}>
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>{t('health')}</span>
+          {loading ? (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>{t('checking')}</span>
+          ) : (
+            <span className="flex items-center gap-1.5" style={{ fontSize: 'var(--text-xs)', color: 'var(--fg)' }}>
+              <span
+                className={`dot ${healthy ? 'dot-success' : 'dot-danger'}`}
+                aria-hidden="true"
+              />
+              {healthy ? t('healthy') : t('unhealthy')}
+            </span>
+          )}
+          {heartbeat && (
+            <span
+              className="flex items-center gap-1.5"
+              style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}
+            >
+              <span className={`dot ${heartbeat.ok ? 'dot-success' : 'dot-danger'}`} aria-hidden="true" />
+              {heartbeat.ok ? t('ok') : t('failed')}
+              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-subtle)' }}>
+                {heartbeat.latencyMs}ms
+              </span>
+            </span>
+          )}
+        </div>
+        <div className="flex gap-2 flex-none">
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={fetchHealth}
+            disabled={loading}
           >
-            {healthy ? t('healthy') : t('unhealthy')}
-          </span>
-        )}
-        <Button variant="ghost" size="xs" onClick={fetchHealth} disabled={loading}>
-          {t('refresh')}
-        </Button>
-        <Button variant="outline" size="xs" onClick={pingHeartbeat} disabled={hbLoading}>
-          {hbLoading ? t('pinging') : t('heartbeat')}
-        </Button>
-        {heartbeat && (
-          <span className="text-xs text-muted-foreground">
-            {heartbeat.ok ? t('ok') : t('failed')} - {heartbeat.latencyMs}ms
-          </span>
-        )}
+            {t('refresh')}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={pingHeartbeat}
+            disabled={hbLoading}
+          >
+            {hbLoading ? t('pinging') : t('heartbeat')}
+          </button>
+        </div>
       </div>
 
+      {/* Card body: KV table */}
       {data && !loading && (
-        <div className="bg-secondary rounded-lg p-4 text-xs overflow-auto max-h-96">
-          <table className="w-full text-left">
+        <div className="card-body" style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <tbody>
               {Object.entries(data).map(([key, value]) => (
-                <tr key={key} className="border-b border-border/50 last:border-0">
-                  <td className="py-1 pr-4 font-medium text-muted-foreground whitespace-nowrap">{key}</td>
-                  <td className="py-1 font-mono text-foreground">
+                <tr key={key} style={ROW_BORDER}>
+                  <th scope="row" style={KV_TH_STYLE}>{key}</th>
+                  <td style={KV_TD_STYLE}>
                     {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
                   </td>
                 </tr>
@@ -216,34 +299,73 @@ function ModelsTab() {
   const models: ModelEntry[] = Array.isArray(data?.models) ? data.models : (Array.isArray(data?.data) ? data.data : [])
 
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-3">
-        <span className="text-sm text-muted-foreground">{t('models')}</span>
-        <Button variant="ghost" size="xs" onClick={fetchModels} disabled={loading}>
+    <div className="card">
+      {/* Card header: label + refresh */}
+      <div className="card-header">
+        <span className="card-title">{t('models')}</span>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={fetchModels}
+          disabled={loading}
+        >
           {t('refresh')}
-        </Button>
+        </button>
       </div>
 
+      {/* Card body: loading / empty / table */}
       {loading ? (
-        <p className="text-xs text-muted-foreground">{t('loading')}</p>
+        <div className="card-body">
+          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>{t('loading')}</p>
+        </div>
       ) : models.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('noModels')}</p>
+        <div className="empty">
+          <div className="empty-icon" aria-hidden>⊞</div>
+          <div className="empty-title">{t('noModels')}</div>
+        </div>
       ) : (
-        <div className="bg-secondary rounded-lg overflow-auto max-h-96">
-          <table className="w-full text-xs text-left">
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr className="border-b border-border">
-                <th className="py-2 px-3 font-medium text-muted-foreground">{t('colName')}</th>
-                <th className="py-2 px-3 font-medium text-muted-foreground">{t('colProvider')}</th>
-                <th className="py-2 px-3 font-medium text-muted-foreground">{t('colContextLength')}</th>
+              <tr style={ROW_BORDER}>
+                <th
+                  scope="col"
+                  style={{ ...KV_TH_STYLE, padding: 'var(--space-2) var(--space-5)', width: 'auto', fontWeight: 600 }}
+                >
+                  {t('colName')}
+                </th>
+                <th
+                  scope="col"
+                  style={{ ...KV_TH_STYLE, padding: 'var(--space-2) var(--space-5)', width: 'auto', fontWeight: 600 }}
+                >
+                  {t('colProvider')}
+                </th>
+                <th
+                  scope="col"
+                  style={{ ...KV_TH_STYLE, padding: 'var(--space-2) var(--space-5)', width: 'auto', fontWeight: 600 }}
+                >
+                  {t('colContextLength')}
+                </th>
               </tr>
             </thead>
             <tbody>
               {models.map((m, i) => (
-                <tr key={m.id || m.name || i} className="border-b border-border/50 last:border-0">
-                  <td className="py-1.5 px-3 font-mono text-foreground">{m.name || m.id || '?'}</td>
-                  <td className="py-1.5 px-3 text-muted-foreground">{m.provider || '-'}</td>
-                  <td className="py-1.5 px-3 text-muted-foreground">{m.context_length ?? '-'}</td>
+                <tr key={m.id || m.name || i} style={ROW_BORDER}>
+                  <td
+                    style={{ ...KV_TD_STYLE, padding: 'var(--space-2) var(--space-5)' }}
+                  >
+                    {m.name || m.id || '?'}
+                  </td>
+                  <td
+                    style={{ ...KV_TD_STYLE, padding: 'var(--space-2) var(--space-5)', color: 'var(--fg-muted)', fontFamily: 'inherit' }}
+                  >
+                    {m.provider || '-'}
+                  </td>
+                  <td
+                    style={{ ...KV_TD_STYLE, padding: 'var(--space-2) var(--space-5)', color: 'var(--fg-muted)', fontFamily: 'inherit' }}
+                  >
+                    {m.context_length ?? '-'}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -294,78 +416,119 @@ function ApiCallTab() {
     }
   }
 
+  // Map HTTP status to a neutral dot class + text label (no traffic-light hues)
+  const httpStatusDot = (status: number) => {
+    if (status >= 200 && status < 300) return 'dot-success'
+    if (status >= 400) return 'dot-danger'
+    return 'dot-warning'
+  }
+
   return (
-    <div>
-      <div className="flex items-end gap-2 mb-4">
-        <div>
-          <label className="block text-xs text-muted-foreground mb-1">{t('method')}</label>
-          <select
-            value={method}
-            onChange={(e) => setMethod(e.target.value as 'GET' | 'POST')}
-            className="h-8 px-2 rounded border border-border bg-secondary text-foreground text-sm"
+    <div className="card">
+      {/* Request form */}
+      <div className="card-body flex flex-col gap-4">
+
+        {/* Method + path + send */}
+        <div className="flex items-end gap-2 flex-wrap" style={{ rowGap: 'var(--space-3)' }}>
+          <div style={{ flex: 'none' }}>
+            <label
+              htmlFor="dbg-method"
+              style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', marginBottom: 'var(--space-1)' }}
+            >
+              {t('method')}
+            </label>
+            <select
+              id="dbg-method"
+              value={method}
+              onChange={(e) => setMethod(e.target.value as 'GET' | 'POST')}
+              className="select"
+              style={{ width: 100 }}
+            >
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+            </select>
+          </div>
+
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <label
+              htmlFor="dbg-path"
+              style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', marginBottom: 'var(--space-1)' }}
+            >
+              {t('path')}
+            </label>
+            <input
+              id="dbg-path"
+              type="text"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder="/api/"
+              className="input"
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}
+            />
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={send}
+            disabled={loading}
+            style={{ alignSelf: 'flex-end' }}
           >
-            <option value="GET">GET</option>
-            <option value="POST">POST</option>
-          </select>
+            {loading ? t('sending') : t('send')}
+          </button>
         </div>
 
-        <div className="flex-1">
-          <label className="block text-xs text-muted-foreground mb-1">{t('path')}</label>
-          <input
-            type="text"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="/api/"
-            className="h-8 w-full px-2 rounded border border-border bg-secondary text-foreground text-sm font-mono"
-          />
-        </div>
+        {/* POST body */}
+        {method === 'POST' && (
+          <div>
+            <label
+              htmlFor="dbg-body"
+              style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', marginBottom: 'var(--space-1)' }}
+            >
+              {t('bodyJson')}
+            </label>
+            <textarea
+              id="dbg-body"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={5}
+              placeholder='{"key": "value"}'
+              className="textarea"
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}
+            />
+          </div>
+        )}
 
-        <Button variant="default" size="sm" onClick={send} disabled={loading}>
-          {loading ? t('sending') : t('send')}
-        </Button>
+        {/* Response */}
+        {response && (
+          <div className="flex flex-col gap-2">
+            {response.status && (
+              <div className="flex items-center gap-2">
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>{t('statusLabel')}:</span>
+                <span className="flex items-center gap-1.5" style={{ fontSize: 'var(--text-xs)', color: 'var(--fg)' }}>
+                  <span className={`dot ${httpStatusDot(response.status)}`} aria-hidden="true" />
+                  <span style={{ fontFamily: 'var(--font-mono)' }}>
+                    {response.status}{response.statusText ? ` ${response.statusText}` : ''}
+                  </span>
+                </span>
+                {response.contentType && (
+                  <span
+                    className="badge"
+                    style={{ fontFamily: 'var(--font-mono)' }}
+                  >
+                    {response.contentType}
+                  </span>
+                )}
+              </div>
+            )}
+            <pre style={PRE_STYLE}>
+              {typeof response.body !== 'undefined'
+                ? (typeof response.body === 'string' ? response.body : JSON.stringify(response.body, null, 2))
+                : JSON.stringify(response, null, 2)}
+            </pre>
+          </div>
+        )}
       </div>
-
-      {method === 'POST' && (
-        <div className="mb-4">
-          <label className="block text-xs text-muted-foreground mb-1">{t('bodyJson')}</label>
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            rows={5}
-            placeholder='{"key": "value"}'
-            className="w-full px-3 py-2 rounded border border-border bg-secondary text-foreground text-xs font-mono resize-y"
-          />
-        </div>
-      )}
-
-      {response && (
-        <div>
-          {response.status && (
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs text-muted-foreground">{t('statusLabel')}:</span>
-              <span
-                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                  response.status >= 200 && response.status < 300
-                    ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                    : response.status >= 400
-                      ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                      : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                }`}
-              >
-                {response.status} {response.statusText}
-              </span>
-              {response.contentType && (
-                <span className="text-xs text-muted-foreground">{response.contentType}</span>
-              )}
-            </div>
-          )}
-          <pre className="bg-secondary rounded-lg p-4 text-xs font-mono overflow-auto max-h-96 text-foreground">
-            {typeof response.body !== 'undefined'
-              ? (typeof response.body === 'string' ? response.body : JSON.stringify(response.body, null, 2))
-              : JSON.stringify(response, null, 2)}
-          </pre>
-        </div>
-      )}
     </div>
   )
 }
