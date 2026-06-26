@@ -73,6 +73,9 @@ export function resolveAvailability(
         rung: { ...rung, rungIndex: i, accountHealth: live.health === 'degraded' ? 'degraded' : 'ok' },
       }
     }
+    // v1 invariant: this *-at-cap-vs-*-down classification assumes STANDARD_PREDICATES. A custom
+    // `predicates` set (the parameter's v2 extension point) would need it re-derived from the actual
+    // failing predicate(s) — revisit when custom predicates land.
     const atCapOnly = live.authenticated && live.gatewayLive && live.health !== 'outage' && live.atCap
     if (!atCapOnly) allFailuresAtCap = false
   }

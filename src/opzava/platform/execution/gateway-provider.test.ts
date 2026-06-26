@@ -62,7 +62,8 @@ describe('makeGatewayProvider — gateway-agent path', () => {
     expect(result.text).toBe('{"steps":[]}')
   })
 
-  // AC2 — usage rides ProviderResult.usage (the executor's UsageSink records it; not this adapter's job)
+  // AC2 — usage rides ProviderResult.usage; the adapter never records it (matching makeInMemoryProvider +
+  // the ProviderPort/executor contract). The executor records worker usage; orchestration usage = K0/Q3 (deferred).
   it('AC2: populates ProviderResult.usage from the strategy parseUsageEvent on the terminal payload', async () => {
     const usage: TokenUsage = { model: 'openai/gpt-5.5', inputTokens: 100, outputTokens: 40 }
     const provider = makeProvider({
