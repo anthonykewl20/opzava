@@ -2,7 +2,6 @@
 
 import { useState, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
-import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
 import { useMissionControl } from '@/store'
 import { useSmartPoll } from '@/lib/use-smart-poll'
@@ -125,13 +124,14 @@ interface AgentEvalsData {
 }
 
 const SCAN_STATUS_ICON: Record<string, string> = { pass: '+', fail: 'x', warn: '!' }
-const SCAN_STATUS_COLOR: Record<string, string> = { pass: 'text-green-400', fail: 'text-red-400', warn: 'text-amber-400' }
 
-const SEVERITY_BADGE: Record<CheckSeverity, { label: string; className: string }> = {
-  critical: { label: 'C', className: 'bg-red-500/20 text-red-400' },
-  high: { label: 'H', className: 'bg-orange-500/20 text-orange-400' },
-  medium: { label: 'M', className: 'bg-amber-500/20 text-amber-400' },
-  low: { label: 'L', className: 'bg-blue-500/20 text-blue-300' },
+/** Actor glyph: AI agents = ✦ (accent), system/unknown = ⚙ (subtle). Never colour. */
+function actorInfo(actor: string): { glyph: string; isAI: boolean } {
+  const lower = (actor || '').toLowerCase()
+  if (!actor || lower === 'unknown' || lower === 'system' || lower === 'scheduler') {
+    return { glyph: '⚙', isAI: false }
+  }
+  return { glyph: '✦', isAI: true }
 }
 
 function ScanCategoryRow({ label, icon, category, failingCount }: {
@@ -140,27 +140,32 @@ function ScanCategoryRow({ label, icon, category, failingCount }: {
   const t = useTranslations('securityAudit')
   const [expanded, setExpanded] = useState(false)
   return (
-    <div className="border border-border/50 rounded-lg overflow-hidden">
+    <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-secondary/50 transition-colors"
+        className="w-full flex items-center gap-3 text-left"
+        style={{ background: 'none', border: 'none', padding: 'var(--space-2) var(--space-3)', cursor: 'pointer', color: 'var(--fg)', font: 'inherit' }}
       >
-        <span className="w-5 h-5 rounded bg-secondary flex items-center justify-center text-xs font-mono text-muted-foreground">
+        <span
+          className="flex items-center justify-center flex-none"
+          style={{ width: 22, height: 22, borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}
+        >
           {icon}
         </span>
-        <span className="flex-1 text-sm font-medium">{label}</span>
-        <span className={`text-xs tabular-nums ${category.score >= 80 ? 'text-green-400' : category.score >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
+        <span className="flex-1 font-medium" style={{ fontSize: 'var(--text-sm)' }}>{label}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', fontVariantNumeric: 'tabular-nums' }}>
           {category.score}%
         </span>
         {failingCount > 0 && (
-          <span className="text-xs text-muted-foreground">
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
             {t('issueCount', { count: failingCount })}
           </span>
         )}
-        <span className="text-xs text-muted-foreground/50">{expanded ? '-' : '+'}</span>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>{expanded ? '−' : '+'}</span>
       </button>
       {expanded && (
-        <div className="border-t border-border/30 px-3 py-2 space-y-1.5 bg-secondary/20">
+        <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-2)', padding: 'var(--space-2) var(--space-3)' }}>
           {[...category.checks].sort((a, b) => {
             if (a.status === 'pass' && b.status !== 'pass') return 1
             if (a.status !== 'pass' && b.status === 'pass') return -1
@@ -168,21 +173,22 @@ function ScanCategoryRow({ label, icon, category, failingCount }: {
             return (sev[a.severity ?? 'medium'] ?? 2) - (sev[b.severity ?? 'medium'] ?? 2)
           }).map(check => (
             <div key={check.id} className="flex items-start gap-2 py-1">
-              <span className={`font-mono text-xs mt-0.5 w-4 shrink-0 ${SCAN_STATUS_COLOR[check.status]}`}>
+              <span
+                className="flex-none"
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', width: 20, marginTop: 2 }}
+              >
                 [{SCAN_STATUS_ICON[check.status]}]
               </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm">{check.name}</span>
-                  {check.severity && (
-                    <span className={`text-2xs px-1 py-0.5 rounded font-mono leading-none ${SEVERITY_BADGE[check.severity].className}`}>
-                      {SEVERITY_BADGE[check.severity].label}
-                    </span>
-                  )}
+                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)' }}>{check.name}</span>
+                  {check.severity && <span className="badge">{check.severity}</span>}
                 </div>
-                <p className="text-xs text-muted-foreground">{check.detail}</p>
+                <p style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>{check.detail}</p>
                 {check.fix && check.status !== 'pass' && (
-                  <p className="text-xs text-primary/70 mt-0.5">{t('fixPrefix', { fix: check.fix })}</p>
+                  <p style={{ fontSize: 'var(--text-xs)', color: 'var(--accent)', marginTop: 2 }}>
+                    {t('fixPrefix', { fix: check.fix })}
+                  </p>
                 )}
               </div>
             </div>
@@ -310,121 +316,93 @@ export function SecurityAuditPanel() {
 
   useSmartPoll(fetchData, 30_000)
 
-  const postureColor = (score: number) => {
-    if (score >= 80) return 'text-green-400'
-    if (score >= 60) return 'text-yellow-400'
-    if (score >= 40) return 'text-orange-400'
-    return 'text-red-400'
-  }
-
-  const postureRingColor = (score: number) => {
-    if (score >= 80) return 'stroke-green-500'
-    if (score >= 60) return 'stroke-yellow-500'
-    if (score >= 40) return 'stroke-orange-500'
-    return 'stroke-red-500'
-  }
-
-  const postureBgColor = (level: string) => {
-    switch (level) {
-      case 'hardened': return 'bg-green-500/15 text-green-400'
-      case 'secure': return 'bg-green-500/10 text-green-300'
-      case 'needs-attention': return 'bg-yellow-500/15 text-yellow-400'
-      case 'at-risk': return 'bg-red-500/15 text-red-400'
-      default: return 'bg-muted text-muted-foreground'
-    }
-  }
-
-  const trustBarColor = (score: number) => {
-    if (score >= 0.8) return 'bg-green-500'
-    if (score >= 0.5) return 'bg-yellow-500'
-    return 'bg-red-500'
-  }
-
   const formatTime = (ts: number) => new Date(ts * 1000).toLocaleString([], {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
   })
 
+  void navigateToPanel
+
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="border-b border-border pb-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
-            <p className="text-muted-foreground mt-2">
-              {t('subtitle')}
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            {isLoading && (
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
-            )}
-            <div className="flex space-x-2">
-              {(['hour', 'day', 'week', 'month'] as const).map((tf) => (
-                <Button
-                  key={tf}
-                  onClick={() => setSelectedTimeframe(tf)}
-                  variant={selectedTimeframe === tf ? 'default' : 'secondary'}
-                >
-                  {t(`timeframe${tf.charAt(0).toUpperCase() + tf.slice(1)}` as 'timeframeHour' | 'timeframeDay' | 'timeframeWeek' | 'timeframeMonth')}
-                </Button>
-              ))}
-            </div>
+    <div className="opzava-ds p-6 space-y-5" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
+      {/* Page header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title font-semibold">{t('title')}</h1>
+          <p className="page-sub">{t('subtitle')}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {isLoading && <Loader variant="inline" />}
+          <div className="flex gap-1">
+            {(['hour', 'day', 'week', 'month'] as const).map((tf) => (
+              <button
+                key={tf}
+                type="button"
+                onClick={() => setSelectedTimeframe(tf)}
+                className={`btn btn-sm${selectedTimeframe === tf ? ' btn-primary' : ''}`}
+              >
+                {t(`timeframe${tf.charAt(0).toUpperCase() + tf.slice(1)}` as 'timeframeHour' | 'timeframeDay' | 'timeframeWeek' | 'timeframeMonth')}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
       {!data ? (
-        <Loader variant="panel" label={t('loadingSecurityData')} />
+        <div className="flex items-center justify-center py-16">
+          <Loader variant="panel" label={t('loadingSecurityData')} />
+        </div>
       ) : (
-        <div className="space-y-6">
-          {/* Posture Score Header */}
-          <div className="bg-card border border-border rounded-lg p-6">
-            <div className="flex items-center gap-6">
-              {/* Circular gauge */}
-              <div className="relative w-24 h-24 flex-shrink-0">
-                <svg viewBox="0 0 36 36" className="w-24 h-24 -rotate-90">
-                  <circle cx="18" cy="18" r="15.9" fill="none" className="stroke-muted" strokeWidth="2.5" />
-                  <circle
-                    cx="18" cy="18" r="15.9" fill="none"
-                    className={postureRingColor(data.posture.score)}
-                    strokeWidth="2.5"
-                    strokeDasharray={`${data.posture.score} ${100 - data.posture.score}`}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className={`text-2xl font-bold ${postureColor(data.posture.score)}`}>
-                    {data.posture.score}
-                  </span>
+        <div className="space-y-5">
+          {/* Posture + scan stat grid */}
+          <div className="stat-grid">
+            <div className="stat">
+              <div className="stat-label">{t('securityPosture')}</div>
+              <div className="stat-value">{data.posture.score}</div>
+              <div className="hint" style={{ marginTop: 'var(--space-1)' }}>{data.posture.level}</div>
+            </div>
+            {data.scan && (
+              <div className="stat">
+                <div className="stat-label">{t('infrastructureScan')}</div>
+                <div className="stat-value">
+                  {data.scan.score}
+                  <span className="font-medium" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-muted)' }}>/100</span>
                 </div>
+                <div className="hint" style={{ marginTop: 'var(--space-1)' }}>{data.scan.overall}</div>
               </div>
-              <div>
-                <h2 className="text-xl font-semibold text-foreground">{t('securityPosture')}</h2>
-                <span className={`inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded ${postureBgColor(data.posture.level)}`}>
-                  {data.posture.level}
-                </span>
-                <p className="text-sm text-muted-foreground mt-2">
-                  {t('blendedScore')}
-                </p>
+            )}
+            <div className="stat">
+              <div className="stat-label">{t('agentTrustScores')}</div>
+              <div className="stat-value flex items-center" style={{ gap: 'var(--space-2)' }}>
+                {data.agentTrust.filter(a => a.flagged).length}
+                {data.agentTrust.filter(a => a.flagged).length > 0 && (
+                  <span className="dot dot-warning" aria-hidden />
+                )}
               </div>
+              <div className="hint" style={{ marginTop: 'var(--space-1)' }}>{t('flagged')}</div>
             </div>
           </div>
 
-          {/* Infrastructure Scan Categories */}
+          {/* Infrastructure scan categories */}
           {data.scan && (
-            <div className="bg-card border border-border rounded-lg p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold">{t('infrastructureScan')}</h2>
-                <span className={`text-sm font-bold tabular-nums ${postureColor(data.scan.score)}`}>
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">{t('infrastructureScan')}</h2>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', color: 'var(--fg-muted)', fontVariantNumeric: 'tabular-nums' }}>
                   {data.scan.score}/100
                 </span>
               </div>
-              <div className="space-y-2">
+              <div className="card-body space-y-2">
                 {Object.entries(data.scan.categories).map(([key, cat]) => {
-                  const scanCategoryLabels: Record<string, string> = { credentials: t('scanCredentials'), network: t('scanNetwork'), openclaw: t('scanOpenclaw'), runtime: t('scanRuntime'), os: t('scanOs') }
+                  const scanCategoryLabels: Record<string, string> = {
+                    credentials: t('scanCredentials'),
+                    network: t('scanNetwork'),
+                    openclaw: t('scanOpenclaw'),
+                    runtime: t('scanRuntime'),
+                    os: t('scanOs'),
+                  }
                   const label = scanCategoryLabels[key] || key
-                  const icon = { credentials: 'K', network: 'N', openclaw: 'O', runtime: 'R', os: 'S' }[key] || key[0].toUpperCase()
+                  const iconMap: Record<string, string> = { credentials: 'K', network: 'N', openclaw: 'O', runtime: 'R', os: 'S' }
+                  const icon = iconMap[key] || key[0].toUpperCase()
                   const failing = cat.checks.filter(c => c.status !== 'pass')
                   return (
                     <ScanCategoryRow key={key} label={label} icon={icon} category={cat} failingCount={failing.length} />
@@ -434,74 +412,101 @@ export function SecurityAuditPanel() {
             </div>
           )}
 
-          {/* Auth Events + Agent Trust */}
-          <div className="grid lg:grid-cols-2 gap-6">
-            {/* Auth Events */}
-            <div className="bg-card border border-border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">{t('authEvents')}</h2>
+          {/* Auth events + Agent trust */}
+          <div className="grid lg:grid-cols-2 gap-5">
+            {/* Auth events */}
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">{t('authEvents')}</h2>
+                <span className="badge">{data.authEvents.length}</span>
+              </div>
               {data.authEvents.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">{t('noAuthEvents')}</p>
+                <div className="empty">
+                  <div className="empty-icon" aria-hidden>⚡</div>
+                  <div className="empty-title">{t('noAuthEvents')}</div>
+                </div>
               ) : (
-                <div className="overflow-x-auto max-h-64 overflow-y-auto">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-card">
-                      <tr className="text-left text-muted-foreground text-xs">
-                        <th className="pb-2 pr-3">{t('colType')}</th>
-                        <th className="pb-2 pr-3">{t('colActor')}</th>
-                        <th className="pb-2 pr-3">{t('colIP')}</th>
-                        <th className="pb-2">{t('colTime')}</th>
+                <div style={{ overflowX: 'auto', maxHeight: 256, overflowY: 'auto' }}>
+                  <table className="table table-compact">
+                    <caption style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}>
+                      {t('authEvents')}
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">{t('colType')}</th>
+                        <th scope="col">{t('colActor')}</th>
+                        <th scope="col">{t('colIP')}</th>
+                        <th scope="col">{t('colTime')}</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border/50">
-                      {data.authEvents.map(evt => (
-                        <tr key={evt.id} className="text-xs">
-                          <td className="py-1.5 pr-3">
-                            <span className={`px-1.5 py-0.5 rounded text-2xs font-medium ${
-                              evt.type === 'login_failure' ? 'bg-red-500/15 text-red-400'
-                              : evt.type === 'token_rotation' ? 'bg-blue-500/15 text-blue-400'
-                              : 'bg-muted text-muted-foreground'
-                            }`}>
-                              {evt.type.replace(/_/g, ' ')}
-                            </span>
-                          </td>
-                          <td className="py-1.5 pr-3 text-foreground">{evt.actor}</td>
-                          <td className="py-1.5 pr-3 font-mono text-muted-foreground">{evt.ip}</td>
-                          <td className="py-1.5 text-muted-foreground">{formatTime(evt.timestamp)}</td>
-                        </tr>
-                      ))}
+                    <tbody>
+                      {data.authEvents.map(evt => {
+                        const { glyph, isAI } = actorInfo(evt.actor)
+                        return (
+                          <tr key={evt.id}>
+                            <td>
+                              <span className="badge">{evt.type.replace(/_/g, ' ')}</span>
+                            </td>
+                            <td>
+                              <span className="flex items-center gap-1.5">
+                                {isAI && <span className="sr-only">AI agent: </span>}
+                                <span
+                                  aria-hidden
+                                  style={{
+                                    color: isAI ? 'var(--accent)' : 'var(--fg-subtle)',
+                                    fontFamily: 'var(--font-mono)',
+                                    fontSize: 'var(--text-base)',
+                                    lineHeight: 1,
+                                  }}
+                                >
+                                  {glyph}
+                                </span>
+                                <span style={{ fontSize: 'var(--text-xs)' }}>{evt.actor}</span>
+                              </span>
+                            </td>
+                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                              {evt.ip}
+                            </td>
+                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                              {formatTime(evt.timestamp)}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
               )}
             </div>
 
-            {/* Agent Trust Scores */}
-            <div className="bg-card border border-border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">{t('agentTrustScores')}</h2>
+            {/* Agent trust scores */}
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">{t('agentTrustScores')}</h2>
+              </div>
               {data.agentTrust.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">{t('noAgentTrustData')}</p>
+                <div className="empty">
+                  <div className="empty-title">{t('noAgentTrustData')}</div>
+                </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto">
+                <div className="card-body space-y-3" style={{ maxHeight: 256, overflowY: 'auto' }}>
                   {data.agentTrust.map(agent => (
-                    <div
-                      key={agent.agentId}
-                      className={`p-3 rounded-lg border ${
-                        agent.flagged ? 'border-red-500/50 bg-red-500/5' : 'border-border bg-secondary'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-foreground truncate">{agent.name}</span>
-                        {agent.flagged && (
-                          <span className="text-2xs px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 shrink-0 ml-1">{t('flagged')}</span>
-                        )}
+                    <div key={agent.agentId} className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-2">
+                          <span aria-hidden style={{ color: 'var(--accent)', fontSize: 'var(--text-base)', lineHeight: 1 }}>✦</span>
+                          <span className="font-medium" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)' }}>{agent.name}</span>
+                        </span>
+                        <span className="flex items-center gap-2">
+                          {agent.flagged && <span className="badge">{t('flagged')}</span>}
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                            {(agent.trustScore * 100).toFixed(0)}%
+                          </span>
+                        </span>
                       </div>
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div
-                          className={`h-2 rounded-full ${trustBarColor(agent.trustScore)}`}
-                          style={{ width: `${agent.trustScore * 100}%` }}
-                        />
+                      <div className="progress">
+                        <i style={{ width: `${agent.trustScore * 100}%` }} />
                       </div>
-                      <div className="text-2xs text-muted-foreground mt-1">{(agent.trustScore * 100).toFixed(0)}%</div>
                     </div>
                   ))}
                 </div>
@@ -509,43 +514,58 @@ export function SecurityAuditPanel() {
             </div>
           </div>
 
-          {/* Secret Exposure Alerts */}
-          <div className="bg-card border border-border rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-4">{t('secretExposureAlerts')}</h2>
+          {/* Secret exposure alerts */}
+          <div className="card">
+            <div className="card-header">
+              <h2 className="card-title">{t('secretExposureAlerts')}</h2>
+              {data.secretAlerts.filter(a => !a.resolved).length > 0 && (
+                <span className="badge badge-danger">
+                  {data.secretAlerts.filter(a => !a.resolved).length} {t('statusActive')}
+                </span>
+              )}
+            </div>
             {data.secretAlerts.length === 0 ? (
-              <div className="flex items-center gap-2 py-4 justify-center">
-                <svg className="w-5 h-5 text-green-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 1a5 5 0 015 5v2a2 2 0 01-2 2H5a2 2 0 01-2-2V6a5 5 0 015-5z" />
-                  <path d="M5.5 14h5M6.5 12v2M9.5 12v2" />
-                </svg>
-                <span className="text-sm font-medium text-green-400">{t('noSecretsDetected')}</span>
+              <div className="empty">
+                <div className="empty-icon" aria-hidden>⚷</div>
+                <div className="empty-title">{t('noSecretsDetected')}</div>
               </div>
             ) : (
-              <div className="overflow-x-auto max-h-48 overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-card">
-                    <tr className="text-left text-muted-foreground text-xs">
-                      <th className="pb-2 pr-3">{t('colType')}</th>
-                      <th className="pb-2 pr-3">{t('colFile')}</th>
-                      <th className="pb-2 pr-3">{t('colPreview')}</th>
-                      <th className="pb-2 pr-3">{t('colStatus')}</th>
-                      <th className="pb-2">{t('colDetected')}</th>
+              <div style={{ overflowX: 'auto', maxHeight: 200, overflowY: 'auto' }}>
+                <table className="table table-compact">
+                  <caption style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}>
+                    {t('secretExposureAlerts')}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('colType')}</th>
+                      <th scope="col">{t('colFile')}</th>
+                      <th scope="col">{t('colPreview')}</th>
+                      <th scope="col">{t('colStatus')}</th>
+                      <th scope="col">{t('colDetected')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border/50">
+                  <tbody>
                     {data.secretAlerts.map(alert => (
-                      <tr key={alert.id} className="text-xs">
-                        <td className="py-1.5 pr-3">
-                          <span className="px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 text-2xs font-medium">{alert.type}</span>
+                      <tr key={alert.id}>
+                        <td><span className="badge">{alert.type}</span></td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
+                          {alert.file}:{alert.line}
                         </td>
-                        <td className="py-1.5 pr-3 font-mono text-foreground">{alert.file}:{alert.line}</td>
-                        <td className="py-1.5 pr-3 font-mono text-muted-foreground max-w-48 truncate">{alert.preview}</td>
-                        <td className="py-1.5 pr-3">
-                          <span className={`text-2xs ${alert.resolved ? 'text-green-400' : 'text-red-400'}`}>
+                        <td
+                          className="truncate"
+                          style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', maxWidth: 192 }}
+                        >
+                          {alert.preview}
+                        </td>
+                        <td>
+                          <span className="flex items-center gap-1.5" style={{ fontSize: 'var(--text-xs)' }}>
+                            <span className={`dot ${alert.resolved ? 'dot-success' : 'dot-danger'}`} aria-hidden />
                             {alert.resolved ? t('statusResolved') : t('statusActive')}
                           </span>
                         </td>
-                        <td className="py-1.5 text-muted-foreground">{formatTime(alert.detectedAt)}</td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                          {formatTime(alert.detectedAt)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -554,48 +574,88 @@ export function SecurityAuditPanel() {
             )}
           </div>
 
-          {/* MCP Tool Audit + Rate Limits */}
-          <div className="grid lg:grid-cols-2 gap-6">
-            {/* MCP Tool Audit BarChart */}
-            <div className="bg-card border border-border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">{t('mcpToolAudit')}</h2>
+          {/* MCP tool audit + rate limits */}
+          <div className="grid lg:grid-cols-2 gap-5">
+            {/* MCP tool audit bar chart */}
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">{t('mcpToolAudit')}</h2>
+              </div>
               {data.toolAudit.length === 0 ? (
-                <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">{t('noToolUsageData')}</div>
+                <div className="empty">
+                  <div className="empty-icon" aria-hidden>⚙</div>
+                  <div className="empty-title">{t('noToolUsageData')}</div>
+                </div>
               ) : (
-                <div className="h-48">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.toolAudit}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="tool" angle={-45} textAnchor="end" height={60} interval={0} tick={{ fontSize: 10 }} />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="successes" stackId="a" fill="#22c55e" name={t('chartSuccess')} />
-                      <Bar dataKey="failures" stackId="a" fill="#ef4444" name={t('chartFailure')} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                <div className="card-body">
+                  <div style={{ height: 192 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={data.toolAudit}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                        <XAxis
+                          dataKey="tool"
+                          angle={-45}
+                          textAnchor="end"
+                          height={60}
+                          interval={0}
+                          tick={{ fontSize: 10, fill: 'var(--fg-muted)' }}
+                        />
+                        <YAxis tick={{ fontSize: 10, fill: 'var(--fg-muted)' }} />
+                        <Tooltip
+                          contentStyle={{
+                            background: 'var(--surface-2)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 'var(--radius-md)',
+                            color: 'var(--fg)',
+                            fontSize: 'var(--text-xs)',
+                          }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }} />
+                        <Bar dataKey="successes" stackId="a" fill="var(--success)" name={t('chartSuccess')} />
+                        <Bar dataKey="failures" stackId="a" fill="var(--danger)" name={t('chartFailure')} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Rate Limit / Abuse Signals */}
-            <div className="bg-card border border-border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">{t('rateLimitAbuseSignals')}</h2>
+            {/* Rate limit / abuse signals */}
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">{t('rateLimitAbuseSignals')}</h2>
+              </div>
               {data.rateLimits.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">{t('noRateLimitSignals')}</p>
+                <div className="empty">
+                  <div className="empty-title">{t('noRateLimitSignals')}</div>
+                </div>
               ) : (
-                <div className="space-y-2 max-h-48 overflow-y-auto">
+                <div className="card-body space-y-2" style={{ maxHeight: 200, overflowY: 'auto' }}>
                   {data.rateLimits.map((rl, i) => (
-                    <div key={i} className="flex items-center justify-between p-2 bg-secondary rounded-lg text-sm">
+                    <div
+                      key={i}
+                      className="flex items-center justify-between"
+                      style={{ padding: 'var(--space-2) var(--space-3)', background: 'var(--surface-2)', borderRadius: 'var(--radius-md)' }}
+                    >
                       <div>
-                        <span className="font-mono text-foreground">{rl.ip}</span>
-                        {rl.agent && <span className="ml-2 text-xs text-muted-foreground">({rl.agent})</span>}
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg)' }}>
+                          {rl.ip}
+                        </span>
+                        {rl.agent && (
+                          <span style={{ marginLeft: 'var(--space-2)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                            ({rl.agent})
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`text-xs font-medium ${rl.hits > 100 ? 'text-red-400' : rl.hits > 50 ? 'text-yellow-400' : 'text-muted-foreground'}`}>
+                        <span className="badge" style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {t('hits', { hits: rl.hits })}
                         </span>
-                        <span className="text-2xs text-muted-foreground">{formatTime(rl.lastHit)}</span>
+                        {rl.lastHit > 0 && (
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                            {formatTime(rl.lastHit)}
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -604,43 +664,56 @@ export function SecurityAuditPanel() {
             </div>
           </div>
 
-          {/* Injection Attempts */}
-          <div className="bg-card border border-border rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-4">{t('injectionAttempts')}</h2>
+          {/* Injection attempts */}
+          <div className="card">
+            <div className="card-header">
+              <h2 className="card-title">{t('injectionAttempts')}</h2>
+              {data.injectionAttempts.filter(a => !a.blocked).length > 0 && (
+                <span className="badge badge-danger">
+                  {data.injectionAttempts.filter(a => !a.blocked).length} unblocked
+                </span>
+              )}
+            </div>
             {data.injectionAttempts.length === 0 ? (
-              <div className="flex items-center gap-2 py-4 justify-center">
-                <svg className="w-5 h-5 text-green-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 1l6 3v4c0 3.5-2.5 6.5-6 7.5C4.5 14.5 2 11.5 2 8V4l6-3z" />
-                  <path d="M5.5 8l2 2 3.5-3.5" />
-                </svg>
-                <span className="text-sm font-medium text-green-400">{t('noInjectionAttempts')}</span>
+              <div className="empty">
+                <div className="empty-icon" aria-hidden>⊘</div>
+                <div className="empty-title">{t('noInjectionAttempts')}</div>
               </div>
             ) : (
-              <div className="overflow-x-auto max-h-48 overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-card">
-                    <tr className="text-left text-muted-foreground text-xs">
-                      <th className="pb-2 pr-3">{t('colType')}</th>
-                      <th className="pb-2 pr-3">{t('colSource')}</th>
-                      <th className="pb-2 pr-3">{t('colInput')}</th>
-                      <th className="pb-2 pr-3">{t('colStatus')}</th>
-                      <th className="pb-2">{t('colTime')}</th>
+              <div style={{ overflowX: 'auto', maxHeight: 200, overflowY: 'auto' }}>
+                <table className="table table-compact">
+                  <caption style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}>
+                    {t('injectionAttempts')}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('colType')}</th>
+                      <th scope="col">{t('colSource')}</th>
+                      <th scope="col">{t('colInput')}</th>
+                      <th scope="col">{t('colStatus')}</th>
+                      <th scope="col">{t('colTime')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border/50">
+                  <tbody>
                     {data.injectionAttempts.map(attempt => (
-                      <tr key={attempt.id} className="text-xs">
-                        <td className="py-1.5 pr-3">
-                          <span className="px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-400 text-2xs font-medium">{attempt.type}</span>
+                      <tr key={attempt.id}>
+                        <td><span className="badge">{attempt.type}</span></td>
+                        <td style={{ fontSize: 'var(--text-xs)', color: 'var(--fg)' }}>{attempt.source}</td>
+                        <td
+                          className="truncate"
+                          style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', maxWidth: 192 }}
+                        >
+                          {attempt.input}
                         </td>
-                        <td className="py-1.5 pr-3 text-foreground">{attempt.source}</td>
-                        <td className="py-1.5 pr-3 font-mono text-muted-foreground max-w-48 truncate">{attempt.input}</td>
-                        <td className="py-1.5 pr-3">
-                          <span className={`text-2xs font-medium ${attempt.blocked ? 'text-green-400' : 'text-red-400'}`}>
+                        <td>
+                          <span className="flex items-center gap-1.5" style={{ fontSize: 'var(--text-xs)' }}>
+                            <span className={`dot ${attempt.blocked ? 'dot-success' : 'dot-danger'}`} aria-hidden />
                             {attempt.blocked ? t('statusBlocked') : t('statusPassed')}
                           </span>
                         </td>
-                        <td className="py-1.5 text-muted-foreground">{formatTime(attempt.timestamp)}</td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>
+                          {formatTime(attempt.timestamp)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -649,122 +722,127 @@ export function SecurityAuditPanel() {
             )}
           </div>
 
-          {/* Timeline */}
-          <div className="bg-card border border-border rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-4">{t('securityTimeline', { timeframe: selectedTimeframe })}</h2>
+          {/* Security timeline */}
+          <div className="card">
+            <div className="card-header">
+              <h2 className="card-title">{t('securityTimeline', { timeframe: selectedTimeframe })}</h2>
+            </div>
             {data.timeline.length === 0 ? (
-              <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">{t('noTimelineData')}</div>
+              <div className="empty">
+                <div className="empty-title">{t('noTimelineData')}</div>
+              </div>
             ) : (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={data.timeline.map(p => ({
-                    ...p,
-                    time: new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                  }))}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="time" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="authEvents" stroke="#8884d8" strokeWidth={2} name={t('chartAuthEvents')} />
-                    <Line type="monotone" dataKey="injectionAttempts" stroke="#ef4444" strokeWidth={2} name={t('chartInjections')} />
-                    <Line type="monotone" dataKey="secretAlerts" stroke="#f59e0b" strokeWidth={2} name={t('chartSecrets')} />
-                    <Line type="monotone" dataKey="toolCalls" stroke="#22c55e" strokeWidth={2} name={t('chartToolCalls')} />
-                  </LineChart>
-                </ResponsiveContainer>
+              <div className="card-body">
+                <div style={{ height: 256 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={data.timeline.map(p => ({
+                      ...p,
+                      time: new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    }))}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: 'var(--fg-muted)' }} />
+                      <YAxis tick={{ fontSize: 10, fill: 'var(--fg-muted)' }} />
+                      <Tooltip
+                        contentStyle={{
+                          background: 'var(--surface-2)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-md)',
+                          color: 'var(--fg)',
+                          fontSize: 'var(--text-xs)',
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }} />
+                      <Line type="monotone" dataKey="authEvents" stroke="var(--chart-2)" strokeWidth={2} name={t('chartAuthEvents')} dot={false} />
+                      <Line type="monotone" dataKey="injectionAttempts" stroke="var(--danger)" strokeWidth={2} name={t('chartInjections')} dot={false} />
+                      <Line type="monotone" dataKey="secretAlerts" stroke="var(--warning)" strokeWidth={2} name={t('chartSecrets')} dot={false} />
+                      <Line type="monotone" dataKey="toolCalls" stroke="var(--chart-3)" strokeWidth={2} name={t('chartToolCalls')} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Agent Eval Dashboard */}
+          {/* Agent eval dashboard */}
           {evalsData && (
-            <div className="bg-card border border-border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">{t('agentEvalDashboard')}</h2>
-
-              {/* Convergence gauge + drift alerts */}
-              <div className="flex items-center gap-6 mb-6">
-                <div className="relative w-20 h-20 flex-shrink-0">
-                  <svg viewBox="0 0 36 36" className="w-20 h-20 -rotate-90">
-                    <circle cx="18" cy="18" r="15.9" fill="none" className="stroke-muted" strokeWidth="2.5" />
-                    <circle
-                      cx="18" cy="18" r="15.9" fill="none"
-                      className={postureRingColor(evalsData.overallConvergence)}
-                      strokeWidth="2.5"
-                      strokeDasharray={`${evalsData.overallConvergence} ${100 - evalsData.overallConvergence}`}
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className={`text-lg font-bold ${postureColor(evalsData.overallConvergence)}`}>
-                      {evalsData.overallConvergence}
-                    </span>
+            <div className="card">
+              <div className="card-header">
+                <h2 className="card-title">{t('agentEvalDashboard')}</h2>
+              </div>
+              <div className="card-body">
+                {/* Overall convergence + drift alerts */}
+                <div className="flex items-start gap-5 mb-5">
+                  <div>
+                    <div className="stat-label">{t('overallConvergence')}</div>
+                    <div className="stat-value" style={{ fontSize: 'var(--text-xl)' }}>
+                      {evalsData.overallConvergence}%
+                    </div>
+                    <p className="hint" style={{ marginTop: 2 }}>{t('crossAgentAlignment')}</p>
                   </div>
-                </div>
-                <div>
-                  <h3 className="text-sm font-medium text-foreground">{t('overallConvergence')}</h3>
-                  <p className="text-xs text-muted-foreground">{t('crossAgentAlignment')}</p>
                   {evalsData.driftAlerts.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {evalsData.driftAlerts.map((alert, i) => (
-                        <div key={i} className="text-xs text-red-400 flex items-center gap-1">
-                          <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M8 1l7 14H1L8 1z" />
-                            <path d="M8 6v4M8 12v1" />
-                          </svg>
-                          {alert}
-                        </div>
-                      ))}
+                    <div className="banner banner-warning flex-1" style={{ alignSelf: 'center' }}>
+                      <span style={{ fontSize: 'var(--text-xs)' }}>
+                        {evalsData.driftAlerts.join(' · ')}
+                      </span>
                     </div>
                   )}
                 </div>
-              </div>
 
-              {/* Per-agent eval scores */}
-              {evalsData.agents.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">{t('noEvalData')}</p>
-              ) : (
-                <div className="space-y-3">
-                  {evalsData.agents.map(agent => (
-                    <div
-                      key={agent.agentId}
-                      className={`p-4 rounded-lg border ${
-                        agent.driftDetected ? 'border-red-500/50 bg-red-500/5' : 'border-border bg-secondary'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-foreground">{agent.name}</span>
-                          {agent.driftDetected && (
-                            <span className="text-2xs px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">{t('drift')}</span>
-                          )}
+                {/* Per-agent eval scores */}
+                {evalsData.agents.length === 0 ? (
+                  <div className="empty">
+                    <div className="empty-title">{t('noEvalData')}</div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {evalsData.agents.map(agent => (
+                      <div
+                        key={agent.agentId}
+                        style={{
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-md)',
+                          padding: 'var(--space-4)',
+                          background: 'var(--surface-2)',
+                        }}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="flex items-center gap-2">
+                            <span aria-hidden style={{ color: 'var(--accent)', fontSize: 'var(--text-base)', lineHeight: 1 }}>✦</span>
+                            <span className="font-medium" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)' }}>
+                              {agent.name}
+                            </span>
+                            {agent.driftDetected && <span className="badge">{t('drift')}</span>}
+                          </span>
+                          <span className="flex items-center gap-2">
+                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>{t('convergence')}</span>
+                            <span className="font-semibold" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', color: 'var(--fg)' }}>
+                              {agent.convergence}%
+                            </span>
+                          </span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">{t('convergence')}</span>
-                          <span className={`text-sm font-bold ${postureColor(agent.convergence)}`}>{agent.convergence}%</span>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-4 gap-2">
-                        {agent.scores.map(s => (
-                          <div key={s.layer} className="text-center">
-                            <div className="text-2xs text-muted-foreground mb-1 truncate">{s.layer}</div>
-                            <div className="w-full bg-muted rounded-full h-1.5">
+                        <div className="grid grid-cols-4 gap-2">
+                          {agent.scores.map(s => (
+                            <div key={s.layer} className="text-center">
                               <div
-                                className={`h-1.5 rounded-full ${
-                                  (s.score / s.maxScore) >= 0.8 ? 'bg-green-500'
-                                  : (s.score / s.maxScore) >= 0.5 ? 'bg-yellow-500'
-                                  : 'bg-red-500'
-                                }`}
-                                style={{ width: `${(s.score / s.maxScore) * 100}%` }}
-                              />
+                                className="truncate"
+                                style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', marginBottom: 'var(--space-1)' }}
+                              >
+                                {s.layer}
+                              </div>
+                              <div className="progress">
+                                <i style={{ width: `${(s.score / s.maxScore) * 100}%` }} />
+                              </div>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
+                                {s.score}/{s.maxScore}
+                              </div>
                             </div>
-                            <div className="text-2xs text-foreground mt-0.5">{s.score}/{s.maxScore}</div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
