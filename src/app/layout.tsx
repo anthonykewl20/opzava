@@ -8,6 +8,7 @@ import { THEME_IDS } from '@/lib/themes'
 import { ThemeBackground } from '@/components/ui/theme-background'
 import { AuthExpiredListener } from '@/components/auth-expired-listener'
 import './globals.css'
+import './opzava-ds.css'
 
 const inter = Inter({
   subsets: ['latin'],
