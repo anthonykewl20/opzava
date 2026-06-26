@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslations } from 'next-intl'
-import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
 import { useMissionControl } from '@/store'
 import { createClientLogger } from '@/lib/client-logger'
@@ -73,7 +72,23 @@ interface SessionCostEntry {
 
 // ── Helpers ──────────────────────────────────────────
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#ff6b6b']
+const DS_CHART_COLORS = [
+  'var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)',
+  'var(--chart-4)', 'var(--chart-5)', 'var(--chart-6)',
+]
+
+const CHART_TOOLTIP_STYLE = {
+  background: 'var(--surface-2)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-md)',
+  color: 'var(--fg)',
+  fontSize: 'var(--text-xs)',
+}
+
+const MONO = {
+  fontFamily: 'var(--font-mono)',
+  fontVariantNumeric: 'tabular-nums',
+}
 
 const formatNumber = (num: number) => {
   if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M'
@@ -198,43 +213,48 @@ export function CostTrackerPanel() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="border-b border-border pb-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
-            <p className="text-muted-foreground mt-1">{t('subtitle')}</p>
+    <div className="opzava-ds p-6 space-y-5" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
+      {/* Page header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title font-semibold">{t('title')}</h1>
+          <p className="page-sub">{t('subtitle')}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {isLoading && <Loader variant="inline" />}
+          {/* View selector */}
+          <div className="flex gap-1">
+            {(['overview', 'agents', 'sessions', 'tasks'] as const).map(v => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                className={`btn btn-sm${view === v ? ' btn-primary' : ''}`}
+              >
+                {v.charAt(0).toUpperCase() + v.slice(1)}
+              </button>
+            ))}
           </div>
-          <div className="flex items-center gap-3">
-            {/* View tabs */}
-            <div className="flex rounded-lg border border-border overflow-hidden">
-              {(['overview', 'agents', 'sessions', 'tasks'] as const).map(v => (
-                <button
-                  key={v}
-                  onClick={() => setView(v)}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                    view === v ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {v.charAt(0).toUpperCase() + v.slice(1)}
-                </button>
-              ))}
-            </div>
-            {/* Timeframe */}
-            <div className="flex space-x-1">
-              {(['hour', 'day', 'week', 'month'] as const).map(tf => (
-                <Button key={tf} onClick={() => setTimeframe(tf)} variant={timeframe === tf ? 'default' : 'secondary'} size="sm">
-                  {tf.charAt(0).toUpperCase() + tf.slice(1)}
-                </Button>
-              ))}
-            </div>
+          {/* Timeframe */}
+          <div className="flex gap-1">
+            {(['hour', 'day', 'week', 'month'] as const).map(tf => (
+              <button
+                key={tf}
+                type="button"
+                onClick={() => setTimeframe(tf)}
+                className={`btn btn-sm${timeframe === tf ? ' btn-primary' : ''}`}
+              >
+                {tf.charAt(0).toUpperCase() + tf.slice(1)}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
       {isLoading && !usageStats ? (
-        <Loader variant="panel" label={t('loadingCostData')} />
+        <div className="flex items-center justify-center py-16">
+          <Loader variant="panel" label={t('loadingCostData')} />
+        </div>
       ) : view === 'overview' ? (
         <OverviewView
           stats={usageStats} trendData={trendData} agentSummary={agentSummary}
@@ -276,12 +296,13 @@ function OverviewView({
   const t = useTranslations('costTracker')
   if (!stats) {
     return (
-      <div className="text-center text-muted-foreground py-12">
-        <div className="text-lg mb-2">{t('noUsageData')}</div>
-        <div className="text-sm max-w-sm mx-auto">
-          {t('noUsageDataDesc')}
+      <div className="empty">
+        <div className="empty-icon" aria-hidden>$</div>
+        <div className="empty-title">{t('noUsageData')}</div>
+        <div className="empty-desc">{t('noUsageDataDesc')}</div>
+        <div className="empty-cta">
+          <button type="button" onClick={onRefresh} className="btn btn-sm">{t('refresh')}</button>
         </div>
-        <Button onClick={onRefresh} variant="outline" size="sm" className="mt-4 text-xs">{t('refresh')}</Button>
       </div>
     )
   }
@@ -305,7 +326,6 @@ function OverviewView({
     return raw
   })()
 
-  // Performance metrics
   const models = Object.entries(stats.models)
   const mostEfficient = models.length > 0
     ? models.reduce((best, curr) => {
@@ -318,154 +338,202 @@ function OverviewView({
   const potentialSavings = Math.max(0, stats.summary.totalCost - stats.summary.totalTokens * efficientCostPerToken)
 
   return (
-    <div className="space-y-6">
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-foreground">{formatCost(stats.summary.totalCost)}</div>
-          <div className="text-sm text-muted-foreground">{t('totalCost', { timeframe })}</div>
+    <div className="space-y-5">
+      {/* Stat grid */}
+      <div className="stat-grid">
+        <div className="stat">
+          <div className="stat-label">{t('totalCost', { timeframe })}</div>
+          <div className="stat-value" style={MONO}>{formatCost(stats.summary.totalCost)}</div>
         </div>
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-foreground">{formatNumber(stats.summary.totalTokens)}</div>
-          <div className="text-sm text-muted-foreground">{t('totalTokens')}</div>
+        <div className="stat">
+          <div className="stat-label">{t('totalTokens')}</div>
+          <div className="stat-value">{formatNumber(stats.summary.totalTokens)}</div>
         </div>
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-foreground">{formatNumber(stats.summary.requestCount)}</div>
-          <div className="text-sm text-muted-foreground">{t('apiRequests')}</div>
+        <div className="stat">
+          <div className="stat-label">{t('apiRequests')}</div>
+          <div className="stat-value">{formatNumber(stats.summary.requestCount)}</div>
         </div>
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-foreground">{agentSummary?.agent_count ?? '-'}</div>
-          <div className="text-sm text-muted-foreground">{t('activeAgents')}</div>
+        <div className="stat">
+          <div className="stat-label">{t('activeAgents')}</div>
+          <div className="stat-value">{agentSummary?.agent_count ?? '—'}</div>
         </div>
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-foreground">
-            {taskData ? `${((1 - taskData.unattributed.totalCost / Math.max(stats.summary.totalCost, 0.0001)) * 100).toFixed(0)}%` : '-'}
+        <div className="stat">
+          <div className="stat-label">{t('taskAttributed')}</div>
+          <div className="stat-value">
+            {taskData
+              ? `${((1 - taskData.unattributed.totalCost / Math.max(stats.summary.totalCost, 0.0001)) * 100).toFixed(0)}%`
+              : '—'}
           </div>
-          <div className="text-sm text-muted-foreground">{t('taskAttributed')}</div>
         </div>
       </div>
 
-      {/* Charts */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Trend chart */}
-        <div className="bg-card border border-border rounded-lg p-6 lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">{t('usageTrends')}</h2>
-            <div className="flex rounded-md border border-border overflow-hidden">
-              {(['incremental', 'cumulative'] as const).map(m => (
-                <button key={m} onClick={() => setChartMode(m)}
-                  className={`px-2 py-1 text-[10px] font-medium ${chartMode === m ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:text-foreground'}`}
-                >{m === 'incremental' ? t('perTurn') : t('cumulative')}</button>
-              ))}
-            </div>
+      {/* Trend chart */}
+      <div className="card">
+        <div className="card-header">
+          <h2 className="card-title">{t('usageTrends')}</h2>
+          <div className="flex gap-1">
+            {(['incremental', 'cumulative'] as const).map(m => (
+              <button key={m} type="button" onClick={() => setChartMode(m)}
+                className={`btn btn-sm${chartMode === m ? ' btn-primary' : ''}`}
+              >
+                {m === 'incremental' ? t('perTurn') : t('cumulative')}
+              </button>
+            ))}
           </div>
-          <div className="h-64">
+        </div>
+        <div className="card-body">
+          <div style={{ height: 256 }}>
             {trendChartData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-muted-foreground text-sm">{t('noTrendData')}</div>
+              <div className="empty">
+                <div className="empty-title">{t('noTrendData')}</div>
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={trendChartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="time" /><YAxis />
-                  <Tooltip /><Legend />
-                  <Line type="monotone" dataKey="tokens" stroke="#8884d8" strokeWidth={2} name="Tokens" />
-                  <Line type="monotone" dataKey="requests" stroke="#82ca9d" strokeWidth={2} name="Requests" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="time" tick={{ fontSize: 10, fill: 'var(--fg-muted)' }} />
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--fg-muted)' }} />
+                  <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+                  <Legend wrapperStyle={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }} />
+                  <Line type="monotone" dataKey="tokens" stroke="var(--chart-1)" strokeWidth={2} name="Tokens" dot={false} />
+                  <Line type="monotone" dataKey="requests" stroke="var(--chart-2)" strokeWidth={2} name="Requests" dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             )}
           </div>
         </div>
+      </div>
 
-        {/* Model bar chart */}
-        <div className="bg-card border border-border rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">{t('tokenUsageByModel')}</h2>
-          <div className="h-64">
-            {modelData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-muted-foreground text-sm">{t('noModelData')}</div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={modelData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} interval={0} />
-                  <YAxis /><Tooltip formatter={(v, n) => [formatNumber(Number(v)), n]} />
-                  <Bar dataKey="tokens" fill="#8884d8" name="Tokens" />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
+      {/* Model charts — side by side */}
+      <div className="grid lg:grid-cols-2 gap-5">
+        {/* Token usage by model */}
+        <div className="card">
+          <div className="card-header">
+            <h2 className="card-title">{t('tokenUsageByModel')}</h2>
+          </div>
+          <div className="card-body">
+            <div style={{ height: 256 }}>
+              {modelData.length === 0 ? (
+                <div className="empty">
+                  <div className="empty-title">{t('noModelData')}</div>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={modelData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} interval={0} tick={{ fontSize: 10, fill: 'var(--fg-muted)' }} />
+                    <YAxis tick={{ fontSize: 10, fill: 'var(--fg-muted)' }} />
+                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v, n) => [formatNumber(Number(v)), n]} />
+                    <Bar dataKey="tokens" fill="var(--chart-1)" name="Tokens" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Cost pie */}
-        <div className="bg-card border border-border rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">{t('costDistributionByModel')}</h2>
-          <div className="h-64">
-            {pieData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-muted-foreground text-sm">{t('noCostData')}</div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={80} paddingAngle={5} dataKey="value">
-                    {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip formatter={(v) => formatCost(Number(v))} /><Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
+        {/* Cost distribution */}
+        <div className="card">
+          <div className="card-header">
+            <h2 className="card-title">{t('costDistributionByModel')}</h2>
+          </div>
+          <div className="card-body">
+            <div style={{ height: 256 }}>
+              {pieData.length === 0 ? (
+                <div className="empty">
+                  <div className="empty-title">{t('noCostData')}</div>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={80} paddingAngle={5} dataKey="value">
+                      {pieData.map((_, i) => <Cell key={i} fill={DS_CHART_COLORS[i % DS_CHART_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v) => formatCost(Number(v))} />
+                    <Legend wrapperStyle={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Performance insights */}
       {models.length > 0 && (
-        <div className="bg-card border border-border rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">{t('performanceInsights')}</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div className="bg-secondary rounded-lg p-4">
-              <div className="text-xs text-muted-foreground mb-1">{t('mostEfficientModel')}</div>
-              <div className="text-lg font-bold text-green-500">{mostEfficient ? getModelDisplayName(mostEfficient[0]) : '-'}</div>
-              {mostEfficient && <div className="text-xs text-muted-foreground">${(efficientCostPerToken * 1000).toFixed(4)}/1K tokens</div>}
-            </div>
-            <div className="bg-secondary rounded-lg p-4">
-              <div className="text-xs text-muted-foreground mb-1">{t('avgTokensPerRequest')}</div>
-              <div className="text-lg font-bold text-foreground">{formatNumber(stats.summary.avgTokensPerRequest)}</div>
-            </div>
-            <div className="bg-secondary rounded-lg p-4">
-              <div className="text-xs text-muted-foreground mb-1">{t('optimizationPotential')}</div>
-              <div className="text-lg font-bold text-orange-500">{formatCost(potentialSavings)}</div>
-              <div className="text-xs text-muted-foreground">{stats.summary.totalCost > 0 ? ((potentialSavings / stats.summary.totalCost) * 100).toFixed(1) : '0'}% {t('savingsPossible')}</div>
-            </div>
+        <div className="card">
+          <div className="card-header">
+            <h2 className="card-title">{t('performanceInsights')}</h2>
           </div>
-          {/* Model efficiency bars */}
-          <div className="space-y-2">
-            {modelData.map(m => {
-              const costPer1k = m.cost / Math.max(1, m.tokens) * 1000
-              const maxCostPer1k = Math.max(...modelData.map(d => d.cost / Math.max(1, d.tokens) * 1000), 0.0001)
-              return (
-                <div key={m.fullName} className="flex items-center text-sm">
-                  <div className="w-32 truncate text-muted-foreground">{m.name}</div>
-                  <div className="flex-1 mx-3">
-                    <div className="w-full bg-secondary rounded-full h-2">
-                      <div className="bg-green-500 h-2 rounded-full" style={{ width: `${(costPer1k / maxCostPer1k) * 100}%` }} />
-                    </div>
-                  </div>
-                  <div className="w-20 text-right text-xs text-muted-foreground">${costPer1k.toFixed(4)}/1K</div>
+          <div className="card-body space-y-4">
+            <div className="stat-grid">
+              <div className="stat">
+                <div className="stat-label">{t('mostEfficientModel')}</div>
+                <div className="stat-value" style={{ fontSize: 'var(--text-lg)' }}>
+                  {mostEfficient ? getModelDisplayName(mostEfficient[0]) : '—'}
                 </div>
-              )
-            })}
+                {mostEfficient && (
+                  <div className="hint" style={{ marginTop: 'var(--space-1)', ...MONO }}>
+                    ${(efficientCostPerToken * 1000).toFixed(4)}/1K tokens
+                  </div>
+                )}
+              </div>
+              <div className="stat">
+                <div className="stat-label">{t('avgTokensPerRequest')}</div>
+                <div className="stat-value">{formatNumber(stats.summary.avgTokensPerRequest)}</div>
+              </div>
+              <div className="stat">
+                <div className="stat-label">{t('optimizationPotential')}</div>
+                <div className="stat-value" style={MONO}>{formatCost(potentialSavings)}</div>
+                <div className="hint" style={{ marginTop: 'var(--space-1)' }}>
+                  {stats.summary.totalCost > 0 ? ((potentialSavings / stats.summary.totalCost) * 100).toFixed(1) : '0'}% {t('savingsPossible')}
+                </div>
+              </div>
+            </div>
+
+            {/* Efficiency bars */}
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 'var(--space-4)' }}>
+              <div className="section-label" style={{ padding: '0 0 var(--space-2)' }}>Cost per 1K tokens</div>
+              <div className="space-y-2">
+                {modelData.map(m => {
+                  const costPer1k = m.cost / Math.max(1, m.tokens) * 1000
+                  const maxCostPer1k = Math.max(...modelData.map(d => d.cost / Math.max(1, d.tokens) * 1000), 0.0001)
+                  return (
+                    <div key={m.fullName} className="flex items-center gap-3">
+                      <div style={{ width: 128, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', flexShrink: 0 }}>
+                        {m.name}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div className="perf-bar-track">
+                          <i className="perf-bar-fill" style={{ width: `${(costPer1k / maxCostPer1k) * 100}%` }} />
+                        </div>
+                      </div>
+                      <div style={{ width: 80, textAlign: 'right', ...MONO, fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', flexShrink: 0 }}>
+                        ${costPer1k.toFixed(4)}/1K
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {/* Export */}
-      <div className="bg-card border border-border rounded-lg p-6">
-        <div className="flex items-center justify-between">
+      <div className="card">
+        <div className="card-body flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold">{t('exportData')}</h2>
-            <p className="text-sm text-muted-foreground">{t('exportDataDesc')}</p>
+            <div className="font-semibold" style={{ fontSize: 'var(--text-base)', color: 'var(--fg)' }}>{t('exportData')}</div>
+            <p className="hint" style={{ marginTop: 'var(--space-1)' }}>{t('exportDataDesc')}</p>
           </div>
           <div className="flex gap-2">
-            <Button onClick={() => exportData('csv')} disabled={isExporting} size="sm" variant="secondary">{isExporting ? t('exporting') : 'CSV'}</Button>
-            <Button onClick={() => exportData('json')} disabled={isExporting} size="sm" variant="secondary">{isExporting ? t('exporting') : 'JSON'}</Button>
+            <button type="button" onClick={() => exportData('csv')} disabled={isExporting} className="btn btn-sm">
+              {isExporting ? t('exporting') : 'CSV'}
+            </button>
+            <button type="button" onClick={() => exportData('json')} disabled={isExporting} className="btn btn-sm">
+              {isExporting ? t('exporting') : 'JSON'}
+            </button>
           </div>
         </div>
       </div>
@@ -488,153 +556,201 @@ function AgentsView({
 
   if (!summary || agents.length === 0) {
     return (
-      <div className="text-center text-muted-foreground py-12">
-        <div className="text-lg mb-2">{t('noAgentData')}</div>
-        <div className="text-sm">{t('noAgentDataDesc')}</div>
-        <Button onClick={onRefresh} className="mt-4">{t('refresh')}</Button>
+      <div className="empty">
+        <div className="empty-icon" aria-hidden>✦</div>
+        <div className="empty-title">{t('noAgentData')}</div>
+        <div className="empty-desc">{t('noAgentDataDesc')}</div>
+        <div className="empty-cta">
+          <button type="button" onClick={onRefresh} className="btn btn-sm">{t('refresh')}</button>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      {/* Summary row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-foreground">{summary.agent_count}</div>
-          <div className="text-sm text-muted-foreground">{t('agents')}</div>
+    <div className="space-y-5">
+      {/* Summary stats */}
+      <div className="stat-grid">
+        <div className="stat">
+          <div className="stat-label">{t('agents')}</div>
+          <div className="stat-value">{summary.agent_count}</div>
         </div>
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-foreground">{formatCost(summary.total_cost)}</div>
-          <div className="text-sm text-muted-foreground">{t('totalCostDays', { days: summary.days })}</div>
+        <div className="stat">
+          <div className="stat-label">{t('totalCostDays', { days: summary.days })}</div>
+          <div className="stat-value" style={MONO}>{formatCost(summary.total_cost)}</div>
         </div>
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-foreground">{formatNumber(summary.total_tokens)}</div>
-          <div className="text-sm text-muted-foreground">{t('totalTokens')}</div>
+        <div className="stat">
+          <div className="stat-label">{t('totalTokens')}</div>
+          <div className="stat-value">{formatNumber(summary.total_tokens)}</div>
         </div>
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-foreground">
-            {summary.total_tokens > 0 ? `$${(summary.total_cost / summary.total_tokens * 1000).toFixed(4)}` : '-'}
+        <div className="stat">
+          <div className="stat-label">{t('avgPer1kTokens')}</div>
+          <div className="stat-value" style={MONO}>
+            {summary.total_tokens > 0 ? `$${(summary.total_cost / summary.total_tokens * 1000).toFixed(4)}` : '—'}
           </div>
-          <div className="text-sm text-muted-foreground">{t('avgPer1kTokens')}</div>
         </div>
       </div>
 
-      {/* Cost bar chart */}
-      <div className="bg-card border border-border rounded-lg p-6">
-        <h2 className="text-xl font-semibold mb-4">{t('perAgentCost')}</h2>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={agents.slice(0, 12).map(a => ({
-              name: a.agent.length > 12 ? a.agent.slice(0, 11) + '\u2026' : a.agent,
-              cost: Number(a.total_cost.toFixed(4)),
-            }))}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} /><YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v) => formatCost(Number(v))} />
-              <Bar dataKey="cost" fill="#0088FE" name="Cost ($)" />
-            </BarChart>
-          </ResponsiveContainer>
+      {/* Per-agent cost bar chart */}
+      <div className="card">
+        <div className="card-header">
+          <h2 className="card-title">{t('perAgentCost')}</h2>
+        </div>
+        <div className="card-body">
+          <div style={{ height: 256 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={agents.slice(0, 12).map(a => ({
+                name: a.agent.length > 12 ? a.agent.slice(0, 11) + '…' : a.agent,
+                cost: Number(a.total_cost.toFixed(4)),
+              }))}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--fg-muted)' }} />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--fg-muted)' }} />
+                <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v) => formatCost(Number(v))} />
+                <Bar dataKey="cost" fill="var(--chart-1)" name="Cost ($)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
       {/* Agent detail rows */}
-      <div className="bg-card border border-border rounded-lg p-6">
-        <h2 className="text-xl font-semibold mb-4">{t('agentBreakdown')}</h2>
-        <div className="space-y-2 max-h-[600px] overflow-y-auto">
-          {agents.map(agent => {
+      <div className="card">
+        <div className="card-header">
+          <h2 className="card-title">{t('agentBreakdown')}</h2>
+          <span className="badge">{agents.length}</span>
+        </div>
+        <div style={{ maxHeight: 600, overflowY: 'auto' }}>
+          {agents.map((agent, idx) => {
             const costShare = (agent.total_cost / Math.max(summary.total_cost, 0.0001)) * 100
             const isExpanded = expandedAgent === agent.agent
             const agentTasks = getAgentTasks(agent.agent)
             return (
-              <div key={agent.agent} className="border border-border rounded-lg overflow-hidden">
-                <Button onClick={() => setExpandedAgent(isExpanded ? null : agent.agent)}
-                  variant="ghost" className="w-full p-4 h-auto flex items-center justify-between text-left">
+              <div key={agent.agent} style={{ borderBottom: idx < agents.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                {/* Expand toggle */}
+                <button
+                  type="button"
+                  onClick={() => setExpandedAgent(isExpanded ? null : agent.agent)}
+                  className="w-full flex items-center justify-between text-left"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 'var(--space-4) var(--space-5)',
+                    cursor: 'pointer',
+                    color: 'var(--fg)',
+                    font: 'inherit',
+                  }}
+                >
                   <div className="flex items-center gap-3 min-w-0">
-                    <span className="font-medium text-foreground truncate">{agent.agent}</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-muted-foreground shrink-0">
-                      {agent.session_count} session{agent.session_count !== 1 ? 's' : ''}
-                    </span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 shrink-0">
-                      {agent.request_count} req{agent.request_count !== 1 ? 's' : ''}
-                    </span>
+                    <span aria-hidden style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-base)', lineHeight: 1, flexShrink: 0 }}>✦</span>
+                    <span className="font-medium truncate" style={{ fontSize: 'var(--text-sm)' }}>{agent.agent}</span>
+                    <span className="badge" style={{ flexShrink: 0 }}>{agent.session_count} session{agent.session_count !== 1 ? 's' : ''}</span>
+                    <span className="badge" style={{ flexShrink: 0 }}>{agent.request_count} req{agent.request_count !== 1 ? 's' : ''}</span>
                     {agentTasks.length > 0 && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-500 shrink-0">
-                        {agentTasks.length} task{agentTasks.length !== 1 ? 's' : ''}
-                      </span>
+                      <span className="badge" style={{ flexShrink: 0 }}>{agentTasks.length} task{agentTasks.length !== 1 ? 's' : ''}</span>
                     )}
                   </div>
-                  <div className="flex items-center gap-4 text-sm shrink-0">
-                    <div className="w-24 hidden md:block">
-                      <div className="w-full bg-secondary rounded-full h-2">
-                        <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${(agent.total_cost / maxCost) * 100}%` }} />
+                  <div className="flex items-center gap-4" style={{ flexShrink: 0 }}>
+                    <div style={{ width: 80 }} className="hidden md:block">
+                      <div className="perf-bar-track">
+                        <i className="perf-bar-fill" style={{ width: `${(agent.total_cost / maxCost) * 100}%` }} />
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-medium text-foreground">{formatCost(agent.total_cost)}</div>
-                      <div className="text-xs text-muted-foreground">{costShare.toFixed(1)}%</div>
+                      <div className="font-medium" style={{ ...MONO, fontSize: 'var(--text-sm)' }}>{formatCost(agent.total_cost)}</div>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)', ...MONO }}>{costShare.toFixed(1)}%</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-muted-foreground">{formatNumber(agent.total_tokens)}</div>
-                      <div className="text-xs text-muted-foreground">{t('tokens')}</div>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', ...MONO }}>{formatNumber(agent.total_tokens)}</div>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>{t('tokens')}</div>
                     </div>
-                    <svg className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                      viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <svg
+                      className={`flex-none transition-transform${isExpanded ? ' rotate-180' : ''}`}
+                      style={{ width: 16, height: 16, color: 'var(--fg-subtle)' }}
+                      viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+                    >
                       <polyline points="4,6 8,10 12,6" />
                     </svg>
                   </div>
-                </Button>
+                </button>
 
                 {isExpanded && (
-                  <div className="px-4 pb-4 border-t border-border bg-secondary/30">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 mb-3">
-                      <div><div className="text-xs text-muted-foreground">{t('inputTokens')}</div><div className="text-sm font-medium">{formatNumber(agent.total_input_tokens)}</div></div>
-                      <div><div className="text-xs text-muted-foreground">{t('outputTokens')}</div><div className="text-sm font-medium">{formatNumber(agent.total_output_tokens)}</div></div>
-                      <div><div className="text-xs text-muted-foreground">{t('ioRatio')}</div><div className="text-sm font-medium">{agent.total_output_tokens > 0 ? (agent.total_input_tokens / agent.total_output_tokens).toFixed(2) : '-'}</div></div>
-                      <div><div className="text-xs text-muted-foreground">{t('lastActive')}</div><div className="text-sm font-medium">{new Date(agent.last_active).toLocaleDateString()}</div></div>
+                  <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-2)', padding: 'var(--space-4) var(--space-5)' }}>
+                    {/* Mini stats */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3" style={{ marginBottom: 'var(--space-3)' }}>
+                      <div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>{t('inputTokens')}</div>
+                        <div className="font-medium" style={{ fontSize: 'var(--text-sm)', ...MONO }}>{formatNumber(agent.total_input_tokens)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>{t('outputTokens')}</div>
+                        <div className="font-medium" style={{ fontSize: 'var(--text-sm)', ...MONO }}>{formatNumber(agent.total_output_tokens)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>{t('ioRatio')}</div>
+                        <div className="font-medium" style={{ fontSize: 'var(--text-sm)', ...MONO }}>
+                          {agent.total_output_tokens > 0 ? (agent.total_input_tokens / agent.total_output_tokens).toFixed(2) : '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-subtle)' }}>{t('lastActive')}</div>
+                        <div className="font-medium" style={{ fontSize: 'var(--text-sm)' }}>
+                          {new Date(agent.last_active).toLocaleDateString()}
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="flex gap-2 mb-3">
-                      <Button variant={expandedSection === 'tasks' ? 'default' : 'ghost'} size="sm" onClick={(e) => { e.stopPropagation(); setExpandedSection('tasks') }}>Tasks ({agentTasks.length})</Button>
-                      <Button variant={expandedSection === 'models' ? 'default' : 'ghost'} size="sm" onClick={(e) => { e.stopPropagation(); setExpandedSection('models') }}>Models ({agent.models.length})</Button>
+                    {/* Section toggle */}
+                    <div className="flex gap-2" style={{ marginBottom: 'var(--space-3)' }}>
+                      <button
+                        type="button"
+                        className={`btn btn-sm${expandedSection === 'tasks' ? ' btn-primary' : ''}`}
+                        onClick={(e) => { e.stopPropagation(); setExpandedSection('tasks') }}
+                      >
+                        Tasks ({agentTasks.length})
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm${expandedSection === 'models' ? ' btn-primary' : ''}`}
+                        onClick={(e) => { e.stopPropagation(); setExpandedSection('models') }}
+                      >
+                        Models ({agent.models.length})
+                      </button>
                     </div>
 
                     {expandedSection === 'tasks' && (
-                      <div className="text-sm">
-                        {agentTasks.length === 0 ? (
-                          <div className="text-xs text-muted-foreground italic py-2">{t('noTaskCosts')}</div>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {agentTasks.map(task => (
-                              <div key={task.taskId} className="flex items-center justify-between text-xs">
-                                <div className="flex items-center gap-2 min-w-0 flex-1">
-                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                    task.priority === 'critical' ? 'bg-red-500/10 text-red-500' :
-                                    task.priority === 'high' ? 'bg-orange-500/10 text-orange-500' :
-                                    task.priority === 'medium' ? 'bg-yellow-500/10 text-yellow-500' :
-                                    'bg-secondary text-muted-foreground'
-                                  }`}>{task.priority}</span>
-                                  {task.project.ticketRef && <span className="text-muted-foreground font-mono">{task.project.ticketRef}</span>}
-                                  <span className="text-foreground truncate">{task.title}</span>
-                                </div>
-                                <span className="font-medium text-foreground w-16 text-right shrink-0">{formatCost(task.stats.totalCost)}</span>
+                      agentTasks.length === 0 ? (
+                        <p className="hint" style={{ fontStyle: 'italic' }}>{t('noTaskCosts')}</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {agentTasks.map(task => (
+                            <div key={task.taskId} className="flex items-center justify-between" style={{ fontSize: 'var(--text-xs)' }}>
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className="badge" style={{ flexShrink: 0 }}>{task.priority}</span>
+                                {task.project.ticketRef && (
+                                  <span style={{ ...MONO, color: 'var(--fg-subtle)', flexShrink: 0 }}>{task.project.ticketRef}</span>
+                                )}
+                                <span className="truncate" style={{ color: 'var(--fg)' }}>{task.title}</span>
                               </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                              <span className="font-medium" style={{ ...MONO, width: 64, textAlign: 'right', flexShrink: 0 }}>
+                                {formatCost(task.stats.totalCost)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )
                     )}
 
                     {expandedSection === 'models' && agent.models.length > 0 && (
                       <div className="space-y-1.5">
                         {agent.models.map(m => (
-                          <div key={m.model} className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground truncate">{getModelDisplayName(m.model)}</span>
-                            <div className="flex gap-4 shrink-0">
+                          <div key={m.model} className="flex items-center justify-between" style={{ fontSize: 'var(--text-xs)' }}>
+                            <span className="truncate" style={{ color: 'var(--fg-muted)' }}>{getModelDisplayName(m.model)}</span>
+                            <div className="flex gap-4" style={{ ...MONO, flexShrink: 0 }}>
                               <span>{formatNumber(m.input_tokens)} in</span>
                               <span>{formatNumber(m.output_tokens)} out</span>
                               <span>{m.request_count} reqs</span>
-                              <span className="font-medium text-foreground w-16 text-right">{formatCost(m.cost)}</span>
+                              <span className="font-medium" style={{ width: 64, textAlign: 'right' }}>{formatCost(m.cost)}</span>
                             </div>
                           </div>
                         ))}
@@ -673,48 +789,64 @@ function SessionsView({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-muted-foreground">{t('sortBy')}:</span>
+      {/* Sort controls */}
+      <div className="flex items-center gap-2">
+        <span className="hint">{t('sortBy')}:</span>
         {(['cost', 'tokens', 'requests', 'recent'] as const).map(s => (
-          <button key={s} onClick={() => setSessionSort(s)}
-            className={`px-2 py-1 text-xs rounded ${sessionSort === s ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground hover:text-foreground'}`}
-          >{s.charAt(0).toUpperCase() + s.slice(1)}</button>
+          <button key={s} type="button" onClick={() => setSessionSort(s)}
+            className={`btn btn-sm${sessionSort === s ? ' btn-primary' : ''}`}
+          >
+            {s.charAt(0).toUpperCase() + s.slice(1)}
+          </button>
         ))}
       </div>
 
       {sorted.length === 0 ? (
-        <div className="text-center text-muted-foreground py-12">
-          <p className="text-lg mb-1">{t('noSessionCostData')}</p>
-          <p className="text-sm">{t('noSessionCostDataDesc')}</p>
+        <div className="empty">
+          <div className="empty-icon" aria-hidden>⊙</div>
+          <div className="empty-title">{t('noSessionCostData')}</div>
+          <div className="empty-desc">{t('noSessionCostDataDesc')}</div>
         </div>
       ) : (
         <div className="space-y-2">
           {sorted.map(entry => {
             const sessionInfo = sessions.find((s: any) => s.id === entry.sessionId)
             return (
-              <div key={entry.sessionId} className="bg-card border border-border rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="min-w-0">
-                    <div className="font-medium text-foreground truncate">
-                      {entry.sessionKey || sessionInfo?.key || entry.sessionId}
+              <div key={entry.sessionId} className="card">
+                <div className="card-body">
+                  <div className="flex items-start justify-between" style={{ marginBottom: 'var(--space-3)' }}>
+                    <div className="min-w-0">
+                      <div className="font-medium truncate" style={{ fontSize: 'var(--text-sm)', color: 'var(--fg)' }}>
+                        {entry.sessionKey || sessionInfo?.key || entry.sessionId}
+                      </div>
+                      <div className="flex items-center gap-2" style={{ marginTop: 'var(--space-1)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+                        <span className={`dot${sessionInfo?.active ? ' dot-success' : ''}`} aria-hidden />
+                        <span>{sessionInfo?.active ? t('activeStatus') : t('inactiveStatus')}</span>
+                        {entry.model && <span aria-hidden style={{ color: 'var(--border-strong)' }}>·</span>}
+                        {entry.model && <span>{getModelDisplayName(entry.model)}</span>}
+                        {sessionInfo?.kind && <span aria-hidden style={{ color: 'var(--border-strong)' }}>·</span>}
+                        {sessionInfo?.kind && <span>{sessionInfo.kind}</span>}
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground flex items-center gap-2">
-                      {sessionInfo?.active && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" />}
-                      <span>{sessionInfo?.active ? t('activeStatus') : t('inactiveStatus')}</span>
-                      {entry.model && <span>| {getModelDisplayName(entry.model)}</span>}
-                      {sessionInfo?.kind && <span>| {sessionInfo.kind}</span>}
+                    <div className="text-right" style={{ flexShrink: 0 }}>
+                      <div className="font-semibold" style={{ ...MONO, fontSize: 'var(--text-lg)' }}>{formatCost(entry.totalCost)}</div>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', ...MONO }}>{formatNumber(entry.totalTokens)} tokens</div>
                     </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <div className="text-lg font-bold text-foreground">{formatCost(entry.totalCost)}</div>
-                    <div className="text-xs text-muted-foreground">{formatNumber(entry.totalTokens)} tokens</div>
+                  <div
+                    className="grid grid-cols-4 gap-4"
+                    style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', borderTop: '1px solid var(--border)', paddingTop: 'var(--space-2)' }}
+                  >
+                    <div><span className="font-medium" style={{ color: 'var(--fg)', ...MONO }}>{entry.requestCount}</span> {t('requests')}</div>
+                    <div><span className="font-medium" style={{ color: 'var(--fg)', ...MONO }}>{formatNumber(entry.inputTokens || 0)}</span> {t('inShort')}</div>
+                    <div><span className="font-medium" style={{ color: 'var(--fg)', ...MONO }}>{formatNumber(entry.outputTokens || 0)}</span> {t('outShort')}</div>
+                    <div>
+                      {entry.totalTokens > 0
+                        ? <span className="font-medium" style={{ color: 'var(--fg)', ...MONO }}>{formatCost(entry.totalCost / entry.requestCount)}</span>
+                        : '—'
+                      } {t('avgPerReq')}
+                    </div>
                   </div>
-                </div>
-                <div className="grid grid-cols-4 gap-4 text-xs text-muted-foreground border-t border-border/50 pt-2 mt-2">
-                  <div><span className="font-medium text-foreground">{entry.requestCount}</span> {t('requests')}</div>
-                  <div><span className="font-medium text-foreground">{formatNumber(entry.inputTokens || 0)}</span> {t('inShort')}</div>
-                  <div><span className="font-medium text-foreground">{formatNumber(entry.outputTokens || 0)}</span> {t('outShort')}</div>
-                  <div>{entry.totalTokens > 0 ? <span className="font-medium text-foreground">{formatCost(entry.totalCost / entry.requestCount)}</span> : '-'} {t('avgPerReq')}</div>
                 </div>
               </div>
             )
@@ -731,61 +863,70 @@ function TasksView({ taskData, onRefresh }: { taskData: TaskCostsResponse | null
   const t = useTranslations('costTracker')
   if (!taskData || taskData.tasks.length === 0) {
     return (
-      <div className="text-center text-muted-foreground py-12">
-        <div className="text-lg mb-2">{t('noTaskCostData')}</div>
-        <div className="text-sm">{t('noTaskCostDataDesc')}</div>
-        <Button onClick={onRefresh} className="mt-4">{t('refresh')}</Button>
+      <div className="empty">
+        <div className="empty-icon" aria-hidden>⊙</div>
+        <div className="empty-title">{t('noTaskCostData')}</div>
+        <div className="empty-desc">{t('noTaskCostDataDesc')}</div>
+        <div className="empty-cta">
+          <button type="button" onClick={onRefresh} className="btn btn-sm">{t('refresh')}</button>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      {/* Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-foreground">{taskData.tasks.length}</div>
-          <div className="text-sm text-muted-foreground">{t('tasksWithCosts')}</div>
+    <div className="space-y-5">
+      {/* Summary stats */}
+      <div className="stat-grid">
+        <div className="stat">
+          <div className="stat-label">{t('tasksWithCosts')}</div>
+          <div className="stat-value">{taskData.tasks.length}</div>
         </div>
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-foreground">{formatCost(taskData.summary.totalCost)}</div>
-          <div className="text-sm text-muted-foreground">{t('attributedCost')}</div>
+        <div className="stat">
+          <div className="stat-label">{t('attributedCost')}</div>
+          <div className="stat-value" style={MONO}>{formatCost(taskData.summary.totalCost)}</div>
         </div>
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-foreground">{formatNumber(taskData.summary.totalTokens)}</div>
-          <div className="text-sm text-muted-foreground">{t('attributedTokens')}</div>
+        <div className="stat">
+          <div className="stat-label">{t('attributedTokens')}</div>
+          <div className="stat-value">{formatNumber(taskData.summary.totalTokens)}</div>
         </div>
-        <div className="bg-card border border-border rounded-lg p-5">
-          <div className="text-3xl font-bold text-orange-500">{formatCost(taskData.unattributed.totalCost)}</div>
-          <div className="text-sm text-muted-foreground">{t('unattributed')}</div>
+        <div className="stat">
+          <div className="stat-label">{t('unattributed')}</div>
+          <div className="stat-value" style={MONO}>{formatCost(taskData.unattributed.totalCost)}</div>
+          <div className="hint" style={{ marginTop: 'var(--space-1)' }}>unattributed spend</div>
         </div>
       </div>
 
       {/* Task list */}
-      <div className="bg-card border border-border rounded-lg p-6">
-        <h2 className="text-xl font-semibold mb-4">{t('tasksByCost')}</h2>
-        <div className="space-y-2 max-h-[600px] overflow-y-auto">
-          {taskData.tasks.map(task => (
-            <div key={task.taskId} className="border border-border rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${
-                    task.priority === 'critical' ? 'bg-red-500/10 text-red-500' :
-                    task.priority === 'high' ? 'bg-orange-500/10 text-orange-500' :
-                    task.priority === 'medium' ? 'bg-yellow-500/10 text-yellow-500' :
-                    'bg-secondary text-muted-foreground'
-                  }`}>{task.priority}</span>
-                  {task.project.ticketRef && <span className="text-xs text-muted-foreground font-mono shrink-0">{task.project.ticketRef}</span>}
-                  <span className="font-medium text-foreground truncate">{task.title}</span>
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] shrink-0 ${
-                    task.status === 'done' ? 'bg-green-500/10 text-green-500' :
-                    task.status === 'in_progress' ? 'bg-blue-500/10 text-blue-500' :
-                    'bg-secondary text-muted-foreground'
-                  }`}>{task.status}</span>
-                </div>
-                <div className="text-right shrink-0 ml-3">
-                  <div className="font-medium text-foreground">{formatCost(task.stats.totalCost)}</div>
-                  <div className="text-xs text-muted-foreground">{formatNumber(task.stats.totalTokens)} {t('tokens')} | {task.stats.requestCount} {t('reqs')}</div>
+      <div className="card">
+        <div className="card-header">
+          <h2 className="card-title">{t('tasksByCost')}</h2>
+          <span className="badge">{taskData.tasks.length}</span>
+        </div>
+        <div style={{ maxHeight: 600, overflowY: 'auto' }}>
+          {taskData.tasks.map((task, idx) => (
+            <div
+              key={task.taskId}
+              className="flex items-center justify-between"
+              style={{
+                padding: 'var(--space-3) var(--space-5)',
+                borderBottom: idx < taskData.tasks.length - 1 ? '1px solid var(--border)' : 'none',
+              }}
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span className="badge" style={{ flexShrink: 0 }}>{task.priority}</span>
+                {task.project.ticketRef && (
+                  <span style={{ fontSize: 'var(--text-xs)', ...MONO, color: 'var(--fg-subtle)', flexShrink: 0 }}>
+                    {task.project.ticketRef}
+                  </span>
+                )}
+                <span className="font-medium truncate" style={{ fontSize: 'var(--text-sm)' }}>{task.title}</span>
+                <span className="badge" style={{ flexShrink: 0 }}>{task.status}</span>
+              </div>
+              <div className="text-right" style={{ flexShrink: 0, marginLeft: 'var(--space-3)' }}>
+                <div className="font-medium" style={MONO}>{formatCost(task.stats.totalCost)}</div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', ...MONO }}>
+                  {formatNumber(task.stats.totalTokens)} {t('tokens')} · {task.stats.requestCount} {t('reqs')}
                 </div>
               </div>
             </div>
