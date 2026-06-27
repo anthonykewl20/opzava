@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers, logAuditEvent, Message } from '@/lib/db'
-import { runOpenClaw } from '@/lib/command'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { eventBus } from '@/lib/event-bus'
 import { requireRole } from '@/lib/auth'
@@ -764,20 +763,7 @@ async function handleChatPost(request: NextRequest) {
             }
             invokeParams.agentId = openclawAgentId
 
-            const invokeResult = await runOpenClaw(
-              [
-                'gateway',
-                'call',
-                'agent',
-                '--timeout',
-                '10000',
-                '--params',
-                JSON.stringify(invokeParams),
-                '--json',
-              ],
-              { timeoutMs: 12000 }
-            )
-            const acceptedPayload = parseGatewayJson(invokeResult.stdout)
+            const acceptedPayload = await callOpenClawGateway<any>('agent', invokeParams, 12000)
             forwardInfo.delivered = true
             forwardInfo.session = openclawAgentId || undefined
             if (typeof acceptedPayload?.runId === 'string' && acceptedPayload.runId) {
@@ -843,21 +829,11 @@ async function handleChatPost(request: NextRequest) {
           // Best effort: wait briefly and surface completion/error feedback.
           if (forwardInfo.runId) {
             try {
-              const waitResult = await runOpenClaw(
-                [
-                  'gateway',
-                  'call',
-                  'agent.wait',
-                  '--timeout',
-                  '8000',
-                  '--params',
-                  JSON.stringify({ runId: forwardInfo.runId, timeoutMs: 6000 }),
-                  '--json',
-                ],
-                { timeoutMs: 9000 }
+              const waitPayload = await callOpenClawGateway<any>(
+                'agent.wait',
+                { runId: forwardInfo.runId, timeoutMs: 6000 },
+                9000,
               )
-
-              const waitPayload = parseGatewayJson(waitResult.stdout)
               const waitStatus = String(waitPayload?.status || '').toLowerCase()
               const toolEvents = extractToolEvents(waitPayload)
 

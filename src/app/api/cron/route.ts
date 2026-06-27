@@ -24,7 +24,7 @@ interface CronJob {
 }
 
 /**
- * OpenClaw cron jobs live in ~/.openclaw/cron/jobs.json
+ * OpenClaw cron jobs live in the Docker sidecar state dir: {OPENCLAW_STATE_DIR}/cron/jobs.json.
  * Format: { version: 1, jobs: [ { id, agentId, name, enabled, schedule: { kind, expr, tz }, payload, delivery, state } ] }
  */
 interface OpenClawCronJob {
@@ -314,29 +314,14 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Job not found' }, { status: 404 })
       }
 
-      // For OpenClaw cron jobs, trigger via the openclaw CLI
-      const triggerMode = body.mode || 'force'
-      const { runCommand } = await import('@/lib/command')
-      try {
-        const args = ['cron', 'trigger', job.id]
-        if (triggerMode === 'due') {
-          args.push('--if-due')
-        }
-        const { stdout, stderr } = await runCommand(config.openclawBin, args, { timeoutMs: 30000 })
-
-        return NextResponse.json({
-          success: true,
-          stdout: stdout.trim(),
-          stderr: stderr.trim()
-        })
-      } catch (execError: any) {
-        return NextResponse.json({
+      return NextResponse.json(
+        {
           success: false,
-          error: execError.message,
-          stdout: execError.stdout?.trim() || '',
-          stderr: execError.stderr?.trim() || ''
-        }, { status: 500 })
-      }
+          error: 'Manual OpenClaw cron trigger via host CLI is disabled.',
+          hint: 'Trigger cron jobs inside the mc-openclaw-gateway Docker sidecar or expose a gateway RPC for this action.',
+        },
+        { status: 400 },
+      )
     }
 
     if (action === 'remove') {

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { runOpenClaw } from '@/lib/command'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
+import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 
 export async function POST(
   request: NextRequest,
@@ -48,17 +48,12 @@ export async function POST(
     const results = await Promise.allSettled(
       agents.map(async (agent) => {
         if (!agent.session_key) return 'skipped'
-        await runOpenClaw(
-          [
-            'gateway',
-            'sessions_send',
-            '--session',
-            agent.session_key,
-            '--message',
-            `[Task ${task.id}] ${task.title}\nFrom ${author}: ${message}`
-          ],
-          { timeoutMs: 10000 }
-        )
+        await callOpenClawGateway('chat.send', {
+          sessionKey: agent.session_key,
+          message: `[Task ${task.id}] ${task.title}\nFrom ${author}: ${message}`,
+          idempotencyKey: `task-broadcast-${task.id}-${agent.name}-${Date.now()}`,
+          deliver: false,
+        }, 10000)
         db_helpers.createNotification(
           agent.name,
           'message',

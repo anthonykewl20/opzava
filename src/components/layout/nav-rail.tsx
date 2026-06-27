@@ -910,7 +910,7 @@ export function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, te
   const unlinkedOsUsers = osUsers.filter(u => !linkedUsernames.has(u.username) && !u.is_process_owner)
   const [open, setOpen] = useState(false)
   const [createMode, setCreateMode] = useState(false)
-  const [createForm, setCreateForm] = useState({ username: '', display_name: '', gateway_port: '', install_openclaw: true, install_claude: false, install_codex: false })
+  const [createForm, setCreateForm] = useState({ username: '', display_name: '', gateway_port: '', install_claude: false, install_codex: false })
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -1142,7 +1142,6 @@ export function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, te
                     const tools = [
                       osUser.has_claude && 'claude',
                       osUser.has_codex && 'codex',
-                      osUser.has_openclaw && 'openclaw',
                     ].filter(Boolean)
                     const statusLabel = isLocal
                       ? (tools.length > 0 ? tools.join('+') : tcs('noTools'))
@@ -1204,49 +1203,30 @@ export function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, te
                         placeholder={tcs('displayNamePlaceholder')}
                         className="w-full h-7 px-2 rounded bg-secondary border border-border text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"
                       />
-                      {!isLocal && (
-                        <input
-                          value={createForm.gateway_port}
-                          onChange={(e) => setCreateForm(f => ({ ...f, gateway_port: e.target.value }))}
-                          placeholder={tcs('gatewayPortPlaceholder')}
-                          className="w-full h-7 px-2 rounded bg-secondary border border-border text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"
-                        />
-                      )}
+                      <p className="text-[10px] text-muted-foreground/50 px-0.5">OpenClaw gateway provisioning is Docker-sidecar only.</p>
                       {/* Tool installation checkboxes */}
                       {isLocal && (
                         <div className="space-y-1 px-0.5">
                           <div className="text-[10px] text-muted-foreground/60 font-semibold tracking-wider">{tcs('installTools')}</div>
+                          <p className="text-[10px] text-muted-foreground/50">OpenClaw runs only as the Docker sidecar.</p>
                           <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                             <label className="flex items-center gap-1 cursor-pointer">
                               <input
                                 type="checkbox"
-                                checked={createForm.install_openclaw}
-                                onChange={(e) => setCreateForm(f => ({ ...f, install_openclaw: e.target.checked }))}
-                                className="w-3 h-3 rounded accent-primary"
-                              />
-                              <span className="text-[10px] text-foreground">openclaw</span>
-                            </label>
-                            <label className={`flex items-center gap-1 ${createForm.install_openclaw ? 'opacity-50' : ''} cursor-pointer`}>
-                              <input
-                                type="checkbox"
-                                checked={createForm.install_claude || createForm.install_openclaw}
+                                checked={createForm.install_claude}
                                 onChange={(e) => setCreateForm(f => ({ ...f, install_claude: e.target.checked }))}
-                                disabled={createForm.install_openclaw}
                                 className="w-3 h-3 rounded accent-primary"
                               />
                               <span className="text-[10px] text-foreground">claude</span>
-                              {createForm.install_openclaw && <span className="text-[9px] text-muted-foreground/50 italic">included</span>}
                             </label>
-                            <label className={`flex items-center gap-1 ${createForm.install_openclaw ? 'opacity-50' : ''} cursor-pointer`}>
+                            <label className="flex items-center gap-1 cursor-pointer">
                               <input
                                 type="checkbox"
-                                checked={createForm.install_codex || createForm.install_openclaw}
+                                checked={createForm.install_codex}
                                 onChange={(e) => setCreateForm(f => ({ ...f, install_codex: e.target.checked }))}
-                                disabled={createForm.install_openclaw}
                                 className="w-3 h-3 rounded accent-primary"
                               />
                               <span className="text-[10px] text-foreground">codex</span>
-                              {createForm.install_openclaw && <span className="text-[9px] text-muted-foreground/50 italic">included</span>}
                             </label>
                           </div>
                         </div>
@@ -1263,7 +1243,6 @@ export function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, te
                             const display_name = createForm.display_name.trim()
                             if (!username || !display_name) { setCreateError(tcs('usernameAndDisplayRequired')); return }
                             if (!/^[a-z][a-z0-9_-]{1,30}[a-z0-9]$/.test(username)) { setCreateError(tcs('invalidUsernameFormat')); return }
-                            if (!isLocal && !createForm.gateway_port) { setCreateError(tcs('gatewayPortRequired')); return }
                             setCreating(true)
                             setCreateError(null)
                             try {
@@ -1273,16 +1252,13 @@ export function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, te
                                 body: JSON.stringify({
                                   username,
                                   display_name,
-                                  gateway_mode: !isLocal,
-                                  gateway_port: createForm.gateway_port ? Number(createForm.gateway_port) : undefined,
-                                  install_openclaw: createForm.install_openclaw,
                                   install_claude: createForm.install_claude,
                                   install_codex: createForm.install_codex,
                                 }),
                               })
                               const json = await res.json().catch(() => ({}))
                               if (!res.ok) throw new Error(json?.error || 'Failed to create organization')
-                              setCreateForm({ username: '', display_name: '', gateway_port: '', install_openclaw: true, install_claude: false, install_codex: false })
+                              setCreateForm({ username: '', display_name: '', gateway_port: '', install_claude: false, install_codex: false })
                               setCreateMode(false)
                               await Promise.all([fetchTenants(), fetchOsUsers()])
                             } catch (e: any) {
@@ -1293,7 +1269,7 @@ export function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, te
                           }}
                           className="flex-1 text-[11px]"
                         >
-                          {creating ? tcs('creating') : isLocal ? tcs('createUser') : tcs('createAndQueue')}
+                          {creating ? tcs('creating') : tcs('createUser')}
                         </Button>
                         <Button
                           variant="outline"

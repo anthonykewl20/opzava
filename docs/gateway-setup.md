@@ -4,14 +4,13 @@ How to connect Opzava to an **OpenClaw gateway** so it can manage a fleet of age
 WebSocket control plane — register/discover gateways, sync agents, spawn and control sessions, and
 monitor gateway health.
 
-> **OpenClaw / Hermes are SERVER-ONLY.** The OpenClaw gateway and its **Hermes** agent runtime run
-> **server-side only** — on the same host/filesystem as Opzava (the deploy box) — **never on the
-> operator's laptop**. This is the two-plane split: the **local plane** is the operator's own CLIs
-> (Claude Code / Codex / OpenCode) reached via MCP or device-auth; the **server plane** is the
-> OpenClaw/Hermes fleet. Because subscription auth is detected **by-file** (e.g. GPT-Plus →
-> `~/.codex/auth.json`, `auth_mode:"chatgpt"`), the gateway, its auth, and Opzava must be co-located
-> on that server host (ARD 0026 GP2; CONTEXT.md two-plane split). Running the gateway on a dev machine
-> is for local testing only, not the product topology.
+> **OpenClaw / Hermes are SERVER-ONLY.** The OpenClaw gateway and its **Hermes** agent runtime run as
+> the `mc-openclaw-gateway` Docker sidecar for this app. Do not install or start `openclaw` on an
+> operator laptop or host shell. This is the two-plane split: the **local plane** is the operator's own
+> CLIs (Claude Code / Codex / OpenCode) reached via MCP or device-auth; the **server plane** is the
+> Docker OpenClaw/Hermes fleet. Because subscription auth is detected **by-file** (e.g. GPT-Plus →
+> `~/.codex/auth.json`, `auth_mode:"chatgpt"`), the sidecar, its state volume, and Opzava must be
+> co-located on the deploy host (ARD 0026 GP2; CONTEXT.md two-plane split).
 
 > **Do you even need the gateway?** For a single local CLI (Claude Code / Codex / OpenCode) you do
 > **not** need a gateway — use the MCP server or a direct connection (see
@@ -30,11 +29,11 @@ Gateway connection settings come from the environment (defaults shown):
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OPENCLAW_GATEWAY_HOST` | `127.0.0.1` | Host Opzava's backend dials for the gateway. In Docker use `host.docker.internal`. |
+| `OPENCLAW_GATEWAY_HOST` | `mc-openclaw-gateway` in Docker | Host Opzava's backend dials for the sidecar gateway. |
 | `OPENCLAW_GATEWAY_PORT` | `18789` | Gateway port. |
 | `OPENCLAW_GATEWAY_TOKEN` | — | Auth token for the gateway, when required. |
-| `OPENCLAW_CONFIG_PATH` | — | Path to your `openclaw.json` (used by agent config sync, §3). |
-| `OPENCLAW_ENABLED` | `1` | Set `0` to run Opzava without the OpenClaw stack. |
+| `OPENCLAW_CONFIG_PATH` | `/home/nextjs/.openclaw/openclaw.json` in Docker | Path to the sidecar-mounted `openclaw.json` (used by agent config sync, §3). |
+| `OPENCLAW_ENABLED` | `0` | Set `1` to include the OpenClaw sidecar overlay. |
 | `NEXT_PUBLIC_GATEWAY_OPTIONAL` | — | `true` ⇒ standalone deploy with no gateway connectivity. |
 | `NEXT_PUBLIC_GATEWAY_HOST` | — | Public hostname the **browser** uses for the gateway WebSocket (remote access). |
 
@@ -54,7 +53,7 @@ curl "$MC_URL/api/gateways/discover" -H "Authorization: Bearer $MC_API_KEY"
 # Register a gateway (admin)
 curl -X POST "$MC_URL/api/gateways" \
   -H "Authorization: Bearer $MC_API_KEY" -H "Content-Type: application/json" \
-  -d '{"name":"primary","host":"127.0.0.1","port":18789,"token":"...","is_primary":true}'
+  -d '{"name":"primary","host":"mc-openclaw-gateway","port":18789,"token":"...","is_primary":true}'
 
 # Get a browser WebSocket URL + token for a registered gateway
 curl -X POST "$MC_URL/api/gateways/connect" \
@@ -96,8 +95,8 @@ curl -X POST "$MC_URL/api/spawn" \
   -d '{"agent":"scout","task":"..."}'
 ```
 
-`GET/POST /api/gateways/control` covers gateway-level control actions. (Spawning requires a reachable
-gateway; there's no adapter in this path.)
+`GET/POST /api/gateways/control` covers gateway-level diagnostics. Start, stop, restart, and upgrade
+operations are Docker Compose actions, not local `openclaw` commands.
 
 ---
 
@@ -115,25 +114,36 @@ curl -X POST "$MC_URL/api/gateways/health" -H "Authorization: Bearer $MC_API_KEY
 
 ---
 
-## 6. Docker connectivity
+## 6. Docker Sidecar
 
-Opzava in Docker needs to reach a gateway on the host — there are **two** connections:
+OpenClaw is included with the app as an optional Compose overlay:
 
-1. **Server-side** (Opzava backend → gateway): set `OPENCLAW_GATEWAY_HOST=host.docker.internal`
-   (Docker Desktop resolves it; on Linux `docker-compose.yml` maps it via `extra_hosts`).
-2. **Browser-side** (user's browser → gateway WebSocket): Opzava auto-rewrites a Docker-internal host
-   to the browser's hostname. For remote access set `NEXT_PUBLIC_GATEWAY_HOST` to the public hostname.
+```bash
+OPENCLAW_ENABLED=1 make up openclaw
+# equivalent:
+docker compose -f docker-compose.yml -f docker-compose-openclaw.yml up -d --build
+```
 
-If the gateway runs in **another container**, put both on the same Docker network and set
-`OPENCLAW_GATEWAY_HOST` to the gateway container name. Full detail + troubleshooting (origin-not-allowed,
-device-identity, VPS offline) is in [Deployment → Gateway Connectivity](deployment.md#gateway-connectivity-from-docker).
+Use these container-side defaults:
+
+```env
+OPENCLAW_ENABLED=1
+OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway
+OPENCLAW_GATEWAY_PORT=18789
+OPENCLAW_STATE_DIR=/home/nextjs/.openclaw
+OPENCLAW_CONFIG_PATH=/home/nextjs/.openclaw/openclaw.json
+```
+
+The browser-side WebSocket still uses `NEXT_PUBLIC_GATEWAY_HOST` when remote access needs a public
+hostname. Full detail + troubleshooting (origin-not-allowed, device-identity, VPS offline) is in
+[Deployment → Gateway Connectivity](deployment.md#gateway-connectivity-from-docker).
 
 ---
 
 ## Troubleshooting
 
 - **Gateway shows offline / WebSocket won't connect** — confirm `OPENCLAW_GATEWAY_HOST/PORT`, then run
-  `POST /api/gateways/health`. See [Deployment troubleshooting](deployment.md).
+  `POST /api/gateways/health`. If the sidecar is down, run `OPENCLAW_ENABLED=1 make up openclaw`.
 - **"origin not allowed" / "device identity required"** — gateway-side auth/posture; see the dedicated
   sections in [deployment.md](deployment.md).
 - **Running without a gateway** — set `NEXT_PUBLIC_GATEWAY_OPTIONAL=true` (and `OPENCLAW_ENABLED=0`); the

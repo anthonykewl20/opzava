@@ -9,10 +9,8 @@ import { requireRole } from '@/lib/auth';
 import { mutationLimiter } from '@/lib/rate-limit';
 import { logger } from '@/lib/logger';
 import { validateBody, createAgentSchema } from '@/lib/validation';
-import { runOpenClaw } from '@/lib/command';
 import { config as appConfig } from '@/lib/config';
 import { DISPATCH_MODEL_DEFAULT } from '@/lib/model-config';
-import { resolveWithin } from '@/lib/paths';
 import { writeFileAtomic } from '@/lib/atomic-write';
 import path from 'node:path';
 
@@ -178,7 +176,6 @@ async function handlePost(request: NextRequest) {
       gateway_config,
       write_to_gateway,
       provision_openclaw_workspace,
-      openclaw_workspace_path,
       runtime_type,
     } = body;
 
@@ -228,29 +225,13 @@ async function handlePost(request: NextRequest) {
     }
 
     if (provision_openclaw_workspace) {
-      if (!appConfig.openclawStateDir) {
-        return NextResponse.json(
-          { error: 'OPENCLAW_STATE_DIR is not configured; cannot provision OpenClaw workspace' },
-          { status: 500 }
-        );
-      }
-
-      const workspacePath = openclaw_workspace_path
-        ? path.resolve(openclaw_workspace_path)
-        : resolveWithin(appConfig.openclawStateDir, path.join('workspaces', openclawId));
-
-      try {
-        await runOpenClaw(
-          ['agents', 'add', openclawId, '--workspace', workspacePath, '--non-interactive'],
-          { timeoutMs: 20000 }
-        );
-      } catch (provisionError: any) {
-        logger.error({ err: provisionError, openclawId, workspacePath }, 'OpenClaw workspace provisioning failed');
-        return NextResponse.json(
-          { error: provisionError?.message || 'Failed to provision OpenClaw agent workspace' },
-          { status: 502 }
-        );
-      }
+      return NextResponse.json(
+        {
+          error: 'Host OpenClaw workspace provisioning is disabled.',
+          hint: 'Provision agents inside the mc-openclaw-gateway Docker sidecar or sync sidecar config with /api/agents/sync.',
+        },
+        { status: 400 },
+      );
     }
     
     const now = Math.floor(Date.now() / 1000);

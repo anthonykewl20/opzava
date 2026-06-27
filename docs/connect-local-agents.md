@@ -3,6 +3,16 @@
 How to wire a local agent client — **Claude Code**, **OpenAI Codex CLI**, **OpenCode**, or any
 HTTP-capable framework — into a running Opzava instance.
 
+> **Single-operator model ([ARD 0015](ard/0015-team-execution-and-surfaces-architecture.md)).**
+> Opzava is a *control plane* — it owns cards/state/gate; **execution is delegated, not owned.** For a
+> single operator, the roles are: the **OpenClaw Docker sidecar gateway (§4) is the primary server-execution
+> path** — it holds *your* Claude/ChatGPT subscriptions as auth profiles and runs work server-side;
+> **MCP (§1) is how your local tool drives the board** (read/queue tasks, watch events); §2's direct
+> connection is the legacy *presence/heartbeat* path (still works, but execution is gateway-mediated,
+> not dispatched-to-local). Heavy hands-on dev stays on your laptop (§1 MCP + your local `claude`
+> login); the sidecar handles server-side and autonomous work. Do not install or start OpenClaw on the
+> operator laptop or host shell.
+
 There are **four** connection paths. They are not interchangeable; pick by *what you want the agent
 to do*. Most people want one of the first two.
 
@@ -11,7 +21,7 @@ to do*. Most people want one of the first two.
 | **Operate Opzava** — read/queue tasks, write memory, manage agents, watch events — from inside the agent | **MCP server** | [1](#1-mcp-server-recommended-for-claude-code) |
 | **Appear in Opzava as a live agent** that receives assigned work and reports heartbeats/tokens | **Direct CLI connection** (`/api/connect`) | [2](#2-direct-cli-connection) |
 | Connect a **framework runtime** (LangGraph, CrewAI, AutoGen, Claude Agent SDK) | **Framework adapter** (`/api/adapters`) | [3](#3-framework-adapters) |
-| Manage a fleet through an **OpenClaw gateway** | **Gateway** | [4](#4-openclaw-gateway) |
+| Manage a fleet through the **OpenClaw Docker sidecar gateway** | **Gateway** | [4](#4-openclaw-gateway) |
 
 > The MCP and direct-connection paths are independent — a single Claude Code agent can use **both**:
 > MCP to give it Opzava tools, and a direct connection so it shows up as a live, work-receiving agent.
@@ -201,9 +211,9 @@ not give you the adapter's heartbeat/assignment plumbing.)
 
 ## 4. OpenClaw gateway
 
-When agents are managed by an **OpenClaw gateway**, Opzava connects to the gateway over WebSocket and
+When agents are managed by the **OpenClaw Docker sidecar gateway**, Opzava connects to the gateway over WebSocket and
 spawns/controls sessions through it (`POST /api/spawn`). Config syncs via `openclaw.json`. This is the
-multi-host fleet path; for a single local CLI, prefer §1 or §2. Gateway connectivity *is* health-checked
+server-side fleet path; for a single local CLI, prefer §1 or §2. Gateway connectivity *is* health-checked
 (§5). Full walkthrough in [docs/gateway-setup.md](gateway-setup.md).
 
 ---

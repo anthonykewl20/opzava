@@ -399,9 +399,9 @@ interface MissionControlStore {
   dismissUpdate: (version: string) => void
 
   // OpenClaw update availability
-  openclawUpdate: { installed: string; latest: string; releaseUrl: string; releaseNotes: string; updateCommand: string } | null
+  openclawUpdate: { installed: string; latest: string; releaseUrl: string; releaseNotes: string; updateCommand: string; updateMode?: 'docker' | 'local' } | null
   openclawUpdateDismissedVersion: string | null
-  setOpenclawUpdate: (info: { installed: string; latest: string; releaseUrl: string; releaseNotes: string; updateCommand: string } | null) => void
+  setOpenclawUpdate: (info: { installed: string; latest: string; releaseUrl: string; releaseNotes: string; updateCommand: string; updateMode?: 'docker' | 'local' } | null) => void
   dismissOpenclawUpdate: (version: string) => void
 
   // OpenClaw Doctor banner dismiss (persisted with 24h expiry)

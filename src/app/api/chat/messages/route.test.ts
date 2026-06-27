@@ -448,7 +448,7 @@ describe('POST /api/chat/messages — P1-3 idempotent client_message_id', () => 
     expect(first.status).toBe(201)
     const firstJson = await first.json()
     expect(firstJson.message.id).toBe(42)
-    expect(gatewayMock).toHaveBeenCalledTimes(1)
+    expect(gatewayMock.mock.calls.filter(call => call[0] === 'chat.send')).toHaveLength(1)
 
     // Second send with the SAME client_message_id: idempotent — returns the existing
     // message (HTTP 200), does NOT insert a second row, does NOT forward again.
@@ -494,8 +494,8 @@ describe('POST /api/chat/messages — P1-3 idempotent client_message_id', () => 
       }),
     )
 
-    expect(gatewayMock).toHaveBeenCalledTimes(1)
-    const callArgs = gatewayMock.mock.calls[0]
+    expect(gatewayMock.mock.calls.filter(call => call[0] === 'chat.send')).toHaveLength(1)
+    const callArgs = gatewayMock.mock.calls.find(call => call[0] === 'chat.send')!
     // callOpenClawGateway(method, params, timeout) — params.idempotencyKey deterministic.
     const params = callArgs[1] as { idempotencyKey: string }
     expect(params.idempotencyKey).toBe('mc-cmid-777')
@@ -759,7 +759,7 @@ describe('POST /api/chat/messages — P1-2 broadcast ordering (originator before
     expect(originatorIndex).toBeLessThan(replyIndex)
 
     // And critically: the originator was emitted BEFORE the gateway forward fired.
-    expect(gatewayMock).toHaveBeenCalledTimes(1)
+    expect(gatewayMock.mock.calls.filter(call => call[0] === 'chat.send')).toHaveLength(1)
     // The first chat.message emission is the originator (not a reply).
     const firstChat = emissions.find((e) => e.type === 'chat.message')
     expect(firstChat?.data?.from_agent).toBe('Anthony')

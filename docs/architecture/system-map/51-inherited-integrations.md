@@ -7,7 +7,8 @@
 
 ## Gateway (OpenClaw) ✅
 
-The "gateway" is an **external OpenClaw process** (default `127.0.0.1:18789`) that owns live agent sessions.
+The "gateway" is the **`mc-openclaw-gateway` Docker sidecar** (default port `18789`) that owns live agent sessions.
+Do not install or start a host/laptop `openclaw` process for Opzava.
 Opzava is a *client* via two paths:
 - **Server→gateway RPC** (`openclaw-gateway.ts` `callOpenClawGateway`): one-shot `ws` per call, **protocol
   v3-only** server-side (`openclaw-gateway.ts:7,143-144`, `min=max=3`; the 3/4 range is the *browser* path only,
@@ -25,9 +26,9 @@ Opzava runs with no gateway and the gateway-dependent UI (live sessions, spawn, 
 `provisioner-client.ts` is a separate Unix-socket client to a privileged host daemon.
 
 Docker/Dokploy local parity now models both gateway shapes ✅:
-- `docker-compose.yml` defaults to standalone-safe gateway optional mode and can point server-side gateway RPC
-  at `host.docker.internal` or another configured host.
-- `docker-compose-openclaw.yml` adds an optional local OpenClaw sidecar for operator-mode Compose.
+- `docker-compose.yml` defaults to standalone-safe gateway optional mode and points server-side gateway RPC
+  at `mc-openclaw-gateway` when the sidecar overlay is enabled.
+- `docker-compose-openclaw.yml` adds the optional OpenClaw sidecar for Compose.
 - `docker-compose.dokploy.yml` adds an optional `mc-openclaw-gateway` profile on the same Traefik network as
   `mission-control`; the app uses `OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway` for server-side calls, while
   browser gateway traffic can be routed through the local Dokploy-style Traefik host
@@ -103,7 +104,7 @@ circuit breaker (disable after exhausting retries), and delivery logging (`webho
 Other ✅: `gnap-sync.ts` (push-only mirror to a local git repo, off by default), `google-auth.ts` (verify
 Google ID token), `receipt-signing.ts` + `mcp-audit.ts` (Ed25519 tamper-evident MCP-call receipts →
 `mcp_call_log`), `tailscale-serve.ts` (detect Tailscale Serve fronting the gateway),
-`provider-subscriptions.ts` (detect Anthropic/OpenAI subscriptions), `openclaw-doctor*.ts`,
+`provider-subscriptions.ts` (detect Anthropic/OpenAI subscriptions), `/api/openclaw/doctor` sidecar health checks,
 `command.ts` (spawn wrapper for the openclaw/clawdbot CLIs), `transcript-parser.ts`, `plugins.ts`.
 
 ## What's dormant in a standalone Opzava deployment ✅

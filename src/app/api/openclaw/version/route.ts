@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
-import { runOpenClaw } from '@/lib/command'
+import { config } from '@/lib/config'
 
 const GITHUB_RELEASES_URL =
   'https://api.github.com/repos/openclaw/openclaw/releases/latest'
+const DOCKER_UPDATE_COMMAND = 'OPENCLAW_ENABLED=1 make upgrade openclaw'
 
 function compareSemver(a: string, b: string): number {
   const pa = a.replace(/^v/, '').split('.').map(Number)
@@ -18,24 +19,37 @@ function compareSemver(a: string, b: string): number {
 
 const headers = { 'Cache-Control': 'public, max-age=3600' }
 
+function parseGatewayVersion(res: Response, body: string): string | null {
+  const direct = res.headers.get('x-openclaw-version') || res.headers.get('x-clawdbot-version')
+  if (direct) return direct.trim().replace(/^v/, '')
+
+  const server = res.headers.get('server') || ''
+  const fromServer = server.match(/(\d{4}\.\d+\.\d+)/)
+  if (fromServer) return fromServer[1]!
+
+  const fromBody = body.match(/(\d{4}\.\d+\.\d+)/)
+  return fromBody?.[1] || null
+}
+
 export async function GET() {
   let installed: string | null = null
 
   try {
-    const result = await runOpenClaw(['--version'], { timeoutMs: 3000 })
-    const match = result.stdout.match(/(\d+\.\d+\.\d+)/)
-    if (match) installed = match[1]
+    const res = await fetch(`http://${config.gatewayHost}:${config.gatewayPort}/health`, {
+      signal: AbortSignal.timeout(3000),
+    })
+    const body = await res.text().catch(() => '')
+    if (res.ok) installed = parseGatewayVersion(res, body)
   } catch {
-    // OpenClaw not installed or not reachable
     return NextResponse.json(
-      { installed: null, latest: null, updateAvailable: false },
+      { installed: null, latest: null, updateAvailable: false, updateMode: 'docker' },
       { headers }
     )
   }
 
   if (!installed) {
     return NextResponse.json(
-      { installed: null, latest: null, updateAvailable: false },
+      { installed: null, latest: null, updateAvailable: false, updateMode: 'docker' },
       { headers }
     )
   }
@@ -48,7 +62,7 @@ export async function GET() {
 
     if (!res.ok) {
       return NextResponse.json(
-        { installed, latest: null, updateAvailable: false },
+        { installed, latest: null, updateAvailable: false, updateMode: 'docker' },
         { headers }
       )
     }
@@ -64,13 +78,14 @@ export async function GET() {
         updateAvailable,
         releaseUrl: release.html_url ?? '',
         releaseNotes: release.body ?? '',
-        updateCommand: 'openclaw update --channel stable',
+        updateCommand: DOCKER_UPDATE_COMMAND,
+        updateMode: 'docker',
       },
       { headers }
     )
   } catch {
     return NextResponse.json(
-      { installed, latest: null, updateAvailable: false },
+      { installed, latest: null, updateAvailable: false, updateMode: 'docker' },
       { headers }
     )
   }

@@ -3,7 +3,7 @@ import net from 'node:net'
 import os from 'node:os'
 import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
-import { runCommand, runOpenClaw, runClawdbot } from '@/lib/command'
+import { runCommand } from '@/lib/command'
 import { config } from '@/lib/config'
 import { getDatabase } from '@/lib/db'
 import { getAllGatewaySessions, getAgentLiveStatuses } from '@/lib/sessions'
@@ -405,35 +405,22 @@ async function getGatewayStatus() {
   }
 
   try {
-    const { stdout } = await runCommand('ps', ['-A', '-o', 'pid,comm,args'], {
-      timeoutMs: 3000
-    })
-    const match = stdout
-      .split('\n')
-      .find((line) => /clawdbot-gateway|openclaw-gateway|openclaw.*gateway/i.test(line))
-    if (match) {
-      const parts = match.trim().split(/\s+/)
-      gatewayStatus.running = true
-      gatewayStatus.pid = parts[0]
-    }
-  } catch (error) {
-    // Gateway not running
-  }
-
-  try {
     gatewayStatus.port_listening = await isPortOpen(config.gatewayHost, config.gatewayPort)
+    gatewayStatus.running = gatewayStatus.port_listening
   } catch (error) {
     logger.error({ err: error }, 'Error checking port')
   }
 
-  try {
-    const { stdout } = await runOpenClaw(['--version'], { timeoutMs: 3000 })
-    gatewayStatus.version = stdout.trim()
-  } catch (error) {
+  if (gatewayStatus.port_listening) {
     try {
-      const { stdout } = await runClawdbot(['--version'], { timeoutMs: 3000 })
-      gatewayStatus.version = stdout.trim()
-    } catch (innerError) {
+      const res = await fetch(`http://${config.gatewayHost}:${config.gatewayPort}/health`, {
+        signal: AbortSignal.timeout(3000),
+      })
+      const raw = await res.text().catch(() => '')
+      const headerVersion = res.headers.get('x-openclaw-version') || res.headers.get('x-clawdbot-version')
+      const match = (headerVersion || raw).match(/(\d{4}\.\d+\.\d+)/)
+      gatewayStatus.version = match?.[1] || 'unknown'
+    } catch {
       gatewayStatus.version = 'unknown'
     }
   }

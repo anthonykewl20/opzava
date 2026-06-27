@@ -265,8 +265,7 @@ docker run -p 3000:3000 \
   -e AUTH_USER=admin \
   -e AUTH_PASS=your-secure-password \
   -e API_KEY=your-api-key \
-  -e OPENCLAW_GATEWAY_HOST=host.docker.internal \
-  --add-host=host.docker.internal:host-gateway \
+  -e NEXT_PUBLIC_GATEWAY_OPTIONAL=true \
   mission-control
 ```
 
@@ -279,19 +278,21 @@ The Docker image:
 
 ### Gateway Connectivity from Docker
 
-MC inside Docker needs to reach the gateway running on the host. There are **two** connections:
+OpenClaw runs only as the Docker sidecar for Opzava. Do not install or start a host `openclaw`
+binary. Start the sidecar with:
 
-1. **Server-side** (MC backend → gateway): Set `OPENCLAW_GATEWAY_HOST=host.docker.internal`.
-   Docker Desktop (macOS/Windows) resolves this automatically. On Linux, `docker-compose.yml`
-   maps it via `extra_hosts`.
+```bash
+OPENCLAW_ENABLED=1 make up openclaw
+# or:
+docker compose -f docker-compose.yml -f docker-compose-openclaw.yml up -d --build
+```
 
-2. **Browser-side** (user's browser → gateway WebSocket): When the gateway host is a
-   Docker-internal name (like `host.docker.internal`), MC automatically rewrites the WebSocket
-   URL to the browser's own hostname. No extra config needed for local Docker usage.
-   For remote access, set `NEXT_PUBLIC_GATEWAY_HOST` to the public hostname.
+There are **two** connections:
 
-If your gateway runs in **another container**, put both on the same Docker network and set
-`OPENCLAW_GATEWAY_HOST` to the gateway container name.
+1. **Server-side** (Opzava backend → gateway): Set `OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway`.
+   The bundled Compose overlay puts Opzava and the sidecar on the same Docker network.
+2. **Browser-side** (user's browser → gateway WebSocket): For remote access, set
+   `NEXT_PUBLIC_GATEWAY_HOST` to the public hostname that routes to the gateway.
 
 ### Local Security Scan Expectations (HTTP dev vs HTTPS prod)
 
@@ -299,11 +300,9 @@ For local Docker development over plain `http://`, the following defaults are ex
 
 - Keep `MC_COOKIE_SECURE` unset
 - Keep `MC_ENABLE_HSTS` unset
-- Use `OPENCLAW_GATEWAY_HOST=host.docker.internal` when MC runs in Docker and gateway runs on host
+- Use `OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway` when the OpenClaw sidecar is enabled
 
 `MC_COOKIE_SECURE=1` and `MC_ENABLE_HSTS=1` are HTTPS-only hardening flags. Enabling them on plain HTTP can break login/session behavior and create misleading local warnings.
-
-Opzava's security scan treats `host.docker.internal` as a valid local Docker topology (not a public exposure) and should not be interpreted as a production misconfiguration by itself.
 
 ### Persistent Data
 
@@ -456,15 +455,15 @@ See `.env.example` for the full list. Key variables:
 | `OPENCLAW_ENABLED` | No | `0` | When truthy, Makefile `all` scope includes the OpenClaw sidecar overlay. |
 | `MC_HOST_CLI_ENABLED` | No | `0` | When truthy, Makefile includes `docker-compose.host-cli.yml` for host CLI/session sharing. |
 | `INSTALL_AGENT_CLIS` | No | `1` | Bake Claude Code and Codex CLI fallback binaries into the Docker runtime image. |
-| `OPENCLAW_HOME` | No | - | Legacy: parent home directory containing `.openclaw/`. Use `OPENCLAW_STATE_DIR` instead (see note below) |
-| `OPENCLAW_STATE_DIR` | No | `~/.openclaw` | Exact path to the OpenClaw state directory. Preferred over `OPENCLAW_HOME` — avoids double-nesting when the path already ends in `.openclaw` |
+| `OPENCLAW_HOME` | No | - | Legacy read path only. Do not use for new Docker sidecar deployments. |
+| `OPENCLAW_STATE_DIR` | No | `/home/nextjs/.openclaw` in Docker | Exact path to the sidecar-mounted OpenClaw state directory. |
 | `OPENCLAW_GATEWAY_IMAGE` | No | `ghcr.io/openclaw/openclaw:latest` | Image used by `docker-compose-openclaw.yml`. |
 | `OPENCLAW_TOOLS_PROFILE` | No | `coding` | Tool profile projected into OpenClaw config when the env var is present (compose injects the default) |
 | `OPENCLAW_SECURITY_WORKSPACE_ONLY` | No | `1` | Restrict filesystem tools to the workspace when set (env-driven) |
 | `OPENCLAW_SECURITY_DENY_AUTOMATION` | No | `1` | Deny automation tool group via env-driven bootstrap |
 | `OPENCLAW_SECURITY_DENY_RUNTIME` | No | `1` | Deny runtime tool group via env-driven bootstrap |
 | `OPENCLAW_SECURITY_DENY_FS` | No | `0` | Deny filesystem tool group (opt-in; can block file workflows) |
-| `OPENCLAW_SECURITY_SANDBOX_ALL` | No | `1` | Force `agents.defaults.sandbox.mode="all"` when set (env-driven) |
+| `OPENCLAW_SECURITY_SANDBOX_ALL` | No | `0` | Optional sandbox-all mode. Disabled by default because the sidecar does not mount the host Docker socket. |
 | `MISSION_CONTROL_DATA_DIR` | No | `.data/` | Directory for all Opzava data files (DB, tokens, etc.). Use an absolute path with the standalone server to survive rebuilds. |
 | `MC_ALLOWED_HOSTS` | No | `localhost,127.0.0.1` | Allowed hosts in production |
 | `MC_PORT` | No | `3000` | Host-side port that the bundled `docker-compose.yml` publishes the container's `PORT` on. The bundled `Makefile` expects `7012`. |
@@ -475,21 +474,24 @@ See `.env.example` for the full list. Key variables:
 | `MC_HOST_SESSION_MODE` | No | `coexist` | Policy when MC `--resumes` a host Claude Code session that may have a live CLI attached. One of `coexist`, `block-active`, `nudge`. |
 | `NEXT_PUBLIC_CHAT_POLL_INTERVAL_MS` | No | `1500` (code) / `1000` (docker-compose) | `/chat` transcript poll cadence (ms) when the SSE channel drops. **Baked at build time**, so changing it requires `make rebuild`. |
 
-> **Sandbox runtime requirement**
-> 
-> Enabling sandbox mode via `OPENCLAW_SECURITY_SANDBOX_ALL=1` requires Docker access. Ensure the `mc-openclaw-gateway` service bind-mounts the host Docker socket (`/var/run/docker.sock`) as shown in `docker-compose-openclaw.yml`.
+> **Sandbox runtime note**
+>
+> The bundled OpenClaw sidecar does not mount `/var/run/docker.sock`. Keep
+> `OPENCLAW_SECURITY_SANDBOX_ALL=0` unless you intentionally provide a hardened sandbox runtime.
 
 > **Note — `OPENCLAW_HOME` vs `OPENCLAW_STATE_DIR`**
 >
-> Opzava supports two env vars for locating OpenClaw:
+> Opzava still reads two env vars for compatibility:
 >
-> - `OPENCLAW_HOME` — treated as the *parent* home directory; `.openclaw` is appended automatically.
->   Setting `OPENCLAW_HOME=/root/.openclaw` will resolve to `/root/.openclaw/.openclaw` (**double-nesting bug**).
-> - `OPENCLAW_STATE_DIR` — treated as the *exact* state directory path. Always prefer this.
+> - `OPENCLAW_HOME` — legacy parent-home path. Avoid it for new deployments.
+> - `OPENCLAW_STATE_DIR` — exact state directory path. Use this for the Docker sidecar.
 >
 > **Recommended `.env` for a standard install:**
 > ```env
-> OPENCLAW_STATE_DIR=/root/.openclaw
+> OPENCLAW_ENABLED=1
+> OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway
+> OPENCLAW_STATE_DIR=/home/nextjs/.openclaw
+> OPENCLAW_CONFIG_PATH=/home/nextjs/.openclaw/openclaw.json
 > MISSION_CONTROL_DATA_DIR=/absolute/path/to/.data
 > ```
 > Using an absolute path for `MISSION_CONTROL_DATA_DIR` ensures your
@@ -597,29 +599,23 @@ pnpm install
 
 **Checklist:**
 
-1. Verify the gateway is reachable from inside the container:
+1. Verify the sidecar is running:
    ```bash
-   docker exec mission-control curl -s http://host.docker.internal:18789
+   docker compose -f docker-compose.yml -f docker-compose-openclaw.yml ps mc-openclaw-gateway
    ```
 
-2. Check env vars are set:
+2. Verify the gateway is reachable from inside the Opzava container:
+   ```bash
+   docker exec mission-control curl -s http://mc-openclaw-gateway:18789/health
+   ```
+
+3. Check env vars are set:
    ```bash
    docker exec mission-control env | grep -i gateway
    ```
-   You should see `OPENCLAW_GATEWAY_HOST=host.docker.internal`.
+   You should see `OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway`.
 
-3. If using a **mounted `~/.openclaw`** directory, the `openclaw.json` inside may have
-   `gateway.host = "127.0.0.1"` — this is the host's loopback, not reachable from the
-   container. Environment variables take precedence over `openclaw.json`, so set
-   `OPENCLAW_GATEWAY_HOST=host.docker.internal` in your `.env` or docker-compose.
-
-4. **Browser WebSocket**: MC automatically rewrites Docker-internal hostnames
-   (`host.docker.internal`, `host-gateway`) to the browser's hostname. If the browser
-   still can't connect, set `NEXT_PUBLIC_GATEWAY_HOST` to a hostname your browser can reach.
-
-5. **Linux-specific**: `host.docker.internal` requires Docker 20.10+. The `extra_hosts`
-   entry in `docker-compose.yml` handles this. If using `docker run` directly, add
-   `--add-host=host.docker.internal:host-gateway`.
+4. **Browser WebSocket**: set `NEXT_PUBLIC_GATEWAY_HOST` to a hostname your browser can reach.
 
 ### AUTH_PASS with "#" is not working
 

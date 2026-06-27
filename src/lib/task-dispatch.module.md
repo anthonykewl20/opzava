@@ -71,7 +71,7 @@ orchestrators + the `TaskDispatchDeps` seam, not calling the privates from outsi
 4. **Gateway availability requires physical evidence.** `isGatewayAvailable()` (`:511-535`) returns true
    only if `openclaw.json` exists on disk **or** a gateway row has `status IN ('online','healthy','ready')`.
    It deliberately rejects the onboarding-seeded `primary`/`unknown` row — otherwise every dispatch
-   routes through `runOpenClaw` and fails `spawn openclaw ENOENT` on hosts without the binary.
+   routes through a gateway path before the Docker sidecar has actually been proven reachable.
 5. **Async dispatch has two reconciliation states.** A dispatched task's `metadata.async_state` is
    `'pending'` (a `runId` exists → `reconcileDeferredTaskCompletions` polls `agent.wait`) or
    `'accepted_without_run_id'` (no `runId` → `async_reconciliation: 'manual_required'`, never

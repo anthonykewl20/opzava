@@ -244,12 +244,16 @@ function scanNetwork(): Category {
   })
 
   const gwHost = config.gatewayHost
+  const gatewayPrivate =
+    gwHost === '127.0.0.1' ||
+    gwHost === 'localhost' ||
+    gwHost === 'mc-openclaw-gateway'
   checks.push({
     id: 'gateway_local',
-    name: 'Gateway bound to localhost',
-    status: gwHost === '127.0.0.1' || gwHost === 'localhost' ? 'pass' : 'fail',
+    name: 'Gateway uses local/private Docker target',
+    status: gatewayPrivate ? 'pass' : 'fail',
     detail: `Gateway host is ${gwHost}`,
-    fix: gwHost !== '127.0.0.1' && gwHost !== 'localhost' ? 'Set OPENCLAW_GATEWAY_HOST=127.0.0.1 — never expose the gateway publicly' : '',
+    fix: gatewayPrivate ? '' : 'Set OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway for Docker sidecar deployments, or 127.0.0.1 for a loopback-only standalone gateway.',
     severity: 'critical',
   })
 
@@ -272,8 +276,8 @@ function scanOpenClaw(): Category {
       status: gatewayOptional ? 'pass' : 'warn',
       detail: gatewayOptional
         ? 'OpenClaw not configured (standalone mode — gateway optional)'
-        : 'openclaw.json not found — OpenClaw checks skipped',
-      fix: gatewayOptional ? '' : 'Set OPENCLAW_HOME or OPENCLAW_CONFIG_PATH in .env',
+        : 'openclaw.json not found — OpenClaw sidecar checks skipped',
+      fix: gatewayOptional ? '' : 'Enable the Docker sidecar with OPENCLAW_ENABLED=1 make up openclaw and set OPENCLAW_CONFIG_PATH=/home/nextjs/.openclaw/openclaw.json inside the container.',
       severity: 'low',
     })
     return scoreCategory(checks)

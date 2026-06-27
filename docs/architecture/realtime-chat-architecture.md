@@ -528,7 +528,7 @@ SSE browser contract UNCHANGED. Set:
 | GET | `/api/events` | viewer | Primary multiplexed SSE. `Last-Event-ID` replay cursor = `realtime_events.id`. Honors `?types=`. Phase 1: resync.required + replay.complete + from/to predicate + jittered retry. |
 | GET | `/api/v1/runs/stream` | viewer | SSE of Agent-Run-Protocol events. Phase 1: honor `?types=` (currently IGNORED); share extracted SSE module. |
 | GET | `/api/ops/chat-metrics` | admin | Realtime observability. In-process counters, no metrics backend. |
-| GET | `/api/ops/chat-doctor` | admin | Chat health doctor (`OpenClawDoctorStatus` shape, single-flight + TTL cache). |
+| GET | `/api/ops/chat-doctor` | admin | Chat health doctor (`DoctorStatus` shape, single-flight + TTL cache). |
 | GET | `/api/status?action=health` | viewer | Full health; chat check PUSHED in `performHealthCheck()` near `status/route.ts:597`. |
 | GET | `/api/health` | anonymous | Liveness probe (orchestrator). No chat logic. |
 
@@ -587,7 +587,7 @@ Name `Realtime Chat`. PUSHED in `performHealthCheck()` near `src/app/api/status/
 
 ### Chat doctor — `GET /api/ops/chat-doctor` (admin)
 
-Follows the `OpenClawDoctorStatus` shape (`src/lib/openclaw-doctor.ts:6-14`): `{level, category, healthy, summary, issues, canFix}`, `level 'healthy'|'warning'|'error'`, `category 'config'|'state'|'security'|'general'`. Single-flight + TTL cache mirroring `/api/openclaw/doctor` (`src/app/api/openclaw/doctor/route.ts`). Headers `Cache-Control:no-store`; `X-Doctor-Cache:hit|miss`.
+Follows the route-local `DoctorStatus` shape from `/api/openclaw/doctor`: `{level, category, healthy, summary, issues, canFix}`, `level 'healthy'|'warning'|'error'`, `category 'config'|'state'|'security'|'general'`. OpenClaw doctor is now a Docker sidecar health probe; do not depend on a local `openclaw doctor` parser. Headers `Cache-Control:no-store`.
 
 Checks (each `canFix` per contract):
 

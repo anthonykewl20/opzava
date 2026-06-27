@@ -521,19 +521,17 @@ function getAnthropicApiKey(): string | null {
 }
 
 function isGatewayAvailable(): boolean {
-  // `config.openclawHome` defaults to `~/.openclaw` even when OpenClaw is not
-  // installed, so a truthy path string alone is not evidence that a gateway
-  // can actually be invoked. Require physical evidence:
-  //   - a real `openclaw.json` on disk (= an installed OpenClaw config), OR
+  // `config.openclawHome` is a legacy alias for the sidecar state dir, so a
+  // truthy path string alone is not evidence that a gateway can actually be
+  // invoked. Require physical evidence:
+  //   - a real `openclaw.json` on disk (= sidecar state mounted into Opzava), OR
   //   - a registered gateway row whose status is healthy. We explicitly
   //     reject `status = 'unknown'` because the onboarding flow seeds a
-  //     `primary` row pointing at `host.docker.internal:18789` regardless
-  //     of whether OpenClaw is actually running. Treating that seed row as
-  //     proof of availability would route every dispatch through
-  //     `runOpenClaw` and fail with `spawn openclaw ENOENT` on hosts that
-  //     don't have the binary. Require the row to have been pinged
-  //     successfully at least once (status in healthy set) before we trust
-  //     the gateway path.
+  //     `primary` row regardless of whether the Docker sidecar is actually
+  //     running. Treating that seed row as proof of availability would route
+  //     dispatch through a gateway path before the sidecar is reachable.
+  //     Require the row to have been pinged successfully at least once
+  //     (status in healthy set) before we trust the gateway path.
   if (config.openclawConfigPath && existsSync(config.openclawConfigPath)) return true
   try {
     const db = getDatabase()

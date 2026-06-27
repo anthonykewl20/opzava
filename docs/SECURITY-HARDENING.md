@@ -221,19 +221,20 @@ MC_RETAIN_GATEWAY_SESSIONS_DAYS=90 # Gateway session history
 
 ## OpenClaw Gateway Hardening
 
-Opzava acts as the mothership for your OpenClaw fleet. The installer automatically checks and repairs common OpenClaw configuration issues.
+Opzava acts as the control plane for your OpenClaw fleet. OpenClaw runs only as the
+`mc-openclaw-gateway` Docker sidecar for this app; do not install or start `openclaw` on the host.
 
 ### 1. Network Security
 
 - **Never expose the gateway publicly.** It runs on port 18789 by default.
-- **Bind to localhost:** Set `gateway.bind: "loopback"` in `openclaw.json`.
+- **Keep it on the Docker network:** use `OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway` from Opzava.
 - **Use SSH tunneling or Tailscale** for remote access.
-- **Docker users:** Be aware that Docker can bypass UFW rules. Use `DOCKER-USER` chain rules.
+- **Docker users:** Be aware that published ports can bypass UFW rules. Use `DOCKER-USER` chain rules if the gateway port is exposed.
 
 ### 2. Authentication
 
 - **Always enable gateway auth** with a strong random token.
-- Generate: `openclaw doctor --generate-gateway-token`
+- Generate: `openssl rand -hex 32`
 - Store in `OPENCLAW_GATEWAY_TOKEN` env var (never in `NEXT_PUBLIC_*` variables).
 - Rotate regularly.
 
@@ -265,9 +266,7 @@ Opzava acts as the mothership for your OpenClaw fleet. The installer automatical
 ### 4. File Permissions
 
 ```bash
-chmod 700 ~/.openclaw
-chmod 600 ~/.openclaw/openclaw.json
-chmod 600 ~/.openclaw/credentials/*
+docker compose exec mc-openclaw-gateway sh -lc 'chmod 700 "$OPENCLAW_STATE_DIR" && chmod 600 "$OPENCLAW_CONFIG_PATH" && chmod 600 "$OPENCLAW_STATE_DIR"/credentials/*'
 ```
 
 ### 5. Tool Security
@@ -308,14 +307,14 @@ Internet
   |
 [Opzava :3000] ---- [SQLite .data/]
   |
-[OpenClaw Gateway :18789 (localhost only)]
+[mc-openclaw-gateway sidecar :18789]
   |
 [Agent Workspaces]
 ```
 
 - Reverse proxy handles TLS termination, rate limiting, and access control
 - Opzava listens on localhost or a private network
-- OpenClaw Gateway is bound to loopback only
+- OpenClaw Gateway stays on the private Docker network unless intentionally exposed through a hardened route
 - Agent workspaces are isolated per-agent directories
 
 ---

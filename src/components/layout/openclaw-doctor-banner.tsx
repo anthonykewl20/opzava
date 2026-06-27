@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useMissionControl } from '@/store'
 
-interface OpenClawDoctorStatus {
+interface DoctorStatus {
   level: 'healthy' | 'warning' | 'error'
   category: 'config' | 'state' | 'security' | 'general'
   healthy: boolean
@@ -24,7 +24,7 @@ type BannerState = 'idle' | 'fixing' | 'success' | 'error'
 export function OpenClawDoctorBanner() {
   const t = useTranslations('doctorBanner')
   const tc = useTranslations('common')
-  const [doctor, setDoctor] = useState<OpenClawDoctorStatus | null>(null)
+  const [doctor, setDoctor] = useState<DoctorStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const doctorDismissedAt = useMissionControl(s => s.doctorDismissedAt)
   const dismissDoctor = useMissionControl(s => s.dismissDoctor)

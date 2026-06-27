@@ -10408,7 +10408,7 @@
         "tags": [
           "API"
         ],
-        "summary": "Run OpenClaw doctor",
+        "summary": "Check OpenClaw Docker sidecar health",
         "operationId": "get_api_openclaw_doctor",
         "responses": {
           "200": {
@@ -10435,7 +10435,7 @@
         "tags": [
           "API"
         ],
-        "summary": "Run OpenClaw doctor fix",
+        "summary": "Reject local OpenClaw doctor fix",
         "operationId": "post_api_openclaw_doctor",
         "responses": {
           "200": {
@@ -10474,7 +10474,7 @@
         "tags": [
           "API"
         ],
-        "summary": "Get OpenClaw version info",
+        "summary": "Get OpenClaw Docker sidecar version info",
         "operationId": "get_api_openclaw_version",
         "responses": {
           "200": {
@@ -10503,7 +10503,7 @@
         "tags": [
           "API"
         ],
-        "summary": "Update OpenClaw",
+        "summary": "Return OpenClaw Docker sidecar update instructions",
         "operationId": "post_api_openclaw_update",
         "responses": {
           "200": {
@@ -12098,8 +12098,16 @@
                   "username": { "type": "string" },
                   "display_name": { "type": "string" },
                   "password": { "type": "string" },
-                  "gateway_mode": { "type": "boolean" },
-                  "install_openclaw": { "type": "boolean" },
+                  "gateway_mode": {
+                    "type": "boolean",
+                    "deprecated": true,
+                    "description": "Rejected. Per-user host OpenClaw gateway provisioning is disabled; use the mc-openclaw-gateway Docker sidecar."
+                  },
+                  "install_openclaw": {
+                    "type": "boolean",
+                    "deprecated": true,
+                    "description": "Rejected. Local OpenClaw installation is disabled; use the mc-openclaw-gateway Docker sidecar."
+                  },
                   "install_claude": { "type": "boolean" },
                   "install_codex": { "type": "boolean" }
                 }

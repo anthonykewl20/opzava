@@ -2,11 +2,13 @@
 <#
 .SYNOPSIS
     Opzava — Windows Installer
-    The mothership for your OpenClaw fleet.
+    The Opzava control plane installer.
 
 .DESCRIPTION
     Installs Opzava on Windows via local Node.js deployment.
-    Mirrors the behaviour of install.sh for Linux/macOS.
+    Mirrors the behaviour of install.sh for Linux/macOS. OpenClaw runs only as
+    the Docker sidecar for this app; the installer does not install or start a
+    host OpenClaw CLI.
 
 .PARAMETER Mode
     Deployment mode: "local" (default) or "docker".
@@ -21,7 +23,7 @@
     Target directory when cloning from GitHub (default: .\opzava).
 
 .PARAMETER SkipOpenClaw
-    Skip OpenClaw fleet checks.
+    Skip OpenClaw Docker sidecar checks.
 
 .EXAMPLE
     .\install.ps1
@@ -64,6 +66,31 @@ function Write-Err  { param([string]$Msg) Write-Host "[ERR] $Msg" -ForegroundCol
 function Stop-WithError { param([string]$Msg) Write-Err $Msg; exit 1 }
 
 function Test-Command { param([string]$Name) $null -ne (Get-Command $Name -ErrorAction SilentlyContinue) }
+
+function Test-Truthy {
+    param([string]$Value)
+    return $Value -match '^(1|true|yes|on)$'
+}
+
+function Get-EnvSetting {
+    param(
+        [string]$Name,
+        [string]$Default = ""
+    )
+
+    $value = [Environment]::GetEnvironmentVariable($Name)
+    if ($value) { return $value }
+
+    $envPath = Join-Path $script:InstallDir ".env"
+    if (Test-Path $envPath) {
+        $line = Get-Content $envPath | Where-Object { $_ -match "^\s*$([regex]::Escape($Name))=(.*)$" } | Select-Object -First 1
+        if ($line) {
+            return ($line -replace "^\s*$([regex]::Escape($Name))=", "").Trim().Trim('"')
+        }
+    }
+
+    return $Default
+}
 
 function Get-RandomPassword {
     param([int]$Length = 24)
@@ -197,6 +224,12 @@ function New-EnvFile {
         $content = $content -replace '(?m)^# PORT=3000', "PORT=$($script:Port)"
     }
 
+    if ($script:Mode -eq "docker") {
+        $content = $content -replace '(?m)^# OPENCLAW_GATEWAY_HOST=.*', "OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway"
+        $content = $content -replace '(?m)^# OPENCLAW_STATE_DIR=.*', "OPENCLAW_STATE_DIR=/home/nextjs/.openclaw"
+        $content = $content -replace '(?m)^# OPENCLAW_CONFIG_PATH=.*', "OPENCLAW_CONFIG_PATH=/home/nextjs/.openclaw/openclaw.json"
+    }
+
     $content | Set-Content $envPath -NoNewline
     Write-Ok "Secure .env generated"
 
@@ -216,7 +249,12 @@ function Deploy-Docker {
     Push-Location $script:InstallDir
     try {
         $env:MC_PORT = $script:Port
-        docker compose up -d --build
+        $composeFileArgs = @()
+        if (Test-Truthy (Get-EnvSetting "OPENCLAW_ENABLED" "0")) {
+            $composeFileArgs = @("-f", "docker-compose.yml", "-f", "docker-compose-openclaw.yml")
+            Write-MC "OpenClaw sidecar enabled via docker-compose-openclaw.yml"
+        }
+        docker compose @composeFileArgs up -d --build
 
         Write-MC "Waiting for Opzava to become healthy..."
         $retries = 30
@@ -231,7 +269,7 @@ function Deploy-Docker {
 
         if ($retries -eq 0) {
             Write-Warn "Timeout waiting for health check - container may still be starting"
-            docker compose logs --tail 20
+            docker compose @composeFileArgs logs --tail 20
         } else {
             Write-Ok "Opzava is running in Docker"
         }
@@ -302,7 +340,7 @@ function Deploy-Local {
     }
 }
 
-# ── OpenClaw fleet check ─────────────────────────────────────────────────────
+# ── OpenClaw Docker sidecar check ────────────────────────────────────────────
 function Test-OpenClaw {
     if ($SkipOpenClaw) {
         Write-MC "Skipping OpenClaw checks (-SkipOpenClaw)"
@@ -310,48 +348,39 @@ function Test-OpenClaw {
     }
 
     Write-Host ""
-    Write-MC "=== OpenClaw Fleet Check ==="
+    Write-MC "=== OpenClaw Docker Sidecar Check ==="
 
-    if (Test-Command "openclaw") {
-        $ocVersion = try { openclaw --version 2>$null } catch { "unknown" }
-        Write-Ok "OpenClaw binary found: $ocVersion"
-    } elseif (Test-Command "clawdbot") {
-        $cbVersion = try { clawdbot --version 2>$null } catch { "unknown" }
-        Write-Ok "ClawdBot binary found: $cbVersion (legacy)"
-        Write-Warn "Consider upgrading to openclaw CLI"
-    } else {
-        Write-MC "OpenClaw CLI not found - install it to enable agent orchestration"
-        Write-MC "  See: https://github.com/builderz-labs/openclaw"
+    if (-not (Test-Truthy (Get-EnvSetting "OPENCLAW_ENABLED" "0"))) {
+        Write-MC "OpenClaw sidecar disabled. Set OPENCLAW_ENABLED=1 in .env to enable it."
+        Write-MC "  docker compose -f docker-compose.yml -f docker-compose-openclaw.yml up -d --build"
         return
     }
 
-    # Check OpenClaw home directory
-    $ocHome = if ($env:OPENCLAW_HOME) { $env:OPENCLAW_HOME } else { Join-Path $HOME ".openclaw" }
-    if (Test-Path $ocHome) {
-        Write-Ok "OpenClaw home: $ocHome"
-
-        $ocConfig = Join-Path $ocHome "openclaw.json"
-        if (Test-Path $ocConfig) {
-            Write-Ok "Config found: $ocConfig"
-        } else {
-            Write-Warn "No openclaw.json found at $ocConfig"
-            Write-MC "Opzava will create a default config on first gateway connection"
-        }
-    } else {
-        Write-MC "OpenClaw home not found at $ocHome"
-        Write-MC "Set OPENCLAW_HOME in .env to point to your OpenClaw state directory"
+    if ($Mode -ne "docker") {
+        Write-Warn "OpenClaw is Docker-managed; local Opzava mode will not install or start a host OpenClaw CLI."
+        Write-MC "Start the sidecar from a Docker deployment when fleet gateway connectivity is required."
+        return
     }
 
-    # Check gateway port
-    $gwHost = if ($env:OPENCLAW_GATEWAY_HOST) { $env:OPENCLAW_GATEWAY_HOST } else { "127.0.0.1" }
-    $gwPort = if ($env:OPENCLAW_GATEWAY_PORT) { [int]$env:OPENCLAW_GATEWAY_PORT } else { 18789 }
+    $composeFileArgs = @("-f", "docker-compose.yml", "-f", "docker-compose-openclaw.yml")
+    $sidecar = docker compose @composeFileArgs ps mc-openclaw-gateway 2>$null
+    if ($LASTEXITCODE -eq 0 -and $sidecar -match "mc-openclaw-gateway") {
+        Write-Ok "OpenClaw sidecar is present in Docker Compose"
+    } else {
+        Write-Warn "OpenClaw sidecar is not running"
+        Write-MC "  docker compose -f docker-compose.yml -f docker-compose-openclaw.yml up -d --build mc-openclaw-gateway"
+        return
+    }
+
+    $gwHost = Get-EnvSetting "OPENCLAW_GATEWAY_HOST" "mc-openclaw-gateway"
+    $gwPort = [int](Get-EnvSetting "OPENCLAW_GATEWAY_PORT" "18789")
+    $probeHost = if ($gwHost -eq "mc-openclaw-gateway") { "127.0.0.1" } else { $gwHost }
     try {
-        $tcp = New-Object System.Net.Sockets.TcpClient
-        $tcp.Connect($gwHost, $gwPort)
-        $tcp.Close()
+        Invoke-WebRequest -Uri "http://${probeHost}:${gwPort}/health" -UseBasicParsing -TimeoutSec 3 | Out-Null
         Write-Ok "Gateway reachable at ${gwHost}:${gwPort}"
     } catch {
-        Write-MC "Gateway not reachable at ${gwHost}:${gwPort} (start it with: openclaw gateway start)"
+        Write-Warn "Gateway not reachable at ${gwHost}:${gwPort}"
+        Write-MC "  docker compose -f docker-compose.yml -f docker-compose-openclaw.yml logs --tail 50 mc-openclaw-gateway"
     }
 }
 

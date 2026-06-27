@@ -139,9 +139,9 @@ const endpoints: Endpoint[] = [
   { path: '/api/workload', methods: ['GET'], description: 'Agent workload stats', tag: 'System', auth: 'viewer' },
   { path: '/api/releases/check', methods: ['GET'], description: 'Check for updates', tag: 'System', auth: 'public' },
   { path: '/api/releases/update', methods: ['POST'], description: 'Update Opzava to a specific release tag', tag: 'System', auth: 'admin' },
-  { path: '/api/openclaw/version', methods: ['GET'], description: 'Installed OpenClaw version and latest release metadata', tag: 'System', auth: 'public' },
-  { path: '/api/openclaw/update', methods: ['POST'], description: 'Update OpenClaw to the latest stable release', tag: 'System', auth: 'admin' },
-  { path: '/api/openclaw/doctor', methods: ['GET', 'POST'], description: 'Inspect and fix OpenClaw configuration drift', tag: 'System', auth: 'admin' },
+  { path: '/api/openclaw/version', methods: ['GET'], description: 'Docker sidecar OpenClaw version and latest release metadata', tag: 'System', auth: 'public' },
+  { path: '/api/openclaw/update', methods: ['POST'], description: 'Return Docker sidecar OpenClaw update instructions', tag: 'System', auth: 'admin' },
+  { path: '/api/openclaw/doctor', methods: ['GET', 'POST'], description: 'Inspect OpenClaw Docker sidecar health; local fixes are disabled', tag: 'System', auth: 'admin' },
 
   // ── Local ─────────────────────────────────────────
   { path: '/api/local/flight-deck', methods: ['GET'], description: 'Local flight deck status', tag: 'Local', auth: 'viewer' },

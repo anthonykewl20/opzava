@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** Spawn a single pipeline step using `openclaw agent` */
+/** Spawn a single pipeline step through the OpenClaw sidecar gateway. */
 async function spawnStep(
   db: ReturnType<typeof getDatabase>,
   pipelineName: string,
@@ -127,20 +127,19 @@ async function spawnStep(
   workspaceId: number
 ): Promise<{ success: boolean; stdout?: string; error?: string }> {
   try {
-    const { runOpenClaw } = await import('@/lib/command')
-    const args = [
-      'agent',
-      '--message', `[Pipeline: ${pipelineName} | Step ${stepIdx + 1}] ${template.task_prompt}`,
-      '--timeout', String(template.timeout_seconds),
-      '--json',
-    ]
-    const { stdout } = await runOpenClaw(args, { timeoutMs: 15000 })
+    const { callOpenClawGateway } = await import('@/lib/openclaw-gateway')
+    const result = await callOpenClawGateway('agent', {
+      message: `[Pipeline: ${pipelineName} | Step ${stepIdx + 1}] ${template.task_prompt}`,
+      timeoutMs: template.timeout_seconds * 1000,
+      idempotencyKey: `pipeline-${runId}-step-${stepIdx}`,
+      deliver: false,
+    }, 15000)
 
     const spawnId = `pipeline-${runId}-step-${stepIdx}-${Date.now()}`
     steps[stepIdx].spawn_id = spawnId
     db.prepare('UPDATE pipeline_runs SET steps_snapshot = ? WHERE id = ? AND workspace_id = ?').run(JSON.stringify(steps), runId, workspaceId)
 
-    return { success: true, stdout: stdout.trim() }
+    return { success: true, stdout: JSON.stringify(result) }
   } catch (err: any) {
     // Spawn failed - record error but keep pipeline running for manual advance
     steps[stepIdx].error = err.message

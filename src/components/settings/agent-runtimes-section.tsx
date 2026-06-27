@@ -156,7 +156,7 @@ export function AgentRuntimesSection({ showFeedback }: Props) {
 
       {isDocker && (
         <div className="mb-3 p-2 rounded border border-void-cyan/20 bg-void-cyan/5 text-xs text-muted-foreground">
-          Running in Docker — install directly or use sidecar services for production.
+          Running in Docker. OpenClaw is managed only as the Opzava sidecar image; local OpenClaw installs are disabled.
         </div>
       )}
 
@@ -166,6 +166,7 @@ export function AgentRuntimesSection({ showFeedback }: Props) {
           const isInstalling = job?.status === 'running' || job?.status === 'pending'
           const installFailed = job?.status === 'failed'
           const justInstalled = job?.status === 'success'
+          const isOpenClaw = rt.id === 'openclaw'
 
           return (
             <div
@@ -239,7 +240,9 @@ export function AgentRuntimesSection({ showFeedback }: Props) {
 
                       <div className="flex items-center gap-1.5">
                         <Button variant="ghost" size="sm" onClick={() => handleDetect(rt.id)} className="text-2xs h-6 px-2">Refresh</Button>
-                        {!rt.installed && !justInstalled && (
+                        {isOpenClaw ? (
+                          <Button variant="ghost" size="sm" onClick={() => handleCopyCompose(rt.id)} className="text-2xs h-6 px-2">Sidecar command</Button>
+                        ) : !rt.installed && !justInstalled && (
                           <>
                             <Button variant="ghost" size="sm" onClick={() => handleInstall(rt.id)} className="text-2xs h-6 px-2">Install</Button>
                             {isDocker && (
@@ -255,6 +258,12 @@ export function AgentRuntimesSection({ showFeedback }: Props) {
                     {rt.installed && rt.authRequired && (
                       <p className={`text-2xs mt-1 ${rt.authenticated ? 'text-emerald-400/70' : 'text-amber-400'}`}>
                         {rt.authenticated ? 'Authenticated' : rt.authHint}
+                      </p>
+                    )}
+
+                    {isOpenClaw && !rt.installed && (
+                      <p className="text-2xs mt-1 text-muted-foreground/60">
+                        Start with <code>OPENCLAW_ENABLED=1 make up openclaw</code>.
                       </p>
                     )}
 

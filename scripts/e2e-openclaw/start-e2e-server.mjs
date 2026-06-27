@@ -204,7 +204,6 @@ const baseEnv = {
   OPENCLAW_CONFIG_PATH: path.join(runtimeRoot, 'openclaw.json'),
   OPENCLAW_GATEWAY_HOST: gatewayHost,
   OPENCLAW_GATEWAY_PORT: gatewayPort,
-  OPENCLAW_BIN: path.join(mockBinDir, 'openclaw'),
   OPENCODE_BIN: path.join(mockBinDir, 'opencode'),
   CLAWDBOT_BIN: path.join(mockBinDir, 'clawdbot'),
   MC_SKILLS_USER_AGENTS_DIR: path.join(skillsRoot, 'user-agents'),

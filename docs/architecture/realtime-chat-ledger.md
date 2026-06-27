@@ -81,7 +81,7 @@ Decisions carried forward verbatim from the contract. Status is final.
 | **D-BROADCAST-REORDER** | Broadcast the originating user message BEFORE generating coordinator replies (fixes reply-before-original ordering). Move the `chat.message` outbox insert INTO the message-insert transaction (P1-2) so it commits before any gateway I/O. |
 | **D-PROXY-MATRIX** | Document an SSE-safe proxy config matrix per deployment target: nginx `proxy_read_timeout 3600s` + `proxy_buffering off` + `proxy_ignore_headers X-Accel-Buffering`; Traefik buffering middleware OFF (auto-detects SSE); Cloudflare heartbeat <100s caveat + 524 after ~100-120s. HTTP/2 preferred at the reverse proxy (SSE/HTTP/1.1 ~6-conn/browser cap). |
 | **D-OBSERVABILITY** | Phase 1: lightweight in-process counter module (no metrics backend). Gauge `activeSseConnections`, rolling p95 of `(now - event.timestamp)` at sendEvent delivery, `realtime_events` row count. Expose via `GET /api/ops/chat-metrics` (admin) + 60s log line. Broker-lag/load-tests are Phase 3 (dropped from P1). |
-| **D-CHAT-DOCTOR** | Add a chat doctor following the `OpenClawDoctorStatus` shape at `GET /api/ops/chat-doctor` (admin role): single-flight + TTL cache like `/api/openclaw/doctor`. Checks write-path atomicity, idempotency constraint presence, SSE replay/resync wiring, ephemeral-guard, drain handler. |
+| **D-CHAT-DOCTOR** | Add a chat doctor following the `DoctorStatus` shape at `GET /api/ops/chat-doctor` (admin role): single-flight + TTL cache like `/api/openclaw/doctor`. Checks write-path atomicity, idempotency constraint presence, SSE replay/resync wiring, ephemeral-guard, drain handler. |
 | **D-BROKER** | Phase 2/3 = broker adapter (Redis Streams + `realtime_event_consumers(consumer_id, partition_key, last_processed_event_number)` consumer-offset table), full `chat_participants` membership tier, presence/typing ephemeral channel, NATS JetStream, Postgres migration. None of these block single-node production user chat. |
 
 ---
@@ -113,7 +113,7 @@ binding verdict; "Follow-up" is the implementation item that closes the gap.
 | `scripts/dokploy-parity-test.sh:89-111` | Static-content assertion: greps `retry: 5000` + `"type":"connected"` (both emitted at stream open `events/route.ts:102-103`). A proxy buffering AFTER the initial flush passes green. | Make temporal: open SSE, POST from a second curl, assert matching frame on the SAME open conn within ~3s. | I11 |
 | `docker-compose.dokploy.yml:13-33` | No SSE buffering/timeout config; Traefik auto-detects `text/event-stream`. | Document nginx/CF/Traefik proxy matrix; verify no buffering middleware; no `flushInterval` labels. | I18 |
 | `src/lib/db.ts:46-52` | WAL + `synchronous=NORMAL` + `cache_size=1000` (~4MB) + `busy_timeout=5000` set correctly. Omits `temp_store=MEMORY`; leaves `wal_autocheckpoint` unset; carries dead index `idx_realtime_events_id` (`migrations.ts:1473`). | Add `cache_size=-65536`, `temp_store=MEMORY` (keep `wal_autocheckpoint` default 1000); drop `idx_realtime_events_id`. | (P3-9; migration 054b) |
-| `src/lib/openclaw-doctor.ts:6-14`; `src/app/api/openclaw/doctor/route.ts:28-66` | `OpenClawDoctorStatus { level, category, healthy, summary, issues, canFix, raw }`; single-flight + TTL cache module. | Mirror this shape + cache pattern for `GET /api/ops/chat-doctor`. | I-doctor |
+| `src/app/api/openclaw/doctor/route.ts` | Route-local `DoctorStatus { level, category, healthy, summary, issues, canFix, raw }`; OpenClaw doctor is a Docker sidecar health probe. | Mirror this response shape for `GET /api/ops/chat-doctor`; do not depend on a local `openclaw doctor` parser. | I-doctor |
 | `src/app/api/status/route.ts:511-659` | `performHealthCheck()` pushes `HealthCheckEntry[]` via `health.checks.push(...)` (`:597,:598`). `HealthCheckEntry` shape in `src/lib/connectivity-health.ts:18-24`. | Push a `name:'Realtime Chat'` entry (pure evaluator, reads in-process metrics). | I-health |
 | `src/lib/websocket.ts` (gateway control) | Application-level RPC `{type:'req',method:'ping'}`, NOT a protocol ping; degrades to passive mode when gateway replies `unknown method: ping`. | NOT canonical chat transport (D-WS-SEPARATE). Out of chat scope. | (D-WS-SEPARATE) |
 | `src/lib/pty-websocket.ts` (PTY) | Auth + heartbeat + backpressure; `ptyPool` is in-process `Map`, no affinity header. | NOT canonical chat transport; sticky/local affinity remains required for PTY. | (D-WS-SEPARATE) |
@@ -531,17 +531,17 @@ I6 (tx) ──► I2 (idempotency)          I20 (DRY SSE) ──► I-resync (se
 
 ---
 
-#### I-doctor — Chat doctor at GET /api/ops/chat-doctor (OpenClawDoctorStatus shape)
+#### I-doctor — Chat doctor at GET /api/ops/chat-doctor (DoctorStatus shape)
 
-- **What.** New chat doctor returning `OpenClawDoctorStatus[]` (single-flight +
-  TTL cache mirroring `src/app/api/openclaw/doctor/route.ts:28-66`). Checks:
+- **What.** New chat doctor returning `DoctorStatus[]` (same response shape as
+  `src/app/api/openclaw/doctor/route.ts`). Checks:
   write-path atomicity, idempotency index, SSE resync/replay wiring,
   ephemeral-guard, drain handler, coordinator-from-guard, SSE DRY module.
   Conforms to D-CHAT-DOCTOR.
 - **Target files.**
   - `src/lib/chat-doctor.ts` (new) — aggregator + single-flight + TTL cache;
     shape `{ level, category, healthy, summary, issues, canFix }`
-    (`src/lib/openclaw-doctor.ts:6-14`).
+    matching the route-local sidecar-health status shape.
   - `src/app/api/ops/chat-doctor/route.ts` (new, admin role).
 - **Deterministic acceptance criteria.** `GET /api/ops/chat-doctor` (admin)
   returns doctorCheck entries covering `chat-write-atomicity`,
@@ -712,7 +712,7 @@ shape `{ id: string, up: (db) => void }`. Idempotent, transactional, tracked in
 | GET | `/api/events` | viewer | Primary multiplexed SSE stream. Last-Event-ID replay cursor = `realtime_events.id`. Honors `?types=`. Adds `resync.required` + `replay.complete` + from/to predicate + jittered retry. Headers: `Last-Event-ID` (or `?lastEventId`), `?types=csv`. Frames: `id:`/`data:` only (no `event:`). `connected` (no id), data events, `resync.required` (no id) when `lastSentId<min(id)`, `replay.complete` (no id) after replay. Heartbeat `: heartbeat\n\n` every 15s. Response headers: `Cache-Control:no-cache,no-transform; Connection:keep-alive; X-Accel-Buffering:no`. | Phase-1 |
 | GET | `/api/v1/runs/stream` | viewer | SSE stream of Agent-Run-Protocol events. Honors `?types=` (currently IGNORED at `:18-23` — MUST be honored). Shares the extracted SSE module. Same frame/heartbeat/headers as `/api/events` plus `X-Agent-Run-Protocol:0.1.0`. | Phase-1 |
 | GET | `/api/ops/chat-metrics` | admin | Realtime chat observability. In-process counters, no metrics backend. `requireRole(request,'admin')`. Optional `?reset`. Response: `{activeSseConnections, deliveryLagP95Ms, realtimeEventRows, retryBaseMs, retryJitterMs, ssePollMs}`. | Phase-1 |
-| GET | `/api/ops/chat-doctor` | admin | Chat health doctor, `OpenClawDoctorStatus` shape, single-flight + TTL cache. Headers `Cache-Control:no-store; X-Doctor-Cache:hit|miss`. | Phase-1 |
+| GET | `/api/ops/chat-doctor` | admin | Chat health doctor, `DoctorStatus` shape, single-flight + TTL cache. Headers `Cache-Control:no-store`. | Phase-1 |
 | GET | `/api/status?action=health` | viewer | Full health; chat check PUSHED in `performHealthCheck()` near `status/route.ts:597`. Response includes `checks:[{name:'Realtime Chat', ...}]`. | Phase-1 |
 | GET | `/api/health` | anonymous | Anonymous liveness probe. No chat logic. `{status:'ok', db:'ok', ts}`, 503 on DB fail. Existing. | Phase-0 |
 
@@ -766,9 +766,8 @@ Entry `name:'Realtime Chat'` pushed in `performHealthCheck()` at
 
 ### Doctor checks — `GET /api/ops/chat-doctor` (admin)
 
-Returns `OpenClawDoctorStatus[]` (`{ level, category, healthy, summary, issues, canFix }`,
-`src/lib/openclaw-doctor.ts:6-14`). Single-flight + TTL cache
-(`src/app/api/openclaw/doctor/route.ts:28-66`).
+Returns `DoctorStatus[]` (`{ level, category, healthy, summary, issues, canFix }`),
+matching `src/app/api/openclaw/doctor/route.ts`.
 
 | id | category | summary | canFix |
 |---|---|---|---|
@@ -952,7 +951,7 @@ node .next/standalone/server.js    # standalone (next.config.js output:'standalo
 - `src/lib/db.ts` (`:46-52` PRAGMAs)
 - `src/lib/migrations.ts` (`:60-83` messages; `:1463-1478` realtime_events; `:583-684` workspace_id)
 - `src/lib/auth.ts` (`:632-644` requireRole)
-- `src/lib/openclaw-doctor.ts` (`:6-14` shape); `src/app/api/openclaw/doctor/route.ts` (`:28-66` single-flight + TTL)
+- `src/app/api/openclaw/doctor/route.ts` (Docker sidecar health response shape)
 - `src/app/api/status/route.ts` (`:511-659` performHealthCheck; `:597-598` push sites)
 - `src/lib/connectivity-health.ts` (`:18-24` HealthCheckEntry)
 - `src/store/index.ts` (`:1120` addChatMessage dedup)

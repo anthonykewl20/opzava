@@ -2,6 +2,10 @@
 
 This document consolidates security and hardening best practices for the OpenClaw Gateway, drawing from official documentation and recent security advisories.
 
+> **Opzava topology rule:** OpenClaw runs only as the `mc-openclaw-gateway` Docker sidecar for this
+> app. Do not install or run a host/laptop `openclaw` binary for Opzava. Use
+> `OPENCLAW_ENABLED=1 make up openclaw` to start the sidecar.
+
 ## 1. Core Security Model & Deployment Considerations
 
 OpenClaw is designed primarily for a **personal assistant deployment model**, assuming one trusted operator per gateway. It is **not intended for multi-tenant environments** with untrusted or adversarial users. For such scenarios, run separate gateway instances for each trust boundary.
@@ -55,14 +59,14 @@ For a secure starting point, consider the following configuration, which keeps t
 ### 3.1. Network Security
 
 *   **Do Not Expose Publicly:** Never expose the OpenClaw gateway directly to the public internet. It typically runs on port 18789. Publicly exposed gateways are easily discoverable.
-*   **Bind to Localhost:** Configure the gateway to listen only for connections from the local machine by binding it to `127.0.0.1` (localhost) or `loopback` in your `openclaw.json`.
+*   **Bind Privately:** For Opzava, keep the gateway on the Compose network and point Opzava at `mc-openclaw-gateway`. If you run a standalone gateway outside Opzava, bind it to `127.0.0.1` or `loopback`.
 *   **Firewall Rules:** Implement strict firewall rules to block all unnecessary inbound and outbound connections, allowing only essential traffic.
 *   **Secure Remote Access:** For remote access, use secure methods like SSH tunneling or a VPN (e.g., Tailscale) instead of direct exposure.
 *   **Docker Considerations:** If using Docker, be aware that it can bypass UFW rules. Configure rules in the `DOCKER-USER` chain to control exposure.
 
 ### 3.2. Authentication and Access Control
 
-*   **Enable Gateway Authentication:** Always enable gateway authentication and use a strong, randomly generated authentication token. Generate a token with `openclaw doctor --generate-gateway-token`.
+*   **Enable Gateway Authentication:** Always enable gateway authentication and use a strong, randomly generated authentication token. Generate a token with `openssl rand -hex 32`.
 *   **Manage Access Tokens:** Treat your gateway authentication token like a password. Rotate it regularly and store it securely (e.g., as an environment variable, not in plaintext config files).
 *   **Restrict Chat and Messaging:** If integrating with chat platforms, use allowlists to specify which user IDs can interact with your agent.
 *   **Direct Messages (DMs) and Groups:**
@@ -87,10 +91,10 @@ For a secure starting point, consider the following configuration, which keeps t
 
 ### 3.5. File System Permissions
 
-*   Ensure your configuration and state files are private.
-*   `~/.openclaw/openclaw.json` should have permissions `600` (user read/write only).
-*   The `~/.openclaw` directory should have permissions `700` (user access only).
-*   `~/.openclaw/credentials/` and its contents should also be `600`.
+*   Ensure your configuration and state files are private inside the `mc-openclaw-gateway` sidecar volume.
+*   `$OPENCLAW_CONFIG_PATH` should have permissions `600` (container user read/write only).
+*   `$OPENCLAW_STATE_DIR` should have permissions `700` (container user access only).
+*   `$OPENCLAW_STATE_DIR/credentials/` and its contents should also be `600`.
 
 ### 3.6. Tool and Skill Security
 

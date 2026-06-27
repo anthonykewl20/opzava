@@ -13,7 +13,7 @@ vi.mock('@/lib/opencode-sessions', () => ({
 }))
 
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }))
-vi.mock('@/lib/config', () => ({ config: { openclawConfigPath: '', openclawBin: 'openclaw', gatewayHost: '127.0.0.1', gatewayPort: 18789, homeDir: '/tmp', dataDir: '/tmp' } }))
+vi.mock('@/lib/config', () => ({ config: { openclawConfigPath: '', gatewayHost: '127.0.0.1', gatewayPort: 18789, homeDir: '/tmp', dataDir: '/tmp' } }))
 
 describe('detectRuntime(opencode)', () => {
   it('reports OpenCode as installed and running when active sessions exist', async () => {

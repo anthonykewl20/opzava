@@ -82,7 +82,7 @@ describe('DELETE /api/agents/[id]', () => {
     expect(body.success).toBe(true)
   })
 
-  it('removes workspace via OpenClaw and then removes the config entry', async () => {
+  it('rejects host OpenClaw workspace deletion', async () => {
     const agent = { id: 8, name: 'adam', role: 'tester', config: JSON.stringify({ openclawId: 'adam' }) }
     const selectStmt = { get: vi.fn(() => agent) }
     const deleteStmt = { run: vi.fn() }
@@ -100,11 +100,13 @@ describe('DELETE /api/agents/[id]', () => {
     })
 
     const response = await DELETE(request, { params: Promise.resolve({ id: '8' }) })
+    const body = await response.json()
 
-    expect(response.status).toBe(200)
-    expect(runOpenClaw).toHaveBeenCalledWith(['agents', 'delete', 'adam', '--force'], { timeoutMs: 30000 })
-    expect(removeAgentFromConfig).toHaveBeenCalledWith({ id: 'adam', name: 'adam' })
-    expect(deleteStmt.run).toHaveBeenCalledWith(8, 1)
+    expect(response.status).toBe(400)
+    expect(body.error).toMatch(/workspace deletion is disabled/i)
+    expect(runOpenClaw).not.toHaveBeenCalled()
+    expect(removeAgentFromConfig).not.toHaveBeenCalled()
+    expect(deleteStmt.run).not.toHaveBeenCalled()
   })
 
   it('still deletes the Opzava agent when config cleanup fails', async () => {

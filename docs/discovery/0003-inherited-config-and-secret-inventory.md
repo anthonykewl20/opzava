@@ -75,8 +75,8 @@ Confirmed env-first settings in `src/lib/config.ts`:
 
 - Data and database paths: `MISSION_CONTROL_DATA_DIR`, `MISSION_CONTROL_DB_PATH`, `MISSION_CONTROL_TOKENS_PATH`, plus build-only variants.
 - OpenClaw paths: `OPENCLAW_CONFIG_PATH`, `MISSION_CONTROL_OPENCLAW_CONFIG_PATH`, `OPENCLAW_HOME`, `CLAWDBOT_HOME`, `MISSION_CONTROL_OPENCLAW_HOME`, `OPENCLAW_STATE_DIR`, `CLAWDBOT_STATE_DIR`, `OPENCLAW_WORKSPACE_DIR`, `MISSION_CONTROL_WORKSPACE_DIR`, `OPENCLAW_MEMORY_DIR`, `OPENCLAW_SOUL_TEMPLATES_DIR`.
-- Gateway defaults: `OPENCLAW_GATEWAY_HOST` defaulting to `127.0.0.1`, `OPENCLAW_GATEWAY_PORT` defaulting to `18789`.
-- CLI binaries: `OPENCLAW_BIN`, `CLAWDBOT_BIN`, Windows npm shim discovery.
+- Gateway defaults: Compose sets `OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway` for the Docker sidecar; `src/lib/config.ts` still has an inherited standalone fallback of `127.0.0.1`, `OPENCLAW_GATEWAY_PORT=18789`.
+- CLI binaries: `OPENCLAW_BIN` is retired and host OpenClaw execution is rejected; `CLAWDBOT_BIN` and Windows npm shim discovery remain for Clawdbot.
 - Coordinator and GNAP: `MC_COORDINATOR_AGENT`, `GNAP_ENABLED`, `GNAP_REPO_PATH`, `GNAP_AUTO_SYNC`, `GNAP_REMOTE_URL`.
 - Retention settings: `MC_RETAIN_ACTIVITIES_DAYS`, `MC_RETAIN_AUDIT_DAYS`, `MC_RETAIN_LOGS_DAYS`, `MC_RETAIN_NOTIFICATIONS_DAYS`, `MC_RETAIN_PIPELINE_RUNS_DAYS`, `MC_RETAIN_TOKEN_USAGE_DAYS`, `MC_RETAIN_GATEWAY_SESSIONS_DAYS`.
 
@@ -89,7 +89,7 @@ Confirmed DB-backed settings in `src/app/api/settings/route.ts`:
 
 Confirmed hard-coded or source-level defaults requiring future Opzava decisions:
 
-- Local gateway URLs in login/gateway flows default to `127.0.0.1`, `localhost`, and port `18789`.
+- Local gateway URLs in login/gateway flows may still tolerate `127.0.0.1`, `localhost`, and port `18789` for standalone testing; Docker deployments should use `mc-openclaw-gateway`.
 - Google Identity script uses `https://accounts.google.com/gsi/client` directly in the login page.
 - Google token verification calls `https://oauth2.googleapis.com/tokeninfo` directly in `src/lib/google-auth.ts`.
 - Ollama status probing uses `http://127.0.0.1:11434/api/tags` in `src/app/api/status/route.ts`.
@@ -120,7 +120,7 @@ Confirmed gaps for Opzava contracts:
 Confirmed inherited assumptions that should be isolated before Opzava workflows depend on them:
 
 - `src/lib/config.ts` treats OpenClaw state, workspace, memory, gateway host, gateway port, logs, and soul templates as first-class runtime paths.
-- OpenClaw gateway host defaults to `127.0.0.1` and port defaults to `18789`.
+- Docker OpenClaw gateway host is `mc-openclaw-gateway`; inherited standalone fallback is `127.0.0.1`; port defaults to `18789`.
 - `src/app/api/gateways/route.ts` seeds a primary gateway from OpenClaw-oriented env/runtime discovery.
 - `src/lib/openclaw-gateway.ts` uses OpenClaw RPC framing, scopes, gateway client ID defaults, and `mc-*` request IDs.
 - UI and runtime setup flows still intentionally expose OpenClaw/Hermes/OpenCode/Claude/Codex runtime management.

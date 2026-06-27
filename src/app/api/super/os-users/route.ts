@@ -18,7 +18,7 @@ export interface OsUser {
   has_claude: boolean
   /** Whether codex CLI is installed/accessible for this user */
   has_codex: boolean
-  /** Whether openclaw is installed for this user */
+  /** Deprecated: OpenClaw is Docker-sidecar only, not per-OS-user. */
   has_openclaw: boolean
   /** Whether this OS user is the one running the MC process (i.e. "Default" org) */
   is_process_owner: boolean
@@ -40,13 +40,13 @@ const SERVICE_ACCOUNTS = new Set([
   'ntp', 'chrony', 'systemd-network', 'systemd-resolve',
 ])
 
-/** Check if a CLI tool (claude, codex) is accessible for a given user home dir */
+/** Check if a local-plane CLI tool is accessible for a given user home dir */
 function checkToolExists(homeDir: string, tool: string): boolean {
   // Check common install locations relative to user home
   const candidates = [
     path.join(homeDir, '.local', 'bin', tool),
     path.join(homeDir, '.npm-global', 'bin', tool),
-    path.join(homeDir, `.${tool}`),             // e.g. ~/.claude, ~/.openclaw config dir = installed
+    path.join(homeDir, `.${tool}`),
   ]
   for (const p of candidates) {
     try { if (fs.existsSync(p)) return true } catch {}
@@ -59,41 +59,13 @@ function checkToolExists(homeDir: string, tool: string): boolean {
   return false
 }
 
-/** Install a tool (openclaw, claude, codex) for a given OS user. Non-fatal — returns success/error. */
+/** Install a local-plane tool for a given OS user. Non-fatal — returns success/error. */
 function installToolForUser(
   homeDir: string,
   username: string,
-  tool: 'openclaw' | 'claude' | 'codex'
+  tool: 'claude' | 'codex'
 ): { success: boolean; error?: string } {
   try {
-    if (tool === 'openclaw') {
-      // openclaw is managed by MC — create dir structure + install latest from npm
-      const openclawDir = path.join(homeDir, '.openclaw')
-      const workspaceDir = path.join(homeDir, 'workspace')
-      for (const dir of [openclawDir, workspaceDir]) {
-        try {
-          execFileSync('/usr/bin/sudo', ['-n', 'install', '-d', '-o', username, dir], { timeout: 5000, stdio: 'pipe' })
-        } catch {
-          // Fallback: mkdir directly (works if running as that user or root)
-          fs.mkdirSync(dir, { recursive: true })
-        }
-      }
-      // Install latest openclaw from GitHub (always latest) with npm fallback
-      try {
-        execFileSync('/usr/bin/sudo', ['-n', '-u', username, 'npm', 'install', '-g', 'openclaw/openclaw'], {
-          timeout: 120000,
-          stdio: 'pipe',
-          env: { ...process.env, HOME: homeDir },
-        })
-      } catch (npmErr: any) {
-        // Dir structure created but npm install failed — still partially useful
-        const msg = npmErr?.stderr?.toString?.()?.slice(0, 200) || npmErr?.message || 'npm install failed'
-        logger.warn({ tool, username, err: msg }, 'openclaw npm install failed, dir structure created')
-        return { success: true, error: `dirs created but npm install failed: ${msg}` }
-      }
-      return { success: true }
-    }
-
     if (tool === 'claude') {
       // Install claude code CLI globally for the user
       try {
@@ -180,7 +152,7 @@ function discoverOsUsers(): OsUser[] {
 
         const hasClaude = checkToolExists(homeDir, 'claude')
         const hasCodex = checkToolExists(homeDir, 'codex')
-        const hasOpenclaw = checkToolExists(homeDir, 'openclaw')
+        const hasOpenclaw = false
         users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_codex: hasCodex, has_openclaw: hasOpenclaw, is_process_owner: false })
       }
     } else if (platform === 'linux') {
@@ -199,7 +171,7 @@ function discoverOsUsers(): OsUser[] {
 
         const hasClaude = checkToolExists(homeDir, 'claude')
         const hasCodex = checkToolExists(homeDir, 'codex')
-        const hasOpenclaw = checkToolExists(homeDir, 'openclaw')
+        const hasOpenclaw = false
         users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_codex: hasCodex, has_openclaw: hasOpenclaw, is_process_owner: false })
       }
     }
@@ -247,9 +219,10 @@ export async function GET(request: NextRequest) {
  * POST /api/super/os-users - Create a new OS-level user and register as tenant (admin only)
  *
  * Local mode: creates OS user + home dir, registers in tenants table as active
- * Gateway mode: creates OS user + delegates to full bootstrap pipeline (openclaw + workspace + agents)
+ * Gateway mode was the old host/systemd OpenClaw bootstrap path. OpenClaw is
+ * Docker-sidecar only in Opzava, so this endpoint now rejects that mode.
  *
- * Body: { username, display_name, password?, gateway_mode?: boolean, gateway_port?, owner_gateway? }
+ * Body: { username, display_name, password? }
  */
 export async function POST(request: NextRequest) {
   const auth = requireRole(request, 'admin')
@@ -295,23 +268,14 @@ export async function POST(request: NextRequest) {
 
   const platform = os.platform()
 
-  // Gateway mode: delegate to full provisioning pipeline
-  if (gatewayMode) {
-    try {
-      const { createTenantAndBootstrapJob } = await import('@/lib/super-admin')
-      const result = createTenantAndBootstrapJob({
-        slug: username,
-        display_name: displayName,
-        linux_user: username,
-        gateway_port: body.gateway_port ? Number(body.gateway_port) : undefined,
-        owner_gateway: body.owner_gateway || undefined,
-        dry_run: body.dry_run !== false,
-        config: { install_openclaw: installOpenclaw, install_claude: installClaude, install_codex: installCodex },
-      }, actor)
-      return NextResponse.json(result, { status: 201 })
-    } catch (e: any) {
-      return NextResponse.json({ error: e?.message || 'Failed to create tenant bootstrap job' }, { status: 400 })
-    }
+  if (installOpenclaw || gatewayMode) {
+    return NextResponse.json(
+      {
+        error: 'OpenClaw is Docker-sidecar only. Do not install it for OS users.',
+        hint: 'Start the gateway with OPENCLAW_ENABLED=1 make up openclaw.',
+      },
+      { status: 400 },
+    )
   }
 
   // Local mode: create OS user directly + register in tenants table
@@ -396,11 +360,9 @@ export async function POST(request: NextRequest) {
 
     // Install requested tools (non-fatal)
     const installResults: Record<string, { success: boolean; error?: string }> = {}
-    const toolsToInstall: Array<'openclaw' | 'claude' | 'codex'> = []
-    if (installOpenclaw) toolsToInstall.push('openclaw')
-    // When openclaw is selected, claude+codex are bundled — skip separate installs
-    if (installClaude && !installOpenclaw) toolsToInstall.push('claude')
-    if (installCodex && !installOpenclaw) toolsToInstall.push('codex')
+    const toolsToInstall: Array<'claude' | 'codex'> = []
+    if (installClaude) toolsToInstall.push('claude')
+    if (installCodex) toolsToInstall.push('codex')
 
     for (const tool of toolsToInstall) {
       installResults[tool] = installToolForUser(homeDir, username, tool)

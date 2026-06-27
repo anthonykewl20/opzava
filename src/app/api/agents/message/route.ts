@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { runOpenClaw } from '@/lib/command'
 import { requireRole } from '@/lib/auth'
 import { validateBody, createMessageSchema } from '@/lib/validation'
 import { mutationLimiter } from '@/lib/rate-limit'
@@ -8,6 +7,7 @@ import { logger } from '@/lib/logger'
 import { scanForInjection } from '@/lib/injection-guard'
 import { scanForSecrets } from '@/lib/secret-scanner'
 import { logSecurityEvent } from '@/lib/security-events'
+import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 
 export async function POST(request: NextRequest) {
   const auth = requireRole(request, 'operator')
@@ -55,17 +55,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await runOpenClaw(
-      [
-        'gateway',
-        'sessions_send',
-        '--session',
-        agent.session_key,
-        '--message',
-        `Message from ${from}: ${message}`
-      ],
-      { timeoutMs: 10000 }
-    )
+    await callOpenClawGateway('chat.send', {
+      sessionKey: agent.session_key,
+      message: `Message from ${from}: ${message}`,
+      idempotencyKey: `agent-message-${agent.id}-${Date.now()}`,
+      deliver: false,
+    }, 10000)
 
     db_helpers.createNotification(
       to,

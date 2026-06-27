@@ -74,7 +74,16 @@ Secrets (`AUTH_SECRET`, `API_KEY`) auto-generate on first run if not set. Visit 
 ### Docker Zero-Config
 
 ```bash
-docker compose up           # auto-generates credentials, persists across restarts
+docker compose up           # Opzava only; auto-generates credentials, persists across restarts
+```
+
+OpenClaw does **not** install on the host. To run the server-side OpenClaw fleet, enable the bundled
+Docker sidecar:
+
+```bash
+OPENCLAW_ENABLED=1 make up openclaw
+# or:
+docker compose -f docker-compose.yml -f docker-compose-openclaw.yml up -d --build
 ```
 
 For production hardening (read-only filesystem, capability dropping, HSTS, network isolation):
@@ -246,6 +255,8 @@ Key variables (see [`.env.example`](.env.example) for the full list):
 | `API_KEY` | No | API key for headless access (auto-generated if unset) |
 | `MISSION_CONTROL_DATA_DIR` | No | Directory for all data files (DB, tokens, etc.). Use an absolute path with the standalone server. |
 | `MISSION_CONTROL_DB_PATH` | No | Override the SQLite database path. |
+| `OPENCLAW_ENABLED` | No | `1` enables the Docker OpenClaw sidecar overlay. Keep `0`/unset for gateway-free standalone mode. |
+| `OPENCLAW_GATEWAY_HOST` | No | Docker sidecar host. Use `mc-openclaw-gateway` when `OPENCLAW_ENABLED=1`. |
 | `MC_ALLOWED_HOSTS` | No | Host allowlist for production |
 | `NEXT_PUBLIC_GATEWAY_OPTIONAL` | No | Run without gateway connection |
 
@@ -279,10 +290,10 @@ bash scripts/security-audit.sh     # Security configuration audit
 | Problem | Fix |
 |---------|-----|
 | "Internal server error" on login | `pnpm rebuild better-sqlite3` (Node version mismatch) |
-| Docker: gateway not connecting | Set `OPENCLAW_GATEWAY_HOST=host.docker.internal` in `.env` |
+| Docker: gateway not connecting | Start the sidecar with `OPENCLAW_ENABLED=1 make up openclaw` and use `OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway` |
 | 404 on all pages | Clear Next.js cache: `rm -rf .next && pnpm dev` |
 | `AUTH_PASS` with `#` ignored | Quote it: `AUTH_PASS="my#pass"` or use `AUTH_PASS_B64` |
-| Standalone mode | Use `node .next/standalone/server.js`, not `pnpm start` |
+| Standalone mode | Use `pnpm start:standalone` or `scripts/mc-server.cjs` so `/ws/pty` is served |
 
 See [docs/deployment.md](docs/deployment.md) for detailed troubleshooting.
 

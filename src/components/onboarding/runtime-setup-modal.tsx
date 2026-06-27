@@ -72,19 +72,6 @@ function OpenClawSetup({ onClose, onComplete }: { onClose: () => void; onComplet
     setError(null)
     setOutput('')
     try {
-      // The install result is intentionally ignored (same as the original
-      // raw-fetch behavior, which checked neither .ok nor the body). The
-      // onboard command runs as part of post-install in agent-runtimes.ts.
-      // Swallow any error so we always proceed to the doctor health check.
-      try {
-        await apiFetch('/api/agent-runtimes', {
-          method: 'POST',
-          body: JSON.stringify({ action: 'install', runtime: 'openclaw', mode: 'local' }),
-        })
-      } catch {
-        // ignore — original code never inspected the install response
-      }
-      // Use the doctor endpoint to check health.
       try {
         const data = await apiFetch<{ healthy?: boolean; issues?: string[] }>('/api/openclaw/doctor')
         setHealthStatus(data)
@@ -114,22 +101,11 @@ function OpenClawSetup({ onClose, onComplete }: { onClose: () => void; onComplet
     setRunning(true)
     setError(null)
     try {
-      const data = await apiFetch<{ success?: boolean; output?: string }>('/api/openclaw/doctor', { method: 'POST' })
-      if (data.success) {
-        setStep('done')
-        setOutput('All issues resolved')
-      } else {
-        setOutput(data.output || 'Fix attempt completed with warnings')
-      }
+      const command = 'OPENCLAW_ENABLED=1 make up openclaw'
+      await navigator.clipboard.writeText(command)
+      setOutput(`Copied: ${command}`)
     } catch (err) {
-      // Preserve graceful degradation: a non-ok response previously did
-      // nothing (no error surfaced), so swallow ApiError here. Only genuine
-      // failures (e.g. network) surface an error, as before.
-      if (err instanceof ApiError) {
-        // no-op — matches the original `if (res.ok)` with no else branch
-      } else {
-        setError(err instanceof Error ? err.message : 'Doctor fix failed')
-      }
+      setError(err instanceof Error ? err.message : 'Failed to copy sidecar command')
     } finally {
       setRunning(false)
     }
@@ -153,7 +129,7 @@ function OpenClawSetup({ onClose, onComplete }: { onClose: () => void; onComplet
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-lg font-semibold">Set Up OpenClaw</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Configure the gateway and verify connectivity</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Verify the Docker sidecar gateway</p>
         </div>
         <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
           <svg className="w-5 h-5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M4 4l8 8M12 4l-8 8" /></svg>
@@ -185,7 +161,7 @@ function OpenClawSetup({ onClose, onComplete }: { onClose: () => void; onComplet
               <span className="text-lg">1</span>
               <div>
                 <p className="text-sm font-medium">Health Check</p>
-                <p className="text-xs text-muted-foreground">Run OpenClaw doctor to check gateway configuration and connectivity.</p>
+                <p className="text-xs text-muted-foreground">Check the OpenClaw sidecar health endpoint. Host installs are disabled.</p>
               </div>
             </div>
           </div>
@@ -222,7 +198,7 @@ function OpenClawSetup({ onClose, onComplete }: { onClose: () => void; onComplet
           <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={onClose}>Skip for now</Button>
             <Button size="sm" onClick={runDoctorFix} disabled={running}>
-              {running ? 'Fixing...' : 'Auto-Fix Issues'}
+              {running ? 'Copying...' : 'Copy Sidecar Command'}
             </Button>
           </div>
         </div>
@@ -233,7 +209,7 @@ function OpenClawSetup({ onClose, onComplete }: { onClose: () => void; onComplet
           <div className="p-4 rounded-lg border border-green-500/30 bg-green-500/5 text-center space-y-2">
             <div className="text-2xl">+</div>
             <p className="text-sm font-medium text-green-400">OpenClaw is ready</p>
-            <p className="text-xs text-muted-foreground">Gateway is configured and healthy. Agents can now connect.</p>
+            <p className="text-xs text-muted-foreground">The Docker sidecar gateway is reachable.</p>
           </div>
 
           <div className="flex justify-end">

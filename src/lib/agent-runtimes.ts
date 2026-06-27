@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { config } from './config'
-import { runCommand, runOpenClaw } from './command'
+import { runCommand } from './command'
 import { scanForInjection } from './injection-guard'
 import { isHermesInstalled, isHermesGatewayRunning, clearHermesDetectionCache } from './hermes-sessions'
 import { isOpenCodeInstalled, getOpenCodeVersion, scanOpenCodeSessions } from './opencode-sessions'
@@ -196,7 +196,7 @@ export interface RuntimeMeta {
 const RUNTIME_META: Record<RuntimeId, RuntimeMeta> = {
   openclaw: {
     name: 'OpenClaw',
-    description: 'Multi-agent orchestration with gateway, sessions, and memory.',
+    description: 'Docker-sidecar gateway for server-side fleet execution.',
     authRequired: false,
     authHint: '',
   },
@@ -250,47 +250,31 @@ function pruneJobs() {
 
 function detectOpenClaw(): RuntimeStatus {
   const meta = RUNTIME_META.openclaw
-  let installed = false
-  let version: string | null = null
+  const sidecarConfigured =
+    process.env.OPENCLAW_ENABLED === '1' ||
+    process.env.OPENCLAW_ENABLED === 'true' ||
+    config.gatewayHost === 'mc-openclaw-gateway'
+  const stateMounted = !!(config.openclawConfigPath && existsSync(config.openclawConfigPath))
   let running = false
+  let version: string | null = null
 
-  // Check config file existence
-  if (config.openclawConfigPath && existsSync(config.openclawConfigPath)) {
-    installed = true
-  }
-
-  // Try to get version
   try {
     const result = require('node:child_process').spawnSync(
-      config.openclawBin || 'openclaw',
-      ['--version'],
-      { stdio: 'pipe', timeout: 3000 }
+      'curl',
+      ['-sf', '--max-time', '2', `http://${config.gatewayHost}:${config.gatewayPort}/health`],
+      { stdio: 'pipe', timeout: 3000 },
     )
-    if (result.status === 0) {
-      installed = true
-      version = (result.stdout?.toString() || '').trim() || null
+    running = result.status === 0
+    if (running) {
+      const output = (result.stdout?.toString() || '').trim()
+      const match = output.match(/(\d{4}\.\d+\.\d+)/)
+      version = match?.[1] || null
     }
   } catch {
-    // binary not found
+    running = false
   }
 
-  // Check if gateway port is listening (simple sync check)
-  try {
-    const net = require('node:net')
-    const socket = new net.Socket()
-    socket.setTimeout(500)
-    new Promise<boolean>((resolve) => {
-      socket.once('connect', () => { socket.destroy(); resolve(true) })
-      socket.once('error', () => { socket.destroy(); resolve(false) })
-      socket.once('timeout', () => { socket.destroy(); resolve(false) })
-      socket.connect(config.gatewayPort, config.gatewayHost)
-    })
-    // We can't await here synchronously, so just check config existence for "running"
-    running = installed
-  } catch {
-    // ignore
-  }
-
+  const installed = sidecarConfigured || stateMounted || running
   return { id: 'openclaw', ...meta, installed, version, running, authenticated: true }
 }
 
@@ -526,15 +510,29 @@ export function startInstall(runtime: RuntimeId, mode: DeploymentMode): InstallJ
     return job
   }
 
-  // Local install — run in background
-  const INSTALL_FNS: Record<RuntimeId, (job: InstallJob) => Promise<void>> = {
-    openclaw: installOpenClawLocal,
+  if (runtime === 'openclaw') {
+    job.status = 'failed'
+    job.error = 'OpenClaw is Docker-sidecar only for Opzava.'
+    job.output = [
+      '> OpenClaw local installation is disabled.',
+      '> Start the Docker sidecar instead:',
+      '>   OPENCLAW_ENABLED=1 make up openclaw',
+      '> or:',
+      '>   docker compose -f docker-compose.yml -f docker-compose-openclaw.yml up -d --build mc-openclaw-gateway',
+      '',
+    ].join('\n')
+    job.finishedAt = Date.now()
+    return job
+  }
+
+  // Local install — run in background for local-plane tools only.
+  const INSTALL_FNS: Record<Exclude<RuntimeId, 'openclaw'>, (job: InstallJob) => Promise<void>> = {
     hermes: installHermesLocal,
     claude: installClaudeLocal,
     codex: installCodexLocal,
     opencode: installOpenCodeLocal,
   }
-  const installFn = INSTALL_FNS[runtime] || installOpenClawLocal
+  const installFn = INSTALL_FNS[runtime]
   installFn(job).catch((err) => {
     job.status = 'failed'
     job.error = String(err?.message || err)
@@ -587,61 +585,6 @@ async function runInstallCmd(cmd: string, args: string[], job: InstallJob): Prom
     job.output += `> Error: ${err?.message || 'command not found'}\n`
     return false
   }
-}
-
-async function installOpenClawLocal(job: InstallJob): Promise<void> {
-  job.output += '> Installing OpenClaw...\n'
-  const env = {
-    ...getInstallEnv(),
-    NONINTERACTIVE: '1',
-    CI: '1',
-  }
-  try {
-    // Download, review, then execute from secure temp dir
-    const reviewed = await downloadAndReviewScript('https://get.openclaw.dev', job, env)
-    if (!reviewed) {
-      job.status = 'failed'
-      job.error = 'Installer download or security review failed'
-      job.finishedAt = Date.now()
-      return
-    }
-
-    const result = await runCommand('bash', [reviewed.scriptPath, '--non-interactive'], {
-      timeoutMs: 300_000, env,
-      onData: (chunk) => { job.output += chunk },
-    })
-
-    rmSync(reviewed.tempDir, { recursive: true, force: true })
-
-    // Verify the binary actually exists after install
-    const { installed: verified } = detectBinary([config.openclawBin || 'openclaw'])
-
-    if (result.code === 0 && verified) {
-      job.output += '\n> OpenClaw installed. Running initial setup...\n'
-      try {
-        const onboard = await runCommand('openclaw', ['onboard', '--non-interactive'], { timeoutMs: 60_000, env })
-        if (onboard.stdout) job.output += onboard.stdout + '\n'
-        if (onboard.stderr) job.output += onboard.stderr + '\n'
-      } catch {
-        job.output += '> Note: "openclaw onboard" skipped (run manually if needed).\n'
-      }
-      job.status = 'success'
-      job.output += '\n> OpenClaw installed successfully.\n'
-    } else if (result.code === 0 && !verified) {
-      job.status = 'failed'
-      job.error = 'Install command succeeded but openclaw binary was not found. curl may not be installed.'
-      job.output += '\n> Install command ran but openclaw was not detected. Is curl installed?\n'
-    } else {
-      job.status = 'failed'
-      job.error = `Install exited with code ${result.code}`
-      job.output += `\n> Install failed (exit code ${result.code}).\n`
-    }
-  } catch (err: any) {
-    job.status = 'failed'
-    job.error = err?.message || 'Unknown error'
-    job.output += `\n> Error: ${job.error}\n`
-  }
-  job.finishedAt = Date.now()
 }
 
 async function installHermesLocal(job: InstallJob): Promise<void> {
@@ -756,20 +699,15 @@ export function getActiveJobs(): InstallJob[] {
 
 export function generateDockerSidecar(runtime: RuntimeId): string {
   if (runtime === 'openclaw') {
-    return `  # OpenClaw Gateway sidecar
-  openclaw-gateway:
-    image: ghcr.io/openclaw/openclaw:latest
-    container_name: openclaw-gateway
-    ports:
-      - "\${OPENCLAW_GATEWAY_PORT:-18789}:18789"
-    volumes:
-      - openclaw-data:/root/.openclaw
-    networks:
-      - mc-net
-    restart: unless-stopped
+    return `# Opzava ships the OpenClaw gateway as docker-compose-openclaw.yml.
+# Start only the gateway:
+OPENCLAW_ENABLED=1 make up openclaw
 
-# Add to volumes section:
-#   openclaw-data:`
+# Or start Opzava + the OpenClaw sidecar:
+OPENCLAW_ENABLED=1 make up
+
+# Equivalent raw Compose command:
+docker compose -f docker-compose.yml -f docker-compose-openclaw.yml up -d --build`
   }
 
   if (runtime === 'opencode') {

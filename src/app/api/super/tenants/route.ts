@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { createTenantAndBootstrapJob, listTenants } from '@/lib/super-admin'
+import { listTenants } from '@/lib/super-admin'
 
 /**
  * GET /api/super/tenants - List tenants and latest provisioning status
@@ -19,14 +19,11 @@ export async function POST(request: NextRequest) {
   const auth = requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  try {
-    const body = await request.json()
-    const created = createTenantAndBootstrapJob(body, auth.user.username)
-    return NextResponse.json(created, { status: 201 })
-  } catch (error: any) {
-    if (String(error?.message || '').includes('UNIQUE')) {
-      return NextResponse.json({ error: 'Tenant slug or linux user already exists' }, { status: 409 })
-    }
-    return NextResponse.json({ error: error?.message || 'Failed to create tenant bootstrap job' }, { status: 400 })
-  }
+  return NextResponse.json(
+    {
+      error: 'Per-tenant host OpenClaw gateway provisioning is disabled.',
+      hint: 'Use the shared Docker sidecar instead: OPENCLAW_ENABLED=1 make up openclaw.',
+    },
+    { status: 400 },
+  )
 }

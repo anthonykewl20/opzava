@@ -18,6 +18,7 @@ export function OpenClawUpdateBanner() {
 
   if (!openclawUpdate) return null
   if (openclawUpdateDismissedVersion === openclawUpdate.latest) return null
+  const dockerManaged = openclawUpdate.updateMode === 'docker'
 
   function handleCopy() {
     navigator.clipboard.writeText(openclawUpdate!.updateCommand).then(() => {
@@ -79,13 +80,15 @@ export function OpenClawUpdateBanner() {
         </p>
         {!busy && state !== 'success' && (
           <>
-            <button
-              type="button"
-              onClick={handleUpdate}
-              className="btn btn-primary btn-sm shrink-0"
-            >
-              {tc('updateNow')}
-            </button>
+            {!dockerManaged && (
+              <button
+                type="button"
+                onClick={handleUpdate}
+                className="btn btn-primary btn-sm shrink-0"
+              >
+                {tc('updateNow')}
+              </button>
+            )}
             {openclawUpdate.releaseNotes && (
               <button
                 type="button"

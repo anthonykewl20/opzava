@@ -22,6 +22,13 @@ make status openclaw
 make restart openclaw
 ```
 
+OpenClaw runs only as the Docker sidecar:
+
+```bash
+OPENCLAW_ENABLED=1 make up openclaw
+OPENCLAW_ENABLED=1 make upgrade openclaw
+```
+
 ## Modes
 
 ```bash
@@ -43,7 +50,7 @@ MC_PORT=3000
 ```
 
 For a single-host operator setup that lets Opzava drive authenticated host
-Claude Code/Codex CLIs:
+Claude Code/Codex CLIs without OpenClaw:
 
 ```bash
 MC_HOST_CLI_ENABLED=1 OPENCLAW_ENABLED=0 make up mc

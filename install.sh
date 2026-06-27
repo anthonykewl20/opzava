@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Opzava — One-Command Installer
-# The mothership for your OpenClaw fleet.
+# The control plane for your AI operations fleet.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/anthonykewl20/opzava/main/install.sh | bash
 #   # or
 #   bash install.sh [--docker|--local] [--port PORT] [--data-dir DIR]
 #
-# Installs Opzava and optionally repairs/configures OpenClaw.
+# Installs Opzava. OpenClaw is managed only as the Docker sidecar.
 
 set -euo pipefail
 
@@ -26,7 +26,7 @@ while [[ $# -gt 0 ]]; do
     --local)        DEPLOY_MODE="local"; shift ;;
     --port)         MC_PORT="$2"; shift 2 ;;
     --data-dir)     MC_DATA_DIR="$2"; shift 2 ;;
-    --skip-openclaw) SKIP_OPENCLAW=true; shift ;;
+    --skip-openclaw) SKIP_OPENCLAW=true; shift ;; # compatibility: skips sidecar check
     --dir)          INSTALL_DIR="$2"; shift 2 ;;
     -h|--help)
       echo "Usage: install.sh [--docker|--local] [--port PORT] [--data-dir DIR] [--dir INSTALL_DIR] [--skip-openclaw]"
@@ -43,6 +43,24 @@ err()   { echo -e "\033[1;31m[ERR]\033[0m $*" >&2; }
 die()   { err "$*"; exit 1; }
 
 command_exists() { command -v "$1" &>/dev/null; }
+
+truthy() { [[ "${1:-}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; }
+
+env_value() {
+  local key="$1" default="${2:-}" value="${!key-}"
+  if [[ -n "$value" ]]; then
+    printf '%s' "$value"
+    return
+  fi
+  if [[ -f "$INSTALL_DIR/.env" ]]; then
+    value="$(grep -E "^[[:space:]]*${key}=" "$INSTALL_DIR/.env" | tail -n 1 | sed -E "s/^[[:space:]]*${key}=//; s/^\"//; s/\"$//" || true)"
+    if [[ -n "$value" ]]; then
+      printf '%s' "$value"
+      return
+    fi
+  fi
+  printf '%s' "$default"
+}
 
 # Escape sed replacement metacharacters (|, &, \) in a value.
 # Does not handle newlines — callers must ensure single-line input.
@@ -168,34 +186,13 @@ setup_env() {
     portable_sed "s|^# PORT=3000|PORT=$(sed_escape "$MC_PORT")|" "$INSTALL_DIR/.env"
   fi
 
-  # Auto-detect and write OpenClaw home directory into .env
-  local oc_home="${OPENCLAW_HOME:-$HOME/.openclaw}"
-  if [[ -d "$oc_home" ]]; then
-    portable_sed "s|^OPENCLAW_HOME=.*|OPENCLAW_HOME=$(sed_escape "$oc_home")|" "$INSTALL_DIR/.env"
-    info "Set OPENCLAW_HOME=$oc_home in .env"
-  fi
-
-  # In Docker mode, the gateway runs on the host, not inside the container.
-  # Set OPENCLAW_GATEWAY_HOST to the Docker host gateway IP so the container
-  # can reach the gateway. Users may override this with the gateway container
-  # name if running OpenClaw in a container on the same network.
+  # In Docker mode, OpenClaw is managed as the mc-openclaw-gateway sidecar.
+  # Do not point Opzava at a host-installed OpenClaw binary/gateway.
   if [[ "$DEPLOY_MODE" == "docker" ]]; then
-    local gw_host="${OPENCLAW_GATEWAY_HOST:-}"
-    if [[ -z "$gw_host" ]]; then
-      # Detect Docker host IP (host-gateway alias or default bridge)
-      if getent hosts host-gateway &>/dev/null 2>&1; then
-        gw_host="host-gateway"
-      else
-        # Fallback: use the default Docker bridge gateway (172.17.0.1)
-        gw_host=$(ip route show default 2>/dev/null | awk '/default/ {print $3; exit}' || echo "172.17.0.1")
-      fi
-    fi
-    if [[ -n "$gw_host" && "$gw_host" != "127.0.0.1" ]]; then
-      portable_sed "s|^OPENCLAW_GATEWAY_HOST=.*|OPENCLAW_GATEWAY_HOST=$(sed_escape "$gw_host")|" "$INSTALL_DIR/.env"
-      info "Set OPENCLAW_GATEWAY_HOST=$gw_host in .env (Docker host IP)"
-      info "  If your gateway runs in a Docker container, update OPENCLAW_GATEWAY_HOST"
-      info "  to the container name and add it to the mc-net network."
-    fi
+    portable_sed "s|^# OPENCLAW_GATEWAY_HOST=.*|OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway|" "$INSTALL_DIR/.env"
+    portable_sed "s|^# OPENCLAW_STATE_DIR=.*|OPENCLAW_STATE_DIR=/home/nextjs/.openclaw|" "$INSTALL_DIR/.env"
+    portable_sed "s|^# OPENCLAW_CONFIG_PATH=.*|OPENCLAW_CONFIG_PATH=/home/nextjs/.openclaw/openclaw.json|" "$INSTALL_DIR/.env"
+    info "Configured OpenClaw for the Docker sidecar (mc-openclaw-gateway)"
   fi
 
   ok "Secure .env generated"
@@ -206,7 +203,11 @@ deploy_docker() {
   info "Starting Docker deployment..."
 
   export MC_PORT
-  docker compose up -d --build
+  local compose_files=(-f docker-compose.yml)
+  if truthy "$(env_value OPENCLAW_ENABLED 0)"; then
+    compose_files+=(-f docker-compose-openclaw.yml)
+  fi
+  docker compose "${compose_files[@]}" up -d --build
 
   # Wait for healthy
   info "Waiting for Opzava to become healthy..."
@@ -279,7 +280,7 @@ setup_systemd() {
 
   cat > /tmp/opzava.service <<UNIT
 [Unit]
-Description=Opzava - OpenClaw Agent Dashboard
+Description=Opzava Control Plane
 After=network.target
 
 [Service]
@@ -309,101 +310,39 @@ UNIT
   fi
 }
 
-# ── OpenClaw fleet check ─────────────────────────────────────────────────────
+# ── OpenClaw sidecar check ───────────────────────────────────────────────────
 check_openclaw() {
   if $SKIP_OPENCLAW; then
-    info "Skipping OpenClaw checks (--skip-openclaw)"
+    info "Skipping OpenClaw sidecar check (--skip-openclaw)"
     return
   fi
 
   echo ""
-  info "=== OpenClaw Fleet Check ==="
+  info "=== OpenClaw Docker Sidecar Check ==="
 
-  # Check if openclaw binary exists
-  if command_exists openclaw; then
-    local oc_version
-    oc_version="$(openclaw --version 2>/dev/null || echo 'unknown')"
-    ok "OpenClaw binary found: $oc_version"
-  elif command_exists clawdbot; then
-    local cb_version
-    cb_version="$(clawdbot --version 2>/dev/null || echo 'unknown')"
-    ok "ClawdBot binary found: $cb_version (legacy)"
-    warn "Consider upgrading to openclaw CLI"
-  else
-    info "OpenClaw CLI not found — install it to enable agent orchestration"
-    info "  See: https://github.com/builderz-labs/openclaw"
+  if ! truthy "$(env_value OPENCLAW_ENABLED 0)"; then
+    info "OpenClaw sidecar disabled (OPENCLAW_ENABLED=0)"
+    info "Enable with: OPENCLAW_ENABLED=1 make up openclaw"
     return
   fi
 
-  # Check OpenClaw home directory
-  local oc_home="${OPENCLAW_HOME:-$HOME/.openclaw}"
-  if [[ -d "$oc_home" ]]; then
-    ok "OpenClaw home: $oc_home"
-
-    # Check config
-    local oc_config="$oc_home/openclaw.json"
-    if [[ -f "$oc_config" ]]; then
-      ok "Config found: $oc_config"
-    else
-      warn "No openclaw.json found at $oc_config"
-      info "Opzava will create a default config on first gateway connection"
-    fi
-
-    # Check for stale PID files
-    local stale_count=0
-    for pidfile in "$oc_home"/*.pid "$oc_home"/pids/*.pid; do
-      [[ -f "$pidfile" ]] || continue
-      local pid
-      pid="$(cat "$pidfile" 2>/dev/null)" || continue
-      if ! kill -0 "$pid" 2>/dev/null; then
-        rm -f "$pidfile"
-        ((stale_count++))
-      fi
-    done
-    if [[ $stale_count -gt 0 ]]; then
-      ok "Cleaned $stale_count stale PID file(s)"
-    fi
-
-    # Check logs directory size
-    local logs_dir="$oc_home/logs"
-    if [[ -d "$logs_dir" ]]; then
-      local logs_size
-      if [[ "$(uname)" == "Darwin" ]]; then
-        logs_size="$(du -sh "$logs_dir" 2>/dev/null | cut -f1)"
-      else
-        logs_size="$(du -sh "$logs_dir" 2>/dev/null | cut -f1)"
-      fi
-      info "Logs directory: $logs_size ($logs_dir)"
-
-      # Clean old logs (> 30 days)
-      local old_logs
-      old_logs=$(find "$logs_dir" -name "*.log" -mtime +30 2>/dev/null | wc -l | tr -d ' ')
-      if [[ "$old_logs" -gt 0 ]]; then
-        find "$logs_dir" -name "*.log" -mtime +30 -delete 2>/dev/null || true
-        ok "Cleaned $old_logs log file(s) older than 30 days"
-      fi
-    fi
-
-    # Check workspace directory
-    local workspace="$oc_home/workspace"
-    if [[ -d "$workspace" ]]; then
-      local agent_count
-      agent_count=$(find "$workspace" -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
-      ((agent_count--)) # subtract the workspace dir itself
-      info "Workspace: $agent_count agent workspace(s) in $workspace"
-    fi
+  if docker compose -f docker-compose.yml -f docker-compose-openclaw.yml ps mc-openclaw-gateway 2>/dev/null | grep -q mc-openclaw-gateway; then
+    ok "OpenClaw sidecar service is present"
   else
-    info "OpenClaw home not found at $oc_home"
-    info "Set OPENCLAW_HOME in .env to point to your OpenClaw state directory"
+    warn "OpenClaw sidecar service is not running"
+    info "Start it with: OPENCLAW_ENABLED=1 make up openclaw"
   fi
 
-  # Check gateway port
-  local gw_host="${OPENCLAW_GATEWAY_HOST:-127.0.0.1}"
-  local gw_port="${OPENCLAW_GATEWAY_PORT:-18789}"
-  if nc -z "$gw_host" "$gw_port" 2>/dev/null || (echo > "/dev/tcp/$gw_host/$gw_port") 2>/dev/null; then
+  local gw_host gw_port
+  gw_host="$(env_value OPENCLAW_GATEWAY_HOST mc-openclaw-gateway)"
+  gw_port="$(env_value OPENCLAW_GATEWAY_PORT 18789)"
+  if [[ "$gw_host" == "mc-openclaw-gateway" ]]; then
+    gw_host="127.0.0.1"
+  fi
+  if curl -fsS "http://$gw_host:$gw_port/health" >/dev/null 2>&1; then
     ok "Gateway reachable at $gw_host:$gw_port"
   else
-    info "Gateway not reachable at $gw_host:$gw_port (start it with: openclaw gateway start)"
+    info "Gateway not reachable at $gw_host:$gw_port (start sidecar with: OPENCLAW_ENABLED=1 make up openclaw)"
   fi
 }
 

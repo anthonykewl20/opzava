@@ -96,12 +96,12 @@ Essential = **7 friendly destinations**. Everything technical is one switch away
 | Technical (Full/Admin) | Essential (everyday) |
 |---|---|
 | Agent / agent runtime | Assistant |
-| Gateway / openclaw gateway | Connection |
+| Gateway / OpenClaw sidecar | Connection |
 | Exec-approval | Action to approve |
 | SSE stream disconnected | Live updates paused — reconnecting |
 | Node / worker | (hidden; rolled into "system status") |
 | Token usage / spend | Spending |
-| `openclaw doctor` warnings | A setup check needs attention |
+| OpenClaw sidecar health warnings | A setup check needs attention |
 | Exit code 1 / stack trace | Something went wrong — Retry · *(Technical details — admins)* |
 | Cron job | Schedule |
 | Webhook | Automation |

@@ -12,7 +12,7 @@ vi.mock('node:child_process', () => ({
   },
 }))
 
-import { runCommand } from '@/lib/command'
+import { runCommand, runOpenClaw } from '@/lib/command'
 
 class FakeChild extends EventEmitter {
   stdout = new EventEmitter()
@@ -27,18 +27,14 @@ class FakeChild extends EventEmitter {
 describe('runCommand', () => {
   beforeEach(() => {
     spawnMock.mockReset()
+    delete process.env.OPZAVA_ALLOW_HOST_OPENCLAW
   })
 
-  it('returns a friendly message on ENOENT for openclaw', async () => {
-    const child = new FakeChild()
-    spawnMock.mockReturnValue(child as any)
-
-    const promise = runCommand('openclaw', ['gateway', 'status'])
-    const err = Object.assign(new Error('spawn openclaw ENOENT'), { code: 'ENOENT' })
-    child.emit('error', err)
-
-    await expect(promise).rejects.toThrow(/Command not found: openclaw/i)
-    await expect(promise).rejects.toThrow(/OPENCLAW_BIN/i)
+  it('refuses direct host OpenClaw command execution', async () => {
+    await expect(runCommand('openclaw', ['gateway', 'status'])).rejects.toMatchObject({
+      code: 'OPENCLAW_DOCKER_ONLY',
+    })
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 
   it('resolves stdout/stderr on successful exit', async () => {
@@ -51,5 +47,12 @@ describe('runCommand', () => {
     child.emit('close', 0)
 
     await expect(promise).resolves.toEqual({ stdout: 'hello', stderr: 'warn', code: 0 })
+  })
+
+  it('refuses implicit host OpenClaw CLI execution', async () => {
+    await expect(runOpenClaw(['gateway', 'status'])).rejects.toMatchObject({
+      code: 'OPENCLAW_DOCKER_ONLY',
+    })
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 })

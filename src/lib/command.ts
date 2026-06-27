@@ -16,11 +16,29 @@ interface CommandResult {
   code: number | null
 }
 
+function isOpenClawCommand(command: string): boolean {
+  const base = path.basename(command).toLowerCase()
+  const normalized = base.replace(/\.(cmd|exe|mjs|js)$/i, '')
+  return normalized === 'openclaw'
+}
+
+function createOpenClawDockerOnlyError(args: string[]): Error {
+  const error = new Error(
+    `Local OpenClaw CLI execution is disabled in Opzava. Use the mc-openclaw-gateway Docker sidecar and gateway API instead. Refused: openclaw ${args.join(' ')}`
+  )
+  ;(error as any).code = 'OPENCLAW_DOCKER_ONLY'
+  return error
+}
+
 export function runCommand(
   command: string,
   args: string[],
   options: CommandOptions = {}
 ): Promise<CommandResult> {
+  if (isOpenClawCommand(command)) {
+    return Promise.reject(createOpenClawDockerOnlyError(args))
+  }
+
   return new Promise((resolve, reject) => {
     const spawnCommand = path.extname(command).toLowerCase() === '.mjs' ? process.execPath : command
     const spawnArgs = spawnCommand === process.execPath ? [command, ...args] : args
@@ -60,9 +78,7 @@ export function runCommand(
       const enoent = error as NodeJS.ErrnoException
       if (enoent?.code === 'ENOENT') {
         const binHint =
-          command === config.openclawBin
-            ? 'OPENCLAW_BIN'
-            : command === config.clawdbotBin
+          command === config.clawdbotBin
               ? 'CLAWDBOT_BIN'
               : `${command.toUpperCase()}_BIN`
         const friendly = new Error(
@@ -110,20 +126,8 @@ export function runCommand(
 }
 
 export function runOpenClaw(args: string[], options: CommandOptions = {}) {
-  // Explicitly pass OPENCLAW_STATE_DIR so the CLI uses the exact resolved path.
-  // Without this, the CLI may interpret OPENCLAW_HOME as a parent directory and
-  // append ".openclaw" to it — causing double-nesting when OPENCLAW_HOME is
-  // already set to the state directory (e.g. /root/.openclaw → /root/.openclaw/.openclaw).
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    OPENCLAW_STATE_DIR: config.openclawStateDir,
-    ...options.env,
-  }
-  return runCommand(config.openclawBin, args, {
-    ...options,
-    env,
-    cwd: options.cwd || config.openclawStateDir || process.cwd()
-  })
+  void options
+  return Promise.reject(createOpenClawDockerOnlyError(args))
 }
 
 export function runClawdbot(args: string[], options: CommandOptions = {}) {

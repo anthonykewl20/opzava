@@ -1,10 +1,7 @@
 import { randomUUID } from 'crypto'
-import fs from 'fs'
-import path from 'path'
 import { getDatabase, appendProvisionEvent, logAuditEvent, Tenant, ProvisionJob } from './db'
 import { runCommand } from './command'
 import { runProvisionerCommand } from './provisioner-client'
-import { config as appConfig } from './config'
 
 export type TenantStatus = 'pending' | 'provisioning' | 'decommissioning' | 'active' | 'suspended' | 'error'
 export type ProvisionJobStatus = 'queued' | 'approved' | 'running' | 'completed' | 'failed' | 'rejected' | 'cancelled'
@@ -37,132 +34,14 @@ export interface ProvisionStep {
   timeout_ms?: number
 }
 
-function getTenantHomeRoot(): string {
-  return String(process.env.MC_TENANT_HOME_ROOT || '/home').trim() || '/home'
-}
+const DOCKER_ONLY_OPENCLAW_PROVISIONING_ERROR =
+  'Per-tenant host OpenClaw gateway provisioning is disabled. Use the mc-openclaw-gateway Docker sidecar instead: OPENCLAW_ENABLED=1 make up openclaw.'
 
-function getTenantWorkspaceDirname(): string {
-  return String(process.env.MC_TENANT_WORKSPACE_DIRNAME || 'workspace').trim() || 'workspace'
-}
-
-function joinPosix(...parts: string[]): string {
-  const cleaned = parts.map((p) => String(p || '').replace(/\/+$/g, ''))
-  return path.posix.join(...cleaned)
-}
-
-function normalizeSlug(input: string): string {
-  return (input || '').trim().toLowerCase()
-}
-
-function isValidSlug(slug: string): boolean {
-  return /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/.test(slug)
-}
-
-function ensurePort(value: any): number | null {
-  if (value === undefined || value === null || value === '') return null
-  const n = Number(value)
-  if (!Number.isInteger(n) || n < 1024 || n > 65535) {
-    throw new Error('Port must be an integer between 1024 and 65535')
-  }
-  return n
-}
-
-function normalizeOwnerGateway(value: any, slug: string): string {
-  const raw = String(value || '').trim()
-  const fallback =
-    String(process.env.MC_DEFAULT_OWNER_GATEWAY || process.env.MC_DEFAULT_GATEWAY_NAME || 'primary').trim() ||
-    'primary'
-  if (!raw) return fallback
-  if (raw.length > 120) throw new Error('owner_gateway is too long')
-  return raw
-}
-
-export function buildBootstrapPlan(tenant: {
-  slug: string
-  linux_user: string
-  openclaw_home: string
-  workspace_root: string
-  gateway_port?: number | null
-  dashboard_port?: number | null
-}, opts: {
-  templateOpenclawJsonPath: string
-  gatewaySystemdTemplatePath: string
-}): ProvisionStep[] {
-  const artifactDir = path.join(appConfig.dataDir, 'provisioner', tenant.slug)
-  const homeDir = joinPosix(getTenantHomeRoot(), tenant.linux_user)
-
-  return [
-    {
-      key: 'create-linux-user',
-      title: `Create linux user ${tenant.linux_user}`,
-      command: ['/usr/sbin/useradd', '-m', '-s', '/bin/bash', tenant.linux_user],
-      requires_root: true,
-      timeout_ms: 10000,
-    },
-    {
-      key: 'create-openclaw-state',
-      title: `Create OpenClaw state directory ${tenant.openclaw_home}`,
-      command: ['/usr/bin/install', '-d', '-m', '0750', '-o', tenant.linux_user, '-g', tenant.linux_user, tenant.openclaw_home],
-      requires_root: true,
-      timeout_ms: 10000,
-    },
-    {
-      key: 'create-workspace-root',
-      title: `Create workspace root ${tenant.workspace_root}`,
-      command: ['/usr/bin/install', '-d', '-m', '0750', '-o', tenant.linux_user, '-g', tenant.linux_user, tenant.workspace_root],
-      requires_root: true,
-      timeout_ms: 10000,
-    },
-    {
-      key: 'seed-openclaw-template',
-      title: 'Seed base OpenClaw config scaffold',
-      command: ['/usr/bin/cp', '-n', opts.templateOpenclawJsonPath, `${tenant.openclaw_home}/openclaw.json`],
-      requires_root: true,
-      timeout_ms: 12000,
-    },
-    {
-      key: 'set-owner-home',
-      title: `Ensure ownership of ${homeDir}`,
-      command: ['/usr/bin/chown', '-R', `${tenant.linux_user}:${tenant.linux_user}`, homeDir],
-      requires_root: true,
-      timeout_ms: 20000,
-    },
-    {
-      key: 'ensure-openclaw-tenants-dir',
-      title: 'Ensure /etc/openclaw-tenants exists',
-      command: ['/usr/bin/install', '-d', '-m', '0750', '-o', 'root', '-g', 'root', '/etc/openclaw-tenants'],
-      requires_root: true,
-      timeout_ms: 5000,
-    },
-    {
-      key: 'install-gateway-systemd-template',
-      title: 'Install openclaw-gateway@.service template',
-      command: ['/usr/bin/cp', '-n', opts.gatewaySystemdTemplatePath, '/etc/systemd/system/openclaw-gateway@.service'],
-      requires_root: true,
-      timeout_ms: 5000,
-    },
-    {
-      key: 'install-tenant-gateway-env',
-      title: 'Install tenant gateway env file',
-      command: ['/usr/bin/cp', '-f', `${artifactDir}/openclaw-gateway.env`, `/etc/openclaw-tenants/${tenant.linux_user}.env`],
-      requires_root: true,
-      timeout_ms: 5000,
-    },
-    {
-      key: 'systemd-daemon-reload',
-      title: 'Reload systemd units',
-      command: ['/usr/bin/systemctl', 'daemon-reload'],
-      requires_root: true,
-      timeout_ms: 10000,
-    },
-    {
-      key: 'enable-start-gateway',
-      title: `Enable/start openclaw-gateway@${tenant.linux_user}.service`,
-      command: ['/usr/bin/systemctl', 'enable', '--now', `openclaw-gateway@${tenant.linux_user}.service`],
-      requires_root: true,
-      timeout_ms: 5000,
-    },
-  ]
+function containsHostOpenClawProvisioning(plan: ProvisionStep[]): boolean {
+  return plan.some((step) => {
+    const text = [step.key, step.title, ...(step.command || [])].join(' ')
+    return /\bopenclaw-gateway\b|\/etc\/openclaw-tenants|\/usr\/local\/bin\/openclaw|systemctl\s+.*openclaw/i.test(text)
+  })
 }
 
 export function buildDecommissionPlan(tenant: {
@@ -179,18 +58,11 @@ export function buildDecommissionPlan(tenant: {
 
   const plan: ProvisionStep[] = [
     {
-      key: 'disable-stop-gateway',
-      title: `Disable/stop openclaw-gateway@${tenant.linux_user}.service`,
-      command: ['/usr/bin/systemctl', 'disable', '--now', `openclaw-gateway@${tenant.linux_user}.service`],
-      requires_root: true,
-      timeout_ms: 10000,
-    },
-    {
-      key: 'remove-tenant-gateway-env',
-      title: `Remove /etc/openclaw-tenants/${tenant.linux_user}.env`,
-      command: ['/usr/bin/rm', '-f', `/etc/openclaw-tenants/${tenant.linux_user}.env`],
-      requires_root: true,
-      timeout_ms: 5000,
+      key: 'host-gateway-disabled',
+      title: 'Host gateway provisioning is disabled; OpenClaw runs as the shared Docker sidecar',
+      command: ['/usr/bin/true'],
+      requires_root: false,
+      timeout_ms: 1000,
     },
   ]
 
@@ -239,40 +111,6 @@ function parseJobRequest(job: any): { dry_run?: boolean } {
   const raw = job?.request_json
   if (raw && typeof raw === 'object') return raw
   return parseJsonField(raw, {})
-}
-
-function getProvisionArtifactDir(slug: string) {
-  return path.join(appConfig.dataDir, 'provisioner', slug)
-}
-
-function ensureProvisionArtifacts(job: any) {
-  const requestJson = parseJobRequest(job) as any
-  const slug = String(requestJson?.slug || job?.tenant_slug || '').trim()
-  const linuxUser = String(job?.linux_user || '').trim()
-  const openclawHome = String(job?.openclaw_home || '').trim()
-  const gatewayPort = Number(requestJson?.gateway_port ?? job?.gateway_port ?? 0)
-
-  if (!slug) throw new Error('Missing tenant slug for artifact generation')
-  if (!linuxUser) throw new Error('Missing linux_user for artifact generation')
-  if (!openclawHome) throw new Error('Missing openclaw_home for artifact generation')
-  if (!Number.isInteger(gatewayPort) || gatewayPort < 1024 || gatewayPort > 65535) {
-    throw new Error('Missing/invalid gateway_port for gateway unit provisioning')
-  }
-
-  const artifactDir = getProvisionArtifactDir(slug)
-  fs.mkdirSync(artifactDir, { recursive: true })
-
-  const gatewayEnv = [
-    `TENANT_SLUG=${slug}`,
-    `TENANT_USER=${linuxUser}`,
-    `OPENCLAW_HOME=${openclawHome}`,
-    `OPENCLAW_STATE_DIR=${openclawHome}`,
-    `OPENCLAW_CONFIG_PATH=${openclawHome}/openclaw.json`,
-    `OPENCLAW_GATEWAY_PORT=${gatewayPort}`,
-    '',
-  ].join('\n')
-
-  fs.writeFileSync(path.join(artifactDir, 'openclaw-gateway.env'), gatewayEnv, { mode: 0o600 })
 }
 
 export function listTenants() {
@@ -351,130 +189,9 @@ export function getProvisionJob(jobId: number) {
 }
 
 export function createTenantAndBootstrapJob(request: TenantBootstrapRequest, actor: string) {
-  const db = getDatabase()
-
-  const templateOpenclawJsonPath =
-    String(process.env.MC_SUPER_TEMPLATE_OPENCLAW_JSON || (process.env.OPENCLAW_HOME ? path.join(process.env.OPENCLAW_HOME, 'openclaw.json') : '')).trim()
-  if (!templateOpenclawJsonPath) {
-    throw new Error('Missing OpenClaw template config. Set MC_SUPER_TEMPLATE_OPENCLAW_JSON to an openclaw.json to seed new tenants.')
-  }
-
-  const repoRoot = String(process.env.MISSION_CONTROL_REPO_ROOT || process.cwd()).trim() || process.cwd()
-  const gatewaySystemdTemplatePath = path.join(repoRoot, 'ops', 'templates', 'openclaw-gateway@.service')
-
-  const slug = normalizeSlug(request.slug)
-  if (!isValidSlug(slug)) {
-    throw new Error('Invalid slug. Use lowercase letters, numbers, and dashes (3-32 chars).')
-  }
-
-  const displayName = (request.display_name || '').trim()
-  if (!displayName) {
-    throw new Error('display_name is required')
-  }
-
-  const linuxUser = (request.linux_user || `oc-${slug}`).trim().toLowerCase()
-  if (!/^[a-z_][a-z0-9_-]{1,30}$/.test(linuxUser)) {
-    throw new Error('Invalid linux_user format')
-  }
-
-  const gatewayPort = ensurePort(request.gateway_port)
-  const dashboardPort = ensurePort(request.dashboard_port)
-  const planTier = (request.plan_tier || 'standard').trim().toLowerCase()
-  const config = request.config || {}
-  const dryRun = request.dry_run !== false
-  const ownerGateway = normalizeOwnerGateway((request as any).owner_gateway, slug)
-
-  if (!gatewayPort) {
-    throw new Error('gateway_port is required for tenant bootstrap')
-  }
-
-  const tenantHomeRoot = getTenantHomeRoot()
-  const workspaceDirname = getTenantWorkspaceDirname()
-  const openclawHome = joinPosix(tenantHomeRoot, linuxUser, '.openclaw')
-  const workspaceRoot = joinPosix(tenantHomeRoot, linuxUser, workspaceDirname)
-
-  const inserted = db.transaction(() => {
-    const tenantRes = db.prepare(`
-      INSERT INTO tenants (slug, display_name, linux_user, plan_tier, status, openclaw_home, workspace_root, gateway_port, dashboard_port, config, created_by, owner_gateway)
-      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      slug,
-      displayName,
-      linuxUser,
-      planTier,
-      openclawHome,
-      workspaceRoot,
-      gatewayPort,
-      dashboardPort,
-      JSON.stringify(config),
-      actor,
-      ownerGateway
-    )
-
-    const tenantId = Number(tenantRes.lastInsertRowid)
-
-    const plan = buildBootstrapPlan({
-      slug,
-      linux_user: linuxUser,
-      openclaw_home: openclawHome,
-      workspace_root: workspaceRoot,
-      gateway_port: gatewayPort,
-      dashboard_port: dashboardPort,
-    }, {
-      templateOpenclawJsonPath,
-      gatewaySystemdTemplatePath,
-    })
-
-    const requestPayload = {
-      slug,
-      display_name: displayName,
-      linux_user: linuxUser,
-      gateway_port: gatewayPort,
-      dashboard_port: dashboardPort,
-      plan_tier: planTier,
-      dry_run: dryRun,
-      config,
-      owner_gateway: ownerGateway,
-    }
-
-    const jobRes = db.prepare(`
-      INSERT INTO provision_jobs (tenant_id, job_type, status, dry_run, requested_by, idempotency_key, request_json, plan_json, updated_at)
-      VALUES (?, 'bootstrap', 'queued', ?, ?, ?, ?, ?, (unixepoch()))
-    `).run(
-      tenantId,
-      dryRun ? 1 : 0,
-      actor,
-      randomUUID(),
-      JSON.stringify(requestPayload),
-      JSON.stringify(plan),
-    )
-
-    return {
-      tenant_id: tenantId,
-      job_id: Number(jobRes.lastInsertRowid),
-    }
-  })()
-
-  appendProvisionEvent({
-    job_id: inserted.job_id,
-    level: 'info',
-    step_key: 'queued',
-    message: `Provisioning request queued (${dryRun ? 'dry-run' : 'execute'})`,
-    data: { actor },
-  })
-
-  logAuditEvent({
-    action: 'tenant_bootstrap_requested',
-    actor,
-    target_type: 'tenant',
-    target_id: inserted.tenant_id,
-    detail: { dry_run: dryRun, slug, linux_user: linuxUser, owner_gateway: ownerGateway },
-  })
-
-  return {
-    tenant: db.prepare('SELECT * FROM tenants WHERE id = ?').get(inserted.tenant_id),
-    job: getProvisionJob(inserted.job_id),
-  }
+  void request
+  void actor
+  throw new Error(DOCKER_ONLY_OPENCLAW_PROVISIONING_ERROR)
 }
 
 export function createTenantDecommissionJob(tenantId: number, request: TenantDecommissionRequest, actor: string) {
@@ -704,6 +421,12 @@ export async function executeProvisionJob(jobId: number, actor: string) {
 
   const plan = Array.isArray(job.plan_json) ? (job.plan_json as ProvisionStep[]) : []
   if (!plan.length) throw new Error('Job plan is empty')
+  if (jobType === 'bootstrap') {
+    throw new Error(DOCKER_ONLY_OPENCLAW_PROVISIONING_ERROR)
+  }
+  if (containsHostOpenClawProvisioning(plan)) {
+    throw new Error(DOCKER_ONLY_OPENCLAW_PROVISIONING_ERROR)
+  }
 
   const dryRun = Number(job.dry_run) === 1
   const tenantRow = db.prepare('SELECT status FROM tenants WHERE id = ?').get(job.tenant_id) as { status?: string } | undefined
@@ -728,10 +451,6 @@ export async function executeProvisionJob(jobId: number, actor: string) {
     if (approvedBy === actor) {
       throw new Error('Two-person rule violation: approver cannot be the execution runner for live jobs.')
     }
-  }
-
-  if (jobType === 'bootstrap') {
-    ensureProvisionArtifacts(job)
   }
 
   db.prepare(`

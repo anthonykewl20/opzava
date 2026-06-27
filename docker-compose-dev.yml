@@ -18,7 +18,7 @@ services:
       - MC_CLAUDE_HOME=${MC_CLAUDE_HOME:-/home/nextjs/.claude}
       - MC_HOST_SESSION_MODE=${MC_HOST_SESSION_MODE:-coexist}
       - PATH=/home/nextjs/.local/bin:/home/nextjs/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-      - OPENCLAW_GATEWAY_HOST=${OPENCLAW_GATEWAY_HOST:-host.docker.internal}
+      - OPENCLAW_GATEWAY_HOST=${OPENCLAW_GATEWAY_HOST:-mc-openclaw-gateway}
       - OPENCLAW_GATEWAY_PORT=${OPENCLAW_GATEWAY_PORT:-18789}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}

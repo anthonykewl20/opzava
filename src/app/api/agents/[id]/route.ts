@@ -5,7 +5,6 @@ import { requireRole } from '@/lib/auth'
 import { writeAgentToConfig, enrichAgentConfigFromWorkspace, removeAgentFromConfig } from '@/lib/agent-sync'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
-import { runOpenClaw } from '@/lib/command'
 import { config as appConfig } from '@/lib/config'
 import { requireAgentSelfAccess } from '@/lib/enforcement/workspace-scope'
 
@@ -248,21 +247,13 @@ export async function DELETE(
     }
 
     if (removeWorkspace) {
-      const agentConfig = agent.config ? JSON.parse(agent.config) : {}
-      const openclawId =
-        String(agentConfig?.openclawId || agent.name || '')
-          .toLowerCase()
-          .replace(/[^a-z0-9._-]+/g, '-')
-          .replace(/^-+|-+$/g, '') || agent.name
-      try {
-        await runOpenClaw(['agents', 'delete', openclawId, '--force'], { timeoutMs: 30000 })
-      } catch (err: any) {
-        logger.error({ err, openclawId, agent: agent.name }, 'Failed to remove OpenClaw agent/workspace')
-        return NextResponse.json(
-          { error: `Failed to remove OpenClaw workspace for ${agent.name}: ${err?.message || 'unknown error'}` },
-          { status: 502 }
-        )
-      }
+      return NextResponse.json(
+        {
+          error: 'Host OpenClaw workspace deletion is disabled.',
+          hint: 'Remove sidecar-managed agents inside the mc-openclaw-gateway container or update the sidecar config.',
+        },
+        { status: 400 },
+      )
     }
 
     let configCleanupWarning: string | null = null

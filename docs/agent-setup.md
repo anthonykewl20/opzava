@@ -54,7 +54,7 @@ This requires `operator` role and supports additional fields like `soul_content`
 
 Opzava can auto-discover agents from:
 
-**OpenClaw config sync** — Reads agents from your `openclaw.json` file:
+**OpenClaw config sync** — Reads agents from the Docker sidecar-mounted `openclaw.json` file:
 
 ```bash
 curl -X POST http://localhost:3000/api/agents/sync \
@@ -63,7 +63,8 @@ curl -X POST http://localhost:3000/api/agents/sync \
   -d '{"source": "config"}'
 ```
 
-Set `OPENCLAW_CONFIG_PATH` to point to your `openclaw.json`.
+Set `OPENCLAW_CONFIG_PATH=/home/nextjs/.openclaw/openclaw.json` for the bundled sidecar. Do not point
+Opzava at a host-installed OpenClaw state directory for new deployments.
 
 **Local agent discovery** — Scans standard directories for agent definitions:
 

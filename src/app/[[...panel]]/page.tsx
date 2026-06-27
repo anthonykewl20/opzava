@@ -320,7 +320,7 @@ export default function Home() {
     // Original mapped non-ok → data=null → the `else` branch cleared the update
     // (setOpenclawUpdate(null)). Reproduce that on thrown ApiError in the catch so a
     // failed/no-update check still clears any stale banner.
-    apiFetch<{ updateAvailable?: boolean; installed: string; latest: string; releaseUrl: string; releaseNotes: string; updateCommand: string }>('/api/openclaw/version')
+    apiFetch<{ updateAvailable?: boolean; installed: string; latest: string; releaseUrl: string; releaseNotes: string; updateCommand: string; updateMode?: 'docker' | 'local' }>('/api/openclaw/version')
       .then(data => {
         if (data?.updateAvailable) {
           setOpenclawUpdate({
@@ -329,6 +329,7 @@ export default function Home() {
             releaseUrl: data.releaseUrl,
             releaseNotes: data.releaseNotes,
             updateCommand: data.updateCommand,
+            updateMode: data.updateMode,
           })
         } else {
           setOpenclawUpdate(null)

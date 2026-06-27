@@ -149,9 +149,8 @@ reliability layer. The in-process eventBus is a best-effort fanout accelerator, 
     count. Expose via `GET /api/ops/chat-metrics` (admin) + a 60s log line. Broker-lag/load-tests are Phase 3
     (dropped from P1).
 
-19. **D-CHAT-DOCTOR.** Add a chat doctor following the `OpenClawDoctorStatus` shape at `GET /api/ops/chat-doctor`
-    (admin role): single-flight + TTL cache like `src/app/api/openclaw/doctor/route.ts` and
-    `src/lib/openclaw-doctor.ts:6-14,29-66`. Checks write-path atomicity, idempotency constraint presence, SSE
+19. **D-CHAT-DOCTOR.** Add a chat doctor following the route-local `/api/openclaw/doctor` status shape
+    at `GET /api/ops/chat-doctor` (admin role). Checks write-path atomicity, idempotency constraint presence, SSE
     replay/resync wiring, ephemeral-guard, drain handler.
 
 20. **D-BROKER (Deferred to Phase 2/3).** Broker adapter (Redis Streams + a
@@ -287,7 +286,7 @@ Deferred (conditional, Phase 2). Collapsing N tabs into one EventSource per brow
 - Code: `src/app/api/events/route.ts`, `src/app/api/v1/runs/stream/route.ts`, `src/app/api/chat/messages/route.ts`,
   `src/lib/realtime-events.ts`, `src/lib/event-bus.ts`, `src/lib/use-server-events.ts`, `src/lib/db.ts`,
   `src/lib/migrations.ts`, `src/lib/auth.ts`, `src/lib/websocket.ts`, `src/lib/pty-websocket.ts`,
-  `src/lib/openclaw-doctor.ts`, `scripts/mc-server.cjs`, `scripts/dokploy-parity-test.sh`.
+  `src/app/api/openclaw/doctor/route.ts`, `scripts/mc-server.cjs`, `scripts/dokploy-parity-test.sh`.
 - Slack persist-before-fanout + transient events: https://slack.engineering/real-time-messaging/ ,
   https://slack.engineering/scaling-datastores-at-slack-with-vitess/ .
 - Zulip events system (after-commit dispatch, `newest_pruned_id`):

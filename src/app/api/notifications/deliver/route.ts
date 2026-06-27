@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase, Notification, db_helpers } from '@/lib/db';
-import { runOpenClaw } from '@/lib/command';
 import { requireRole } from '@/lib/auth';
 import { logger } from '@/lib/logger';
+import { callOpenClawGateway } from '@/lib/openclaw-gateway';
 
 /**
  * POST /api/notifications/deliver - Notification delivery daemon endpoint
@@ -87,21 +87,7 @@ export async function POST(request: NextRequest) {
               idempotencyKey: `notification-${notification.id}-${Date.now()}`,
               deliver: false,
             };
-            const { stdout, stderr } = await runOpenClaw(
-              [
-                'gateway',
-                'call',
-                'agent',
-                '--params',
-                JSON.stringify(invokeParams),
-                '--json'
-              ],
-              { timeoutMs: 30000 }
-            );
-
-            if (stderr && stderr.includes('error')) {
-              throw new Error(`OpenClaw error: ${stderr}`);
-            }
+            const result = await callOpenClawGateway<any>('agent', invokeParams, 30000);
             
             // Mark as delivered
             const now = Math.floor(Date.now() / 1000);
@@ -114,7 +100,7 @@ export async function POST(request: NextRequest) {
               session_key: notification.session_key,
               delivered_at: now,
               status: 'delivered',
-              stdout: stdout.substring(0, 200) // Truncate for storage
+              stdout: JSON.stringify(result).substring(0, 200) // Truncate for storage
             });
             
             // Log successful delivery

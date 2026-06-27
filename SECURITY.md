@@ -56,7 +56,8 @@ Run `bash scripts/security-audit.sh` to check your deployment automatically.
 - [ ] Log rotation configured (max-size, max-file)
 
 ### OpenClaw Gateway
-- [ ] Gateway bound to localhost (`OPENCLAW_GATEWAY_HOST=127.0.0.1`)
+- [ ] OpenClaw runs as the Docker sidecar, not a host/laptop CLI (`OPENCLAW_ENABLED=1 make up openclaw`)
+- [ ] Gateway target is private (`OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway` in Docker, or loopback for standalone gateway-free testing)
 - [ ] Gateway token configured (`OPENCLAW_GATEWAY_TOKEN`)
 - [ ] Gateway token NOT exposed via `NEXT_PUBLIC_*` variables
 

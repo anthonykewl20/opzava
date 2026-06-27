@@ -265,28 +265,33 @@ export async function POST(request: NextRequest) {
     }
 
     if (gateway === 'openclaw') {
-      const openclawBin = config.openclawBin || 'openclaw'
+      const dockerCommand =
+        action === 'stop'
+          ? 'OPENCLAW_ENABLED=1 make down openclaw'
+          : 'OPENCLAW_ENABLED=1 make up openclaw'
 
       if (action === 'diagnose') {
-        const result = await runCommand(openclawBin, ['doctor'], { timeoutMs: 30_000 })
+        const status = getOpenClawGatewayStatus()
         return NextResponse.json({
-          success: result.code === 0,
-          output: ((result.stdout || '') + '\n' + (result.stderr || '')).trim(),
+          success: status.running,
+          output: status.running
+            ? `OpenClaw sidecar is reachable at ${config.gatewayHost}:${config.gatewayPort}`
+            : `OpenClaw sidecar is not reachable. Start it with: OPENCLAW_ENABLED=1 make up openclaw`,
+          status,
         })
       }
 
-      // OpenClaw gateway uses `openclaw gateway start/stop/restart`
-      const result = await runCommand(openclawBin, ['gateway', action], {
-        timeoutMs: 15_000,
-      })
+      logger.info({ gateway, action }, 'OpenClaw sidecar control requested')
 
-      logger.info({ gateway, action, code: result.code }, 'Gateway control action executed')
-
-      return NextResponse.json({
-        success: result.code === 0,
-        output: ((result.stdout || '') + '\n' + (result.stderr || '')).trim(),
-        status: getOpenClawGatewayStatus(),
-      })
+      return NextResponse.json(
+        {
+          success: false,
+          output: `OpenClaw is Docker-managed in Opzava. Run: ${dockerCommand}`,
+          status: getOpenClawGatewayStatus(),
+          command: dockerCommand,
+        },
+        { status: 400 },
+      )
     }
 
     return NextResponse.json({ error: 'Unknown gateway' }, { status: 400 })
