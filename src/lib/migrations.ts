@@ -1680,6 +1680,58 @@ const migrations: Migration[] = [
         )
       `)
     }
+  },
+  {
+    id: '060_opzava_conversation_schema',
+    up(db: Database.Database) {
+      // Ask-Opzava live wiring (ARD 0028/0029, doc 95 §D1; S0 #36). Two Engine-B tables,
+      // mirroring migration 059's central-migration pattern for orchestration opzava_* tables:
+      // 1. opzava_conversation — the typed-thread overlay (orchestrator|assistant|team|dm).
+      //    conversation_id == messages.conversation_id for dm/team; project_id nullable
+      //    (per-project scope deferred to #35); participants/record_json carry the overlay.
+      // 2. opzava_conversation_turn — AI/system turns layered over inherited `messages`.
+      //    message_anchor (nullable -> messages.id) REFERENCES, never copies, human rows.
+      //    Action-block turns are the one source of truth for proposed actions: status
+      //    ='pending' + the action vocabulary in record_json (no parallel table).
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS opzava_conversation (
+          conversation_id TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          project_id INTEGER,
+          participants TEXT NOT NULL DEFAULT '[]',
+          title TEXT,
+          record_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          last_message_at TEXT
+        )
+      `)
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_opzava_conversation_type_last_message ON opzava_conversation(type, last_message_at)`,
+      )
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_opzava_conversation_project ON opzava_conversation(project_id)`,
+      )
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS opzava_conversation_turn (
+          turn_id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL,
+          parent_turn_id TEXT,
+          author TEXT NOT NULL,
+          role TEXT NOT NULL,
+          body TEXT NOT NULL DEFAULT '',
+          ref_type TEXT,
+          ref_id TEXT,
+          message_anchor INTEGER,
+          status TEXT,
+          record_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_opzava_conversation_turn_thread ON opzava_conversation_turn(conversation_id, created_at)`,
+      )
+    }
   }
 ]
 
