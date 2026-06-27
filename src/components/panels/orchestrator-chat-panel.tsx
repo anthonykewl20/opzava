@@ -710,9 +710,9 @@ export function OrchestratorChatPanel() {
       <div className="chat-titlebar">
         <div className="chat-titlebar-inner">
           <div className="u-row" style={{ gap: 'var(--space-3)', alignItems: 'center' }}>
-            <span style={{ fontSize: 'var(--text-md)', fontWeight: 'var(--fw-semibold)', color: 'var(--fg)' }}>
+            <h2 style={{ margin: 0, fontSize: 'var(--text-md)', fontWeight: 'var(--fw-semibold)', color: 'var(--fg)' }}>
               Ask Opzava
-            </span>
+            </h2>
             <span className="u-subtle" style={{ fontSize: 'var(--text-xs)' }}>·</span>
             <span className="u-subtle" style={{ fontSize: 'var(--text-xs)' }}>
               Cross-project oversight — not tied to any single project
@@ -777,7 +777,7 @@ export function OrchestratorChatPanel() {
             <>
               {/* ── Offline / coordinator unavailable (top of log; digest + thread still render below) ── */}
               {coordinator?.status === 'offline' && (
-                <div className="banner banner-warning" role="alert" aria-live="assertive">
+                <div className="banner banner-warning" role="status" aria-live="polite">
                   <span aria-hidden="true" style={{ fontSize: 'var(--text-md)' }}>
                     ☾
                   </span>
