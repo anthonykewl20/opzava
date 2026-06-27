@@ -22,6 +22,7 @@ export type EventType =
   | 'task.status_changed'
   | 'chat.message'
   | 'chat.message.read'
+  | 'conversation.turn_added'
   | 'notification.created'
   | 'notification.read'
   | 'activity.created'
