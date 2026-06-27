@@ -6,7 +6,9 @@
 
 ## Context
 
-The "Your tools" surface (`essential-tools.html` + `-empty` + `essential-connect-wizard.html`; surface 24) shows the operator's linked agent tools (Claude Code, OpenCode, Codex CLI, Codex Desktop, Claude Desktop, OpenClaw, Hermes — "5 of 7 connected") with a 5-state health glyph (`active|connected|degraded|disconnected|not_linked`, glyph+label, never colour) + a 4-step connect wizard. ARD 0020's profile doorway points here.
+The "Your tools" surface (`essential-tools.html` + `-empty` + `essential-connect-wizard.html`; surface 24) shows the operator's linked agent tools with a 5-state health glyph (`active|connected|degraded|disconnected|not_linked`, glyph+label, never colour) + a 4-step connect wizard. ARD 0020's profile doorway points here.
+
+> **Amended (server-only correction):** the connect **wizard** + the laptop "Your tools" health surface cover only the **five local-plane clients** the operator connects from their own machine — **Claude Code, OpenCode, Codex CLI, Codex Desktop, Claude Desktop**. **OpenClaw and Hermes are SERVER-ONLY** (the deploy-host fleet, by-file auth — see `gateway-setup.md` / CONTEXT.md two-plane split): they are **not** laptop-connected tools and **not** in the connect wizard; their health surfaces separately as **server fleet / gateway status** (admin-config), not as connect tiles. The old "5 of 7" tile count + the two-group picker (`12-linked-tools-health.md`, the mockups `essential-tools.html`/`essential-connect-wizard.html`) need a follow-up resync to drop OpenClaw/Hermes from the laptop wizard.
 
 Grounding tested the hypothesis "LinkedTool = a view over `DeviceAuthorization`" → **partial**:
 

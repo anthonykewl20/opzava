@@ -4,11 +4,20 @@ How to connect Opzava to an **OpenClaw gateway** so it can manage a fleet of age
 WebSocket control plane — register/discover gateways, sync agents, spawn and control sessions, and
 monitor gateway health.
 
+> **OpenClaw / Hermes are SERVER-ONLY.** The OpenClaw gateway and its **Hermes** agent runtime run
+> **server-side only** — on the same host/filesystem as Opzava (the deploy box) — **never on the
+> operator's laptop**. This is the two-plane split: the **local plane** is the operator's own CLIs
+> (Claude Code / Codex / OpenCode) reached via MCP or device-auth; the **server plane** is the
+> OpenClaw/Hermes fleet. Because subscription auth is detected **by-file** (e.g. GPT-Plus →
+> `~/.codex/auth.json`, `auth_mode:"chatgpt"`), the gateway, its auth, and Opzava must be co-located
+> on that server host (ARD 0026 GP2; CONTEXT.md two-plane split). Running the gateway on a dev machine
+> is for local testing only, not the product topology.
+
 > **Do you even need the gateway?** For a single local CLI (Claude Code / Codex / OpenCode) you do
 > **not** need a gateway — use the MCP server or a direct connection (see
-> [Connect a Local Agent](connect-local-agents.md)). Reach for the gateway when agents are managed by
-> **OpenClaw** or run across **multiple hosts**. Opzava also runs fully **gateway-free** in standalone
-> mode (`NEXT_PUBLIC_GATEWAY_OPTIONAL=true`).
+> [Connect a Local Agent](connect-local-agents.md)). Reach for the gateway when work runs as the
+> **server-side OpenClaw/Hermes fleet** (the 24/7 substrate). Opzava also runs fully **gateway-free**
+> in standalone mode (`NEXT_PUBLIC_GATEWAY_OPTIONAL=true`).
 
 The server↔gateway RPC is **v3** (the browser path negotiates 3/4); keep the gateway on a compatible
 build. Opzava warns on `/api/gateways/health` when a gateway version risks a tools-profile mismatch.

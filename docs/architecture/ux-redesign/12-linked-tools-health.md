@@ -1,5 +1,15 @@
 # 12 — Linked Tools Health & the Connect Wizard ("Your tools")
 
+> **⚠ AMENDED — OpenClaw / Hermes are SERVER-ONLY.** This doc originally framed all **7** tools as
+> laptop-linked. Per the two-plane split (`gateway-setup.md` / CONTEXT.md / ARD 0012 amendment): the
+> **connect wizard** and the laptop "Your tools" surface cover only the **5 local-plane clients**
+> connected from the operator's own machine — **Claude Code, OpenCode, Codex CLI, Codex Desktop,
+> Claude Desktop**. **OpenClaw and Hermes run server-side only** (the deploy-host fleet, by-file auth);
+> they are **not** connected via this laptop wizard and surface separately as **server fleet / gateway
+> status** (admin-config). The 7-tile picker, the "Run a fleet" group, the "5 of 7" count, and the
+> mockups (`essential-tools.html`, `essential-connect-wizard.html`) below still reflect the old
+> 7-tool model and need a resync pass to drop OpenClaw/Hermes from the laptop wizard.
+
 > **Scope.** This document designs **one new Essential surface** — **"Your tools"** — a calm health-check for the user's linked terminal/agent tools (Claude Code, OpenCode, Codex CLI, Codex Desktop, Claude Desktop, OpenClaw, Hermes), plus the **modern, calm connect wizard** that links the first (and every subsequent) tool. The user must SEE at a glance that their linked tools are connected and healthy; if **none** are linked yet, a wizard guides them to connect their first one.
 >
 > The surface is a calm Basecamp adaptation built **entirely** on the existing contract (`tokens.css` + `app.css` + `shadcn.css`) and the established mockups. It is the **calm inversion** of the admin `monitoring-health.html`, which is the Full/admin view and uses exactly the traffic-light pattern (`dot-success`/`dot-warning`/`dot-danger` + colour-coded latency) that the Essential design law forbids. We reuse that page's *structure* (card + rows + collapsible log) and replace its *colour-only status* with **label + glyph**.
