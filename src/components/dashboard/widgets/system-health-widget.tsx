@@ -24,8 +24,8 @@ export function SystemHealthWidget({ data }: { data: DashboardData }) {
 
   if (isSystemLoading) {
     return (
-      <div className="rounded-xl border border-border bg-card/80 px-4 py-2.5">
-        <span className="text-2xs text-muted-foreground">Loading system health...</span>
+      <div className="card" style={{ padding: '10px var(--space-4)' }}>
+        <span className="u-subtle" style={{ fontSize: 'var(--text-xs)' }}>Loading system health…</span>
       </div>
     )
   }
@@ -40,45 +40,46 @@ export function SystemHealthWidget({ data }: { data: DashboardData }) {
   const memTrend = memPct != null && memPct > 80 ? 'up' : memPct != null && memPct < 50 ? 'down' : null
 
   return (
-    <div className="rounded-xl border border-border bg-card/80">
+    <div className="card">
       {/* Compact bar */}
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="w-full px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1 text-2xs text-muted-foreground hover:bg-secondary/20 transition-smooth rounded-xl"
+        className="w-full flex flex-wrap items-center gap-x-5 gap-y-1 u-muted"
+        style={{ padding: '10px var(--space-4)', fontSize: 'var(--text-xs)', background: 'none', border: 0, textAlign: 'left' }}
       >
-        <span className="text-xs font-semibold text-foreground/80">System</span>
+        <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--fg)' }}>System</span>
 
         {cpuPct != null && (
-          <span>CPU <span className={`font-mono-tight ${cpuPct > 80 ? 'text-red-400' : cpuPct > 60 ? 'text-amber-400' : 'text-foreground/70'}`}>{cpuPct}%</span></span>
+          <span>CPU <span className="u-mono u-tnum" style={{ color: cpuPct > 80 ? 'var(--danger)' : cpuPct > 60 ? 'var(--warning)' : 'var(--fg)' }}>{cpuPct}%</span></span>
         )}
 
         {memPct != null && (
           <span className="inline-flex items-center gap-1">
-            Mem <span className={`font-mono-tight ${memPct > 90 ? 'text-red-400' : memPct > 70 ? 'text-amber-400' : 'text-foreground/70'}`}>{memPct}%</span>
-            {memTrend === 'up' && <span className="text-amber-400">▲</span>}
-            {memTrend === 'down' && <span className="text-green-400">▼</span>}
+            Mem <span className="u-mono u-tnum" style={{ color: memPct > 90 ? 'var(--danger)' : memPct > 70 ? 'var(--warning)' : 'var(--fg)' }}>{memPct}%</span>
+            {memTrend === 'up' && <span style={{ color: 'var(--warning)' }}>▲</span>}
+            {memTrend === 'down' && <span style={{ color: 'var(--success)' }}>▼</span>}
           </span>
         )}
 
         {Number.isFinite(diskPct) && (
-          <span>Disk <span className="font-mono-tight text-foreground/70">{diskPct}%</span></span>
+          <span>Disk <span className="u-mono u-tnum" style={{ color: 'var(--fg)' }}>{diskPct}%</span></span>
         )}
 
-        {uptimeStr && <span>Uptime <span className="font-mono-tight text-foreground/70">{uptimeStr}</span></span>}
+        {uptimeStr && <span>Uptime <span className="u-mono u-tnum" style={{ color: 'var(--fg)' }}>{uptimeStr}</span></span>}
 
         <span className="inline-flex items-center gap-1">
           MC
-          <span className={`w-1.5 h-1.5 rounded-full ${errorCount > 0 ? 'bg-amber-500' : 'bg-green-500'}`} />
-          <span className="font-mono-tight text-foreground/70">{errorCount > 0 ? `${errorCount} err` : 'OK'}</span>
+          <span className={`dot ${errorCount > 0 ? 'dot-warning' : 'dot-success'}`} aria-hidden="true" />
+          <span className="u-mono u-tnum" style={{ color: 'var(--fg)' }}>{errorCount > 0 ? `${errorCount} err` : 'OK'}</span>
         </span>
 
-        <span className="ml-auto text-muted-foreground/40">{expanded ? '▲' : '▼'}</span>
+        <span className="ml-auto u-subtle">{expanded ? '▲' : '▼'}</span>
       </button>
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="px-4 pb-3 pt-1 space-y-2.5 border-t border-border/50">
+        <div className="px-4 pb-3 pt-1 space-y-2.5" style={{ borderTop: '1px solid var(--border)' }}>
           {isLocal ? (
             <>
               <HealthRow label="Local OS" value={localOsStatus.value} status={localOsStatus.status} />

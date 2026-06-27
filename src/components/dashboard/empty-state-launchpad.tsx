@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api-client'
 
 interface RuntimeStatus {
@@ -86,10 +85,10 @@ export function EmptyStateLaunchpad({ agentCount, taskCount, onNavigate }: Props
   const completedCount = (hasRuntimes ? 1 : 0) + (hasAgents ? 1 : 0) + (hasTasks ? 1 : 0)
 
   return (
-    <div className="rounded-xl border border-border bg-card p-6">
+    <div className="card" style={{ padding: 'var(--space-6)' }}>
       <div className="text-center mb-6">
-        <h2 className="text-lg font-semibold text-foreground mb-1">Launch Sequence</h2>
-        <p className="text-sm text-muted-foreground">
+        <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-semibold)', color: 'var(--fg)', marginBottom: 4 }}>Launch Sequence</h2>
+        <p className="u-muted" style={{ fontSize: 'var(--text-sm)' }}>
           Complete each step to bring your station online.
         </p>
       </div>
@@ -104,19 +103,19 @@ export function EmptyStateLaunchpad({ agentCount, taskCount, onNavigate }: Props
           doneContent={
             <div className="space-y-1">
               {installed.map(r => (
-                <div key={r.id} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 text-emerald-400/80">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                <div key={r.id} className="flex items-center justify-between" style={{ fontSize: 'var(--text-xs)' }}>
+                  <div className="flex items-center gap-1.5" style={{ color: 'var(--success)' }}>
+                    <span className="dot dot-success shrink-0" aria-hidden="true" />
                     {r.name}
-                    {r.version && <span className="text-muted-foreground/40 text-2xs">v{r.version}</span>}
+                    {r.version && <span className="u-subtle">v{r.version}</span>}
                   </div>
                   {r.authRequired && !r.authenticated && (
-                    <span className="text-2xs text-amber-400">{r.authHint || 'Not authenticated'}</span>
+                    <span style={{ color: 'var(--warning)' }}>{r.authHint || 'Not authenticated'}</span>
                   )}
                 </div>
               ))}
               {installed.length < runtimes.length && (
-                <button onClick={() => onNavigate('settings')} className="text-2xs text-primary/70 hover:text-primary mt-1.5 underline">
+                <button onClick={() => onNavigate('settings')} className="u-accent underline mt-1.5" style={{ fontSize: 'var(--text-xs)', background: 'none', border: 0, cursor: 'pointer' }}>
                   + Install more runtimes
                 </button>
               )}
@@ -124,16 +123,16 @@ export function EmptyStateLaunchpad({ agentCount, taskCount, onNavigate }: Props
           }
           pendingContent={
             <>
-              <p className="text-xs text-muted-foreground mb-3">
+              <p className="u-muted mb-3" style={{ fontSize: 'var(--text-xs)' }}>
                 Install a runtime to run agents on this machine.
               </p>
-              <Button
-                size="sm"
-                className="text-xs w-full bg-void-amber/20 text-void-amber border border-void-amber/30 hover:bg-void-amber/30"
+              <button
+                type="button"
+                className="btn btn-primary btn-sm w-full"
                 onClick={() => onNavigate('settings')}
               >
                 Install Runtimes
-              </Button>
+              </button>
             </>
           }
         />
@@ -146,9 +145,10 @@ export function EmptyStateLaunchpad({ agentCount, taskCount, onNavigate }: Props
           active={hasRuntimes && !hasAgents}
           doneContent={
             <>
-              <p className="text-xs text-emerald-400/80 mb-1">Agent registered</p>
+              <p className="mb-1" style={{ fontSize: 'var(--text-xs)', color: 'var(--success)' }}>Agent registered</p>
               <button
-                className="text-2xs text-muted-foreground hover:text-foreground"
+                className="u-muted"
+                style={{ fontSize: 'var(--text-xs)', background: 'none', border: 0, cursor: 'pointer' }}
                 onClick={() => onNavigate('agents')}
               >
                 View fleet →
@@ -157,17 +157,17 @@ export function EmptyStateLaunchpad({ agentCount, taskCount, onNavigate }: Props
           }
           pendingContent={
             <>
-              <p className="text-xs text-muted-foreground mb-3">
+              <p className="u-muted mb-3" style={{ fontSize: 'var(--text-xs)' }}>
                 Register your first agent. Choose a template and configure its capabilities.
               </p>
-              <Button
-                size="sm"
-                className="text-xs w-full bg-void-amber/20 text-void-amber border border-void-amber/30 hover:bg-void-amber/30"
+              <button
+                type="button"
+                className="btn btn-primary btn-sm w-full"
                 disabled={!hasRuntimes}
                 onClick={() => onNavigate('agents')}
               >
                 Create Agent
-              </Button>
+              </button>
             </>
           }
         />
@@ -180,9 +180,10 @@ export function EmptyStateLaunchpad({ agentCount, taskCount, onNavigate }: Props
           active={hasAgents && !hasTasks}
           doneContent={
             <>
-              <p className="text-xs text-emerald-400/80 mb-1">Tasks in queue</p>
+              <p className="mb-1" style={{ fontSize: 'var(--text-xs)', color: 'var(--success)' }}>Tasks in queue</p>
               <button
-                className="text-2xs text-muted-foreground hover:text-foreground"
+                className="u-muted"
+                style={{ fontSize: 'var(--text-xs)', background: 'none', border: 0, cursor: 'pointer' }}
                 onClick={() => onNavigate('tasks')}
               >
                 Open task board →
@@ -191,43 +192,33 @@ export function EmptyStateLaunchpad({ agentCount, taskCount, onNavigate }: Props
           }
           pendingContent={
             <>
-              <p className="text-xs text-muted-foreground mb-3">
+              <p className="u-muted mb-3" style={{ fontSize: 'var(--text-xs)' }}>
                 Create a task and assign it to your agent.
               </p>
-              <Button
-                size="sm"
-                className="text-xs w-full bg-void-cyan/20 text-void-cyan border border-void-cyan/30 hover:bg-void-cyan/30"
+              <button
+                type="button"
+                className="btn btn-primary btn-sm w-full"
                 disabled={!hasAgents}
                 onClick={() => onNavigate('tasks')}
               >
                 Create Task
-              </Button>
+              </button>
             </>
           }
         />
       </div>
 
-      {/* Animated progress bar */}
+      {/* Progress bar */}
       <div className="mt-5 flex items-center gap-3">
-        <div className="flex-1 h-1.5 rounded-full bg-border/20 overflow-hidden relative">
-          {completedCount < 3 && (
-            <div className="absolute inset-0 bg-gradient-to-r from-void-amber/10 to-void-cyan/10 animate-pulse" />
-          )}
-          <div
-            className="h-full rounded-full relative overflow-hidden transition-all duration-1000 ease-out"
+        <div className="progress flex-1">
+          <i
             style={{
               width: `${(completedCount / 3) * 100}%`,
-              background: completedCount === 3
-                ? 'linear-gradient(90deg, rgb(16 185 129) 0%, rgb(52 211 153) 100%)'
-                : 'linear-gradient(90deg, var(--void-amber) 0%, var(--void-cyan) 100%)',
+              background: completedCount === 3 ? 'var(--success)' : 'var(--accent)',
             }}
-          >
-            <div className="absolute inset-0 shimmer-bar" />
-          </div>
+          />
         </div>
-        <span className={`text-2xs tabular-nums font-mono transition-colors duration-500 ${
-          completedCount === 3 ? 'text-emerald-400' : 'text-muted-foreground/60'
-        }`}>
+        <span className="u-tnum u-mono" style={{ fontSize: 'var(--text-xs)', color: completedCount === 3 ? 'var(--success)' : 'var(--fg-subtle)' }}>
           {completedCount}/3
         </span>
       </div>
@@ -244,24 +235,26 @@ function StepCard({ step, title, done, active, doneContent, pendingContent }: {
   pendingContent: React.ReactNode
 }) {
   return (
-    <div className={`p-4 rounded-lg border transition-all ${
-      done
-        ? 'border-emerald-500/30 bg-emerald-500/5'
-        : active
-          ? 'border-void-amber/30 bg-void-amber/5'
-          : 'border-border/40 bg-surface-1/20 opacity-50'
-    }`}>
+    <div
+      style={{
+        padding: 'var(--space-4)',
+        borderRadius: 'var(--radius-lg)',
+        border: '1px solid var(--border)',
+        background: done ? 'var(--success-soft)' : active ? 'var(--accent-soft)' : 'var(--surface-2)',
+        opacity: !done && !active ? 0.55 : 1,
+      }}
+    >
       <div className="flex items-center gap-2 mb-2">
-        <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${
-          done
-            ? 'bg-emerald-500/20 text-emerald-400'
-            : active
-              ? 'bg-void-amber/20 text-void-amber'
-              : 'bg-muted/30 text-muted-foreground'
-        }`}>
+        <span
+          className="u-mono badge"
+          style={{
+            color: done ? 'var(--success)' : active ? 'var(--accent)' : 'var(--fg-muted)',
+            background: done ? 'var(--success-soft)' : active ? 'var(--accent-soft)' : 'var(--surface-3)',
+          }}
+        >
           {done ? '✓' : `0${step}`}
         </span>
-        <span className="text-sm font-medium">{title}</span>
+        <span style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--fg)' }}>{title}</span>
       </div>
       {done ? doneContent : pendingContent}
     </div>

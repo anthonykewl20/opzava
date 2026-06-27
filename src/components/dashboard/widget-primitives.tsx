@@ -1,7 +1,5 @@
 'use client'
 
-import { Button } from '@/components/ui/button'
-
 export interface DbStats {
   tasks: { total: number; byStatus: Record<string, number> }
   agents: { total: number; byStatus: Record<string, number> }
@@ -143,20 +141,20 @@ export function HealthRow({ label, value, status, bar }: {
   status: 'good' | 'warn' | 'bad'
   bar?: number
 }) {
-  const statusColor = status === 'good' ? 'text-green-400' : status === 'warn' ? 'text-amber-400' : 'text-red-400'
+  const statusVar = status === 'good' ? 'var(--success)' : status === 'warn' ? 'var(--warning)' : 'var(--danger)'
 
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">{label}</span>
-        <span className={`text-xs font-medium font-mono-tight ${statusColor}`}>{value}</span>
+        <span className="u-muted" style={{ fontSize: 'var(--text-xs)' }}>{label}</span>
+        <span className="inline-flex items-center gap-2 u-mono u-tnum" style={{ fontSize: 'var(--text-xs)', fontWeight: 'var(--fw-medium)', color: statusVar }}>
+          <span className="dot" style={{ background: statusVar }} aria-hidden="true" />
+          {value}
+        </span>
       </div>
       {bar != null && (
-        <div className="h-1 rounded-full bg-secondary overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-500 ${bar > 90 ? 'bg-red-500' : bar > 70 ? 'bg-amber-500' : 'bg-green-500'}`}
-            style={{ width: `${Math.min(bar, 100)}%` }}
-          />
+        <div className="progress">
+          <i style={{ width: `${Math.min(bar, 100)}%`, background: bar > 90 ? 'var(--danger)' : bar > 70 ? 'var(--warning)' : 'var(--success)' }} />
         </div>
       )}
     </div>
@@ -205,19 +203,20 @@ export function QuickAction({ label, desc, tab, icon, onNavigate }: {
   onNavigate: (tab: string) => void
 }) {
   return (
-    <Button
-      variant="outline"
+    <button
+      type="button"
       onClick={() => onNavigate(tab)}
-      className="flex items-center gap-3 p-3 h-auto rounded-lg hover:border-primary/30 hover:bg-primary/5 text-left group justify-start"
+      className="card flex items-center gap-3 text-left w-full"
+      style={{ padding: 'var(--space-3)', cursor: 'pointer', background: 'var(--surface)' }}
     >
-      <div className="w-8 h-8 rounded-md bg-secondary flex items-center justify-center shrink-0 group-hover:bg-primary/10 transition-smooth">
-        <div className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-smooth">{icon}</div>
+      <div className="flex items-center justify-center shrink-0" style={{ width: 32, height: 32, borderRadius: 'var(--radius-md)', background: 'var(--surface-3)', color: 'var(--fg-muted)' }}>
+        <div style={{ width: 16, height: 16 }}>{icon}</div>
       </div>
       <div>
-        <div className="text-xs font-medium text-foreground">{label}</div>
-        <div className="text-2xs text-muted-foreground">{desc}</div>
+        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--fg)' }}>{label}</div>
+        <div className="u-subtle" style={{ fontSize: 'var(--text-xs)' }}>{desc}</div>
       </div>
-    </Button>
+    </button>
   )
 }
 

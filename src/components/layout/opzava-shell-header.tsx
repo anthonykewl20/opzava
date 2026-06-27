@@ -3,6 +3,7 @@
 import { useMissionControl } from '@/store'
 import { useNavigateToPanel } from '@/lib/navigation'
 import { useWebSocket } from '@/lib/websocket'
+import { ThemeSwitch } from '@/components/layout/opzava-theme-switch'
 
 /**
  * OpzavaShellHeader — the redesigned top header (.header), wired to the real
@@ -55,6 +56,9 @@ export function OpzavaShellHeader({ onOpenSearch }: { onOpenSearch: () => void }
 
       {/* Spacer */}
       <div className="u-grow" />
+
+      {/* Light/dark theme switch */}
+      <ThemeSwitch />
 
       {/* Health pill */}
       <div className="health-pill" aria-label={`System health: ${healthy ? 'All systems healthy' : 'Connection degraded'}`}>

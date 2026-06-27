@@ -252,15 +252,94 @@ export function Dashboard() {
     subscriptionPrice,
   }
 
+  // ── KPI stat-grid values (real data only) ──────────────────────────────────
+  const agentTotal = dbStats?.agents.total ?? agents.length
+  const totalTasks = dbStats?.tasks.total ?? tasks.length
+
+  const stats: Array<{ label: string; value: string; sub?: React.ReactNode }> = isLocal
+    ? [
+        {
+          label: 'Active sessions',
+          value: isSessionsLoading ? '—' : String(activeSessions),
+          sub: `${sessions.length} total today`,
+        },
+        {
+          label: 'Tasks running',
+          value: String(runningTasks),
+          sub: `${backlogCount} queued`,
+        },
+        {
+          label: 'Memory used',
+          value: memPct != null ? `${memPct}%` : '—',
+          sub: isSystemLoading ? 'loading…' : `system load ${systemLoad}%`,
+        },
+        {
+          label: 'Errors',
+          value: String(errorCount),
+          sub: errorCount > 0 ? 'see logs' : 'all clear',
+        },
+      ]
+    : [
+        {
+          label: 'Agents online',
+          value: isSystemLoading ? '—' : `${onlineAgents}/${agentTotal}`,
+          sub: `${agentTotal} registered`,
+        },
+        {
+          label: 'Tasks running',
+          value: String(runningTasks),
+          sub: `${backlogCount} queued`,
+        },
+        {
+          label: 'Tasks total',
+          value: String(totalTasks),
+          sub: `${doneCount} done`,
+        },
+        {
+          label: 'Errors',
+          value: String(errorCount),
+          sub: errorCount > 0 ? 'see logs' : 'all clear',
+        },
+      ]
+
   return (
-    <div className="p-5 space-y-4">
-      <OnboardingChecklistWidget />
-      <EmptyStateLaunchpad
-        agentCount={dbStats?.agents.total ?? agents.length}
-        taskCount={dbStats?.tasks.total ?? tasks.length}
-        onNavigate={navigateToPanel}
-      />
-      <WidgetGrid data={dashboardData} />
+    <div className="page">
+      <div className="page-stack">
+        <div className="page-header">
+          <div>
+            <h1 className="page-title">Overview</h1>
+            <p className="page-sub">AI operations dashboard</p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => navigateToPanel('tasks')}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            New task
+          </button>
+        </div>
+
+        <div className="stat-grid" aria-label="Key performance indicators">
+          {stats.map((stat) => (
+            <div key={stat.label} className="stat">
+              <div className="stat-label">{stat.label}</div>
+              <div className="stat-value u-tnum">{stat.value}</div>
+              {stat.sub != null && <div className="stat-delta u-subtle">{stat.sub}</div>}
+            </div>
+          ))}
+        </div>
+
+        <OnboardingChecklistWidget />
+        <EmptyStateLaunchpad
+          agentCount={agentTotal}
+          taskCount={totalTasks}
+          onNavigate={navigateToPanel}
+        />
+        <WidgetGrid data={dashboardData} />
+      </div>
     </div>
   )
 }

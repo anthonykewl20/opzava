@@ -31,11 +31,11 @@ export function BriefingBarWidget({ data }: { data: DashboardData }) {
   const agentTotal = dbStats?.agents.total ?? agents.length
 
   return (
-    <div className="rounded-xl border border-border bg-card/80 backdrop-blur-sm px-4 py-3">
+    <div className="card" style={{ padding: 'var(--space-3) var(--space-4)' }}>
       {/* Top row: key counts */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
         <BriefingItem
-          dot="green"
+          dot="success"
           onClick={() => navigateToPanel(isLocal ? 'sessions' : 'agents')}
         >
           {isLocal
@@ -45,7 +45,7 @@ export function BriefingBarWidget({ data }: { data: DashboardData }) {
         </BriefingItem>
 
         <BriefingItem
-          dot="blue"
+          dot="accent"
           onClick={() => navigateToPanel('tasks')}
         >
           <b>{runningTasks}</b> task{runningTasks !== 1 ? 's' : ''} running
@@ -53,7 +53,7 @@ export function BriefingBarWidget({ data }: { data: DashboardData }) {
 
         {reviewCount > 0 && (
           <BriefingItem
-            dot="amber"
+            dot="warning"
             onClick={() => navigateToPanel('tasks')}
           >
             <b>{reviewCount}</b> need{reviewCount === 1 ? 's' : ''} review
@@ -62,7 +62,7 @@ export function BriefingBarWidget({ data }: { data: DashboardData }) {
 
         {errorCount > 0 && (
           <BriefingItem
-            dot="red"
+            dot="danger"
             onClick={() => navigateToPanel('logs')}
           >
             <b>{errorCount}</b> error{errorCount !== 1 ? 's' : ''}
@@ -70,7 +70,7 @@ export function BriefingBarWidget({ data }: { data: DashboardData }) {
         )}
 
         {!isLocal && (
-          <BriefingItem dot={connection.isConnected ? 'green' : 'red'}>
+          <BriefingItem dot={connection.isConnected ? 'success' : 'danger'}>
             Gateway {connection.isConnected ? 'connected' : 'disconnected'}
             {connection.latency != null && <span className="text-muted-foreground/60 ml-1">{connection.latency}ms</span>}
           </BriefingItem>
@@ -78,7 +78,7 @@ export function BriefingBarWidget({ data }: { data: DashboardData }) {
       </div>
 
       {/* Bottom row: secondary metrics */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-1.5 text-2xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-1.5 u-subtle" style={{ fontSize: 'var(--text-xs)' }}>
         <span>{sessions.length} session{sessions.length !== 1 ? 's' : ''} today</span>
 
         {isLocal && !isClaudeLoading && totalTokens > 0 && (
@@ -92,13 +92,8 @@ export function BriefingBarWidget({ data }: { data: DashboardData }) {
         {!isSystemLoading && memPct != null && (
           <span className="inline-flex items-center gap-1.5">
             Memory {memPct}%
-            <span className="inline-flex h-1.5 w-16 rounded-full bg-secondary overflow-hidden">
-              <span
-                className={`h-full rounded-full transition-all duration-500 ${
-                  memPct > 90 ? 'bg-red-500' : memPct > 70 ? 'bg-amber-500' : 'bg-green-500'
-                }`}
-                style={{ width: `${Math.min(memPct, 100)}%` }}
-              />
+            <span className="progress" style={{ display: 'inline-block', width: 64 }}>
+              <i style={{ width: `${Math.min(memPct, 100)}%`, background: memPct > 90 ? 'var(--danger)' : memPct > 70 ? 'var(--warning)' : 'var(--success)' }} />
             </span>
           </span>
         )}
@@ -112,15 +107,15 @@ function BriefingItem({
   onClick,
   children,
 }: {
-  dot: 'green' | 'blue' | 'amber' | 'red'
+  dot: 'success' | 'accent' | 'warning' | 'danger'
   onClick?: () => void
   children: React.ReactNode
 }) {
-  const dotColor = {
-    green: 'bg-green-500',
-    blue: 'bg-blue-500',
-    amber: 'bg-amber-500',
-    red: 'bg-red-500',
+  const dotClass = {
+    success: 'dot-success',
+    accent: 'dot-accent',
+    warning: 'dot-warning',
+    danger: 'dot-danger',
   }[dot]
 
   const Tag = onClick ? 'button' : 'span'
@@ -129,12 +124,11 @@ function BriefingItem({
     <Tag
       type={onClick ? 'button' : undefined}
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 text-xs text-foreground/80 ${
-        onClick ? 'hover:text-foreground cursor-pointer transition-colors' : ''
-      }`}
+      className={`inline-flex items-center gap-2 ${onClick ? 'cursor-pointer' : ''}`}
+      style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-muted)', background: 'none', border: 0 }}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${dotColor} shrink-0`} />
-      <span className="[&>b]:font-semibold [&>b]:text-foreground">{children}</span>
+      <span className={`dot ${dotClass}`} aria-hidden="true" />
+      <span className="[&>b]:font-semibold" style={{ color: 'var(--fg-muted)' }}>{children}</span>
     </Tag>
   )
 }

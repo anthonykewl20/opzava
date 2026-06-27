@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '@/lib/api-client'
-import { Button } from '@/components/ui/button'
 import { useMissionControl } from '@/store'
 import { useNavigateToPanel } from '@/lib/navigation'
 
@@ -14,13 +13,11 @@ interface ChecklistItem {
 }
 
 export function OnboardingChecklistWidget() {
-  const { agents, tasks, securityPosture, dashboardMode } = useMissionControl()
+  const { agents, tasks, securityPosture } = useMissionControl()
   const navigateToPanel = useNavigateToPanel()
   const [visible, setVisible] = useState(false)
   const [dismissing, setDismissing] = useState(false)
   const [celebrating, setCelebrating] = useState(false)
-
-  const isGateway = dashboardMode === 'full'
 
   // Check if checklist should be visible
   useEffect(() => {
@@ -99,42 +96,34 @@ export function OnboardingChecklistWidget() {
 
   if (!visible) return null
 
-  const accentText = isGateway ? 'text-void-cyan' : 'text-void-amber'
-  const accentBg = isGateway ? 'bg-void-cyan' : 'bg-void-amber'
-  const accentBorder = isGateway ? 'border-void-cyan/30' : 'border-void-amber/30'
-
   if (celebrating) {
     return (
-      <section className={`rounded-xl border ${accentBorder} bg-card p-6 text-center`}>
-        <div className={`text-xl font-bold mb-1 ${accentText}`}>Station Fully Operational</div>
-        <p className="text-sm text-muted-foreground">All systems online. You&apos;re ready to go.</p>
+      <section className="card text-center" style={{ padding: 'var(--space-6)' }}>
+        <div className="u-accent" style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-semibold)', marginBottom: 4 }}>Station Fully Operational</div>
+        <p className="u-muted" style={{ fontSize: 'var(--text-sm)' }}>All systems online. You&apos;re ready to go.</p>
       </section>
     )
   }
 
   return (
-    <section className="rounded-xl border border-border bg-card p-4">
+    <section className="card" style={{ padding: 'var(--space-4)' }}>
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="text-sm font-semibold">Setup Progress ({completedCount}/{items.length})</h3>
+          <h3 className="card-title">Setup Progress ({completedCount}/{items.length})</h3>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-2xs text-muted-foreground h-6 px-2"
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
           disabled={dismissing}
           onClick={handleDismiss}
         >
           Dismiss
-        </Button>
+        </button>
       </div>
 
       {/* Progress bar */}
-      <div className="h-1.5 bg-surface-2 rounded-full mb-4 overflow-hidden">
-        <div
-          className={`h-full ${accentBg} rounded-full transition-all duration-500`}
-          style={{ width: `${progressPct}%` }}
-        />
+      <div className="progress" style={{ marginBottom: 'var(--space-4)' }}>
+        <i style={{ width: `${progressPct}%` }} />
       </div>
 
       {/* Checklist */}
@@ -142,25 +131,23 @@ export function OnboardingChecklistWidget() {
         {items.map(item => (
           <div
             key={item.id}
-            className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm ${
-              item.checked ? 'text-muted-foreground/60' : 'text-foreground'
-            }`}
+            className="flex items-center justify-between"
+            style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', fontSize: 'var(--text-sm)', color: item.checked ? 'var(--fg-muted)' : 'var(--fg)' }}
           >
             <div className="flex items-center gap-2.5">
-              <span className={`font-mono text-xs ${item.checked ? 'text-green-400' : 'text-muted-foreground/40'}`}>
+              <span className="u-mono" style={{ fontSize: 'var(--text-xs)', color: item.checked ? 'var(--success)' : 'var(--fg-subtle)' }}>
                 [{item.checked ? 'x' : ' '}]
               </span>
               <span className={item.checked ? 'line-through' : ''}>{item.label}</span>
             </div>
             {!item.checked && item.panel && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`text-xs h-6 px-2 ${accentText}`}
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
                 onClick={() => navigateToPanel(item.panel!)}
               >
                 {'->'}
-              </Button>
+              </button>
             )}
           </div>
         ))}

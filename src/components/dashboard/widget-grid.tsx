@@ -2,8 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { useMissionControl } from '@/store'
-import { WIDGET_CATALOG, getDefaultLayout, getAvailableWidgets, getWidgetById } from '@/lib/dashboard-widgets'
-import { Button } from '@/components/ui/button'
+import { getDefaultLayout, getAvailableWidgets, getWidgetById } from '@/lib/dashboard-widgets'
 import type { DashboardData } from './widget-primitives'
 
 import { MetricCardsWidget } from './widgets/metric-cards-widget'
@@ -241,17 +240,18 @@ export function WidgetGrid({ data }: { data: DashboardData }) {
       {/* Customize mode: hidden widgets + controls */}
       {customizing && hiddenWidgets.length > 0 && (
         <section className="space-y-2">
-          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Available Widgets</h4>
+          <h4 className="section-label" style={{ padding: 0 }}>Available Widgets</h4>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
             {hiddenWidgets.map((widget) => (
               <button
                 key={widget.id}
                 type="button"
                 onClick={() => addWidget(widget.id)}
-                className="rounded-lg border border-dashed border-border/60 p-3 text-left hover:border-primary/40 hover:bg-primary/5 transition-smooth"
+                className="tile--add"
+                style={{ minHeight: 0, padding: 'var(--space-3)', flexDirection: 'column', alignItems: 'flex-start', gap: 2, textAlign: 'left' }}
               >
-                <div className="text-xs font-medium text-foreground/70">{widget.label}</div>
-                <div className="text-2xs text-muted-foreground mt-0.5">{widget.description}</div>
+                <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--fg)' }}>{widget.label}</div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>{widget.description}</div>
               </button>
             ))}
           </div>
@@ -261,23 +261,17 @@ export function WidgetGrid({ data }: { data: DashboardData }) {
       {/* Customize controls bar */}
       <div className="flex items-center justify-end gap-2">
         {customizing && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={resetToDefaults}
-            className="text-2xs h-7"
-          >
+          <button type="button" className="btn btn-ghost btn-sm" onClick={resetToDefaults}>
             Reset to Defaults
-          </Button>
+          </button>
         )}
-        <Button
-          variant={customizing ? 'default' : 'outline'}
-          size="sm"
+        <button
+          type="button"
+          className={`btn btn-sm ${customizing ? 'btn-primary' : ''}`}
           onClick={() => setCustomizing(!customizing)}
-          className="text-2xs h-7"
         >
           {customizing ? 'Done' : 'Customize'}
-        </Button>
+        </button>
       </div>
     </div>
   )

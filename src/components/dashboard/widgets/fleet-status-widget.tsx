@@ -80,8 +80,8 @@ export function FleetStatusWidget({ data }: { data: DashboardData }) {
           total: claudeStats?.total_sessions ?? claudeLocalSessions.length,
           sessions: claudeLocalSessions,
           cost: claudeStats?.total_estimated_cost ?? null,
-          color: 'text-blue-400',
-          sparkColor: '#60a5fa',
+          color: '',
+          sparkColor: 'var(--chart-1)',
           onClick: () => navigateToPanel('sessions'),
         },
         {
@@ -90,8 +90,8 @@ export function FleetStatusWidget({ data }: { data: DashboardData }) {
           total: codexLocalSessions.length,
           sessions: codexLocalSessions,
           cost: null,
-          color: 'text-green-400',
-          sparkColor: '#4ade80',
+          color: '',
+          sparkColor: 'var(--chart-3)',
           onClick: () => navigateToPanel('sessions'),
         },
         {
@@ -100,8 +100,8 @@ export function FleetStatusWidget({ data }: { data: DashboardData }) {
           total: hermesLocalSessions.length,
           sessions: hermesLocalSessions,
           cost: null,
-          color: 'text-purple-400',
-          sparkColor: '#c084fc',
+          color: '',
+          sparkColor: 'var(--chart-2)',
           onClick: () => navigateToPanel('sessions'),
         },
       ]
@@ -112,8 +112,8 @@ export function FleetStatusWidget({ data }: { data: DashboardData }) {
           total: dbStats?.agents.total ?? agents.length,
           sessions: sessions,
           cost: null,
-          color: 'text-emerald-400',
-          sparkColor: '#34d399',
+          color: '',
+          sparkColor: 'var(--chart-3)',
           onClick: () => navigateToPanel('agents'),
         },
       ]
@@ -126,19 +126,19 @@ export function FleetStatusWidget({ data }: { data: DashboardData }) {
       total: 0,
       sessions: [],
       cost: null,
-      color: 'text-emerald-400',
-      sparkColor: '#34d399',
+      color: '',
+      sparkColor: 'var(--chart-3)',
     })
   }
 
   const isLoading = isClaudeLoading || isSessionsLoading
 
   return (
-    <div className="panel">
-      <div className="panel-header">
-        <h3 className="text-sm font-semibold">Fleet Status</h3>
+    <div className="card">
+      <div className="card-header">
+        <h3 className="card-title">Fleet Status</h3>
       </div>
-      <div className="divide-y divide-border/30">
+      <div>
         {rows.map((row) => {
           const sparkData = getSessionSparkline(row.sessions)
           const isGateway = row.name === 'Gateway'
@@ -147,24 +147,23 @@ export function FleetStatusWidget({ data }: { data: DashboardData }) {
             <div
               key={row.name}
               onClick={row.onClick}
-              className={`px-4 py-3 flex items-center gap-4 ${
-                row.onClick ? 'cursor-pointer hover:bg-secondary/30 transition-smooth' : ''
-              }`}
+              className={`flex items-center gap-4 ${row.onClick ? 'cursor-pointer' : ''}`}
+              style={{ padding: 'var(--space-3) var(--space-5)', borderBottom: '1px solid var(--border)' }}
             >
               {/* Name */}
-              <span className={`text-xs font-semibold w-16 shrink-0 ${row.color}`}>
+              <span className="shrink-0" style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-semibold)', color: 'var(--fg)', width: 64 }}>
                 {row.name}
               </span>
 
               {/* Active count */}
-              <span className="text-xs text-foreground/80 w-20 shrink-0 font-mono-tight">
+              <span className="u-mono u-muted shrink-0" style={{ fontSize: 'var(--text-sm)', width: 80 }}>
                 {isGateway && isLocal ? (
-                  <span className="inline-flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                  <span className="u-row">
+                    <span className="dot dot-success" aria-hidden="true" />
                     connected
                   </span>
                 ) : isLoading ? (
-                  '...'
+                  '…'
                 ) : (
                   <>{row.active} active</>
                 )}
@@ -174,7 +173,7 @@ export function FleetStatusWidget({ data }: { data: DashboardData }) {
               <Sparkline data={sparkData} color={row.sparkColor} />
 
               {/* Total */}
-              <span className="text-2xs text-muted-foreground w-16 shrink-0 font-mono-tight">
+              <span className="u-mono u-subtle shrink-0" style={{ fontSize: 'var(--text-xs)', width: 64 }}>
                 {isGateway && isLocal ? (
                   connection.latency != null ? `${connection.latency}ms` : ''
                 ) : isLoading ? (
@@ -185,18 +184,18 @@ export function FleetStatusWidget({ data }: { data: DashboardData }) {
               </span>
 
               {/* Cost */}
-              <span className="text-2xs text-muted-foreground w-20 shrink-0 font-mono-tight text-right hidden sm:block">
+              <span className="u-mono u-subtle shrink-0 text-right hidden sm:block" style={{ fontSize: 'var(--text-xs)', width: 80 }}>
                 {row.cost != null ? `$${row.cost.toFixed(2)}` : ''}
               </span>
 
               {/* Utilization bar (sessions with activity) */}
               {!isGateway && !isLoading && row.total > 0 && (
-                <span className="hidden lg:inline-flex h-1.5 w-16 rounded-full bg-secondary overflow-hidden">
-                  <span
-                    className={`h-full rounded-full transition-all duration-500 ${
-                      row.active / row.total > 0.8 ? 'bg-amber-500' : 'bg-green-500'
-                    }`}
-                    style={{ width: `${Math.min(100, (row.active / row.total) * 100)}%` }}
+                <span className="progress hidden lg:inline-block" style={{ width: 64 }}>
+                  <i
+                    style={{
+                      width: `${Math.min(100, (row.active / row.total) * 100)}%`,
+                      background: row.active / row.total > 0.8 ? 'var(--warning)' : 'var(--success)',
+                    }}
                   />
                 </span>
               )}
