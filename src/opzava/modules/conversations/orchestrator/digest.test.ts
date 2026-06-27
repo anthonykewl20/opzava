@@ -7,9 +7,11 @@ import { composeDigest } from './digest'
 function project(projectId: string, health: ProjectHealth['health']): ProjectHealth {
   return {
     projectId,
+    name: `Project ${projectId}`,
     health,
     activity: 'idle',
     displayLabel: health ?? 'idle',
+    summary: 'On track',
   }
 }
 

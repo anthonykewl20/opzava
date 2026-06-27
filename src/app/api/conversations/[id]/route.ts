@@ -10,7 +10,7 @@ import {
   readConversationThread,
 } from '@/opzava/modules/conversations'
 
-import { ensureOrchestratorConversation, orchestratorConversationId } from '../compose'
+import { ensureOrchestratorConversation, orchestratorConversationId, readCoordinatorStatus } from '../compose'
 
 // GET /api/conversations/[id] — the Ask-Opzava thread + a freshly composed Digest. Admin/Full-view
 // only (v1; ARD 0028 Q6). Works WITHOUT the gateway: the thread and Digest are server-side reads,
@@ -42,5 +42,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     conversation: thread.conversation,
     timeline: thread.timeline,
     digest,
+    // Real coordinator liveness (doc 19 / 100 T3) — drives the offline card + its Technical-details
+    // block; never a fabricated id. The thread + digest above stay live even when this is offline.
+    coordinator: readCoordinatorStatus(),
   })
 }

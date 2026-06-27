@@ -16,6 +16,7 @@ describe('ProjectHealth signal membership (doc 100 T1)', () => {
   it('flags needs_you when a project has a task in review', () => {
     const h = projectHealthFromSignals({
       projectId: 'p1',
+      name: 'Project P1',
       reviewCount: 1,
       overdueOpenCount: 0,
       openCount: 3,
@@ -28,6 +29,7 @@ describe('ProjectHealth signal membership (doc 100 T1)', () => {
   it('flags needs_you when a project has an overdue open task', () => {
     const h = projectHealthFromSignals({
       projectId: 'p1',
+      name: 'Project P1',
       reviewCount: 0,
       overdueOpenCount: 2,
       openCount: 4,
@@ -39,6 +41,7 @@ describe('ProjectHealth signal membership (doc 100 T1)', () => {
   it('reports no health and an idle activity floor when nothing needs you', () => {
     const h = projectHealthFromSignals({
       projectId: 'p1',
+      name: 'Project P1',
       reviewCount: 0,
       overdueOpenCount: 0,
       openCount: 5,
@@ -52,6 +55,7 @@ describe('ProjectHealth signal membership (doc 100 T1)', () => {
   it('blocked takes precedence over needs_you in the health facet', () => {
     const h = projectHealthFromSignals({
       projectId: 'p1',
+      name: 'Project P1',
       reviewCount: 3,
       overdueOpenCount: 1,
       openCount: 6,
@@ -64,7 +68,7 @@ describe('ProjectHealth signal membership (doc 100 T1)', () => {
 
 describe('NeedsYouRollup (cross-project, disjoint counts)', () => {
   const health = (projectId: string, s: Partial<Parameters<typeof projectHealthFromSignals>[0]> = {}) =>
-    projectHealthFromSignals({ projectId, reviewCount: 0, overdueOpenCount: 0, openCount: 0, blockedByTool: false, ...s })
+    projectHealthFromSignals({ projectId, name: projectId, reviewCount: 0, overdueOpenCount: 0, openCount: 0, blockedByTool: false, ...s })
 
   it('tallies needs_you and blocked as disjoint counts', () => {
     const rollup = computeNeedsYouRollup([

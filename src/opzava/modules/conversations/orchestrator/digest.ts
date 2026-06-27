@@ -13,8 +13,10 @@ import type {
 
 export interface DigestProjectRow {
   readonly projectId: string
+  readonly name: string
   readonly health: HealthFacet
   readonly displayLabel: DisplayLabel
+  readonly summary: string
 }
 
 export interface DigestApprovalCard {
@@ -43,8 +45,10 @@ export function composeDigest(
     },
     projects: rollup.projects.map((p) => ({
       projectId: p.projectId,
+      name: p.name,
       health: p.health,
       displayLabel: p.displayLabel,
+      summary: p.summary,
     })),
     pendingApprovals: pendingApprovals
       .filter((a) => a.status === 'requested')

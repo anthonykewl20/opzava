@@ -4,7 +4,7 @@ import type Database from 'better-sqlite3'
 
 import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 import { resolveCoordinatorDeliveryTarget } from '@/lib/coordinator-routing'
-import { getAllGatewaySessions } from '@/lib/sessions'
+import { getAllGatewaySessions, type GatewaySession } from '@/lib/sessions'
 import type { ProviderPort } from '@/opzava/platform/execution/contracts'
 import { ProviderError } from '@/opzava/platform/execution/gateway-provider'
 import { createSqliteNeedsYouRollupReader } from '@/opzava/platform/project-health/needs-you-rollup'
@@ -124,6 +124,40 @@ export function createConciergeProvider(opts: ConciergeProviderOpts): ProviderPo
       throw new ProviderError('timeout', 'Ask Opzava timed out waiting for the gateway')
     },
   }
+}
+
+/**
+ * Real coordinator liveness telemetry for the offline "Technical details" block (doc 19 / 100 T3):
+ * derived from the actual gateway session record — never a fabricated id. `runId`/`lastSeen` are the
+ * session's real values (or null when there is no session); the offline card renders only what this
+ * returns and omits the rest, so no placeholder like `coord-session-4812` can ever appear.
+ */
+export interface CoordinatorStatus {
+  readonly status: 'online' | 'offline'
+  readonly runId: string | null
+  readonly lastSeen: string | null
+  readonly reason: string | null
+}
+
+export function probeCoordinatorStatus(sessions: readonly GatewaySession[], coordinatorAgent: string): CoordinatorStatus {
+  const name = coordinatorAgent.toLowerCase()
+  const matches = sessions.filter(
+    (s) => s.agent.toLowerCase() === name || s.key.toLowerCase().includes(name),
+  )
+  const latest = matches.sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  if (!latest) return { status: 'offline', runId: null, lastSeen: null, reason: 'no_coordinator_session' }
+  const lastSeen = new Date(latest.updatedAt).toISOString()
+  const runId = latest.sessionId || null
+  if (latest.active) return { status: 'online', runId, lastSeen, reason: null }
+  return { status: 'offline', runId, lastSeen, reason: 'gateway_session_expired' }
+}
+
+/** The coordinator agent name the Concierge resolves against (config-or-default). */
+export const CONCIERGE_COORDINATOR_AGENT = COORDINATOR_AGENT
+
+/** Probe live coordinator status from the on-disk gateway session store. */
+export function readCoordinatorStatus(): CoordinatorStatus {
+  return probeCoordinatorStatus(getAllGatewaySessions(), COORDINATOR_AGENT)
 }
 
 /** Resolve the coordinator gateway session, mirroring the legacy coord chat path. */

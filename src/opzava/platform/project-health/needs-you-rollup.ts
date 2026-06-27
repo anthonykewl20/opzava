@@ -18,14 +18,18 @@ export type DisplayLabel = 'blocked' | 'needs_you' | ActivityFacet
 
 export interface ProjectHealth {
   readonly projectId: string
+  readonly name: string
   readonly health: HealthFacet
   readonly activity: ActivityFacet
   readonly displayLabel: DisplayLabel
+  /** Honest, count-derived one-liner for the digest row (never fabricated narrative). */
+  readonly summary: string
 }
 
 /** Per-project signals gathered from the data sources that exist today. */
 export interface ProjectTaskSignals {
   readonly projectId: string
+  readonly name: string
   /** Tasks in {review, quality_review} — the human-review states. */
   readonly reviewCount: number
   /** Open (non-done) tasks past their due_date. */
@@ -34,6 +38,14 @@ export interface ProjectTaskSignals {
   readonly openCount: number
   /** Honest floor: false until a tool-dependency edge config exists (#35 territory). */
   readonly blockedByTool: boolean
+}
+
+function summarize(s: ProjectTaskSignals, health: HealthFacet): string {
+  if (health === 'blocked') return 'Blocked — needs attention'
+  if (s.reviewCount > 0) return `${s.reviewCount} awaiting your review`
+  if (s.overdueOpenCount > 0) return `${s.overdueOpenCount} overdue`
+  if (s.openCount > 0) return `${s.openCount} ${s.openCount === 1 ? 'task' : 'tasks'} in progress`
+  return 'On track'
 }
 
 export interface NeedsYouRollup {
@@ -54,7 +66,7 @@ export function projectHealthFromSignals(s: ProjectTaskSignals): ProjectHealth {
   // Activity is deferred to the honest floor: no runner↔project linkage, so 'idle'.
   const activity: ActivityFacet = 'idle'
   const displayLabel: DisplayLabel = health ?? activity
-  return Object.freeze({ projectId: s.projectId, health, activity, displayLabel })
+  return Object.freeze({ projectId: s.projectId, name: s.name, health, activity, displayLabel, summary: summarize(s, health) })
 }
 
 export function computeNeedsYouRollup(projects: readonly ProjectHealth[]): NeedsYouRollup {
@@ -97,8 +109,8 @@ export function createSqliteNeedsYouRollupReader(
       }
       const nowSec = now()
       const projectRows = db
-        .prepare('SELECT id FROM projects WHERE workspace_id = ?')
-        .all(workspaceId) as Array<{ id: number }>
+        .prepare('SELECT id, name FROM projects WHERE workspace_id = ?')
+        .all(workspaceId) as Array<{ id: number; name: string }>
       const signalRows = db
         .prepare(
           `SELECT project_id AS projectId,
@@ -119,6 +131,7 @@ export function createSqliteNeedsYouRollupReader(
         const s = byProject.get(id)
         return projectHealthFromSignals({
           projectId: id,
+          name: p.name,
           reviewCount: s?.reviewCount ?? 0,
           overdueOpenCount: s?.overdueOpenCount ?? 0,
           openCount: s?.openCount ?? 0,
