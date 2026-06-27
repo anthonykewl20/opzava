@@ -1,10 +1,16 @@
+import { randomUUID } from 'crypto'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { createApprovalRepository } from '@/opzava/core/approvals/approval-repository'
 import { transitionApprovalStatus } from '@/opzava/core/approvals/contracts'
+import { createRunnerRepository } from '@/opzava/platform/runner/repository'
+import { enqueuePostApprovalDispatch } from '@/opzava/platform/approvals-dispatch/post-approval-dispatch'
 import { withRequestContext } from '@/lib/request-context'
+
+import { composePostApprovalDispatcher, postRequestChangesRevisionTurn } from '@/app/api/_composition/post-approval-dispatcher'
 
 const DECISIONS = ['approved', 'rejected'] as const
 
@@ -80,10 +86,13 @@ async function handleApproveDecide(
     decidedAt: new Date().toISOString(),
   }
 
+  const db = getDatabase()
+  const workspaceId = auth.user.workspace_id ?? 1
+  const now = () => new Date().toISOString()
+
+  let decided
   try {
-    const decided = transitionApprovalStatus(existing, decision)
-    repo.saveApproval(decided)
-    return NextResponse.json(decided)
+    decided = transitionApprovalStatus(existing, decision)
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Could not decide'
     if (/invalid approval transition/.test(msg)) {
@@ -91,6 +100,37 @@ async function handleApproveDecide(
     }
     return NextResponse.json({ error: msg }, { status: 400 })
   }
+
+  // ARD 0029: the status flip and the durable dispatch job commit atomically, so a crash can never
+  // leave an approved-but-never-dispatched approval (the S4 daemon drains any orphan).
+  const runnerRepo = createRunnerRepository(db)
+  runnerRepo.ensureSchema()
+  db.transaction(() => {
+    repo.saveApproval(decided)
+    if (decided.status === 'approved') {
+      enqueuePostApprovalDispatch(
+        runnerRepo,
+        { approvalId: decided.approvalId, requestedAction: decided.requestedAction },
+        { newId: () => randomUUID(), now },
+      )
+    }
+  })()
+
+  if (decided.status === 'approved') {
+    // Best-effort inline drain so "Approve & send" fires now. dispatch() never throws (handler
+    // failures become an honest outcome turn); exactly-once is guaranteed by the reservation +
+    // the deterministic outcome turnId, so the S4 daemon re-draining the durable job is safe.
+    const dispatcher = composePostApprovalDispatcher(db, { workspaceId, now })
+    await dispatcher.dispatch(decided)
+  } else if (decided.status === 'rejected') {
+    postRequestChangesRevisionTurn(
+      db,
+      { correlation: decided.correlation, approvalId: decided.approvalId, reason: decision.decisionReason },
+      { now, newId: () => randomUUID(), workspaceId },
+    )
+  }
+
+  return NextResponse.json(decided)
 }
 
 // Correlate the approval-decision log/audit lines to the request via x-request-id.
