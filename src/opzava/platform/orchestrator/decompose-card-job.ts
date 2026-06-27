@@ -6,6 +6,8 @@ import {
   type JobStorageRecord,
 } from '@/opzava/platform/runner/repository-contracts'
 import type { RunnerRepository } from '@/opzava/platform/runner/repository'
+import { RunnerExecutionError, type RunnerExecutor } from '@/opzava/platform/runner/worker'
+import type { DecomposeAndExecuteOutcome } from './decompose-and-execute'
 
 // The durable 'decompose-card' runner job — enqueued when a Card is launched from chat (launch_work)
 // and drained by the DecompositionExecutor (the first production caller of decomposeAndExecute).
@@ -87,4 +89,64 @@ export function enqueueDecomposeCard(
   }
   repo.saveJob(record)
   return { jobId, created: true }
+}
+
+// ── DecompositionExecutor: the RunnerExecutor that drains a decompose-card job ──
+// The FIRST production caller of decomposeAndExecute. The live pipeline (Lead ProviderPort + worker
+// /review providers + agents/models/policy) is composed behind the injected `decompose` seam at the
+// S4 make-it-live root; here we own the load → run → outcome-mapping → thread-notice contract.
+
+export interface DecompositionNotice {
+  readonly conversationId: string
+  readonly runId: string
+  readonly kind: 'succeeded' | 'rejected'
+  readonly body: string
+}
+
+export interface DecompositionExecutorDeps {
+  readonly loadCard: (cardId: number, workspaceId: number) => { title: string; description: string | null } | null
+  readonly decompose: (
+    input: Readonly<{
+      cardId: number
+      workspaceId: number
+      conversationId: string
+      runId: string
+      card: { title: string; description: string | null }
+    }>,
+  ) => Promise<DecomposeAndExecuteOutcome>
+  readonly notify: (notice: DecompositionNotice) => void
+}
+
+export function makeDecompositionExecutor(deps: DecompositionExecutorDeps): RunnerExecutor {
+  return {
+    execute: async (job) => {
+      const p = decomposeCardPayloadSchema.parse(job.payload)
+      const card = deps.loadCard(p.cardId, p.workspaceId)
+      // Card deleted between launch and drain — nothing to decompose; job succeeds.
+      if (!card) return
+
+      const outcome = await deps.decompose({
+        cardId: p.cardId,
+        workspaceId: p.workspaceId,
+        conversationId: p.conversationId,
+        runId: p.runId,
+        card,
+      })
+
+      if (outcome.kind === 'executed') {
+        if (outcome.status === 'succeeded') {
+          deps.notify({ conversationId: p.conversationId, runId: p.runId, kind: 'succeeded', body: 'Done — the work completed.' })
+          return
+        }
+        // A Step genuinely failed → infra-class failure: throw so the runner retries, then dead-letters.
+        throw new RunnerExecutionError('provider-error', `decompose-card run failed (graph ${outcome.graphId})`)
+      }
+
+      // gate-rejected / proposal-rejected are TERMINAL business outcomes (the gate's authority / a
+      // malformed plan), not infra failures — report honestly and let the job succeed.
+      const detail =
+        outcome.kind === 'gate-rejected' ? 'the plan exceeded the safety limits' : outcome.detail
+      deps.notify({ conversationId: p.conversationId, runId: p.runId, kind: 'rejected', body: `I couldn't launch that — ${detail}.` })
+    },
+  }
 }
