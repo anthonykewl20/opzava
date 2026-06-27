@@ -36,8 +36,10 @@ type HealthFacet = 'needs_you' | 'blocked' | null
 
 interface DigestProjectRow {
   projectId: string
+  name: string
   health: HealthFacet
   displayLabel: string
+  summary: string
 }
 
 interface DigestApprovalCard {
@@ -61,10 +63,25 @@ interface AskConversation {
   lastMessageAt: string | null
 }
 
+/**
+ * Live status of the coordinator (the persistent gateway agent that backs Ask Opzava).
+ * `offline` surfaces the top-of-log offline card; the optional fields are echoed verbatim
+ * (and only when non-null) in the collapsible "Technical details" block — never faked.
+ */
+type CoordinatorStatus = 'online' | 'offline'
+
+interface Coordinator {
+  status: CoordinatorStatus
+  runId: string | null
+  lastSeen: string | null
+  reason: string | null
+}
+
 interface AskThreadResponse {
   conversation: AskConversation
   timeline: ConversationTurn[]
   digest: DigestBlock
+  coordinator: Coordinator
 }
 
 interface ProposedAction {
@@ -253,7 +270,11 @@ export function OrchestratorChatPanel() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [conversation, setConversation] = useState<AskConversation | null>(null)
   const [digest, setDigest] = useState<DigestBlock | null>(null)
+  const [coordinator, setCoordinator] = useState<Coordinator | null>(null)
   const [turns, setTurns] = useState<ConversationTurn[]>([])
+
+  // Offline card's collapsible "Technical details" disclosure (closed by default).
+  const [techOpen, setTechOpen] = useState(false)
 
   const [msg, setMsg] = useState('')
   const [sending, setSending] = useState(false)
@@ -282,6 +303,7 @@ export function OrchestratorChatPanel() {
       const data = await fetchThread()
       setConversation(data.conversation)
       setDigest(data.digest)
+      setCoordinator(data.coordinator)
       setTurns(data.timeline)
       setStatus('ready')
     } catch (err) {
@@ -306,6 +328,7 @@ export function OrchestratorChatPanel() {
         const data = await fetchThread()
         if (disposed) return
         setDigest(data.digest)
+        setCoordinator(data.coordinator)
         setTurns((prev) => {
           const realHumanKeys = new Set(
             data.timeline.filter((t) => t.role === 'human').map(humanKey),
@@ -504,6 +527,112 @@ export function OrchestratorChatPanel() {
   }
 
   // ── Render helpers ──
+  // One pending approval, rendered as the mockup's inline accent action-bubble (the single
+  // accent action: "Approve & send"). Keeps the existing per-approval decide/reason/error logic.
+  function renderApprovalBubble(a: DigestApprovalCard) {
+    const busy = Boolean(decidePending[a.approvalId])
+    const rowError = decideError[a.approvalId]
+    const reasonShown = a.approvalId in reasonDrafts
+    const reasonValue = reasonDrafts[a.approvalId] ?? ''
+    const reasonId = `approval-reason-${a.approvalId}`
+    return (
+      <div className="chat-row" key={a.approvalId}>
+        <span className="sb-avatar sb-avatar--ai" style={{ background: 'var(--chart-6)', flex: 'none' }} aria-label="Opzava AI">
+          O
+        </span>
+        <div className="chat-stack" style={{ maxWidth: '80%' }}>
+          <div className="chat-meta">
+            <strong>Opzava</strong>
+            <span className="sb-badge sb-badge--accent">✦ AI</span>
+            <span className="chat-time">{formatTime(conversation?.lastMessageAt ?? conversation?.createdAt ?? '')}</span>
+          </div>
+          <div className="action-bubble" role="group" aria-label={`Action required: ${a.requestedAction}`} aria-busy={busy}>
+            <div className="action-bubble-title">
+              <span aria-hidden="true">▲</span> {a.requestedAction} needs your approval
+            </div>
+            <p className="u-muted" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
+              Target: {a.targetId}
+            </p>
+            <div className="action-row" style={{ flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void decideApproval(a.approvalId, 'approved')}
+                disabled={busy}
+                aria-busy={busy}
+                aria-label={`Approve and send: ${a.requestedAction}`}
+              >
+                <span aria-hidden="true">✓</span> Approve &amp; send
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => toggleReason(a.approvalId)}
+                disabled={busy}
+                aria-expanded={reasonShown}
+                aria-controls={reasonId}
+                aria-label={`Request changes: ${a.requestedAction}`}
+              >
+                Request changes
+              </button>
+              {/* No artifact route yet — render the affordance, but honestly inert (disabled). */}
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm u-subtle"
+                style={{ marginLeft: 'auto' }}
+                disabled
+                title="Draft preview isn't available yet"
+              >
+                View full draft ↗
+              </button>
+            </div>
+
+            {reasonShown && (
+              <div className="u-row" style={{ gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+                <label htmlFor={reasonId} className="u-sr-only">
+                  Reason for requesting changes to {a.requestedAction}
+                </label>
+                <input
+                  id={reasonId}
+                  type="text"
+                  className="input"
+                  style={{ flex: 1, minWidth: '12rem' }}
+                  placeholder="What needs to change?"
+                  value={reasonValue}
+                  disabled={busy}
+                  autoFocus
+                  onChange={(e) => setReasonDrafts((prev) => ({ ...prev, [a.approvalId]: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      submitReason(a.approvalId)
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  onClick={() => submitReason(a.approvalId)}
+                  disabled={busy || !reasonValue.trim()}
+                  aria-busy={busy}
+                >
+                  Send request
+                </button>
+              </div>
+            )}
+
+            {rowError && (
+              <div role="alert" className="u-row" style={{ gap: 'var(--space-2)', color: 'var(--danger)', fontSize: 'var(--text-xs)' }}>
+                <span aria-hidden="true">✕</span>
+                <span>{rowError}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   function renderTurn(turn: ConversationTurn) {
     const proposed = turn.status === 'pending' ? getProposedAction(turn) : null
 
@@ -646,6 +775,62 @@ export function OrchestratorChatPanel() {
 
           {status === 'ready' && (
             <>
+              {/* ── Offline / coordinator unavailable (top of log; digest + thread still render below) ── */}
+              {coordinator?.status === 'offline' && (
+                <div className="banner banner-warning" role="alert" aria-live="assertive">
+                  <span aria-hidden="true" style={{ fontSize: 'var(--text-md)' }}>
+                    ☾
+                  </span>
+                  <div className="u-grow">
+                    <strong>Opzava is offline right now.</strong>
+                    <p className="u-muted" style={{ margin: '4px 0 0', fontSize: 'var(--text-sm)' }}>
+                      I&apos;ll pick up where we left off when it&apos;s back. Nothing was lost — your last
+                      message is queued.
+                    </p>
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 'var(--space-2)',
+                      flex: 'none',
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => void load()}>
+                      Try again
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost u-subtle"
+                      aria-expanded={techOpen}
+                      aria-controls="coord-tech-details"
+                      onClick={() => setTechOpen((open) => !open)}
+                    >
+                      {techOpen ? '▾' : '▸'} Technical details
+                    </button>
+                    {techOpen && (
+                      <div
+                        id="coord-tech-details"
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: 'var(--text-xs)',
+                          color: 'var(--fg-subtle)',
+                          padding: 'var(--space-2) 0',
+                          lineHeight: 'var(--lh-normal)',
+                        }}
+                      >
+                        {/* Only non-null fields are rendered — never a placeholder/fake value. */}
+                        <div>coordinator_status: {coordinator.status}</div>
+                        {coordinator.runId !== null && <div>run_id: {coordinator.runId}</div>}
+                        {coordinator.lastSeen !== null && <div>last_seen: {coordinator.lastSeen}</div>}
+                        {coordinator.reason !== null && <div>reason: {coordinator.reason}</div>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* ── Opzava proactive digest (opens the thread) ── */}
               {digest && (
                 <div className="chat-row">
@@ -691,6 +876,7 @@ export function OrchestratorChatPanel() {
 
                           {digest.projects.map((p) => {
                             const pres = healthPresentation(p.health)
+                            const blocked = p.health === 'blocked'
                             return (
                               <div
                                 key={p.projectId}
@@ -702,9 +888,33 @@ export function OrchestratorChatPanel() {
                                   <span aria-hidden="true">{pres.glyph}</span> {pres.label}
                                 </span>
                                 <div className="digest-summary" role="cell">
-                                  <span style={{ color: 'var(--fg)', fontWeight: 'var(--fw-medium)' }}>
-                                    Project {p.projectId}
-                                  </span>
+                                  <span style={{ color: 'var(--fg)', fontWeight: 'var(--fw-medium)' }}>{p.name}</span>
+                                  {p.summary && (
+                                    <span className="u-muted" style={{ marginLeft: 'var(--space-2)' }}>
+                                      — {p.summary}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="digest-actions" role="cell">
+                                  {blocked ? (
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-ghost"
+                                      onClick={() => fillComposer(`What's blocking ${p.name}?`)}
+                                      aria-label={`Ask what's blocking ${p.name}`}
+                                    >
+                                      Fix
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-ghost"
+                                      onClick={() => fillComposer(`How is ${p.name} going?`)}
+                                      aria-label={`Review ${p.name}`}
+                                    >
+                                      Review
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             )
@@ -716,121 +926,13 @@ export function OrchestratorChatPanel() {
                         </p>
                       )}
 
-                      {digest.pendingApprovals.length > 0 && (
-                        <div className="digest-card" aria-label="Pending approvals" style={{ marginTop: 'var(--space-3)' }}>
-                          <div
-                            className="digest-row"
-                            style={{ padding: 'var(--space-2) var(--space-4)', background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}
-                          >
-                            <span
-                              className="u-subtle"
-                              style={{ fontSize: 'var(--text-xs)', fontWeight: 'var(--fw-semibold)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-caps)' }}
-                            >
-                              Pending approvals
-                            </span>
-                          </div>
-                          {digest.pendingApprovals.map((a) => {
-                            const busy = Boolean(decidePending[a.approvalId])
-                            const rowError = decideError[a.approvalId]
-                            const reasonShown = a.approvalId in reasonDrafts
-                            const reasonValue = reasonDrafts[a.approvalId] ?? ''
-                            const reasonId = `approval-reason-${a.approvalId}`
-                            return (
-                              <div
-                                key={a.approvalId}
-                                className="digest-row"
-                                style={{ flexWrap: 'wrap' }}
-                                aria-busy={busy}
-                              >
-                                <span className="digest-pill digest-pill--warn">
-                                  <span aria-hidden="true">▲</span> Approval
-                                </span>
-                                <div className="digest-summary">
-                                  <span style={{ color: 'var(--fg)', fontWeight: 'var(--fw-medium)' }}>{a.requestedAction}</span>
-                                  <span className="u-muted" style={{ marginLeft: 'var(--space-2)' }}>— {a.targetId}</span>
-                                </div>
-                                <div className="digest-actions">
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm btn-primary"
-                                    onClick={() => void decideApproval(a.approvalId, 'approved')}
-                                    disabled={busy}
-                                    aria-busy={busy}
-                                    aria-label={`Approve and send: ${a.requestedAction}`}
-                                  >
-                                    <span aria-hidden="true">✓</span> Approve &amp; send
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm btn-ghost"
-                                    onClick={() => toggleReason(a.approvalId)}
-                                    disabled={busy}
-                                    aria-expanded={reasonShown}
-                                    aria-controls={reasonId}
-                                    aria-label={`Request changes: ${a.requestedAction}`}
-                                  >
-                                    Request changes
-                                  </button>
-                                </div>
-
-                                {reasonShown && (
-                                  <div
-                                    className="u-row"
-                                    style={{ flexBasis: '100%', gap: 'var(--space-2)', marginTop: 'var(--space-2)', alignItems: 'center' }}
-                                  >
-                                    <label htmlFor={reasonId} className="u-sr-only">
-                                      Reason for requesting changes to {a.requestedAction}
-                                    </label>
-                                    <input
-                                      id={reasonId}
-                                      type="text"
-                                      className="input"
-                                      style={{ flex: 1, minWidth: 0 }}
-                                      placeholder="What needs to change?"
-                                      value={reasonValue}
-                                      disabled={busy}
-                                      autoFocus
-                                      onChange={(e) =>
-                                        setReasonDrafts((prev) => ({ ...prev, [a.approvalId]: e.target.value }))
-                                      }
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          e.preventDefault()
-                                          submitReason(a.approvalId)
-                                        }
-                                      }}
-                                    />
-                                    <button
-                                      type="button"
-                                      className="btn btn-sm btn-primary"
-                                      onClick={() => submitReason(a.approvalId)}
-                                      disabled={busy || !reasonValue.trim()}
-                                      aria-busy={busy}
-                                    >
-                                      Send request
-                                    </button>
-                                  </div>
-                                )}
-
-                                {rowError && (
-                                  <div
-                                    role="alert"
-                                    className="u-row"
-                                    style={{ flexBasis: '100%', gap: 'var(--space-2)', marginTop: 'var(--space-2)', color: 'var(--danger)', fontSize: 'var(--text-xs)' }}
-                                  >
-                                    <span aria-hidden="true">✕</span>
-                                    <span>{rowError}</span>
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
               )}
+
+              {/* ── Pending approvals — one accent action-bubble per approval (mockup MSG 4) ── */}
+              {digest?.pendingApprovals.map(renderApprovalBubble)}
 
               {/* ── Timeline ── */}
               {turns.map(renderTurn)}
