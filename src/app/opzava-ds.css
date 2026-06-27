@@ -239,6 +239,67 @@
 .opzava-ds .activity-live-header { display: flex; align-items: center; gap: var(--space-2); }
 @media (max-width: 1100px) { .opzava-ds .two-col-grid { grid-template-columns: 1fr; } }
 
+/* ── shadcn-style avatar/badge (ported from mockup shadcn.css) ─────────────── */
+.opzava-ds .sb-badge { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border: 1px solid transparent; border-radius: var(--radius-md); font-size: var(--text-xs); font-weight: var(--fw-semibold); line-height: 1; white-space: nowrap; }
+.opzava-ds .sb-badge--success { background: var(--success-soft); color: var(--success); }
+.opzava-ds .sb-badge--warning { background: var(--warning-soft); color: var(--warning); }
+.opzava-ds .sb-badge--accent { background: var(--accent-soft); color: var(--accent); }
+.opzava-ds .sb-avatar { position: relative; width: 36px; height: 36px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; overflow: hidden; background: var(--surface-3); color: var(--fg-muted); font-size: var(--text-xs); font-weight: var(--fw-semibold); }
+.opzava-ds .sb-avatar[style*="background"] { color: #fff; }
+.opzava-ds .sb-avatar--ai { border-radius: var(--radius-md); color: #fff; overflow: visible; }
+.opzava-ds .sb-avatar--ai::after { content: '✦'; position: absolute; right: -4px; bottom: -4px; width: 15px; height: 15px; border-radius: 50%; background: var(--accent); color: var(--accent-fg); font-size: 9px; display: flex; align-items: center; justify-content: center; border: 1.5px solid var(--surface); }
+
+/* ── Orchestrator chat (ported from orchestrator-chat.html page <style>) ────── */
+/* Fill the scroll container exactly so the log scrolls internally + composer pins,
+   regardless of the shared `.main > .min-h-full` wrapper. */
+.opzava-ds .main:has(.chat-panel) { position: relative; overflow: hidden; }
+.opzava-ds .chat-panel { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; }
+.opzava-ds .chat-titlebar { border-bottom: 1px solid var(--border); padding: var(--space-3) var(--space-6); }
+.opzava-ds .chat-titlebar-inner { max-width: 860px; margin: 0 auto; }
+.opzava-ds .chat-log { flex: 1; overflow-y: auto; padding: var(--space-6) var(--space-4); display: flex; flex-direction: column; gap: var(--space-5); }
+.opzava-ds .chat-log-inner { max-width: 860px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-5); }
+.opzava-ds .chat-row { display: flex; align-items: flex-start; gap: var(--space-3); }
+.opzava-ds .chat-row--user { flex-direction: row-reverse; }
+.opzava-ds .chat-stack { display: flex; flex-direction: column; gap: var(--space-1); max-width: 72%; }
+.opzava-ds .chat-row--user .chat-stack { align-items: flex-end; }
+.opzava-ds .chat-meta { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--fg-subtle); }
+.opzava-ds .chat-meta strong { color: var(--fg-muted); font-weight: var(--fw-semibold); }
+.opzava-ds .chat-row--user .chat-meta { flex-direction: row-reverse; }
+.opzava-ds .chat-time { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-subtle); }
+.opzava-ds .chat-bubble { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4); font-size: var(--text-sm); line-height: var(--lh-normal); color: var(--fg); }
+.opzava-ds .chat-bubble--user { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--fg); }
+.opzava-ds .chat-tool-card { background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; font-size: var(--text-sm); }
+.opzava-ds .chat-tool-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); cursor: pointer; user-select: none; }
+.opzava-ds .chat-tool-head:hover { background: var(--surface-2); }
+.opzava-ds .chat-tool-head .tname { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-muted); }
+.opzava-ds .chat-tool-body { border-top: 1px solid var(--border); padding: var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-muted); line-height: 1.6; display: none; }
+.opzava-ds .chat-tool-body.is-open { display: block; }
+.opzava-ds .chat-tool-body .ln { display: flex; gap: 10px; white-space: pre-wrap; }
+.opzava-ds .chat-tool-body .tag { flex: none; font-weight: 600; }
+.opzava-ds .t-cmd { color: hsl(0 0% 96%); } .opzava-ds .t-think { color: hsl(265 70% 76%); }
+.opzava-ds .t-tool { color: hsl(150 55% 64%); } .opzava-ds .t-ok { color: hsl(142 62% 62%); } .opzava-ds .t-warn { color: hsl(38 92% 68%); }
+.opzava-ds .chat-status-pill { display: inline-flex; align-items: center; gap: var(--space-2); padding: 4px var(--space-3); border-radius: var(--radius-full); background: var(--surface-3); border: 1px solid var(--border); font-size: var(--text-xs); color: var(--fg-subtle); width: fit-content; }
+.opzava-ds .digest-card { background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; margin-top: var(--space-3); }
+.opzava-ds .digest-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
+.opzava-ds .digest-row:last-of-type { border-bottom: 0; }
+.opzava-ds .digest-pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: var(--fw-semibold); white-space: nowrap; flex: none; min-width: 96px; justify-content: center; }
+.opzava-ds .digest-pill--ok { background: var(--success-soft); color: var(--success); }
+.opzava-ds .digest-pill--warn { background: var(--warning-soft); color: var(--warning); }
+.opzava-ds .digest-pill--err { background: var(--danger-soft); color: var(--danger); }
+.opzava-ds .digest-summary { flex: 1; min-width: 0; color: var(--fg-muted); font-size: var(--text-sm); }
+.opzava-ds .digest-actions { display: flex; gap: var(--space-2); flex: none; }
+.opzava-ds .action-bubble { background: var(--surface-2); border: 1px solid var(--border-strong); border-left: 3px solid var(--accent); border-radius: var(--radius-lg); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); font-size: var(--text-sm); line-height: var(--lh-normal); }
+.opzava-ds .action-bubble-title { font-weight: var(--fw-semibold); color: var(--fg); }
+.opzava-ds .action-row { display: flex; gap: var(--space-2); align-items: center; }
+.opzava-ds .composer-wrap { border-top: 1px solid var(--border); padding: var(--space-4); background: var(--surface); }
+.opzava-ds .composer { max-width: 860px; margin: 0 auto; display: flex; align-items: flex-end; gap: var(--space-3); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); padding: var(--space-2) var(--space-3); }
+.opzava-ds .composer textarea { flex: 1; background: transparent; border: 0; outline: none; resize: none; color: var(--fg); font-size: var(--text-sm); font-family: var(--font-sans); line-height: var(--lh-normal); padding: var(--space-2) 0; min-height: 40px; max-height: 160px; }
+.opzava-ds .composer textarea::placeholder { color: var(--fg-subtle); }
+.opzava-ds .composer-hint { font-size: var(--text-xs); color: var(--fg-subtle); white-space: nowrap; padding-bottom: var(--space-2); }
+.opzava-ds .composer-send { flex: none; width: 34px; height: 34px; border-radius: var(--radius-md); background: var(--accent); color: var(--accent-fg); border: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+.opzava-ds .composer-send:hover { opacity: .88; }
+@media (max-width: 640px) { .opzava-ds .chat-stack { max-width: 90%; } .opzava-ds .composer-hint { display: none; } }
+
 /* ── Layout utilities (scoped subset of mockup tokens.css helpers) ─────────── */
 .opzava-ds .u-grow { flex: 1 1 auto; min-width: 0; }
 .opzava-ds .u-subtle { color: var(--fg-subtle); }

@@ -46,6 +46,7 @@ import { NodesPanel } from '@/components/panels/nodes-panel'
 import { ExecApprovalPanel } from '@/components/panels/exec-approval-panel'
 import { SystemMonitorPanel } from '@/components/panels/system-monitor-panel'
 import { ChatPagePanel } from '@/components/panels/chat-page-panel'
+import { OrchestratorChatPanel } from '@/components/panels/orchestrator-chat-panel'
 import { ChatPanel } from '@/components/chat/chat-panel'
 import { STORAGE_GATEWAY_URL } from '@/lib/device-identity'
 import { getPluginPanel } from '@/lib/plugins'
@@ -717,7 +718,7 @@ function ContentRouter({ tab }: { tab: string }) {
       if (isLocal) return <LocalModeUnavailable panel={tab} />
       return <ExecApprovalPanel />
     case 'chat':
-      return <ChatPagePanel />
+      return <OrchestratorChatPanel />
     default: {
       return renderPluginPanel(tab)
     }
