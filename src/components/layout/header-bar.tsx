@@ -42,14 +42,16 @@ const QUICK_NAV_COMMANDS: Array<{ panel: string; titleKey: string; title: string
   { panel: 'skills', titleKey: 'goToSkills', title: 'Go to Skills', aliases: ['skill packs', 'agent skills'] },
 ]
 
-export function HeaderBar() {
-  const { connection, sessions, unreadNotificationCount, activeTenant, activeProject, dashboardMode } = useMissionControl()
-  const { isConnected, reconnect } = useWebSocket()
+/**
+ * useCommandPalette — the ⌘K / "/" command-palette machinery extracted from
+ * {@link HeaderBar} so both the legacy header and the redesigned
+ * OpzavaShellHeader can open the same palette. Returns the trigger
+ * (`openCommandPalette`) and the portal `overlay` to render once.
+ */
+export function useCommandPalette() {
   const navigateToPanel = useNavigateToPanel()
   const prefetchPanel = usePrefetchPanel()
   const th = useTranslations('header')
-
-  const activeSessions = sessions.filter(s => s.active).length
 
   // Search state
   const [searchOpen, setSearchOpen] = useState(false)
@@ -294,6 +296,87 @@ export function HeaderBar() {
     pipeline: 'bg-indigo-500/20 text-indigo-400',
   }
 
+  // Search overlay (portal to body to avoid clipping/stacking context bugs)
+  const overlay = searchOpen && isMounted ? createPortal(
+        <div
+          ref={searchRef}
+          className="fixed inset-0 z-[9999] isolate"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Command search"
+        >
+          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/30 to-black/30" onClick={() => setSearchOpen(false)} />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="command-palette-in w-full max-w-[44rem] max-h-[min(78vh,40rem)] bg-card border border-border rounded-lg shadow-2xl overflow-hidden">
+              <div className="p-2 border-b border-border">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => handleSearchInput(e.target.value)}
+                  placeholder={th('searchPlaceholder')}
+                  className="w-full h-9 px-3 rounded-md bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                  autoFocus
+                  role="combobox"
+                  aria-expanded={searchOpen}
+                  aria-controls="mc-command-results"
+                  aria-activedescendant={searchResults[selectedIndex] ? `mc-command-result-${selectedIndex}` : undefined}
+                />
+              </div>
+              <div id="mc-command-results" role="listbox" className="bg-card max-h-[calc(min(78vh,40rem)-3.25rem)] overflow-y-auto">
+                {searchLoading ? (
+                  <div className="p-4 text-center text-xs text-muted-foreground">{th('searching')}</div>
+                ) : searchResults.length > 0 ? (
+                  searchResults.map((r, i) => (
+                    <Button
+                      key={`${r.type}-${r.id}-${i}`}
+                      ref={(el) => { resultButtonRefs.current[i] = el }}
+                      variant="ghost"
+                      onClick={() => handleResultClick(r)}
+                      onMouseEnter={() => setSelectedIndex(i)}
+                      id={`mc-command-result-${i}`}
+                      role="option"
+                      aria-selected={i === selectedIndex}
+                      tabIndex={i === selectedIndex ? 0 : -1}
+                      className={`w-full text-left px-3 py-2 h-auto rounded-none justify-start items-start gap-2.5 hover:bg-secondary/80 ${
+                        i === selectedIndex ? 'bg-secondary' : 'bg-card'
+                      }`}
+                    >
+                      <span className={`text-2xs font-medium w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5 ${typeColors[r.type] || 'bg-muted text-muted-foreground'}`}>
+                        {typeIcons[r.type] || '?'}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium text-foreground truncate">{r.title}</div>
+                        {r.subtitle && <div className="text-2xs text-muted-foreground truncate">{r.subtitle}</div>}
+                        {r.excerpt && <div className="text-2xs text-muted-foreground/70 truncate mt-0.5">{r.excerpt}</div>}
+                      </div>
+                    </Button>
+                  ))
+                ) : searchQuery.length >= 2 ? (
+                  <div className="p-4 text-center text-xs text-muted-foreground">{th('noResults')}</div>
+                ) : (
+                  <div className="p-4 text-center text-xs text-muted-foreground">{th('typeToSearch')}</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      ) : null
+
+  return { openCommandPalette, overlay }
+}
+
+export function HeaderBar() {
+  const { connection, sessions, unreadNotificationCount, activeTenant, activeProject } = useMissionControl()
+  const { reconnect } = useWebSocket()
+  const navigateToPanel = useNavigateToPanel()
+  const prefetchPanel = usePrefetchPanel()
+  const th = useTranslations('header')
+  const { openCommandPalette, overlay } = useCommandPalette()
+
+  const activeSessions = sessions.filter(s => s.active).length
+
   return (
     <header role="banner" aria-label="Application header" className="relative z-50 h-14 bg-card/80 backdrop-blur-sm border-b border-border px-3 md:px-4 shrink-0">
       <div className="h-full flex items-center gap-2 md:gap-3">
@@ -384,73 +467,7 @@ export function HeaderBar() {
         </div>
       </div>
 
-      {/* Search overlay (portal to body to avoid clipping/stacking context bugs) */}
-      {searchOpen && isMounted && createPortal(
-        <div
-          ref={searchRef}
-          className="fixed inset-0 z-[9999] isolate"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Command search"
-        >
-          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/30 to-black/30" onClick={() => setSearchOpen(false)} />
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="command-palette-in w-full max-w-[44rem] max-h-[min(78vh,40rem)] bg-card border border-border rounded-lg shadow-2xl overflow-hidden">
-              <div className="p-2 border-b border-border">
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => handleSearchInput(e.target.value)}
-                  placeholder={th('searchPlaceholder')}
-                  className="w-full h-9 px-3 rounded-md bg-secondary border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                  autoFocus
-                  role="combobox"
-                  aria-expanded={searchOpen}
-                  aria-controls="mc-command-results"
-                  aria-activedescendant={searchResults[selectedIndex] ? `mc-command-result-${selectedIndex}` : undefined}
-                />
-              </div>
-              <div id="mc-command-results" role="listbox" className="bg-card max-h-[calc(min(78vh,40rem)-3.25rem)] overflow-y-auto">
-                {searchLoading ? (
-                  <div className="p-4 text-center text-xs text-muted-foreground">{th('searching')}</div>
-                ) : searchResults.length > 0 ? (
-                  searchResults.map((r, i) => (
-                    <Button
-                      key={`${r.type}-${r.id}-${i}`}
-                      ref={(el) => { resultButtonRefs.current[i] = el }}
-                      variant="ghost"
-                      onClick={() => handleResultClick(r)}
-                      onMouseEnter={() => setSelectedIndex(i)}
-                      id={`mc-command-result-${i}`}
-                      role="option"
-                      aria-selected={i === selectedIndex}
-                      tabIndex={i === selectedIndex ? 0 : -1}
-                      className={`w-full text-left px-3 py-2 h-auto rounded-none justify-start items-start gap-2.5 hover:bg-secondary/80 ${
-                        i === selectedIndex ? 'bg-secondary' : 'bg-card'
-                      }`}
-                    >
-                      <span className={`text-2xs font-medium w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5 ${typeColors[r.type] || 'bg-muted text-muted-foreground'}`}>
-                        {typeIcons[r.type] || '?'}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-medium text-foreground truncate">{r.title}</div>
-                        {r.subtitle && <div className="text-2xs text-muted-foreground truncate">{r.subtitle}</div>}
-                        {r.excerpt && <div className="text-2xs text-muted-foreground/70 truncate mt-0.5">{r.excerpt}</div>}
-                      </div>
-                    </Button>
-                  ))
-                ) : searchQuery.length >= 2 ? (
-                  <div className="p-4 text-center text-xs text-muted-foreground">{th('noResults')}</div>
-                ) : (
-                  <div className="p-4 text-center text-xs text-muted-foreground">{th('typeToSearch')}</div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      {overlay}
     </header>
   )
 }

@@ -2,8 +2,9 @@
 
 import { createElement, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { NavRail } from '@/components/layout/nav-rail'
-import { HeaderBar } from '@/components/layout/header-bar'
+import { OpzavaShellRail } from '@/components/layout/opzava-shell-rail'
+import { OpzavaShellHeader } from '@/components/layout/opzava-shell-header'
+import { useCommandPalette } from '@/components/layout/header-bar'
 import { LiveFeed } from '@/components/layout/live-feed'
 import { Dashboard } from '@/components/dashboard/dashboard'
 import { LogViewerPanel } from '@/components/panels/log-viewer-panel'
@@ -486,20 +487,42 @@ export default function Home() {
     return <Loader variant="page" steps={isClient ? initSteps : undefined} />
   }
 
+  return <Shell showOnboarding={showOnboarding} activeTab={activeTab} liveFeedOpen={liveFeedOpen} toggleLiveFeed={toggleLiveFeed} showProjectManagerModal={showProjectManagerModal} setShowProjectManagerModal={setShowProjectManagerModal} fetchProjects={fetchProjects} skipLabel={tc('skipToMainContent')} showLiveFeedLabel={tp('showLiveFeed')} />
+}
+
+/**
+ * Shell — the redesigned app frame (`.opzava-ds` → `.app` grid: rail + main
+ * column). Owns the single command-palette instance so the rail footer (⌘K)
+ * and the header search open the same overlay (rendered once).
+ */
+function Shell({ showOnboarding, activeTab, liveFeedOpen, toggleLiveFeed, showProjectManagerModal, setShowProjectManagerModal, fetchProjects, skipLabel, showLiveFeedLabel }: {
+  showOnboarding: boolean
+  activeTab: string
+  liveFeedOpen: boolean
+  toggleLiveFeed: () => void
+  showProjectManagerModal: boolean
+  setShowProjectManagerModal: (open: boolean) => void
+  fetchProjects: () => Promise<void>
+  skipLabel: string
+  showLiveFeedLabel: string
+}) {
+  const { openCommandPalette, overlay } = useCommandPalette()
+
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className="opzava-ds flex h-screen overflow-hidden">
       <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:text-sm focus:font-medium">
-        {tc('skipToMainContent')}
+        {skipLabel}
       </a>
 
-      {/* Left: Icon rail navigation (hidden on mobile, shown as bottom bar instead) */}
-      {!showOnboarding && <NavRail />}
+      <div className="app" style={{ flex: '1 1 auto', height: 'auto', minWidth: 0 }}>
+      {/* Left: redesigned navigation rail (desktop) / bottom bar (mobile) */}
+      {!showOnboarding && <OpzavaShellRail onOpenSearch={openCommandPalette} />}
 
       {/* Center: Header + Content */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="main-col">
         {!showOnboarding && (
           <>
-            <HeaderBar />
+            <OpzavaShellHeader onOpenSearch={openCommandPalette} />
             <LocalModeBanner />
             <UpdateBanner />
             <OpenClawUpdateBanner />
@@ -508,7 +531,7 @@ export default function Home() {
         )}
         <main
           id="main-content"
-          className={`flex-1 overflow-auto pb-16 md:pb-0 ${showOnboarding ? 'pointer-events-none select-none blur-[2px] opacity-30' : ''}`}
+          className={`main pb-16 md:pb-0 ${showOnboarding ? 'pointer-events-none select-none blur-[2px] opacity-30' : ''}`}
           role="main"
           aria-hidden={showOnboarding}
         >
@@ -519,6 +542,7 @@ export default function Home() {
           </div>
 {/* Footer removed — attribution moved to nav sidebar */}
         </main>
+      </div>
       </div>
 
       {/* Right: Live feed (hidden on mobile) */}
@@ -533,7 +557,7 @@ export default function Home() {
         <button
           onClick={toggleLiveFeed}
           className="hidden lg:flex fixed right-0 top-1/2 -translate-y-1/2 z-30 w-6 h-12 items-center justify-center bg-card border border-r-0 border-border rounded-l-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all duration-200"
-          title={tp('showLiveFeed')}
+          title={showLiveFeedLabel}
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M10 3l-5 5 5 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -556,6 +580,9 @@ export default function Home() {
       )}
 
       <OnboardingWizard />
+
+      {/* Shared command palette overlay (rail ⌘K + header search) */}
+      {!showOnboarding && overlay}
     </div>
   )
 }

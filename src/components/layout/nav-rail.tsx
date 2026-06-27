@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { APP_VERSION } from '@/lib/version'
 import { getPluginNavItems } from '@/lib/plugins'
 
-interface NavItem {
+export interface NavItem {
   id: string
   label: string
   icon: React.ReactNode
@@ -19,7 +19,7 @@ interface NavItem {
   children?: NavItem[] // Nested sub-items (expandable parent)
 }
 
-interface NavGroup {
+export interface NavGroup {
   id: string
   label?: string // undefined = no header (core group)
   items: NavItem[]
@@ -140,6 +140,71 @@ const gatewayOnlyPanels = new Set([
   ...getPluginNavItems().filter(pi => pi.gatewayOnly).map(pi => pi.id),
 ])
 const adminOnlyPanels = new Set<string>([])
+
+/**
+ * Shared nav filtering — the single source of truth for which panels are
+ * visible (local/admin/essential gating + plugin merge + i18n labels).
+ * Consumed by both the legacy {@link NavRail} and the redesigned
+ * OpzavaShellRail (which reuses it to drive {@link MobileBottomBar}).
+ */
+export function useFilteredNavGroups(): { filteredGroups: NavGroup[]; filteredAllNavItems: NavItem[] } {
+  const { dashboardMode, currentUser, interfaceMode } = useMissionControl()
+  const tn = useTranslations('nav')
+  const isLocal = dashboardMode === 'local'
+  const isAdmin = currentUser?.role === 'admin'
+  const isEssential = interfaceMode === 'essential'
+
+  function tLabel(id: string, fallback: string): string {
+    const key = navItemTranslationKeys[id]
+    return key ? tn(key) : fallback
+  }
+  function tGroup(id: string, fallback?: string): string | undefined {
+    const key = groupTranslationKeys[id]
+    return key ? tn(`group.${key}`) : fallback
+  }
+  function filterItems(items: NavItem[]): NavItem[] {
+    return items
+      .map(i => {
+        if (i.children) {
+          const filteredChildren = filterItems(i.children)
+          if (filteredChildren.length === 0) return null
+          return { ...i, children: filteredChildren }
+        }
+        if (isLocal && gatewayOnlyPanels.has(i.id)) return null
+        if (!isAdmin && adminOnlyPanels.has(i.id)) return null
+        if (isEssential && !i.essential) return null
+        return i
+      })
+      .filter((i): i is NavItem => i !== null)
+  }
+  function translateItems(items: NavItem[]): NavItem[] {
+    return items.map(item => ({
+      ...item,
+      label: tLabel(item.id, item.label),
+      children: item.children ? translateItems(item.children) : undefined,
+    }))
+  }
+  const mergedGroups = navGroups.map(g => {
+    const pluginItems = getPluginNavItems()
+      .filter(pi => pi.groupId === g.id)
+      .map(pi => ({
+        id: pi.id,
+        label: pi.label,
+        icon: pi.icon ? <span>{pi.icon}</span> : <PluginIcon />,
+        priority: false,
+      } as NavItem))
+    const items = translateItems(pluginItems.length > 0 ? [...g.items, ...pluginItems] : g.items)
+    return { ...g, label: tGroup(g.id, g.label), items }
+  })
+  const filteredGroups = mergedGroups
+    .map(g => ({ ...g, items: filterItems(g.items) }))
+    .filter(g => g.items.length > 0)
+  function flattenItems(items: NavItem[]): NavItem[] {
+    return items.flatMap(i => i.children ? [i, ...flattenItems(i.children)] : [i])
+  }
+  const filteredAllNavItems = filteredGroups.flatMap(g => flattenItems(g.items))
+  return { filteredGroups, filteredAllNavItems }
+}
 
 export function NavRail() {
   const { activeTab, connection, dashboardMode, currentUser, activeTenant, tenants, osUsers, setActiveTenant, fetchTenants, fetchOsUsers, activeProject, projects, setActiveProject, fetchProjects, sidebarExpanded, collapsedGroups, toggleSidebar, toggleGroup, defaultOrgName, interfaceMode, setInterfaceMode } = useMissionControl()
@@ -563,7 +628,7 @@ function NavButton({ item, active, expanded, onClick, onPrefetch, nested }: {
   )
 }
 
-function MobileBottomBar({ activeTab, navigateToPanel, groups, items }: {
+export function MobileBottomBar({ activeTab, navigateToPanel, groups, items }: {
   activeTab: string
   navigateToPanel: (tab: string) => void
   groups: NavGroup[]
@@ -814,7 +879,7 @@ function OrgRow({ label, initial, active, colorClass, onClick, isActiveOrg, proj
   )
 }
 
-function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, tenants, osUsers, activeTenant, onSwitchTenant, projects, activeProject, onSwitchProject, expanded, defaultOrgName, navigateToPanel, fetchTenants, fetchOsUsers, interfaceMode, setInterfaceMode, activeTab }: {
+export function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, tenants, osUsers, activeTenant, onSwitchTenant, projects, activeProject, onSwitchProject, expanded, defaultOrgName, navigateToPanel, fetchTenants, fetchOsUsers, interfaceMode, setInterfaceMode, activeTab }: {
   currentUser: import('@/store').CurrentUser | null
   isAdmin: boolean
   isLocal: boolean

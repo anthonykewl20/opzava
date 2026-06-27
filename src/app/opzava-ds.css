@@ -209,6 +209,18 @@
 .opzava-ds .page-title { font-size: var(--text-xl); }
 .opzava-ds .page-sub { margin-top: 2px; color: var(--fg-muted); font-size: var(--text-sm); }
 
+/* ── Shell header helpers (ported from shell-overview.html page <style>) ────── */
+.opzava-ds .header-avatar { width: 32px; height: 32px; border-radius: var(--radius-full); background: var(--surface-3); border: 1px solid var(--border-strong); display: flex; align-items: center; justify-content: center; font-size: var(--text-xs); color: var(--fg-muted); flex: none; cursor: pointer; font-weight: var(--fw-semibold); }
+.opzava-ds .header-avatar:hover { background: var(--surface-2); color: var(--fg); }
+.opzava-ds .notif-btn-wrap { position: relative; }
+.opzava-ds .notif-badge { position: absolute; top: 4px; right: 4px; min-width: 16px; height: 16px; padding: 0 3px; border-radius: var(--radius-full); background: var(--danger); color: #fff; font-size: 10px; font-weight: var(--fw-semibold); display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.opzava-ds .live-indicator { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--fg-muted); }
+
+/* ── Layout utilities (scoped subset of mockup tokens.css helpers) ─────────── */
+.opzava-ds .u-grow { flex: 1 1 auto; min-width: 0; }
+.opzava-ds .u-subtle { color: var(--fg-subtle); }
+.opzava-ds .u-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
 /* ── Search / command hint ────────────────────────────────────────────────── */
 .opzava-ds .search { flex: 1; max-width: 540px; display: flex; align-items: center; gap: var(--space-2); height: 34px; padding: 0 var(--space-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--fg-subtle); font-size: var(--text-sm); cursor: text; }
 .opzava-ds .kbd { font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1; padding: 3px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--fg-muted); background: var(--surface); }
