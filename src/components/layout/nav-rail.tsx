@@ -156,11 +156,11 @@ export function useFilteredNavGroups(): { filteredGroups: NavGroup[]; filteredAl
 
   function tLabel(id: string, fallback: string): string {
     const key = navItemTranslationKeys[id]
-    return key ? tn(key) : fallback
+    return key && tn.has(key) ? tn(key) : fallback
   }
   function tGroup(id: string, fallback?: string): string | undefined {
     const key = groupTranslationKeys[id]
-    return key ? tn(`group.${key}`) : fallback
+    return key && tn.has(`group.${key}`) ? tn(`group.${key}`) : fallback
   }
   function filterItems(items: NavItem[]): NavItem[] {
     return items
@@ -216,11 +216,11 @@ export function NavRail() {
   // Translate a nav item label using the translation key map
   function tLabel(id: string, fallback: string): string {
     const key = navItemTranslationKeys[id]
-    return key ? tn(key) : fallback
+    return key && tn.has(key) ? tn(key) : fallback
   }
   function tGroup(id: string, fallback?: string): string | undefined {
     const key = groupTranslationKeys[id]
-    return key ? tn(`group.${key}`) : fallback
+    return key && tn.has(`group.${key}`) ? tn(`group.${key}`) : fallback
   }
   const isLocal = dashboardMode === 'local'
   const isAdmin = currentUser?.role === 'admin'
