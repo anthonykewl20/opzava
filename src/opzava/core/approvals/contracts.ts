@@ -17,6 +17,16 @@ const approvalTargetSchema = z.object({
   id: z.string().min(1).max(120),
 }).strict()
 
+// ApprovalCorrelation (ARD 0029): provenance lineage linking an approval to the Ask-Opzava
+// turn that launched its work — DISTINCT from project_id (ownership, deferred to #35). An
+// approval born outside chat has none (null) and surfaces in the Digest, not a thread.
+const approvalCorrelationSchema = z.object({
+  conversationId: z.string().min(1).max(200),
+  runId: z.string().min(1).max(200),
+}).strict()
+
+export type ApprovalCorrelation = Readonly<z.infer<typeof approvalCorrelationSchema>>
+
 export const approvalSchema = z.object({
   schemaVersion: z.literal(APPROVAL_CONTRACT_SCHEMA_VERSION),
   approvalId: z.string().min(1).max(120),
@@ -29,6 +39,7 @@ export const approvalSchema = z.object({
   requestedAt: z.string().min(1),
   decidedAt: z.string().min(1).nullable(),
   expiresAt: z.string().min(1).nullable(),
+  correlation: approvalCorrelationSchema.nullable().default(null),
 }).strict().superRefine((approval, ctx) => {
   if (approval.status === 'requested') {
     requireNoDecisionFields(approval, ctx)

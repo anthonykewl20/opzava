@@ -16,6 +16,7 @@ function approval(overrides: Partial<Approval> = {}): Approval {
     requestedAt: '2026-07-01T00:00:00.000Z',
     decidedAt: null,
     expiresAt: null,
+    correlation: null,
   };
   return { ...base, ...overrides };
 }
@@ -80,6 +81,16 @@ describe('createApprovalRepository', () => {
     const approvedList = repo.listApprovals({ status: 'approved' });
     expect(approvedList).toHaveLength(1);
     expect(approvedList[0]?.approvalId).toBe('apr-app');
+  });
+
+  it('round-trips correlation lineage through record_json', () => {
+    repo.saveApproval(
+      approval({ approvalId: 'apr-corr', correlation: { conversationId: 'coord:admin:opzava', runId: 'run_x' } }),
+    );
+    expect(repo.getApprovalById('apr-corr')?.correlation).toEqual({
+      conversationId: 'coord:admin:opzava',
+      runId: 'run_x',
+    });
   });
 
   it('re-validates round-tripped approvals via parseApproval', () => {
