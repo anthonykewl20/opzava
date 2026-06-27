@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useMissionControl } from '@/store'
 import { useNavigateToPanel } from '@/lib/navigation'
+import { apiFetch } from '@/lib/api-client'
 import { APP_VERSION } from '@/lib/version'
 import {
   ContextSwitcher,
@@ -39,11 +40,37 @@ export function OpzavaShellRail({ onOpenSearch }: { onOpenSearch?: () => void })
     defaultOrgName,
     interfaceMode,
     setInterfaceMode,
+    agents,
+    tasks,
+    cronJobs,
+    execApprovals,
+    conversations,
+    unreadNotificationCount,
   } = useMissionControl()
   const navigateToPanel = useNavigateToPanel()
   const isLocal = dashboardMode === 'local'
   const isAdmin = currentUser?.role === 'admin'
   const { filteredGroups, filteredAllNavItems } = useFilteredNavGroups()
+
+  // Live count badges (real data; render only when > 0 — see RailItem).
+  const nowSec = Math.floor(Date.now() / 1000)
+  const agentCount = agents.length
+  const openTaskCount = tasks.filter((t) => t.status !== 'done' && t.status !== 'failed').length
+  const cronCount = cronJobs.length
+  const approvalCount = execApprovals.length
+  const alertCount = unreadNotificationCount
+  const unreadMessages = conversations.reduce((n, c) => n + (c.unreadCount || 0), 0)
+  const projectsNeedYou = projects.some((p) => p.deadline != null && p.deadline < nowSec)
+
+  // "↩ Essential view" door — switch mode + persist (mirrors the avatar menu).
+  const switchToEssential = useCallback(() => {
+    setInterfaceMode('essential')
+    apiFetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: { 'general.interface_mode': 'essential' } }),
+    }).catch(() => {})
+  }, [setInterfaceMode])
 
   // Admin context: hydrate orgs/projects for the avatar menu (mirrors NavRail).
   useEffect(() => {
@@ -77,13 +104,25 @@ export function OpzavaShellRail({ onOpenSearch }: { onOpenSearch?: () => void })
 
         {/* Nav groups */}
         <nav className="rail-nav" aria-label="Application sections">
+          {/* Ask Opzava — the orchestrator entry (routes to the chat panel) */}
+          <button
+            type="button"
+            className="rail-item"
+            style={{ marginBottom: 4 }}
+            onClick={() => navigateToPanel('chat')}
+          >
+            <span className="ico" aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)', fontSize: 15 }}>✦</span>
+            <span className="u-grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Ask Opzava</span>
+            {projectsNeedYou && <span className="dot dot-warning" style={{ marginLeft: 'auto' }} aria-label="a project needs you" />}
+          </button>
+
           <SectionLabel>Operate</SectionLabel>
           <RailItem id="overview" label="Overview" active={activeTab === 'overview'} show={visible('overview')} onClick={navigateToPanel} icon={<OverviewIco />} />
-          <RailItem id="agents" label="Agents" active={activeTab === 'agents'} show={visible('agents')} onClick={navigateToPanel} icon={<AgentsIco />} />
-          <RailItem id="tasks" label="Tasks" active={activeTab === 'tasks'} show={visible('tasks')} onClick={navigateToPanel} icon={<TasksIco />} />
+          <RailItem id="agents" label="Agents" active={activeTab === 'agents'} show={visible('agents')} onClick={navigateToPanel} icon={<AgentsIco />} count={agentCount} />
+          <RailItem id="tasks" label="Tasks" active={activeTab === 'tasks'} show={visible('tasks')} onClick={navigateToPanel} icon={<TasksIco />} count={openTaskCount} />
           <RailItem id="github" label="Issues" active={activeTab === 'github'} show={visible('github')} onClick={navigateToPanel} icon={<IssuesIco />} />
           <RailItem id="activity" label="Activity" active={activeTab === 'activity'} show={visible('activity')} onClick={navigateToPanel} icon={<ActivityIco />} />
-          <RailItem id="chat" label="Messages" active={activeTab === 'chat'} show={visible('chat')} onClick={navigateToPanel} icon={<MessagesIco />} />
+          <RailItem id="chat" label="Messages" active={activeTab === 'chat'} show={visible('chat')} onClick={navigateToPanel} icon={<MessagesIco />} count={unreadMessages} countTone="accent" />
 
           {projects.length > 0 && (
             <>
@@ -119,15 +158,27 @@ export function OpzavaShellRail({ onOpenSearch }: { onOpenSearch?: () => void })
           <RailItem id="costs" label="Costs" active={activeTab === 'costs'} show={visible('costs')} onClick={navigateToPanel} icon={<CostsIco />} />
 
           <div className="section-label">Automate</div>
-          <RailItem id="integrations" label="Connections" active={activeTab === 'integrations'} show={visible('integrations')} onClick={navigateToPanel} icon={<ConnectionsIco />} />
-          <RailItem id="cron" label="Automation" active={activeTab === 'cron'} show={visible('cron')} onClick={navigateToPanel} icon={<AutomationIco />} />
+          <RailItem id="integrations" label="Connections" active={activeTab === 'integrations'} show={visible('integrations')} onClick={navigateToPanel} icon={<ConnectionsIco />} endDot={connection.isConnected ? 'success' : undefined} />
+          <RailItem id="cron" label="Automation" active={activeTab === 'cron'} show={visible('cron')} onClick={navigateToPanel} icon={<AutomationIco />} count={cronCount} />
 
           <div className="section-label">Govern</div>
-          <RailItem id="security" label="Security & Audit" active={activeTab === 'security'} show={visible('security')} onClick={navigateToPanel} icon={<SecurityIco />} />
+          <RailItem id="security" label="Security & Audit" active={activeTab === 'security'} show={visible('security')} onClick={navigateToPanel} icon={<SecurityIco />} count={approvalCount} countTone="danger" />
           <RailItem id="memory" label="Memory & Skills" active={activeTab === 'memory'} show={visible('memory')} onClick={navigateToPanel} icon={<MemoryIco />} />
-          <RailItem id="alerts" label="Alerts" active={activeTab === 'alerts'} show={visible('alerts')} onClick={navigateToPanel} icon={<AlertsIco />} />
+          <RailItem id="alerts" label="Alerts" active={activeTab === 'alerts'} show={visible('alerts')} onClick={navigateToPanel} icon={<AlertsIco />} count={alertCount} countTone="danger" />
           <RailItem id="settings" label="Settings" active={activeTab === 'settings'} show={visible('settings')} onClick={navigateToPanel} icon={<SettingsIco />} />
           <RailItem id="debug" label="Debug" subtle active={activeTab === 'debug'} show={visible('debug')} onClick={navigateToPanel} icon={<DebugIco />} />
+
+          {/* Door back to the simplified everyday view (intentional mode-switch) */}
+          <button
+            type="button"
+            className="rail-item u-subtle"
+            style={{ marginTop: 'var(--space-3)' }}
+            title="Essential view — the simplified everyday experience"
+            onClick={switchToEssential}
+          >
+            <span className="ico" aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>↩</span>
+            <span className="u-grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Essential view</span>
+          </button>
         </nav>
 
         {/* Footer: ⌘K quick jump */}
@@ -189,7 +240,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div className="section-label">{children}</div>
 }
 
-function RailItem({ id, label, icon, active, show, subtle, count, onClick }: {
+function RailItem({ id, label, icon, active, show, subtle, count, countTone, endDot, onClick }: {
   id: string
   label: string
   icon: React.ReactNode
@@ -197,9 +248,15 @@ function RailItem({ id, label, icon, active, show, subtle, count, onClick }: {
   show: boolean
   subtle?: boolean
   count?: number
+  countTone?: 'accent' | 'danger'
+  endDot?: 'success'
   onClick: (id: string) => void
 }) {
   if (!show) return null
+  const countStyle =
+    countTone === 'accent' ? { background: 'var(--accent)', color: 'var(--accent-fg)' }
+    : countTone === 'danger' ? { background: 'var(--danger-soft)', color: 'var(--danger)' }
+    : undefined
   return (
     <button
       type="button"
@@ -209,7 +266,8 @@ function RailItem({ id, label, icon, active, show, subtle, count, onClick }: {
     >
       {icon}
       <span className="u-grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-      {typeof count === 'number' && count > 0 && <span className="count">{count}</span>}
+      {typeof count === 'number' && count > 0 && <span className="count" style={countStyle}>{count}</span>}
+      {endDot && <span className={`dot dot-${endDot} dot-beat`} style={{ marginLeft: 'auto' }} aria-label="connected" />}
     </button>
   )
 }

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Button } from '@/components/ui/button'
 import { useMissionControl } from '@/store'
 
 interface OpenClawDoctorStatus {
@@ -104,22 +103,7 @@ export function OpenClawDoctorBanner() {
 
   if (loading || dismissed || !doctor || doctor.healthy) return null
 
-  const tone =
-    doctor.level === 'error'
-      ? {
-          frame: 'bg-red-500/10 border-red-500/20 text-red-300',
-          dot: 'bg-red-500',
-          primary: 'text-red-200',
-          button: 'text-red-950 bg-red-400 hover:bg-red-300',
-          secondary: 'text-red-300 border-red-500/20 hover:border-red-500/40 hover:text-red-200',
-        }
-      : {
-          frame: 'bg-amber-500/10 border-amber-500/20 text-amber-300',
-          dot: 'bg-amber-400',
-          primary: 'text-amber-200',
-          button: 'text-amber-950 bg-amber-400 hover:bg-amber-300',
-          secondary: 'text-amber-300 border-amber-500/20 hover:border-amber-500/40 hover:text-amber-200',
-        }
+  const severity = doctor.level === 'error' ? 'danger' : 'warning'
 
   const visibleIssues = doctor.issues.slice(0, 3)
   const extraCount = Math.max(doctor.issues.length - visibleIssues.length, 0)
@@ -136,65 +120,77 @@ export function OpenClawDoctorBanner() {
             : t('doctorWarnings')
 
   return (
-    <div className="mx-4 mt-3 mb-0">
-      <div className={`flex items-start gap-3 px-4 py-3 rounded-lg border text-sm ${tone.frame}`}>
-        <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} />
+    <div style={{ margin: '12px 16px 0' }}>
+      <div className={`banner banner-${severity}`} role="status" style={{ alignItems: 'flex-start' }}>
+        <span className={`dot dot-${severity} shrink-0`} aria-hidden="true" style={{ marginTop: 2 }} />
         <div className="min-w-0 flex-1">
-          <p className="text-xs">
-            <span className={`font-medium ${tone.primary}`}>{headline}</span>
+          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+            <span style={{ color: 'var(--fg)', fontWeight: 'var(--fw-medium)' }}>{headline}</span>
             {' — '}
             {state === 'error' ? errorMsg || doctor.summary : doctor.summary}
           </p>
           {visibleIssues.length > 0 && (
             <div className="mt-2 space-y-1">
               {visibleIssues.map(issue => (
-                <p key={issue} className="text-2xs opacity-90">
+                <p key={issue} style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
                   - {issue}
                 </p>
               ))}
               {extraCount > 0 && (
-                <p className="text-2xs opacity-75">{tc('moreIssues', { count: extraCount })}</p>
+                <p style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>{tc('moreIssues', { count: extraCount })}</p>
               )}
             </div>
           )}
           {busy && fixProgress && (
-            <p className="mt-2 text-2xs opacity-85">{fixProgress}</p>
+            <p className="mt-2" style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>{fixProgress}</p>
           )}
           {!busy && state === 'success' && fixProgress && (
-            <p className="mt-2 text-2xs opacity-85">{fixProgress}</p>
+            <p className="mt-2" style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>{fixProgress}</p>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {doctor.canFix && state !== 'success' && (
             <button
+              type="button"
               onClick={handleFix}
               disabled={busy}
-              className={`shrink-0 rounded px-2.5 py-1 text-2xs font-medium transition-colors ${tone.button}`}
+              className="btn btn-primary btn-sm shrink-0"
             >
               {busy ? t('runningFix') : t('runDoctorFix')}
             </button>
           )}
           <button
+            type="button"
             onClick={() => setShowDetails(value => !value)}
-            className={`shrink-0 rounded border px-2 py-1 text-2xs font-medium transition-colors ${tone.secondary}`}
+            className="btn btn-sm shrink-0"
           >
             {showDetails ? tc('hideDetails') : tc('showDetails')}
           </button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
+          <button
+            type="button"
             onClick={dismissDoctor}
-            className="shrink-0 hover:bg-transparent"
+            className="btn btn-ghost btn-icon btn-sm shrink-0"
             title={tc('dismiss')}
           >
             <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M4 4l8 8M12 4l-8 8" />
             </svg>
-          </Button>
+          </button>
         </div>
       </div>
       {showDetails && (
-        <div className={`mt-1 max-h-80 overflow-y-auto rounded-lg border px-4 py-3 text-xs whitespace-pre-wrap ${tone.frame}`}>
+        <div
+          className="card"
+          style={{
+            marginTop: 4,
+            padding: 'var(--space-3) var(--space-4)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--fg-muted)',
+            whiteSpace: 'pre-wrap',
+            maxHeight: 320,
+            overflowY: 'auto',
+          }}
+        >
           {doctor.raw || doctor.summary}
         </div>
       )}
