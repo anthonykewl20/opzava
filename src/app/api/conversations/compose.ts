@@ -12,12 +12,16 @@ import {
   createConversationRepository,
   createOrchestratorActionRegistry,
   makeCreateFollowupTaskAction,
+  makeLaunchWorkAction,
   makeNotifyOwnerAction,
   type AskOrchestratorDeps,
   type ConversationRepository,
   type CreateFollowupTaskPort,
   type NotifyOwnerPort,
+  type OrchestratorAction,
 } from '@/opzava/modules/conversations'
+import { createSqliteCardCreationPort } from '@/opzava/platform/composition/task-write-seam'
+import { createRunnerRepository } from '@/opzava/platform/runner/repository'
 
 // Engine-A composition root for Ask-Opzava (the one place that wires Engine-B + the gateway + the
 // inherited tasks/notifications). The conversations module stays src/lib-free; all crossings are here.
@@ -147,13 +151,36 @@ export interface OrchestratorUser {
   readonly workspace_id?: number | null
 }
 
+/** The project a chat-launched Card lands in when the proposal doesn't name one (first active project). */
+function resolveDefaultProjectId(db: Database.Database, workspaceId: number): number | null {
+  const row = db
+    .prepare("SELECT id FROM projects WHERE workspace_id = ? AND status != 'archived' ORDER BY id ASC LIMIT 1")
+    .get(workspaceId) as { id: number } | undefined
+  return row?.id ?? null
+}
+
 export function composeAskOrchestratorDeps(db: Database.Database, user: OrchestratorUser): AskOrchestratorDeps {
   const workspaceId = user.workspace_id ?? 1
   const repo = createConversationRepository(db)
-  const registry = createOrchestratorActionRegistry([
+  const actions: OrchestratorAction[] = [
     makeCreateFollowupTaskAction(createFollowupTaskPort(db)),
     makeNotifyOwnerAction(notifyOwnerPort(db)),
-  ])
+  ]
+  // launch_work needs a target project; without one (a fresh workspace) it isn't offered.
+  const defaultProjectId = resolveDefaultProjectId(db, workspaceId)
+  if (defaultProjectId !== null) {
+    actions.push(
+      makeLaunchWorkAction({
+        cards: createSqliteCardCreationPort(db),
+        runnerRepo: createRunnerRepository(db),
+        transact: (fn) => db.transaction(fn)(),
+        now: () => new Date().toISOString(),
+        newId: () => randomUUID(),
+        defaultProjectId,
+      }),
+    )
+  }
+  const registry = createOrchestratorActionRegistry(actions)
   return {
     provider: createConciergeProvider({ sessionKey: resolveConciergeSessionKey(db, workspaceId), model: CONCIERGE_MODEL }),
     model: CONCIERGE_MODEL,

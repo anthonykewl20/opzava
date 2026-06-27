@@ -1,3 +1,5 @@
+import { launchWork, type LaunchWorkDeps } from '../launch-work'
+
 // OrchestratorActionRegistry (doc 95 §D1.1) — the deep seam mapping a chat action to its executor.
 // A discriminated union over the tier: an action declares `internal-reversible` (auto-executes →
 // result turn) vs `external-guarded` (mints an Approval → guarded provider) AT REGISTRATION, so an
@@ -10,6 +12,8 @@ export interface ActionExecCtx {
   readonly conversationId: string
   readonly workspaceId: number
   readonly actor: string
+  /** The proposed action's server-minted id — the deterministic idempotency anchor (e.g. for launch_work). */
+  readonly actionId: string
   readonly args: Record<string, unknown>
   readonly now: () => string
   readonly newId: () => string
@@ -96,6 +100,41 @@ export interface NotifyOwnerPort {
     actor: string
     workspaceId: number
   }): void
+}
+
+export interface LaunchWorkActionDeps extends LaunchWorkDeps {
+  /** Project the launched Card lands in when the proposal doesn't name one (operator's default). */
+  readonly defaultProjectId: number
+}
+
+export function makeLaunchWorkAction(deps: LaunchWorkActionDeps): OrchestratorAction {
+  return {
+    kind: 'internal-reversible',
+    actionType: 'launch_work',
+    async execute(ctx) {
+      const title = String(ctx.args.title ?? ctx.args.goal ?? '').trim()
+      if (!title) {
+        return { resultTurn: { body: "I couldn't tell what to work on — say what you'd like done." } }
+      }
+      const projectId = typeof ctx.args.projectId === 'number' ? ctx.args.projectId : deps.defaultProjectId
+      const result = launchWork(
+        {
+          workspaceId: ctx.workspaceId,
+          conversationId: ctx.conversationId,
+          actionId: ctx.actionId,
+          actor: ctx.actor,
+          projectId,
+          title,
+          description: typeof ctx.args.description === 'string' ? ctx.args.description : null,
+        },
+        deps,
+      )
+      const body = result.idempotent
+        ? `Already on it — card #${result.cardId} (run ${result.runId}).`
+        : `Work launched — created card #${result.cardId}, decomposition queued.`
+      return { resultTurn: { body, record: { cardId: result.cardId, runId: result.runId, jobId: result.jobId } } }
+    },
+  }
 }
 
 export function makeNotifyOwnerAction(deps: NotifyOwnerPort): OrchestratorAction {

@@ -13,6 +13,7 @@ function ctx(args: Record<string, unknown>): ActionExecCtx {
     conversationId: 'coord:admin:opzava',
     workspaceId: 1,
     actor: 'admin',
+    actionId: 'act-1',
     args,
     now: () => 'now',
     newId: () => 'id-1',

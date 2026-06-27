@@ -24,12 +24,6 @@ function idGen() {
   return () => `id-${++n}`
 }
 
-const fakeInternal = (actionType: string): OrchestratorAction => ({
-  kind: 'internal-reversible',
-  actionType,
-  execute: async () => ({ resultTurn: { body: 'done' } }),
-})
-
 beforeEach(() => {
   db = new Database(':memory:')
   runMigrations(db)
@@ -86,19 +80,48 @@ describe('askOrchestrator', () => {
     expect(invoke.mock.calls[0][0].model).toBe('gpt-frontier')
   })
 
-  it('persists a known proposed action as a pending action-block turn', async () => {
+  it('auto-executes a known internal-reversible action and posts a result turn (no pending)', async () => {
+    const executed: string[] = []
+    const action: OrchestratorAction = {
+      kind: 'internal-reversible',
+      actionType: 'create_followup_task',
+      execute: async (c) => {
+        executed.push(c.actionId)
+        return { resultTurn: { body: 'Created follow-up card #7.', record: { cardId: 7 } } }
+      },
+    }
     const { provider } = providerReturning(
       JSON.stringify({ narration: 'I can chase that.', actions: [{ actionType: 'create_followup_task', args: { title: 'Chase reply' } }] }),
     )
-    const registry = createOrchestratorActionRegistry([fakeInternal('create_followup_task')])
-    const result = await askOrchestrator({ ...baseDeps(provider, registry) }, askCtx)
+    const registry = createOrchestratorActionRegistry([action])
+    const result = await askOrchestrator(baseDeps(provider, registry), askCtx)
 
-    expect(result.proposedActions).toHaveLength(1)
-    expect(result.proposedActions[0]).toMatchObject({ actionType: 'create_followup_task', kind: 'internal-reversible', args: { title: 'Chase reply' } })
+    expect(executed).toHaveLength(1) // the action ran (no human confirm — internal-reversible)
+    expect(result.executedActions.map((a) => a.actionType)).toEqual(['create_followup_task'])
+    expect(result.proposedActions).toHaveLength(0)
 
+    const turns = repo.listTurns('coord:admin:opzava')
+    expect(turns.some((t) => t.status === 'pending')).toBe(false)
+    expect(turns.some((t) => t.body === 'Created follow-up card #7.')).toBe(true)
+  })
+
+  it('mints an approval and persists a pending action-block turn for an external-guarded action', async () => {
+    const action: OrchestratorAction = {
+      kind: 'external-guarded',
+      actionType: 'approve_and_send',
+      mintApproval: async () => ({ approvalId: 'apr-minted' }),
+    }
+    const { provider } = providerReturning(
+      JSON.stringify({ narration: 'Ready to send.', actions: [{ actionType: 'approve_and_send', args: {} }] }),
+    )
+    const registry = createOrchestratorActionRegistry([action])
+    const result = await askOrchestrator(baseDeps(provider, registry), askCtx)
+
+    expect(result.proposedActions.map((a) => a.actionType)).toEqual(['approve_and_send'])
     const pending = repo.listTurns('coord:admin:opzava').filter((t) => t.status === 'pending')
     expect(pending).toHaveLength(1)
-    expect(pending[0]?.record).toMatchObject({ action: { actionType: 'create_followup_task' } })
+    expect(pending[0]?.refType).toBe('approval')
+    expect(pending[0]?.refId).toBe('apr-minted')
   })
 
   it('drops a proposed action whose type is not in the registry (allow-list)', async () => {

@@ -3,7 +3,7 @@ import type { NeedsYouRollupReader } from '@/opzava/platform/project-health/need
 
 import type { ConversationRepository } from '../conversation-repository'
 import type { ConversationTurn } from '../contracts'
-import type { OrchestratorActionRegistry } from './action-registry'
+import type { ActionExecCtx, OrchestratorActionRegistry } from './action-registry'
 
 // askOrchestrator (doc 95 §D1.1) — one conversational turn with the Ask-Opzava Concierge.
 // Self-contained: the human prompt and the AI narration are TURNS (never inherited `messages`).
@@ -17,6 +17,12 @@ export interface ProposedAction {
   readonly actionType: string
   readonly kind: 'internal-reversible' | 'external-guarded'
   readonly args: Record<string, unknown>
+}
+
+/** An internal-reversible action that auto-executed (doc 100 T3) — a result turn was posted. */
+export interface ExecutedAction {
+  readonly actionId: string
+  readonly actionType: string
 }
 
 export interface AskOrchestratorDeps {
@@ -39,6 +45,9 @@ export interface AskOrchestratorCtx {
 export interface AskOrchestratorResult {
   readonly humanTurn: ConversationTurn
   readonly narrationTurn: ConversationTurn
+  /** internal-reversible actions that auto-executed (result turns posted). */
+  readonly executedActions: readonly ExecutedAction[]
+  /** external-guarded actions awaiting human approval (pending action-block turns + minted approvals). */
   readonly proposedActions: readonly ProposedAction[]
 }
 
@@ -123,29 +132,54 @@ export async function askOrchestrator(
   const narrationTurn = turn('ai', 'Opzava', parsed.narration)
   deps.conversationRepo.appendTurn(narrationTurn)
 
-  // 4. Validate proposed actions against the registry allow-list; persist each as a pending block.
+  // 4. Validate proposed actions against the registry allow-list. internal-reversible actions
+  //    AUTO-EXECUTE (doc 100 T3) → a result turn; external-guarded actions mint an Approval and
+  //    persist a pending action-block turn the human decides. Unknown actionTypes are dropped.
   const proposedActions: ProposedAction[] = []
+  const executedActions: ExecutedAction[] = []
   for (const a of parsed.actions) {
     const registered = deps.actionRegistry.get(a.actionType)
-    if (!registered) continue // unknown actionType is dropped (allow-list, never invented)
-    const action: ProposedAction = {
-      actionId: deps.newId(),
-      actionType: registered.actionType,
-      kind: registered.kind,
+    if (!registered) continue
+    const actionId = deps.newId()
+    const execCtx: ActionExecCtx = {
+      conversationId: ctx.conversationId,
+      workspaceId: ctx.workspaceId,
+      actor: ctx.actor,
+      actionId,
       args: a.args,
+      now: deps.now,
+      newId: deps.newId,
     }
-    proposedActions.push(action)
-    deps.conversationRepo.appendTurn(
-      turn('ai', 'Opzava', '', {
-        turnId: action.actionId,
-        status: 'pending',
-        refType: registered.kind === 'external-guarded' ? 'approval' : null,
-        record: { action },
-      }),
-    )
+
+    if (registered.kind === 'internal-reversible') {
+      let body: string
+      let record: Record<string, unknown>
+      try {
+        const res = await registered.execute(execCtx)
+        body = res.resultTurn.body
+        record = { actionType: registered.actionType, ...(res.resultTurn.record ?? {}) }
+      } catch {
+        body = "I couldn't complete that action."
+        record = { actionType: registered.actionType, error: true }
+      }
+      deps.conversationRepo.appendTurn(turn('ai', 'Opzava', body, { turnId: actionId, record }))
+      executedActions.push({ actionId, actionType: registered.actionType })
+    } else {
+      let approvalId: string | null = null
+      try {
+        approvalId = (await registered.mintApproval(execCtx)).approvalId
+      } catch {
+        approvalId = null
+      }
+      const action: ProposedAction = { actionId, actionType: registered.actionType, kind: 'external-guarded', args: a.args }
+      proposedActions.push(action)
+      deps.conversationRepo.appendTurn(
+        turn('ai', 'Opzava', '', { turnId: actionId, status: 'pending', refType: 'approval', refId: approvalId, record: { action, approvalId } }),
+      )
+    }
   }
 
   deps.conversationRepo.touchLastMessageAt(ctx.conversationId, deps.now())
 
-  return { humanTurn, narrationTurn, proposedActions }
+  return { humanTurn, narrationTurn, executedActions, proposedActions }
 }

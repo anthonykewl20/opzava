@@ -32,6 +32,7 @@ export {
   createOrchestratorActionRegistry,
   makeCreateFollowupTaskAction,
   makeNotifyOwnerAction,
+  makeLaunchWorkAction,
 } from './orchestrator/action-registry'
 export type {
   OrchestratorAction,
@@ -42,7 +43,11 @@ export type {
   ApprovalRef,
   CreateFollowupTaskPort,
   NotifyOwnerPort,
+  LaunchWorkActionDeps,
 } from './orchestrator/action-registry'
+
+export { launchWork } from './launch-work'
+export type { LaunchWorkInput, LaunchWorkDeps, LaunchWorkResult } from './launch-work'
 
 export { askOrchestrator } from './orchestrator/ask-orchestrator'
 export type {
@@ -50,4 +55,5 @@ export type {
   AskOrchestratorCtx,
   AskOrchestratorResult,
   ProposedAction,
+  ExecutedAction,
 } from './orchestrator/ask-orchestrator'
