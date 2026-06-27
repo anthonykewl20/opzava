@@ -89,6 +89,8 @@ export function notifyOwnerPort(db: Database.Database): NotifyOwnerPort {
 
 interface ConciergeProviderOpts {
   readonly sessionKey: string | null
+  /** Registered coordinator agent id — used to send (gateway creates the session) when no sessionKey. */
+  readonly openclawAgentId?: string | null
   readonly model: string
   readonly pollWindowMs?: number
   readonly maxWaits?: number
@@ -97,20 +99,34 @@ interface ConciergeProviderOpts {
 
 export function createConciergeProvider(opts: ConciergeProviderOpts): ProviderPort {
   const gateway = opts.gatewayCall ?? callOpenClawGateway
+  const agentId = opts.openclawAgentId ?? null
   const pollWindowMs = opts.pollWindowMs ?? 6000
   const maxWaits = opts.maxWaits ?? 20
   return {
-    isAvailable: () => opts.sessionKey !== null,
+    isAvailable: () => opts.sessionKey !== null || agentId !== null,
     async invoke({ prompt }) {
-      if (!opts.sessionKey) {
-        throw new ProviderError('unavailable', 'Ask Opzava gateway session is not reachable')
+      const idempotencyKey = `ask-${randomUUID()}`
+      let runId: string | undefined
+      if (opts.sessionKey) {
+        // Live session → chat.send by session.
+        const send = await gateway<{ runId?: string }>(
+          'chat.send',
+          { sessionKey: opts.sessionKey, message: prompt, idempotencyKey, deliver: false },
+          12000,
+        )
+        runId = send?.runId
+      } else if (agentId) {
+        // No session but a registered agent → send by agentId; the gateway spins up the session
+        // on demand (mirrors the coord chat's openclawAgentId path).
+        const send = await gateway<{ runId?: string }>(
+          'agent',
+          { agentId, message: prompt, idempotencyKey, deliver: false },
+          12000,
+        )
+        runId = send?.runId
+      } else {
+        throw new ProviderError('unavailable', 'Ask Opzava has no coordinator session or registered agent')
       }
-      const send = await gateway<{ runId?: string }>(
-        'chat.send',
-        { sessionKey: opts.sessionKey, message: prompt, idempotencyKey: `ask-${randomUUID()}`, deliver: false },
-        12000,
-      )
-      const runId = send?.runId
       if (!runId) throw new ProviderError('unavailable', 'gateway did not accept the message')
       for (let i = 0; i < maxWaits; i += 1) {
         const wait = await gateway<{ status?: string; text?: string }>(
@@ -139,29 +155,47 @@ export interface CoordinatorStatus {
   readonly reason: string | null
 }
 
-export function probeCoordinatorStatus(sessions: readonly GatewaySession[], coordinatorAgent: string): CoordinatorStatus {
+export function probeCoordinatorStatus(
+  sessions: readonly GatewaySession[],
+  coordinatorAgent: string,
+  opts: { agentResolvable?: boolean } = {},
+): CoordinatorStatus {
   const name = coordinatorAgent.toLowerCase()
   const matches = sessions.filter(
     (s) => s.agent.toLowerCase() === name || s.key.toLowerCase().includes(name),
   )
   const latest = matches.sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  const lastSeen = latest ? new Date(latest.updatedAt).toISOString() : null
+  const runId = latest?.sessionId || null
+
+  // A live session is definitively online.
+  if (latest?.active) return { status: 'online', runId, lastSeen, reason: null }
+  // No live session, but a registered coordinator agent → online: the gateway creates a session on
+  // the next send (send-by-agentId). lastSeen/runId echo the stale session if one exists, else null.
+  if (opts.agentResolvable) return { status: 'online', runId, lastSeen, reason: null }
+  // Nothing to reach.
   if (!latest) return { status: 'offline', runId: null, lastSeen: null, reason: 'no_coordinator_session' }
-  const lastSeen = new Date(latest.updatedAt).toISOString()
-  const runId = latest.sessionId || null
-  if (latest.active) return { status: 'online', runId, lastSeen, reason: null }
   return { status: 'offline', runId, lastSeen, reason: 'gateway_session_expired' }
 }
 
 /** The coordinator agent name the Concierge resolves against (config-or-default). */
 export const CONCIERGE_COORDINATOR_AGENT = COORDINATOR_AGENT
 
-/** Probe live coordinator status from the on-disk gateway session store. */
-export function readCoordinatorStatus(): CoordinatorStatus {
-  return probeCoordinatorStatus(getAllGatewaySessions(), COORDINATOR_AGENT)
+/** Probe live coordinator status from the on-disk gateway sessions + the registered-agent target. */
+export function readCoordinatorStatus(db: Database.Database, workspaceId: number): CoordinatorStatus {
+  const target = resolveConciergeTarget(db, workspaceId)
+  return probeCoordinatorStatus(getAllGatewaySessions(), COORDINATOR_AGENT, {
+    agentResolvable: target.openclawAgentId !== null,
+  })
 }
 
-/** Resolve the coordinator gateway session, mirroring the legacy coord chat path. */
-export function resolveConciergeSessionKey(db: Database.Database, workspaceId: number): string | null {
+/** Resolve the coordinator delivery target (session + registered agent), mirroring the coord chat. */
+export interface ConciergeTarget {
+  readonly sessionKey: string | null
+  readonly openclawAgentId: string | null
+}
+
+export function resolveConciergeTarget(db: Database.Database, workspaceId: number): ConciergeTarget {
   const allAgents = db
     .prepare('SELECT name, session_key, config FROM agents WHERE workspace_id = ?')
     .all(workspaceId) as Array<{ name: string; session_key?: string | null; config?: string | null }>
@@ -169,7 +203,7 @@ export function resolveConciergeSessionKey(db: Database.Database, workspaceId: n
     (db.prepare("SELECT value FROM settings WHERE key = 'chat.coordinator_target_agent'").get() as
       | { value?: string }
       | undefined)?.value || null
-  return resolveCoordinatorDeliveryTarget({
+  const resolved = resolveCoordinatorDeliveryTarget({
     to: COORDINATOR_AGENT,
     coordinatorAgent: COORDINATOR_AGENT,
     directAgent: null,
@@ -177,7 +211,11 @@ export function resolveConciergeSessionKey(db: Database.Database, workspaceId: n
     sessions: getAllGatewaySessions(),
     explicitSessionKey: null,
     configuredCoordinatorTarget,
-  }).sessionKey
+  })
+  // A 'fallback' resolution is just the normalized coordinator NAME (no real agent/session) — not
+  // something the gateway can actually reach. Treat it as unresolved so the offline card stays honest.
+  const openclawAgentId = resolved.resolvedBy === 'fallback' ? null : resolved.openclawAgentId
+  return { sessionKey: resolved.sessionKey, openclawAgentId }
 }
 
 export interface OrchestratorUser {
@@ -215,8 +253,13 @@ export function composeAskOrchestratorDeps(db: Database.Database, user: Orchestr
     )
   }
   const registry = createOrchestratorActionRegistry(actions)
+  const target = resolveConciergeTarget(db, workspaceId)
   return {
-    provider: createConciergeProvider({ sessionKey: resolveConciergeSessionKey(db, workspaceId), model: CONCIERGE_MODEL }),
+    provider: createConciergeProvider({
+      sessionKey: target.sessionKey,
+      openclawAgentId: target.openclawAgentId,
+      model: CONCIERGE_MODEL,
+    }),
     model: CONCIERGE_MODEL,
     readNeedsYouRollup: createSqliteNeedsYouRollupReader(db),
     actionRegistry: registry,

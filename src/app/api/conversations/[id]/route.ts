@@ -44,6 +44,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     digest,
     // Real coordinator liveness (doc 19 / 100 T3) — drives the offline card + its Technical-details
     // block; never a fabricated id. The thread + digest above stay live even when this is offline.
-    coordinator: readCoordinatorStatus(),
+    coordinator: readCoordinatorStatus(db, workspaceId),
   })
 }

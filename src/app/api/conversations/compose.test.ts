@@ -9,6 +9,7 @@ import {
   createFollowupTaskPort,
   notifyOwnerPort,
   probeCoordinatorStatus,
+  resolveConciergeTarget,
 } from './compose'
 
 function gatewaySession(overrides: Partial<GatewaySession> = {}): GatewaySession {
@@ -88,6 +89,25 @@ describe('createConciergeProvider', () => {
     expect(result.text).toBe('All on track.')
     expect(calls).toEqual(['chat.send', 'agent.wait'])
   })
+
+  it('sends by agentId (gateway creates the session) when there is no session', async () => {
+    const calls: Array<{ method: string; params: unknown }> = []
+    const provider = createConciergeProvider({
+      sessionKey: null,
+      openclawAgentId: 'main',
+      model: '',
+      gatewayCall: async <T>(method: string, params: unknown): Promise<T> => {
+        calls.push({ method, params })
+        if (method === 'agent') return { runId: 'run-9' } as T
+        return { status: 'complete', text: 'Hello from main.' } as T
+      },
+    })
+    expect(provider.isAvailable()).toBe(true)
+    const result = await provider.invoke({ prompt: 'hi', model: '' })
+    expect(result.text).toBe('Hello from main.')
+    expect(calls.map((c) => c.method)).toEqual(['agent', 'agent.wait'])
+    expect(calls[0].params).toMatchObject({ agentId: 'main', deliver: false })
+  })
 })
 
 describe('probeCoordinatorStatus (real telemetry for the offline card)', () => {
@@ -119,6 +139,23 @@ describe('probeCoordinatorStatus (real telemetry for the offline card)', () => {
 
   it('ignores sessions for other agents (matches the coordinator only)', () => {
     expect(probeCoordinatorStatus([gatewaySession({ agent: 'main', key: 'agent:main:main', active: true })], 'coordinator').status).toBe('offline')
+  })
+
+  it('reports online when a coordinator agent is registered even without a session', () => {
+    expect(probeCoordinatorStatus([], 'coordinator', { agentResolvable: true })).toEqual({
+      status: 'online',
+      runId: null,
+      lastSeen: null,
+      reason: null,
+    })
+  })
+})
+
+describe('resolveConciergeTarget', () => {
+  it('returns no real target on a fresh workspace (a fallback name is NOT a reachable agent)', () => {
+    // Regression: a 'fallback' resolution yields the normalized coordinator name as openclawAgentId;
+    // it must be treated as unresolved so the offline card stays honest (no fake "online").
+    expect(resolveConciergeTarget(db, 1)).toEqual({ sessionKey: null, openclawAgentId: null })
   })
 })
 
