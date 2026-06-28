@@ -41,6 +41,9 @@ export interface EngineOptions {
   signal?: AbortSignal
 }
 
+// executeGraph is the workflow-engine god-module being decomposed by ARD 0025
+// (γ-spine hybrid); complexity tracked there — removed when the split lands.
+// eslint-disable-next-line complexity
 export async function* executeGraph(
   graph: WorkflowGraph,
   opts: EngineOptions,
