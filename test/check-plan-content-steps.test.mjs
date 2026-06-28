@@ -1218,7 +1218,7 @@ test('case study records approval decide route progress', async () => {
 test('approval queue panel wires approve/reject decide actions', async () => {
   const panel = await readFile(new URL('../src/components/panels/approval-queue-panel.tsx', import.meta.url), 'utf8');
   assert.match(panel, /approvals\/\$\{id\}\/decide/);
-  assert.match(panel, /onDecide/);
+  assert.match(panel, /const decide/);
   assert.match(panel, /Approve/);
   assert.match(panel, /Reject/);
 });

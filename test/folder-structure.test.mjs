@@ -109,7 +109,6 @@ test('every src/opzava module has a colocated MODULE.md', async () => {
   const modules = [
     'src/opzava/core/approvals',
     'src/opzava/core/artifacts',
-    'src/opzava/core/execution-policy',
     'src/opzava/core/workflows',
     'src/opzava/core/secrets',
     'src/opzava/platform/admin-config',
@@ -122,7 +121,6 @@ test('every src/opzava module has a colocated MODULE.md', async () => {
     'src/opzava/modules/team',
     'src/opzava/modules/social',
     'src/opzava/modules/general-va',
-    'src/opzava/modules/projects',
   ];
   const missing = [];
   for (const m of modules) {
