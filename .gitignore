@@ -38,6 +38,7 @@ test-results/
 playwright-report/
 .tmp/
 .playwright-mcp/
+tests/visual/.auth/
 
 # Local QA screenshots
 /e2e-debug-*.png
