@@ -21,12 +21,9 @@ FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# ─── PR-CANDIDATE: NEXT_PUBLIC_* baked into client bundle ──────────────────
-# Next.js inlines NEXT_PUBLIC_* into the client JS at build time. Without
-# these ARG/ENV pairs, downstream operators (Docker / CI / k8s) cannot
-# configure the gateway URL for the browser without a custom image build.
-# Discovered via Project EIGHTBALL deployment with separate subdomain for
-# the gateway (openclaw-mac.example.io) vs dashboard (mc-mac.example.io).
+# Legacy NEXT_PUBLIC_* placeholders stay empty for compatibility with older
+# deployments. Browser gateway connection decisions are runtime-injected from
+# PUBLIC_GATEWAY_HOST by the app server, not baked into the client bundle here.
 ARG NEXT_PUBLIC_GATEWAY_URL=
 ARG NEXT_PUBLIC_GATEWAY_HOST=
 ARG NEXT_PUBLIC_GATEWAY_PORT=

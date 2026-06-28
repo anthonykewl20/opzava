@@ -77,13 +77,9 @@ export function buildGatewayWebSocketUrl(input: {
   const browserProtocol = input.browserProtocol === 'https:' ? 'https:' : 'http:'
 
   if (!rawHost) {
-    // Default host is localhost — use wss:// when the browser is on HTTPS and a reverse
-    // proxy is likely fronting the gateway (e.g. nginx/Caddy/Tailscale Serve).
-    // Direct localhost connections still work because browsers allow ws://127.0.0.1
-    // from HTTPS pages (mixed-content exception), but the gateway may reject the
-    // WebSocket Origin header if it doesn't match allowedOrigins.
-    const useWss = browserProtocol === 'https:' && process.env.NEXT_PUBLIC_GATEWAY_REVERSE_PROXY === '1'
-    return `${useWss ? 'wss' : 'ws'}://127.0.0.1:${port || 18789}`
+    // Direct localhost connections use ws:// because the gateway itself does not
+    // speak TLS. Reverse-proxy deployments should pass an explicit wss:// host.
+    return `ws://127.0.0.1:${port || 18789}`
   }
 
   const prefixed =
@@ -118,11 +114,9 @@ export function buildGatewayWebSocketUrl(input: {
   }
 
   // Local gateway hosts use plain ws:// by default — they don't speak TLS.
-  // However, if NEXT_PUBLIC_GATEWAY_REVERSE_PROXY=1 and browser is on HTTPS, use wss://
-  // because a reverse proxy is likely fronting the gateway and the browser would block
-  // mixed-content ws:// from an HTTPS page (or the gateway would reject the Origin).
+  // Reverse-proxy deployments should pass an explicit wss:// host.
   const wsProtocol = isLocalHost(rawHost)
-    ? (browserProtocol === 'https:' && process.env.NEXT_PUBLIC_GATEWAY_REVERSE_PROXY === '1' ? 'wss' : 'ws')
+    ? 'ws'
     : (browserProtocol === 'https:' ? 'wss' : 'ws')
   const shouldOmitPort =
     wsProtocol === 'wss' &&

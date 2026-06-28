@@ -1,15 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
-
-function isTruthy(value: string | undefined): boolean {
-  return /^(1|true|yes|on)$/i.test(String(value || '').trim())
-}
-
-function isGatewayOptional(): boolean {
-  if (isTruthy(process.env.NEXT_PUBLIC_GATEWAY_OPTIONAL)) return true
-  return !isTruthy(process.env.OPENCLAW_ENABLED)
-}
+import { getPublicGatewayConfig, type PublicGatewayConfig } from '@/lib/gateway-config'
 
 function gatewayHealthUrl(): string {
   return `http://${config.gatewayHost}:${config.gatewayPort}/health`
@@ -27,6 +19,22 @@ function disabledStatus() {
   }
 }
 
+function diagnosticStatus(gatewayConfig: PublicGatewayConfig) {
+  const message = gatewayConfig.diagnostic?.message || 'Gateway host is not configured.'
+  return {
+    level: 'warning',
+    category: 'config',
+    healthy: false,
+    summary: 'Gateway browser configuration is incomplete.',
+    issues: [
+      message,
+      'Set PUBLIC_GATEWAY_HOST to the browser-reachable gateway hostname, or set GATEWAY_OPTIONAL=true for standalone mode.',
+    ],
+    canFix: false,
+    raw: message,
+  }
+}
+
 function unreachableStatus(detail: string) {
   return {
     level: 'warning',
@@ -35,7 +43,7 @@ function unreachableStatus(detail: string) {
     summary: `OpenClaw Docker sidecar is not reachable at ${config.gatewayHost}:${config.gatewayPort}.`,
     issues: [
       detail,
-      'Start the sidecar with OPENCLAW_ENABLED=1 make up openclaw, or run Opzava with NEXT_PUBLIC_GATEWAY_OPTIONAL=true.',
+      'Start the sidecar with OPENCLAW_ENABLED=1 make up openclaw, or run Opzava with GATEWAY_OPTIONAL=true.',
     ],
     canFix: false,
     raw: detail,
@@ -53,8 +61,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
-  if (isGatewayOptional()) {
+  const gatewayConfig = getPublicGatewayConfig()
+  if (gatewayConfig.optional) {
     return NextResponse.json(disabledStatus(), { headers: { 'Cache-Control': 'no-store' } })
+  }
+  if (gatewayConfig.diagnostic) {
+    return NextResponse.json(diagnosticStatus(gatewayConfig), { headers: { 'Cache-Control': 'no-store' } })
   }
 
   const url = gatewayHealthUrl()
@@ -93,7 +105,12 @@ export async function POST(request: Request) {
     {
       error: 'OpenClaw is Docker-managed in Opzava.',
       detail: 'Local openclaw doctor --fix is disabled. Restart or update the mc-openclaw-gateway sidecar with OPENCLAW_ENABLED=1 make up openclaw.',
-      status: isGatewayOptional() ? disabledStatus() : unreachableStatus('Docker sidecar fix must be run through Docker Compose.'),
+      status: (() => {
+        const gatewayConfig = getPublicGatewayConfig()
+        if (gatewayConfig.optional) return disabledStatus()
+        if (gatewayConfig.diagnostic) return diagnosticStatus(gatewayConfig)
+        return unreachableStatus('Docker sidecar fix must be run through Docker Compose.')
+      })(),
     },
     { status: 400, headers: { 'Cache-Control': 'no-store' } },
   )

@@ -19,7 +19,14 @@ describe('GET /api/openclaw/doctor - Docker sidecar health', () => {
     fetchMock.mockReset()
     vi.stubGlobal('fetch', fetchMock)
     requireRole.mockReturnValue({ user: { id: 1, username: 'admin', role: 'admin', workspace_id: 1 } })
+    delete process.env.GATEWAY_OPTIONAL
+    delete process.env.PUBLIC_GATEWAY_HOST
+    delete process.env.PUBLIC_GATEWAY_PORT
+    delete process.env.PUBLIC_GATEWAY_CLIENT_ID
     delete process.env.NEXT_PUBLIC_GATEWAY_OPTIONAL
+    delete process.env.NEXT_PUBLIC_GATEWAY_HOST
+    delete process.env.NEXT_PUBLIC_GATEWAY_PORT
+    delete process.env.NEXT_PUBLIC_GATEWAY_CLIENT_ID
     delete process.env.OPENCLAW_ENABLED
   })
 
@@ -28,7 +35,9 @@ describe('GET /api/openclaw/doctor - Docker sidecar health', () => {
     vi.clearAllMocks()
   })
 
-  it('reports healthy-disabled when the sidecar is not enabled', async () => {
+  it('reports healthy-disabled when gateway optional mode is explicit', async () => {
+    process.env.GATEWAY_OPTIONAL = 'true'
+
     const { GET } = await import('@/app/api/openclaw/doctor/route')
 
     const res = await GET(fakeRequest())
@@ -40,7 +49,22 @@ describe('GET /api/openclaw/doctor - Docker sidecar health', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('reports a loud config diagnostic when public gateway host is missing', async () => {
+    const { GET } = await import('@/app/api/openclaw/doctor/route')
+
+    const res = await GET(fakeRequest())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.healthy).toBe(false)
+    expect(body.category).toBe('config')
+    expect(body.summary).toMatch(/gateway browser configuration is incomplete/i)
+    expect(body.issues.join('\n')).toContain('PUBLIC_GATEWAY_HOST')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('probes the Docker sidecar health endpoint when enabled', async () => {
+    process.env.PUBLIC_GATEWAY_HOST = 'opzava-gateway.localhost'
     process.env.OPENCLAW_ENABLED = '1'
     fetchMock.mockResolvedValue(new Response('ok', { status: 200 }))
 
@@ -59,6 +83,7 @@ describe('GET /api/openclaw/doctor - Docker sidecar health', () => {
   })
 
   it('reports a warning when the enabled sidecar is unreachable', async () => {
+    process.env.PUBLIC_GATEWAY_HOST = 'opzava-gateway.localhost'
     process.env.OPENCLAW_ENABLED = '1'
     fetchMock.mockRejectedValue(new Error('connect ECONNREFUSED'))
 
@@ -84,6 +109,7 @@ describe('GET /api/openclaw/doctor - Docker sidecar health', () => {
   })
 
   it('rejects local doctor fixes because OpenClaw is Docker-managed', async () => {
+    process.env.PUBLIC_GATEWAY_HOST = 'opzava-gateway.localhost'
     process.env.OPENCLAW_ENABLED = '1'
 
     const { POST } = await import('@/app/api/openclaw/doctor/route')

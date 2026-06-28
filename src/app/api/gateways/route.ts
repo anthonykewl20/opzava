@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
+import { config } from '@/lib/config'
 import { getDatabase } from '@/lib/db'
+import { getPublicGatewayConfig } from '@/lib/gateway-config'
 import { getDetectedGatewayPort, getDetectedGatewayToken } from '@/lib/gateway-runtime'
 
 interface GatewayEntry {
@@ -55,7 +57,8 @@ export async function GET(request: NextRequest) {
   if (gateways.length === 0) {
     const name = String(process.env.MC_DEFAULT_GATEWAY_NAME || 'primary')
     const host = String(process.env.OPENCLAW_GATEWAY_HOST || '127.0.0.1')
-    const mainPort = getDetectedGatewayPort() || parseInt(process.env.NEXT_PUBLIC_GATEWAY_PORT || '18789')
+    const publicGatewayConfig = getPublicGatewayConfig()
+    const mainPort = getDetectedGatewayPort() || config.gatewayPort || publicGatewayConfig.port
     const mainToken = getDetectedGatewayToken()
 
     db.prepare(`

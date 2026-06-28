@@ -1,7 +1,7 @@
 import WebSocket from 'ws'
 import { APP_VERSION } from './version'
 import { config } from './config'
-import { buildGatewayWebSocketUrl } from './gateway-url'
+import { resolveGatewayConfig } from './gateway-config'
 import { getDetectedGatewayToken } from './gateway-runtime'
 
 const GATEWAY_PROTOCOL_VERSION = 3
@@ -86,10 +86,10 @@ export async function callOpenClawGateway<T = unknown>(
   options: CallGatewayOptions = {},
 ): Promise<T> {
   const boundedTimeoutMs = Math.max(1000, Math.floor(timeoutMs))
-  const url = buildGatewayWebSocketUrl({
+  const url = resolveGatewayConfig({
     host: config.gatewayHost,
     port: config.gatewayPort,
-  })
+  }).wsUrl
   const token = getDetectedGatewayToken()
 
   return new Promise<T>((resolve, reject) => {

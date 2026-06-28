@@ -7,6 +7,7 @@ import { getLocale, getMessages } from 'next-intl/server'
 import { THEME_IDS } from '@/lib/themes'
 import { ThemeBackground } from '@/components/ui/theme-background'
 import { AuthExpiredListener } from '@/components/auth-expired-listener'
+import { PublicConfigProvider } from '@/lib/public-config-provider'
 import './globals.css'
 import './opzava-ds.css'
 
@@ -44,6 +45,13 @@ function resolveMetadataBase(): URL {
 }
 
 const metadataBase = resolveMetadataBase()
+
+function inferBrowserProtocolFromHeaders(requestHeaders: Awaited<ReturnType<typeof headers>>): 'http:' | 'https:' | undefined {
+  const forwardedProto = String(requestHeaders.get('x-forwarded-proto') || '').split(',')[0]?.trim().toLowerCase()
+  if (forwardedProto === 'https') return 'https:'
+  if (forwardedProto === 'http') return 'http:'
+  return undefined
+}
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -89,7 +97,9 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  const nonce = (await headers()).get('x-nonce') || undefined
+  const requestHeaders = await headers()
+  const nonce = requestHeaders.get('x-nonce') || undefined
+  const browserProtocol = inferBrowserProtocolFromHeaders(requestHeaders)
   const locale = await getLocale()
   const messages = await getMessages()
 
@@ -109,22 +119,24 @@ export default async function RootLayout({
         />
       </head>
       <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`} suppressHydrationWarning>
-        <NextIntlClientProvider messages={messages}>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="void"
-            themes={THEME_IDS}
-            enableSystem={false}
-            disableTransitionOnChange
-            nonce={nonce}
-          >
-            <ThemeBackground />
-            <AuthExpiredListener />
-            <div className="h-screen overflow-hidden bg-background text-foreground">
-              {children}
-            </div>
-          </ThemeProvider>
-        </NextIntlClientProvider>
+        <PublicConfigProvider browserProtocol={browserProtocol}>
+          <NextIntlClientProvider messages={messages}>
+            <ThemeProvider
+              attribute="class"
+              defaultTheme="void"
+              themes={THEME_IDS}
+              enableSystem={false}
+              disableTransitionOnChange
+              nonce={nonce}
+            >
+              <ThemeBackground />
+              <AuthExpiredListener />
+              <div className="h-screen overflow-hidden bg-background text-foreground">
+                {children}
+              </div>
+            </ThemeProvider>
+          </NextIntlClientProvider>
+        </PublicConfigProvider>
       </body>
     </html>
   )

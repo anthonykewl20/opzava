@@ -3,7 +3,9 @@
 import { useCallback, useEffect } from 'react'
 import { useMissionControl } from '@/store'
 import { normalizeModel } from '@/lib/utils'
-import { buildGatewayPathFallbackUrls, buildGatewayWebSocketUrl } from '@/lib/gateway-url'
+import { buildGatewayPathFallbackUrls } from '@/lib/gateway-url'
+import { resolveGatewayConfig } from '@/lib/gateway-config'
+import { useGatewayConfig } from '@/lib/public-config-context'
 import {
   getOrCreateDeviceIdentity,
   signPayload,
@@ -25,8 +27,6 @@ const log = createClientLogger('WebSocket')
 
 // Protocol negotiation window lives in websocket-utils (buildProtocolNegotiation)
 // so it can be unit-tested without the WebSocket DOM dependencies (issue #701).
-const DEFAULT_GATEWAY_CLIENT_ID = process.env.NEXT_PUBLIC_GATEWAY_CLIENT_ID || 'openclaw-control-ui'
-
 // Heartbeat configuration
 const PING_INTERVAL_MS = 30_000
 const MAX_MISSED_PONGS = 3
@@ -96,6 +96,7 @@ function rawMessagePreview(data: string): string {
 
 export function useWebSocket() {
   const maxReconnectAttempts = 10
+  const gatewayConfig = useGatewayConfig()
 
   const {
     connection,
@@ -150,13 +151,13 @@ export function useWebSocket() {
       return 'Gateway rejected device signature. Clear local device identity in the browser and reconnect.'
     }
     if (normalized.includes('invalid connect params') || normalized.includes('/client/id')) {
-      return 'Gateway rejected client identity params. Ensure NEXT_PUBLIC_GATEWAY_CLIENT_ID is set to openclaw-control-ui and reconnect.'
+      return `Gateway rejected client identity params. Ensure the public gateway client id is set to ${gatewayConfig.clientId} and reconnect.`
     }
     if (normalized.includes('auth rate limit') || normalized.includes('rate limited')) {
       return 'Gateway authentication is rate limited. Wait briefly, then reconnect.'
     }
     return 'Gateway handshake failed. Check gateway control UI origin and device identity settings, then reconnect.'
-  }, [])
+  }, [gatewayConfig.clientId])
 
   // Generate unique request ID
   const nextRequestId = () => {
@@ -241,7 +242,7 @@ export function useWebSocket() {
 
     const cachedToken = getCachedDeviceToken()
 
-    const clientId = DEFAULT_GATEWAY_CLIENT_ID
+    const clientId = gatewayConfig.clientId
     const clientMode = 'ui'
     const role = 'operator'
     const scopes = ['operator.admin']
@@ -302,7 +303,7 @@ export function useWebSocket() {
     }
     log.info('Sending connect handshake')
     sendGatewayFrame(ws, connectRequest)
-  }, [])
+  }, [gatewayConfig.clientId])
 
   // Parse and handle different gateway message types
   const handleGatewayMessage = useCallback((message: GatewayMessage) => {
@@ -667,17 +668,20 @@ export function useWebSocket() {
   ])
 
   const normalizeWebSocketUrl = useCallback((rawUrl: string): string => {
-    const built = buildGatewayWebSocketUrl({
+    const resolved = resolveGatewayConfig({
       host: rawUrl,
-      port: Number(process.env.NEXT_PUBLIC_GATEWAY_PORT || '18789'),
+      port: gatewayConfig.port,
       browserProtocol: window.location.protocol,
+      optional: gatewayConfig.optional,
+      clientId: gatewayConfig.clientId,
     })
+    const built = resolved.wsUrl || rawUrl
 
     const parsed = new URL(built, window.location.origin)
     parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : parsed.protocol === 'http:' ? 'ws:' : parsed.protocol
     parsed.hash = ''
     return parsed.toString().replace(/\/$/, '').replace('/?', '?')
-  }, [])
+  }, [gatewayConfig.clientId, gatewayConfig.optional, gatewayConfig.port])
 
   const shouldSuppressWebSocketError = useCallback((message: string): boolean => {
     const now = Date.now()
@@ -794,7 +798,7 @@ export function useWebSocket() {
         }
 
         // Gateway optional: don't retry — standalone mode is intentional
-        if (process.env.NEXT_PUBLIC_GATEWAY_OPTIONAL === 'true') {
+        if (gatewayConfig.optional) {
           log.info('Gateway optional — skipping reconnect')
           setConnection({ reconnectAttempts: 0 })
           return
@@ -853,7 +857,7 @@ export function useWebSocket() {
       }
       setConnection({ isConnected: false })
     }
-  }, [setConnection, handleGatewayFrame, addLog, stopHeartbeat, normalizeWebSocketUrl, shouldSuppressWebSocketError])
+  }, [setConnection, handleGatewayFrame, addLog, stopHeartbeat, normalizeWebSocketUrl, shouldSuppressWebSocketError, gatewayConfig.optional])
 
   // Keep ref in sync so onclose always calls the latest version of connect
   useEffect(() => {

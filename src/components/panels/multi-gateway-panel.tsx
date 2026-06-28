@@ -176,7 +176,7 @@ export function MultiGatewayPanel() {
         body: JSON.stringify({ id: gw.id }),
       })
 
-      // Use server-resolved URL only — it respects NEXT_PUBLIC_GATEWAY_URL,
+      // Use server-resolved URL only — it respects runtime public gateway config,
       // Tailscale Serve, and reverse-proxy configurations.
       const wsUrl = payload?.ws_url
       if (!wsUrl) return

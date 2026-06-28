@@ -49,6 +49,8 @@ import { ChatPagePanel } from '@/components/panels/chat-page-panel'
 import { OrchestratorChatPanel } from '@/components/panels/orchestrator-chat-panel'
 import { ChatPanel } from '@/components/chat/chat-panel'
 import { STORAGE_GATEWAY_URL } from '@/lib/device-identity'
+import { resolveGatewayConfig } from '@/lib/gateway-config'
+import { useGatewayConfig } from '@/lib/public-config-context'
 import { getPluginPanel } from '@/lib/plugins'
 import { shouldRedirectDashboardToHttps } from '@/lib/browser-security'
 import { useTranslations } from 'next-intl'
@@ -105,6 +107,7 @@ function renderPluginPanel(panelId: string) {
 export default function Home() {
   const router = useRouter()
   const { connect } = useWebSocket()
+  const gatewayConfig = useGatewayConfig()
   const tb = useTranslations('boot')
   const tp = useTranslations('page')
   const tc = useTranslations('common')
@@ -232,19 +235,15 @@ export default function Home() {
     }
 
     const connectWithEnvFallback = (localGatewayUrl: string | null) => {
-      // localStorage user choice takes priority over env vars
-      const explicitWsUrl = localGatewayUrl || process.env.NEXT_PUBLIC_GATEWAY_URL || ''
-      if (explicitWsUrl) {
-        connect(explicitWsUrl)
-        return
-      }
-      const gatewayPort = process.env.NEXT_PUBLIC_GATEWAY_PORT || '18789'
-      const gatewayHost = process.env.NEXT_PUBLIC_GATEWAY_HOST || window.location.hostname
-      const gatewayProto =
-        process.env.NEXT_PUBLIC_GATEWAY_PROTOCOL ||
-        (window.location.protocol === 'https:' ? 'wss' : 'ws')
-      const wsUrl = `${gatewayProto}://${gatewayHost}:${gatewayPort}`
-      connect(wsUrl)
+      const resolved = resolveGatewayConfig({
+        host: gatewayConfig.host || window.location.hostname,
+        port: gatewayConfig.port,
+        browserProtocol: window.location.protocol,
+        explicitUrl: localGatewayUrl || gatewayConfig.explicitUrl,
+        optional: gatewayConfig.optional,
+        clientId: gatewayConfig.clientId,
+      })
+      if (resolved.wsUrl) connect(resolved.wsUrl)
     }
 
     const connectWithPrimaryGateway = async (preferredWsUrl?: string | null): Promise<{ attempted: boolean; connected: boolean }> => {
@@ -482,7 +481,7 @@ export default function Home() {
     ]).catch(() => { /* panels will lazy-load as fallback */ })
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- boot once on mount, not on every pathname change
-  }, [connect, router, setCurrentUser, setDashboardMode, setGatewayAvailable, setLocalSessionsAvailable, setCapabilitiesChecked, setSubscription, setUpdateAvailable, setShowOnboarding, setAgents, setSessions, setProjects, setInterfaceMode, setMemoryGraphAgents, setSkillsData])
+  }, [connect, gatewayConfig.clientId, gatewayConfig.explicitUrl, gatewayConfig.host, gatewayConfig.optional, gatewayConfig.port, router, setCurrentUser, setDashboardMode, setGatewayAvailable, setLocalSessionsAvailable, setCapabilitiesChecked, setSubscription, setUpdateAvailable, setShowOnboarding, setAgents, setSessions, setProjects, setInterfaceMode, setMemoryGraphAgents, setSkillsData])
 
   if (!isClient || !bootComplete) {
     return <Loader variant="page" steps={isClient ? initSteps : undefined} />

@@ -76,6 +76,13 @@ describe('docker-compose.yml schema', () => {
     expect(content).toContain('NEXT_PUBLIC_APP_URL:')
   })
 
+  it('injects the browser gateway host at container runtime', () => {
+    const missionControl = composeServiceBlock(content, 'mission-control')
+
+    expect(missionControl).toContain('PUBLIC_GATEWAY_HOST: ${PUBLIC_GATEWAY_HOST:-}')
+    expect(content).toContain('NEXT_PUBLIC_GATEWAY_HOST: ${NEXT_PUBLIC_GATEWAY_HOST:-}')
+  })
+
   it('exposes gateway-free direct dispatch env to the container', () => {
     expect(content).toContain('ANTHROPIC_API_KEY:')
     expect(content).toContain('OPENAI_API_KEY:')
@@ -149,7 +156,7 @@ describe('Dockerfile runtime stage', () => {
     expect(content).toContain('@openai/codex')
   })
 
-  it('declares every current NEXT_PUBLIC build arg used by the app', () => {
+  it('declares legacy NEXT_PUBLIC build arg placeholders used by existing deployments', () => {
     for (const key of [
       'NEXT_PUBLIC_GATEWAY_URL',
       'NEXT_PUBLIC_GATEWAY_HOST',

@@ -54,6 +54,7 @@ services:
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
       OPENCLAW_STATE_DIR: /home/nextjs/.openclaw
       OPENCLAW_CONFIG_PATH: /home/nextjs/.openclaw/openclaw.json
+      PUBLIC_GATEWAY_HOST: ${PUBLIC_GATEWAY_HOST:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       LOCAL_LLM_ENDPOINT: ${LOCAL_LLM_ENDPOINT:-http://host.docker.internal:1234/v1}

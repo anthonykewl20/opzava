@@ -4,6 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { config } from '@/lib/config'
 import { getDatabase } from '@/lib/db'
+import { getPublicGatewayConfig } from '@/lib/gateway-config'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -269,7 +270,7 @@ function scanOpenClaw(): Category {
   const configPath = config.openclawConfigPath
 
   if (!configPath || !existsSync(configPath)) {
-    const gatewayOptional = process.env.NEXT_PUBLIC_GATEWAY_OPTIONAL === 'true'
+    const gatewayOptional = getPublicGatewayConfig().optional
     checks.push({
       id: 'config_found',
       name: 'OpenClaw config found',
@@ -277,7 +278,7 @@ function scanOpenClaw(): Category {
       detail: gatewayOptional
         ? 'OpenClaw not configured (standalone mode — gateway optional)'
         : 'openclaw.json not found — OpenClaw sidecar checks skipped',
-      fix: gatewayOptional ? '' : 'Enable the Docker sidecar with OPENCLAW_ENABLED=1 make up openclaw and set OPENCLAW_CONFIG_PATH=/home/nextjs/.openclaw/openclaw.json inside the container.',
+      fix: gatewayOptional ? '' : 'Enable the Docker sidecar with OPENCLAW_ENABLED=1 make up openclaw and set OPENCLAW_CONFIG_PATH=/home/nextjs/.openclaw/openclaw.json inside the container, or set GATEWAY_OPTIONAL=true for standalone mode.',
       severity: 'low',
     })
     return scoreCategory(checks)

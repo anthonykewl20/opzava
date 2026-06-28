@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
-import { buildGatewayWebSocketUrl } from '@/lib/gateway-url'
+import { getPublicGatewayConfig, resolveGatewayConfig } from '@/lib/gateway-config'
 import { getDetectedGatewayToken } from '@/lib/gateway-runtime'
 import {
   isTailscaleServe,
@@ -150,19 +150,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Gateway not found' }, { status: 404 })
   }
 
-  // Prefer an explicitly configured browser WebSocket URL when provided.
-  // This is required for reverse-proxy setups where the browser-facing gateway
-  // lives on a different host/path than the server-side localhost gateway.
-  const explicitBrowserWsUrl = String(process.env.NEXT_PUBLIC_GATEWAY_URL || '').trim()
+  const publicGatewayConfig = getPublicGatewayConfig()
+  const browserProtocol = inferBrowserProtocol(request)
+  const configuredBrowserGateway = resolveGatewayConfig({
+    host: publicGatewayConfig.host,
+    port: publicGatewayConfig.port || gateway.port,
+    browserProtocol,
+    explicitUrl: publicGatewayConfig.explicitUrl,
+    optional: publicGatewayConfig.optional,
+    clientId: publicGatewayConfig.clientId,
+  })
 
   // When gateway host is localhost but the browser is remote (e.g. Tailscale),
   // resolve the correct browser-accessible WebSocket URL.
-  const remoteUrl = explicitBrowserWsUrl || resolveRemoteGatewayUrl(gateway, request)
-  const ws_url = remoteUrl || buildGatewayWebSocketUrl({
+  const remoteUrl = configuredBrowserGateway.wsUrl || resolveRemoteGatewayUrl(gateway, request)
+  const ws_url = remoteUrl || resolveGatewayConfig({
     host: gateway.host,
     port: gateway.port,
-    browserProtocol: inferBrowserProtocol(request),
-  })
+    browserProtocol,
+    optional: publicGatewayConfig.optional,
+    clientId: publicGatewayConfig.clientId,
+  }).wsUrl
 
   const dbToken = (gateway.token || '').trim()
   const detectedToken = gateway.is_primary === 1 ? getDetectedGatewayToken() : ''
