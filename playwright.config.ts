@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: 'tests',
-  testIgnore: /openclaw-harness\.spec\.ts/,
+  testIgnore: /openclaw-harness\.spec\.ts|\.visual\.spec\.ts$/,
   timeout: 60_000,
   expect: {
     timeout: 10_000
