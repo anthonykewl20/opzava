@@ -3288,6 +3288,129 @@
         }
       }
     },
+    "/api/conversations/{id}": {
+      "get": {
+        "tags": ["Chat"],
+        "summary": "Get an Ask-Opzava conversation thread",
+        "description": "Returns the self-contained Ask-Opzava thread, a freshly composed Digest, and real coordinator liveness. The path id may be the ask-opzava alias. Admin only.",
+        "operationId": "getConversationThread",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Conversation identifier, or the ask-opzava alias for the operator's orchestrator thread",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversation thread, digest, and coordinator status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["conversation", "timeline", "digest", "coordinator"],
+                  "properties": {
+                    "conversation": { "$ref": "#/components/schemas/Conversation" },
+                    "timeline": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/ConversationTurn" }
+                    },
+                    "digest": { "$ref": "#/components/schemas/DigestBlock" },
+                    "coordinator": { "$ref": "#/components/schemas/CoordinatorStatus" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/conversations/{id}/ask": {
+      "post": {
+        "tags": ["Chat"],
+        "summary": "Ask Opzava in a conversation",
+        "description": "Persists one human Ask-Opzava turn and returns the narration turn plus proposed or executed actions. If the gateway is unreachable, the human turn is still saved and a degraded offline turn is returned. Admin only.",
+        "operationId": "askConversation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Conversation identifier, or the ask-opzava alias for the operator's orchestrator thread",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["prompt"],
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Human prompt. Whitespace-only prompts are rejected."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ask-Opzava turn result, or a degraded offline response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": ["humanTurn", "narrationTurn", "executedActions", "proposedActions"],
+                      "properties": {
+                        "humanTurn": { "$ref": "#/components/schemas/ConversationTurn" },
+                        "narrationTurn": { "$ref": "#/components/schemas/ConversationTurn" },
+                        "executedActions": {
+                          "type": "array",
+                          "items": { "$ref": "#/components/schemas/ExecutedOrchestratorAction" }
+                        },
+                        "proposedActions": {
+                          "type": "array",
+                          "items": { "$ref": "#/components/schemas/ProposedOrchestratorAction" }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": ["degraded", "narrationTurn", "proposedActions"],
+                      "properties": {
+                        "degraded": { "type": "boolean", "enum": [true] },
+                        "narrationTurn": { "$ref": "#/components/schemas/ConversationTurn" },
+                        "proposedActions": {
+                          "type": "array",
+                          "maxItems": 0,
+                          "items": { "$ref": "#/components/schemas/ProposedOrchestratorAction" }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
     "/api/claude/sessions": {
       "get": {
         "tags": [
@@ -6110,6 +6233,139 @@
           "200": {
             "description": "Deleted"
           }
+        }
+      }
+    },
+    "/api/projects/{id}/card": {
+      "get": {
+        "tags": ["Projects"],
+        "summary": "Get the composed project card",
+        "description": "Returns inherited project identity composed with the Engine-B profile overlay and live task counts. Missing profile data degrades to the blank default; unknown project ids return 404. Viewer role or higher.",
+        "operationId": "getProjectCard",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Project identifier",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Composed project card",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["card"],
+                  "properties": {
+                    "card": { "$ref": "#/components/schemas/ProjectCard" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/projects/{id}/profile": {
+      "get": {
+        "tags": ["Projects"],
+        "summary": "Get a project profile overlay",
+        "description": "Returns the Engine-B project profile overlay. Absence is not an error: a missing overlay returns the synthesized blank default with isDefault=true. Viewer role or higher.",
+        "operationId": "getProjectProfile",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Project identifier",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project profile overlay or synthesized default",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["profile", "isDefault"],
+                  "properties": {
+                    "profile": { "$ref": "#/components/schemas/ProjectProfile" },
+                    "isDefault": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "put": {
+        "tags": ["Projects"],
+        "summary": "Upsert a project profile overlay",
+        "description": "Strictly validates and upserts the Engine-B project profile overlay. The path id is authoritative and updatedAt is server-stamped. Operator role or higher.",
+        "operationId": "updateProjectProfile",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Project identifier; overrides any projectId in the request body",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["type", "enabledTiles"],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["blank", "marketing", "sales", "support", "events"]
+                  },
+                  "enabledTiles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["todos", "board", "docs", "updates", "marketing", "schedule", "approvals", "assets", "performance", "team", "assistant"]
+                    }
+                  },
+                  "cover": { "type": "string", "maxLength": 2048 },
+                  "blurb": { "type": "string", "maxLength": 500 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved project profile overlay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["profile"],
+                  "properties": {
+                    "profile": { "$ref": "#/components/schemas/ProjectProfile" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
         }
       }
     },
@@ -13442,6 +13698,212 @@
           },
           "updated_at": {
             "type": "integer"
+          }
+        }
+      },
+      "Conversation": {
+        "type": "object",
+        "required": [
+          "conversationId",
+          "type",
+          "projectId",
+          "participants",
+          "title",
+          "record",
+          "createdAt",
+          "lastMessageAt"
+        ],
+        "properties": {
+          "conversationId": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "type": {
+            "type": "string",
+            "enum": ["orchestrator", "assistant", "team", "dm"]
+          },
+          "projectId": { "type": ["integer", "null"] },
+          "participants": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "title": { "type": ["string", "null"], "maxLength": 200 },
+          "record": { "type": "object" },
+          "createdAt": { "type": "string" },
+          "lastMessageAt": { "type": ["string", "null"] }
+        }
+      },
+      "ConversationTurn": {
+        "type": "object",
+        "required": [
+          "turnId",
+          "conversationId",
+          "parentTurnId",
+          "author",
+          "role",
+          "body",
+          "refType",
+          "refId",
+          "messageAnchor",
+          "status",
+          "record",
+          "createdAt"
+        ],
+        "properties": {
+          "turnId": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "conversationId": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "parentTurnId": { "type": ["string", "null"], "maxLength": 200 },
+          "author": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "role": { "type": "string", "enum": ["human", "ai", "system"] },
+          "body": { "type": "string" },
+          "refType": {
+            "type": ["string", "null"],
+            "enum": ["run", "artifact", "approval", null]
+          },
+          "refId": { "type": ["string", "null"], "maxLength": 200 },
+          "messageAnchor": { "type": ["integer", "null"] },
+          "status": { "type": ["string", "null"], "maxLength": 40 },
+          "record": { "type": "object" },
+          "createdAt": { "type": "string" }
+        }
+      },
+      "DigestBlock": {
+        "type": "object",
+        "required": ["kind", "summary", "projects", "pendingApprovals"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["digest"] },
+          "summary": {
+            "type": "object",
+            "required": ["needsYou", "blocked", "totalProjects"],
+            "properties": {
+              "needsYou": { "type": "integer" },
+              "blocked": { "type": "integer" },
+              "totalProjects": { "type": "integer" }
+            }
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["projectId", "name", "health", "displayLabel", "summary"],
+              "properties": {
+                "projectId": { "type": "string" },
+                "name": { "type": "string" },
+                "health": {
+                  "type": ["string", "null"],
+                  "enum": ["needs_you", "blocked", null]
+                },
+                "displayLabel": {
+                  "type": "string",
+                  "enum": ["blocked", "needs_you", "running", "scheduled", "idle", "planning"]
+                },
+                "summary": { "type": "string" }
+              }
+            }
+          },
+          "pendingApprovals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["approvalId", "requestedAction", "targetId"],
+              "properties": {
+                "approvalId": { "type": "string" },
+                "requestedAction": { "type": "string" },
+                "targetId": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "CoordinatorStatus": {
+        "type": "object",
+        "required": ["status", "runId", "lastSeen", "reason"],
+        "properties": {
+          "status": { "type": "string", "enum": ["online", "offline"] },
+          "runId": { "type": ["string", "null"] },
+          "lastSeen": { "type": ["string", "null"] },
+          "reason": {
+            "type": ["string", "null"],
+            "enum": ["no_coordinator_session", "gateway_session_expired", null]
+          }
+        }
+      },
+      "ProposedOrchestratorAction": {
+        "type": "object",
+        "required": ["actionId", "actionType", "kind", "args"],
+        "properties": {
+          "actionId": { "type": "string" },
+          "actionType": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": ["internal-reversible", "external-guarded"]
+          },
+          "args": { "type": "object" }
+        }
+      },
+      "ExecutedOrchestratorAction": {
+        "type": "object",
+        "required": ["actionId", "actionType"],
+        "properties": {
+          "actionId": { "type": "string" },
+          "actionType": { "type": "string" }
+        }
+      },
+      "ProjectProfile": {
+        "type": "object",
+        "required": ["schemaVersion", "projectId", "type", "enabledTiles", "updatedAt"],
+        "properties": {
+          "schemaVersion": { "type": "integer", "enum": [1] },
+          "projectId": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "type": {
+            "type": "string",
+            "enum": ["blank", "marketing", "sales", "support", "events"]
+          },
+          "enabledTiles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["todos", "board", "docs", "updates", "marketing", "schedule", "approvals", "assets", "performance", "team", "assistant"]
+            }
+          },
+          "cover": { "type": "string", "maxLength": 2048 },
+          "blurb": { "type": "string", "maxLength": 500 },
+          "updatedAt": { "type": ["string", "null"] }
+        }
+      },
+      "ProjectCard": {
+        "type": "object",
+        "required": [
+          "projectId",
+          "name",
+          "color",
+          "description",
+          "type",
+          "enabledTiles",
+          "taskCounts"
+        ],
+        "properties": {
+          "projectId": { "type": "string" },
+          "name": { "type": "string" },
+          "color": { "type": ["string", "null"] },
+          "description": { "type": ["string", "null"] },
+          "type": {
+            "type": "string",
+            "enum": ["blank", "marketing", "sales", "support", "events"]
+          },
+          "enabledTiles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["todos", "board", "docs", "updates", "marketing", "schedule", "approvals", "assets", "performance", "team", "assistant"]
+            }
+          },
+          "cover": { "type": "string" },
+          "blurb": { "type": "string" },
+          "taskCounts": {
+            "type": "object",
+            "required": ["open", "total"],
+            "properties": {
+              "open": { "type": "integer" },
+              "total": { "type": "integer" }
+            }
           }
         }
       }
