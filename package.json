@@ -22,6 +22,8 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:e2e": "pnpm run verify:node && playwright test",
+    "test:e2e:visual": "pnpm run verify:node && playwright test -c playwright.visual.config.ts",
+    "vr:update": "pnpm run verify:node && playwright test -c playwright.visual.config.ts --update-snapshots",
     "test:e2e:dokploy": "pnpm run verify:node && playwright test -c playwright.dokploy.config.ts",
     "test:docker:dokploy": "pnpm run verify:node && bash scripts/dokploy-parity-test.sh",
     "test:e2e:openclaw:local": "pnpm run verify:node && E2E_GATEWAY_EXPECTED=0 playwright test -c playwright.openclaw.local.config.ts",
