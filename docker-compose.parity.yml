@@ -9,3 +9,33 @@ services:
       MC_ALLOWED_HOSTS: ${MC_ALLOWED_HOSTS:-opzava.localhost,localhost,127.0.0.1}
       MC_COOKIE_SECURE: ${MC_COOKIE_SECURE:-1}
       MC_COOKIE_SAMESITE: ${MC_COOKIE_SAMESITE:-strict}
+      # Match the gateway token so the app<->gateway RPC authenticates in parity.
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-parity-test-token}
+
+  # Parity-only: provision a minimal openclaw.json so the gateway boots without an
+  # operator-configured setup. In production the operator provisions real config via
+  # `openclaw setup` / the app gateway-config API; the parity test only needs the
+  # gateway to boot + serve /health + share the hermes volume. gateway.mode=local is
+  # the gateway's own documented unconfigured-boot mode (per its "Missing config" error).
+  # The gateway also refuses to bind=auto without auth (container default); a test
+  # token satisfies it. Real deploys set OPENCLAW_GATEWAY_TOKEN to the operator's token.
+  # Named volumes are root-owned by default; the gateway image does not pre-create
+  # /home/node/.hermes (+ .openclaw) as node-owned, so uid-1000 writes (Hermes state)
+  # would be denied. Chown the shared volumes to 1000:1000 before the gateway starts.
+  # (Prod deploys need the same — via this init or the gateway image creating the dirs.)
+  hermes-volume-init:
+    image: busybox:latest
+    command: ["sh", "-c", "chown -R 1000:1000 /hermes /openclaw"]
+    volumes:
+      - hermes-data:/hermes
+      - openclaw-data:/openclaw
+    restart: "no"
+
+  mc-openclaw-gateway:
+    depends_on:
+      hermes-volume-init:
+        condition: service_completed_successfully
+    environment:
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-parity-test-token}
+    volumes:
+      - ./scripts/parity-openclaw.json:/home/node/.openclaw/openclaw.json:ro

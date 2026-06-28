@@ -230,6 +230,114 @@ ws.on('error', (err) => {
 NODE
 echo "[dokploy-parity] Traefik-routed PTY WebSocket upgrade passed."
 
+echo "[dokploy-parity] Probing OpenClaw/Hermes Docker parity..."
+openclaw_hermes_sentinel_written=0
+openclaw_hermes_sentinel_path="/home/node/.hermes/.parity-sentinel"
+
+cleanup_openclaw_hermes_sentinel() {
+  if [[ "${openclaw_hermes_sentinel_written:-0}" == "1" ]]; then
+    compose exec -T mc-openclaw-gateway sh -lc "rm -f ${openclaw_hermes_sentinel_path}" >/dev/null 2>&1 || true
+    openclaw_hermes_sentinel_written=0
+  fi
+}
+
+openclaw_hermes_fail() {
+  local invariant="$1"
+  cleanup_openclaw_hermes_sentinel
+  echo "[dokploy-parity] OpenClaw/Hermes parity FAILED: ${invariant}" >&2
+  echo "[dokploy-parity] Recent gateway logs:" >&2
+  compose logs --tail 120 mc-openclaw-gateway >&2 || true
+  echo "[dokploy-parity] Recent app logs:" >&2
+  compose logs --tail 120 mission-control >&2 || true
+  exit 1
+}
+
+is_openclaw_healthy_response() {
+  # The OpenClaw gateway /health returns {"ok":true,"status":"live"} (or "healthy").
+  # Accept any of the gateway's documented healthy shapes; reject empty/unhealthy.
+  printf '%s\n' "$1" | grep -Eiq '"ok"[[:space:]]*:[[:space:]]*true|"status"[[:space:]]*:[[:space:]]*"(live|healthy|ok|ready)"|(^|[^[:alnum:]_])healthy([^[:alnum:]_]|$)'
+}
+
+gateway_health=""
+gateway_health_ok=0
+for _ in $(seq 1 30); do
+  if gateway_health="$(
+    compose exec -T mc-openclaw-gateway node -e 'const http=require("http");const p=process.env.OPENCLAW_GATEWAY_PORT||"18789";http.get("http://127.0.0.1:"+p+"/health",s=>{let d="";s.on("data",c=>d+=c);s.on("end",()=>{process.stdout.write(d);process.exit(s.statusCode===200?0:1)})}).on("error",()=>process.exit(1))' 2>&1
+  )" && is_openclaw_healthy_response "$gateway_health"; then
+    gateway_health_ok=1
+    break
+  fi
+  sleep 2
+done
+if [[ "$gateway_health_ok" != "1" ]]; then
+  printf '%s\n' "[dokploy-parity] Last gateway /health response:" >&2
+  printf '%s\n' "$gateway_health" >&2
+  openclaw_hermes_fail "mc-openclaw-gateway /health did not return a healthy response within 60s."
+fi
+echo "[dokploy-parity] OpenClaw gateway /health passed."
+
+app_gateway_health=""
+app_gateway_health_ok=0
+for _ in $(seq 1 30); do
+  if app_gateway_health="$(
+    compose exec -T mission-control sh -lc 'port="${OPENCLAW_GATEWAY_PORT:-${OPENCLAW_GATEWAY_INTERNAL_PORT:-18789}}"; wget -qO- "http://mc-openclaw-gateway:${port}/health" || curl -fsS "http://mc-openclaw-gateway:${port}/health"' 2>&1
+  )" && is_openclaw_healthy_response "$app_gateway_health"; then
+    app_gateway_health_ok=1
+    break
+  fi
+  sleep 2
+done
+if [[ "$app_gateway_health_ok" != "1" ]]; then
+  printf '%s\n' "[dokploy-parity] Last app-container gateway /health response:" >&2
+  printf '%s\n' "$app_gateway_health" >&2
+  openclaw_hermes_fail "mission-control could not reach mc-openclaw-gateway by compose service name."
+fi
+echo "[dokploy-parity] App-container gateway reachability passed."
+
+if ! compose exec -T mc-openclaw-gateway sh -lc 'test "$(id -u)" = "1000"'; then
+  openclaw_hermes_fail "mc-openclaw-gateway is not running as uid 1000."
+fi
+echo "[dokploy-parity] OpenClaw gateway uid sentinel passed."
+
+hermes_sentinel="hermes-volume-probe-$$-$(date +%s%N)"
+if ! compose exec -T -e PARITY_SENTINEL="$hermes_sentinel" mc-openclaw-gateway sh -lc 'mkdir -p /home/node/.hermes && printf "%s\n" "$PARITY_SENTINEL" > /home/node/.hermes/.parity-sentinel'; then
+  openclaw_hermes_fail "mc-openclaw-gateway could not write the Hermes volume sentinel under /home/node/.hermes."
+fi
+openclaw_hermes_sentinel_written=1
+
+hermes_bridge_seen=0
+for _ in $(seq 1 10); do
+  if compose exec -T -e PARITY_SENTINEL="$hermes_sentinel" mission-control sh -lc 'test -f /home/nextjs/.hermes/.parity-sentinel && test "$(cat /home/nextjs/.hermes/.parity-sentinel)" = "$PARITY_SENTINEL"'; then
+    hermes_bridge_seen=1
+    break
+  fi
+  sleep 1
+done
+if [[ "$hermes_bridge_seen" != "1" ]]; then
+  openclaw_hermes_fail "Hermes sentinel written by the gateway was not visible to the app at /home/nextjs/.hermes within 10s."
+fi
+cleanup_openclaw_hermes_sentinel
+echo "[dokploy-parity] Hermes shared-volume bridge sentinel passed."
+
+if compose exec -T mc-openclaw-gateway sh -lc 'test -f /home/node/.hermes/state.db'; then
+  hermes_ro_read="$(
+    compose exec -T mission-control sh -lc 'test -f /home/nextjs/.hermes/state.db && node -e "const Database = require(\"/app/node_modules/better-sqlite3\"); const db = new Database(\"/home/nextjs/.hermes/state.db\", { readonly: true, fileMustExist: true }); db.prepare(\"SELECT 1 AS ok\").get(); db.close(); console.log(\"ro-read-ok\")"' 2>&1
+  )" || {
+    printf '%s\n' "[dokploy-parity] Hermes state.db read-only probe output:" >&2
+    printf '%s\n' "$hermes_ro_read" >&2
+    openclaw_hermes_fail "mission-control could not open /home/nextjs/.hermes/state.db read-only."
+  }
+  if ! printf '%s\n' "$hermes_ro_read" | grep -q 'ro-read-ok'; then
+    printf '%s\n' "[dokploy-parity] Hermes state.db read-only probe output:" >&2
+    printf '%s\n' "$hermes_ro_read" >&2
+    openclaw_hermes_fail "mission-control did not report ro-read-ok for /home/nextjs/.hermes/state.db."
+  fi
+  echo "[dokploy-parity] Hermes state.db read-only app probe passed."
+else
+  echo "[dokploy-parity] Hermes state.db not present in gateway volume; skipping read-only state.db probe (shared-volume sentinel already passed)."
+fi
+echo "[dokploy-parity] OpenClaw/Hermes Docker parity passed."
+
 if [[ "${DOKPLOY_PARITY_RUN_E2E:-0}" == "1" ]]; then
   echo "[dokploy-parity] Running Playwright Docker-mode spec through Traefik..."
   if [[ "$#" -gt 0 ]]; then
