@@ -1,6 +1,6 @@
 # ARD 0031 — Docker-only App Runtime & Dokploy Parity
 
-- **Status:** Proposed (seven provisions ratified via `/grilling` 2026-06-28; implementation waits on the PRD, `/codebase-design`, and a green build/parity gate)
+- **Status:** Accepted (seven provisions ratified via `/grilling` 2026-06-28; implemented S1–S7; `pnpm test:docker:dokploy` fully green — app-side + OpenClaw/Hermes; PR #54)
 - **Date:** 2026-06-28
 - **Relates-to:** [ARD 0012](0012-device-authorization.md) (device-authorization is for local CLIs; OpenClaw/Hermes are server-only), [ARD 0021](0021-linked-tool-health.md) (OpenClaw/Hermes health belongs to the server plane), [ARD 0026](0026-agent-fleet-and-main-orchestrator.md) (gateway-primary fleet execution), [CONTEXT.md](../../CONTEXT.md) (`ExecutionSurface`, `OpenClawAgent`, `MainOrchestrator`, `AgentAccountProfile`, two-plane split), [CLAUDE.md](../../CLAUDE.md) / [AGENTS.md](../../AGENTS.md) (agent operating contract)
 
