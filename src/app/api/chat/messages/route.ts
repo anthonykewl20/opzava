@@ -100,6 +100,18 @@ function validatePayloadSize(body: any): string | null {
 // reserved type or arbitrary string — is coerced to 'text'.
 const HUMAN_MESSAGE_TYPE = 'text'
 
+// Scoped CHAT-2/P0-1 relaxation: automation credentials (API key id=0, device tokens id<0)
+// on session-thread agent comms (a2a:/coord:/session:/agent_) may record their OWN identity
+// (from) + status/tool_call telemetry — this is agent-to-agent comms, not human input.
+// Humans (id>0), non-session threads, system/command/handoff, and arbitrary types stay
+// coerced (auth-user attribution + 'text'). P0-1's human-spoofing protection is preserved:
+// the relaxation is gated on id<=0, which only automation credentials hold.
+const SESSION_THREAD_PREFIXES = ['a2a:', 'coord:', 'session:', 'agent_']
+const SESSION_TELEMETRY_TYPES = new Set(['status', 'tool_call'])
+function isSessionThreadConversation(conversationId: string): boolean {
+  return SESSION_THREAD_PREFIXES.some((p) => conversationId.startsWith(p))
+}
+
 function parseGatewayJson(raw: string): any | null {
   const trimmed = String(raw || '').trim()
   if (!trimmed) return null
@@ -422,18 +434,21 @@ async function handleChatPost(request: NextRequest) {
     const body = await request.json()
 
     // Sender identity is resolved server-side only. A client-supplied body.from is
-    // never trusted on this human-authenticated route (P0-1 coordinator spoofing fix):
-    // any operator could otherwise POST messages that appear to come from the
-    // coordinator. body.from is intentionally ignored.
-    const from = auth.user.display_name || auth.user.username || 'system'
-    const to = body.to ? (body.to as string).trim() : null
-    const content = (body.content || '').trim()
-    // CHAT-2: message_type is constrained server-side to HUMAN_MESSAGE_TYPE ('text')
-    // for human-originated sends. The raw body value is never trusted — reserved
-    // types (system/command/handoff/status/tool_call) and any arbitrary string are
-    // coerced to 'text' so an operator cannot spoof a system/command/handoff message.
-    const message_type = HUMAN_MESSAGE_TYPE
     const conversation_id = body.conversation_id || `conv_${Date.now()}`
+    const content = (body.content || '').trim()
+    // Scoped CHAT-2/P0-1 relaxation (see isSessionThreadConversation): automation
+    // credentials (id<=0) on session-thread agent comms may record their own identity
+    // (from) + status/tool_call telemetry. Humans (id>0), non-session threads, and
+    // system/command/handoff/arbitrary types stay coerced — auth-user attribution + 'text'.
+    const allowAgentTelemetry = auth.user.id <= 0 && isSessionThreadConversation(conversation_id)
+    const requestedType = typeof body.message_type === 'string' ? body.message_type.trim() : ''
+    const message_type = allowAgentTelemetry && SESSION_TELEMETRY_TYPES.has(requestedType)
+      ? (requestedType as 'status' | 'tool_call')
+      : HUMAN_MESSAGE_TYPE
+    const from = allowAgentTelemetry && body.from
+      ? String(body.from).trim()
+      : (auth.user.display_name || auth.user.username || 'system')
+    const to = body.to ? (body.to as string).trim() : null
     const metadata = body.metadata || null
 
     if (!content) {
