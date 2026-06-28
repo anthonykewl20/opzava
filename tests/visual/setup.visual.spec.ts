@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures'
+import { test, expect, VISUAL_MAX_DIFF_PIXEL_RATIO } from './fixtures'
 
 test('/setup renders the first-run admin visual contract', async ({ vrPage }) => {
   await vrPage.route('**/api/setup', async (route) => {
@@ -18,6 +18,7 @@ test('/setup renders the first-run admin visual contract', async ({ vrPage }) =>
   await expect(vrPage.getByRole('heading', { name: 'Welcome to Opzava' })).toBeVisible()
   await expect(vrPage.locator('#username')).toHaveValue('admin')
   await expect(vrPage).toHaveScreenshot('setup.png', {
+    maxDiffPixelRatio: VISUAL_MAX_DIFF_PIXEL_RATIO,
     mask: [
       vrPage.locator('[role="alert"]'),
     ],

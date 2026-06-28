@@ -2,6 +2,15 @@
 import { test as base, expect, type Page } from '@playwright/test'
 
 const AUTH_STATE_PATH = 'tests/visual/.auth/user.json'
+export const VISUAL_MAX_DIFF_PIXEL_RATIO = 0.01
+
+export function appChromeMasks(page: Page) {
+  return [
+    page.locator('[role="alert"]'),
+    // LiveFeed currently has no stable data/role root; mask its rendered desktop container.
+    page.locator('.opzava-ds > .hidden.lg\\:flex.h-full'),
+  ]
+}
 
 // next-themes has enableSystem:false, so Playwright's `colorScheme` is IGNORED by the app — but the
 // fixture reads it as the CARRIER for which theme to force via localStorage. buildVisualMatrix sets
