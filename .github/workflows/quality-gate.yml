@@ -129,7 +129,12 @@ jobs:
 
       - name: Visual Regression tests
         continue-on-error: true
-        run: E2E_USE_CHROME=1 pnpm test:e2e:visual
+        # No E2E_USE_CHROME here — CI's ubuntu-latest uses the bundled chromium
+        # installed above. E2E_USE_CHROME is a LOCAL-only escape for distros where
+        # the bundled browser can't install (e.g. Ubuntu 26.04); setting it in CI
+        # would request system Google Chrome, which ubuntu-latest lacks, and the
+        # launch error would be silently swallowed by continue-on-error.
+        run: pnpm test:e2e:visual
 
       - name: Upload Visual Regression artifacts
         if: always()

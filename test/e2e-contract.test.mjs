@@ -133,3 +133,17 @@ test('E2E Contract: no ad-hoc browser installs (playwright install / npx playwri
     'playwright install / npx playwright may only run in CI (.github/workflows), never in package.json scripts — ARD 0030',
   );
 });
+
+test('E2E Contract: use toHaveScreenshot, never the legacy toMatchSnapshot API', async () => {
+  const offenders = [];
+  for await (const f of walkTs(join(rootPath, 'tests'))) {
+    if (/toMatchSnapshot/.test(await readFile(f, 'utf8'))) {
+      offenders.push(relative(join(rootPath, 'tests'), f));
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'use expect(page).toHaveScreenshot, not toMatchSnapshot (the VR contract — ARD 0030)',
+  );
+});

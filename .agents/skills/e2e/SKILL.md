@@ -13,7 +13,7 @@ Opzava has **one** enforced Playwright setup — the `E2E Contract` (ARD 0030). 
 - `pnpm test:e2e:visual` — the visual-regression suite (`tests/visual/`).
 - `pnpm vr:update` — regenerate VR baselines (`--update-snapshots`). The **only** sanctioned way to re-baseline.
 
-On distros where bundled chromium can't install (e.g. Ubuntu 26.04), prefix VR runs with `E2E_USE_CHROME=1` (system Google Chrome).
+On supported distros (incl. CI's ubuntu-latest) and macOS, use the **bundled chromium** (no flag). Only on distros where the bundled browser can't install (e.g. Ubuntu 26.04) do you prefix **both** `vr:update` and `test:e2e:visual` with `E2E_USE_CHROME=1` (system Google Chrome) — and it must be both, so update and verify use the same browser.
 
 ## Where things live
 
@@ -33,8 +33,8 @@ On distros where bundled chromium can't install (e.g. Ubuntu 26.04), prefix VR r
 1. Pick a **deterministic Tier-1 surface**. Live regions (SSE panels like activity-feed/system-monitor, xterm terminals, reagraph/recharts canvases) are NOT Tier-1 — exclude them.
 2. `import { test, expect } from './fixtures'`. Use `vrPage` (anonymous) or `authPage` (logged in as the seeded `testadmin`, restored via storageState — no per-test login).
 3. `await expect(page).toHaveScreenshot('name.png', { mask: [page.locator('[role="alert"]'), …] })` — mask anything non-seed-deterministic (status banners, live regions, timestamps).
-4. Generate the baseline: `E2E_USE_CHROME=1 pnpm vr:update`, then confirm with `pnpm test:e2e:visual`.
-5. Commit the baseline PNG under `tests/visual/<spec>.spec.ts-snapshots/`.
+4. Generate the baseline: `pnpm vr:update`, then confirm with `pnpm test:e2e:visual` (same browser both times). On an unsupported distro, prefix **both** with `E2E_USE_CHROME=1`.
+5. Commit the baseline PNG under `tests/visual/<spec>.visual.spec.ts-snapshots/`.
 
 ## Determinism — don't fight flake, fix it
 
