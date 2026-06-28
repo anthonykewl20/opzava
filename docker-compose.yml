@@ -1,5 +1,28 @@
 services:
+  dokploy-traefik:
+    image: ${DOKPLOY_TRAEFIK_IMAGE:-traefik:v3.7.5}
+    container_name: opzava-dokploy-traefik
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.forwardedHeaders.insecure=true
+      - --api.dashboard=false
+    ports:
+      - "${DOKPLOY_HTTP_PORT:-3080}:80"
+    volumes:
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - dokploy-network
+    restart: unless-stopped
+
   mission-control:
+    image: ${OPZAVA_IMAGE:-opzava-local}
     build:
       context: .
       args:
@@ -17,47 +40,35 @@ services:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
         NEXT_PUBLIC_CHAT_POLL_INTERVAL_MS: ${NEXT_PUBLIC_CHAT_POLL_INTERVAL_MS:-1000}
     container_name: mission-control
-    ports:
-      - "${MC_PORT:-3000}:${PORT:-3000}"
+    user: "1000:1000"
+    expose:
+      - "${PORT:-3000}"
     environment:
-      - PORT=${PORT:-3000}
-      - HOME=/home/nextjs
-      - MC_CLAUDE_HOME=${MC_CLAUDE_HOME:-/home/nextjs/.claude}
-      - MC_HOST_SESSION_MODE=${MC_HOST_SESSION_MODE:-coexist}
-      - PATH=/home/nextjs/.local/bin:/home/nextjs/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - LOCAL_LLM_ENDPOINT=${LOCAL_LLM_ENDPOINT:-http://host.docker.internal:1234/v1}
-      - LOCAL_LLM_API_KEY=${LOCAL_LLM_API_KEY:-}
-      # ── Server-side gateway connection (MC backend → OpenClaw sidecar) ──
-      # OpenClaw is Docker-managed for Opzava. Enable docker-compose-openclaw.yml
-      # (OPENCLAW_ENABLED=1 make up) so this container name exists on mc-net.
-      - OPENCLAW_GATEWAY_HOST=${OPENCLAW_GATEWAY_HOST:-mc-openclaw-gateway}
-      - OPENCLAW_GATEWAY_PORT=${OPENCLAW_GATEWAY_PORT:-18789}
-      # ── Browser-side gateway connection (user's browser → gateway) ──
-      # NEXT_PUBLIC_GATEWAY_HOST must be reachable from the user's browser, NOT from
-      # inside the container. For local Docker: leave empty (auto-detected from browser).
-      # For remote/VPS: set to the public hostname or IP where the gateway is reachable.
-      #
-      # IMPORTANT: NEXT_PUBLIC_* variables are baked into the browser bundle at BUILD TIME,
-      # not runtime. Setting them here only works if you rebuild the image:
-      #   NEXT_PUBLIC_GATEWAY_HOST=oc.example.com docker compose build
-      # Alternative: use the Advanced Settings on the login page to set the gateway URL
-      # at runtime — it persists in localStorage and overrides the baked-in value.
-      # Set these in .env before `docker compose build`; the build.args above bake them in.
-      # NEXT_PUBLIC_GATEWAY_HOST=${NEXT_PUBLIC_GATEWAY_HOST:-}
-      # NEXT_PUBLIC_GATEWAY_PORT=${NEXT_PUBLIC_GATEWAY_PORT:-18789}
-      # Set to true if running without an OpenClaw gateway (standalone dashboard mode).
-      # NEXT_PUBLIC_GATEWAY_OPTIONAL=true
+      PORT: ${PORT:-3000}
+      HOME: /home/nextjs
+      MC_CLAUDE_HOME: ${MC_CLAUDE_HOME:-/home/nextjs/.claude}
+      MC_HOST_SESSION_MODE: ${MC_HOST_SESSION_MODE:-coexist}
+      PATH: /home/nextjs/.local/bin:/home/nextjs/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      OPENCLAW_GATEWAY_HOST: mc-openclaw-gateway
+      OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_INTERNAL_PORT:-18789}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_STATE_DIR: /home/nextjs/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/nextjs/.openclaw/openclaw.json
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LOCAL_LLM_ENDPOINT: ${LOCAL_LLM_ENDPOINT:-http://host.docker.internal:1234/v1}
+      LOCAL_LLM_API_KEY: ${LOCAL_LLM_API_KEY:-}
     env_file:
       - path: .env
         required: false
     volumes:
       - mc-data:/app/.data
-      # The OpenClaw state volume is mounted by docker-compose-openclaw.yml.
-    # Allow optional local LLM endpoints on the Docker host.
+      - openclaw-data:/home/nextjs/.openclaw:ro
+      - hermes-data:/home/nextjs/.hermes:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      - "opzava.localhost:127.0.0.1"
+      - "opzava-gateway.localhost:127.0.0.1"
     read_only: true
     tmpfs:
       - /tmp
@@ -74,41 +85,73 @@ services:
           memory: 2G
           cpus: '1.0'
           pids: 256
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.opzava.rule=Host(`${DOKPLOY_LOCAL_DOMAIN:-opzava.localhost}`)
+      - traefik.http.routers.opzava.entrypoints=web
+      - traefik.http.services.opzava.loadbalancer.server.port=${PORT:-3000}
+      - traefik.http.services.opzava.loadbalancer.sticky.cookie=true
+      - traefik.http.services.opzava.loadbalancer.sticky.cookie.name=opzava_dokploy_affinity
+      - traefik.http.services.opzava.loadbalancer.sticky.cookie.httpOnly=true
+    depends_on:
+      - dokploy-traefik
+      - mc-openclaw-gateway
     networks:
-      - mc-net
+      - dokploy-network
     restart: unless-stopped
 
-  # Standalone mode — no gateway required. Start with:
-  #   docker compose --profile standalone up
-  mission-control-standalone:
-    extends:
-      service: mission-control
-    container_name: mission-control-standalone
-    profiles:
-      - standalone
-    build:
-      context: .
-      args:
-        INSTALL_AGENT_CLIS: ${INSTALL_AGENT_CLIS:-1}
-        NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-}
-        NEXT_PUBLIC_GATEWAY_HOST: ${NEXT_PUBLIC_GATEWAY_HOST:-}
-        NEXT_PUBLIC_GATEWAY_PORT: ${NEXT_PUBLIC_GATEWAY_PORT:-}
-        NEXT_PUBLIC_GATEWAY_PROTOCOL: ${NEXT_PUBLIC_GATEWAY_PROTOCOL:-}
-        NEXT_PUBLIC_GATEWAY_REVERSE_PROXY: ${NEXT_PUBLIC_GATEWAY_REVERSE_PROXY:-}
-        NEXT_PUBLIC_GATEWAY_CLIENT_ID: ${NEXT_PUBLIC_GATEWAY_CLIENT_ID:-}
-        NEXT_PUBLIC_GATEWAY_OPTIONAL: "true"
-        NEXT_PUBLIC_COORDINATOR_AGENT: ${NEXT_PUBLIC_COORDINATOR_AGENT:-}
-        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
-        NEXT_PUBLIC_FORCE_HTTPS: ${NEXT_PUBLIC_FORCE_HTTPS:-}
-        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
-        NEXT_PUBLIC_CHAT_POLL_INTERVAL_MS: ${NEXT_PUBLIC_CHAT_POLL_INTERVAL_MS:-1000}
+  mc-openclaw-gateway:
+    image: ${OPENCLAW_GATEWAY_IMAGE:-ghcr.io/openclaw/openclaw:latest}
+    container_name: mc-openclaw-gateway
+    expose:
+      - "${OPENCLAW_GATEWAY_INTERNAL_PORT:-18789}"
+    env_file:
+      - path: .env.openclaw
+        required: false
+      - path: .env
+        required: false
     environment:
-      - PORT=${PORT:-3000}
-      - NEXT_PUBLIC_GATEWAY_OPTIONAL=true
+      OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_INTERNAL_PORT:-18789}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_TOOLS_PROFILE: ${OPENCLAW_TOOLS_PROFILE:-coding}
+      OPENCLAW_SECURITY_WORKSPACE_ONLY: ${OPENCLAW_SECURITY_WORKSPACE_ONLY:-1}
+      OPENCLAW_SECURITY_DENY_AUTOMATION: ${OPENCLAW_SECURITY_DENY_AUTOMATION:-1}
+      OPENCLAW_SECURITY_DENY_RUNTIME: ${OPENCLAW_SECURITY_DENY_RUNTIME:-1}
+      OPENCLAW_SECURITY_DENY_FS: ${OPENCLAW_SECURITY_DENY_FS:-0}
+      OPENCLAW_SECURITY_SANDBOX_ALL: ${OPENCLAW_SECURITY_SANDBOX_ALL:-0}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_NUMERIC_USER_ID: ${TELEGRAM_NUMERIC_USER_ID:-}
+      TELEGRAM_DM_POLICY: ${TELEGRAM_DM_POLICY:-pairing}
+      TELEGRAM_ALLOW_FROM: ${TELEGRAM_ALLOW_FROM:-}
+      TELEGRAM_OWNER_ALLOW_FROM: ${TELEGRAM_OWNER_ALLOW_FROM:-}
+    volumes:
+      # The ghcr.io/openclaw/openclaw image runs as user `node` (HOME=/home/node),
+      # so the gateway reads its config from /home/node/.openclaw — NOT /root/.openclaw.
+      # Mounting at /root left the gateway crash-looping on "Missing config".
+      - openclaw-data:/home/node/.openclaw
+      - hermes-data:/home/node/.hermes
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.opzava-gateway.rule=Host(`${DOKPLOY_GATEWAY_LOCAL_DOMAIN:-opzava-gateway.localhost}`)
+      - traefik.http.routers.opzava-gateway.entrypoints=web
+      - traefik.http.services.opzava-gateway.loadbalancer.server.port=${OPENCLAW_GATEWAY_INTERNAL_PORT:-18789}
+    networks:
+      - dokploy-network
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "const http=require('http');const port=process.env.OPENCLAW_GATEWAY_PORT||18789;const req=http.get('http://127.0.0.1:'+port+'/health',res=>process.exit(res.statusCode===200?0:1));req.on('error',()=>process.exit(1));req.setTimeout(4000,()=>{req.destroy();process.exit(1)})"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
 
 volumes:
   mc-data:
+  openclaw-data:
+  hermes-data:
 
 networks:
-  mc-net:
+  dokploy-network:
     driver: bridge

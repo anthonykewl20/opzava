@@ -1,0 +1,11 @@
+services:
+  mission-control:
+    environment:
+      NODE_ENV: production
+      API_KEY: ${API_KEY:-test-api-key-e2e-12345}
+      AUTH_USER: ${AUTH_USER:-testadmin}
+      AUTH_PASS: ${AUTH_PASS:-testpass1234!}
+      MC_DISABLE_RATE_LIMIT: ${MC_DISABLE_RATE_LIMIT:-1}
+      MC_ALLOWED_HOSTS: ${MC_ALLOWED_HOSTS:-opzava.localhost,localhost,127.0.0.1}
+      MC_COOKIE_SECURE: ${MC_COOKIE_SECURE:-1}
+      MC_COOKIE_SAMESITE: ${MC_COOKIE_SAMESITE:-strict}

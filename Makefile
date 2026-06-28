@@ -1,26 +1,27 @@
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
-MODE_GOALS := dev prod
+MODE_GOALS := dev parity prod
 SCOPE_GOALS := all mc openclaw
 REQUESTED_MODE := $(firstword $(filter $(MODE_GOALS),$(MAKECMDGOALS)))
 REQUESTED_SCOPE := $(firstword $(filter $(SCOPE_GOALS),$(MAKECMDGOALS)))
 PASSTHROUGH_GOALS := $(filter $(MODE_GOALS) $(SCOPE_GOALS),$(MAKECMDGOALS))
 
-.PHONY: help up down restart status update rebuild upgrade all mc openclaw dev prod
+.PHONY: help up down restart status update rebuild upgrade all mc openclaw dev parity prod
 
 help:
 	@printf '%s\n' \
 	  'Opzava Docker operator targets:' \
-	  '  make up [all|mc|openclaw] [dev|prod]' \
-	  '  make down [all|mc|openclaw] [dev|prod]' \
-	  '  make restart [all|mc|openclaw] [dev|prod]' \
-	  '  make status [all|mc|openclaw] [dev|prod]' \
-	  '  make update [all|mc|openclaw] [dev|prod]' \
-	  '  make rebuild [all|mc|openclaw] [dev|prod]' \
-	  '  make upgrade [all|mc|openclaw] [dev|prod]' \
+	  '  make up [all|mc|openclaw] [dev|parity]' \
+	  '  make down [all|mc|openclaw] [dev|parity]' \
+	  '  make restart [all|mc|openclaw] [dev|parity]' \
+	  '  make status [all|mc|openclaw] [dev|parity]' \
+	  '  make update [all|mc|openclaw] [dev|parity]' \
+	  '  make rebuild [all|mc|openclaw] [dev|parity]' \
+	  '  make upgrade [all|mc|openclaw] [dev|parity]' \
 	  '' \
-	  'Environment: MC_MODE=prod|dev, OPENCLAW_ENABLED=0|1, MC_HOST_CLI_ENABLED=0|1'
+	  'Default app runtime: parity (docker-compose.yml + docker-compose.parity.yml)' \
+	  'Environment: MC_MODE=parity|dev, MC_HOST_CLI_ENABLED=0|1'
 
 define compose_prelude
 set -euo pipefail; \
@@ -30,22 +31,17 @@ if [ -f .env.openclaw ]; then . ./.env.openclaw; fi; \
 set +a; \
 requested_mode="$(REQUESTED_MODE)"; \
 requested_scope="$(REQUESTED_SCOPE)"; \
-mode="$${requested_mode:-$${MC_MODE:-prod}}"; \
+mode="$${requested_mode:-$${MC_MODE:-parity}}"; \
 scope="$${requested_scope:-all}"; \
-openclaw_enabled="$${OPENCLAW_ENABLED:-0}"; \
 host_cli_enabled="$${MC_HOST_CLI_ENABLED:-0}"; \
-case "$$mode" in dev) files="-f docker-compose-dev.yml" ;; prod|'') files="-f docker-compose.yml" ;; *) echo "Unsupported MC_MODE: $$mode" >&2; exit 2 ;; esac; \
+case "$$mode" in dev) files="-f docker-compose.yml -f docker-compose.dev.yml" ;; parity|prod|'') files="-f docker-compose.yml -f docker-compose.parity.yml" ;; *) echo "Unsupported MC_MODE: $$mode" >&2; exit 2 ;; esac; \
 case "$$scope" in \
   all) services="" ;; \
   mc) services="mission-control" ;; \
   openclaw) services="mc-openclaw-gateway" ;; \
   *) echo "Unsupported scope: $$scope" >&2; exit 2 ;; \
 esac; \
-case "$$openclaw_enabled" in 1|true|TRUE|yes|YES|on|ON) openclaw_on=1 ;; *) openclaw_on=0 ;; esac; \
 case "$$host_cli_enabled" in 1|true|TRUE|yes|YES|on|ON) host_cli_on=1 ;; *) host_cli_on=0 ;; esac; \
-if [ "$$scope" = "openclaw" ] || { [ "$$scope" = "all" ] && [ "$$openclaw_on" = "1" ]; }; then \
-  files="$$files -f docker-compose-openclaw.yml"; \
-fi; \
 if [ "$$host_cli_on" = "1" ] && [ "$$scope" != "openclaw" ]; then \
   files="$$files -f docker-compose.host-cli.yml"; \
 fi
@@ -85,13 +81,13 @@ status:
 	echo "+ docker compose $$files ps"; \
 	docker compose $$files ps; \
 	if [ "$$scope" != "openclaw" ]; then \
-	  url="$${MC_URL_SCHEME:-http}://$${MC_HOST:-127.0.0.1}:$${MC_PORT:-3000}/api/status?action=health"; \
+	  url="$${MC_URL_SCHEME:-http}://$${DOKPLOY_LOCAL_DOMAIN:-opzava.localhost}:$${DOKPLOY_HTTP_PORT:-3080}/api/status?action=health"; \
 	  echo; echo "+ curl -fsS $$url"; \
 	  curl -fsS "$$url" || true; \
 	  echo; \
 	fi; \
-	if [ "$$scope" = "openclaw" ] || { [ "$$scope" = "all" ] && [ "$$openclaw_on" = "1" ]; }; then \
-	  gw_url="http://$${OPENCLAW_STATUS_HOST:-127.0.0.1}:$${OPENCLAW_GATEWAY_PORT:-18789}/health"; \
+	if [ "$$scope" = "openclaw" ] || [ "$$scope" = "all" ]; then \
+	  gw_url="$${MC_URL_SCHEME:-http}://$${DOKPLOY_GATEWAY_LOCAL_DOMAIN:-opzava-gateway.localhost}:$${DOKPLOY_HTTP_PORT:-3080}/health"; \
 	  echo; echo "+ curl -fsS $$gw_url"; \
 	  curl -fsS "$$gw_url" || true; \
 	  echo; \
@@ -103,10 +99,8 @@ update:
 	  echo "+ git pull --ff-only"; \
 	  git pull --ff-only; \
 	fi; \
-	if [ "$$scope" = "openclaw" ] || { [ "$$scope" = "all" ] && [ "$$openclaw_on" = "1" ]; }; then \
-	  echo "+ docker compose $$files pull mc-openclaw-gateway"; \
-	  docker compose $$files pull mc-openclaw-gateway || true; \
-	fi
+	echo "+ docker compose $$files pull mc-openclaw-gateway"; \
+	docker compose $$files pull mc-openclaw-gateway || true
 
 rebuild:
 	@$(compose_prelude); \
@@ -118,5 +112,5 @@ upgrade:
 	@$(MAKE) rebuild $(PASSTHROUGH_GOALS)
 	@$(MAKE) restart $(PASSTHROUGH_GOALS)
 
-all mc openclaw dev prod:
+all mc openclaw dev parity prod:
 	@:

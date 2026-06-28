@@ -1,0 +1,19 @@
+services:
+  mission-control:
+    container_name: mission-control-dev
+    command: >
+      sh -lc "mkdir -p /home/nextjs/.local/bin /home/nextjs/.bun /home/nextjs/.claude &&
+      pnpm install --frozen-lockfile &&
+      pnpm dev --hostname 0.0.0.0 --port ${PORT:-3000}"
+    environment:
+      NODE_ENV: development
+    volumes:
+      - .:/app
+      - mc-dev-node-modules:/app/node_modules
+      - mc-data:/app/.data
+      - openclaw-data:/home/nextjs/.openclaw:ro
+      - hermes-data:/home/nextjs/.hermes:ro
+    read_only: false
+
+volumes:
+  mc-dev-node-modules:
