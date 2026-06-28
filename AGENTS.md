@@ -21,6 +21,8 @@ pnpm start                      # production
 pnpm start:standalone           # standalone with the production PTY WebSocket wrapper
 pnpm test                       # vitest unit tests
 pnpm test:e2e                   # playwright e2e
+pnpm test:e2e:visual            # playwright visual regression
+pnpm vr:update                  # update visual regression baselines (--update-snapshots)
 pnpm typecheck                  # tsc --noEmit
 pnpm lint                       # eslint (must be 0 errors)
 pnpm test:all                   # lint + typecheck + test + build + e2e
@@ -29,6 +31,7 @@ docker compose up               # zero-config; guided: bash install.sh --docker;
 
 First run: visit `/setup` to create an admin, or set `AUTH_USER`/`AUTH_PASS` in `.env` for CI seeding.
 Governance checks (branding, folder-structure, complexity, ARD presence) live in `test/*.test.mjs` (run via `node --test`, folded into `test:all`).
+E2E + visual regression agents should use `.agents/skills/e2e/SKILL.md`; the contract and advisory VR gate are recorded in `docs/ard/0030-centralized-e2e-and-visual-regression-contract.md`.
 
 ## Layout
 

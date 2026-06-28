@@ -82,3 +82,62 @@ jobs:
 
       - name: E2E tests
         run: pnpm test:e2e
+
+  visual-regression:
+    runs-on: ubuntu-latest
+    # Advisory per ARD 0030: upload diffs for review, but do not fail the gate
+    # while the visual baseline is stabilizing.
+    continue-on-error: true
+    timeout-minutes: 20
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        # Version comes from package.json#packageManager (pnpm@10.29.3) — the
+        # single source of truth. action-setup@v4 errors if a `version:` is also
+        # set here (ERR_PNPM_BAD_PM_VERSION), so do not re-specify it.
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare E2E environment
+        # `.env.test` is intentionally uncommitted; fall back to the tracked
+        # template. Playwright's webServer.env supplies all test-specific values.
+        run: cp .env.test .env 2>/dev/null || cp .env.example .env
+
+      # Cache the browser binaries so we don't re-download every run. Key on the
+      # Playwright version so an upgrade busts the cache automatically.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-1.58.2
+
+      - name: Install Playwright browsers
+        # The suite runs a single chromium project, so install only chromium
+        # (skips the firefox + webkit downloads entirely).
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Visual Regression tests
+        continue-on-error: true
+        run: E2E_USE_CHROME=1 pnpm test:e2e:visual
+
+      - name: Upload Visual Regression artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
