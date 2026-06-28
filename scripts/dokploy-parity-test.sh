@@ -92,7 +92,6 @@ echo "[dokploy-parity] Forwarded HTTPS cookie behavior passed."
 # curl, and assert the matching data frame arrives on the SAME open connection
 # within the temporal window. A buffering proxy cannot fake this: the live frame
 # only exists because our POST just created it.
-sse_headers="/tmp/opzava-dokploy-sse.headers"
 sse_capture="/tmp/opzava-dokploy-sse.capture"
 : > "$sse_capture"
 sse_child=""
@@ -107,22 +106,23 @@ sse_kill() {
   fi
 }
 
-# Open the long-lived SSE connection, streaming headers + body to disk.
-# -fsS would abort on the initial 200 (curl treats the open stream as success),
-# so -sS only; we assert the response shape from the captured headers.
-curl -sS -N --max-time 20 \
-  -D "$sse_headers" \
+# Open the long-lived SSE connection, streaming response headers + body together to
+# ONE capture file via curl -i, so a single grep can assert content-type AND the
+# opening frames (curl -D to a separate file was not flushed until connection close).
+# -fsS would abort on the initial 200 (curl treats the open stream as success), so -sS only.
+curl -sS -i -N --max-time 20 \
   -H "x-api-key: ${API_KEY_VALUE}" \
   -H "Accept: text/event-stream" \
   "${BASE_URL}/api/events" >>"$sse_capture" 2>/dev/null &
 sse_child="$!"
 
-# curl flushes the response headers to disk once they arrive (not instant), so poll
-# for the content-type AND the synchronous opening frames together before asserting.
+# Poll the capture for content-type AND the synchronous opening frames together.
+# The retry interval is jittered (5000 + rand(0..1999) in realtime-events.ts), so
+# match any numeric retry value, not a hardcoded 5000.
 opening_ok=0
 for _ in $(seq 1 20); do  # 20 x 0.25s = 5s budget for open + flush
-  if grep -qi '^content-type: text/event-stream' "$sse_headers" \
-     && grep -q '^retry: 5000' "$sse_capture" \
+  if grep -qi '^content-type: text/event-stream' "$sse_capture" \
+     && grep -q '^retry: [0-9]' "$sse_capture" \
      && grep -q 'data: .*"type":"connected"' "$sse_capture"; then
     opening_ok=1
     break
@@ -131,9 +131,7 @@ for _ in $(seq 1 20); do  # 20 x 0.25s = 5s budget for open + flush
 done
 if [[ "$opening_ok" != "1" ]]; then
   echo "[dokploy-parity] SSE did not return text/event-stream with the retry + connected opening frames through Traefik." >&2
-  printf '%s\n' "--- headers ---" >&2
-  cat "$sse_headers" >&2 || true
-  printf '%s\n' "--- captured body ---" >&2
+  printf '%s\n' "--- captured headers + body ---" >&2
   cat "$sse_capture" >&2 || true
   sse_kill
   exit 1
