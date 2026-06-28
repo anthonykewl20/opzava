@@ -1,7 +1,6 @@
 services:
   dokploy-traefik:
     image: ${DOKPLOY_TRAEFIK_IMAGE:-traefik:v3.7.5}
-    container_name: opzava-dokploy-traefik
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
@@ -39,7 +38,6 @@ services:
         NEXT_PUBLIC_FORCE_HTTPS: ${NEXT_PUBLIC_FORCE_HTTPS:-}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
         NEXT_PUBLIC_CHAT_POLL_INTERVAL_MS: ${NEXT_PUBLIC_CHAT_POLL_INTERVAL_MS:-1000}
-    container_name: mission-control
     user: "1000:1000"
     expose:
       - "${PORT:-3000}"
@@ -103,7 +101,6 @@ services:
 
   mc-openclaw-gateway:
     image: ${OPENCLAW_GATEWAY_IMAGE:-ghcr.io/openclaw/openclaw:latest}
-    container_name: mc-openclaw-gateway
     expose:
       - "${OPENCLAW_GATEWAY_INTERNAL_PORT:-18789}"
     env_file:

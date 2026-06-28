@@ -203,6 +203,10 @@ describe('Docker operator overlays', () => {
 
     expect(countServiceDefinitions(content, 'mc-openclaw-gateway')).toBe(1)
     expect(gateway).toContain('ghcr.io/openclaw/openclaw')
+    // base services must NOT hardcode container_name — global names collide with
+    // an operator's standalone containers (mission-control, mc-openclaw-gateway)
+    // and block the stack. Only the dev override may pin a name (mission-control-dev).
+    expect(content).not.toContain('container_name:')
     expect(gateway).toContain('- openclaw-data:/home/node/.openclaw')
     expect(gateway).toContain('- hermes-data:/home/node/.hermes')
     expect(missionControl).toContain('OPENCLAW_STATE_DIR: /home/nextjs/.openclaw')
