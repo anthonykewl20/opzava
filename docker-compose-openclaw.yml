@@ -45,6 +45,10 @@ services:
       - "${OPENCLAW_CONTROL_UI_PORT:-18791}:18791"
     volumes:
       - openclaw-data:/root/.openclaw
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        create_host_path: false
     networks:
       - mc-net
     restart: unless-stopped
