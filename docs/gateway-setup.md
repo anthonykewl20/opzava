@@ -16,7 +16,7 @@ monitor gateway health.
 > **not** need a gateway — use the MCP server or a direct connection (see
 > [Connect a Local Agent](connect-local-agents.md)). Reach for the gateway when work runs as the
 > **server-side OpenClaw/Hermes fleet** (the 24/7 substrate). Opzava also runs fully **gateway-free**
-> in standalone mode (`NEXT_PUBLIC_GATEWAY_OPTIONAL=true`).
+> in explicit standalone/dashboard mode (`GATEWAY_OPTIONAL=true`).
 
 The server↔gateway RPC is **v3** (the browser path negotiates 3/4); keep the gateway on a compatible
 build. Opzava warns on `/api/gateways/health` when a gateway version risks a tools-profile mismatch.
@@ -32,10 +32,11 @@ Gateway connection settings come from the environment (defaults shown):
 | `OPENCLAW_GATEWAY_HOST` | `mc-openclaw-gateway` in Docker | Host Opzava's backend dials for the sidecar gateway. |
 | `OPENCLAW_GATEWAY_PORT` | `18789` | Gateway port. |
 | `OPENCLAW_GATEWAY_TOKEN` | — | Auth token for the gateway, when required. |
+| `OPENCLAW_STATE_DIR` | `/home/nextjs/.openclaw` in Docker | Read-only sidecar state mount visible to Opzava. |
 | `OPENCLAW_CONFIG_PATH` | `/home/nextjs/.openclaw/openclaw.json` in Docker | Path to the sidecar-mounted `openclaw.json` (used by agent config sync, §3). |
-| `OPENCLAW_ENABLED` | `0` | Set `1` to include the OpenClaw sidecar overlay. |
-| `NEXT_PUBLIC_GATEWAY_OPTIONAL` | — | `true` ⇒ standalone deploy with no gateway connectivity. |
-| `NEXT_PUBLIC_GATEWAY_HOST` | — | Public hostname the **browser** uses for the gateway WebSocket (remote access). |
+| `GATEWAY_OPTIONAL` | `false` | `true` means deliberate standalone/dashboard mode with no gateway connectivity. |
+| `PUBLIC_GATEWAY_HOST` | — | Runtime container env for the public hostname the **browser** uses for the gateway WebSocket. Empty locally lets the app auto-detect and still honors the browser localStorage override. |
+| `PUBLIC_GATEWAY_PORT` | `18789` | Browser-reachable gateway port; local Traefik parity uses `3080`. |
 
 Multiple gateways can also be stored in the DB and managed at runtime (next section) — the env vars are
 the default/primary target.
@@ -116,26 +117,30 @@ curl -X POST "$MC_URL/api/gateways/health" -H "Authorization: Bearer $MC_API_KEY
 
 ## 6. Docker Sidecar
 
-OpenClaw is included with the app as an optional Compose overlay:
+OpenClaw is part of the Docker app-runtime topology. Start the app through the
+same base+override stack humans and Dokploy parity use:
 
 ```bash
-OPENCLAW_ENABLED=1 make up openclaw
-# equivalent:
-docker compose -f docker-compose.yml -f docker-compose-openclaw.yml up -d --build
+make up dev
+# or:
+make up parity
 ```
 
 Use these container-side defaults:
 
 ```env
-OPENCLAW_ENABLED=1
 OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway
 OPENCLAW_GATEWAY_PORT=18789
 OPENCLAW_STATE_DIR=/home/nextjs/.openclaw
 OPENCLAW_CONFIG_PATH=/home/nextjs/.openclaw/openclaw.json
 ```
 
-The browser-side WebSocket still uses `NEXT_PUBLIC_GATEWAY_HOST` when remote access needs a public
-hostname. Full detail + troubleshooting (origin-not-allowed, device-identity, VPS offline) is in
+The gateway writes Hermes state at `/home/node/.hermes`; Opzava reads the shared
+Docker `hermes-data` volume at `/home/nextjs/.hermes` read-only. The browser-side
+WebSocket uses runtime `PUBLIC_GATEWAY_HOST` / `PUBLIC_GATEWAY_PORT` when remote
+access needs a public hostname; do not use baked `NEXT_PUBLIC_GATEWAY_*` values
+for normal Docker parity. Full detail + troubleshooting (origin-not-allowed,
+device-identity, VPS offline) is in
 [Deployment → Gateway Connectivity](deployment.md#gateway-connectivity-from-docker).
 
 ---
@@ -143,10 +148,10 @@ hostname. Full detail + troubleshooting (origin-not-allowed, device-identity, VP
 ## Troubleshooting
 
 - **Gateway shows offline / WebSocket won't connect** — confirm `OPENCLAW_GATEWAY_HOST/PORT`, then run
-  `POST /api/gateways/health`. If the sidecar is down, run `OPENCLAW_ENABLED=1 make up openclaw`.
+  `POST /api/gateways/health`. If the sidecar is down, run `make up parity` or `make up dev`.
 - **"origin not allowed" / "device identity required"** — gateway-side auth/posture; see the dedicated
   sections in [deployment.md](deployment.md).
-- **Running without a gateway** — set `NEXT_PUBLIC_GATEWAY_OPTIONAL=true` (and `OPENCLAW_ENABLED=0`); the
+- **Running without a gateway** — set `GATEWAY_OPTIONAL=true`; the
   gateway health check will report not-running, which is expected in standalone mode.
 
 ## See also

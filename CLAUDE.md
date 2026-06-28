@@ -28,14 +28,18 @@ No half-baked work. Wire UI/API/data end-to-end as applicable, handle failure + 
 ## Commands
 
 ```bash
-pnpm install && pnpm build      # setup (AUTH_SECRET/API_KEY auto-generate on first run)
-pnpm dev                        # dev — localhost:3000
-node .next/standalone/server.js # standalone (next.config.js output:'standalone'); NOT pnpm start
-pnpm test | pnpm test:e2e       # vitest unit | playwright e2e
-pnpm typecheck | pnpm lint      # tsc --noEmit | eslint (must be 0 errors)
+pnpm install && pnpm build      # setup + host build check (AUTH_SECRET/API_KEY auto-generate on first run)
+make up dev                     # app runtime: base + dev override; http://opzava.localhost:3080 via Traefik (HMR through Traefik)
+make up parity                  # app runtime: base + parity override; Dokploy-parity shape
+make down dev|parity            # stop the selected Docker app-runtime lane
+make status dev|parity          # inspect Traefik-routed app + gateway health
+pnpm test | pnpm test:e2e       # host dev-tooling: vitest unit | playwright e2e
+pnpm typecheck | pnpm lint      # host dev-tooling: tsc --noEmit | eslint (must be 0 errors)
+pnpm test:docker:dokploy        # Docker parity harness (Dokploy shape)
 pnpm test:all                   # lint + typecheck + test + build + e2e
-docker compose up               # zero-config; guided: bash install.sh --docker; hardened: -f docker-compose.hardened.yml
 ```
+
+App-runtime is Docker-only per [ARD 0031](docs/ard/0031-docker-only-runtime-and-dokploy-parity.md). Host dev-tooling stays on the host, but running the app does not. The deliberate escape hatch is `MC_HOST_CLI_ENABLED=1 make up <dev|parity>` / `docker-compose.host-cli.yml`; use it only when host CLI/session sharing is intentional and auditable.
 
 First run: visit `/setup` to create an admin, or set `AUTH_USER`/`AUTH_PASS` in `.env` for CI seeding. Governance gates (branding, folder-structure, complexity, ARD presence, stepid-coupling) live in `test/*.test.mjs` → `node --test`, folded into `test:all`.
 
@@ -69,7 +73,8 @@ Before changing a `src/opzava` module, orient on its colocated `MODULE.md` (purp
 
 ## Pitfalls
 
-- **Standalone**: use `node .next/standalone/server.js`, not `pnpm start` (which needs full `node_modules`).
+- **Forbidden host app-runtime**: `pnpm dev`, `pnpm start`, `next dev`, `next start`, and bare `node .next/standalone/server.js` bypass the Traefik/OpenClaw/Hermes parity stack and cannot predict Dokploy behavior. Use `make up dev` or `make up parity` for the app.
+- **Deliberate override**: escaping the Docker app-runtime lane requires intent, not accident. Use `MC_HOST_CLI_ENABLED=1 make up <dev|parity>` only for the documented host-CLI sharing overlay.
 - **better-sqlite3**: native addon — `pnpm rebuild better-sqlite3` when switching Node versions.
 - **AUTH_PASS with `#`**: quote it (`AUTH_PASS="my#pass"`) or use `AUTH_PASS_B64`.
-- **Gateway optional**: `NEXT_PUBLIC_GATEWAY_OPTIONAL=true` for standalone deployments without gateway connectivity.
+- **Gateway optional**: `GATEWAY_OPTIONAL=true` is only for an explicit gateway-free standalone/dashboard mode; Docker parity should exercise the OpenClaw/Hermes sidecar.

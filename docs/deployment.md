@@ -25,57 +25,25 @@ xcode-select --install
 ## Quick Start (Development)
 
 ```bash
-cp .env.example .env.local
+cp .env.example .env
 pnpm install
-pnpm dev
+make up dev
 ```
 
-Open http://localhost:3000. Login with `AUTH_USER` / `AUTH_PASS` from your `.env.local`.
+Open http://opzava.localhost:3080 through Traefik. Login with `AUTH_USER` / `AUTH_PASS` from your `.env`.
 
-## Production (Direct)
+## App Runtime Contract
 
-```bash
-pnpm install --frozen-lockfile
-pnpm build
-pnpm start
-```
+ARD 0031 makes Docker the only supported app-runtime lane. Do not use host
+`pnpm dev`, host `pnpm start`, host `next dev/start`, or bare
+`node .next/standalone/server.js` to prove app behavior; those paths bypass the
+Traefik/OpenClaw/Hermes parity stack and cannot predict Dokploy behavior. Host
+`pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` remain valid
+dev-tooling/build-check commands.
 
-The `pnpm start` script binds to `0.0.0.0:3005`. Override with:
-
-```bash
-PORT=3000 pnpm start
-```
-
-**Important:** The production build bundles platform-specific native binaries. You must run `pnpm install` and `pnpm build` on the same OS and architecture as the target server. A build created on macOS will not work on Linux.
-
-## Production (Standalone)
-
-Use this for bare-metal deployments that run Next's standalone server directly.
-This path is preferred over ad hoc `node .next/standalone/server.js` because it
-syncs `.next/static` and `public/` into the standalone bundle before launch and
-starts `scripts/mc-server.cjs`, the production wrapper that serves `/ws/pty`
-upgrades for terminal attach. Bare `node .next/standalone/server.js` does not
-serve the PTY WebSocket route.
-
-```bash
-pnpm install --frozen-lockfile
-pnpm build
-pnpm start:standalone
-```
-
-For a full in-place update on the target host:
-
-```bash
-BRANCH=fix/refactor PORT=3000 pnpm deploy:standalone
-```
-
-What `deploy:standalone` does:
-- fetches and fast-forwards the requested branch
-- reinstalls dependencies with the lockfile
-- rebuilds from a clean `.next/`
-- stops the old process bound to the target port
-- starts the standalone server through `scripts/start-standalone.sh`
-- verifies that the rendered login page references a CSS asset and that the CSS is served as `text/css`
+The deliberate host escape hatch is `MC_HOST_CLI_ENABLED=1 make up <dev|parity>`
+or `docker-compose.host-cli.yml` when host CLI/session sharing is intentional
+and auditable.
 
 ## Production (Docker)
 
@@ -86,8 +54,7 @@ Preferred operator flow (Make controls docker compose):
 
 ```bash
 # 1) choose mode in .env
-#    MC_MODE=prod   # or dev
-#    OPENCLAW_ENABLED=1   # set 0 to run MC without OpenClaw stack
+#    MC_MODE=parity   # or dev
 
 # 2) run universal verbs
 make up
@@ -102,23 +69,21 @@ For day-to-day operations, see the [Daily Ops Cheatsheet](./ops-cheatsheet.md).
 
 Use `.env` + `.env.openclaw` as the single source of truth for mode/host/port/token values.
 
-- `MC_MODE=prod` → `docker-compose.yml`
-- `MC_MODE=dev` → `docker-compose-dev.yml`
-- `OPENCLAW_ENABLED=1` → `make <verb> all` includes `docker-compose-openclaw.yml`
-- `OPENCLAW_ENABLED=0` → `make <verb> all` manages MC only
+- `MC_MODE=parity` → `docker-compose.yml` + `docker-compose.parity.yml`
+- `MC_MODE=dev` → `docker-compose.yml` + `docker-compose.dev.yml`
 - `MC_HOST_CLI_ENABLED=1` → includes `docker-compose.host-cli.yml` so MC can use authenticated host CLIs
 
 Command grammar:
 
 ```text
-make <verb> [all|mc|openclaw] [dev|prod]
+make <verb> [all|mc|openclaw] [dev|parity]
 ```
 
 - `all` is default scope.
-- `dev` / `prod` override `MC_MODE` for one command invocation.
+- `dev` / `parity` override `MC_MODE` for one command invocation.
 - Why no `--dev` / `--prod`: GNU Make consumes unknown `--xxx` tokens as Make options before Makefile goals are parsed, so mode overrides use positional tokens for deterministic behavior.
 - `make restart [scope]` is deterministic and always executes `make down [scope]` followed by `make up [scope]`.
-- With default `all` scope, `OPENCLAW_ENABLED=1` includes OpenClaw in both the down and up phases; `OPENCLAW_ENABLED=0` skips OpenClaw in both phases.
+- With default `all` scope, the app and OpenClaw gateway run from the same base Compose topology.
 
 Primary operator commands:
 
@@ -138,32 +103,30 @@ Mode override examples:
 make restart dev
 make restart mc dev
 make status openclaw
-make upgrade prod
+make upgrade parity
 ```
 
 ### `update` vs `upgrade`
 
 - `make update [scope]`
   - Fast-forwards the current Opzava branch from origin.
-  - For `scope=all`, if `OPENCLAW_ENABLED=1`, also refreshes OpenClaw source state.
-  - For `scope=openclaw`, refreshes OpenClaw source state regardless of `OPENCLAW_ENABLED`.
+  - For `scope=all`, also refreshes OpenClaw gateway image state.
+  - For `scope=openclaw`, refreshes OpenClaw gateway image state only.
   - Does **not** force an MC image rebuild and does **not** force restart.
 
 - `make upgrade [scope]`
   - Runs update + rebuild + restart for selected scope.
   - `scope=mc`: MC-only flow.
-  - `scope=openclaw`: OpenClaw update flow (`make openclaw-update`).
-  - `scope=all`: both flows; OpenClaw path runs when `OPENCLAW_ENABLED=1`.
+  - `scope=openclaw`: OpenClaw gateway update flow.
+  - `scope=all`: both app and gateway flows.
 
 Minimum `.env` / `.env.openclaw` keys for this flow:
 
 ```env
 # .env
-MC_MODE=prod
-OPENCLAW_ENABLED=1
+MC_MODE=parity
 MC_URL_SCHEME=http
 MC_HOST=127.0.0.1
-MC_PORT=7012
 OPENCLAW_GATEWAY_TOKEN=...
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_NUMERIC_USER_ID=123456789
@@ -179,8 +142,8 @@ OPENCLAW_STATUS_HOST=127.0.0.1
 ```
 
 ```bash
-docker compose up          # with gateway connectivity
-docker compose --profile standalone up   # without gateway (standalone mode)
+make up dev                # local development behind Traefik
+make up parity             # Dokploy-parity shape behind Traefik
 ```
 
 ### Local Dokploy-Parity Stack
@@ -241,33 +204,20 @@ DOKPLOY_PARITY_RUN_E2E=1 pnpm test:docker:dokploy
 The deep path uses `playwright.dokploy.config.ts`, which intentionally does
 not start a Node web server; it targets the already-running Docker stack.
 
-OpenClaw gateway parity can be added with the Compose profile:
+The OpenClaw gateway is part of the base topology. Browser gateway discovery is
+runtime-injected, so operators set the browser-reachable host with
+`PUBLIC_GATEWAY_HOST` / `PUBLIC_GATEWAY_PORT` rather than rebuilding an image
+with `NEXT_PUBLIC_GATEWAY_*` values:
 
 ```bash
-NEXT_PUBLIC_GATEWAY_OPTIONAL=false \
-NEXT_PUBLIC_GATEWAY_HOST=opzava-gateway.localhost \
-NEXT_PUBLIC_GATEWAY_PORT=3080 \
-NEXT_PUBLIC_GATEWAY_PROTOCOL=ws \
-OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway \
-docker compose -f docker-compose.dokploy.yml --profile openclaw up -d --build
+PUBLIC_GATEWAY_HOST=opzava-gateway.localhost \
+PUBLIC_GATEWAY_PORT=3080 \
+make up parity
 ```
 
 For Dokploy itself, configure domains in the Dokploy UI where possible and use
 the Preview Compose output to confirm the service, internal port, labels, and
 network match the local parity shape.
-
-Or build and run manually:
-
-```bash
-docker build -t mission-control .
-docker run -p 3000:3000 \
-  -v mission-control-data:/app/.data \
-  -e AUTH_USER=admin \
-  -e AUTH_PASS=your-secure-password \
-  -e API_KEY=your-api-key \
-  -e NEXT_PUBLIC_GATEWAY_OPTIONAL=true \
-  mission-control
-```
 
 The Docker image:
 - Builds from `node:22-slim` with multi-stage build
@@ -278,21 +228,25 @@ The Docker image:
 
 ### Gateway Connectivity from Docker
 
-OpenClaw runs only as the Docker sidecar for Opzava. Do not install or start a host `openclaw`
-binary. Start the sidecar with:
+OpenClaw runs only as the Docker sidecar for Opzava. Do not install or start a
+host `openclaw` binary for app-runtime work. Start the Docker app-runtime lane
+with:
 
 ```bash
-OPENCLAW_ENABLED=1 make up openclaw
+make up dev
 # or:
-docker compose -f docker-compose.yml -f docker-compose-openclaw.yml up -d --build
+make up parity
 ```
 
 There are **two** connections:
 
 1. **Server-side** (Opzava backend → gateway): Set `OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway`.
-   The bundled Compose overlay puts Opzava and the sidecar on the same Docker network.
+   The base Compose topology puts Opzava and the sidecar on the same Docker network.
 2. **Browser-side** (user's browser → gateway WebSocket): For remote access, set
-   `NEXT_PUBLIC_GATEWAY_HOST` to the public hostname that routes to the gateway.
+   runtime `PUBLIC_GATEWAY_HOST` to the public hostname that routes to the gateway
+   and `PUBLIC_GATEWAY_PORT` to the browser-reachable port. Local parity uses
+   `opzava-gateway.localhost:3080`; leaving `PUBLIC_GATEWAY_HOST` empty locally
+   lets the app auto-detect and still honors the browser localStorage override.
 
 ### Local Security Scan Expectations (HTTP dev vs HTTPS prod)
 
@@ -300,7 +254,7 @@ For local Docker development over plain `http://`, the following defaults are ex
 
 - Keep `MC_COOKIE_SECURE` unset
 - Keep `MC_ENABLE_HSTS` unset
-- Use `OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway` when the OpenClaw sidecar is enabled
+- Use `OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway` in the Docker app-runtime lane
 
 `MC_COOKIE_SECURE=1` and `MC_ENABLE_HSTS=1` are HTTPS-only hardening flags. Enabling them on plain HTTP can break login/session behavior and create misleading local warnings.
 
@@ -323,7 +277,7 @@ docker run -v /path/to/data:/app/.data ...
 
 **Restore (cold procedure — the writer MUST be stopped):**
 
-1. Stop Opzava (the single writer): `docker compose down` (or stop the standalone server).
+1. Stop Opzava (the single writer): `make down parity` or the matching Makefile mode.
 2. In the data dir (`MISSION_CONTROL_DATA_DIR`, default `.data/`), locate the backup to
    restore — `backups/mc-backup-<timestamp>.db` — and **verify the timestamp** is the
    point you want to return to.
@@ -334,7 +288,7 @@ docker run -v /path/to/data:/app/.data ...
    rm -f mission-control.db-wal mission-control.db-shm     # stale; never reuse across DBs
    cp backups/mc-backup-<timestamp>.db mission-control.db
    ```
-4. Restart (`docker compose up -d`). On boot Opzava opens the DB and any pending
+4. Restart (`make up parity` or the matching Makefile mode). On boot Opzava opens the DB and any pending
    migrations apply to the restored file.
 5. Confirm row counts / the dashboard match the expected point in time. `PRAGMA
    integrity_check` can be run against the file before step 3 to validate the backup.
@@ -348,10 +302,10 @@ For an operator running MC on a Linux/Docker host who already has authenticated
 `claude` / `codex` / `opencode` CLIs in `~/.local/bin`, the opt-in
 `docker-compose.host-cli.yml` overlay projects the host configuration into the
 container so MC can drive those same authenticated CLIs without re-login. This
-path can run MC **without** an OpenClaw gateway:
+path is a deliberate Docker override for host CLI/session sharing:
 
 ```bash
-MC_HOST_CLI_ENABLED=1 OPENCLAW_ENABLED=0 make up mc
+MC_HOST_CLI_ENABLED=1 make up mc parity
 ```
 
 What the host CLI overlay does for this case:
@@ -450,23 +404,30 @@ See `.env.example` for the full list. Key variables:
 | `AUTH_PASS` | Yes | - | Admin password |
 | `AUTH_PASS_B64` | No | - | Base64-encoded admin password (overrides `AUTH_PASS` if set) |
 | `API_KEY` | Yes | - | API key for headless access |
-| `PORT` | No | `3005` (direct) / `3000` (Docker) | Server port |
-| `MC_MODE` | No | `prod` | Makefile Docker mode: `prod` uses `docker-compose.yml`; `dev` uses `docker-compose-dev.yml`. |
-| `OPENCLAW_ENABLED` | No | `0` | When truthy, Makefile `all` scope includes the OpenClaw sidecar overlay. |
+| `PORT` | No | `3000` (Docker) | Container server port exposed to Traefik. |
+| `MC_MODE` | No | `parity` | Makefile Docker mode: `parity` uses base + parity override; `dev` uses base + dev override. |
 | `MC_HOST_CLI_ENABLED` | No | `0` | When truthy, Makefile includes `docker-compose.host-cli.yml` for host CLI/session sharing. |
 | `INSTALL_AGENT_CLIS` | No | `1` | Bake Claude Code and Codex CLI fallback binaries into the Docker runtime image. |
 | `OPENCLAW_HOME` | No | - | Legacy read path only. Do not use for new Docker sidecar deployments. |
 | `OPENCLAW_STATE_DIR` | No | `/home/nextjs/.openclaw` in Docker | Exact path to the sidecar-mounted OpenClaw state directory. |
-| `OPENCLAW_GATEWAY_IMAGE` | No | `ghcr.io/openclaw/openclaw:latest` | Image used by `docker-compose-openclaw.yml`. |
+| `OPENCLAW_CONFIG_PATH` | No | `/home/nextjs/.openclaw/openclaw.json` in Docker | Exact path to the sidecar-mounted OpenClaw config. |
+| `OPENCLAW_GATEWAY_HOST` | No | `mc-openclaw-gateway` in Docker | Host Opzava's backend dials for the sidecar gateway. |
+| `OPENCLAW_GATEWAY_PORT` | No | `18789` | Port Opzava's backend dials for the sidecar gateway. |
+| `OPENCLAW_GATEWAY_TOKEN` | No | - | Optional gateway auth token; never commit a real token. |
+| `OPENCLAW_GATEWAY_IMAGE` | No | `ghcr.io/openclaw/openclaw:latest` | Image used by the base `mc-openclaw-gateway` service. |
 | `OPENCLAW_TOOLS_PROFILE` | No | `coding` | Tool profile projected into OpenClaw config when the env var is present (compose injects the default) |
 | `OPENCLAW_SECURITY_WORKSPACE_ONLY` | No | `1` | Restrict filesystem tools to the workspace when set (env-driven) |
 | `OPENCLAW_SECURITY_DENY_AUTOMATION` | No | `1` | Deny automation tool group via env-driven bootstrap |
 | `OPENCLAW_SECURITY_DENY_RUNTIME` | No | `1` | Deny runtime tool group via env-driven bootstrap |
 | `OPENCLAW_SECURITY_DENY_FS` | No | `0` | Deny filesystem tool group (opt-in; can block file workflows) |
 | `OPENCLAW_SECURITY_SANDBOX_ALL` | No | `0` | Optional sandbox-all mode. Disabled by default because the sidecar does not mount the host Docker socket. |
-| `MISSION_CONTROL_DATA_DIR` | No | `.data/` | Directory for all Opzava data files (DB, tokens, etc.). Use an absolute path with the standalone server to survive rebuilds. |
+| `MISSION_CONTROL_DATA_DIR` | No | `.data/` | Directory for all Opzava data files (DB, tokens, etc.). Use an absolute path for persistent Docker deploys. |
 | `MC_ALLOWED_HOSTS` | No | `localhost,127.0.0.1` | Allowed hosts in production |
-| `MC_PORT` | No | `3000` | Host-side port that the bundled `docker-compose.yml` publishes the container's `PORT` on. The bundled `Makefile` expects `7012`. |
+| `MC_PORT` | No | `3000` | Legacy direct-host port for inherited tooling. Docker app-runtime traffic uses `DOKPLOY_HTTP_PORT` through Traefik. |
+| `DOKPLOY_HTTP_PORT` | No | `3080` | Local Traefik host port for dev/parity app-runtime. |
+| `PUBLIC_GATEWAY_HOST` | No | - | Runtime container env for the browser-reachable gateway hostname; empty locally means auto-detect plus localStorage override. |
+| `PUBLIC_GATEWAY_PORT` | No | `18789` | Browser-reachable gateway port; local Traefik parity uses `3080`. |
+| `GATEWAY_OPTIONAL` | No | `false` | Explicit gateway-free standalone/dashboard mode. |
 | `ANTHROPIC_API_KEY` | No (Yes for direct dispatch) | - | Used when `dispatchModel` matches `claude-*` / `anthropic/*` and no gateway is available. |
 | `OPENAI_API_KEY` | No | - | Used when `dispatchModel` matches `gpt-*` / `o1-*` / `o3-*` / `openai/*`. |
 | `LOCAL_LLM_ENDPOINT` | No | `http://host.docker.internal:1234/v1` | OpenAI-compatible base URL (LMStudio default shown). Override for Ollama (`:11434/v1`) or a liteLLM proxy. |
@@ -488,14 +449,14 @@ See `.env.example` for the full list. Key variables:
 >
 > **Recommended `.env` for a standard install:**
 > ```env
-> OPENCLAW_ENABLED=1
 > OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway
+> OPENCLAW_GATEWAY_PORT=18789
 > OPENCLAW_STATE_DIR=/home/nextjs/.openclaw
 > OPENCLAW_CONFIG_PATH=/home/nextjs/.openclaw/openclaw.json
 > MISSION_CONTROL_DATA_DIR=/absolute/path/to/.data
 > ```
 > Using an absolute path for `MISSION_CONTROL_DATA_DIR` ensures your
-> database and data survive `npm run build` / standalone server rebuilds.
+> database and data survive Docker rebuilds.
 
 ## Kubernetes Sidecar Deployment
 
@@ -524,7 +485,8 @@ AUTH_USER=admin
 AUTH_PASS=<secure-password>
 API_KEY=<your-api-key>
 OPENCLAW_GATEWAY_HOST=127.0.0.1
-NEXT_PUBLIC_GATEWAY_PORT=18789
+PUBLIC_GATEWAY_HOST=<browser-reachable-gateway-host>
+PUBLIC_GATEWAY_PORT=18789
 ```
 
 ### Agent Registration
@@ -601,7 +563,7 @@ pnpm install
 
 1. Verify the sidecar is running:
    ```bash
-   docker compose -f docker-compose.yml -f docker-compose-openclaw.yml ps mc-openclaw-gateway
+   make status openclaw parity
    ```
 
 2. Verify the gateway is reachable from inside the Opzava container:
@@ -615,7 +577,7 @@ pnpm install
    ```
    You should see `OPENCLAW_GATEWAY_HOST=mc-openclaw-gateway`.
 
-4. **Browser WebSocket**: set `NEXT_PUBLIC_GATEWAY_HOST` to a hostname your browser can reach.
+4. **Browser WebSocket**: set runtime `PUBLIC_GATEWAY_HOST` to a hostname your browser can reach.
 
 ### AUTH_PASS with "#" is not working
 
@@ -674,7 +636,7 @@ Browser WebSocket connections to non-standard ports (like 18789/18790) are often
 Quick option:
 
 ```bash
-NEXT_PUBLIC_GATEWAY_OPTIONAL=true
+GATEWAY_OPTIONAL=true
 ```
 
 This runs Opzava in standalone mode (core features available, live gateway streams unavailable).
@@ -697,10 +659,10 @@ location /gateway-ws {
 Then point UI to:
 
 ```bash
-NEXT_PUBLIC_GATEWAY_URL=wss://your-domain.com/gateway-ws
+PUBLIC_GATEWAY_URL=wss://your-domain.com/gateway-ws
 ```
 
-Opzava now retries common reverse-proxy websocket paths (`/gateway-ws`, `/gw`) automatically when root-path handshake fails, but setting `NEXT_PUBLIC_GATEWAY_URL` is still recommended for deterministic production behavior.
+Opzava now retries common reverse-proxy websocket paths (`/gateway-ws`, `/gw`) automatically when root-path handshake fails, but setting runtime `PUBLIC_GATEWAY_URL` is still recommended for deterministic production behavior.
 
 ## Next Steps
 

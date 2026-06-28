@@ -15,19 +15,22 @@ Never deliver half-baked implementations. Every accepted task must be completed 
 ## Commands
 
 ```bash
-pnpm install && pnpm build      # setup (AUTH_SECRET/API_KEY auto-generate on first run)
-pnpm dev                        # dev - localhost:3000
-pnpm start                      # production
-pnpm start:standalone           # standalone with the production PTY WebSocket wrapper
-pnpm test                       # vitest unit tests
+pnpm install && pnpm build      # setup + host build check (AUTH_SECRET/API_KEY auto-generate on first run)
+make up dev                     # app runtime: base + dev override; http://opzava.localhost:3080 via Traefik (HMR through Traefik)
+make up parity                  # app runtime: base + parity override; Dokploy-parity shape
+make down dev|parity            # stop the selected Docker app-runtime lane
+make status dev|parity          # inspect Traefik-routed app + gateway health
+pnpm test                       # host dev-tooling: vitest unit tests
 pnpm test:e2e                   # playwright e2e
 pnpm test:e2e:visual            # playwright visual regression
 pnpm vr:update                  # update visual regression baselines (--update-snapshots)
-pnpm typecheck                  # tsc --noEmit
-pnpm lint                       # eslint (must be 0 errors)
+pnpm typecheck                  # host dev-tooling: tsc --noEmit
+pnpm lint                       # host dev-tooling: eslint (must be 0 errors)
+pnpm test:docker:dokploy        # Docker parity harness (Dokploy shape)
 pnpm test:all                   # lint + typecheck + test + build + e2e
-docker compose up               # zero-config; guided: bash install.sh --docker; hardened: add -f docker-compose.hardened.yml
 ```
+
+App-runtime is Docker-only per `docs/ard/0031-docker-only-runtime-and-dokploy-parity.md`; dev-tooling stays host-run. The deliberate override path is `MC_HOST_CLI_ENABLED=1 make up <dev|parity>` / `docker-compose.host-cli.yml` when host CLI/session sharing is intentional and auditable.
 
 First run: visit `/setup` to create an admin, or set `AUTH_USER`/`AUTH_PASS` in `.env` for CI seeding.
 Governance checks (branding, folder-structure, complexity, ARD presence) live in `test/*.test.mjs` (run via `node --test`, folded into `test:all`).
@@ -61,7 +64,8 @@ Path alias `@/*` -> `./src/*`. New product code goes under `src/opzava/modules/<
 
 ## Pitfalls
 
-- **Standalone**: use `pnpm start:standalone` or `scripts/mc-server.cjs`; bare `node .next/standalone/server.js` does not serve `/ws/pty`.
+- **Forbidden host app-runtime**: `pnpm dev`, `pnpm start`, `next dev`, `next start`, and bare `node .next/standalone/server.js` bypass the Traefik/OpenClaw/Hermes parity stack and cannot predict Dokploy behavior. Use `make up dev` or `make up parity` for the app.
+- **Deliberate override**: escaping the Docker app-runtime lane requires intent, not accident. Use `MC_HOST_CLI_ENABLED=1 make up <dev|parity>` only for the documented host-CLI sharing overlay.
 - **better-sqlite3**: native addon - `pnpm rebuild better-sqlite3` when switching Node versions.
 - **AUTH_PASS with `#`**: quote it (`AUTH_PASS="my#pass"`) or use `AUTH_PASS_B64`.
-- **Gateway optional**: `NEXT_PUBLIC_GATEWAY_OPTIONAL=true` for standalone deployments without gateway connectivity.
+- **Gateway optional**: `GATEWAY_OPTIONAL=true` is only for an explicit gateway-free standalone/dashboard mode; Docker parity should exercise the OpenClaw/Hermes sidecar.
