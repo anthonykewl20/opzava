@@ -115,21 +115,36 @@ export default createE2EConfig({
 
 ## Dependent modules (designed against the chosen shape)
 
-### `tests/visual/fixtures.ts` — `vrPage`
+### `tests/visual/fixtures.ts` — `vrPage` / `authPage`
 
-Exports `test` / `expect` with a `vrPage` fixture: logs in with `E2E_SEED_ENV` creds, applies `E2E_DETERMINISM` (reduced-motion via init script), locks theme via next-themes' localStorage key, and awaits `document.fonts.ready`. **Theme×viewport is selected by the project** — `createVisualRegressionConfig` sets each project's `use.colorScheme` + `use.viewport` + a `name` like `chromium-desktop-dark` — so the fixture is theme-agnostic. A spec just does:
+Exports `test` / `expect` with two page fixtures:
+
+- `vrPage`: anonymous, theme-forced, animations-off page for unauthenticated surfaces (`/login`, `/setup`).
+- `authPage`: fresh browser context restored from `tests/visual/.auth/user.json`, then navigated to `/` and held until the `.opzava-ds` shell is visible. There are **zero per-test logins**; per-test UI login trips the login rate limiter once the VR suite reaches 16+ specs.
+
+`authPage` also dismisses onboarding through `sessionStorage` before navigation. A fresh admin otherwise triggers the onboarding overlay, which `aria-hidden`s the main app content and invalidates authenticated screenshots.
+
+Theme is forced by init script because next-themes is configured with `enableSystem:false`: `opzava-ds-theme` drives the Opzava shell, while `theme` is set to `void` for dark and `light` for light on next-themes surfaces. Playwright's project `colorScheme` is only the carrier the fixture reads; the app itself ignores it.
+
+Screenshot tolerance and app-chrome masks are centralized here. `VISUAL_MAX_DIFF_PIXEL_RATIO = 0.01` is intentionally tighter than Playwright's default `0.2` because the deterministic harness has been stress-tested. `appChromeMasks(page)` masks `[role="alert"]` banners and the rendered LiveFeed desktop container (`.opzava-ds > .hidden.lg\:flex.h-full`).
+
+A spec just does:
 
 ```ts
-import { test, expect } from './fixtures'
-test('shell renders', async ({ vrPage }) => {
-  await vrPage.goto('/')
-  await expect(vrPage).toHaveScreenshot('shell.png')
+import { appChromeMasks, test, expect, VISUAL_MAX_DIFF_PIXEL_RATIO } from './fixtures'
+test('shell renders', async ({ authPage }) => {
+  await expect(authPage).toHaveScreenshot('shell.png', {
+    maxDiffPixelRatio: VISUAL_MAX_DIFF_PIXEL_RATIO,
+    mask: appChromeMasks(authPage),
+  })
 })
 ```
 
-### `tests/visual/global-setup.ts` — `seedVisualWorld`
+### `tests/visual/global-setup.ts` — `seedVisualAuthState`
 
-Creates **fixed-name** entities (a `VR Seed Project`, fixed tasks/agents) via API with the `E2E_SEED_ENV.API_KEY` header. The DB is wiped each run (`start-e2e-server.mjs`), so no upsert is needed — the world is byte-identical every run → deterministic lists/counts in every `Baseline`.
+Ensures the admin user exists via `POST /api/auth/users` using the shared `E2E_SEED_ENV.API_KEY` seed credentials, accepting `201` or `409` because the E2E server provides a fresh DB but setup still needs to be idempotent. Then it performs **one** API login via `POST /api/auth/login` with retry/backoff and saves the resulting Playwright storage state to `tests/visual/.auth/user.json` (gitignored). The write is atomic and the saved state is rejected unless it contains a session cookie.
+
+`authPage` restores that storage state per test in a new browser context. This keeps screenshots isolated while avoiding interactive login entirely.
 
 ### `test/e2e-contract.test.mjs` — governance (folded into `test:all`)
 
