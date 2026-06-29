@@ -84,6 +84,7 @@ Allowed `src/opzava/platform/` folders:
 - `audit/`: audit-event contract and the unified audit read surface.
 - `costs/`: cost-event contract and the unified cost read surface.
 - `observability/`: centralized log shipping to an external aggregator (pure policy core + IO shipper). Structured logging itself is the inherited `pino` logger in `src/lib/logger.ts`.
+- `integrations/`: the integration catalog, secret-presence probing, connection testing, and `.env` file IO — the read/write domain behind the `/api/integrations` surface (security-sensitive redaction + blocked-var policy).
 
 There is no `platform/db/` folder (the database connection lives in the inherited `src/lib/db.ts`; repositories are per-module or in `runner/`), no `platform/logging/` folder, and no `platform/module-registry/` folder (composition is call-site — see *Module Registry And Composition*).
 

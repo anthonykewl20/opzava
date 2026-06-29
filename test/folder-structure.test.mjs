@@ -117,6 +117,7 @@ test('every src/opzava module has a colocated MODULE.md', async () => {
     'src/opzava/platform/audit',
     'src/opzava/platform/costs',
     'src/opzava/platform/observability',
+    'src/opzava/platform/integrations',
     'src/opzava/modules/content',
     'src/opzava/modules/team',
     'src/opzava/modules/social',
