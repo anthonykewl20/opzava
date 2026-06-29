@@ -9,7 +9,7 @@ The SEO content production pipeline (idea → keyword → source → SEO brief �
 ## Public surface
 
 Consumers import **only** from `index.ts` (the barrel). Narrowed in issue #65 from 77
-re-exports to **15** — the true public surface (verified: the 10 external barrel consumers
+re-exports to **15** — the true public surface (verified: 8 production + 2 test barrel consumers
 import exactly these 15). Anything not re-exported here is internal — still reachable from
 its concrete file, but no longer advertised, so internal refactors no longer ripple through
 the barrel.
@@ -40,7 +40,7 @@ the content workflow on mock providers (draft-only). Consumed by the `ops/runs` 
 
 - **Outbound** (what this imports): core `{approvals (contracts, approval-repository), artifacts/contracts, workflows/contracts}` and platform `{runner (contracts, worker, repository, migrations, retry-policy), providers (contracts, execution, live-approval-runtime, live-execution-runtime, external-call-reservation, credentials-runtime, etc.), admin-config (contracts, repository, runtime-loader, runtime-options)}`. No cross-module imports outbound — `team` imports **into** `content`, not the reverse (the only cross-module import edge; see ARD 0010).
 - **Layering rule**: inverted pyramid. `modules` may import `core` (inward) and the approved `platform` interfaces (`runner`/`providers`/`admin-config`); it must not import other `modules` directly, and `core` may not import back into it. Enforced by `src/opzava/architecture.test.ts`.
-- **Inbound** (callers an editor must not silently break — import the public barrel only): `src/app/api/campaigns/route.ts`, `src/app/api/campaigns/[id]/run/route.ts`, `src/app/api/campaigns/[id]/approve/route.ts`, `src/app/api/connections/test/route.ts`, `src/app/api/ops/runs/route.ts`, `src/lib/status-actions.ts`, and `src/opzava/modules/team/agent-activity.ts` (the single cross-module consumer; uses `createArtifactRepository` via this barrel).
+- **Inbound** (callers an editor must not silently break — import the public barrel only): `src/app/api/campaigns/route.ts`, `src/app/api/campaigns/[id]/run/route.ts`, `src/app/api/campaigns/[id]/approve/route.ts`, `src/app/api/connections/test/route.ts`, `src/app/api/ops/runs/route.ts`, `src/app/api/_composition/post-approval-dispatcher.ts`, `src/lib/status-actions.ts`, and `src/opzava/modules/team/agent-activity.ts` (the single cross-module consumer; uses `createArtifactRepository` via this barrel).
 
 ## Invariants
 
