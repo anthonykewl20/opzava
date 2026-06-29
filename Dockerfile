@@ -1,4 +1,4 @@
-FROM node:22.22.0-slim AS base
+FROM node:26.4.0-slim AS base
 # Pin pnpm to v10 to match CI and package.json#packageManager. pnpm 11 turns
 # ERR_PNPM_IGNORED_BUILDS into a hard error, breaking fresh Docker builds.
 RUN corepack enable && corepack prepare pnpm@10.29.3 --activate
@@ -55,7 +55,7 @@ ENV NEXT_PUBLIC_CHAT_POLL_INTERVAL_MS=${NEXT_PUBLIC_CHAT_POLL_INTERVAL_MS}
 
 RUN pnpm build
 
-FROM node:22.22.0-slim AS runtime
+FROM node:26.4.0-slim AS runtime
 
 ARG MC_VERSION=dev
 LABEL org.opencontainers.image.source="https://github.com/anthonykewl20/opzava"
