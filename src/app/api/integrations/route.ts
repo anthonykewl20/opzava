@@ -18,12 +18,10 @@ import {
   type IntegrationDef,
 } from "@/opzava/platform/integrations/registry";
 import { redactValue, createEnvReader } from "@/opzava/platform/integrations/env-read";
-import {
-  createProbes,
-  resolveOllamaBaseUrl,
-} from "@/opzava/platform/integrations/probes";
+import { createProbes } from "@/opzava/platform/integrations/probes";
 import { createEnvStore } from "@/opzava/platform/integrations/env-store";
 import { createOnePassword } from "@/opzava/platform/integrations/one-password";
+import { createTestRunner } from "@/opzava/platform/integrations/test-connection";
 
 // The effective-value + configured-check logic, closed over the live process.env
 // + existsSync ports (see platform/integrations/env-read.ts).
@@ -61,6 +59,15 @@ const envStore = createEnvStore({
 const onePassword = createOnePassword({
   execFile: execFileSync,
   env: process.env,
+});
+
+// The connection-test runner (per-provider test dispatch), behind injected
+// fetch/execFile/env/isCommandAvailable ports (see platform/integrations/test-connection.ts).
+const testRunner = createTestRunner({
+  fetch,
+  execFile: execFileSync,
+  env: process.env,
+  isCommandAvailable: probes.isCommandAvailable,
 });
 
 // ---------------------------------------------------------------------------
@@ -494,236 +501,36 @@ async function handleTest(
     if (line.type === "var" && line.key) envMap.set(line.key, line.value!);
   }
 
-  try {
-    let result: { ok: boolean; detail: string };
-    const providerSubscriptions = detectProviderSubscriptions();
+  const providerSubscriptions = detectProviderSubscriptions();
+  const pluginDef = getPluginIntegrations().find((pi) => pi.id === integration.id);
 
-    switch (integration.id) {
-      case "telegram": {
-        const token = envReader.getEffectiveEnvValue(
-          envMap,
-          integration.envVars[0],
-        );
-        if (!token)
-          return NextResponse.json({ ok: false, detail: "Token not set" });
-        const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
-          signal: AbortSignal.timeout(5000),
-        });
-        const data = await res.json();
-        result = data.ok
-          ? { ok: true, detail: `Bot: @${data.result.username}` }
-          : { ok: false, detail: data.description || "Failed" };
-        break;
-      }
+  // The per-provider test dispatch lives in platform/integrations/test-connection.ts;
+  // it NEVER throws — every failure is a { ok: false } outcome — so the route audits
+  // uniformly. (This normalizes a prior inconsistency where token-not-set /
+  // subscription-detected / network-error test attempts silently skipped the audit.)
+  const result = await testRunner.testConnection(integration.id, {
+    envMap,
+    resolveEnvValue: (key) => envReader.getEffectiveEnvValue(envMap, key),
+    hasSubscription: (id) => providerSubscriptions.active[id],
+    pluginTestHandler: pluginDef?.testHandler,
+  });
 
-      case "github": {
-        const token = envReader.getEffectiveEnvValue(envMap, "GITHUB_TOKEN");
-        if (!token)
-          return NextResponse.json({ ok: false, detail: "Token not set" });
-        const res = await fetch("https://api.github.com/user", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "User-Agent": "MissionControl/1.0",
-          },
-          signal: AbortSignal.timeout(5000),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          result = { ok: true, detail: `User: ${data.login}` };
-        } else {
-          result = { ok: false, detail: `HTTP ${res.status}` };
-        }
-        break;
-      }
+  const ipAddress =
+    request.headers.get("x-forwarded-for") ||
+    request.headers.get("x-real-ip") ||
+    "unknown";
+  logAuditEvent({
+    action: "integration_test",
+    actor: user.username,
+    actor_id: user.id,
+    detail: {
+      integration: integration.id,
+      result: result.ok ? "success" : "failed",
+    },
+    ip_address: ipAddress,
+  });
 
-      case "anthropic": {
-        const key = envReader.getEffectiveEnvValue(envMap, "ANTHROPIC_API_KEY");
-        if (!key) {
-          const sub = providerSubscriptions.active.anthropic;
-          if (sub)
-            return NextResponse.json({
-              ok: true,
-              detail: `OAuth/subscription detected: ${sub.type}`,
-            });
-          return NextResponse.json({ ok: false, detail: "API key not set" });
-        }
-        const res = await fetch("https://api.anthropic.com/v1/models", {
-          method: "GET",
-          headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
-          signal: AbortSignal.timeout(5000),
-        });
-        result = res.ok
-          ? { ok: true, detail: "API key valid" }
-          : { ok: false, detail: `HTTP ${res.status}` };
-        break;
-      }
-
-      case "openai": {
-        const key = envReader.getEffectiveEnvValue(envMap, "OPENAI_API_KEY");
-        if (!key) {
-          const sub = providerSubscriptions.active.openai;
-          if (sub)
-            return NextResponse.json({
-              ok: true,
-              detail: `OAuth/subscription detected: ${sub.type}`,
-            });
-          return NextResponse.json({ ok: false, detail: "API key not set" });
-        }
-        const res = await fetch("https://api.openai.com/v1/models", {
-          headers: { Authorization: `Bearer ${key}` },
-          signal: AbortSignal.timeout(5000),
-        });
-        result = res.ok
-          ? { ok: true, detail: "API key valid" }
-          : { ok: false, detail: `HTTP ${res.status}` };
-        break;
-      }
-
-      case "openrouter": {
-        const key = envReader.getEffectiveEnvValue(
-          envMap,
-          "OPENROUTER_API_KEY",
-        );
-        if (!key)
-          return NextResponse.json({ ok: false, detail: "API key not set" });
-        const res = await fetch("https://openrouter.ai/api/v1/models", {
-          headers: { Authorization: `Bearer ${key}` },
-          signal: AbortSignal.timeout(5000),
-        });
-        result = res.ok
-          ? { ok: true, detail: "API key valid" }
-          : { ok: false, detail: `HTTP ${res.status}` };
-        break;
-      }
-
-      case "venice": {
-        const key = envReader.getEffectiveEnvValue(envMap, "VENICE_API_KEY");
-        if (!key)
-          return NextResponse.json({ ok: false, detail: "API key not set" });
-        const res = await fetch("https://api.venice.ai/api/v1/models", {
-          headers: { Authorization: `Bearer ${key}` },
-          signal: AbortSignal.timeout(5000),
-        });
-        result = res.ok
-          ? { ok: true, detail: "API key valid" }
-          : { ok: false, detail: `HTTP ${res.status}` };
-        break;
-      }
-
-      case "hyperbrowser": {
-        const key = envReader.getEffectiveEnvValue(
-          envMap,
-          "HYPERBROWSER_API_KEY",
-        );
-        if (!key)
-          return NextResponse.json({ ok: false, detail: "API key not set" });
-        const res = await fetch("https://app.hyperbrowser.ai/api/v2/sessions", {
-          headers: { "x-api-key": key },
-          signal: AbortSignal.timeout(5000),
-        });
-        result = res.ok
-          ? { ok: true, detail: "API key valid" }
-          : { ok: false, detail: `HTTP ${res.status}` };
-        break;
-      }
-
-      case "google_workspace": {
-        const credsFile = envReader.getEffectiveEnvValue(
-          envMap,
-          "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE",
-        );
-        const gwsAvail = probes.isCommandAvailable("gws");
-        if (!gwsAvail) {
-          result = {
-            ok: false,
-            detail:
-              "gws CLI not installed — run: npm i -g @googleworkspace/cli",
-          };
-          break;
-        }
-        try {
-          const env: NodeJS.ProcessEnv = { ...process.env };
-          if (credsFile) env.GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE = credsFile;
-          execFileSync("gws", ["auth", "status"], {
-            timeout: 10000,
-            stdio: ["pipe", "pipe", "pipe"],
-            env,
-          });
-          result = { ok: true, detail: "Authenticated" };
-        } catch (err: any) {
-          const stderr = err.stderr?.toString() || "";
-          result = {
-            ok: false,
-            detail:
-              stderr.slice(0, 120) ||
-              "Not authenticated — run `gws auth login`",
-          };
-        }
-        break;
-      }
-
-      default: {
-        // Check plugin testHandler first
-        const pluginDef = getPluginIntegrations().find(
-          (pi) => pi.id === integration.id,
-        );
-        if (pluginDef?.testHandler) {
-          result = await pluginDef.testHandler(envMap);
-          break;
-        }
-
-        // Generic connectivity test: attempt a HEAD request to known base URLs
-        const baseUrls: Record<string, string> = {
-          nvidia: "https://api.nvidia.com",
-          moonshot: "https://api.moonshot.cn",
-          brave: "https://api.search.brave.com",
-          linkedin: "https://api.linkedin.com",
-          ollama: resolveOllamaBaseUrl(process.env),
-          gateway: String(process.env.OPENCLAW_GATEWAY_URL || "").trim() || "",
-        };
-        const url = baseUrls[integration.id];
-        if (url) {
-          const res = await fetch(url, {
-            method: "HEAD",
-            signal: AbortSignal.timeout(5000),
-          });
-          result =
-            res.ok || res.status < 500
-              ? { ok: true, detail: `Reachable (HTTP ${res.status})` }
-              : { ok: false, detail: `Unreachable (HTTP ${res.status})` };
-        } else {
-          return NextResponse.json({
-            ok: false,
-            detail:
-              "No test available — configure the integration URL to enable testing",
-          });
-        }
-        break;
-      }
-    }
-
-    const ipAddress =
-      request.headers.get("x-forwarded-for") ||
-      request.headers.get("x-real-ip") ||
-      "unknown";
-    logAuditEvent({
-      action: "integration_test",
-      actor: user.username,
-      actor_id: user.id,
-      detail: {
-        integration: integration.id,
-        result: result.ok ? "success" : "failed",
-      },
-      ip_address: ipAddress,
-    });
-
-    return NextResponse.json(result);
-  } catch (err: any) {
-    return NextResponse.json({
-      ok: false,
-      detail: err.message || "Connection failed",
-    });
-  }
+  return NextResponse.json(result);
 }
 
 // ---------------------------------------------------------------------------

@@ -13,9 +13,11 @@ untested inside a 1017-line route.
 This owns the read domain (registry + env-read), the probe domain (sub-slice 1b: `op`/`xint`/`ollama`/`gws`
 detection behind exec/fs/fetch/env ports), the `.env` write domain (sub-slice 2: `env-store`) — file IO +
 the blocked-var-gated write mutation + an in-process mutex that serializes concurrent writers so two admins
-editing different keys cannot lose updates (issue #61 edge #8) — AND the 1Password pull domain (sub-slice 3:
-`one-password` — the `op item get` + secret parsing behind exec/env ports). Only **connection testing**
-(`handleTest`) remains in the route.
+editing different keys cannot lose updates (issue #61 edge #8) — the 1Password pull domain (sub-slice 3:
+`one-password` — the `op item get` + secret parsing behind exec/env ports) — AND the connection-test dispatch
+(sub-slice 4: `test-connection` — the 8 built-in provider tests + plugin/generic-HEAD fallback behind injected
+ports). The route is now a thin HTTP/auth/audit adapter over the deep modules — all 5 #61 god-route concerns
+extracted (sub-slices 1a/1b/2/3/4 done).
 
 ## Public surface
 Platform module — no `index.ts`; the files are truth.
@@ -53,20 +55,27 @@ Platform module — no `index.ts`; the files are truth.
 - `interface OnePasswordDeps { execFile; env }`, `createOnePassword(deps)` → `{ pullSecret(vaultItem, opEnv): PullSecretOutcome }`.
 - `pullSecret` runs `op item get <vaultItem> --vault <OP_VAULT_NAME|default> --fields password --format json` (no shell; 15000ms timeout), parses JSON/scalar/raw (`parsed.value || parsed`), rejects empty — never throws (op failure is an outcome).
 
+**`test-connection.ts`** (the connection-test dispatch behind injected ports):
+- `interface TestResult` — `{ ok: boolean; detail: string }`.
+- `interface TestRunnerDeps { fetch; execFile; env; isCommandAvailable }`, `createTestRunner(deps)` → `{ testConnection(id, ctx): Promise<TestResult> }`.
+- `interface TestCallCtx { envMap; resolveEnvValue; hasSubscription; pluginTestHandler? }` (per-call: `resolveEnvValue` wraps envReader, `hasSubscription` wraps providerSubscriptions, `pluginTestHandler` from the plugin def).
+- `testConnection` dispatches: 8 built-in handlers (telegram/github/anthropic/openai/openrouter/venice/hyperbrowser/google_workspace) → plugin `testHandler` → generic HEAD by baseUrls → `{ok:false,"No test available"}`. **Never throws** — every failure is a `{ok:false}` outcome.
+
 ## Dependencies
 - **NO `@/lib` imports (Engine-B purity).** `process.env`, `execFileSync`, `existsSync`, `fetch`, `os`,
   `Date.now`, the OpenClaw state dir, `readFile`, and `writeFileAtomic` all enter as injected ports
-  (`createEnvReader`, `createProbes`, `createEnvStore`, `createOnePassword`); the route constructs all four
-  with the real ports. Only the node `path` builtin (`join`, in `probes.ts` + `env-store.ts`) is imported
-  directly, plus the sibling `./env-read` (pure logic).
+  (`createEnvReader`, `createProbes`, `createEnvStore`, `createOnePassword`, `createTestRunner`); the route
+  constructs all five with the real ports. Sibling imports only: `./env-read` (pure logic), and
+  `resolveOllamaBaseUrl`/`INTEGRATIONS` from `./probes`/`./registry` (in `test-connection.ts`). The node
+  `path` builtin (`join`, in `probes.ts` + `env-store.ts`) is the only direct non-sibling import.
   **Enforcement caveat:** purity here is a code-review + folder-structure allowlist invariant — NOT yet a
   hard gate. `test/engine-boundary.test.mjs` scans only `src/opzava/modules/team` ↔ `src/lib` (the ARD 0007
   bridge), and `src/opzava/architecture.test.ts`'s `resolveSpec` ignores any spec outside `src/opzava`, so a
   stray `@/lib` import in this folder would pass BOTH. Keep it pure by convention; follow-up: extend
   `engine-boundary.test.mjs` to walk `src/opzava/platform/` for `@/lib` imports.
 - **Inbound** (do not silently break): `src/app/api/integrations/route.ts` — the sole caller (imports the
-  registry + `redactValue`/`createEnvReader` + `createProbes`/`resolveOllamaBaseUrl` + `createEnvStore` +
-  `createOnePassword`).
+  registry + `redactValue`/`createEnvReader` + `createProbes` + `createEnvStore` + `createOnePassword` +
+  `createTestRunner`).
 
 ## Invariants
 1. **Redaction is load-bearing for security.** `redactValue` masks everything but the last 4 characters
@@ -129,6 +138,21 @@ Platform module — no `index.ts`; the files are truth.
 16. **Port contract: `execFile` returns `string | Buffer` (never `undefined`/`null`).** `pullSecret`
     coerces via `String(...)`; a non-coercible return would yield a bogus `"undefined"`/`"null"` secret.
     The real port is `execFileSync` (Buffer|string) — do not wire a port that can return undefined.
+17. **`testConnection` never throws — every failure is a `{ ok: false }` outcome.** Network errors, exec
+    failures, bad JSON, and missing tokens all return `{ok:false, detail}` (outer catch:
+    `err.message || "Connection failed"`). The route has no try/catch around it — a throw would 500.
+18. **Dispatch order: built-in → plugin → generic HEAD → no-test.** A built-in id always runs its handler
+    (a plugin `testHandler` for a built-in id is ignored). The generic HEAD fallback treats `status < 500`
+    as "Reachable". The `baseUrls` table (nvidia/moonshot/brave/linkedin/ollama/gateway) is a literal in the
+    module — adding a generic-reachability provider means editing it + the registry (not yet registry-driven).
+19. **Audit is normalized (sub-slice 4 deliberate change).** The route audits EVERY test attempt
+    (`integration_test` with `result: success|failed`); previously token-not-set / subscription-detected /
+    network-error attempts skipped the audit. The module owns the test; the route owns the audit (an Engine-A
+    `logAuditEvent` side-effect — `detail` never carries a credential).
+20. **Telegram's env-var key is registry-coupled.** `testTelegram` reads the key via
+    `INTEGRATIONS.find(...).envVars[0]` (preserving the original `integration.envVars[0]`), so a registry
+    rename stays consistent with the GET status path. The other built-ins hardcode their key (as the original
+    did) — a known inconsistency, not a regression.
 
 ## Harmony rules
 - **Which engine**: ENGINE B. Pure data + pure logic + port-injected process/fs reads; no cross-engine
