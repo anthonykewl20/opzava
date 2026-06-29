@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { logAuditEvent } from "@/lib/db";
 import { config } from "@/lib/config";
-import { join } from "path";
 import { readFile } from "fs/promises";
 import { existsSync } from "fs";
 import os from "os";
@@ -18,18 +17,12 @@ import {
   CATEGORIES,
   type IntegrationDef,
 } from "@/opzava/platform/integrations/registry";
-import {
-  parseEnv,
-  serializeEnv,
-  redactValue,
-  isVarBlocked,
-  createEnvReader,
-  type EnvLine,
-} from "@/opzava/platform/integrations/env-read";
+import { redactValue, createEnvReader } from "@/opzava/platform/integrations/env-read";
 import {
   createProbes,
   resolveOllamaBaseUrl,
 } from "@/opzava/platform/integrations/probes";
+import { createEnvStore } from "@/opzava/platform/integrations/env-store";
 
 // The effective-value + configured-check logic, closed over the live process.env
 // + existsSync ports (see platform/integrations/env-read.ts).
@@ -50,44 +43,25 @@ const probes = createProbes({
   now: () => Date.now(),
 });
 
+// The .env store: read + the write-mutation domain (setEnvVars / deleteEnvVars)
+// behind injected state-dir / readFile / writeFileAtomic ports, with an in-process
+// mutex serializing every read-modify-write so concurrent writers cannot lose
+// updates (see platform/integrations/env-store.ts). The blocked-var + var-name
+// enforcement is the module's single write gate.
+const envStore = createEnvStore({
+  stateDir: config.openclawStateDir || null,
+  readFile: (p) => readFile(p, "utf-8"),
+  writeFileAtomic,
+});
+
 // ---------------------------------------------------------------------------
 // Integration registry (catalog + category metadata live in platform/integrations/registry.ts)
 // ---------------------------------------------------------------------------
 
 // INTEGRATIONS + CATEGORIES + the BLOCKED_VARS policy live in
-// platform/integrations/{registry,env-read}.ts; the probe domain (op/xint/ollama/gws
-// presence + the 5000ms snapshot cache) lives in platform/integrations/probes.ts.
-
-// ---------------------------------------------------------------------------
-// .env parser  — preserves comments, blanks, and ordering (parseEnv/serializeEnv
-// live in platform/integrations/env-read.ts; readEnvFile/writeEnvFile stay here
-// because they touch @/lib/config + the filesystem)
-// ---------------------------------------------------------------------------
-
-function getEnvPath(): string | null {
-  if (!config.openclawStateDir) return null;
-  return join(config.openclawStateDir, ".env");
-}
-
-async function readEnvFile(): Promise<{
-  lines: EnvLine[];
-  raw: string;
-} | null> {
-  const envPath = getEnvPath();
-  if (!envPath) return null;
-  try {
-    const raw = await readFile(envPath, "utf-8");
-    return { lines: parseEnv(raw), raw };
-  } catch (err: any) {
-    if (err.code === "ENOENT") return { lines: [], raw: "" };
-    throw err;
-  }
-}
-
-async function writeEnvFile(lines: EnvLine[]): Promise<void> {
-  const envPath = getEnvPath()!;
-  await writeFileAtomic(envPath, serializeEnv(lines));
-}
+// platform/integrations/{registry,env-read}.ts; the probe domain lives in
+// platform/integrations/probes.ts; the .env read/write store lives in
+// platform/integrations/env-store.ts.
 
 /**
  * Build env for op CLI. The OP_SERVICE_ACCOUNT_TOKEN may live in the
@@ -99,7 +73,7 @@ async function getOpEnv(): Promise<NodeJS.ProcessEnv> {
   // Already in process env? Use it.
   if (base.OP_SERVICE_ACCOUNT_TOKEN) return base;
   // Try reading from the OpenClaw .env
-  const envData = await readEnvFile();
+  const envData = await envStore.readEnv();
   if (envData) {
     for (const line of envData.lines) {
       if (
@@ -124,7 +98,7 @@ export async function GET(request: NextRequest) {
   if ("error" in auth)
     return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const envData = await readEnvFile();
+  const envData = await envStore.readEnv();
   if (!envData) {
     return NextResponse.json(
       { error: "OPENCLAW_STATE_DIR not configured" },
@@ -283,7 +257,7 @@ export async function GET(request: NextRequest) {
       .sort(([, a], [, b]) => a.order - b.order)
       .map(([id, meta]) => ({ id, label: meta.label })),
     opAvailable,
-    envPath: getEnvPath(),
+    envPath: envStore.envPath(),
   });
 }
 
@@ -305,53 +279,25 @@ export async function PUT(request: NextRequest) {
     );
   }
 
-  for (const key of Object.keys(body.vars)) {
-    if (isVarBlocked(key)) {
+  // setEnvVars validates (blocked-var + name) and performs the atomic
+  // read-modify-write under the store's mutex; the route just maps the outcome.
+  const outcome = await envStore.setEnvVars(body.vars);
+  if (!outcome.ok) {
+    if (outcome.reason === "blocked")
       return NextResponse.json(
-        { error: `Cannot set protected variable: ${key}` },
+        { error: `Cannot set protected variable: ${outcome.key}` },
         { status: 403 },
       );
-    }
-    if (!/^[A-Z_][A-Z0-9_]*$/i.test(key)) {
+    if (outcome.reason === "invalid-name")
       return NextResponse.json(
-        { error: `Invalid variable name: ${key}` },
+        { error: `Invalid variable name: ${outcome.key}` },
         { status: 400 },
       );
-    }
-  }
-
-  const envData = await readEnvFile();
-  if (!envData) {
     return NextResponse.json(
       { error: "OPENCLAW_STATE_DIR not configured" },
       { status: 404 },
     );
   }
-
-  const { lines } = envData;
-  const updatedKeys: string[] = [];
-
-  for (const [key, value] of Object.entries(body.vars)) {
-    const strValue = String(value);
-    const existing = lines.find((l) => l.type === "var" && l.key === key);
-
-    if (existing) {
-      existing.value = strValue;
-    } else {
-      if (lines.length > 0 && lines[lines.length - 1].type !== "blank") {
-        lines.push({ type: "blank", raw: "" });
-      }
-      lines.push({
-        type: "var",
-        raw: `${key}=${strValue}`,
-        key,
-        value: strValue,
-      });
-    }
-    updatedKeys.push(key);
-  }
-
-  await writeEnvFile(lines);
 
   const ipAddress =
     request.headers.get("x-forwarded-for") ||
@@ -361,11 +307,14 @@ export async function PUT(request: NextRequest) {
     action: "integrations_update",
     actor: auth.user.username,
     actor_id: auth.user.id,
-    detail: { updated_keys: updatedKeys },
+    detail: { updated_keys: outcome.affected },
     ip_address: ipAddress,
   });
 
-  return NextResponse.json({ updated: updatedKeys, count: updatedKeys.length });
+  return NextResponse.json({
+    updated: outcome.affected,
+    count: outcome.affected.length,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -407,34 +356,18 @@ export async function DELETE(request: NextRequest) {
     );
   }
 
-  for (const key of keysToRemove) {
-    if (isVarBlocked(key)) {
+  // deleteEnvVars enforces the blocked-var gate + the atomic read-modify-write.
+  const outcome = await envStore.deleteEnvVars([...keysToRemove]);
+  if (!outcome.ok) {
+    if (outcome.reason === "blocked")
       return NextResponse.json(
-        { error: `Cannot remove protected variable: ${key}` },
+        { error: `Cannot remove protected variable: ${outcome.key}` },
         { status: 403 },
       );
-    }
-  }
-
-  const envData = await readEnvFile();
-  if (!envData) {
     return NextResponse.json(
       { error: "OPENCLAW_STATE_DIR not configured" },
       { status: 404 },
     );
-  }
-
-  const removed: string[] = [];
-  const newLines = envData.lines.filter((l) => {
-    if (l.type === "var" && l.key && keysToRemove.has(l.key)) {
-      removed.push(l.key);
-      return false;
-    }
-    return true;
-  });
-
-  if (removed.length > 0) {
-    await writeEnvFile(newLines);
   }
 
   const ipAddress =
@@ -445,11 +378,14 @@ export async function DELETE(request: NextRequest) {
     action: "integrations_remove",
     actor: auth.user.username,
     actor_id: auth.user.id,
-    detail: { removed_keys: removed },
+    detail: { removed_keys: outcome.affected },
     ip_address: ipAddress,
   });
 
-  return NextResponse.json({ removed, count: removed.length });
+  return NextResponse.json({
+    removed: outcome.affected,
+    count: outcome.affected.length,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -536,7 +472,7 @@ async function handleTest(
     );
   }
 
-  const envData = await readEnvFile();
+  const envData = await envStore.readEnv();
   if (!envData) {
     return NextResponse.json(
       { error: "OPENCLAW_STATE_DIR not configured" },
@@ -847,34 +783,17 @@ async function handlePull(
       );
     }
 
-    // Write to .env
-    const envData = await readEnvFile();
-    if (!envData) {
+    // Write to .env (serialized + validated by the store; envVar is a registry key,
+    // so the only reachable non-ok outcome is not-configured — an atomic-write error
+    // would throw into the surrounding catch).
+    const envVar = integration.envVars[0];
+    const outcome = await envStore.setEnvVars({ [envVar]: value });
+    if (!outcome.ok) {
       return NextResponse.json(
         { error: "OPENCLAW_STATE_DIR not configured" },
         { status: 404 },
       );
     }
-
-    const { lines } = envData;
-    const envVar = integration.envVars[0];
-
-    const existing = lines.find((l) => l.type === "var" && l.key === envVar);
-    if (existing) {
-      existing.value = value;
-    } else {
-      if (lines.length > 0 && lines[lines.length - 1].type !== "blank") {
-        lines.push({ type: "blank", raw: "" });
-      }
-      lines.push({
-        type: "var",
-        raw: `${envVar}=${value}`,
-        key: envVar,
-        value,
-      });
-    }
-
-    await writeEnvFile(lines);
 
     const ipAddress =
       request.headers.get("x-forwarded-for") ||
@@ -940,15 +859,15 @@ async function handlePullAll(
     );
   }
 
-  const envData = await readEnvFile();
-  if (!envData) {
+  if (!envStore.envPath()) {
     return NextResponse.json(
       { error: "OPENCLAW_STATE_DIR not configured" },
       { status: 404 },
     );
   }
 
-  const { lines } = envData;
+  // Collect pulled secrets for a single batched, mutex-protected write after the loop.
+  const secrets: Record<string, string> = {};
   const results: { id: string; envVar: string; ok: boolean; detail: string }[] =
     [];
 
@@ -991,21 +910,8 @@ async function handlePullAll(
         continue;
       }
 
-      // Upsert into lines
-      const existing = lines.find((l) => l.type === "var" && l.key === envVar);
-      if (existing) {
-        existing.value = value;
-      } else {
-        if (lines.length > 0 && lines[lines.length - 1].type !== "blank") {
-          lines.push({ type: "blank", raw: "" });
-        }
-        lines.push({
-          type: "var",
-          raw: `${envVar}=${value}`,
-          key: envVar,
-          value,
-        });
-      }
+      // Stage for the batched write (the store does the atomic upsert under its mutex)
+      secrets[envVar] = value;
 
       results.push({
         id: integration.id,
@@ -1023,10 +929,19 @@ async function handlePullAll(
     }
   }
 
-  // Write .env once after all pulls
+  // Write .env once after all pulls (serialized + validated by the store)
   const successCount = results.filter((r) => r.ok).length;
   if (successCount > 0) {
-    await writeEnvFile(lines);
+    const writeOutcome = await envStore.setEnvVars(secrets);
+    // Unreachable for registry envVars (valid names, envPath pre-checked) — but fail
+    // loudly rather than report success with nothing persisted (defense in depth,
+    // mirroring the single-pull path).
+    if (!writeOutcome.ok) {
+      return NextResponse.json(
+        { error: `Failed to write pulled secrets: ${writeOutcome.reason}` },
+        { status: 500 },
+      );
+    }
   }
 
   const ipAddress =

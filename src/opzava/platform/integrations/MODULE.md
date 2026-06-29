@@ -10,10 +10,11 @@ configured-check logic. Extracted so these rules — which prevent secret leakag
 gate which env vars may be written — have a single owner and a direct test surface, instead of being
 untested inside a 1017-line route.
 
-This owns the read domain (registry + env-read) AND the probe domain (sub-slice 1b): detecting
-installed CLIs (`op`/`xint`/`ollama`/`gws`), `op` authentication, xint OAuth/env-file presence, and
-Ollama daemon reachability — all behind injected exec/fs/fetch/env ports. Only the **write path**
-(`.env` mutation, `handleTest`, `handlePull`) remains in the route for a later sub-slice.
+This owns the read domain (registry + env-read), the probe domain (sub-slice 1b: `op`/`xint`/`ollama`/`gws`
+detection behind exec/fs/fetch/env ports), AND the `.env` write domain (sub-slice 2: `env-store`) — file IO
++ the blocked-var-gated write mutation + an in-process mutex that serializes concurrent writers so two
+admins editing different keys cannot lose updates (issue #61 edge #8). Only **connection testing**
+(`handleTest`) and the **1Password op-CLI logic** (`handlePull`/`handlePullAll`) remain in the route.
 
 ## Public surface
 Platform module — no `index.ts`; the files are truth.
@@ -39,17 +40,26 @@ Platform module — no `index.ts`; the files are truth.
   `{ snapshot(): Promise<IntegrationProbeSnapshot>; isCommandAvailable(cmd); isOpAvailable(); isOpAuthenticated(opEnv?) }`.
 - `snapshot()` is the 5000ms-cached orchestrator (cache is per `createProbes` instance, keyed on `now()`).
 
+**`env-store.ts`** (the `.env` read + write domain behind injected ports):
+- `interface EnvSnapshot` — `{ lines: EnvLine[]; raw: string }`.
+- `type EnvWriteOutcome` — `{ ok: true; affected: string[] } | { ok: false; reason: "not-configured" } | { ok: false; reason: "blocked"; key } | { ok: false; reason: "invalid-name"; key }`.
+- `interface EnvStoreDeps { stateDir; readFile; writeFileAtomic }`, `createEnvStore(deps)` →
+  `{ envPath(): string|null; readEnv(): Promise<EnvSnapshot|null>; setEnvVars(vars): Promise<EnvWriteOutcome>; deleteEnvVars(keys): Promise<EnvWriteOutcome> }`.
+- `setEnvVars`/`deleteEnvVars` enforce the blocked-var gate (+ the `^[A-Z_][A-Z0-9_]*$/i` name rule on SET) INSIDE, then do the atomic read-modify-write under the store's mutex.
+
 ## Dependencies
 - **NO `@/lib` imports (Engine-B purity).** `process.env`, `execFileSync`, `existsSync`, `fetch`, `os`,
-  `Date.now` enter as injected ports (`createEnvReader`, `createProbes`); the route constructs both with
-  the real ports. Only the node `path` builtin (`join`, in `probes.ts`) is imported directly.
+  `Date.now`, the OpenClaw state dir, `readFile`, and `writeFileAtomic` all enter as injected ports
+  (`createEnvReader`, `createProbes`, `createEnvStore`); the route constructs all three with the real
+  ports. Only the node `path` builtin (`join`, in `probes.ts` + `env-store.ts`) is imported directly,
+  plus the sibling `./env-read` (pure logic).
   **Enforcement caveat:** purity here is a code-review + folder-structure allowlist invariant — NOT yet a
   hard gate. `test/engine-boundary.test.mjs` scans only `src/opzava/modules/team` ↔ `src/lib` (the ARD 0007
   bridge), and `src/opzava/architecture.test.ts`'s `resolveSpec` ignores any spec outside `src/opzava`, so a
   stray `@/lib` import in this folder would pass BOTH. Keep it pure by convention; follow-up: extend
   `engine-boundary.test.mjs` to walk `src/opzava/platform/` for `@/lib` imports.
 - **Inbound** (do not silently break): `src/app/api/integrations/route.ts` — the sole caller (imports the
-  registry + the pure helpers + `createEnvReader` + `createProbes`/`resolveOllamaBaseUrl`).
+  registry + `redactValue`/`createEnvReader` + `createProbes`/`resolveOllamaBaseUrl` + `createEnvStore`).
 
 ## Invariants
 1. **Redaction is load-bearing for security.** `redactValue` masks everything but the last 4 characters
@@ -57,8 +67,9 @@ Platform module — no `index.ts`; the files are truth.
    without a deliberate decision.
 2. **The blocked-var policy protects process-essential + dynamic-linker vars.** `BLOCKED_VARS`
    (PATH/HOME/USER/SHELL/LANG/TERM/PWD/LOGNAME/HOSTNAME) and `BLOCKED_PREFIXES` (LD_/DYLD_) must never
-   be writable via the integrations API. `isVarBlocked` is the single gate; the route's PUT/DELETE call
-   it before any write.
+   be writable via the integrations API. `isVarBlocked` is the single gate — now enforced INSIDE
+   `env-store`'s `setEnvVars`/`deleteEnvVars` (the route delegates and maps the `blocked` outcome to
+   403); the route no longer pre-checks. Do not move the gate back out or skip it.
 3. **`.env` parse/serialize is lossless for the file shape.** Comments, blanks, ordering, and malformed
    lines (preserved as comments) survive a round-trip. Do not "normalize" away blanks/comments.
 4. **Effective-value precedence is file-over-process.** `getEffectiveEnvValue` returns the `.env` file
@@ -81,6 +92,22 @@ Platform module — no `index.ts`; the files are truth.
    `op whoami`; the snapshot only checks `which op` (presence). The route calls `isOpAuthenticated`
    separately, only for the onepassword integration when its key is otherwise unset. Preserve this
    asymmetry.
+9. **Writes are serialized — no lost update (issue #61 edge #8).** `env-store`'s in-process promise-chain
+   mutex (`serialized`) ensures every `setEnvVars`/`deleteEnvVars` read-modify-write runs to completion
+   before the next starts, so concurrent writers for different keys both persist. The route wires ONE
+   module-level `createEnvStore` singleton, so the mutex is shared process-wide (per-request construction
+   would defeat it). A failed write is swallowed IN THE CHAIN (the caller still sees the rejection) so
+   one bad op cannot deadlock the next.
+10. **Validation precedes IO.** `setEnvVars` validates every key (blocked, then `^[A-Z_][A-Z0-9_]*$/i`)
+    BEFORE reading or writing the file — a blocked/invalid-name request does no IO and returns its
+    outcome with zero reads/writes.
+11. **Read consistency relies on `writeFileAtomic`'s POSIX-rename atomicity.** `readEnv` is NOT
+    serialized (it's a pure read); it never observes a partial `.env` only because `writeFileAtomic`
+    atomically renames. Do NOT swap `writeFileAtomic` for a non-atomic write without revisiting this.
+12. **Not-configured is `null`/`not-configured`, not an error.** `envPath()`/`readEnv()` return `null`
+    and `setEnvVars`/`deleteEnvVars` return `{ reason: "not-configured" }` when the state dir is unset;
+    the route maps that to 404. A missing `.env` (ENOENT) is NOT not-configured — it reads as empty
+    (`{ lines: [], raw: "" }`).
 
 ## Harmony rules
 - **Which engine**: ENGINE B. Pure data + pure logic + port-injected process/fs reads; no cross-engine
@@ -98,3 +125,7 @@ Platform module — no `index.ts`; the files are truth.
 - Preserve the probe timeouts verbatim — `which` / `op whoami` 3000ms, ollama fetch 1200ms — and the
   5000ms cache TTL; they bound subprocess/network exposure. A careless bump widens the blast radius of a
   stuck probe (it is on the admin GET hot path).
+- `env-store`: keep the blocked-var gate INSIDE `setEnvVars`/`deleteEnvVars` (invariant 2), keep writes
+  serialized through the one module-level singleton's mutex (invariant 9 — per-request construction
+  reintroduces the lost-update bug), and keep `writeFileAtomic` as the write port (invariant 11 — read
+  consistency depends on its atomic rename).
