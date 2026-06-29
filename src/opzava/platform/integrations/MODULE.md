@@ -11,10 +11,11 @@ gate which env vars may be written — have a single owner and a direct test sur
 untested inside a 1017-line route.
 
 This owns the read domain (registry + env-read), the probe domain (sub-slice 1b: `op`/`xint`/`ollama`/`gws`
-detection behind exec/fs/fetch/env ports), AND the `.env` write domain (sub-slice 2: `env-store`) — file IO
-+ the blocked-var-gated write mutation + an in-process mutex that serializes concurrent writers so two
-admins editing different keys cannot lose updates (issue #61 edge #8). Only **connection testing**
-(`handleTest`) and the **1Password op-CLI logic** (`handlePull`/`handlePullAll`) remain in the route.
+detection behind exec/fs/fetch/env ports), the `.env` write domain (sub-slice 2: `env-store`) — file IO +
+the blocked-var-gated write mutation + an in-process mutex that serializes concurrent writers so two admins
+editing different keys cannot lose updates (issue #61 edge #8) — AND the 1Password pull domain (sub-slice 3:
+`one-password` — the `op item get` + secret parsing behind exec/env ports). Only **connection testing**
+(`handleTest`) remains in the route.
 
 ## Public surface
 Platform module — no `index.ts`; the files are truth.
@@ -47,19 +48,25 @@ Platform module — no `index.ts`; the files are truth.
   `{ envPath(): string|null; readEnv(): Promise<EnvSnapshot|null>; setEnvVars(vars): Promise<EnvWriteOutcome>; deleteEnvVars(keys): Promise<EnvWriteOutcome> }`.
 - `setEnvVars`/`deleteEnvVars` enforce the blocked-var gate (+ the `^[A-Z_][A-Z0-9_]*$/i` name rule on SET) INSIDE, then do the atomic read-modify-write under the store's mutex.
 
+**`one-password.ts`** (the 1Password pull domain behind injected ports):
+- `type PullSecretOutcome` — `{ ok: true; value: string } | { ok: false; reason: "empty" } | { ok: false; reason: "op-error"; detail: string }`.
+- `interface OnePasswordDeps { execFile; env }`, `createOnePassword(deps)` → `{ pullSecret(vaultItem, opEnv): PullSecretOutcome }`.
+- `pullSecret` runs `op item get <vaultItem> --vault <OP_VAULT_NAME|default> --fields password --format json` (no shell; 15000ms timeout), parses JSON/scalar/raw (`parsed.value || parsed`), rejects empty — never throws (op failure is an outcome).
+
 ## Dependencies
 - **NO `@/lib` imports (Engine-B purity).** `process.env`, `execFileSync`, `existsSync`, `fetch`, `os`,
   `Date.now`, the OpenClaw state dir, `readFile`, and `writeFileAtomic` all enter as injected ports
-  (`createEnvReader`, `createProbes`, `createEnvStore`); the route constructs all three with the real
-  ports. Only the node `path` builtin (`join`, in `probes.ts` + `env-store.ts`) is imported directly,
-  plus the sibling `./env-read` (pure logic).
+  (`createEnvReader`, `createProbes`, `createEnvStore`, `createOnePassword`); the route constructs all four
+  with the real ports. Only the node `path` builtin (`join`, in `probes.ts` + `env-store.ts`) is imported
+  directly, plus the sibling `./env-read` (pure logic).
   **Enforcement caveat:** purity here is a code-review + folder-structure allowlist invariant — NOT yet a
   hard gate. `test/engine-boundary.test.mjs` scans only `src/opzava/modules/team` ↔ `src/lib` (the ARD 0007
   bridge), and `src/opzava/architecture.test.ts`'s `resolveSpec` ignores any spec outside `src/opzava`, so a
   stray `@/lib` import in this folder would pass BOTH. Keep it pure by convention; follow-up: extend
   `engine-boundary.test.mjs` to walk `src/opzava/platform/` for `@/lib` imports.
 - **Inbound** (do not silently break): `src/app/api/integrations/route.ts` — the sole caller (imports the
-  registry + `redactValue`/`createEnvReader` + `createProbes`/`resolveOllamaBaseUrl` + `createEnvStore`).
+  registry + `redactValue`/`createEnvReader` + `createProbes`/`resolveOllamaBaseUrl` + `createEnvStore` +
+  `createOnePassword`).
 
 ## Invariants
 1. **Redaction is load-bearing for security.** `redactValue` masks everything but the last 4 characters
@@ -108,6 +115,20 @@ Platform module — no `index.ts`; the files are truth.
     and `setEnvVars`/`deleteEnvVars` return `{ reason: "not-configured" }` when the state dir is unset;
     the route maps that to 404. A missing `.env` (ENOENT) is NOT not-configured — it reads as empty
     (`{ lines: [], raw: "" }`).
+13. **`pullSecret` never throws — op failure is an outcome.** A missing/unauthenticated `op`, a timeout,
+    or a bad vault surfaces as `{ ok: false; reason: "op-error"; detail }`, not an exception.
+    `handlePullAll` relies on this (its loop has no try/catch around the pull — a throw would 500 the
+    whole batch).
+14. **Empty secret is a reason, not an error status.** `pullSecret` returns
+    `{ ok: false; reason: "empty" }` for an empty/whitespace secret; the route maps it (handlePull → 400,
+    handlePullAll → per-integration `detail:"Empty value"`).
+15. **The pulled cleartext value flows ONLY to `envStore.setEnvVars` + `redactValue` — never logged.** No
+    audit detail, error message, or response metadata carries the secret. `handlePull` returns
+    `redacted: redactValue(value)`; `handlePullAll`'s `results` carry only `{id, envVar, ok, detail}`. The
+    audit `detail` is `{integration, env_var}` / counts — never the value.
+16. **Port contract: `execFile` returns `string | Buffer` (never `undefined`/`null`).** `pullSecret`
+    coerces via `String(...)`; a non-coercible return would yield a bogus `"undefined"`/`"null"` secret.
+    The real port is `execFileSync` (Buffer|string) — do not wire a port that can return undefined.
 
 ## Harmony rules
 - **Which engine**: ENGINE B. Pure data + pure logic + port-injected process/fs reads; no cross-engine

@@ -23,6 +23,7 @@ import {
   resolveOllamaBaseUrl,
 } from "@/opzava/platform/integrations/probes";
 import { createEnvStore } from "@/opzava/platform/integrations/env-store";
+import { createOnePassword } from "@/opzava/platform/integrations/one-password";
 
 // The effective-value + configured-check logic, closed over the live process.env
 // + existsSync ports (see platform/integrations/env-read.ts).
@@ -52,6 +53,14 @@ const envStore = createEnvStore({
   stateDir: config.openclawStateDir || null,
   readFile: (p) => readFile(p, "utf-8"),
   writeFileAtomic,
+});
+
+// The 1Password pull domain (op item get + secret parsing), behind injected
+// execFile/env ports (see platform/integrations/one-password.ts). The pulled
+// cleartext value flows only to envStore.setEnvVars + redactValue — never logged.
+const onePassword = createOnePassword({
+  execFile: execFileSync,
+  env: process.env,
 });
 
 // ---------------------------------------------------------------------------
@@ -718,7 +727,8 @@ async function handleTest(
 }
 
 // ---------------------------------------------------------------------------
-// Pull value from 1Password vault — uses execFileSync (no shell) for safety
+// Pull a secret from 1Password into the .env (the op-CLI pull + parse lives in
+// platform/integrations/one-password.ts; this handler maps outcomes + writes + audits)
 // ---------------------------------------------------------------------------
 
 async function handlePull(
@@ -749,39 +759,20 @@ async function handlePull(
       );
     }
 
-    // execFileSync passes args as array — no shell interpolation possible
-    const secret = execFileSync(
-      "op",
-      [
-        "item",
-        "get",
-        integration.vaultItem,
-        "--vault",
-        process.env.OP_VAULT_NAME || "default",
-        "--fields",
-        "password",
-        "--format",
-        "json",
-      ],
-      { timeout: 15000, stdio: ["pipe", "pipe", "pipe"], env: opEnv },
-    )
-      .toString()
-      .trim();
-
-    let value: string;
-    try {
-      const parsed = JSON.parse(secret);
-      value = parsed.value || parsed;
-    } catch {
-      value = secret;
-    }
-
-    if (!value || value.length === 0) {
+    const pull = onePassword.pullSecret(integration.vaultItem, opEnv);
+    if (!pull.ok) {
+      if (pull.reason === "empty") {
+        return NextResponse.json(
+          { error: "Empty value returned from 1Password" },
+          { status: 400 },
+        );
+      }
       return NextResponse.json(
-        { error: "Empty value returned from 1Password" },
-        { status: 400 },
+        { error: `1Password pull failed: ${pull.detail}` },
+        { status: 500 },
       );
     }
+    const value = pull.value;
 
     // Write to .env (serialized + validated by the store; envVar is a registry key,
     // so the only reachable non-ok outcome is not-configured — an atomic-write error
@@ -873,60 +864,26 @@ async function handlePullAll(
 
   for (const integration of targets) {
     const envVar = integration.envVars[0];
-    try {
-      const secret = execFileSync(
-        "op",
-        [
-          "item",
-          "get",
-          integration.vaultItem!,
-          "--vault",
-          process.env.OP_VAULT_NAME || "default",
-          "--fields",
-          "password",
-          "--format",
-          "json",
-        ],
-        { timeout: 15000, stdio: ["pipe", "pipe", "pipe"], env: opEnv },
-      )
-        .toString()
-        .trim();
-
-      let value: string;
-      try {
-        const parsed = JSON.parse(secret);
-        value = parsed.value || parsed;
-      } catch {
-        value = secret;
-      }
-
-      if (!value || value.length === 0) {
-        results.push({
-          id: integration.id,
-          envVar,
-          ok: false,
-          detail: "Empty value",
-        });
-        continue;
-      }
-
-      // Stage for the batched write (the store does the atomic upsert under its mutex)
-      secrets[envVar] = value;
-
-      results.push({
-        id: integration.id,
-        envVar,
-        ok: true,
-        detail: `Pulled ${envVar}`,
-      });
-    } catch (err: any) {
+    const pull = onePassword.pullSecret(integration.vaultItem!, opEnv);
+    if (!pull.ok) {
       results.push({
         id: integration.id,
         envVar,
         ok: false,
-        detail: err.message || "Failed",
+        detail: pull.reason === "empty" ? "Empty value" : pull.detail || "Failed",
       });
+      continue;
     }
+
+    // Stage for the batched write (the store does the atomic upsert under its mutex)
+    secrets[envVar] = pull.value;
+
+    results.push({
+      id: integration.id,
+      envVar,
+      ok: true,
+      detail: `Pulled ${envVar}`,
+    });
   }
 
   // Write .env once after all pulls (serialized + validated by the store)
