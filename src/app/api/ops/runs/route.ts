@@ -7,8 +7,8 @@ import { getDatabase } from '@/lib/db'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { listRecentWorkflowRuns } from '@/opzava/platform/runner/run-queries'
 import { applyOpzavaRunnerRepositorySchema } from '@/opzava/platform/runner/migrations'
+import { createArtifactRepository, runAndRecordContentWorkflow } from '@/opzava/modules/content'
 import {
-  createArtifactRepository,
   createMockContentWorkflowProviderAdapters,
   createMockAntiSlopReviewProvider,
   createMockBrandReviewProvider,
@@ -16,8 +16,7 @@ import {
   createMockOutlineProvider,
   createMockSeoBriefProvider,
   createMockWordpressDraftProvider,
-  runAndRecordContentWorkflow,
-} from '@/opzava/modules/content'
+} from '@/opzava/modules/content/mocks'
 
 export async function GET(request: NextRequest) {
   const auth = requireRole(request, 'admin')

@@ -8,17 +8,33 @@ The SEO content production pipeline (idea → keyword → source → SEO brief �
 
 ## Public surface
 
-Consumers import **only** from `index.ts` (the barrel). It is truth — **78 re-export statements**, grouped below as the barrel groups them. Anything not re-exported here is internal.
+Consumers import **only** from `index.ts` (the barrel). Narrowed in issue #65 from 77
+re-exports to **15** — the true public surface (verified: the 10 external barrel consumers
+import exactly these 15). Anything not re-exported here is internal — still reachable from
+its concrete file, but no longer advertised, so internal refactors no longer ripple through
+the barrel.
 
-- **Content artifact contracts** (`contracts/*`): `IdeaIntake`, `KeywordResearch`/`KeywordCandidate`, `SourceCapture`/`CapturedSource`, `SeoBrief`, `Outline`/`OutlineSection`, `ArticleDraft`/`ArticleSection`, `FactCheckReport`/`FactCheck`, `BrandReview`/`BrandCheck`, `AntiSlopReview`/`SlopFinding`, `WordpressDraftRequest`/`WordpressDraftGateArtifacts` — each with a `*_SCHEMA_VERSION` constant, a Zod `*Schema`, a `parse*` function, and the type.
-- **Workflow definition & execution** (`workflow/*`): `CONTENT_WORKFLOW_ID`, `getContentWorkflowDefinition`; `CONTENT_ARTIFACT_TYPES`/`createContentArtifact`/`ContentArtifactType`; `CONTENT_STEP_OUTPUTS`/`getContentStepOutput`; step executors `createContentStepExecutor` (+ the 11 `*StepService`/`parse*StepInput`/`*StepInput` per step); `runContentWorkflow`/`runContentWorkflowWithRecording` and their mock/provider-adapter factories; `recordContentWorkflowArtifacts`/`CONTENT_WORKFLOW_ARTIFACT_FIELDS`; `runAndRecordContentWorkflow`.
-- **Step providers** (`steps/*-provider.ts`): `createMock*Provider` + `*Provider`/`*ProviderInput`/`*Draft` for each pipeline step (the mock default).
-- **Live provider adapters & execution** (`providers/*`): per-operation `*_OPERATION` constants + mock/live profile+adapter factories (`createMock*ProviderProfile/Adapter`, `createLive*ProviderProfile/Adapter`) for keyword-research, source-capture, article-draft, fact-check, wordpress-publishing, wordpress-live, resend-live; `run*ProviderCall` execution functions; connection resolution (`resolveWordpressLiveConnection`, `resolveResendLiveConnection`, `resolveWordpressDraftConnection`, `resolveResendCampaignConnection`, `isWordpressConfigured`, `isResendConfigured`, `WORDPRESS_APP_PASSWORD_SECRET_REFERENCE`, `RESEND_API_KEY_SECRET_REFERENCE`); connection verification (`verifyWordpressConnection`, `verifyResendConnection`); live clients (`createWordpressDraft`, `sendResendEmail`, `createResendCampaignSender`).
-- **Email-campaign send subsystem** (`workflow/email-campaign.ts` + `workflow/campaign-*.ts`): `EmailCampaign`/`runEmailCampaign`/`CampaignEmailSender`/`CampaignSendRecord`; `campaignSchedule*`, `CampaignAudience`/`dedupeRecipients`, `planCampaignRun`/`CampaignRunPlan`, `buildCampaignSendJobs`, `enqueueCampaignSendJobs`, `runCampaignSend`, `runCampaignSendWithRepository`, `createCampaignSendExecutor`, **`createGuardedCampaignSendExecutor`** (+ `GuardedSendEventIdentity`), `createJobKindExecutor`, `createCampaignRunnerWorker`/`CAMPAIGN_SEND_JOB_KIND`, `createCampaignWorkerDaemon`, `createTimerSleep`/`createStopSignal`/`runCampaignDaemon`.
-- **Campaign aggregate** (`campaign/*`): `Campaign`/`campaignSchema`/`parseCampaign`/`transitionCampaign`/`canTransitionCampaign`/`CAMPAIGN_STATUSES`/`CAMPAIGN_TRANSITIONS`; `CampaignRepository`/`createCampaignRepository`; `runApprovedCampaign`; campaign-send approval (`createCampaignSendApproval`/`isCampaignSendApproved`/`campaignSendApprovalId`/`CAMPAIGN_SEND_REQUESTED_ACTION`/`DEFAULT_CAMPAIGN_SEND_APPROVAL_TTL_MS`); `createGuardedCampaignSendExecutorForCampaign`.
-- **Artifact persistence** (`artifacts/*`): `ArtifactRepository`/`createArtifactRepository`/`StoredArtifactContext`/`ArtifactListFilter`.
+- **Campaign domain** (`campaign/*`): status machine + repository + approval + run —
+  `parseCampaign`/`transitionCampaign`; `createCampaignRepository`;
+  `CAMPAIGN_SEND_REQUESTED_ACTION`/`campaignSendApprovalId`/`createCampaignSendApproval`;
+  `runApprovedCampaign`; `createGuardedCampaignSendExecutorForCampaign`.
+- **Artifacts** (`artifacts/*`): `createArtifactRepository`.
+- **Content workflow — recorded run** (`workflow/*`): `runAndRecordContentWorkflow`.
+- **Live send — Resend + WordPress** (`providers/*`): connection resolution
+  `resolveResendCampaignConnection`/`RESEND_API_KEY_SECRET_REFERENCE`/`resolveWordpressDraftConnection`;
+  Resend live adapter `createLiveResendProviderAdapter`/`createLiveResendProviderProfile`.
 
-> The `campaign/` subsystem is a large, conceptually-separate capability (a durable email-send engine + approval gate) that happens to live inside this module. Treat the two halves (content pipeline; campaign send) as separate concerns when editing.
+**Mock surface** (`mocks.ts` — NOT the public barrel): the `createMock*` providers used to run
+the content workflow on mock providers (draft-only). Consumed by the `ops/runs` dev endpoint
++ tests. Import from `@/opzava/modules/content/mocks`.
+
+> The internals no longer re-exported here — artifact contracts (`contracts/*`), step-service
+> factories + the rest of the mock providers (`steps/*`), provider adapters/execution
+> (`providers/*`), the email-campaign send subsystem internals (`workflow/campaign-*.ts`),
+> the workflow definition/executor (`workflow/content-workflow*`) — are still exported by
+> their concrete files; the module's own code + tests import them directly (relative paths),
+> never via the barrel. The `campaign/` subsystem is a large, conceptually-separate capability
+> (a durable email-send engine + approval gate) that happens to live inside this module.
 
 ## Dependencies
 
