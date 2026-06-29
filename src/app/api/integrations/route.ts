@@ -26,6 +26,10 @@ import {
   createEnvReader,
   type EnvLine,
 } from "@/opzava/platform/integrations/env-read";
+import {
+  createProbes,
+  resolveOllamaBaseUrl,
+} from "@/opzava/platform/integrations/probes";
 
 // The effective-value + configured-check logic, closed over the live process.env
 // + existsSync ports (see platform/integrations/env-read.ts).
@@ -34,30 +38,25 @@ const envReader = createEnvReader({
   exists: existsSync,
 });
 
+// The integration probe domain (op/xint/ollama/gws presence + the 5000ms-cached
+// snapshot), closed over live ports (see platform/integrations/probes.ts). Ports
+// are live references/functions so they read current state per-call (no freezing).
+const probes = createProbes({
+  execFile: execFileSync,
+  fetch,
+  exists: existsSync,
+  env: process.env,
+  homeDir: os.homedir,
+  now: () => Date.now(),
+});
+
 // ---------------------------------------------------------------------------
 // Integration registry (catalog + category metadata live in platform/integrations/registry.ts)
 // ---------------------------------------------------------------------------
 
-interface IntegrationProbeSnapshot {
-  opAvailable: boolean;
-  xint: {
-    installed: boolean;
-    oauthConfigured: boolean;
-    envConfigured: boolean;
-  };
-  ollamaInstalled: boolean;
-  ollamaReachable: boolean;
-  gwsInstalled: boolean;
-}
-
-let integrationProbeCache: {
-  ts: number;
-  value: IntegrationProbeSnapshot;
-} | null = null;
-const INTEGRATION_PROBE_TTL_MS = 5000;
-
-// INTEGRATIONS + CATEGORIES + the BLOCKED_VARS security policy live in
-// platform/integrations/{registry,env-read}.ts (imported above).
+// INTEGRATIONS + CATEGORIES + the BLOCKED_VARS policy live in
+// platform/integrations/{registry,env-read}.ts; the probe domain (op/xint/ollama/gws
+// presence + the 5000ms snapshot cache) lives in platform/integrations/probes.ts.
 
 // ---------------------------------------------------------------------------
 // .env parser  — preserves comments, blanks, and ordering (parseEnv/serializeEnv
@@ -88,90 +87,6 @@ async function readEnvFile(): Promise<{
 async function writeEnvFile(lines: EnvLine[]): Promise<void> {
   const envPath = getEnvPath()!;
   await writeFileAtomic(envPath, serializeEnv(lines));
-}
-
-function checkOpAuthenticated(opEnv?: NodeJS.ProcessEnv): boolean {
-  try {
-    execFileSync("op", ["whoami", "--format", "json"], {
-      stdio: "pipe",
-      timeout: 3000,
-      env: opEnv || process.env,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function checkCommandAvailable(command: string): boolean {
-  try {
-    execFileSync("which", [command], { stdio: "pipe", timeout: 3000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function checkXintState(): {
-  installed: boolean;
-  oauthConfigured: boolean;
-  envConfigured: boolean;
-} {
-  const installed = checkCommandAvailable("xint");
-  const oauthPath = join(os.homedir(), ".xint", "data", "oauth-tokens.json");
-  const envPath = join(os.homedir(), ".xint", ".env");
-  const oauthConfigured = existsSync(oauthPath);
-  const envConfigured = existsSync(envPath);
-  return { installed, oauthConfigured, envConfigured };
-}
-
-function resolveOllamaBaseUrl(): string {
-  const raw = String(process.env.OLLAMA_HOST || "").trim();
-  if (!raw) return "http://127.0.0.1:11434";
-  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
-  return `http://${raw}`;
-}
-
-async function checkOllamaReachable(): Promise<boolean> {
-  try {
-    const base = resolveOllamaBaseUrl().replace(/\/+$/, "");
-    const res = await fetch(`${base}/api/tags`, {
-      signal: AbortSignal.timeout(1200),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function getIntegrationProbeSnapshot(): Promise<IntegrationProbeSnapshot> {
-  const now = Date.now();
-  if (
-    integrationProbeCache &&
-    now - integrationProbeCache.ts < INTEGRATION_PROBE_TTL_MS
-  ) {
-    return integrationProbeCache.value;
-  }
-
-  const value: IntegrationProbeSnapshot = {
-    opAvailable: checkOpAvailable(),
-    xint: checkXintState(),
-    ollamaInstalled: checkCommandAvailable("ollama"),
-    ollamaReachable: await checkOllamaReachable(),
-    gwsInstalled: checkCommandAvailable("gws"),
-  };
-  integrationProbeCache = { ts: now, value };
-  return value;
-}
-
-// Uses execFileSync (no shell) to avoid command injection
-function checkOpAvailable(): boolean {
-  try {
-    execFileSync("which", ["op"], { stdio: "pipe", timeout: 3000 });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -224,7 +139,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const probe = await getIntegrationProbeSnapshot();
+  const probe = await probes.snapshot();
   const { opAvailable, xint, ollamaInstalled, ollamaReachable, gwsInstalled } =
     probe;
   const providerSubscriptions = detectProviderSubscriptions();
@@ -275,7 +190,7 @@ export async function GET(request: NextRequest) {
       const opEnv = { ...process.env };
       const fileToken = envMap.get("OP_SERVICE_ACCOUNT_TOKEN");
       if (fileToken) opEnv.OP_SERVICE_ACCOUNT_TOKEN = fileToken;
-      if (checkOpAuthenticated(opEnv)) {
+      if (probes.isOpAuthenticated(opEnv)) {
         vars.OP_SERVICE_ACCOUNT_TOKEN = {
           redacted: fileToken ? redactValue(fileToken) : "op session",
           set: true,
@@ -772,7 +687,7 @@ async function handleTest(
           envMap,
           "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE",
         );
-        const gwsAvail = checkCommandAvailable("gws");
+        const gwsAvail = probes.isCommandAvailable("gws");
         if (!gwsAvail) {
           result = {
             ok: false,
@@ -818,7 +733,7 @@ async function handleTest(
           moonshot: "https://api.moonshot.cn",
           brave: "https://api.search.brave.com",
           linkedin: "https://api.linkedin.com",
-          ollama: resolveOllamaBaseUrl(),
+          ollama: resolveOllamaBaseUrl(process.env),
           gateway: String(process.env.OPENCLAW_GATEWAY_URL || "").trim() || "",
         };
         const url = baseUrls[integration.id];
@@ -882,7 +797,7 @@ async function handlePull(
     );
   }
 
-  if (!checkOpAvailable()) {
+  if (!probes.isOpAvailable()) {
     return NextResponse.json(
       { error: "1Password CLI (op) is not installed" },
       { status: 400 },
@@ -997,7 +912,7 @@ async function handlePullAll(
   user: { username: string; id: number },
   category?: string,
 ) {
-  if (!checkOpAvailable()) {
+  if (!probes.isOpAvailable()) {
     return NextResponse.json(
       { error: "1Password CLI (op) is not installed" },
       { status: 400 },

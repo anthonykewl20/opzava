@@ -10,8 +10,10 @@ configured-check logic. Extracted so these rules — which prevent secret leakag
 gate which env vars may be written — have a single owner and a direct test surface, instead of being
 untested inside a 1017-line route.
 
-This is the read/registry half. The probe logic (`op whoami`, `which`, ollama reachability) and the
-write path (`.env` mutation, `handleTest`, `handlePull`) remain in the route for now (later sub-slices).
+This owns the read domain (registry + env-read) AND the probe domain (sub-slice 1b): detecting
+installed CLIs (`op`/`xint`/`ollama`/`gws`), `op` authentication, xint OAuth/env-file presence, and
+Ollama daemon reachability — all behind injected exec/fs/fetch/env ports. Only the **write path**
+(`.env` mutation, `handleTest`, `handlePull`) remains in the route for a later sub-slice.
 
 ## Public surface
 Platform module — no `index.ts`; the files are truth.
@@ -30,12 +32,24 @@ Platform module — no `index.ts`; the files are truth.
 - `interface EnvReaderDeps { processEnv; exists }`, `createEnvReader(deps)` →
   `{ getEffectiveEnvValue(envMap, key); isConfiguredValue(key, value) }`.
 
+**`probes.ts`** (the probe domain behind injected ports):
+- `interface IntegrationProbeSnapshot` — `{ opAvailable; xint{installed,oauthConfigured,envConfigured}; ollamaInstalled; ollamaReachable; gwsInstalled }`.
+- `resolveOllamaBaseUrl(env): string` — pure `OLLAMA_HOST` resolution (default `http://127.0.0.1:11434`; no scheme → `http://` prefix).
+- `interface ProbeDeps { execFile; fetch; exists; env; homeDir; now }`, `createProbes(deps)` →
+  `{ snapshot(): Promise<IntegrationProbeSnapshot>; isCommandAvailable(cmd); isOpAvailable(); isOpAuthenticated(opEnv?) }`.
+- `snapshot()` is the 5000ms-cached orchestrator (cache is per `createProbes` instance, keyed on `now()`).
+
 ## Dependencies
-- **NO `@/lib` imports (Engine-B purity).** `process.env` and `existsSync` enter as injected ports via
-  `createEnvReader`; the route constructs the reader with the real `process.env` / `existsSync`. Enforced
-  by `test/engine-boundary.test.mjs` + `src/opzava/architecture.test.ts`.
+- **NO `@/lib` imports (Engine-B purity).** `process.env`, `execFileSync`, `existsSync`, `fetch`, `os`,
+  `Date.now` enter as injected ports (`createEnvReader`, `createProbes`); the route constructs both with
+  the real ports. Only the node `path` builtin (`join`, in `probes.ts`) is imported directly.
+  **Enforcement caveat:** purity here is a code-review + folder-structure allowlist invariant — NOT yet a
+  hard gate. `test/engine-boundary.test.mjs` scans only `src/opzava/modules/team` ↔ `src/lib` (the ARD 0007
+  bridge), and `src/opzava/architecture.test.ts`'s `resolveSpec` ignores any spec outside `src/opzava`, so a
+  stray `@/lib` import in this folder would pass BOTH. Keep it pure by convention; follow-up: extend
+  `engine-boundary.test.mjs` to walk `src/opzava/platform/` for `@/lib` imports.
 - **Inbound** (do not silently break): `src/app/api/integrations/route.ts` — the sole caller (imports the
-  registry + the pure helpers + `createEnvReader`).
+  registry + the pure helpers + `createEnvReader` + `createProbes`/`resolveOllamaBaseUrl`).
 
 ## Invariants
 1. **Redaction is load-bearing for security.** `redactValue` masks everything but the last 4 characters
@@ -51,6 +65,22 @@ Platform module — no `index.ts`; the files are truth.
    value when non-empty, else the live `process.env` value, else `''`. `isConfiguredValue` treats
    path-like vars as configured only if the path exists (`exists` port), all others as configured if
    non-empty.
+5. **Every probe degrades to a safe boolean — never throws, never 500s.** `isCommandAvailable` /
+   `isOpAvailable` / `isOpAuthenticated` / `isOllamaReachable` swallow exec/fs/fetch errors and return
+   `false`. A missing CLI, an unauthenticated `op`, a down Ollama daemon, or a network error must read
+   as not-available, not crash the request.
+6. **The 5000ms snapshot cache is process-lifetime by design.** `snapshot()` caches the full probe
+   bundle for `PROBE_TTL_MS` (5000) to avoid re-shelling on every request. The cache lives in the
+   `createProbes` closure; the route wires a single module-level instance (matching the prior
+   route-local `integrationProbeCache`). The boundary is exclusive: `now - cache.ts < 5000` → at
+   exactly 5000ms elapsed it re-probes.
+7. **Ports read live state — no value-freezing (the F1 trap).** `env`, `homeDir`, `now`, `execFile`,
+   `fetch`, `exists` are passed as live references/functions, so `OLLAMA_HOST`, the home dir, and the
+   clock are read per-call. Do not capture their *values* at `createProbes` time.
+8. **`op whoami` is lazy — `snapshot()` does NOT run it.** Only `isOpAuthenticated()` shells out to
+   `op whoami`; the snapshot only checks `which op` (presence). The route calls `isOpAuthenticated`
+   separately, only for the onepassword integration when its key is otherwise unset. Preserve this
+   asymmetry.
 
 ## Harmony rules
 - **Which engine**: ENGINE B. Pure data + pure logic + port-injected process/fs reads; no cross-engine
@@ -65,3 +95,6 @@ Platform module — no `index.ts`; the files are truth.
   the route. A `@/lib` import here is a layering violation that fails the governance tests.
 - `docs/architecture/system-map/92-stale-findings.md` has no dedicated entry for this module. The
   applicable cross-cutting guardrail: read-seams are read-only (ARD 0007).
+- Preserve the probe timeouts verbatim — `which` / `op whoami` 3000ms, ollama fetch 1200ms — and the
+  5000ms cache TTL; they bound subprocess/network exposure. A careless bump widens the blast radius of a
+  stuck probe (it is on the admin GET hot path).
