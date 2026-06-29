@@ -253,6 +253,16 @@ describe("createEnvStore — deleteEnvVars", () => {
     expect(rec.writes.length).toBe(0);
   });
 
+  it("does NOT enforce the var-name regex (DELETE-only asymmetry vs SET)", async () => {
+    // setEnvVars rejects names that fail ^[A-Z_][A-Z0-9_]*$; deleteEnvVars does NOT — it
+    // only enforces the blocked policy. So an invalid-named var that slipped into the
+    // file IS removed. Pins the asymmetry so a future "consistency" refactor goes red.
+    const { store, rec } = makeStore({ fileContent: "bad-name=x\nOTHER=y" });
+    const out = await store.deleteEnvVars(["bad-name"]);
+    expect(out).toEqual({ ok: true, affected: ["bad-name"] });
+    expect(rec.fileContent).toBe("OTHER=y");
+  });
+
   it("reports not-configured when the state dir is unset", async () => {
     const { store } = makeStore({ stateDir: null });
     expect(await store.deleteEnvVars(["A"])).toEqual({

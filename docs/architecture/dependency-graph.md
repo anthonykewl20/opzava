@@ -34,6 +34,7 @@ graph TD
     audit["audit"]
     costs["costs"]
     obs["observability"]
+    integrations["integrations<br/>(catalog + env/probes/1Password/test)"]
   end
 
   subgraph inherited["inherited engine A + app"]
@@ -62,7 +63,7 @@ graph TD
   admin --> audit
   costs --> runner
   %% app / inherited edges
-  routes --> content & team & admin & runner & audit & costs
+  routes --> content & team & admin & runner & audit & costs & integrations
   logger --> obs
 
   %% NON-import couplings

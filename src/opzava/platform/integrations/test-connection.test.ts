@@ -235,6 +235,20 @@ describe("createTestRunner — built-in cases", () => {
     expect(out.ok).toBe(false);
     expect(out.detail).toBe("Not authenticated — run `gws auth login`");
   });
+
+  it("google_workspace: stderr is truncated at the 120-char boundary (slice(0,120))", async () => {
+    // 200 chars of stderr → the detail is sliced to ≤120 and is a PREFIX of the
+    // original. Pins the truncation so a future "show the whole error" change goes red.
+    const { runner } = makeRunner({
+      gwsInstalled: true,
+      gwsThrows: true,
+      gwsStderr: "x".repeat(200),
+    });
+    const out = await runner.testConnection("google_workspace", ctx());
+    expect(out.ok).toBe(false);
+    expect(out.detail.length).toBeLessThanOrEqual(120);
+    expect("x".repeat(200).startsWith(out.detail)).toBe(true);
+  });
 });
 
 // --- generic HEAD reachability rule -----------------------------------------
@@ -250,6 +264,42 @@ describe("createTestRunner — generic HEAD status rule", () => {
     const { runner } = makeRunner({ fetchOk: false, fetchStatus: 503 });
     const out = await runner.testConnection("nvidia", ctx());
     expect(out).toEqual({ ok: false, detail: "Unreachable (HTTP 503)" });
+  });
+
+  it("gateway: OPENCLAW_GATEWAY_URL set → HEAD hits that URL + Reachable (HTTP 200)", async () => {
+    const { runner, fetchCalls } = makeRunner({
+      fetchOk: true,
+      fetchStatus: 200,
+      env: { OPENCLAW_GATEWAY_URL: "https://gw.example.com" },
+    });
+    const out = await runner.testConnection("gateway", ctx());
+    expect(out).toEqual({ ok: true, detail: "Reachable (HTTP 200)" });
+    expect(fetchCalls[0].url).toBe("https://gw.example.com");
+    expect((fetchCalls[0].init as RequestInit).method).toBe("HEAD");
+  });
+
+  it("gateway: OPENCLAW_GATEWAY_URL unset → falsy URL → no-test-available fallthrough", async () => {
+    // The gateway URL resolves to "" (falsy) when the env var is unset, so the generic
+    // HEAD branch is skipped and the no-test-available outcome is returned instead.
+    const { runner, fetchCalls } = makeRunner({ env: {} });
+    const out = await runner.testConnection("gateway", ctx());
+    expect(out).toEqual({
+      ok: false,
+      detail: "No test available — configure the integration URL to enable testing",
+    });
+    expect(fetchCalls.length).toBe(0);
+  });
+
+  it("ollama: default env → HEAD hits resolveOllamaBaseUrl default (127.0.0.1:11434)", async () => {
+    const { runner, fetchCalls } = makeRunner({
+      fetchOk: true,
+      fetchStatus: 200,
+      env: {},
+    });
+    const out = await runner.testConnection("ollama", ctx());
+    expect(out.ok).toBe(true);
+    expect(fetchCalls[0].url).toBe("http://127.0.0.1:11434");
+    expect((fetchCalls[0].init as RequestInit).method).toBe("HEAD");
   });
 });
 
@@ -301,5 +351,29 @@ describe("createTestRunner — sad paths", () => {
       ctx({ resolveEnvValue: () => "tok" }),
     );
     expect(out).toEqual({ ok: false, detail: "Connection failed" });
+  });
+
+  it("a non-JSON fetch body (json() rejects) is caught → {ok:false}, never throws (issue #61 #16)", async () => {
+    // telegram's happy path calls res.json(); if the body is not JSON that throws a
+    // SyntaxError. The outer catch must convert it to a {ok:false} outcome so the route
+    // never 500s on a malformed upstream response. Pins the "never throws" invariant at
+    // the JSON-parse seam.
+    const deps: TestRunnerDeps = {
+      fetch: (async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError("Unexpected token < in JSON");
+        },
+      } as unknown as Response)) as typeof fetch,
+      execFile: (() => "") as TestRunnerDeps["execFile"],
+      env: {},
+      isCommandAvailable: () => true,
+    };
+    const out = await createTestRunner(deps).testConnection(
+      "telegram",
+      ctx({ resolveEnvValue: () => "TOK" }),
+    );
+    expect(out).toEqual({ ok: false, detail: "Unexpected token < in JSON" });
   });
 });
