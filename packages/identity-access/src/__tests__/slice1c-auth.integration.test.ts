@@ -18,7 +18,7 @@ const testRunId = randomUUID();
 const ownerEmail = `owner-${testRunId}@example.test`;
 const otherEmail = `other-${testRunId}@example.test`;
 const secondSetupEmail = `second-owner-${testRunId}@example.test`;
-const ownerPassword = "correct-horse-battery-staple";
+const ownerPassword = "Correct-Horse-Battery-Staple-1";
 const adminPool = createPostgresPool(readMigrationDatabaseUrlForTest());
 
 const createdOrganizationIds: string[] = [];

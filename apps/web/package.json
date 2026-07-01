@@ -11,11 +11,14 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@opzava/adapters": "workspace:*",
     "@opzava/config": "workspace:*",
     "@opzava/identity-access": "workspace:*",
+    "@opzava/ports": "workspace:*",
     "@radix-ui/react-slot": "^1.2.0",
     "better-auth": "1.6.23",
     "class-variance-authority": "^0.7.1",

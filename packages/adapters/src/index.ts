@@ -21,3 +21,8 @@ export {
   isPublicDatabaseError,
   mapDatabaseError
 } from "./postgres/errors.js";
+
+// Re-export the Drizzle `sql` tag so the BFF/server layer can build parameterized
+// read queries against the adapters `db` without taking a direct drizzle-orm
+// dependency (keeps the ADR-001 boundary: apps depend on @opzava/adapters).
+export { sql } from "drizzle-orm";

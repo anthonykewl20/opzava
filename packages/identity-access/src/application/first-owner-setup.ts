@@ -99,11 +99,25 @@ function validateInput(input: FirstOwnerSetupInput): Result<void> {
     return err(firstOwnerError("identityAccess.firstOwnerEmailRequired", "Owner email is required."));
   }
 
-  if (input.ownerPassword.length < 8) {
+  if (input.ownerPassword.length < 12) {
     return err(
       firstOwnerError(
         "identityAccess.firstOwnerPasswordTooShort",
-        "Owner password must be at least 8 characters."
+        "Owner password must be at least 12 characters."
+      )
+    );
+  }
+
+  // Domain-level policy so a direct FirstOwnerSetupService caller cannot bypass
+  // the stronger UI contract: require at least three character classes.
+  const passwordClasses = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((pattern) =>
+    pattern.test(input.ownerPassword)
+  ).length;
+  if (passwordClasses < 3) {
+    return err(
+      firstOwnerError(
+        "identityAccess.firstOwnerPasswordTooWeak",
+        "Owner password must include at least three of: lowercase, uppercase, number, symbol."
       )
     );
   }
