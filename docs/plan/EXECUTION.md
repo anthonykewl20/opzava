@@ -29,8 +29,8 @@ Do not let this document become aspirational. If implementation changes the plan
 | Field | Value |
 | --- | --- |
 | Active slice | Slice 1 - Admin Tasks MVP |
-| Status | not-started |
-| Next concrete action | Start Slice 1 by reading its listed skills and validating current official docs before implementing the local parity stack and admin Tasks MVP. |
+| Status | in-progress |
+| Next concrete action | Slice 1b: Postgres schema + Drizzle + `withTenant` RLS (PgBouncer transaction mode, prepared statements off) + migration gating. Validate Drizzle + Better Auth Drizzle-adapter official docs before coding. |
 | Blockers | None |
 
 ## Operating Mode
@@ -114,13 +114,15 @@ Real-implementation de-risk follow-ups:
 
 ### Slice 1 - Admin Tasks MVP (dogfoodable)
 
-Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
+Status: [ ] not-started | [x] in-progress | [ ] blocked | [ ] done
+
+Foundation validated: `docs/plan/research/slice1-foundation-stack.md` (codex official-docs research + mmx adversarial consensus). Sub-slices: 1a foundation + parity Compose; 1b Postgres/Drizzle/`withTenant` RLS + migrations; 1c Better Auth admin login behind `AuthPort`; 1d app shell + admin nav; 1e Task aggregate + admin Tasks list/kanban; 1f seed build slices as Tasks + `verify-deep` + commit.
 
 Goal: Ship the smallest real Opzava surface: admins log in and track Opzava's own build slices in an admin Tasks board.
 
 Deliverables:
 
-- [ ] `docker-compose up` starts the local parity stack with Traefik and Postgres.
+- [x] `docker-compose up` starts the local parity stack with Traefik and Postgres.
 - [ ] Better Auth admin sign-up/login runs behind `AuthPort` with DB-backed revocable sessions.
 - [ ] App shell renders admin navigation and tenant/workspace context.
 - [ ] Task aggregate persists `title`, `description`, `status`, `priority`, `assignee`, and `labels` in Postgres.
@@ -368,6 +370,8 @@ Per slice:
 
 ## Worklog
 
+- 2026-07-02 - Slice 1a foundation GREEN. Monorepo scaffolded (codex-exec gpt-5.5 codegen) + adversarially reviewed (codex-spark, `docs/plan/consensus/slice1a-review.spark.md`) + fixed. `pnpm install` clean, typecheck 5/5, test 6/6, `next build` production build passes; `docker compose up` brings up Traefik (18088/18448) + Postgres 18.4 (healthy). Key fixes: `turbo@^2.10.2` (no v3 exists), pnpm 11.9 build gate is `allowBuilds: {sharp: true}` (not `onlyBuiltDependencies`), Traefik host ports remapped 18088/18448/18089 off the local-Dokploy collision, Vitest 4 oxc needs relative tsconfig `extends` (not the `@opzava/config` package specifier), `NODE_ENV` is read-only under @types/node 24, Traefik dashboard moved to a local-only `docker-compose.override.yml`, `DATABASE_URL` deferred to 1b.
+- 2026-07-02 - Slice 1 foundation validated: codex-exec deep-researched official docs -> `docs/plan/research/slice1-foundation-stack.md` (Node 24.18, pnpm 11.9, Next 16.2.9, React 19.2.7, Drizzle 0.45.2 stable, Postgres 18.4, Better Auth 1.6 org/2FA/passkey, Tailwind v4.3, Traefik v3.6.1). mmx adversarial consensus locked TS 5.9.x over 6.0.3, a PgBouncer-transaction RLS client with prepared statements off, boundaries lint, Vitest, migration gating, and env-schema fail-fast. Next: scaffold sub-slice 1a.
 - 2026-07-02 - Slice 0 spike PASS: validated Traefik routing to dynamic Gateway containers, broker WS route, worker-only Docker mutation through socket-proxy, Docker API pinning need, and denied endpoint behavior; findings recorded in ADR-015 and the provisioning skill.
 - 2026-07-02 - codex+mmx review confirmed genuine infra proof, not a fake pass; real OpenClaw handshake, wildcard TLS/DNS, readiness/backoff, reaper concurrency, lazy-start cost, secrets lifecycle, and Dokploy mapping gaps captured as follow-ups.
 - 2026-07-02 - Governance updated: official-docs validation rule and registry added; BillingPort deferred as a null adapter until external monetization; operating mode clarified as internal single-tenant first, then Marketing + CRM after the admin-Tasks MVP.

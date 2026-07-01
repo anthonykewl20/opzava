@@ -1,0 +1,66 @@
+services:
+  traefik:
+    image: traefik:v3.6.1
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=dokploy-network"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+    ports:
+      - "18088:80"
+      - "18448:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - dokploy-network
+
+  postgres:
+    image: postgres:18.4-bookworm
+    environment:
+      POSTGRES_DB: opzava
+      POSTGRES_USER: opzava
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - opzava-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opzava -d opzava"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dokploy-network
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      APP_URL: ${APP_URL:-http://web.opzava.localhost:18088}
+      # DATABASE_URL is injected in sub-slice 1b via a secret-derived value; the
+      # web app does not open a DB connection in 1a.
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.web.rule: "Host(`web.opzava.localhost`)"
+      traefik.http.routers.web.entrypoints: "web"
+      traefik.http.services.web.loadbalancer.server.port: "3000"
+      traefik.docker.network: "dokploy-network"
+    networks:
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
+
+volumes:
+  opzava-pgdata:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password

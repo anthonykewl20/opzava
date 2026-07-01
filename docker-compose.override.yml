@@ -1,0 +1,17 @@
+# Local development overrides — auto-merged by `docker compose` on this machine.
+# Dokploy deploys consume docker-compose.yml ONLY, so nothing here reaches live.
+# Exposes the Traefik dashboard at http://localhost:18089 for local routing debug.
+# `command` replaces the base list (Compose merge rule), so it is restated in full;
+# `ports` concatenate, so only the extra dashboard port is added here.
+services:
+  traefik:
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=dokploy-network"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+    ports:
+      - "18089:8080"
