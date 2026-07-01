@@ -20,3 +20,14 @@ use the `handoff` skill. Do not skip ahead; keep the doc in sync with reality.
 - **Tool-policy-first** security ("SOUL can lie; tool policy cannot"); **RLS denial is a hard 403**, never a silent empty result.
 - **Local docker-compose in parity with live Dokploy** (single compose, Traefik labels); **no routable orphan Gateway**.
 - Scale-ready modular DDD (no MVP-then-rewrite); agnostic ports; sad-path-first; lean VPS ops.
+
+## Gated workflow (MANDATORY — every issue, slice, and phase)
+Every unit of work follows the same gates, in order — do not skip:
+1. **Orient:** read this file + `docs/plan/EXECUTION.md`; load the `opzava-conventions` skill and the skills named on the issue/slice.
+2. **Scope:** work ONLY the current slice/issue (`EXECUTION.md` → Current State). Never skip ahead.
+3. **Build to spec:** implement strictly to the linked ADR/PRD; honor every invariant above; design to `docs/openclaw` (parity — harness, don't reinvent).
+4. **Prove:** `tdd` (red→green) → `verify-deep` (tests + lint + typecheck) → `code-review`. Local↔Dokploy parity must stay intact.
+5. **Record:** update `EXECUTION.md` (slice status + dated worklog) and the issue; commit via `commit-style` on a branch off `development`.
+
+A slice/issue is **Done** only when all five gates pass. Missing a skill? Author it with `writing-great-skills` before proceeding.
+Each GitHub issue restates this workflow + its exact skill set — follow it verbatim.
