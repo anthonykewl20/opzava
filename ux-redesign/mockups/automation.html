@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Automation — Opzava</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="admin-nav.js" defer></script>
+  <style>
+    /* Page-specific layout only — no color, font-size, shadow, or radius overrides */
+    .two-col-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.8fr;
+      gap: var(--space-4);
+      align-items: start;
+    }
+    .spend-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: var(--space-2);
+      height: 72px;
+      padding: 0 var(--space-2);
+    }
+    .spend-chart-bar {
+      flex: 1;
+      border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+      min-width: 0;
+    }
+    .spend-chart-labels {
+      display: flex;
+      gap: var(--space-2);
+      padding: var(--space-1) var(--space-2) 0;
+    }
+    .spend-chart-labels span {
+      flex: 1;
+      text-align: center;
+    }
+    .activity-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      min-height: 40px;
+      padding: 0 var(--space-5);
+      border-bottom: 1px solid var(--border);
+    }
+    .activity-row:last-child {
+      border-bottom: 0;
+    }
+    .activity-time {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+      min-width: 68px;
+      flex: none;
+    }
+    .activity-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .nav-section-gap {
+      margin-top: var(--space-2);
+    }
+    .header-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--surface-3);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      flex: none;
+      cursor: pointer;
+      font-weight: var(--fw-semibold);
+    }
+    .notif-btn-wrap {
+      position: relative;
+    }
+    .notif-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: var(--radius-full);
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      font-weight: var(--fw-semibold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+    }
+    .spend-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .spend-row-sep {
+      color: var(--border-strong);
+    }
+    .page-stack {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+    .fleet-table-wrap {
+      overflow: hidden;
+    }
+    .activity-live-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       NAVIGATION RAIL
+  ══════════════════════════════════════════════════════════════════ -->
+  <aside class="rail" aria-label="Main navigation">
+
+    <!-- Logo / wordmark -->
+    <div class="rail-head">
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
+        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
+      </svg>
+      <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);letter-spacing:-.01em;">Opzava</span>
+      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
+    </div>
+
+    <!-- Nav groups -->
+    <nav class="rail-nav" aria-label="Application sections">
+      <a href="orchestrator-chat.html" class="rail-item" style="margin-bottom:4px;">
+        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
+        Ask Opzava
+        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
+      </a>
+      <div class="section-label">Operate</div>
+      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
+      <a href="agents.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
+      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
+      <a href="issues.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="9" r="1.75" fill="currentColor"/></svg> Issues <span class="count">12</span></a>
+      <a href="activity.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="4.5" cy="5" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="4.5" cy="12" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 12h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Activity</a>
+      <a href="messages-slack.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
+      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
+      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
+      <div class="section-label nav-section-gap">Observe</div>
+      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
+      <a href="logs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
+      <a href="costs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
+      <div class="section-label nav-section-gap">Automate</div>
+      <a href="connections.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="5" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><path d="M7.3 9h3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Connections <span class="dot dot-success dot-beat" style="margin-left:auto;" aria-label="all tools connected"></span></a>
+      <a href="automation.html" class="rail-item" aria-current="page"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M10 2.5 4.5 10H8l-1 5.5L13.5 8H10z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Automation <span class="count">4</span></a>
+      <div class="section-label nav-section-gap">Govern</div>
+      <a href="security-audit.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5l5 1.8v3.7c0 3.3-2.1 5.6-5 6.5-2.9-.9-5-3.2-5-6.5V4.3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Security &amp; Audit <span class="count" style="background:var(--danger-soft);color:var(--danger);">1</span></a>
+      <a href="memory-skills.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 2.5 6 9 9.5 15.5 6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M2.5 10 9 13.5 15.5 10" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Memory &amp; Skills</a>
+      <a href="notifications-alerts.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
+      <a href="settings.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
+      <a href="debug.html" class="rail-item u-subtle"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="3.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7.5 7.5 9.5 5.5 11.5M9.5 11.5h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Debug</a>
+      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+    </nav>
+
+    <!-- Rail footer: ⌘K quick jump -->
+    <div class="rail-foot">
+      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (⌘K)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-subtle u-grow">Jump to…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIN COLUMN
+  ══════════════════════════════════════════════════════════════════ -->
+  <div class="main-col">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="header">
+
+      <!-- Sidebar collapse -->
+      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <!-- Search -->
+      <div class="search" role="search">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-grow u-subtle">Search agents, tasks, runs…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </div>
+
+      <!-- Spacer -->
+      <div class="u-grow"></div>
+
+      <!-- Health pill -->
+      <div class="health-pill" aria-label="System health: All systems healthy">
+        <span class="dot dot-success" aria-hidden="true"></span>
+        All systems healthy
+      </div>
+
+      <!-- Live indicator -->
+      <div class="live-indicator" aria-label="Live connection active">
+        <span class="dot dot-success live" aria-hidden="true"></span>
+        <span>Live</span>
+      </div>
+
+      <!-- Notifications -->
+      <div class="notif-btn-wrap">
+        <a href="notifications-alerts.html" class="btn btn-ghost btn-icon" aria-label="Notifications, 2 unread">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </a>
+        <span class="notif-badge" aria-hidden="true">2</span>
+        <span class="u-sr-only">2 unread notifications</span>
+      </div>
+
+      <!-- Avatar -->
+      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu — Anthony G.">AG</div>
+
+    </header>
+
+    <!-- ── Main content ────────────────────────────────────────── -->
+    <main class="main">
+      <div class="page">
+        <div class="page-stack">
+
+          <!-- ── Page header ─────────────────────────────────────────── -->
+          <div class="page-header">
+            <div>
+              <h1>Automation</h1>
+              <p class="page-sub">Schedules, webhooks &amp; triggers</p>
+            </div>
+            <div class="u-row" style="gap:var(--space-2);">
+              <button type="button" class="btn">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M8 4.5V8l2.5 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Run log
+              </button>
+              <button type="button" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                New automation
+              </button>
+            </div>
+          </div>
+
+          <!-- ── 1 · Summary — glanceable ─────────────────────────────── -->
+          <section aria-label="Automation summary">
+            <div class="stat-grid">
+
+              <div class="stat">
+                <div class="stat-label">Active</div>
+                <div class="u-row" style="gap:var(--space-2);align-items:center;">
+                  <span class="stat-value u-tnum">11</span>
+                  <span class="dot dot-success dot-beat" aria-hidden="true" title="running"></span>
+                </div>
+                <div class="stat-delta u-subtle">automations enabled</div>
+              </div>
+
+              <div class="stat">
+                <div class="stat-label">Runs today</div>
+                <div class="stat-value u-tnum u-mono">47</div>
+                <div class="stat-delta u-subtle">since midnight</div>
+              </div>
+
+              <div class="stat">
+                <div class="stat-label">Failures</div>
+                <div class="u-row" style="gap:var(--space-2);align-items:center;">
+                  <span class="stat-value u-tnum u-muted">1</span>
+                  <span class="dot dot-danger" aria-hidden="true"></span>
+                </div>
+                <div class="stat-delta u-subtle">in the last 24h · 1 retrying</div>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- ── 2 · Schedules (cron) ─────────────────────────────────── -->
+          <section aria-labelledby="sched-heading">
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="sched-heading">Schedules</h2>
+                <span class="u-subtle" style="font-size:var(--text-xs);">6 cron jobs · 5 enabled</span>
+              </div>
+              <table class="table table-compact table-cards">
+                <caption class="u-sr-only">Scheduled cron automations — name, cron cadence, next run, last run, and enabled status. Six schedules; five enabled and one paused.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Cadence</th>
+                    <th scope="col">Next run</th>
+                    <th scope="col">Last run</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+
+                  <!-- Daily content digest -->
+                  <tr>
+                    <td data-label="Name" style="font-weight:var(--fw-medium);">Daily content digest</td>
+                    <td data-label="Cadence">
+                      <span class="u-mono">0 9 * * *</span>
+                      <div class="u-subtle" style="font-size:var(--text-xs);">9:00 daily</div>
+                    </td>
+                    <td data-label="Next run" class="u-mono u-subtle">in 6h</td>
+                    <td data-label="Last run" class="u-mono u-subtle">today 9:00</td>
+                    <td data-label="Status">
+                      <span class="u-row" style="gap:var(--space-3);">
+                        <button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Daily content digest — enabled"></button>
+                        <span class="u-row">
+                          <span class="dot dot-success" aria-hidden="true"></span>
+                          Enabled
+                        </span>
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- Weekly performance report -->
+                  <tr>
+                    <td data-label="Name" style="font-weight:var(--fw-medium);">Weekly performance report</td>
+                    <td data-label="Cadence">
+                      <span class="u-mono">0 8 * * 1</span>
+                      <div class="u-subtle" style="font-size:var(--text-xs);">Mon 8:00</div>
+                    </td>
+                    <td data-label="Next run" class="u-mono u-subtle">Mon</td>
+                    <td data-label="Last run" class="u-mono u-subtle">last Mon</td>
+                    <td data-label="Status">
+                      <span class="u-row" style="gap:var(--space-3);">
+                        <button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Weekly performance report — enabled"></button>
+                        <span class="u-row">
+                          <span class="dot dot-success" aria-hidden="true"></span>
+                          Enabled
+                        </span>
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- Hourly usage sync — running now -->
+                  <tr>
+                    <td data-label="Name" style="font-weight:var(--fw-medium);">Hourly usage sync</td>
+                    <td data-label="Cadence"><span class="u-mono">0 * * * *</span></td>
+                    <td data-label="Next run" class="u-mono u-subtle">in 24m</td>
+                    <td data-label="Last run">
+                      <span class="u-row" style="gap:var(--space-2);">
+                        <span class="dot dot-accent is-running" aria-hidden="true"></span>
+                        <span class="u-mono">running now</span>
+                      </span>
+                    </td>
+                    <td data-label="Status">
+                      <span class="u-row" style="gap:var(--space-3);">
+                        <button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Hourly usage sync — enabled"></button>
+                        <span class="u-row">
+                          <span class="dot dot-success" aria-hidden="true"></span>
+                          Enabled
+                        </span>
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- Nightly DB backup -->
+                  <tr>
+                    <td data-label="Name" style="font-weight:var(--fw-medium);">Nightly DB backup</td>
+                    <td data-label="Cadence"><span class="u-mono">0 2 * * *</span></td>
+                    <td data-label="Next run" class="u-mono u-subtle">in 2h</td>
+                    <td data-label="Last run" class="u-mono u-subtle">today 2:00</td>
+                    <td data-label="Status">
+                      <span class="u-row" style="gap:var(--space-3);">
+                        <button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Nightly DB backup — enabled"></button>
+                        <span class="u-row">
+                          <span class="dot dot-success" aria-hidden="true"></span>
+                          Enabled
+                        </span>
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- Monthly cost statement -->
+                  <tr>
+                    <td data-label="Name" style="font-weight:var(--fw-medium);">Monthly cost statement</td>
+                    <td data-label="Cadence"><span class="u-mono">0 0 1 * *</span></td>
+                    <td data-label="Next run" class="u-mono u-subtle">Jul 1</td>
+                    <td data-label="Last run" class="u-mono u-subtle">Jun 1</td>
+                    <td data-label="Status">
+                      <span class="u-row" style="gap:var(--space-3);">
+                        <button type="button" class="switch on" role="switch" aria-checked="true" aria-label="Monthly cost statement — enabled"></button>
+                        <span class="u-row">
+                          <span class="dot dot-success" aria-hidden="true"></span>
+                          Enabled
+                        </span>
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- Stale-issue triage sweep — paused -->
+                  <tr>
+                    <td data-label="Name" style="font-weight:var(--fw-medium);">Stale-issue triage sweep</td>
+                    <td data-label="Cadence">
+                      <span class="u-mono">0 17 * * 5</span>
+                      <div class="u-subtle" style="font-size:var(--text-xs);">Fri 17:00</div>
+                    </td>
+                    <td data-label="Next run" class="u-subtle" aria-label="No next run — paused">—</td>
+                    <td data-label="Last run" class="u-subtle" aria-label="Never run">—</td>
+                    <td data-label="Status">
+                      <span class="u-row" style="gap:var(--space-3);">
+                        <button type="button" class="switch" role="switch" aria-checked="false" aria-label="Stale-issue triage sweep — paused"></button>
+                        <span class="u-row u-muted">
+                          <span class="dot" aria-hidden="true"></span>
+                          Paused
+                        </span>
+                      </span>
+                    </td>
+                  </tr>
+
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ── 3 · Webhooks & triggers ──────────────────────────────── -->
+          <section aria-labelledby="hooks-heading">
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="hooks-heading">Webhooks &amp; triggers</h2>
+                <span class="u-subtle" style="font-size:var(--text-xs);">Event → action · 6 wired</span>
+              </div>
+              <table class="table table-compact table-cards">
+                <caption class="u-sr-only">Event-driven webhooks and triggers — trigger to action, when it last fired, runs in the last 24 hours, and status. Six triggers; five enabled and one failed.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Trigger → Action</th>
+                    <th scope="col">Last fired</th>
+                    <th scope="col" class="num">Runs (24h)</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+
+                  <!-- New lead → create task -->
+                  <tr>
+                    <td data-label="Trigger → Action">
+                      <div style="line-height:var(--lh-snug);">New lead <span class="u-subtle" aria-hidden="true" style="margin:0 2px;">→</span><span class="u-sr-only">then</span> create task</div>
+                    </td>
+                    <td data-label="Last fired" class="u-mono u-subtle">2h ago</td>
+                    <td data-label="Runs (24h)" class="num">8</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot dot-success" aria-hidden="true"></span>
+                        Enabled
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- Content published → notify Slack #content -->
+                  <tr>
+                    <td data-label="Trigger → Action">
+                      <div style="line-height:var(--lh-snug);">Content published <span class="u-subtle" aria-hidden="true" style="margin:0 2px;">→</span><span class="u-sr-only">then</span> notify Slack <code class="u-mono" style="font-size:var(--text-xs);">#content</code></div>
+                    </td>
+                    <td data-label="Last fired" class="u-mono u-subtle">20m ago</td>
+                    <td data-label="Runs (24h)" class="num">5</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot dot-success" aria-hidden="true"></span>
+                        Enabled
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- Budget ≥ 90% → send alert -->
+                  <tr>
+                    <td data-label="Trigger → Action">
+                      <div style="line-height:var(--lh-snug);">Budget <span class="u-mono">≥ 90%</span> <span class="u-subtle" aria-hidden="true" style="margin:0 2px;">→</span><span class="u-sr-only">then</span> send alert</div>
+                    </td>
+                    <td data-label="Last fired" class="u-subtle" aria-label="Not fired in the last 24 hours">—</td>
+                    <td data-label="Runs (24h)" class="num u-subtle">0</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot dot-success" aria-hidden="true"></span>
+                        Enabled
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- Issue ready-for-agent → dispatch to fleet -->
+                  <tr>
+                    <td data-label="Trigger → Action">
+                      <div style="line-height:var(--lh-snug);">Issue <code class="u-mono" style="font-size:var(--text-xs);">ready-for-agent</code> <span class="u-subtle" aria-hidden="true" style="margin:0 2px;">→</span><span class="u-sr-only">then</span> dispatch to fleet</div>
+                    </td>
+                    <td data-label="Last fired" class="u-mono u-subtle">1h ago</td>
+                    <td data-label="Runs (24h)" class="num">3</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot dot-success" aria-hidden="true"></span>
+                        Enabled
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- WordPress comment → triage -->
+                  <tr>
+                    <td data-label="Trigger → Action">
+                      <div style="line-height:var(--lh-snug);">WordPress comment <span class="u-subtle" aria-hidden="true" style="margin:0 2px;">→</span><span class="u-sr-only">then</span> triage</div>
+                    </td>
+                    <td data-label="Last fired" class="u-mono u-subtle">5m ago</td>
+                    <td data-label="Runs (24h)" class="num">12</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot dot-success" aria-hidden="true"></span>
+                        Enabled
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- Payment failed → notify operator — failed -->
+                  <tr>
+                    <td data-label="Trigger → Action">
+                      <div style="line-height:var(--lh-snug);">Payment failed <span class="u-subtle" aria-hidden="true" style="margin:0 2px;">→</span><span class="u-sr-only">then</span> notify operator</div>
+                    </td>
+                    <td data-label="Last fired" class="u-mono u-subtle">3h ago</td>
+                    <td data-label="Runs (24h)" class="num">1</td>
+                    <td data-label="Status">
+                      <span class="u-row" style="gap:var(--space-3);">
+                        <span class="u-row">
+                          <span class="dot dot-danger" aria-hidden="true"></span>
+                          Failed
+                        </span>
+                        <a href="#" rel="noopener" class="btn btn-ghost btn-sm">Retry</a>
+                      </span>
+                    </td>
+                  </tr>
+
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ── 4 · Recent runs ──────────────────────────────────────── -->
+          <section aria-labelledby="runs-heading">
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="runs-heading">Recent runs</h2>
+                <span class="u-subtle" style="font-size:var(--text-xs);">last 5 runs</span>
+              </div>
+              <table class="table table-compact table-cards">
+                <caption class="u-sr-only">Most recent automation runs — time, automation, outcome, and duration. Five runs; four succeeded and one failed and is retrying.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Time</th>
+                    <th scope="col">Automation</th>
+                    <th scope="col">Outcome</th>
+                    <th scope="col" class="num">Duration</th>
+                  </tr>
+                </thead>
+                <tbody>
+
+                  <tr>
+                    <td data-label="Time" class="u-mono u-subtle">00:12</td>
+                    <td data-label="Automation">Hourly usage sync</td>
+                    <td data-label="Outcome">
+                      <span class="u-row">
+                        <span class="dot dot-success" aria-hidden="true"></span>
+                        OK
+                      </span>
+                    </td>
+                    <td data-label="Duration" class="num u-mono">1.2s</td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Time" class="u-mono u-subtle">23:40</td>
+                    <td data-label="Automation">WordPress comment <span class="u-subtle" aria-hidden="true" style="margin:0 2px;">→</span><span class="u-sr-only">then</span> triage</td>
+                    <td data-label="Outcome">
+                      <span class="u-row">
+                        <span class="dot dot-success" aria-hidden="true"></span>
+                        OK
+                      </span>
+                    </td>
+                    <td data-label="Duration" class="num u-mono">0.6s</td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Time" class="u-mono u-subtle">23:20</td>
+                    <td data-label="Automation">Content published <span class="u-subtle" aria-hidden="true" style="margin:0 2px;">→</span><span class="u-sr-only">then</span> notify Slack</td>
+                    <td data-label="Outcome">
+                      <span class="u-row">
+                        <span class="dot dot-success" aria-hidden="true"></span>
+                        OK
+                      </span>
+                    </td>
+                    <td data-label="Duration" class="num u-mono">0.9s</td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Time" class="u-mono u-subtle">22:00</td>
+                    <td data-label="Automation">Hourly usage sync</td>
+                    <td data-label="Outcome">
+                      <span class="u-row">
+                        <span class="dot dot-success" aria-hidden="true"></span>
+                        OK
+                      </span>
+                    </td>
+                    <td data-label="Duration" class="num u-mono">1.1s</td>
+                  </tr>
+
+                  <!-- Failed — retrying -->
+                  <tr>
+                    <td data-label="Time" class="u-mono u-subtle">21:15</td>
+                    <td data-label="Automation">Payment failed <span class="u-subtle" aria-hidden="true" style="margin:0 2px;">→</span><span class="u-sr-only">then</span> notify operator</td>
+                    <td data-label="Outcome">
+                      <span class="u-row">
+                        <span class="dot dot-warning" aria-hidden="true"></span>
+                        Failed — retrying
+                      </span>
+                    </td>
+                    <td data-label="Duration" class="num u-mono">3.0s</td>
+                  </tr>
+
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ── 5 · Footer hint ──────────────────────────────────────── -->
+          <p class="hint">11 active automations · 47 runs today · 1 failure in the last 24h.</p>
+
+        </div>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+</body>
+</html>

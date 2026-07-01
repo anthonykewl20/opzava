@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Q2 Content Push · Team</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* ── page layout only ─────────────────────────────────────────────── */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+
+    /* Topbar */
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+
+    /* Page wrapper — narrower than overview, chat-focused */
+    .bc-wrap { max-width: 860px; margin: 0 auto; padding: var(--space-6) var(--space-6) var(--space-16); }
+
+    /* Project header band */
+    .proj-band { display: flex; align-items: flex-start; gap: var(--space-5); padding: var(--space-6) 0 var(--space-6); border-bottom: 1px solid var(--border); margin-bottom: var(--space-5); }
+    .proj-band-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; margin-top: 8px; background: var(--chart-1); }
+    .proj-band-body { flex: 1 1 auto; min-width: 0; }
+    .proj-band-title { font-size: var(--text-xl); font-weight: var(--fw-semibold); margin-bottom: var(--space-1); letter-spacing: -.02em; }
+    .proj-band-desc { font-size: var(--text-sm); color: var(--fg-muted); }
+    .proj-band-actions { display: flex; align-items: center; gap: var(--space-2); flex: none; padding-top: 2px; }
+
+    /* Project tab-bar */
+    .proj-tabs { margin-bottom: var(--space-6); }
+
+    /* Team room header */
+    .room-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) 0 var(--space-5); border-bottom: 1px solid var(--border); margin-bottom: 0; }
+    .room-head-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); }
+    .room-head-meta { font-size: var(--text-sm); color: var(--fg-muted); }
+
+    /* AI / daily summary callout card — clearly separated from the human thread */
+    .ai-summary-card { display: flex; gap: var(--space-3); margin: var(--space-5) 0; padding: var(--space-4) var(--space-5); background: var(--accent-soft); border-radius: var(--radius-md); border: 1px solid var(--accent-soft); }
+    .ai-summary-body { flex: 1 1 auto; min-width: 0; }
+    .ai-summary-label { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+    .ai-summary-text { font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-normal); }
+    .ai-tab-note { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); background: var(--surface-2); border-radius: var(--radius-md); border: 1px solid var(--border); margin: var(--space-5) 0; font-size: var(--text-sm); color: var(--fg-muted); }
+    .ai-tab-note strong { color: var(--fg); }
+
+    /* Message thread */
+    .msg-log { display: flex; flex-direction: column; gap: 0; }
+    .msg-divider { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) 0 var(--space-3); font-size: var(--text-xs); color: var(--fg-subtle); font-weight: var(--fw-medium); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
+    .msg-divider::before, .msg-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+    .msg { display: flex; gap: var(--space-3); padding: var(--space-3) 0; }
+    .msg + .msg { padding-top: var(--space-1); }
+    .msg-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: 4px; }
+    .msg-author { font-weight: var(--fw-semibold); font-size: var(--text-sm); color: var(--fg); }
+    .msg-time { font-size: var(--text-xs); color: var(--fg-subtle); }
+    .msg-body { flex: 1 1 auto; min-width: 0; }
+    .msg-text { font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-normal); }
+    .msg-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
+    .reaction-row { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+    .reaction { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 1px solid var(--border); border-radius: var(--radius-full); font-size: var(--text-xs); background: var(--surface-2); cursor: pointer; transition: background var(--dur-fast) var(--ease-standard); user-select: none; }
+    .reaction:hover { background: var(--surface-3); }
+    .reaction.is-on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: var(--fw-semibold); }
+    .reaction-glyph { font-size: 15px; line-height: 1; }
+
+    /* Typing indicator */
+    .typing-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; font-size: var(--text-xs); color: var(--fg-muted); min-height: 32px; }
+    .dots { display: inline-flex; gap: 4px; align-items: flex-end; height: 14px; }
+    .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-muted); animation: typ 1.2s infinite ease-in-out; }
+    .dots i:nth-child(2) { animation-delay: .15s; }
+    .dots i:nth-child(3) { animation-delay: .3s; }
+    @keyframes typ { 0%,70%,100% { transform: translateY(0); opacity: .4; } 35% { transform: translateY(-5px); opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .dots i { animation: none; opacity: .7; } }
+
+    /* Composer */
+    .composer-wrap { position: sticky; bottom: 0; z-index: var(--z-sticky); background: var(--surface); border-top: 1px solid var(--border); padding: var(--space-4) 0 var(--space-5); }
+    .composer { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+    .composer:focus-within { border-color: var(--accent); background: var(--surface); }
+    .composer-input { flex: 1 1 auto; min-width: 0; border: 0; background: none; font-size: var(--text-sm); color: var(--fg); outline: none; font-family: inherit; line-height: var(--lh-normal); padding: var(--space-2) 0; }
+    .composer-input::placeholder { color: var(--fg-subtle); }
+    .composer-sep { width: 1px; height: 22px; background: var(--border); flex: none; }
+
+    /* Async state: skeleton */
+    .skeleton-log { display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-5) 0; }
+    .sk-msg { display: flex; gap: var(--space-3); align-items: flex-start; }
+    .sk-avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; }
+
+    /* Async state: error banner */
+    /* (uses .sb-alert--destructive from shadcn.css) */
+
+    /* Async state: offline banner */
+    /* (uses .banner-warning from app.css) */
+
+    /* ── Mobile collapse ≤640px ──────────────────────────────────────── */
+    @media (max-width: 640px) {
+      /* topnav becomes icon-only, "New project" is hidden, logo text stays */
+      .topnav a { padding: 0 var(--space-2); font-size: var(--text-sm); }
+      .topbar .btn-primary { display: none; }
+      /* Tab-bar scrolls horizontally rather than wrapping */
+      .proj-tabs .sb-tabs { overflow-x: auto; flex-wrap: nowrap; }
+      /* Project header stacks */
+      .proj-band { flex-direction: column; gap: var(--space-3); }
+      .proj-band-actions { width: 100%; justify-content: flex-end; }
+      /* AI summary card goes full width */
+      .ai-summary-card { flex-direction: column; }
+      /* Messages: avatars shrink to 28px */
+      .sb-avatar { width: 28px !important; height: 28px !important; font-size: var(--text-xs) !important; }
+      /* Composer sticks at bottom, full width */
+      .composer-wrap { padding: var(--space-3) 0 calc(var(--space-5) + env(safe-area-inset-bottom, 0px)); }
+    }
+  </style>
+</head>
+<body>
+  <div class="bc">
+
+    <!-- ── Essential topbar ────────────────────────────────────────────── -->
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="sb-avatar sb-avatar--sm" style="background:var(--accent);color:var(--accent-fg);border-radius:var(--radius-md);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative">
+        <span aria-hidden="true">🔔</span>
+        <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span>
+      </a>
+      <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-label="Account menu (Anthony Garces)" role="button" tabindex="0">AG</span>
+    </header>
+
+    <main>
+      <div class="bc-wrap">
+
+        <!-- ── Breadcrumb ───────────────────────────────────────────────── -->
+        <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+          <a href="essential-home.html">Home</a>
+          <span class="sep" aria-hidden="true">›</span>
+          <a href="essential-project.html">Q2 Content Push</a>
+          <span class="sep" aria-hidden="true">›</span>
+          <span class="current">Team</span>
+        </nav>
+
+        <!-- ── Project header band ─────────────────────────────────────── -->
+        <div class="proj-band">
+          <span class="proj-band-dot" aria-hidden="true"></span>
+          <div class="proj-band-body">
+            <h1 class="proj-band-title">Q2 Content Push</h1>
+            <p class="proj-band-desc">Blog posts, newsletters &amp; social content for the quarter — Atlas and Iris are handling the drafts.</p>
+          </div>
+          <div class="proj-band-actions">
+            <button class="btn btn-ghost" type="button" aria-label="Project settings">⚙ Settings</button>
+          </div>
+        </div>
+
+        <!-- ── Project tab-bar — Team ACTIVE ───────────────────────────── -->
+        <!--
+          SPATIAL SEPARATION NOTE:
+          "✦ Ask your assistant" (Tab 3) = the AI agent for this project.
+          "Team" (Tab 5) = this screen — human-only conversation.
+          They are ADJACENT TABS, not mixed. The user always knows which surface they are on.
+        -->
+        <div class="proj-tabs">
+          <div class="sb-tabs" role="tablist" aria-label="Project sections" id="projTabs">
+            <button type="button" class="sb-tab" role="tab" data-panel="panel-todos" aria-selected="false">To-dos</button>
+            <button type="button" class="sb-tab" role="tab" data-panel="panel-board" aria-selected="false">Board</button>
+            <button type="button" class="sb-tab" role="tab" data-panel="panel-assistant" aria-selected="false">✦ Ask your assistant</button>
+            <button type="button" class="sb-tab" role="tab" data-panel="panel-outputs" aria-selected="false">Outputs</button>
+            <button type="button" class="sb-tab" role="tab" data-panel="panel-team" aria-selected="true">
+              Team <span class="sb-badge sb-badge--secondary" style="height:18px;margin-left:4px">2</span>
+            </button>
+            <button type="button" class="sb-tab" role="tab" data-panel="panel-more" aria-selected="false">More ▾</button>
+          </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- TAB: Team (active) ─────────────────────────────────────────── -->
+        <!-- ══════════════════════════════════════════════════════════════ -->
+        <section id="panel-team" class="tabpanel" role="tabpanel">
+
+          <!-- Room header -->
+          <div class="room-head">
+            <span aria-hidden="true" style="font-size:var(--text-md);color:var(--fg-muted)">#</span>
+            <span class="room-head-title">Team room</span>
+            <span class="room-head-meta">·&nbsp;3 people&nbsp;</span>
+            <span class="sb-badge sb-badge--accent" style="margin-left:2px">2 new</span>
+            <span class="u-grow"></span>
+            <button class="btn btn-ghost btn-sm" type="button" aria-label="Search in team room">🔍 Search</button>
+          </div>
+
+          <!-- ── Cross-project mentions pointer ─────────────────────────── -->
+          <!--
+            One project = one Team room. A user may be in many rooms across many
+            projects. Every @mention here (and in every other room) collects in the
+            ONE cross-project "Activity → @ You" inbox, so a tag is never missed.
+          -->
+          <a href="mention-inbox.html" class="card" style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);margin:var(--space-4) 0;text-decoration:none;border-left:3px solid var(--accent)">
+            <span aria-hidden="true" style="font-size:var(--text-md)">🔔</span>
+            <div class="u-grow" style="color:var(--fg)"><strong>You were mentioned in this room.</strong> <span class="u-muted">Every time someone @mentions you — in any project's room — it collects in <strong>Activity</strong>, so you never miss a call-out.</span></div>
+            <span class="u-accent" style="font-weight:var(--fw-medium);white-space:nowrap">See all mentions →</span>
+          </a>
+
+          <!-- ── AI / assistant callout: spatially separated ────────────── -->
+          <!--
+            This card is the ONLY place AI content appears in the Team room.
+            It is stamped ✦ and visually distinct from the human message thread.
+            The AI itself lives in the "✦ Ask your assistant" tab — this is a
+            read-only daily summary pulled from the 5pm Updates digest.
+          -->
+          <div class="ai-summary-card" role="note" aria-label="Daily summary from your assistant">
+            <span class="sb-avatar sb-avatar--ai" style="background:var(--chart-1);flex:none" aria-hidden="true">At</span>
+            <div class="ai-summary-body">
+              <div class="ai-summary-label">
+                <strong style="font-size:var(--text-sm)">Atlas</strong>
+                <span class="sb-badge sb-badge--accent">✦ AI</span>
+                <span style="font-size:var(--text-xs);color:var(--fg-subtle)">Daily summary · Yesterday 5:01 pm</span>
+              </div>
+              <p class="ai-summary-text">Finished the June newsletter draft and moved it to "Ready to review." Outlined the end-of-quarter blog post. Iris completed all 6 social captions for week 26. One item needs a decision: partner spotlight tone — see the <a href="essential-project.html" class="msg-link">Board card</a>.</p>
+            </div>
+          </div>
+
+          <!-- Pointer to the sibling AI tab — makes the separation explicit -->
+          <div class="ai-tab-note" role="note">
+            <span aria-hidden="true" style="color:var(--accent);font-size:var(--text-sm)">✦</span>
+            <span><strong>Want to ask the assistant something?</strong> Switch to the <a href="#" class="msg-link" id="goToAssistant">✦ Ask your assistant</a> tab — that's where you chat with Atlas directly. This room is for your team.</span>
+          </div>
+
+          <!-- ── Async state: LOADING (hidden by default, toggle to show) ── -->
+          <!--
+            Show this block (remove style="display:none") while messages are fetching.
+            Replace with the message log once loaded.
+          -->
+          <div class="skeleton-log" style="display:none" aria-busy="true" aria-label="Loading team messages">
+            <div class="sk-msg">
+              <div class="sk-avatar skeleton"></div>
+              <div class="u-grow u-col-2"><div class="sk-line skeleton" style="width:120px;height:13px"></div><div class="sk-line skeleton" style="width:72%;height:15px;margin-top:6px"></div></div>
+            </div>
+            <div class="sk-msg">
+              <div class="sk-avatar skeleton"></div>
+              <div class="u-grow u-col-2"><div class="sk-line skeleton" style="width:90px;height:13px"></div><div class="sk-line skeleton" style="width:55%;height:15px;margin-top:6px"></div><div class="sk-line skeleton" style="width:38%;height:15px;margin-top:4px"></div></div>
+            </div>
+          </div>
+
+          <!-- ── Async state: ERROR (hidden by default) ─────────────────── -->
+          <!--
+            Show when the message fetch fails (network / DB error).
+            Replace "display:none" with visible display.
+          -->
+          <div class="sb-alert sb-alert--destructive" role="alert" style="display:none;margin:var(--space-5) 0">
+            <span class="ico" aria-hidden="true">✕</span>
+            <span class="sb-alert-title">Couldn't load messages</span>
+            <span class="sb-alert-desc">There was a problem connecting to the server. <button class="btn btn-sm" type="button" onclick="window.location.reload()">Try again</button></span>
+          </div>
+
+          <!-- ── Async state: OFFLINE banner (hidden by default) ────────── -->
+          <!--
+            Show when navigator.onLine = false or SSE drops.
+            New messages typed while offline are queued and flushed on reconnect.
+          -->
+          <div class="banner banner-warning" role="status" style="display:none;margin:var(--space-4) 0" id="offlineBanner">
+            <span aria-hidden="true">⚠</span>
+            <span>You're offline. Messages you send will be delivered when you reconnect.</span>
+          </div>
+
+          <!-- ── Async state: EMPTY (hidden by default) ─────────────────── -->
+          <!--
+            Show when the project has no messages yet (just created / first post).
+          -->
+          <div class="empty" style="display:none;margin:var(--space-10) 0">
+            <div class="empty-icon" aria-hidden="true">#</div>
+            <div class="empty-title">No messages yet</div>
+            <div class="empty-desc">This is the team room for Q2 Content Push. Say hello, share an update, or ask a question — just write to everyone at once.</div>
+          </div>
+
+          <!-- ── Human message log (the active state) ───────────────────── -->
+          <!--
+            RULES enforced here:
+            1. Plain sb-avatar circles — NO color forks for human identity.
+            2. NO presence dots (Hick's Law: one calm room, reduce noise).
+            3. NO channel switcher, NO DMs panel.
+            4. Only ✦-marked content is AI-originated; human turns have no ✦ / AI badge.
+            5. One reaction (👍) only — no picker.
+          -->
+          <div class="msg-log" role="log" aria-label="Team conversation" aria-live="polite">
+
+            <!-- Day divider -->
+            <div class="msg-divider" aria-hidden="true">Monday, 23 Jun</div>
+
+            <!-- Message: Anthony — unread marker row -->
+            <div class="msg" aria-label="Message from Anthony Garces at 10:02">
+              <!-- Human: plain circle, NO ai class, NO presence dot -->
+              <span class="sb-avatar" style="background:var(--chart-2);flex:none" aria-hidden="true">AG</span>
+              <div class="msg-body">
+                <div class="msg-head">
+                  <span class="msg-author">Anthony</span>
+                  <span class="msg-time">10:02</span>
+                </div>
+                <p class="msg-text">Can we ship the partner email today? Atlas says the draft is done — just needs a final OK from someone before it goes out.</p>
+              </div>
+            </div>
+
+            <!-- "2 new" unread marker -->
+            <div class="msg-divider" style="color:var(--accent);font-size:var(--text-xs)" aria-label="2 new messages below">
+              <span style="color:var(--accent)">2 new</span>
+            </div>
+
+            <!-- Message: Maria — with 👍 reaction -->
+            <div class="msg" aria-label="Message from Maria at 10:04">
+              <span class="sb-avatar" style="background:var(--chart-3);flex:none" aria-hidden="true">M</span>
+              <div class="msg-body">
+                <div class="msg-head">
+                  <span class="msg-author">Maria</span>
+                  <span class="msg-time">10:04</span>
+                </div>
+                <p class="msg-text">Draft's waiting for your ok in <a href="essential-mkt-approvals.html" class="msg-link">Approvals →</a></p>
+                <div class="reaction-row">
+                  <button class="reaction is-on" type="button" id="likeBtn" aria-pressed="true" aria-label="You and Anthony gave a thumbs up. 1 reaction. Click to remove.">
+                    <span class="reaction-glyph" aria-hidden="true">👍</span>
+                    <span id="likeCount">1</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Message: Dev — 10:09 -->
+            <div class="msg" aria-label="Message from Dev at 10:09">
+              <span class="sb-avatar" style="background:var(--chart-4);flex:none" aria-hidden="true">D</span>
+              <div class="msg-body">
+                <div class="msg-head">
+                  <span class="msg-author">Dev</span>
+                  <span class="msg-time">10:09</span>
+                </div>
+                <p class="msg-text">On it — reviewing now. Should have a reply in 10.</p>
+              </div>
+            </div>
+
+            <!-- Message that @mentions YOU — highlighted. This is the entry that
+                 feeds the cross-project Activity → @ You inbox. -->
+            <div class="msg" aria-label="Message from Maria at 10:11 mentioning you" style="background:var(--accent-soft);border-radius:var(--radius-md);padding:var(--space-3);margin-top:var(--space-2)">
+              <span class="sb-avatar" style="background:var(--chart-3);flex:none" aria-hidden="true">M</span>
+              <div class="msg-body">
+                <div class="msg-head">
+                  <span class="msg-author">Maria</span>
+                  <span class="msg-time">10:11</span>
+                  <span class="sb-badge sb-badge--accent" style="margin-left:4px">＠ mentioned you</span>
+                </div>
+                <p class="msg-text"><span style="color:var(--accent);font-weight:var(--fw-semibold);background:var(--surface);padding:0 4px;border-radius:var(--radius-sm)">@Anthony</span> can you confirm the publish date before this goes out? Need your go-ahead 🙏</p>
+              </div>
+            </div>
+
+          </div><!-- /msg-log -->
+
+          <!-- Typing indicator (idle by default, shown on input) -->
+          <div class="typing-row" id="typingRow" style="visibility:hidden" aria-live="polite" role="status">
+            <span class="sb-avatar" style="background:var(--chart-3);width:26px;height:26px;font-size:var(--text-xs);flex:none" aria-hidden="true">M</span>
+            <span class="u-muted" style="font-size:var(--text-xs)">Maria is typing</span>
+            <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          </div>
+
+          <!-- ── Composer ──────────────────────────────────────────────── -->
+          <div class="composer-wrap">
+            <style>
+              .mention-pop { position:absolute; left:0; right:auto; bottom:calc(100% - var(--space-1)); z-index:var(--z-dropdown); width:320px; max-width:calc(100vw - 32px); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); padding:6px; }
+              .mention-pop[hidden] { display:none; }
+              .mention-hd { font-size:var(--text-xs); color:var(--fg-subtle); text-transform:uppercase; letter-spacing:var(--tracking-caps); font-weight:var(--fw-semibold); padding:6px 8px 4px; }
+              .mention-item { display:flex; align-items:center; gap:8px; width:100%; padding:7px 8px; border:0; background:none; border-radius:var(--radius-sm); cursor:pointer; font:inherit; text-align:left; color:var(--fg); }
+              .mention-item:hover, .mention-item.active { background:var(--surface-2); }
+              .mention-nm { font-size:var(--text-sm); font-weight:var(--fw-medium); }
+              .mention-sub { font-size:var(--text-xs); color:var(--fg-subtle); margin-left:auto; }
+              .mention-at { width:26px; height:26px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:var(--surface-3); color:var(--fg-muted); font-size:var(--text-sm); flex:none; }
+            </style>
+            <div class="mention-pop" id="mentionPop" role="listbox" aria-label="Mention someone" hidden>
+              <div class="mention-hd">Mention</div>
+              <button class="mention-item active" role="option" type="button" data-name="Atlas" data-ai="1"><span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-5)" aria-hidden="true">A</span><span class="mention-nm">Atlas</span><span class="mention-sub">✦ assistant</span></button>
+              <button class="mention-item" role="option" type="button" data-name="Maria"><span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span><span class="mention-nm">Maria</span><span class="mention-sub">● online</span></button>
+              <button class="mention-item" role="option" type="button" data-name="Dan"><span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" aria-hidden="true">D</span><span class="mention-nm">Dan</span><span class="mention-sub">away</span></button>
+              <button class="mention-item" role="option" type="button" data-name="Iris" data-ai="1"><span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-6)" aria-hidden="true">I</span><span class="mention-nm">Iris</span><span class="mention-sub">✦ assistant</span></button>
+              <button class="mention-item" role="option" type="button" data-name="team"><span class="mention-at" aria-hidden="true">@</span><span class="mention-nm">team</span><span class="mention-sub">everyone here</span></button>
+            </div>
+            <form class="composer" id="composerForm" aria-label="Write to the team">
+              <label for="teamMsg" class="u-sr-only">Write to the team</label>
+              <input
+                id="teamMsg"
+                class="composer-input"
+                type="text"
+                placeholder="Write to the team…"
+                autocomplete="off"
+                aria-label="Message the team"
+              >
+              <div class="composer-sep" aria-hidden="true"></div>
+              <button class="btn btn-ghost btn-sm" type="button" aria-label="Mention someone" title="Mention someone">@</button>
+              <button class="btn btn-primary btn-sm" type="submit" id="sendBtn" aria-label="Send message">Send</button>
+            </form>
+            <p class="u-muted" style="font-size:var(--text-sm);margin-top:var(--space-2);padding:0 var(--space-1)">
+              This room is for the human team. To chat with your AI assistant, use the <a href="#" class="msg-link" id="goToAssistant2">✦ Ask your assistant</a> tab.
+            </p>
+          </div>
+
+        </section><!-- /panel-team -->
+
+        <!-- ══ Other tab panels (stub — not visible until tab activated) ═══ -->
+        <section id="panel-todos"      class="tabpanel" role="tabpanel" hidden>
+          <div class="empty" style="margin:var(--space-10) 0"><div class="empty-icon" aria-hidden="true">✓</div><div class="empty-title">To-dos</div><div class="empty-desc"><a href="essential-todos.html" class="msg-link">Open the To-dos panel →</a></div></div>
+        </section>
+        <section id="panel-board"     class="tabpanel" role="tabpanel" hidden>
+          <div class="empty" style="margin:var(--space-10) 0"><div class="empty-icon" aria-hidden="true">▦</div><div class="empty-title">Board</div><div class="empty-desc"><a href="essential-card-table.html" class="msg-link">Open the Board →</a></div></div>
+        </section>
+        <section id="panel-assistant" class="tabpanel" role="tabpanel" hidden>
+          <div class="empty" style="margin:var(--space-10) 0">
+            <div class="empty-icon" aria-hidden="true" style="color:var(--accent)">✦</div>
+            <div class="empty-title">Ask your assistant</div>
+            <div class="empty-desc">Chat with <strong>Atlas</strong>, the AI assistant assigned to this project.<br><a href="project-assistant.html" class="msg-link">Open the assistant →</a></div>
+          </div>
+        </section>
+        <section id="panel-outputs"   class="tabpanel" role="tabpanel" hidden>
+          <div class="empty" style="margin:var(--space-10) 0"><div class="empty-icon" aria-hidden="true">📄</div><div class="empty-title">Outputs</div><div class="empty-desc">Drafts and files produced by the team will appear here.</div></div>
+        </section>
+        <section id="panel-more"      class="tabpanel" role="tabpanel" hidden>
+          <div class="empty" style="margin:var(--space-10) 0"><div class="empty-icon" aria-hidden="true">▾</div><div class="empty-title">More</div><div class="empty-desc">Docs, schedule, settings and more will appear here.</div></div>
+        </section>
+
+      </div><!-- /bc-wrap -->
+    </main>
+  </div><!-- /bc -->
+
+  <script>
+    (function () {
+      'use strict';
+
+      // ── Tab switching ────────────────────────────────────────────────
+      var tabs   = document.querySelectorAll('#projTabs .sb-tab');
+      var panels = document.querySelectorAll('.tabpanel');
+
+      tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          tabs.forEach(function (t) { t.setAttribute('aria-selected', 'false'); });
+          panels.forEach(function (p) { p.hidden = true; });
+          tab.setAttribute('aria-selected', 'true');
+          var panel = document.getElementById(tab.dataset.panel);
+          if (panel) panel.hidden = false;
+        });
+      });
+
+      // ── "Go to assistant" shortcuts ──────────────────────────────────
+      function activateAssistantTab() {
+        tabs.forEach(function (t) { t.setAttribute('aria-selected', 'false'); });
+        panels.forEach(function (p) { p.hidden = true; });
+        var aTab = Array.prototype.find.call(tabs, function (t) { return t.dataset.panel === 'panel-assistant'; });
+        if (aTab) { aTab.setAttribute('aria-selected', 'true'); document.getElementById('panel-assistant').hidden = false; }
+      }
+      ['goToAssistant', 'goToAssistant2'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('click', function (e) { e.preventDefault(); activateAssistantTab(); });
+      });
+
+      // ── 👍 reaction toggle ───────────────────────────────────────────
+      var likeBtn   = document.getElementById('likeBtn');
+      var likeCount = document.getElementById('likeCount');
+      var liked     = true; // initial state: already reacted
+
+      likeBtn.addEventListener('click', function () {
+        liked = !liked;
+        likeBtn.classList.toggle('is-on', liked);
+        likeBtn.setAttribute('aria-pressed', liked ? 'true' : 'false');
+        var n = liked ? 1 : 0;
+        likeCount.textContent = n;
+        likeBtn.setAttribute('aria-label',
+          liked
+            ? 'You gave a thumbs up. 1 reaction. Click to remove.'
+            : 'No reactions. Click to add a thumbs up.');
+      });
+
+      // ── Composer: send → append message ─────────────────────────────
+      var input   = document.getElementById('teamMsg');
+      var sendBtn = document.getElementById('sendBtn');
+      var form    = document.getElementById('composerForm');
+      var log     = document.querySelector('.msg-log');
+
+      function sendMessage() {
+        var text = input.value.trim();
+        if (!text) return;
+
+        var now    = new Date();
+        var hhmm   = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+        var row = document.createElement('div');
+        row.className = 'msg';
+        row.setAttribute('aria-label', 'Message from you at ' + hhmm);
+        row.innerHTML =
+          '<span class="sb-avatar" style="background:var(--chart-2);flex:none" aria-hidden="true">AG</span>' +
+          '<div class="msg-body">' +
+            '<div class="msg-head">' +
+              '<span class="msg-author">You</span>' +
+              '<span class="msg-time">' + hhmm + '</span>' +
+            '</div>' +
+            '<p class="msg-text">' + escHtml(text) + '</p>' +
+          '</div>';
+
+        log.appendChild(row);
+        input.value = '';
+        row.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+
+      function escHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+
+      // Real form submit handles both the Send button (type=submit) and
+      // Enter-in-input natively. The @-mention script's keydown handler runs
+      // first and only intercepts Enter while its popup is open, so a closed
+      // popup falls through to this submit.
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        sendMessage();
+      });
+
+      // ── Offline detection ────────────────────────────────────────────
+      var offlineBanner = document.getElementById('offlineBanner');
+      function setOffline(offline) {
+        if (offlineBanner) offlineBanner.style.display = offline ? 'flex' : 'none';
+        if (input) input.disabled = offline;
+        if (sendBtn) sendBtn.disabled = offline;
+      }
+      window.addEventListener('offline', function () { setOffline(true); });
+      window.addEventListener('online',  function () { setOffline(false); });
+      if (!navigator.onLine) setOffline(true);
+
+    })();
+  </script>
+  <!-- @-mention autocomplete — typing "@" (or the @ button) opens the people/AI picker -->
+  <script>
+    (function () {
+      var inp = document.getElementById('teamMsg'),
+          pop = document.getElementById('mentionPop'),
+          items = pop ? Array.prototype.slice.call(pop.querySelectorAll('.mention-item')) : [],
+          atBtn = document.querySelector('.composer [aria-label="Mention someone"]');
+      if (!inp || !pop) return;
+
+      function open()  { pop.hidden = false; }
+      function close() { pop.hidden = true; }
+      function isOpen() { return !pop.hidden; }
+
+      function filter(q) {
+        q = (q || '').toLowerCase();
+        var shown = [];
+        items.forEach(function (it) {
+          var match = it.dataset.name.toLowerCase().indexOf(q) === 0;
+          it.style.display = match ? 'flex' : 'none';
+          it.classList.remove('active');
+          if (match) shown.push(it);
+        });
+        if (shown.length) shown[0].classList.add('active');
+        return shown.length;
+      }
+
+      function insert(name) {
+        // replace a trailing "@word" with "@Name ", or append
+        if (/@\w*$/.test(inp.value)) inp.value = inp.value.replace(/@\w*$/, '@' + name + ' ');
+        else inp.value += (inp.value && !/\s$/.test(inp.value) ? ' ' : '') + '@' + name + ' ';
+        close(); inp.focus();
+      }
+
+      inp.addEventListener('input', function () {
+        var m = inp.value.match(/(?:^|\s)@(\w*)$/);
+        if (m) { (filter(m[1]) ? open() : close()); } else close();
+      });
+      inp.addEventListener('keydown', function (e) {
+        if (!isOpen()) return;
+        var vis = items.filter(function (i) { return i.style.display !== 'none'; }),
+            cur = vis.findIndex(function (i) { return i.classList.contains('active'); });
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (cur >= 0) vis[cur].classList.remove('active');
+          var nx = e.key === 'ArrowDown' ? (cur + 1) % vis.length : (cur <= 0 ? vis.length - 1 : cur - 1);
+          vis[nx].classList.add('active');
+        } else if ((e.key === 'Enter' || e.key === 'Tab') && cur >= 0) {
+          e.preventDefault(); insert(vis[cur].dataset.name);
+        } else if (e.key === 'Escape') { close(); }
+      });
+      pop.addEventListener('click', function (e) {
+        var it = e.target.closest('.mention-item'); if (it) insert(it.dataset.name);
+      });
+      if (atBtn) atBtn.addEventListener('click', function () {
+        if (isOpen()) { close(); return; }
+        if (!/@$/.test(inp.value)) inp.value += (inp.value && !/\s$/.test(inp.value) ? ' @' : '@');
+        filter(''); open(); inp.focus();
+      });
+      document.addEventListener('click', function (e) {
+        if (isOpen() && !pop.contains(e.target) && e.target !== inp && !(atBtn && atBtn.contains(e.target))) close();
+      });
+
+      // Screenshot-ready: #mention-open shows the picker mid-type.
+      if (location.hash === '#mention-open') { inp.value = 'Nice work on the banner — can you loop in @'; filter(''); open(); }
+    })();
+  </script>
+</body>
+</html>

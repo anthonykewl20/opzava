@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Issues — Opzava</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="admin-nav.js" defer></script>
+  <style>
+    /* Page-specific layout only — no color, font-size, shadow, or radius overrides */
+    .two-col-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.8fr;
+      gap: var(--space-4);
+      align-items: start;
+    }
+    .spend-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: var(--space-2);
+      height: 72px;
+      padding: 0 var(--space-2);
+    }
+    .spend-chart-bar {
+      flex: 1;
+      border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+      min-width: 0;
+    }
+    .spend-chart-labels {
+      display: flex;
+      gap: var(--space-2);
+      padding: var(--space-1) var(--space-2) 0;
+    }
+    .spend-chart-labels span {
+      flex: 1;
+      text-align: center;
+    }
+    .activity-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      min-height: 40px;
+      padding: 0 var(--space-5);
+      border-bottom: 1px solid var(--border);
+    }
+    .activity-row:last-child {
+      border-bottom: 0;
+    }
+    .activity-time {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+      min-width: 68px;
+      flex: none;
+    }
+    .activity-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .nav-section-gap {
+      margin-top: var(--space-2);
+    }
+    .header-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--surface-3);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      flex: none;
+      cursor: pointer;
+      font-weight: var(--fw-semibold);
+    }
+    .notif-btn-wrap {
+      position: relative;
+    }
+    .notif-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: var(--radius-full);
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      font-weight: var(--fw-semibold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+    }
+    .spend-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .spend-row-sep {
+      color: var(--border-strong);
+    }
+    .page-stack {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+    .fleet-table-wrap {
+      overflow: hidden;
+    }
+    .activity-live-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       NAVIGATION RAIL
+  ══════════════════════════════════════════════════════════════════ -->
+  <aside class="rail" aria-label="Main navigation">
+
+    <!-- Logo / wordmark -->
+    <div class="rail-head">
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
+        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
+      </svg>
+      <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);letter-spacing:-.01em;">Opzava</span>
+      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
+    </div>
+
+    <!-- Nav groups -->
+    <nav class="rail-nav" aria-label="Application sections">
+      <a href="orchestrator-chat.html" class="rail-item" style="margin-bottom:4px;">
+        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
+        Ask Opzava
+        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
+      </a>
+      <div class="section-label">Operate</div>
+      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
+      <a href="agents.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
+      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
+      <a href="issues.html" class="rail-item" aria-current="page"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="9" r="1.75" fill="currentColor"/></svg> Issues <span class="count">12</span></a>
+      <a href="activity.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="4.5" cy="5" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="4.5" cy="12" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 12h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Activity</a>
+      <a href="messages-slack.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
+      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
+      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
+      <div class="section-label nav-section-gap">Observe</div>
+      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
+      <a href="logs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
+      <a href="costs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
+      <div class="section-label nav-section-gap">Automate</div>
+      <a href="connections.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="5" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><path d="M7.3 9h3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Connections <span class="dot dot-success dot-beat" style="margin-left:auto;" aria-label="all tools connected"></span></a>
+      <a href="automation.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M10 2.5 4.5 10H8l-1 5.5L13.5 8H10z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Automation <span class="count">4</span></a>
+      <div class="section-label nav-section-gap">Govern</div>
+      <a href="security-audit.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5l5 1.8v3.7c0 3.3-2.1 5.6-5 6.5-2.9-.9-5-3.2-5-6.5V4.3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Security &amp; Audit <span class="count" style="background:var(--danger-soft);color:var(--danger);">1</span></a>
+      <a href="memory-skills.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 2.5 6 9 9.5 15.5 6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M2.5 10 9 13.5 15.5 10" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Memory &amp; Skills</a>
+      <a href="notifications-alerts.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
+      <a href="settings.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
+      <a href="debug.html" class="rail-item u-subtle"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="3.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7.5 7.5 9.5 5.5 11.5M9.5 11.5h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Debug</a>
+      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+    </nav>
+
+    <!-- Rail footer: ⌘K quick jump -->
+    <div class="rail-foot">
+      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (⌘K)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-subtle u-grow">Jump to…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIN COLUMN
+  ══════════════════════════════════════════════════════════════════ -->
+  <div class="main-col">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="header">
+
+      <!-- Sidebar collapse -->
+      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <!-- Search -->
+      <div class="search" role="search">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-grow u-subtle">Search agents, tasks, runs…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </div>
+
+      <!-- Spacer -->
+      <div class="u-grow"></div>
+
+      <!-- Health pill -->
+      <div class="health-pill" aria-label="System health: All systems healthy">
+        <span class="dot dot-success" aria-hidden="true"></span>
+        All systems healthy
+      </div>
+
+      <!-- Live indicator -->
+      <div class="live-indicator" aria-label="Live connection active">
+        <span class="dot dot-success live" aria-hidden="true"></span>
+        <span>Live</span>
+      </div>
+
+      <!-- Notifications -->
+      <div class="notif-btn-wrap">
+        <a href="notifications-alerts.html" class="btn btn-ghost btn-icon" aria-label="Notifications, 2 unread">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </a>
+        <span class="notif-badge" aria-hidden="true">2</span>
+        <span class="u-sr-only">2 unread notifications</span>
+      </div>
+
+      <!-- Avatar -->
+      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu — Anthony G.">AG</div>
+
+    </header>
+
+    <!-- ── Main content ────────────────────────────────────────── -->
+    <main class="main">
+      <div class="page">
+        <div class="page-stack">
+
+          <!-- ── Page header ─────────────────────────────────────────── -->
+          <div class="page-header">
+            <div>
+              <h1>Issues</h1>
+              <p class="page-sub">Synced with GitHub · <a href="https://github.com/anthonykewl20/opzava/issues" target="_blank" rel="noopener">github.com/anthonykewl20/opzava</a> · updated 2 min ago</p>
+            </div>
+            <div class="u-row" style="gap:var(--space-2);">
+              <button type="button" class="btn">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M13 8a5 5 0 1 1-1.46-3.54M13 2.5v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Sync now
+              </button>
+              <button type="button" class="btn btn-primary">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                New issue
+              </button>
+            </div>
+          </div>
+
+          <!-- ── Triage pipeline — the operator's funnel (the one bold thing) ── -->
+          <section aria-labelledby="pipeline-lbl">
+            <div class="section-label" id="pipeline-lbl" style="padding-left:0;">Triage pipeline</div>
+            <div style="display:flex;align-items:stretch;gap:var(--space-2);overflow-x:auto;">
+
+              <!-- Stage 1 — NEEDS YOU (accent edge, proj-goal--needs idiom) -->
+              <div class="stat" style="flex:1 1 0;min-width:150px;border-left:3px solid var(--accent);">
+                <div class="stat-label">Needs triage</div>
+                <div class="stat-value u-tnum">3</div>
+                <div class="u-subtle" style="font-size:var(--text-xs);margin-top:4px;">no label yet</div>
+              </div>
+
+              <span class="u-subtle" aria-hidden="true" style="flex:none;align-self:center;font-size:var(--text-base);">→</span>
+
+              <!-- Stage 2 -->
+              <div class="stat" style="flex:1 1 0;min-width:150px;">
+                <div class="stat-label">Ready for agent</div>
+                <div class="stat-value u-tnum">5</div>
+                <div class="u-subtle" style="font-size:var(--text-xs);margin-top:4px;">fleet can pick up</div>
+              </div>
+
+              <span class="u-subtle" aria-hidden="true" style="flex:none;align-self:center;font-size:var(--text-base);">→</span>
+
+              <!-- Stage 3 — NEEDS YOU (accent edge) -->
+              <div class="stat" style="flex:1 1 0;min-width:150px;border-left:3px solid var(--accent);">
+                <div class="stat-label">Ready for human</div>
+                <div class="stat-value u-tnum">2</div>
+                <div class="u-subtle" style="font-size:var(--text-xs);margin-top:4px;">you must act</div>
+              </div>
+
+              <span class="u-subtle" aria-hidden="true" style="flex:none;align-self:center;font-size:var(--text-base);">→</span>
+
+              <!-- Stage 4 -->
+              <div class="stat" style="flex:1 1 0;min-width:150px;">
+                <div class="stat-label">In progress</div>
+                <div class="stat-value u-tnum">4</div>
+                <div class="u-subtle" style="font-size:var(--text-xs);margin-top:4px;">being worked</div>
+              </div>
+
+              <span class="u-subtle" aria-hidden="true" style="flex:none;align-self:center;font-size:var(--text-base);">→</span>
+
+              <!-- Stage 5 -->
+              <div class="stat" style="flex:1 1 0;min-width:150px;">
+                <div class="stat-label">Done this week</div>
+                <div class="stat-value u-tnum">12</div>
+                <div class="u-subtle" style="font-size:var(--text-xs);margin-top:4px;">closed</div>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- ── Filter tabs + synced issues table ─────────────────────── -->
+          <section aria-label="Synced GitHub issues">
+            <div class="card">
+
+              <!-- Filter tabs -->
+              <div class="tabs" role="tablist" aria-label="Filter issues">
+                <button type="button" class="tab" role="tab" aria-selected="true">All</button>
+                <button type="button" class="tab" role="tab" aria-selected="false">Needs triage</button>
+                <button type="button" class="tab" role="tab" aria-selected="false">Ready for agent</button>
+                <button type="button" class="tab" role="tab" aria-selected="false">Ready for human</button>
+                <button type="button" class="tab" role="tab" aria-selected="false">In progress</button>
+                <button type="button" class="tab" role="tab" aria-selected="false">Closed</button>
+              </div>
+
+              <!-- Issues table -->
+              <table class="table table-compact table-cards">
+                <caption class="u-sr-only">Synced GitHub issues — issue number, title with triage labels, assignee, last updated, and status. Showing 8 of 12 open issues.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">Issue</th>
+                    <th scope="col">Assignee</th>
+                    <th scope="col">Updated</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+
+                  <!-- #34 -->
+                  <tr>
+                    <td data-label="#" class="u-mono u-muted">#34</td>
+                    <td data-label="Issue">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">AvailabilityResolver gatherer</div>
+                      <div class="u-row u-wrap" style="gap:6px;margin-top:6px;">
+                        <span class="badge">ready-for-agent</span>
+                        <span class="badge">orchestrator</span>
+                      </div>
+                    </td>
+                    <td data-label="Assignee">
+                      <span class="u-row" style="gap:6px;">
+                        <span class="u-sr-only">AI agent: </span>
+                        <span class="u-accent" aria-hidden="true" style="font-size:var(--text-base);line-height:1;">✦</span>
+                        <span>Atlas</span>
+                      </span>
+                    </td>
+                    <td data-label="Updated" class="u-mono u-subtle">2h</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot dot-accent" aria-hidden="true"></span>
+                        Open
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- #33 -->
+                  <tr>
+                    <td data-label="#" class="u-mono u-muted">#33</td>
+                    <td data-label="Issue">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Silent-halt on a mis-typed frontier model id</div>
+                      <div class="u-row u-wrap" style="gap:6px;margin-top:6px;">
+                        <span class="badge">needs-triage</span>
+                        <span class="badge">orchestrator</span>
+                      </div>
+                    </td>
+                    <td data-label="Assignee"><span class="u-subtle">Unassigned</span></td>
+                    <td data-label="Updated" class="u-mono u-subtle">5h</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot dot-accent" aria-hidden="true"></span>
+                        Open
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- #32 -->
+                  <tr>
+                    <td data-label="#" class="u-mono u-muted">#32</td>
+                    <td data-label="Issue">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Gateway provider hot-spin guard</div>
+                      <div class="u-row u-wrap" style="gap:6px;margin-top:6px;">
+                        <span class="badge">ready-for-agent</span>
+                        <span class="badge">orchestrator</span>
+                      </div>
+                    </td>
+                    <td data-label="Assignee">
+                      <span class="u-row" style="gap:6px;">
+                        <span class="u-sr-only">AI agent: </span>
+                        <span class="u-accent" aria-hidden="true" style="font-size:var(--text-base);line-height:1;">✦</span>
+                        <span>Sage</span>
+                      </span>
+                    </td>
+                    <td data-label="Updated" class="u-mono u-subtle">6h</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot dot-accent" aria-hidden="true"></span>
+                        Open
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- #31 -->
+                  <tr>
+                    <td data-label="#" class="u-mono u-muted">#31</td>
+                    <td data-label="Issue">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">S5 orchestrator live-verify on the gateway host</div>
+                      <div class="u-row u-wrap" style="gap:6px;margin-top:6px;">
+                        <span class="badge">ready-for-human</span>
+                        <span class="badge">orchestrator</span>
+                      </div>
+                    </td>
+                    <td data-label="Assignee">
+                      <span class="u-row" style="gap:6px;">
+                        <span aria-hidden="true" style="width:22px;height:22px;border-radius:var(--radius-full);background:var(--surface-3);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--fg-muted);font-weight:var(--fw-semibold);flex:none;">AG</span>
+                        <span>You</span>
+                      </span>
+                    </td>
+                    <td data-label="Updated" class="u-mono u-subtle">1d</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot dot-warning" aria-hidden="true"></span>
+                        In review
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- #27 -->
+                  <tr>
+                    <td data-label="#" class="u-mono u-muted">#27</td>
+                    <td data-label="Issue">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Content Pipeline decision core</div>
+                      <div class="u-row u-wrap" style="gap:6px;margin-top:6px;">
+                        <span class="badge">ready-for-agent</span>
+                        <span class="badge">content-pipeline</span>
+                      </div>
+                    </td>
+                    <td data-label="Assignee">
+                      <span class="u-row" style="gap:6px;">
+                        <span class="u-sr-only">AI agent: </span>
+                        <span class="u-accent" aria-hidden="true" style="font-size:var(--text-base);line-height:1;">✦</span>
+                        <span>Atlas</span>
+                      </span>
+                    </td>
+                    <td data-label="Updated" class="u-mono u-subtle">1d</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot dot-warning" aria-hidden="true"></span>
+                        In review
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- #19 -->
+                  <tr>
+                    <td data-label="#" class="u-mono u-muted">#19</td>
+                    <td data-label="Issue">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Essential bell leaked into admin shell</div>
+                      <div class="u-row u-wrap" style="gap:6px;margin-top:6px;">
+                        <span class="badge">ux-redesign</span>
+                        <span class="badge">wontfix</span>
+                      </div>
+                    </td>
+                    <td data-label="Assignee">
+                      <span class="u-row" style="gap:6px;">
+                        <span aria-hidden="true" style="width:22px;height:22px;border-radius:var(--radius-full);background:var(--surface-3);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--fg-muted);font-weight:var(--fw-semibold);flex:none;">AG</span>
+                        <span>Anthony</span>
+                      </span>
+                    </td>
+                    <td data-label="Updated" class="u-mono u-subtle">3d</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot" aria-hidden="true"></span>
+                        <span class="u-muted">Closed</span>
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- #15 -->
+                  <tr>
+                    <td data-label="#" class="u-mono u-muted">#15</td>
+                    <td data-label="Issue">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Costs page must bound ALL service costs</div>
+                      <div class="u-row u-wrap" style="gap:6px;margin-top:6px;">
+                        <span class="badge">needs-info</span>
+                        <span class="badge">ux-redesign</span>
+                      </div>
+                    </td>
+                    <td data-label="Assignee">
+                      <span class="u-row" style="gap:6px;">
+                        <span aria-hidden="true" style="width:22px;height:22px;border-radius:var(--radius-full);background:var(--surface-3);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--fg-muted);font-weight:var(--fw-semibold);flex:none;">AG</span>
+                        <span>You</span>
+                      </span>
+                    </td>
+                    <td data-label="Updated" class="u-mono u-subtle">4d</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot dot-accent" aria-hidden="true"></span>
+                        Open
+                      </span>
+                    </td>
+                  </tr>
+
+                  <!-- #11 -->
+                  <tr>
+                    <td data-label="#" class="u-mono u-muted">#11</td>
+                    <td data-label="Issue">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Connect-wizard 4-step flow</div>
+                      <div class="u-row u-wrap" style="gap:6px;margin-top:6px;">
+                        <span class="badge">ready-for-human</span>
+                      </div>
+                    </td>
+                    <td data-label="Assignee">
+                      <span class="u-row" style="gap:6px;">
+                        <span aria-hidden="true" style="width:22px;height:22px;border-radius:var(--radius-full);background:var(--surface-3);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--fg-muted);font-weight:var(--fw-semibold);flex:none;">AG</span>
+                        <span>Anthony</span>
+                      </span>
+                    </td>
+                    <td data-label="Updated" class="u-mono u-subtle">1w</td>
+                    <td data-label="Status">
+                      <span class="u-row">
+                        <span class="dot" aria-hidden="true"></span>
+                        <span class="u-muted">Closed</span>
+                      </span>
+                    </td>
+                  </tr>
+
+                </tbody>
+              </table>
+
+              <!-- Footer hint -->
+              <div class="card-footer">
+                <p class="hint">Showing 8 of 12 open · last sync 2 min ago</p>
+              </div>
+
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Your profile</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* ─────────────────────────────────────────────────────────────────────
+       Essential · Profile & account settings — page-local layout only.
+       No colour/size literals; everything reuses tokens. Status is always a
+       glyph + label, never a hue. Exactly one .btn-primary per card (its Save).
+       ───────────────────────────────────────────────────────────────────── */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+
+    /* ── Canonical Essential topbar (copied from essential-my-stuff.html) ── */
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .ava { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; }
+
+    /* ── Page wrapper ── */
+    .bc-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+    .pg-title { font-size: var(--text-xl); margin-bottom: var(--space-2); }
+    .pg-sub { font-size: var(--text-md); color: var(--fg-muted); margin-bottom: var(--space-8); }
+
+    /* ── Two-column layout: sticky left in-page nav + stacked cards ── */
+    .layout { display: grid; grid-template-columns: 220px 1fr; gap: var(--space-8); align-items: start; }
+
+    .sidenav { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 2px; }
+    .sidenav a { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); color: var(--fg-muted); text-decoration: none; font-size: var(--text-sm); font-weight: var(--fw-medium); }
+    .sidenav a:hover { background: var(--surface-2); color: var(--fg); }
+    .sidenav a.active { background: var(--accent-soft); color: var(--accent); }
+    .sidenav .g { width: 18px; text-align: center; flex: none; color: inherit; }
+
+    /* ── Card sections ── */
+    .col { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
+    .sec { padding: var(--space-6); scroll-margin-top: 84px; }
+    .sec > h2 { font-size: var(--text-lg); font-weight: var(--fw-semibold); }
+    .sec > .sec-hint { font-size: var(--text-sm); color: var(--fg-muted); margin-top: 4px; }
+    .sec-body { margin-top: var(--space-5); }
+    .sec-foot { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-6); padding-top: var(--space-5); border-top: 1px solid var(--border); }
+    .sec-foot .saved { font-size: var(--text-xs); color: var(--fg-subtle); }
+    /* Within-400ms save feedback: a polite live region beside each Save.
+       Status by glyph + label (✓ / ◷), never colour alone. 13px = metadata. */
+    .save-status { font-size: var(--text-xs); font-weight: var(--fw-medium); color: var(--fg-muted); }
+    .save-status:empty { display: none; }
+    .btn[aria-busy="true"] { opacity: .7; }
+
+    /* Delete-account confirm: typed-confirmation alertdialog. */
+    .confirm-field { margin-top: var(--space-5); }
+    .confirm-field .input { margin-top: var(--space-2); }
+    .confirm-err { display: none; margin-top: var(--space-2); font-size: var(--text-xs); color: var(--danger); }
+    .confirm-err.show { display: block; }
+    .sb-dialog-footer .btn-danger[disabled] { opacity: .55; cursor: not-allowed; }
+
+    /* ── Form grids ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4) var(--space-5); align-items: start; }
+    .span-2 { grid-column: 1 / -1; }
+    .field .help { font-size: var(--text-xs); color: var(--fg-subtle); }
+
+    /* ── Profile header (avatar + change photo) ── */
+    .id-head { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-6); padding-bottom: var(--space-5); border-bottom: 1px solid var(--border); }
+    .id-photo { width: 64px; height: 64px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: var(--text-lg); font-weight: var(--fw-semibold); }
+    .id-photo-meta { display: flex; flex-direction: column; gap: var(--space-2); }
+    .id-photo-meta .hint { font-size: var(--text-xs); color: var(--fg-subtle); }
+
+    /* ── Notifications matrix ── */
+    .matrix { display: grid; grid-template-columns: 1fr auto auto; gap: 0; }
+    .matrix .mh { padding: 0 var(--space-3) var(--space-3); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); text-align: center; }
+    .matrix .mh--row { text-align: left; padding-left: 0; }
+    .matrix .mr-label { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-3) var(--space-3) 0; border-top: 1px solid var(--border); font-size: var(--text-sm); color: var(--fg); }
+    .matrix .mr-cell { display: flex; align-items: center; justify-content: center; padding: var(--space-3); border-top: 1px solid var(--border); min-width: 96px; }
+
+    /* ── Page-local switch: a styled checkbox that reads ON/OFF by knob SHAPE
+         AND an explicit On/Off text label — never colour alone. ── */
+    .tg { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; }
+    .tg input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .tg .track { width: 38px; height: 22px; border-radius: var(--radius-full); background: var(--surface-3); border: 1px solid var(--border-strong); position: relative; flex: none; transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard); }
+    .tg .track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--fg); transition: transform var(--dur-fast) var(--ease-standard); }
+    .tg input:checked + .track { background: var(--accent); border-color: var(--accent); }
+    .tg input:checked + .track::after { transform: translateX(16px); background: var(--accent-fg); }
+    .tg input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tg .tg-state { font-size: var(--text-xs); font-weight: var(--fw-medium); color: var(--fg-muted); min-width: 22px; }
+    /* the explicit state label flips text by the checkbox state */
+    .tg .tg-state::before { content: 'Off'; }
+    .tg input:checked ~ .tg-state::before { content: 'On'; }
+
+    /* ── Quiet-hours / pause rows ── */
+    .pref-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) 0; border-top: 1px solid var(--border); }
+    .pref-row .pref-id { flex: 1 1 auto; min-width: 0; }
+    .pref-row .pref-title { font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg); }
+    .pref-row .pref-sub { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: 2px; }
+    .qh { display: inline-flex; align-items: center; gap: var(--space-2); }
+    .qh .input { width: 110px; }
+    .qh .dash { color: var(--fg-subtle); }
+
+    /* ── Connected-tools doorway summary ── */
+    .doorway { display: flex; align-items: center; gap: var(--space-4); }
+    .doorway .dw-text { flex: 1 1 auto; min-width: 0; }
+
+    /* ── Security: sessions + 2FA ── */
+    .lockup { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
+    .lockup .lk-id { flex: 1 1 auto; min-width: 0; }
+    .lockup .lk-title { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+    .lockup .lk-sub { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: 2px; }
+
+    .sess-list { display: flex; flex-direction: column; }
+    .sess-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) 0; border-bottom: 1px solid var(--border); }
+    .sess-row:last-child { border-bottom: 0; }
+    .sess-id { flex: 1 1 auto; min-width: 0; }
+    .sess-dev { font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg); display: flex; align-items: center; gap: var(--space-2); }
+    .sess-meta { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: 2px; }
+
+    /* Danger zone — restrained, NOT a loud red block. Glyph + label. */
+    .danger { margin-top: var(--space-6); padding-top: var(--space-5); border-top: 1px solid var(--border); }
+    .danger .dz-head { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+    .danger .dz-glyph { color: var(--fg-subtle); }
+    .danger .dz-sub { font-size: var(--text-xs); color: var(--fg-subtle); margin: 4px 0 var(--space-3); }
+
+    .subhead { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); margin: 0 0 var(--space-3); }
+    .block { padding: var(--space-5) 0; border-top: 1px solid var(--border); }
+    .block:first-of-type { border-top: 0; padding-top: 0; }
+
+    .pg-foot { margin-top: var(--space-10); text-align: center; font-size: var(--text-xs); color: var(--fg-subtle); }
+
+    @media (max-width: 820px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidenav { position: static; flex-direction: row; flex-wrap: wrap; gap: var(--space-1); margin-bottom: var(--space-4); }
+      .grid-2 { grid-template-columns: 1fr; }
+      .topnav { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bc">
+
+    <!-- ── Canonical Essential topbar (copied from essential-my-stuff.html) ── -->
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
+      <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+    </header>
+
+    <main>
+      <div class="bc-wrap">
+
+        <!-- ── Breadcrumb ── -->
+        <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+          <a href="essential-home.html">Home</a>
+          <span class="sep" aria-hidden="true">›</span>
+          <span class="current">Your profile</span>
+        </nav>
+
+        <!-- ── Page header ── -->
+        <h1 class="pg-title">Your profile</h1>
+        <p class="pg-sub">Your details, how Opzava reaches you, and how your account stays secure. Changes here only affect you.</p>
+
+        <div class="layout">
+
+          <!-- ════════════ Sticky in-page nav ════════════ -->
+          <nav class="sidenav" aria-label="Profile sections">
+            <a href="#profile" class="active" aria-current="true"><span class="g" aria-hidden="true">◔</span> Profile</a>
+            <a href="#notifications"><span class="g" aria-hidden="true">✉</span> Notifications</a>
+            <a href="#appearance"><span class="g" aria-hidden="true">◑</span> Appearance</a>
+            <a href="#tools"><span class="g" aria-hidden="true">⌗</span> Connected tools</a>
+            <a href="#security"><span class="g" aria-hidden="true">⚿</span> Security &amp; account</a>
+          </nav>
+
+          <!-- ════════════ Stacked cards ════════════ -->
+          <div class="col">
+
+            <!-- ───────────── 1 · Profile ───────────── -->
+            <section class="card sec" id="profile" aria-labelledby="profile-h">
+              <h2 id="profile-h">Profile</h2>
+              <p class="sec-hint">How you appear to your teammates and assistants across Opzava.</p>
+
+              <div class="sec-body">
+                <!-- Avatar + change photo -->
+                <div class="id-head">
+                  <span class="id-photo" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+                  <div class="id-photo-meta">
+                    <button class="btn btn-ghost btn-sm" type="button">Change photo</button>
+                    <span class="hint">JPG or PNG, at least 200×200.</span>
+                  </div>
+                </div>
+
+                <div class="grid-2">
+                  <div class="field">
+                    <label class="label" for="p-fullname">Full name</label>
+                    <input class="input" id="p-fullname" type="text" value="Anthony Garces">
+                  </div>
+                  <div class="field">
+                    <label class="label" for="p-display">Display name</label>
+                    <input class="input" id="p-display" type="text" value="Anthony">
+                    <span class="help">Shown on cards, comments and chat.</span>
+                  </div>
+                  <div class="field">
+                    <label class="label" for="p-email">Email</label>
+                    <input class="input" id="p-email" type="email" value="anthony@opzava.io">
+                  </div>
+                  <div class="field">
+                    <label class="label" for="p-title">Job title</label>
+                    <input class="input" id="p-title" type="text" value="Operations lead">
+                  </div>
+                  <div class="field">
+                    <label class="label" for="p-tz">Timezone</label>
+                    <select class="select" id="p-tz">
+                      <option>(GMT−05:00) Bogotá, Lima, Quito</option>
+                      <option selected>(GMT−05:00) Eastern Time — New York</option>
+                      <option>(GMT+00:00) London, Lisbon</option>
+                      <option>(GMT+01:00) Madrid, Berlin, Paris</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label class="label" for="p-lang">Language</label>
+                    <select class="select" id="p-lang">
+                      <option selected>English</option>
+                      <option>Español</option>
+                      <option>Français</option>
+                      <option>Português</option>
+                    </select>
+                  </div>
+                  <div class="field span-2">
+                    <label class="label" for="p-bio">Bio</label>
+                    <textarea class="textarea" id="p-bio" placeholder="A line or two about what you do.">Keeping the trains running across content, outreach and ops. Working closely with Atlas and the crew.</textarea>
+                    <span class="help">A short note teammates see on your profile. Optional.</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="sec-foot">
+                <button class="btn btn-primary js-save" type="button">Save changes</button>
+                <span class="saved" id="profile-stamp">Last updated 12 Jun.</span>
+                <span class="save-status" role="status" aria-live="polite"></span>
+              </div>
+            </section>
+
+            <!-- ───────────── 2 · Notifications ───────────── -->
+            <section class="card sec" id="notifications" aria-labelledby="notif-h">
+              <h2 id="notif-h">Notifications</h2>
+              <p class="sec-hint">Choose what reaches you, and where. Opzava stays quiet unless something needs you.</p>
+
+              <div class="sec-body">
+                <!-- preference × channel matrix -->
+                <div class="matrix" role="table" aria-label="Notification preferences by channel">
+                  <div class="mh mh--row" role="columnheader">What happens</div>
+                  <div class="mh" role="columnheader">In-app</div>
+                  <div class="mh" role="columnheader">Email</div>
+
+                  <!-- Row: @mentions -->
+                  <div class="mr-label" role="rowheader">Someone @mentions me</div>
+                  <div class="mr-cell">
+                    <label class="tg"><input type="checkbox" checked aria-label="@mentions, in-app"><span class="track" aria-hidden="true"></span><span class="tg-state"></span></label>
+                  </div>
+                  <div class="mr-cell">
+                    <label class="tg"><input type="checkbox" checked aria-label="@mentions, email"><span class="track" aria-hidden="true"></span><span class="tg-state"></span></label>
+                  </div>
+
+                  <!-- Row: approval -->
+                  <div class="mr-label" role="rowheader">An approval needs me</div>
+                  <div class="mr-cell">
+                    <label class="tg"><input type="checkbox" checked aria-label="Approvals, in-app"><span class="track" aria-hidden="true"></span><span class="tg-state"></span></label>
+                  </div>
+                  <div class="mr-cell">
+                    <label class="tg"><input type="checkbox" checked aria-label="Approvals, email"><span class="track" aria-hidden="true"></span><span class="tg-state"></span></label>
+                  </div>
+
+                  <!-- Row: AI hand-off -->
+                  <div class="mr-label" role="rowheader"><span aria-hidden="true" style="color:var(--accent)">✦</span> AI hand-off ready</div>
+                  <div class="mr-cell">
+                    <label class="tg"><input type="checkbox" checked aria-label="AI hand-off, in-app"><span class="track" aria-hidden="true"></span><span class="tg-state"></span></label>
+                  </div>
+                  <div class="mr-cell">
+                    <label class="tg"><input type="checkbox" aria-label="AI hand-off, email"><span class="track" aria-hidden="true"></span><span class="tg-state"></span></label>
+                  </div>
+
+                  <!-- Row: daily summary -->
+                  <div class="mr-label" role="rowheader">Daily summary</div>
+                  <div class="mr-cell">
+                    <label class="tg"><input type="checkbox" aria-label="Daily summary, in-app"><span class="track" aria-hidden="true"></span><span class="tg-state"></span></label>
+                  </div>
+                  <div class="mr-cell">
+                    <label class="tg"><input type="checkbox" checked aria-label="Daily summary, email"><span class="track" aria-hidden="true"></span><span class="tg-state"></span></label>
+                  </div>
+
+                  <!-- Row: project activity -->
+                  <div class="mr-label" role="rowheader">Project activity</div>
+                  <div class="mr-cell">
+                    <label class="tg"><input type="checkbox" checked aria-label="Project activity, in-app"><span class="track" aria-hidden="true"></span><span class="tg-state"></span></label>
+                  </div>
+                  <div class="mr-cell">
+                    <label class="tg"><input type="checkbox" aria-label="Project activity, email"><span class="track" aria-hidden="true"></span><span class="tg-state"></span></label>
+                  </div>
+                </div>
+
+                <!-- Quiet hours -->
+                <div class="pref-row">
+                  <div class="pref-id">
+                    <div class="pref-title">Quiet hours</div>
+                    <div class="pref-sub">Hold non-urgent notifications during these hours.</div>
+                  </div>
+                  <div class="qh">
+                    <input class="input" type="time" value="20:00" aria-label="Quiet hours from">
+                    <span class="dash" aria-hidden="true">–</span>
+                    <input class="input" type="time" value="08:00" aria-label="Quiet hours to">
+                  </div>
+                </div>
+
+                <!-- Pause all -->
+                <div class="pref-row">
+                  <div class="pref-id">
+                    <div class="pref-title">Pause all notifications</div>
+                    <div class="pref-sub">Mute everything until you turn this back off.</div>
+                  </div>
+                  <label class="tg"><input type="checkbox" aria-label="Pause all notifications"><span class="track" aria-hidden="true"></span><span class="tg-state"></span></label>
+                </div>
+              </div>
+
+              <div class="sec-foot">
+                <button class="btn btn-primary js-save" type="button">Save changes</button>
+                <span class="saved" id="notif-stamp">Last updated 12 Jun.</span>
+                <span class="save-status" role="status" aria-live="polite"></span>
+              </div>
+            </section>
+
+            <!-- ───────────── 3 · Appearance ───────────── -->
+            <section class="card sec" id="appearance" aria-labelledby="appear-h">
+              <h2 id="appear-h">Appearance</h2>
+              <p class="sec-hint">How Opzava looks for you. The live switch is the one in the top bar — this just sets your default.</p>
+
+              <div class="sec-body">
+                <div class="field" style="margin-bottom:var(--space-6)">
+                  <span class="label">Theme</span>
+                  <div class="sb-tabs" role="tablist" aria-label="Theme">
+                    <button class="sb-tab" type="button" role="tab" aria-selected="true"><span aria-hidden="true">☀</span> Light</button>
+                    <button class="sb-tab" type="button" role="tab" aria-selected="false"><span aria-hidden="true">☾</span> Dark</button>
+                  </div>
+                  <span class="help">Illustrative — use the switch in the top bar to preview live.</span>
+                </div>
+
+                <div class="field">
+                  <span class="label">Density</span>
+                  <div class="sb-tabs" role="tablist" aria-label="Density">
+                    <button class="sb-tab" type="button" role="tab" aria-selected="true">Comfortable</button>
+                    <button class="sb-tab" type="button" role="tab" aria-selected="false">Compact</button>
+                  </div>
+                  <span class="help">Compact tightens row spacing in long lists.</span>
+                </div>
+              </div>
+
+              <div class="sec-foot">
+                <button class="btn btn-primary js-save" type="button">Save changes</button>
+                <span class="saved" id="appear-stamp">Last updated 12 Jun.</span>
+                <span class="save-status" role="status" aria-live="polite"></span>
+              </div>
+            </section>
+
+            <!-- ───────────── 4 · Connected tools (doorway) ───────────── -->
+            <section class="card sec" id="tools" aria-labelledby="tools-h">
+              <h2 id="tools-h">Connected tools</h2>
+              <p class="sec-hint">The terminal and desktop tools linked to your account.</p>
+
+              <div class="sec-body">
+                <div class="doorway">
+                  <div class="dw-text">
+                    <div class="sb-statusline">
+                      <span class="sl-glyph" aria-hidden="true">⌗</span>
+                      <span class="sl-label">5 of 5 tools connected</span>
+                      <span class="sl-meta">nothing needs you</span>
+                    </div>
+                  </div>
+                  <a class="btn btn-ghost" href="essential-tools.html">Manage your tools <span aria-hidden="true">→</span></a>
+                </div>
+              </div>
+            </section>
+
+            <!-- ───────────── 5 · Security & account ───────────── -->
+            <section class="card sec" id="security" aria-labelledby="sec-h">
+              <h2 id="sec-h">Security &amp; account</h2>
+              <p class="sec-hint">Keep your account safe. The action button below saves your new password.</p>
+
+              <div class="sec-body">
+
+                <!-- Change password -->
+                <div class="block">
+                  <h3 class="subhead">Change password</h3>
+                  <div class="grid-2">
+                    <div class="field span-2">
+                      <label class="label" for="s-current">Current password</label>
+                      <input class="input" id="s-current" type="password" value="••••••••••">
+                    </div>
+                    <div class="field">
+                      <label class="label" for="s-new">New password</label>
+                      <input class="input" id="s-new" type="password" placeholder="At least 12 characters">
+                    </div>
+                    <div class="field">
+                      <label class="label" for="s-confirm">Confirm new password</label>
+                      <input class="input" id="s-confirm" type="password" placeholder="Repeat new password">
+                    </div>
+                  </div>
+                  <div class="sec-foot">
+                    <button class="btn btn-primary js-save" type="button" data-stamp="Password just changed.">Save changes</button>
+                    <span class="saved" id="pw-stamp">Password last changed 3 months ago.</span>
+                    <span class="save-status" role="status" aria-live="polite"></span>
+                  </div>
+                </div>
+
+                <!-- Two-factor authentication -->
+                <div class="block">
+                  <h3 class="subhead">Two-factor authentication</h3>
+                  <div class="lockup">
+                    <div class="lk-id">
+                      <div class="lk-title">Authenticator app</div>
+                      <div class="lk-sub">A 6-digit code at sign-in, from your phone.</div>
+                    </div>
+                    <span class="sb-statusline" style="flex:none">
+                      <span class="sl-glyph" aria-hidden="true">●</span>
+                      <span class="sl-label">On</span>
+                    </span>
+                    <button class="btn btn-ghost" type="button">Manage</button>
+                  </div>
+                </div>
+
+                <!-- Active sessions -->
+                <div class="block">
+                  <h3 class="subhead">Active sessions</h3>
+                  <div class="sess-list">
+
+                    <div class="sess-row">
+                      <div class="sess-id">
+                        <div class="sess-dev">
+                          MacBook Pro · Chrome
+                          <span class="sb-statusline sb-statusline--accent" style="flex:none">
+                            <span class="sl-glyph" aria-hidden="true">●</span>
+                            <span class="sl-label">This device</span>
+                          </span>
+                        </div>
+                        <div class="sess-meta">New York, US · active now</div>
+                      </div>
+                      <button class="btn btn-ghost btn-sm" type="button" disabled aria-disabled="true">Sign out</button>
+                    </div>
+
+                    <div class="sess-row">
+                      <div class="sess-id">
+                        <div class="sess-dev">iPhone 15 · Safari</div>
+                        <div class="sess-meta">New York, US · last active 2 hours ago</div>
+                      </div>
+                      <button class="btn btn-ghost btn-sm" type="button">Sign out</button>
+                    </div>
+
+                    <div class="sess-row">
+                      <div class="sess-id">
+                        <div class="sess-dev">Windows PC · Edge</div>
+                        <div class="sess-meta">Bogotá, CO · last active 4 days ago</div>
+                      </div>
+                      <button class="btn btn-ghost btn-sm" type="button">Sign out</button>
+                    </div>
+
+                  </div>
+                  <div style="margin-top:var(--space-4)">
+                    <button class="btn btn-ghost btn-sm" type="button">Sign out everywhere</button>
+                  </div>
+                </div>
+
+                <!-- Danger zone — restrained, never a loud red block -->
+                <div class="danger">
+                  <div class="dz-head"><span class="dz-glyph" aria-hidden="true">⚠</span> Danger zone</div>
+                  <p class="dz-sub">Deleting your account permanently removes your profile, preferences and personal history. Projects you share stay with your team. This can't be undone.</p>
+                  <button class="btn btn-ghost btn-sm" type="button" id="del-account-btn" style="color:var(--danger)">Delete account</button>
+                </div>
+
+              </div>
+            </section>
+
+          </div>
+        </div>
+
+        <!-- ── Page footer ── -->
+        <p class="pg-foot">Need admin controls? Those live in <a href="#" style="color:inherit">Settings</a> (admin only).</p>
+
+      </div>
+    </main>
+
+  </div>
+
+  <!-- ── Delete-account confirmation (typed consequence, item #3) ── -->
+  <div class="sb-overlay" id="delDlg" role="alertdialog" aria-modal="true" aria-labelledby="delT" aria-describedby="delD">
+    <div class="sb-dialog">
+      <div class="sb-dialog-title" id="delT">Delete your account?</div>
+      <p class="sb-dialog-desc" id="delD">This permanently removes your profile, preferences and personal history. Projects you share stay with your team. <strong>This can't be undone.</strong></p>
+      <div class="confirm-field">
+        <label class="label" for="del-confirm">Type your email <strong>anthony@opzava.io</strong> (or <strong>DELETE</strong>) to confirm</label>
+        <input class="input" id="del-confirm" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="del-err" placeholder="anthony@opzava.io">
+        <p class="confirm-err" id="del-err" role="alert">That doesn't match. Type <strong>anthony@opzava.io</strong> or <strong>DELETE</strong> exactly.</p>
+      </div>
+      <div class="sb-dialog-footer">
+        <button class="btn" type="button" data-close>Keep my account</button>
+        <button class="btn btn-danger" type="button" id="del-confirm-btn" disabled aria-disabled="true">Delete account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Live toast stack (account deletion confirmation) ── -->
+  <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
+
+  <!-- ── Page-local JS: save feedback (#13) + delete-account guard (#3) ── -->
+  <script>
+    (function () {
+      // ── #13 · Within-400ms save feedback ───────────────────────────────
+      // Each Save: optimistic pending → "Saved", updating the live region and
+      // the "Last updated" stamp. Status by glyph + label, never colour.
+      var today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      document.querySelectorAll('.js-save').forEach(function (btn) {
+        var foot = btn.closest('.sec-foot');
+        var status = foot ? foot.querySelector('.save-status') : null;
+        var stamp = foot ? foot.querySelector('.saved') : null;
+        btn.addEventListener('click', function () {
+          if (btn.getAttribute('aria-busy') === 'true') return;
+          var label = btn.textContent;
+          btn.setAttribute('aria-busy', 'true');
+          btn.disabled = true;
+          btn.textContent = 'Saving…';
+          if (status) status.textContent = '◷ Saving…';
+          setTimeout(function () {
+            btn.removeAttribute('aria-busy');
+            btn.disabled = false;
+            btn.textContent = label;
+            if (status) status.textContent = '✓ Saved';
+            if (stamp) stamp.textContent = btn.dataset.stamp || ('Last updated ' + today + '.');
+            setTimeout(function () { if (status) status.textContent = ''; }, 2600);
+          }, 600);
+        });
+      });
+
+      // ── #3 · Delete-account typed-confirmation alertdialog ──────────────
+      var dlg = document.getElementById('delDlg');
+      var openBtn = document.getElementById('del-account-btn');
+      var input = document.getElementById('del-confirm');
+      var confirmBtn = document.getElementById('del-confirm-btn');
+      var err = document.getElementById('del-err');
+      var toastStack = document.getElementById('toastStack');
+      var EXPECT = ['anthony@opzava.io', 'DELETE'];
+      var lastFocus = null;
+
+      function matches() {
+        var v = input.value.trim();
+        return EXPECT.indexOf(v) !== -1 || (v.toUpperCase() === 'DELETE');
+      }
+      function focusable() {
+        return Array.prototype.filter.call(
+          dlg.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'),
+          function (el) { return !el.disabled && el.offsetParent !== null; }
+        );
+      }
+      function open() {
+        lastFocus = document.activeElement;
+        input.value = '';
+        err.classList.remove('show');
+        confirmBtn.disabled = true;
+        confirmBtn.setAttribute('aria-disabled', 'true');
+        dlg.classList.add('open');
+        var main = document.querySelector('main');
+        if (main) main.setAttribute('inert', '');
+        setTimeout(function () { input.focus(); }, 0);
+      }
+      function close() {
+        dlg.classList.remove('open');
+        var main = document.querySelector('main');
+        if (main) main.removeAttribute('inert');
+        if (lastFocus && lastFocus.focus) lastFocus.focus();
+      }
+
+      openBtn.addEventListener('click', open);
+      dlg.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', close); });
+      dlg.addEventListener('click', function (e) { if (e.target === dlg) close(); });
+
+      input.addEventListener('input', function () {
+        var ok = matches();
+        confirmBtn.disabled = !ok;
+        confirmBtn.setAttribute('aria-disabled', String(!ok));
+        if (ok) err.classList.remove('show');
+      });
+
+      confirmBtn.addEventListener('click', function () {
+        if (!matches()) {
+          err.classList.add('show');
+          input.setAttribute('aria-invalid', 'true');
+          input.focus();
+          return;
+        }
+        input.removeAttribute('aria-invalid');
+        close();
+        // Optimistic confirmation toast (mockup: no real deletion).
+        var t = document.createElement('div');
+        t.className = 'toast toast-danger';
+        t.setAttribute('role', 'status');
+        t.innerHTML = '<div><div class="toast-title">Account scheduled for deletion</div><div class="toast-msg">You will be signed out shortly. Changed your mind? Contact your admin within 24 hours.</div></div>';
+        toastStack.appendChild(t);
+        setTimeout(function () { t.remove(); }, 6000);
+      });
+
+      // Keyboard: Esc closes (only while open); Tab is trapped inside.
+      document.addEventListener('keydown', function (e) {
+        if (!dlg.classList.contains('open')) return;
+        if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+        if (e.key === 'Tab') {
+          var f = focusable();
+          if (!f.length) return;
+          var first = f[0], last = f[f.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Performance · Q3 Launch Campaign</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* ── Shell ─────────────────────────────────────────────────────────── */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); font-size: var(--text-sm); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+
+    .bc-wrap { max-width: 980px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+
+    /* ── Page header ──────────────────────────────────────────────────── */
+    .pg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-6); }
+    .pg-title { font-size: var(--text-xl); font-weight: var(--fw-semibold); color: var(--fg); line-height: var(--lh-tight); display: flex; align-items: center; gap: var(--space-2);  margin: 0;}
+    .pg-sub { font-size: var(--text-sm); color: var(--fg-muted); margin-top: var(--space-1); max-width: 60ch; line-height: var(--lh-relaxed); }
+
+    /* ── Progress bar (thin, like ct-steps-bar) ───────────────────────── */
+    .perf-bar { display: flex; align-items: center; gap: var(--space-3); }
+    .perf-bar-track { flex: 1 1 120px; height: 6px; background: var(--surface-3); border-radius: var(--radius-full); overflow: hidden; min-width: 80px; max-width: 160px; }
+    /* One accent for every bar — health is read from the % + trend glyph + the
+       "needs attention" label, never from a bar hue (spec §4.5: a single thin bar). */
+    .perf-bar-fill { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width 0.3s var(--ease-standard); }
+    .perf-bar-fill.is-over { background: var(--accent); }
+    .perf-bar-fill.is-low { background: var(--accent); }
+    .perf-pct { font-size: var(--text-sm); color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 3.5ch; }
+
+    /* ── Trend glyph — direction carries the signal, not colour ───────── */
+    .trend-up   { color: var(--fg); font-size: var(--text-base); font-weight: var(--fw-semibold); }
+    .trend-down { color: var(--fg-muted); font-size: var(--text-base); }
+
+    /* ── Table overrides: tabular nums for number cols ───────────────── */
+    .table td.num, .table th.num { font-variant-numeric: tabular-nums; }
+    .table td { vertical-align: middle; }
+    .table th { white-space: nowrap; }
+
+    /* ── Campaign name link ───────────────────────────────────────────── */
+    .camp-link { color: var(--fg); text-decoration: none; font-weight: var(--fw-medium); }
+    .camp-link:hover { color: var(--accent); text-decoration: underline; }
+
+    /* ── Ended badge ──────────────────────────────────────────────────── */
+    .ended-label { font-size: var(--text-xs); color: var(--fg-subtle); margin-left: 6px; }
+
+    /* ── Attention line ───────────────────────────────────────────────── */
+    .attention-line { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-4); padding: var(--space-3) var(--space-4); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--fg-muted); }
+    .attention-glyph { font-size: var(--text-base); flex: none; }
+
+    /* ── Date filter control ──────────────────────────────────────────── */
+    .filter-row { display: flex; align-items: center; gap: var(--space-3); }
+    /* Live "Updating…" cue while the range filter re-fetches — the only async
+       state rendered on this surface (no display:none demo blocks: spec §23). */
+    .filter-busy { display: none; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--fg-muted); }
+    .filter-busy[data-busy="true"] { display: inline-flex; }
+    .filter-busy .filter-busy-glyph { color: var(--accent); }
+    .results-region[aria-busy="true"] { opacity: 0.55; transition: opacity 0.2s var(--ease-standard); pointer-events: none; }
+
+    /* ── Mobile collapse ──────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      /* topnav collapses to a scrollable row; filter row stacks */
+      .topnav { gap: 0; overflow-x: auto; }
+      .topnav a { padding: 0 var(--space-2); font-size: var(--text-xs); }
+      .pg-head { flex-direction: column; }
+      .filter-row { flex-wrap: wrap; }
+      /* progress bar gets narrower on mobile */
+      .perf-bar-track { min-width: 56px; max-width: 100px; }
+      /* hide the trend column on very small screens — shown as text below if needed */
+      .col-trend { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="bc">
+
+  <!-- ── Canonical calm Essential topbar ──────────────────────────────── -->
+  <header class="topbar">
+    <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+      <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+      <strong style="font-size:var(--text-md)">Opzava</strong>
+    </a>
+    <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+    <span class="u-grow"></span>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative">
+      <span aria-hidden="true">🔔</span>
+      <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span>
+    </a>
+    <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+  </header>
+
+  <div class="bc-wrap">
+
+    <!-- ── Breadcrumb ─────────────────────────────────────────────────── -->
+    <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+      <a href="essential-marketing.html">← Q3 Launch Campaign</a>
+      <span class="sep">›</span>
+      <span class="current">Performance</span>
+    </nav>
+
+    <!-- ── Page header ────────────────────────────────────────────────── -->
+    <div class="pg-head">
+      <div>
+        <h1 class="pg-title">
+          <span aria-hidden="true">📈</span> Performance
+        </h1>
+        <p class="pg-sub">Goal vs. actual for live and recent campaigns. One number that matters each.</p>
+      </div>
+
+      <!-- Date-range filter — a real wired control, not a false affordance:
+           changing it shows a live "Updating…" cue + aria-busy on the results,
+           marks the chosen option aria-current, and recomputes the count line
+           (spec §14: reflect the active selection, never leave the control inert). -->
+      <div class="filter-row">
+        <span class="filter-busy" id="filter-busy" role="status" data-busy="false">
+          <span class="filter-busy-glyph" aria-hidden="true">◷</span>
+          <span>Updating…</span>
+        </span>
+        <div style="position:relative;display:inline-flex;align-items:center;">
+          <select class="select" id="date-range-filter" aria-label="Date range" aria-describedby="results-count-text" style="padding-right:var(--space-6);appearance:none;cursor:pointer;font-size:var(--text-sm);">
+            <option value="this-quarter" data-count="3" selected aria-current="true">This quarter</option>
+            <option value="last-quarter" data-count="4">Last quarter</option>
+            <option value="last-30" data-count="2">Last 30 days</option>
+            <option value="last-90" data-count="3">Last 90 days</option>
+            <option value="all-time" data-count="7">All time</option>
+          </select>
+          <span aria-hidden="true" style="position:absolute;right:var(--space-3);pointer-events:none;color:var(--fg-muted);font-size:var(--text-xs);">▾</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Spec §23: the inline loading-skeleton and empty-state DEMO blocks that
+         used to sit here were design-spec scaffolding leaking into a live
+         surface — they read to real users as a broken/duplicate page. The
+         canonical loading/error/empty reference lives in the states gallery
+         (see mention-inbox.html), not on this populated performance page. -->
+
+    <!-- Results region — dimmed + aria-busy while the date range re-fetches. -->
+    <div class="results-region" id="results-region" aria-busy="false">
+
+    <!-- ── Results count line — recomputed when the date range changes ─── -->
+    <p class="results-count" id="results-count" aria-live="polite" style="font-size:var(--text-sm);color:var(--fg-muted);margin:0 0 var(--space-3);">
+      <span id="results-count-text">Showing <strong>3 campaigns</strong> · this quarter</span>
+    </p>
+
+    <!-- ── Main results table ─────────────────────────────────────────── -->
+    <div style="overflow-x:auto;">
+      <table class="table" aria-label="Campaign performance results">
+        <thead>
+          <tr>
+            <th style="min-width:200px;">Campaign</th>
+            <th>Goal</th>
+            <th class="num">Target</th>
+            <th class="num">Actual</th>
+            <th style="min-width:200px;">Progress</th>
+            <th class="col-trend" style="text-align:center;">Trend</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <!-- Row 1 — June Launch: Leads, 86%, trending up -->
+          <tr>
+            <td>
+              <a href="essential-card.html" class="camp-link">June Launch</a>
+              <span class="sb-badge" style="margin-left:var(--space-2)">Live</span>
+            </td>
+            <td style="color:var(--fg-muted);font-size:var(--text-sm);">Leads</td>
+            <td class="num">500</td>
+            <td class="num">430</td>
+            <td>
+              <div class="perf-bar" aria-label="86% of target">
+                <div class="perf-bar-track">
+                  <i class="perf-bar-fill" style="width:86%;" role="presentation"></i>
+                </div>
+                <span class="perf-pct">86%</span>
+              </div>
+            </td>
+            <td class="col-trend" style="text-align:center;" aria-label="Trending up">
+              <span class="trend-up" aria-hidden="true">↑</span>
+            </td>
+          </tr>
+
+          <!-- Row 2 — Webinar promo: Registrations, 104%, trending up (over target) -->
+          <tr>
+            <td>
+              <a href="essential-card.html" class="camp-link">Webinar promo</a>
+              <span class="sb-badge" style="margin-left:var(--space-2)">Live</span>
+            </td>
+            <td style="color:var(--fg-muted);font-size:var(--text-sm);">Registrations</td>
+            <td class="num">300</td>
+            <td class="num">312</td>
+            <td>
+              <div class="perf-bar" aria-label="104% of target">
+                <div class="perf-bar-track">
+                  <!-- capped at 100% visually; percent label shows true value -->
+                  <i class="perf-bar-fill is-over" style="width:100%;" role="presentation"></i>
+                </div>
+                <span class="perf-pct">104%</span>
+              </div>
+            </td>
+            <td class="col-trend" style="text-align:center;" aria-label="Trending up">
+              <span class="trend-up" aria-hidden="true">↑</span>
+            </td>
+          </tr>
+
+          <!-- Row 3 — Spring teaser (ended): Reach, 82%, trending down -->
+          <tr style="opacity:0.85;">
+            <td>
+              <span class="camp-link" style="color:var(--fg-muted);">Spring teaser</span>
+              <span class="ended-label">(ended)</span>
+            </td>
+            <td style="color:var(--fg-muted);font-size:var(--text-sm);">Reach</td>
+            <td class="num" style="color:var(--fg-muted);">50,000</td>
+            <td class="num" style="color:var(--fg-muted);">41,200</td>
+            <td>
+              <div class="perf-bar" aria-label="82% of target">
+                <div class="perf-bar-track">
+                  <i class="perf-bar-fill is-low" style="width:82%;" role="presentation"></i>
+                </div>
+                <span class="perf-pct">82%</span>
+              </div>
+            </td>
+            <td class="col-trend" style="text-align:center;" aria-label="Trending down">
+              <span class="trend-down" aria-hidden="true">↓</span>
+            </td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── Needs attention — a calm label, never a red alert wall ─────── -->
+    <div class="attention-line" role="status" aria-live="polite">
+      <span class="attention-glyph" aria-hidden="true">▸</span>
+      <span>
+        <strong>Needs attention:</strong>
+        Spring teaser reach 18% below target.
+        <a href="essential-card.html" style="color:var(--accent);text-decoration:none;margin-left:var(--space-2);">View campaign →</a>
+      </span>
+    </div>
+
+    </div><!-- /.results-region -->
+
+    <!-- ── Footer nav: back to other marketing tiles ──────────────────── -->
+    <nav style="display:flex;gap:var(--space-4);flex-wrap:wrap;margin-top:var(--space-10);padding-top:var(--space-6);border-top:1px solid var(--border);" aria-label="Marketing workspace tiles">
+      <a href="essential-mkt-campaigns.html"  style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">▣ Campaigns</a>
+      <a href="essential-mkt-calendar.html"   style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">📅 Calendar</a>
+      <a href="essential-mkt-approvals.html"  style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">✓◷ Approvals</a>
+      <a href="essential-mkt-assets.html"     style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">📎 Assets</a>
+      <span style="color:var(--accent);font-size:var(--text-sm);font-weight:var(--fw-medium);">📈 Performance</span>
+      <a href="essential-mkt-ads-report.html"   style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">🎯 Ads Report</a>
+      <a href="essential-mkt-email-report.html" style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">📧 Email Report</a>
+      <a href="essential-mkt-blog-report.html"  style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">📝 Blog Report</a>
+      <a href="project-assistant.html"        style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">✦ Ask your assistant</a>
+      <a href="essential-team-room.html"      style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">💬 Team</a>
+    </nav>
+
+  </div><!-- /.bc-wrap -->
+</div><!-- /.bc -->
+
+<!-- ── Page-local JS: wire the date-range filter (spec §14) ───────────────
+     The control drives explicit per-option state (data-count + value), never a
+     regex over rendered text. On change it: (1) reflects the active selection
+     via aria-current on the chosen <option>, (2) marks the results region
+     aria-busy + shows a live "Updating…" cue (so it isn't a false affordance),
+     then (3) recomputes the count line. Static mock — a real build would
+     re-fetch; here we surface the same observable states. -->
+<script>
+(function () {
+  var sel     = document.getElementById('date-range-filter');
+  var busy    = document.getElementById('filter-busy');
+  var region  = document.getElementById('results-region');
+  var countEl = document.getElementById('results-count-text');
+  if (!sel || !busy || !region || !countEl) return;
+
+  var timer = null;
+
+  function setBusy(on) {
+    busy.setAttribute('data-busy', on ? 'true' : 'false');
+    region.setAttribute('aria-busy', on ? 'true' : 'false');
+  }
+
+  sel.addEventListener('change', function () {
+    var opt = sel.options[sel.selectedIndex];
+
+    // (1) Reflect the active selection — aria-current marks the chosen option.
+    Array.prototype.forEach.call(sel.options, function (o) {
+      o.removeAttribute('aria-current');
+    });
+    opt.setAttribute('aria-current', 'true');
+
+    // (2) Show the live "Updating…" state so the control reads as wired.
+    setBusy(true);
+
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(function () {
+      // (3) Recompute the count line from explicit per-option data.
+      var count = opt.getAttribute('data-count') || '0';
+      var label = (opt.textContent || '').trim().toLowerCase();
+      var noun  = count === '1' ? 'campaign' : 'campaigns';
+      countEl.innerHTML =
+        'Showing <strong>' + count + ' ' + noun + '</strong> · ' + label;
+      setBusy(false);
+    }, 450);
+  });
+})();
+</script>
+</body>
+</html>

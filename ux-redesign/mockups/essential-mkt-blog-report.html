@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Blog Report · Q3 Launch Campaign</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* ── Shell ─────────────────────────────────────────────────────────── */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .bc-wrap { max-width: 980px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+
+    /* ── Page header ──────────────────────────────────────────────────── */
+    .pg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-6); }
+    .pg-title { font-size: var(--text-xl); font-weight: var(--fw-semibold); color: var(--fg); line-height: var(--lh-tight); display: flex; align-items: center; gap: var(--space-2);  margin: 0;}
+    .pg-sub { font-size: var(--text-sm); color: var(--fg-muted); margin-top: var(--space-1); max-width: 64ch; line-height: var(--lh-relaxed); }
+
+    /* ── Summary stats — numbers + trend glyph, NO chart wall ─────────── */
+    .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-6); }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-5); }
+    .stat-label { font-size: var(--text-xs); color: var(--fg-subtle); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
+    .stat-value { font-size: var(--text-2xl); font-weight: var(--fw-semibold); color: var(--fg); font-variant-numeric: tabular-nums; line-height: 1.1; margin: var(--space-2) 0 var(--space-1); }
+    .stat-delta { font-size: var(--text-xs); color: var(--fg-muted); display: inline-flex; align-items: center; gap: 5px; }
+    .stat-delta .g { font-weight: var(--fw-semibold); color: var(--fg); }   /* trend glyph — neutral, direction is the signal */
+
+    /* ── ✦ Atlas analysis — the AI's read on the numbers ──────────────── */
+    .analysis { border: 1px solid var(--border); border-top: 2px solid var(--accent); border-radius: var(--radius-lg); background: var(--surface); padding: var(--space-5) var(--space-6); margin-bottom: var(--space-8); }
+    .analysis-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-4); }
+    .analysis-badge { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--accent); background: var(--accent-soft); border-radius: var(--radius-full); padding: 2px var(--space-3); display: inline-flex; align-items: center; gap: 5px; }
+    .analysis-title { font-size: var(--text-md); font-weight: var(--fw-semibold); color: var(--fg); }
+    .analysis-list { display: flex; flex-direction: column; gap: var(--space-3); }
+    .analysis-item { display: flex; gap: var(--space-3); font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-snug); }
+    .analysis-item .mark { color: var(--accent); flex: none; font-weight: var(--fw-semibold); }
+    .analysis-rec { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border); font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-snug); }
+    .analysis-actions { display: flex; gap: var(--space-2); margin-top: var(--space-4); flex-wrap: wrap; }
+
+    /* ── Breakdown table ──────────────────────────────────────────────── */
+    .sec-label { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); margin-bottom: var(--space-3); }
+    .table td.num, .table th.num { font-variant-numeric: tabular-nums; text-align: right; }
+    .table td { vertical-align: middle; }
+    .table th { white-space: nowrap; }
+    .ch-name { color: var(--fg); font-weight: var(--fw-medium); }
+    .ch-sub { font-size: var(--text-xs); color: var(--fg-subtle); }
+    .trend-up { color: var(--fg); font-weight: var(--fw-semibold); white-space: nowrap; font-variant-numeric: tabular-nums; }   /* neutral — sign + magnitude carry meaning, not hue */
+    .trend-down { color: var(--fg-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .th-note { font-weight: var(--fw-regular); color: var(--fg-subtle); font-size: var(--text-xs); }
+    .row-total td { border-top: 2px solid var(--border-strong); font-weight: var(--fw-semibold); }
+
+    /* ── Date filter ──────────────────────────────────────────────────── */
+    .filter-row { display: flex; align-items: center; gap: var(--space-3); }
+
+    @media (max-width: 720px) {
+      .topnav { display: none; }
+      .stat-row { grid-template-columns: repeat(2, 1fr); }
+      .pg-head { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+<div class="bc">
+
+  <!-- ── Canonical calm Essential topbar ──────────────────────────────── -->
+  <header class="topbar">
+    <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+      <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+      <strong style="font-size:var(--text-md)">Opzava</strong>
+    </a>
+    <nav class="topnav" aria-label="Primary">
+      <a href="essential-home.html">Home</a>
+      <a href="essential-my-stuff.html">My stuff</a>
+      <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+      <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+      <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+      <a href="essential-find.html">Find…</a>
+    </nav>
+    <span class="u-grow"></span>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
+    <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+  </header>
+
+  <div class="bc-wrap">
+
+    <!-- ── Breadcrumb ─────────────────────────────────────────────────── -->
+    <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+      <a href="essential-marketing.html">← Q3 Launch Campaign</a>
+      <span class="sep">›</span>
+      <span class="current">Blog Report</span>
+    </nav>
+
+    <!-- ── Page header ────────────────────────────────────────────────── -->
+    <div class="pg-head">
+      <div>
+        <h1 class="pg-title"><span aria-hidden="true">📝</span> Blog Report</h1>
+        <p class="pg-sub">How your content performs — traffic, engagement, signups — and Atlas's read on what to write next.</p>
+      </div>
+      <div class="filter-row">
+        <div style="position:relative;display:inline-flex;align-items:center;">
+          <select class="select" aria-label="Date range" style="padding-right:var(--space-6);appearance:none;cursor:pointer;font-size:var(--text-sm);">
+            <option selected>This month</option>
+            <option>Last month</option>
+            <option>Last 90 days</option>
+            <option>This quarter</option>
+          </select>
+          <span aria-hidden="true" style="position:absolute;right:var(--space-3);pointer-events:none;color:var(--fg-muted);font-size:var(--text-xs);">▾</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Summary stats ──────────────────────────────────────────────── -->
+    <div class="stat-row">
+      <div class="stat-card">
+        <div class="stat-label">Pageviews</div>
+        <div class="stat-value">18,200</div>
+        <div class="stat-delta"><span class="g" aria-hidden="true">↑</span> 21% vs last month</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg. time</div>
+        <div class="stat-value">3m 12s</div>
+        <div class="stat-delta"><span class="g" aria-hidden="true">↑</span> from 2m 40s</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Signups</div>
+        <div class="stat-value">210</div>
+        <div class="stat-delta"><span class="g" aria-hidden="true">↑</span> 18% vs last month</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Organic</div>
+        <div class="stat-value">58%</div>
+        <div class="stat-delta"><span class="g" aria-hidden="true">↑</span> 6 pts vs last month</div>
+      </div>
+    </div>
+
+    <!-- ── Atlas analysis ─────────────────────────────────────────────── -->
+    <section class="analysis" aria-label="Atlas analysis">
+      <div class="analysis-head">
+        <span class="analysis-badge"><span aria-hidden="true">✦</span> Atlas analysis</span>
+        <span class="analysis-title">What the numbers say</span>
+      </div>
+      <div class="analysis-list">
+        <p class="analysis-item"><span class="mark" aria-hidden="true">✦</span> <span><strong>How-to posts hold attention</strong> — they keep readers 2.1x longer than announcement posts; depth is working.</span></p>
+        <p class="analysis-item"><span class="mark" aria-hidden="true">✦</span> <span><strong>Organic search is climbing</strong> — up 18% month over month; 'Automating marketing ops with AI' now ranks page 1 for three terms.</span></p>
+        <p class="analysis-item"><span class="mark" aria-hidden="true">✦</span> <span><strong>One post does the heavy lifting</strong> — the top post drives 34% of all signups but has no mid-article CTA; easy win.</span></p>
+      </div>
+      <div class="analysis-rec" id="blog-rec"><strong>Recommendation:</strong> Publish two more how-to / SEO pieces this month and add inline signup CTAs to the top 3 posts.</div>
+      <div class="analysis-actions">
+        <button class="btn btn-primary btn-sm" type="button" id="draft-cta-btn" aria-describedby="blog-rec"><span aria-hidden="true">✦</span> Have Atlas draft the CTA</button>
+        <a class="btn btn-ghost btn-sm" href="project-assistant.html" style="text-decoration:none;color:var(--accent);">✦ Ask Atlas about this</a>
+        <button class="btn btn-ghost btn-sm" type="button" id="rerun-btn">↻ Re-run analysis</button>
+      </div>
+      <p class="u-sr-only" role="status" aria-live="polite" id="draft-cta-status"></p>
+    </section>
+
+    <!-- ── Breakdown table ────────────────────────────────────────────── -->
+    <div class="sec-label">By post</div>
+    <div style="overflow-x:auto;">
+      <table class="table" aria-label="Blog post breakdown">
+        <thead>
+          <tr>
+            <th style="min-width:200px;">Post</th>
+            <th class="num">Views</th>
+            <th>Avg. time</th>
+            <th>Source</th>
+            <th class="num">Signups</th>
+            <th class="num" scope="col" data-metric="signups" data-metric-polarity="positive">Trend vs last period <span class="th-note">(signups vs prior month — more is better)</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="ch-name">Automating marketing ops with AI</span></td>
+            <td class="num">6,400</td>
+            <td>4m 30s</td>
+            <td>Organic</td>
+            <td class="num">71</td>
+            <td class="num" data-metric="signups" data-polarity="good" data-change="+29"><span class="trend-up"><span aria-hidden="true">↑</span> +29%</span><span class="u-sr-only">signups rising 29% vs last period</span></td>
+          </tr>
+          <tr>
+            <td><span class="ch-name">Q3 product roadmap</span></td>
+            <td class="num">4,100</td>
+            <td>2m 05s</td>
+            <td>Direct</td>
+            <td class="num">38</td>
+            <td class="num" data-metric="signups" data-polarity="bad" data-change="-12"><span class="trend-down"><span aria-hidden="true">↓</span> −12%</span><span class="u-sr-only">signups falling 12% vs last period</span></td>
+          </tr>
+          <tr>
+            <td><span class="ch-name">5 email subject lines that convert</span></td>
+            <td class="num">3,800</td>
+            <td>3m 40s</td>
+            <td>Social</td>
+            <td class="num">52</td>
+            <td class="num" data-metric="signups" data-polarity="good" data-change="+16"><span class="trend-up"><span aria-hidden="true">↑</span> +16%</span><span class="u-sr-only">signups rising 16% vs last period</span></td>
+          </tr>
+          <tr>
+            <td><span class="ch-name">Launch week recap</span></td>
+            <td class="num">2,300</td>
+            <td>1m 50s</td>
+            <td>Email</td>
+            <td class="num">21</td>
+            <td class="num" data-metric="signups" data-polarity="bad" data-change="-34"><span class="trend-down"><span aria-hidden="true">↓</span> −34%</span><span class="u-sr-only">signups falling 34% vs last period</span></td>
+          </tr>
+          <tr>
+            <td><span class="ch-name">Customer story: Acme</span></td>
+            <td class="num">1,600</td>
+            <td>3m 15s</td>
+            <td>Organic</td>
+            <td class="num">28</td>
+            <td class="num" data-metric="signups" data-polarity="good" data-change="+9"><span class="trend-up"><span aria-hidden="true">↑</span> +9%</span><span class="u-sr-only">signups rising 9% vs last period</span></td>
+          </tr>
+          <tr class="row-total">
+            <td>All posts</td>
+            <td class="num">18,200</td>
+            <td>3m 12s</td>
+            <td>—</td>
+            <td class="num">210</td>
+            <td class="num" data-metric="signups" data-polarity="good" data-change="+18"><span class="trend-up"><span aria-hidden="true">↑</span> +18%</span><span class="u-sr-only">signups rising 18% vs last period</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── Footer nav: marketing workspace tiles ──────────────────────── -->
+    <nav style="display:flex;gap:var(--space-4);flex-wrap:wrap;margin-top:var(--space-10);padding-top:var(--space-6);border-top:1px solid var(--border);" aria-label="Marketing workspace tiles">
+      <a href="essential-mkt-campaigns.html"     style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">▣ Campaigns</a>
+      <a href="essential-mkt-calendar.html"       style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">📅 Calendar</a>
+      <a href="essential-mkt-approvals.html"      style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">✓◷ Approvals</a>
+      <a href="essential-mkt-assets.html"         style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">📎 Assets</a>
+      <a href="essential-mkt-performance.html"    style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">📈 Performance</a>
+      <a href="essential-mkt-ads-report.html"     style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">🎯 Ads Report</a>
+      <a href="essential-mkt-email-report.html"   style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">📧 Email Report</a>
+      <span style="color:var(--accent);font-size:var(--text-sm);font-weight:var(--fw-medium);">📝 Blog Report</span>
+      <a href="project-assistant.html"            style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">✦ Ask your assistant</a>
+      <a href="essential-team-room.html"          style="color:var(--fg-muted);font-size:var(--text-sm);text-decoration:none;">💬 Team</a>
+    </nav>
+
+  </div><!-- /.bc-wrap -->
+</div><!-- /.bc -->
+
+<!-- ── Page-local: turn Atlas's recommendation into one actionable step (item #11) ── -->
+<script>
+(function () {
+  'use strict';
+  var btn = document.getElementById('draft-cta-btn');
+  var statusEl = document.getElementById('draft-cta-status');
+  var actions = btn && btn.closest('.analysis-actions');
+  if (!btn || !statusEl || !actions) return;
+
+  var ASSISTANT_HREF = 'project-assistant.html';
+
+  btn.addEventListener('click', function () {
+    if (btn.dataset.state === 'working' || btn.dataset.state === 'done') return;
+
+    // Working state — AI output is revealed only after the user invokes it.
+    btn.dataset.state = 'working';
+    btn.setAttribute('aria-busy', 'true');
+    btn.disabled = true;
+    btn.innerHTML = '<span aria-hidden="true">✦</span> Atlas is drafting…';
+    statusEl.textContent = 'Atlas is drafting an inline signup CTA for the top 3 posts.';
+
+    window.setTimeout(function () {
+      // Done state — hand the user a concrete next step, not a dead end.
+      btn.dataset.state = 'done';
+      btn.removeAttribute('aria-busy');
+      btn.disabled = false;
+      btn.classList.remove('btn-primary');
+      btn.classList.add('btn-ghost');
+      var done = document.createElement('a');
+      done.className = 'btn btn-primary btn-sm';
+      done.href = ASSISTANT_HREF;
+      done.style.textDecoration = 'none';
+      done.innerHTML = '<span aria-hidden="true">✦</span> Review the CTA draft →';
+      done.setAttribute('aria-describedby', 'blog-rec');
+      btn.replaceWith(done);
+      statusEl.textContent = 'Draft ready. Review the CTA Atlas wrote for your top 3 posts.';
+      done.focus();
+    }, 650);
+  });
+})();
+
+// ── Item #6: derive trend polarity per metric (never assume ↑ = good) ──
+// The blog Trend column is signups — a positive metric where rising is good.
+// We compute each row's good/bad polarity from metric + sign rather than trusting
+// a hand-set attribute, so an inverted metric (or a typo) can't silently mislead.
+(function () {
+  'use strict';
+  var head = document.querySelector('th[data-metric][data-metric-polarity]');
+  if (!head) return;
+  // 'positive' → up is good; 'inverted' → up is bad (e.g. unsub %, spend).
+  var upIsGood = head.getAttribute('data-metric-polarity') !== 'inverted';
+  var cells = document.querySelectorAll('td[data-metric][data-change]');
+  Array.prototype.forEach.call(cells, function (cell) {
+    var change = parseFloat(cell.getAttribute('data-change'));
+    if (isNaN(change) || change === 0) { cell.setAttribute('data-trend', 'flat'); return; }
+    var rising = change > 0;
+    var isGood = rising === upIsGood;            // direction agrees with what's good
+    cell.setAttribute('data-trend', rising ? 'up' : 'down');
+    cell.setAttribute('data-trend-meaning', isGood ? 'good' : 'bad');
+    // Keep the existing semantic data-polarity honest with the computed meaning.
+    cell.setAttribute('data-polarity', isGood ? 'good' : 'bad');
+  });
+})();
+</script>
+</body>
+</html>

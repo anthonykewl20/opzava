@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Your tools (none linked yet)</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .bc-wrap { max-width: 840px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+
+    .pg-title { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; }
+    .pg-sub { font-size: var(--text-md); color: var(--fg-muted); margin-bottom: var(--space-6); }
+
+    /* Empty state hero */
+    .empty-hero { text-align: center; padding: var(--space-10) var(--space-6) var(--space-8); }
+    .empty-hero .empty-icon { font-size: 40px; }
+    .empty-hero .empty-title { margin-top: var(--space-4); font-size: var(--text-xl); font-weight: var(--fw-semibold); color: var(--fg); }
+    .empty-hero .empty-desc { margin: var(--space-2) auto 0; font-size: var(--text-md); color: var(--fg-muted); max-width: 52ch; line-height: var(--lh-relaxed); }
+    .empty-hero .empty-cta { margin-top: var(--space-6); }
+    .empty-hero .empty-effort { margin: var(--space-3) auto 0; font-size: var(--text-sm); color: var(--fg-muted); }
+    .empty-hero .empty-effort .pip { color: var(--accent); margin-right: var(--space-1); }
+
+    /* Ghost preview — what it will look like, dimmed */
+    .ghost-cap { text-align: center; font-size: var(--text-xs); color: var(--fg-subtle); margin: var(--space-8) 0 var(--space-3); }
+    .ghost-preview { pointer-events: none; opacity: 0.45; }
+    .ghost-row { display: flex; align-items: center; gap: var(--space-3); min-height: 56px; padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border); }
+    .ghost-row:last-child { border-bottom: 0; }
+    .ghost-name { flex: 1 1 auto; }
+    .ghost-name strong { font-size: var(--text-base); font-weight: var(--fw-medium); color: var(--fg); }
+    .ghost-name div { font-size: var(--text-xs); color: var(--fg-subtle); }
+
+    @media (max-width: 640px) { .topnav { display: none; } }
+  </style>
+</head>
+<body>
+<div class="bc">
+
+  <header class="topbar">
+    <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+      <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+      <strong style="font-size:var(--text-md)">Opzava</strong>
+    </a>
+    <nav class="topnav" aria-label="Primary">
+      <a href="essential-home.html">Home</a>
+      <a href="essential-my-stuff.html">My stuff</a>
+      <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+      <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+      <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+      <a href="essential-find.html">Find…</a>
+    </nav>
+    <span class="u-grow"></span>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
+    <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+  </header>
+
+  <div class="bc-wrap">
+
+    <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+      <a href="essential-home.html">Home</a>
+      <span class="sep" aria-hidden="true">›</span>
+      <span class="current">Your tools</span>
+    </nav>
+
+    <h1 class="pg-title">Your tools</h1>
+    <p class="pg-sub">The terminal and desktop tools linked to your Opzava account.</p>
+
+    <!-- ── Empty hero — the most important screen ─────────────────────────── -->
+    <div class="card">
+      <div class="empty-hero">
+        <div class="empty-icon" aria-hidden="true">🔌</div>
+        <div class="empty-title">Connect your first tool</div>
+        <p class="empty-desc">Link Claude Code, Codex, OpenCode, or another tool so Opzava can run tasks and keep an eye on them for you.</p>
+        <div class="empty-cta">
+          <a class="btn btn-primary" href="essential-connect-wizard.html" style="height:44px;padding:0 var(--space-6);font-size:var(--text-md)"><span aria-hidden="true">＋</span> Connect a tool →</a>
+          <p class="empty-effort"><span class="pip" aria-hidden="true">✦</span> Takes about a minute — pick a tool and copy one command.</p>
+        </div>
+      </div>
+
+      <!-- Ghost preview — sells the payoff without a dashboard -->
+      <div class="ghost-cap" aria-hidden="true">— Your linked tools will look like this —</div>
+      <div class="ghost-preview" aria-hidden="true">
+        <div class="ghost-row">
+          <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)">▮</span>
+          <div class="ghost-name"><strong>Claude Code</strong><div>on your computer · via MCP</div></div>
+          <span class="sb-badge sb-badge--secondary"><span aria-hidden="true">✦</span> Active</span>
+        </div>
+        <div class="ghost-row">
+          <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-1)">▢</span>
+          <div class="ghost-name"><strong>Claude Desktop</strong><div>desktop app · via MCP</div></div>
+          <span class="sb-badge sb-badge--secondary"><span aria-hidden="true" style="color:var(--fg-subtle)">●</span> Connected</span>
+        </div>
+        <div class="ghost-row">
+          <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-6)">◇</span>
+          <div class="ghost-name"><strong>Hermes</strong><div>run a fleet · via Gateway</div></div>
+          <span class="sb-badge sb-badge--secondary"><span aria-hidden="true">✦</span> Active</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /.bc-wrap -->
+</div><!-- /.bc -->
+</body>
+</html>

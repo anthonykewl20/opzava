@@ -1,0 +1,1627 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — Opzava</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="admin-nav.js" defer></script>
+  <style>
+    /* Page-specific layout only — no color, font-size, shadow, or radius overrides */
+    .settings-layout {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: var(--space-6);
+      align-items: start;
+    }
+    .settings-nav {
+      position: sticky;
+      top: var(--space-6);
+    }
+    .settings-nav-search {
+      margin-bottom: var(--space-3);
+    }
+    .settings-nav-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .settings-content {
+      width: 100%;
+      max-width: 800px;
+      min-width: 0;
+    }
+    .settings-panel[hidden] {
+      display: none;
+    }
+    .settings-panel:focus {
+      outline: none;
+    }
+    .settings-fields {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-5);
+    }
+    .settings-mini-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-3);
+    }
+    .settings-metric {
+      min-width: 0;
+      padding: var(--space-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface-2);
+    }
+    .settings-metric span {
+      display: block;
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+    }
+    .settings-metric strong {
+      display: block;
+      margin-top: 4px;
+      font-size: var(--text-lg);
+      font-weight: var(--fw-semibold);
+      color: var(--fg);
+      font-variant-numeric: tabular-nums;
+    }
+    .settings-inline-fields {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-4);
+    }
+    .field-switch-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-4);
+    }
+    .field-switch-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .settings-list {
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+      min-width: 0;
+      padding: var(--space-3) var(--space-4);
+      background: var(--surface);
+    }
+    .settings-row + .settings-row {
+      border-top: 1px solid var(--border);
+    }
+    .settings-row-main {
+      min-width: 0;
+      flex: 1;
+    }
+    .settings-row-title {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      min-width: 0;
+      font-size: var(--text-sm);
+      font-weight: var(--fw-medium);
+      color: var(--fg);
+    }
+    .settings-row-title span:last-child {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .settings-row-desc {
+      margin-top: 3px;
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+      line-height: var(--lh-normal);
+    }
+    .settings-row-meta {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+      margin-top: 7px;
+    }
+    .settings-row-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: var(--space-2);
+      flex: none;
+      flex-wrap: wrap;
+    }
+    .settings-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    .settings-table-wrap .table th,
+    .settings-table-wrap .table td {
+      white-space: nowrap;
+    }
+    .settings-note {
+      display: flex;
+      gap: var(--space-3);
+      padding: var(--space-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface-2);
+      font-size: var(--text-sm);
+      color: var(--fg-muted);
+      line-height: var(--lh-normal);
+    }
+    .settings-token {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+    }
+    .settings-danger {
+      border-color: var(--danger-soft);
+    }
+    .settings-danger .settings-row-title {
+      color: var(--danger);
+    }
+    .card-footer-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+    }
+    .advanced-details summary {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      cursor: pointer;
+      padding: var(--space-3) 0;
+      border-top: 1px solid var(--border);
+    }
+    .advanced-details summary::-webkit-details-marker { display: none; }
+    .advanced-details summary .chevron {
+      transition: transform var(--dur-base) var(--ease-standard);
+      flex: none;
+    }
+    .advanced-details[open] summary .chevron {
+      transform: rotate(90deg);
+    }
+    .advanced-body {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-5);
+      padding-top: var(--space-4);
+    }
+    .nav-section-gap {
+      margin-top: var(--space-2);
+    }
+    .header-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--surface-3);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      flex: none;
+      cursor: pointer;
+      font-weight: var(--fw-semibold);
+    }
+    .notif-btn-wrap {
+      position: relative;
+    }
+    .notif-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: var(--radius-full);
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      font-weight: var(--fw-semibold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+    }
+    @media (max-width: 980px) {
+      .settings-layout {
+        grid-template-columns: 1fr;
+      }
+      .settings-nav {
+        position: static;
+      }
+      .settings-nav-list {
+        flex-direction: row;
+        overflow-x: auto;
+        padding-bottom: 2px;
+      }
+      .settings-nav-list .rail-item {
+        width: auto;
+        flex: none;
+      }
+      .settings-content {
+        max-width: none;
+      }
+    }
+    @media (max-width: 860px) {
+      .settings-layout,
+      .settings-nav,
+      .settings-nav-search,
+      .settings-content,
+      .settings-panel,
+      .settings-panel .card,
+      .settings-fields,
+      .settings-fields > *,
+      .settings-list,
+      .settings-note,
+      .settings-row,
+      .settings-row-main,
+      .settings-row-actions,
+      .field {
+        min-width: 0;
+        max-width: 100%;
+      }
+      .settings-layout,
+      .settings-nav,
+      .settings-content,
+      .settings-panel,
+      .settings-fields,
+      .field {
+        width: 100%;
+      }
+      .settings-layout,
+      .settings-nav {
+        overflow: hidden;
+      }
+      .settings-nav-search .search {
+        min-width: 0;
+        max-width: 100%;
+      }
+      .settings-nav-list {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+      }
+      .settings-nav-list .rail-item {
+        min-width: max-content;
+        max-width: none;
+      }
+      .settings-panel .card {
+        overflow: hidden;
+      }
+      .input,
+      .select,
+      .textarea {
+        min-width: 0;
+        max-width: 100%;
+      }
+      .settings-token,
+      .settings-row-title span:last-child {
+        max-width: 100%;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+      .banner {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        align-items: flex-start;
+      }
+      .banner > span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .card-footer-actions {
+        min-width: 0;
+        max-width: 100%;
+      }
+    }
+    @media (max-width: 720px) {
+      .settings-mini-grid,
+      .settings-inline-fields {
+        grid-template-columns: 1fr;
+      }
+      .field-switch-row {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .field-switch-row .switch {
+        align-self: flex-start;
+      }
+      .settings-row {
+        align-items: flex-start;
+        flex-direction: column;
+        width: 100%;
+      }
+      .settings-row-actions {
+        width: 100%;
+        justify-content: flex-start;
+      }
+      .card-footer-actions {
+        flex-wrap: wrap;
+      }
+      .card-footer-actions .u-right {
+        margin-left: 0;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       NAVIGATION RAIL  — copied verbatim from shell-overview.html
+  ══════════════════════════════════════════════════════════════════ -->
+  <aside class="rail" aria-label="Main navigation">
+
+    <!-- Logo / wordmark -->
+    <div class="rail-head">
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
+        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
+      </svg>
+      <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);letter-spacing:-.01em;">Opzava</span>
+      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
+    </div>
+
+    <!-- Nav groups -->
+    <nav class="rail-nav" aria-label="Application sections">
+      <a href="orchestrator-chat.html" class="rail-item" style="margin-bottom:4px;">
+        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
+        Ask Opzava
+        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
+      </a>
+      <div class="section-label">Operate</div>
+      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
+      <a href="agents.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
+      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
+      <a href="issues.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="9" r="1.75" fill="currentColor"/></svg> Issues <span class="count">12</span></a>
+      <a href="activity.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="4.5" cy="5" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="4.5" cy="12" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 12h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Activity</a>
+      <a href="messages-slack.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
+      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
+      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
+      <div class="section-label nav-section-gap">Observe</div>
+      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
+      <a href="logs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
+      <a href="costs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
+      <div class="section-label nav-section-gap">Automate</div>
+      <a href="connections.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="5" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><path d="M7.3 9h3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Connections <span class="dot dot-success dot-beat" style="margin-left:auto;" aria-label="all tools connected"></span></a>
+      <a href="automation.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M10 2.5 4.5 10H8l-1 5.5L13.5 8H10z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Automation <span class="count">4</span></a>
+      <div class="section-label nav-section-gap">Gateway</div>
+      <a href="connections.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5.5h12v7H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M5.5 8h2M10.5 8h2M5.5 10.5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Gateway <span class="dot dot-success dot-beat" style="margin-left:auto;" aria-label="Gateway healthy"></span></a>
+      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="5" cy="6" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="6" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M6.6 7.5 8 11M11.4 7.5 10 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Nodes <span class="count">3</span></a>
+      <div class="section-label nav-section-gap">Govern</div>
+      <a href="security-audit.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5l5 1.8v3.7c0 3.3-2.1 5.6-5 6.5-2.9-.9-5-3.2-5-6.5V4.3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Security &amp; Audit <span class="count" style="background:var(--danger-soft);color:var(--danger);">1</span></a>
+      <a href="memory-skills.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 2.5 6 9 9.5 15.5 6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M2.5 10 9 13.5 15.5 10" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Memory &amp; Skills</a>
+      <a href="notifications-alerts.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
+      <a href="settings.html" class="rail-item" aria-current="page"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
+      <a href="debug.html" class="rail-item u-subtle"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="3.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7.5 7.5 9.5 5.5 11.5M9.5 11.5h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Debug</a>
+      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+    </nav>
+
+    <!-- Rail footer: ⌘K quick jump -->
+    <div class="rail-foot">
+      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (⌘K)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-subtle u-grow">Jump to…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIN COLUMN
+  ══════════════════════════════════════════════════════════════════ -->
+  <div class="main-col">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="header">
+
+      <!-- Sidebar collapse -->
+      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <!-- Search -->
+      <div class="search" role="search">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-grow u-subtle">Search agents, tasks, runs…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </div>
+
+      <!-- Spacer -->
+      <div class="u-grow"></div>
+
+      <!-- Health pill -->
+      <div class="health-pill" aria-label="System health: All systems healthy">
+        <span class="dot dot-success" aria-hidden="true"></span>
+        All systems healthy
+      </div>
+
+      <!-- Live indicator -->
+      <div class="live-indicator" aria-label="Live connection active">
+        <span class="dot dot-success live" aria-hidden="true"></span>
+        <span>Live</span>
+      </div>
+
+      <!-- Notifications -->
+      <div class="notif-btn-wrap">
+        <a href="notifications-alerts.html" class="btn btn-ghost btn-icon" aria-label="Notifications, 2 unread">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </a>
+        <span class="notif-badge" aria-hidden="true">2</span>
+        <span class="u-sr-only">2 unread notifications</span>
+      </div>
+
+      <!-- Avatar -->
+      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu — Anthony G.">AG</div>
+
+    </header>
+
+    <!-- ── Main content ────────────────────────────────────────── -->
+    <main class="main">
+      <div class="page">
+
+        <!-- Page header -->
+        <div class="page-header">
+          <div>
+            <h1>Settings</h1>
+            <p class="page-sub">Workspace configuration and preferences</p>
+          </div>
+          <button type="button" class="btn btn-primary">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M13 3H6L3 6v7h10V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <path d="M10 3v4H6V3" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <path d="M5 10h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M5 12.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            Save changes
+          </button>
+        </div>
+
+        <!-- Two-column settings layout -->
+        <div class="settings-layout">
+
+          <!-- ── Left: Section navigation ──────────────────────── -->
+          <nav class="settings-nav" aria-label="Settings sections">
+
+            <!-- Inline search -->
+            <div class="settings-nav-search">
+              <label for="settings-search" class="u-sr-only">Search settings</label>
+              <div class="search" style="max-width:none;width:100%;">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+                  <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                <input
+                  id="settings-search"
+                  type="search"
+                  placeholder="Search settings…"
+                  style="background:none;border:0;outline:0;color:var(--fg);font:inherit;font-size:var(--text-sm);flex:1;min-width:0;"
+                  aria-label="Search settings"
+                />
+              </div>
+            </div>
+
+            <!-- Nav items -->
+            <div class="settings-nav-list" role="tablist" aria-orientation="vertical">
+
+              <a href="#general" class="rail-item active" aria-current="page" role="tab" aria-selected="true" aria-controls="panel-general" id="tab-general" data-settings-tab="general">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/>
+                  <circle cx="9" cy="9" r="2.5" fill="currentColor" opacity=".6"/>
+                </svg>
+                General
+              </a>
+
+              <a href="#agents" class="rail-item" role="tab" aria-selected="false" aria-controls="panel-agents" id="tab-agents" data-settings-tab="agents">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Agents
+              </a>
+
+              <a href="#connections" class="rail-item" role="tab" aria-selected="false" aria-controls="panel-connections" id="tab-connections" data-settings-tab="connections">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <circle cx="4.5" cy="9" r="2" stroke="currentColor" stroke-width="1.5"/>
+                  <circle cx="13.5" cy="9" r="2" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M6.5 9h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Connections
+              </a>
+
+              <a href="#security" class="rail-item" role="tab" aria-selected="false" aria-controls="panel-security" id="tab-security" data-settings-tab="security">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M9 2L3 5v5c0 3.5 2.5 6.5 6 7.5 3.5-1 6-4 6-7.5V5L9 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                </svg>
+                Security
+              </a>
+
+              <a href="#notifications" class="rail-item" role="tab" aria-selected="false" aria-controls="panel-notifications" id="tab-notifications" data-settings-tab="notifications">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                  <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+                Notifications
+              </a>
+
+              <a href="#billing" class="rail-item" role="tab" aria-selected="false" aria-controls="panel-billing" id="tab-billing" data-settings-tab="billing">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <rect x="2" y="5" width="14" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M2 8.5h14" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M5 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Billing
+              </a>
+
+              <a href="#advanced" class="rail-item" role="tab" aria-selected="false" aria-controls="panel-advanced" id="tab-advanced" data-settings-tab="advanced">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M3 6h12M3 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  <circle cx="6" cy="6" r="1.5" fill="currentColor"/>
+                  <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+                </svg>
+                Advanced
+              </a>
+
+              <a href="#config" class="rail-item" role="tab" aria-selected="false" aria-controls="panel-config" id="tab-config" data-settings-tab="config">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M4 3.5h10v11H4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                  <path d="M6.5 7h5M6.5 9.5h5M6.5 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Config
+              </a>
+
+              <a href="#deployment" class="rail-item" role="tab" aria-selected="false" aria-controls="panel-deployment" id="tab-deployment" data-settings-tab="deployment">
+                <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M9 2.5v8M9 10.5l-2.5-2.5M9 10.5l2.5-2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M3.5 12.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Deployment
+              </a>
+
+            </div>
+          </nav>
+
+          <!-- ── Right: Settings section panels ────────────────── -->
+          <div class="settings-content">
+          <section class="settings-panel" aria-labelledby="general-heading" id="panel-general" data-settings-panel="general" role="tabpanel" tabindex="0">
+
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="general-heading">General</h2>
+                <span class="badge badge-accent">Active</span>
+              </div>
+
+              <div class="card-body">
+                <div class="settings-fields">
+
+                  <!-- Organization name -->
+                  <div class="field">
+                    <label class="label" for="org-name">Organization name</label>
+                    <span class="hint" id="org-name-hint">Displayed in the header, exports, and team invitations.</span>
+                    <input
+                      class="input"
+                      id="org-name"
+                      type="text"
+                      value="Opzava Internal"
+                      aria-describedby="org-name-hint"
+                      autocomplete="organization"
+                    />
+                  </div>
+
+                  <!-- Default model -->
+                  <div class="field">
+                    <label class="label" for="default-model">Default model</label>
+                    <span class="hint" id="default-model-hint">Used for new agents unless overridden in their config.</span>
+                    <select class="select" id="default-model" aria-describedby="default-model-hint">
+                      <option value="claude-opus-4" selected>Claude Opus 4 (recommended)</option>
+                      <option value="claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                      <option value="claude-haiku-3-5">Claude Haiku 3.5</option>
+                      <option value="gpt-4o">GPT-4o</option>
+                      <option value="gpt-4o-mini">GPT-4o Mini</option>
+                    </select>
+                  </div>
+
+                  <!-- Timezone -->
+                  <div class="field">
+                    <label class="label" for="timezone">Timezone</label>
+                    <span class="hint" id="timezone-hint">Affects task scheduling, log timestamps, and report dates.</span>
+                    <select class="select" id="timezone" aria-describedby="timezone-hint">
+                      <option value="utc">UTC +0:00 (Coordinated Universal Time)</option>
+                      <option value="est" selected>UTC −5:00 (Eastern Time)</option>
+                      <option value="pst">UTC −8:00 (Pacific Time)</option>
+                      <option value="cet">UTC +1:00 (Central European Time)</option>
+                      <option value="jst">UTC +9:00 (Japan Standard Time)</option>
+                    </select>
+                  </div>
+
+                  <hr>
+
+                  <!-- Switch: Auto-pause on error -->
+                  <div class="field-switch-row" role="group" aria-labelledby="autopause-label">
+                    <div class="field-switch-info">
+                      <span class="label" id="autopause-label">Auto-pause agents on error</span>
+                      <p class="hint" id="autopause-hint">Automatically pauses an agent when it encounters a runtime error, preventing runaway cost.</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked="true"
+                      aria-labelledby="autopause-label"
+                      aria-describedby="autopause-hint"
+                      class="switch on"
+                    >
+                      <span class="u-sr-only">Enabled</span>
+                    </button>
+                  </div>
+
+                  <!-- Switch: Usage telemetry -->
+                  <div class="field-switch-row" role="group" aria-labelledby="telemetry-label">
+                    <div class="field-switch-info">
+                      <span class="label" id="telemetry-label">Send anonymous usage telemetry</span>
+                      <p class="hint" id="telemetry-hint">Helps improve Opzava. No prompt content or PII is ever transmitted. <a href="#" style="font-size:inherit;">Privacy policy</a></p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked="false"
+                      aria-labelledby="telemetry-label"
+                      aria-describedby="telemetry-hint"
+                      class="switch"
+                    >
+                      <span class="u-sr-only">Disabled</span>
+                    </button>
+                  </div>
+
+                  <hr>
+
+                  <!-- Advanced disclosure -->
+                  <details class="advanced-details" id="general-advanced">
+                    <summary>
+                      <svg class="chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                        <path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                      <span style="font-size:var(--text-sm);font-weight:var(--fw-medium);color:var(--fg-muted);">Advanced settings</span>
+                      <span class="badge u-right">3 options</span>
+                    </summary>
+
+                    <div class="advanced-body">
+
+                      <!-- Date format -->
+                      <div class="field">
+                        <label class="label" for="date-format">Date format</label>
+                        <span class="hint" id="date-format-hint">Controls how dates appear in the UI, exports, and reports.</span>
+                        <select class="select" id="date-format" aria-describedby="date-format-hint">
+                          <option value="iso" selected>YYYY-MM-DD (ISO 8601)</option>
+                          <option value="us">MM/DD/YYYY</option>
+                          <option value="eu">DD/MM/YYYY</option>
+                        </select>
+                      </div>
+
+                      <!-- Max concurrent tasks -->
+                      <div class="field">
+                        <label class="label" for="max-concurrent">Max concurrent tasks per agent</label>
+                        <span class="hint" id="max-concurrent-hint">Hard limit applied to every agent. Individual agents may set a lower limit in their config.</span>
+                        <input
+                          class="input"
+                          id="max-concurrent"
+                          type="number"
+                          min="1"
+                          max="20"
+                          value="5"
+                          aria-describedby="max-concurrent-hint"
+                          style="max-width:120px;"
+                        />
+                      </div>
+
+                      <!-- Switch: Debug mode -->
+                      <div class="field-switch-row" role="group" aria-labelledby="debugmode-label">
+                        <div class="field-switch-info">
+                          <span class="label" id="debugmode-label">Debug mode</span>
+                          <p class="hint" id="debugmode-hint">Enables verbose logging and exposes internal tool call traces in the activity feed. Not recommended for production.</p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked="false"
+                          aria-labelledby="debugmode-label"
+                          aria-describedby="debugmode-hint"
+                          class="switch"
+                        >
+                          <span class="u-sr-only">Disabled</span>
+                        </button>
+                      </div>
+
+                    </div>
+                  </details>
+
+                </div>
+              </div>
+
+              <!-- Card footer: save actions -->
+              <div class="card-footer">
+                <div class="card-footer-actions">
+                  <button type="button" class="btn btn-primary">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M13 3H6L3 6v7h10V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                      <path d="M10 3v4H6V3" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                    </svg>
+                    Save changes
+                  </button>
+                  <button type="button" class="btn btn-ghost">Discard</button>
+                  <span class="u-subtle hint u-right">Last saved 3 minutes ago</span>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Unsaved-changes banner (demo: shown) -->
+            <div class="banner banner-info" style="margin-top:var(--space-4);" role="status" aria-live="polite">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--info);">
+                <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M8 5v1M8 8v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              <span>You have unsaved changes. Save or discard before navigating away.</span>
+            </div>
+
+          </section>
+          <section class="settings-panel" aria-labelledby="agents-heading" id="panel-agents" data-settings-panel="agents" role="tabpanel" tabindex="0" hidden>
+
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="agents-heading">Agents</h2>
+                <span class="badge badge-success">6 enabled</span>
+              </div>
+
+              <div class="card-body">
+                <div class="settings-fields">
+                  <div class="settings-mini-grid" aria-label="Agent usage summary">
+                    <div class="settings-metric"><span>Running now</span><strong>4</strong></div>
+                    <div class="settings-metric"><span>Queued tasks</span><strong>14</strong></div>
+                    <div class="settings-metric"><span>Daily spend cap</span><strong>$85</strong></div>
+                  </div>
+
+                  <div class="settings-inline-fields">
+                    <div class="field">
+                      <label class="label" for="agent-default-model">Default agent model</label>
+                      <span class="hint" id="agent-default-model-hint">Used when a new agent has no model override.</span>
+                      <select class="select" id="agent-default-model" aria-describedby="agent-default-model-hint">
+                        <option selected>Claude Opus 4</option>
+                        <option>Claude Sonnet 4.5</option>
+                        <option>GPT-4o</option>
+                        <option>GPT-4o Mini</option>
+                      </select>
+                    </div>
+
+                    <div class="field">
+                      <label class="label" for="agent-region">Execution region</label>
+                      <span class="hint" id="agent-region-hint">Primary region for hosted agent runs.</span>
+                      <select class="select" id="agent-region" aria-describedby="agent-region-hint">
+                        <option selected>US East</option>
+                        <option>US West</option>
+                        <option>EU West</option>
+                        <option>Asia Pacific</option>
+                      </select>
+                    </div>
+
+                    <div class="field">
+                      <label class="label" for="agent-concurrency">Max concurrent runs</label>
+                      <span class="hint" id="agent-concurrency-hint">Workspace-wide hard limit.</span>
+                      <input class="input" id="agent-concurrency" type="number" min="1" max="50" value="12" aria-describedby="agent-concurrency-hint">
+                    </div>
+
+                    <div class="field">
+                      <label class="label" for="agent-timeout">Run timeout</label>
+                      <span class="hint" id="agent-timeout-hint">Stops stale runs automatically.</span>
+                      <select class="select" id="agent-timeout" aria-describedby="agent-timeout-hint">
+                        <option>15 minutes</option>
+                        <option selected>30 minutes</option>
+                        <option>1 hour</option>
+                        <option>2 hours</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <hr>
+
+                  <div class="settings-list" aria-label="Agent policy controls">
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-success"></span><span>Allow agents to create tasks</span></div>
+                        <p class="settings-row-desc">Agents can create follow-up cards when they discover blocked work.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="true" class="switch on"><span class="u-sr-only">Enabled</span></button>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-warning"></span><span>Require approval before external sends</span></div>
+                        <p class="settings-row-desc">Email, Slack broadcast, and publishing actions pause for a human reviewer.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="true" class="switch on"><span class="u-sr-only">Enabled</span></button>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-accent"></span><span>Share workspace memory</span></div>
+                        <p class="settings-row-desc">Agents can read approved workspace memories and project instructions.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="true" class="switch on"><span class="u-sr-only">Enabled</span></button>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot"></span><span>Auto-retry failed tool calls</span></div>
+                        <p class="settings-row-desc">Retry transient tool failures up to two times before asking for help.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="false" class="switch"><span class="u-sr-only">Disabled</span></button>
+                    </div>
+                  </div>
+
+                  <div class="settings-table-wrap">
+                    <table class="table table-compact" aria-label="Agent routing defaults">
+                      <thead>
+                        <tr><th scope="col">Workstream</th><th scope="col">Default agent</th><th scope="col">Approval owner</th><th scope="col" class="num">Budget</th></tr>
+                      </thead>
+                      <tbody>
+                        <tr><td>Content</td><td>Atlas</td><td>Maria Chen</td><td class="num u-mono">$35/day</td></tr>
+                        <tr><td>Support</td><td>Echo</td><td>David Kim</td><td class="num u-mono">$20/day</td></tr>
+                        <tr><td>Research</td><td>Iris</td><td>Anthony G.</td><td class="num u-mono">$30/day</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card-footer">
+                <div class="card-footer-actions">
+                  <button type="button" class="btn btn-primary">Save agent settings</button>
+                  <button type="button" class="btn btn-ghost">Reset policies</button>
+                  <span class="u-subtle hint u-right">Affects new runs immediately</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="banner banner-info" style="margin-top:var(--space-4);" role="status">
+              <span>Running tasks keep their current model, budget, and approval policy until the next retry or handoff.</span>
+            </div>
+
+          </section>
+
+          <section class="settings-panel" aria-labelledby="connections-heading" id="panel-connections" data-settings-panel="connections" role="tabpanel" tabindex="0" hidden>
+
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="connections-heading">Connections</h2>
+                <span class="badge badge-warning">1 needs review</span>
+              </div>
+
+              <div class="card-body">
+                <div class="settings-fields">
+                  <div class="settings-mini-grid" aria-label="Connection health summary">
+                    <div class="settings-metric"><span>Connected</span><strong>8 / 9</strong></div>
+                    <div class="settings-metric"><span>Webhook uptime</span><strong>99.96%</strong></div>
+                    <div class="settings-metric"><span>Pending OAuth</span><strong>1</strong></div>
+                  </div>
+
+                  <div class="settings-list" aria-label="Connected systems">
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-success"></span><span>Slack workspace</span><span class="badge badge-success">Connected</span></div>
+                        <p class="settings-row-desc">Posts agent updates to #ops-ai and listens for @Opzava mentions.</p>
+                        <div class="settings-row-meta"><span class="settings-token">team:T04Q2</span><span class="hint">last checked 28s ago</span></div>
+                      </div>
+                      <div class="settings-row-actions"><button type="button" class="btn btn-sm">Configure</button><button type="button" class="btn btn-ghost btn-sm">Test</button></div>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-success"></span><span>GitHub</span><span class="badge badge-success">Connected</span></div>
+                        <p class="settings-row-desc">Issue triage, pull request summaries, and release-note drafts.</p>
+                        <div class="settings-row-meta"><span class="settings-token">org:opzava</span><span class="hint">10 repositories enabled</span></div>
+                      </div>
+                      <div class="settings-row-actions"><button type="button" class="btn btn-sm">Configure</button><button type="button" class="btn btn-ghost btn-sm">Audit</button></div>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-warning"></span><span>Resend</span><span class="badge badge-warning">Key expires soon</span></div>
+                        <p class="settings-row-desc">Transactional email and campaign-review sends. Rotate the API key by Friday.</p>
+                        <div class="settings-row-meta"><span class="settings-token">key:rs_live_...74d</span><span class="hint">expires in 4 days</span></div>
+                      </div>
+                      <div class="settings-row-actions"><button type="button" class="btn btn-sm">Rotate key</button><button type="button" class="btn btn-ghost btn-sm">Pause</button></div>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-success"></span><span>OpenClaw Gateway</span><span class="badge badge-success">Healthy</span></div>
+                        <p class="settings-row-desc">MCP and Gateway-backed tools for admin automation and diagnostics.</p>
+                        <div class="settings-row-meta"><span class="settings-token">gateway:prod-us-east</span><span class="hint">p95 142ms</span></div>
+                      </div>
+                      <div class="settings-row-actions"><a href="connections.html" class="btn btn-sm">Manage gateway</a><a href="monitoring-health.html" class="btn btn-ghost btn-sm">Diagnostics</a></div>
+                    </div>
+                  </div>
+
+                  <hr>
+
+                  <div class="settings-inline-fields">
+                    <div class="field">
+                      <label class="label" for="oauth-policy">OAuth approval policy</label>
+                      <span class="hint" id="oauth-policy-hint">Who can connect a new third-party account.</span>
+                      <select class="select" id="oauth-policy" aria-describedby="oauth-policy-hint">
+                        <option>Owners only</option>
+                        <option selected>Admins and owners</option>
+                        <option>Any member, admin approved</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label class="label" for="connection-timeout">Connection timeout</label>
+                      <span class="hint" id="connection-timeout-hint">Maximum wait before a tool call is marked failed.</span>
+                      <select class="select" id="connection-timeout" aria-describedby="connection-timeout-hint">
+                        <option>10 seconds</option>
+                        <option selected>30 seconds</option>
+                        <option>60 seconds</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label class="label" for="webhook-secret">Webhook signing secret</label>
+                      <span class="hint" id="webhook-secret-hint">Used for inbound automation callbacks.</span>
+                      <input class="input" id="webhook-secret" type="password" value="opzava-webhook-secret" aria-describedby="webhook-secret-hint">
+                    </div>
+                    <div class="field">
+                      <label class="label" for="allowed-domains">Allowed email domains</label>
+                      <span class="hint" id="allowed-domains-hint">Comma-separated domains for account linking.</span>
+                      <input class="input" id="allowed-domains" type="text" value="opzava.com, opzava.ai" aria-describedby="allowed-domains-hint">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card-footer">
+                <div class="card-footer-actions">
+                  <button type="button" class="btn btn-primary">Save connection settings</button>
+                  <button type="button" class="btn btn-ghost">Open connection logs</button>
+                  <span class="u-subtle hint u-right">Last full health check 2 minutes ago</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="banner banner-warning" style="margin-top:var(--space-4);" role="status">
+              <span>Resend is still usable, but sends will pause automatically if the key expires before rotation.</span>
+            </div>
+
+          </section>
+
+          <section class="settings-panel" aria-labelledby="security-heading" id="panel-security" data-settings-panel="security" role="tabpanel" tabindex="0" hidden>
+
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="security-heading">Security</h2>
+                <span class="badge badge-danger">1 gap</span>
+              </div>
+
+              <div class="card-body">
+                <div class="settings-fields">
+                  <div class="banner banner-warning" role="status">
+                    <span>Two users have not enrolled two-factor authentication. Enforcement is scheduled for Friday at 5:00 PM.</span>
+                  </div>
+
+                  <div class="settings-inline-fields">
+                    <div class="field">
+                      <label class="label" for="signin-method">Sign-in method</label>
+                      <span class="hint" id="signin-method-hint">Primary authentication route for workspace users.</span>
+                      <select class="select" id="signin-method" aria-describedby="signin-method-hint">
+                        <option>Email magic link</option>
+                        <option selected>SSO plus email fallback</option>
+                        <option>SSO only</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label class="label" for="session-length">Session length</label>
+                      <span class="hint" id="session-length-hint">How long users stay signed in on trusted devices.</span>
+                      <select class="select" id="session-length" aria-describedby="session-length-hint">
+                        <option>8 hours</option>
+                        <option selected>14 days</option>
+                        <option>30 days</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label class="label" for="password-age">Password rotation</label>
+                      <span class="hint" id="password-age-hint">Only applies to password fallback users.</span>
+                      <select class="select" id="password-age" aria-describedby="password-age-hint">
+                        <option>Never</option>
+                        <option selected>Every 180 days</option>
+                        <option>Every 90 days</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label class="label" for="role-default">Default role</label>
+                      <span class="hint" id="role-default-hint">Assigned to users invited without a specific role.</span>
+                      <select class="select" id="role-default" aria-describedby="role-default-hint">
+                        <option selected>Member</option>
+                        <option>Viewer</option>
+                        <option>Project operator</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="settings-list" aria-label="Security controls">
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-warning"></span><span>Enforce two-factor authentication</span></div>
+                        <p class="settings-row-desc">Users without 2FA can finish active work but must enroll before the deadline.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="true" class="switch on"><span class="u-sr-only">Enabled</span></button>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-success"></span><span>Restrict exports to admins</span></div>
+                        <p class="settings-row-desc">CSV, audit bundle, and model-output exports require admin or owner role.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="true" class="switch on"><span class="u-sr-only">Enabled</span></button>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-success"></span><span>Require approval for secret reads</span></div>
+                        <p class="settings-row-desc">Agent requests for SecretRef values create an approval item first.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="true" class="switch on"><span class="u-sr-only">Enabled</span></button>
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <label class="label" for="ip-allowlist">IP allowlist</label>
+                    <span class="hint" id="ip-allowlist-hint">One CIDR range per line. Leave blank to allow any address after sign-in.</span>
+                    <textarea class="textarea" id="ip-allowlist" aria-describedby="ip-allowlist-hint">203.0.113.0/24
+198.51.100.42/32</textarea>
+                  </div>
+
+                  <div class="settings-table-wrap">
+                    <table class="table table-compact" aria-label="Recent security events">
+                      <thead><tr><th scope="col">Event</th><th scope="col">Actor</th><th scope="col">Time</th><th scope="col">Status</th></tr></thead>
+                      <tbody>
+                        <tr><td>SSO policy edited</td><td>Anthony G.</td><td class="u-mono">10:42</td><td><span class="badge badge-success">Allowed</span></td></tr>
+                        <tr><td>Secret read requested</td><td>Atlas</td><td class="u-mono">09:18</td><td><span class="badge badge-warning">Approval</span></td></tr>
+                        <tr><td>Login from new device</td><td>Maria Chen</td><td class="u-mono">Yesterday</td><td><span class="badge">Verified</span></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card-footer">
+                <div class="card-footer-actions">
+                  <button type="button" class="btn btn-primary">Save security settings</button>
+                  <button type="button" class="btn btn-ghost">Export audit log</button>
+                  <span class="u-subtle hint u-right">Next policy review: Jul 7</span>
+                </div>
+              </div>
+            </div>
+
+          </section>
+
+          <section class="settings-panel" aria-labelledby="notifications-heading" id="panel-notifications" data-settings-panel="notifications" role="tabpanel" tabindex="0" hidden>
+
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="notifications-heading">Notifications</h2>
+                <span class="badge badge-accent">3 channels</span>
+              </div>
+
+              <div class="card-body">
+                <div class="settings-fields">
+                  <div class="settings-inline-fields">
+                    <div class="field">
+                      <label class="label" for="default-channel">Default alert channel</label>
+                      <span class="hint" id="default-channel-hint">Where new alert types are sent first.</span>
+                      <select class="select" id="default-channel" aria-describedby="default-channel-hint">
+                        <option>In-app only</option>
+                        <option selected>Slack #ops-ai</option>
+                        <option>Email ops@opzava.com</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label class="label" for="digest-frequency">Digest frequency</label>
+                      <span class="hint" id="digest-frequency-hint">Summary of quieter events and completed work.</span>
+                      <select class="select" id="digest-frequency" aria-describedby="digest-frequency-hint">
+                        <option>Never</option>
+                        <option selected>Daily at 8:00 AM</option>
+                        <option>Twice daily</option>
+                        <option>Weekly Monday</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label class="label" for="quiet-start">Quiet hours start</label>
+                      <span class="hint" id="quiet-start-hint">Non-critical alerts are held after this time.</span>
+                      <input class="input" id="quiet-start" type="time" value="18:00" aria-describedby="quiet-start-hint">
+                    </div>
+                    <div class="field">
+                      <label class="label" for="quiet-end">Quiet hours end</label>
+                      <span class="hint" id="quiet-end-hint">Held alerts are released after this time.</span>
+                      <input class="input" id="quiet-end" type="time" value="08:00" aria-describedby="quiet-end-hint">
+                    </div>
+                  </div>
+
+                  <div class="settings-table-wrap">
+                    <table class="table table-compact" aria-label="Notification routing matrix">
+                      <thead>
+                        <tr><th scope="col">Event</th><th scope="col">In-app</th><th scope="col">Email</th><th scope="col">Slack</th><th scope="col">Escalation</th></tr>
+                      </thead>
+                      <tbody>
+                        <tr><td>Approval requested</td><td><input type="checkbox" class="sb-check" checked aria-label="Approval requested in-app"></td><td><input type="checkbox" class="sb-check" checked aria-label="Approval requested email"></td><td><input type="checkbox" class="sb-check" checked aria-label="Approval requested Slack"></td><td>After 30m</td></tr>
+                        <tr><td>Agent run failed</td><td><input type="checkbox" class="sb-check" checked aria-label="Agent run failed in-app"></td><td><input type="checkbox" class="sb-check" checked aria-label="Agent run failed email"></td><td><input type="checkbox" class="sb-check" checked aria-label="Agent run failed Slack"></td><td>Immediate</td></tr>
+                        <tr><td>Task completed</td><td><input type="checkbox" class="sb-check" checked aria-label="Task completed in-app"></td><td><input type="checkbox" class="sb-check" aria-label="Task completed email"></td><td><input type="checkbox" class="sb-check" aria-label="Task completed Slack"></td><td>Digest</td></tr>
+                        <tr><td>Budget threshold</td><td><input type="checkbox" class="sb-check" checked aria-label="Budget threshold in-app"></td><td><input type="checkbox" class="sb-check" checked aria-label="Budget threshold email"></td><td><input type="checkbox" class="sb-check" checked aria-label="Budget threshold Slack"></td><td>Immediate</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div class="settings-list" aria-label="Notification preferences">
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-success"></span><span>Group similar events</span></div>
+                        <p class="settings-row-desc">Collapse repeated run failures and retry notices into a single thread.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="true" class="switch on"><span class="u-sr-only">Enabled</span></button>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-accent"></span><span>Mention owners on blocked work</span></div>
+                        <p class="settings-row-desc">Notify project owners when a card stays blocked for more than one hour.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="true" class="switch on"><span class="u-sr-only">Enabled</span></button>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot"></span><span>Send weekend summaries</span></div>
+                        <p class="settings-row-desc">Deliver Saturday and Sunday digests when agent activity occurs.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="false" class="switch"><span class="u-sr-only">Disabled</span></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card-footer">
+                <div class="card-footer-actions">
+                  <button type="button" class="btn btn-primary">Save notification settings</button>
+                  <button type="button" class="btn btn-ghost">Send test alert</button>
+                  <span class="u-subtle hint u-right">Next digest tomorrow at 8:00 AM</span>
+                </div>
+              </div>
+            </div>
+
+          </section>
+
+          <section class="settings-panel" aria-labelledby="billing-heading" id="panel-billing" data-settings-panel="billing" role="tabpanel" tabindex="0" hidden>
+
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="billing-heading">Billing</h2>
+                <span class="badge badge-success">Pro plan</span>
+              </div>
+
+              <div class="card-body">
+                <div class="settings-fields">
+                  <div class="settings-mini-grid" aria-label="Billing summary">
+                    <div class="settings-metric"><span>Monthly spend</span><strong>$184</strong></div>
+                    <div class="settings-metric"><span>Budget used</span><strong>62%</strong></div>
+                    <div class="settings-metric"><span>Seats</span><strong>41 / 50</strong></div>
+                  </div>
+
+                  <div>
+                    <div class="u-between" style="margin-bottom:var(--space-2);">
+                      <span class="label">Monthly budget</span>
+                      <span class="u-mono hint">$184.00 of $300.00</span>
+                    </div>
+                    <div class="progress" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100" aria-label="Monthly budget used">
+                      <i style="width:62%;"></i>
+                    </div>
+                  </div>
+
+                  <div class="settings-inline-fields">
+                    <div class="field">
+                      <label class="label" for="monthly-budget">Monthly budget</label>
+                      <span class="hint" id="monthly-budget-hint">Workspace-wide cap before optional lockout.</span>
+                      <input class="input" id="monthly-budget" type="text" value="$300.00" aria-describedby="monthly-budget-hint">
+                    </div>
+                    <div class="field">
+                      <label class="label" for="billing-email">Billing email</label>
+                      <span class="hint" id="billing-email-hint">Receives receipts, overage notices, and invoices.</span>
+                      <input class="input" id="billing-email" type="email" value="finance@opzava.com" aria-describedby="billing-email-hint">
+                    </div>
+                    <div class="field">
+                      <label class="label" for="payment-method">Payment method</label>
+                      <span class="hint" id="payment-method-hint">Default payment source for renewals.</span>
+                      <select class="select" id="payment-method" aria-describedby="payment-method-hint">
+                        <option selected>Visa ending 4242</option>
+                        <option>ACH ending 1902</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label class="label" for="threshold">Alert threshold</label>
+                      <span class="hint" id="threshold-hint">Send budget alerts when usage crosses this mark.</span>
+                      <select class="select" id="threshold" aria-describedby="threshold-hint">
+                        <option>50%</option>
+                        <option selected>75%</option>
+                        <option>90%</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="settings-list" aria-label="Billing controls">
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-warning"></span><span>Pause new runs at budget cap</span></div>
+                        <p class="settings-row-desc">Existing runs can finish, but new agent work waits for owner approval.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="true" class="switch on"><span class="u-sr-only">Enabled</span></button>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-success"></span><span>Email monthly receipts</span></div>
+                        <p class="settings-row-desc">Send receipts and invoice PDFs to the billing contact.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="true" class="switch on"><span class="u-sr-only">Enabled</span></button>
+                    </div>
+                  </div>
+
+                  <div class="settings-table-wrap">
+                    <table class="table table-compact" aria-label="Recent invoices">
+                      <thead><tr><th scope="col">Invoice</th><th scope="col">Period</th><th scope="col">Status</th><th scope="col" class="num">Amount</th></tr></thead>
+                      <tbody>
+                        <tr><td><a href="#">INV-2026-06</a></td><td>Jun 2026</td><td><span class="badge badge-success">Paid</span></td><td class="num u-mono">$184.00</td></tr>
+                        <tr><td><a href="#">INV-2026-05</a></td><td>May 2026</td><td><span class="badge badge-success">Paid</span></td><td class="num u-mono">$211.40</td></tr>
+                        <tr><td><a href="#">INV-2026-04</a></td><td>Apr 2026</td><td><span class="badge badge-success">Paid</span></td><td class="num u-mono">$176.25</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card-footer">
+                <div class="card-footer-actions">
+                  <button type="button" class="btn btn-primary">Save billing settings</button>
+                  <button type="button" class="btn btn-ghost">Manage plan</button>
+                  <span class="u-subtle hint u-right">Renews Jul 1, 2026</span>
+                </div>
+              </div>
+            </div>
+
+          </section>
+
+          <section class="settings-panel" aria-labelledby="advanced-heading" id="panel-advanced" data-settings-panel="advanced" role="tabpanel" tabindex="0" hidden>
+
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="advanced-heading">Advanced</h2>
+                <span class="badge">Operator</span>
+              </div>
+
+              <div class="card-body">
+                <div class="settings-fields">
+                  <div class="settings-note">
+                    <span aria-hidden="true">i</span>
+                    <span>Advanced settings affect exports, diagnostics, config sync, and internal traces. Changes are written to audit history.</span>
+                  </div>
+
+                  <div class="settings-inline-fields">
+                    <div class="field">
+                      <label class="label" for="environment-name">Environment name</label>
+                      <span class="hint" id="environment-name-hint">Shown in exports, run logs, and diagnostic bundles.</span>
+                      <input class="input" id="environment-name" type="text" value="production-us-east" aria-describedby="environment-name-hint">
+                    </div>
+                    <div class="field">
+                      <label class="label" for="api-base">API base URL</label>
+                      <span class="hint" id="api-base-hint">Used by internal tools and generated examples.</span>
+                      <input class="input" id="api-base" type="url" value="https://api.opzava.com" aria-describedby="api-base-hint">
+                    </div>
+                    <div class="field">
+                      <label class="label" for="config-version">Config version</label>
+                      <span class="hint" id="config-version-hint">Pinned workspace config schema.</span>
+                      <select class="select" id="config-version" aria-describedby="config-version-hint">
+                        <option>2026-05 stable</option>
+                        <option selected>2026-06 stable</option>
+                        <option>2026-07 preview</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label class="label" for="log-retention">Log retention</label>
+                      <span class="hint" id="log-retention-hint">Raw traces are pruned after this window.</span>
+                      <select class="select" id="log-retention" aria-describedby="log-retention-hint">
+                        <option>14 days</option>
+                        <option selected>30 days</option>
+                        <option>90 days</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="settings-list" aria-label="Advanced feature flags">
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-accent"></span><span>Developer mode</span></div>
+                        <p class="settings-row-desc">Expose request IDs, run graph handles, and raw tool-call payloads in debug views.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="true" class="switch on"><span class="u-sr-only">Enabled</span></button>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot"></span><span>Preview automation scheduler</span></div>
+                        <p class="settings-row-desc">Route eligible recurring work through the next scheduler before general release.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="false" class="switch"><span class="u-sr-only">Disabled</span></button>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span class="dot dot-success"></span><span>Nightly config backup</span></div>
+                        <p class="settings-row-desc">Write encrypted workspace config snapshots to the managed backup bucket.</p>
+                      </div>
+                      <button type="button" role="switch" aria-checked="true" class="switch on"><span class="u-sr-only">Enabled</span></button>
+                    </div>
+                  </div>
+
+                  <div class="settings-list" aria-label="Configuration actions">
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span>Export workspace config</span></div>
+                        <p class="settings-row-desc">Download settings, role policies, connection metadata, and agent defaults.</p>
+                      </div>
+                      <div class="settings-row-actions"><button type="button" class="btn btn-sm">Export JSON</button><button type="button" class="btn btn-ghost btn-sm">Copy CLI</button></div>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span>Import config snapshot</span></div>
+                        <p class="settings-row-desc">Stage a config file for diff review before applying it to the workspace.</p>
+                      </div>
+                      <div class="settings-row-actions"><button type="button" class="btn btn-sm">Choose file</button></div>
+                    </div>
+                  </div>
+
+                  <div class="sb-term" aria-label="Configuration command preview">
+                    <div class="ln"><span class="tag t-cmd">$</span><span>opzava config export --workspace opzava-internal --format json</span></div>
+                    <div class="ln"><span class="tag t-ok">ok</span><span>wrote opzava-internal.settings.2026-06-30.json</span></div>
+                  </div>
+
+                  <div class="settings-list settings-danger" aria-label="Danger zone">
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span>Rotate all workspace API tokens</span></div>
+                        <p class="settings-row-desc">Immediately invalidates existing tokens and requires integrations to reconnect.</p>
+                      </div>
+                      <div class="settings-row-actions"><button type="button" class="btn btn-danger btn-sm">Rotate tokens</button></div>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-main">
+                        <div class="settings-row-title"><span>Archive workspace</span></div>
+                        <p class="settings-row-desc">Locks new work, exports final audit bundles, and disables scheduled automations.</p>
+                      </div>
+                      <div class="settings-row-actions"><button type="button" class="btn btn-danger btn-sm">Archive</button></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card-footer">
+                <div class="card-footer-actions">
+                  <button type="button" class="btn btn-primary">Save advanced settings</button>
+                  <button type="button" class="btn btn-ghost">Review audit impact</button>
+                  <span class="u-subtle hint u-right">Config sync healthy</span>
+                </div>
+              </div>
+            </div>
+
+          </section>
+
+          <!-- ── Config & schema ──────────────────────────────────────── -->
+          <section class="settings-panel" aria-labelledby="config-heading" id="panel-config" data-settings-panel="config" role="tabpanel" tabindex="0" hidden>
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="config-heading">Config &amp; schema</h2>
+                <span class="badge">Schema-backed</span>
+              </div>
+              <div class="card-body">
+                <div class="settings-fields">
+                  <div class="settings-note">
+                    <span aria-hidden="true">i</span>
+                    <span>Opzava edits OpenClaw config through schema-backed forms and previews validation, SecretRef state, and reload impact before any write. Raw JSON5 is an escape hatch, not the default.</span>
+                  </div>
+
+                  <div class="settings-inline-fields">
+                    <div class="field"><label class="label" for="cfg-hash">Base snapshot</label><span class="hint" id="cfg-hash-h">config.get returned this hash; the draft targets it.</span><input class="input" id="cfg-hash" value="sha256:9f71 — preserved" readonly aria-describedby="cfg-hash-h"></div>
+                    <div class="field"><label class="label" for="cfg-format">Format</label><span class="hint" id="cfg-format-h">Comments and trailing commas retained.</span><input class="input" id="cfg-format" value="JSON5" readonly aria-describedby="cfg-format-h"></div>
+                    <div class="field"><label class="label" for="cfg-valid">Validation</label><span class="hint" id="cfg-valid-h">Unknown keys fail before startup.</span><input class="input" id="cfg-valid" value="strict — passing" readonly aria-describedby="cfg-valid-h"></div>
+                    <div class="field"><label class="label" for="cfg-recovery">Recovery</label><span class="hint" id="cfg-recovery-h">Last-known-good kept on reload failure.</span><input class="input" id="cfg-recovery" value="LKG available" readonly aria-describedby="cfg-recovery-h"></div>
+                  </div>
+
+                  <div class="settings-list" aria-label="Config draft review">
+                    <div class="settings-row"><div class="settings-row-main"><div class="settings-row-title"><span class="dot dot-success"></span><span>Base hash preserved</span></div><p class="settings-row-desc">Draft still targets sha256:9f71.</p></div><span class="badge badge-success">Pass</span></div>
+                    <div class="settings-row"><div class="settings-row-main"><div class="settings-row-title"><span class="dot dot-success"></span><span>Schema valid</span></div><p class="settings-row-desc">No unknown keys, malformed values, or rejected root keys.</p></div><span class="badge badge-success">Pass</span></div>
+                    <div class="settings-row"><div class="settings-row-main"><div class="settings-row-title"><span class="dot dot-warning"></span><span>Gateway auth mode changed</span></div><p class="settings-row-desc">gateway.auth.mode → trusted-proxy requires a restart.</p></div><span class="badge badge-warning">Restart</span></div>
+                    <div class="settings-row"><div class="settings-row-main"><div class="settings-row-title"><span class="dot dot-danger"></span><span>Active SecretRef unresolved</span></div><p class="settings-row-desc">models.providers.openai.apiKey must resolve before write — fix in Connections.</p></div><span class="badge badge-danger">Blocked</span></div>
+                  </div>
+
+                  <details class="advanced-details" id="config-raw">
+                    <summary>Raw JSON5 (escape hatch) <span class="chevron" aria-hidden="true">›</span></summary>
+                    <pre class="u-mono" style="margin:var(--space-3) 0 0;padding:var(--space-4);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-md);overflow-x:auto;font-size:var(--text-xs);line-height:var(--lh-normal);">{
+  gateway: { auth: { mode: "trusted-proxy" }, bind: "127.0.0.1", reload: "hybrid" },
+  models: { providers: { openai: { apiKey: SecretRef("OPENAI_API_KEY") } } },
+  memory: { search: "hybrid", index: "paused" },
+}</pre>
+                  </details>
+                </div>
+              </div>
+              <div class="card-footer">
+                <div class="card-footer-actions">
+                  <button type="button" class="btn btn-primary">Validate changes</button>
+                  <button type="button" class="btn btn-ghost">Open raw JSON5</button>
+                  <span class="u-subtle hint u-right">1 blocked · resolve the SecretRef first</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── Deployment & VPS ─────────────────────────────────────── -->
+          <section class="settings-panel" aria-labelledby="deployment-heading" id="panel-deployment" data-settings-panel="deployment" role="tabpanel" tabindex="0" hidden>
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title" id="deployment-heading">Deployment &amp; VPS</h2>
+                <span class="badge badge-success">Healthy</span>
+              </div>
+              <div class="card-body">
+                <div class="settings-fields">
+                  <div class="settings-note">
+                    <span aria-hidden="true">i</span>
+                    <span>Opzava deploys via Dokploy to your VPS. The public app is exposed through the proxy; the OpenClaw Gateway stays private (loopback), held behind the backend.</span>
+                  </div>
+
+                  <div class="settings-inline-fields">
+                    <div class="field"><label class="label" for="dep-target">Target</label><span class="hint" id="dep-target-h">Dokploy project and region.</span><input class="input" id="dep-target" value="Dokploy · fra1" readonly aria-describedby="dep-target-h"></div>
+                    <div class="field"><label class="label" for="dep-url">Public app URL</label><span class="hint" id="dep-url-h">Proxy-terminated TLS.</span><input class="input" id="dep-url" type="url" value="https://app.opzava.com" aria-describedby="dep-url-h"></div>
+                    <div class="field"><label class="label" for="dep-gw">Gateway exposure</label><span class="hint" id="dep-gw-h">Never public.</span><input class="input" id="dep-gw" value="private — loopback" readonly aria-describedby="dep-gw-h"></div>
+                    <div class="field"><label class="label" for="dep-channel">Release channel</label><span class="hint" id="dep-channel-h">Which build the VPS pulls.</span><select class="select" id="dep-channel" aria-describedby="dep-channel-h"><option selected>stable</option><option>beta</option><option>canary</option></select></div>
+                  </div>
+
+                  <div class="settings-list" aria-label="Deployment status">
+                    <div class="settings-row"><div class="settings-row-main"><div class="settings-row-title"><span class="dot dot-success"></span><span>App health</span></div><p class="settings-row-desc">GET /health 200 · last probe 20s ago.</p></div><span class="badge badge-success">ok</span></div>
+                    <div class="settings-row"><div class="settings-row-main"><div class="settings-row-title"><span class="dot dot-success"></span><span>Last release</span></div><p class="settings-row-desc">v2.1.4 deployed 2 days ago · rollback available.</p></div><span class="badge">v2.1.4</span></div>
+                    <div class="settings-row"><div class="settings-row-main"><div class="settings-row-title"><span class="dot dot-success"></span><span>Backups</span></div><p class="settings-row-desc">Nightly encrypted snapshots to the managed bucket.</p></div><span class="badge badge-success">Nightly</span></div>
+                  </div>
+
+                  <div class="settings-list" aria-label="Deployment actions">
+                    <div class="settings-row"><div class="settings-row-main"><div class="settings-row-title"><span>Run deployment check</span></div><p class="settings-row-desc">Validate config, probe health endpoints, and confirm the private Gateway before release.</p></div><div class="settings-row-actions"><button type="button" class="btn btn-sm">Run check</button></div></div>
+                    <div class="settings-row"><div class="settings-row-main"><div class="settings-row-title"><span>Runbooks</span></div><p class="settings-row-desc">Restart, last-known-good repair, and post-restart probes.</p></div><div class="settings-row-actions"><a class="btn btn-ghost btn-sm" href="../../docs/openclaw/vps.md">View runbooks</a></div></div>
+                  </div>
+
+                  <div class="settings-list settings-danger" aria-label="Danger zone">
+                    <div class="settings-row"><div class="settings-row-main"><div class="settings-row-title"><span>Roll back to last release</span></div><p class="settings-row-desc">Redeploy v2.1.3 and restore the previous config snapshot.</p></div><div class="settings-row-actions"><button type="button" class="btn btn-danger btn-sm">Roll back</button></div></div>
+                  </div>
+                </div>
+              </div>
+              <div class="card-footer">
+                <div class="card-footer-actions">
+                  <button type="button" class="btn btn-primary">Deploy latest</button>
+                  <button type="button" class="btn btn-ghost">Run health check</button>
+                  <span class="u-subtle hint u-right">Public app + private Gateway</span>
+                </div>
+              </div>
+            </div>
+          </section>
+          </div>
+
+        </div><!-- /.settings-layout -->
+
+      </div><!-- /.page -->
+    </main>
+
+  </div><!-- /.main-col -->
+</div><!-- /.app -->
+
+<!-- ── Inline JS: section tabs + switch toggle demo ────────── -->
+<script>
+  (function() {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('[data-settings-tab]'));
+    var panels = Array.prototype.slice.call(document.querySelectorAll('[data-settings-panel]'));
+
+    function activateSettingsTab(name, updateHash) {
+      if (!name || !document.querySelector('[data-settings-tab="' + name + '"]')) name = 'general';
+      tabs.forEach(function(tab) {
+        var selected = tab.getAttribute('data-settings-tab') === name;
+        tab.classList.toggle('active', selected);
+        tab.setAttribute('aria-selected', String(selected));
+        if (selected) {
+          tab.setAttribute('aria-current', 'page');
+        } else {
+          tab.removeAttribute('aria-current');
+        }
+      });
+      panels.forEach(function(panel) {
+        panel.hidden = panel.getAttribute('data-settings-panel') !== name;
+      });
+      if (updateHash) history.replaceState(null, '', '#' + name);
+    }
+
+    tabs.forEach(function(tab, index) {
+      tab.addEventListener('click', function(event) {
+        event.preventDefault();
+        activateSettingsTab(tab.getAttribute('data-settings-tab'), true);
+      });
+      tab.addEventListener('keydown', function(event) {
+        var dir = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1 : 0;
+        if (!dir) return;
+        event.preventDefault();
+        var next = tabs[(index + dir + tabs.length) % tabs.length];
+        next.focus();
+        activateSettingsTab(next.getAttribute('data-settings-tab'), true);
+      });
+    });
+
+    window.addEventListener('hashchange', function() {
+      activateSettingsTab(location.hash.replace('#', ''), false);
+    });
+
+    document.querySelectorAll('[role="switch"]').forEach(function(sw) {
+      sw.addEventListener('click', function() {
+        var checked = sw.getAttribute('aria-checked') === 'true';
+        sw.setAttribute('aria-checked', String(!checked));
+        sw.classList.toggle('on', !checked);
+        var sr = sw.querySelector('.u-sr-only');
+        if (sr) sr.textContent = checked ? 'Disabled' : 'Enabled';
+      });
+    });
+
+    activateSettingsTab(location.hash.replace('#', ''), false);
+  })();
+</script>
+
+</body>
+</html>

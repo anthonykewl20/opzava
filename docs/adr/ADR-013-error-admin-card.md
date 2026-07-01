@@ -1,0 +1,88 @@
+# ADR-013: Error-to-admin-card incident pipeline and remediation loop
+
+Status: Accepted
+
+Opzava will own a lean incident pipeline inside the Notifications/Admin-Observability bounded context. Error groups, events, alert routing, remediation actions, and admin-card projections live in Opzava Postgres, while OpenClaw runtime signals are read only through the ADR-003 broker ACL and projected according to the ADR-004 hybrid-CQRS contract.
+
+## Context
+
+ADR-003 puts every OpenClaw runtime read and command behind the `gateway-broker` ACL, with tenant routing, opaque refs, scoped hot-path credentials, and a separate short-lived admin/provisioning credential. ADR-004 makes Opzava Postgres the system of record for durable product state, notifications, audit, PM cards, incident projections, and hybrid-CQRS read models. ADR-009 gives incidents and admin alerts the same durable notification, realtime, inbox, and push delivery surfaces as other user-visible events.
+
+Q9 locks the product requirement: Opzava self-logs errors and auto-creates cards in an ADMIN board. That board is an Opzava platform-ops surface, not OpenClaw Workboard. Workboard remains Gateway-local agent-work and can only be a diagnostics source. The incident pipeline therefore needs to normalize app, broker, Gateway, Workboard, and customer-reported failures into one Opzava incident model without making OpenClaw logs or a third-party error tracker the product source of truth.
+
+The incident domain has two competing risks. If capture is too thin, the platform goes blind when the broker, Gateway, or ingest path fails. If capture is too eager, noisy runtime failures create card storms, leak tenant details into platform or tenant views, and pressure Ask Admin Opzava to run unsafe remediation. The model must make redaction, deduplication, visibility, rate limits, dead-letter handling, and remediation approvals part of the domain boundary rather than operational afterthoughts.
+
+Ask Admin Opzava is the platform-ops Admin assistant from the Q4b/Q9 two-token split. It can investigate with ACL reads and propose remediation, but it must not turn an incident card into broad tenant-admin authority. Runtime remediation needs blast-radius classification, approval gates, dry runs, idempotency, one-tenant scope, and immutable admin-token audit.
+
+## Decision
+
+Create an Opzava-owned Notifications/Admin-Observability context in Postgres. This context owns human-visible notifications, incident/error groups, error events, remediation actions, alert routes, and the admin-card projection. It exposes capture through `ErrorCapturePort`, so callers and future adapters submit normalized error observations without depending on storage tables, GlitchTip/Sentry APIs, or OpenClaw DTOs.
+
+Use `ErrorGroup` as the aggregate root for a normalized incident. Its fields include `fingerprint`, `severity`, `count`, `firstSeen`, `lastSeen`, `status`, optional `tenantId`, optional `projectId`, optional `agentId`, optional `gatewayId`, `visibility`, cooldown/cap metadata, and lifecycle/audit metadata. `visibility` is the single switch with values `platform_only`, `tenant_visible`, and `tenant_redacted`.
+
+`ErrorGroup` owns or coordinates these records:
+
+- `ErrorEvent`: one captured occurrence with `groupId`, `source`, occurred timestamp, redacted JSONB payload, optional opaque OpenClaw refs, ingest metadata, and source idempotency key.
+- `RemediationAction`: one proposed or executed response with `groupId`, kind, blast-radius class, status, approval refs, dry-run result, idempotency key, actor/admin-token audit refs, before/after metadata, and execution result.
+- `AlertRoute`: routing policy with match expression, scope, severity threshold, destination channel, cooldown, and escalation metadata.
+
+The ADMIN card is a projection of `ErrorGroup`, not the incident aggregate. The first threshold-qualified active group creates or updates one Opzava `pm.Card` on the platform-ops ADMIN board. The card carries triage status, severity, owner, SLA, customer impact, links, comments, and activity in the PM read model, while the `ErrorGroup` remains the source of truth for incident grouping, counts, visibility, events, and remediation state. One fingerprint has one card for its lifetime; recurrence after resolution reopens the same projected card rather than creating a new identity.
+
+Use four incident sources that all flow into the same capture path:
+
+- App reporters: Next.js `error.tsx`, route handlers, server actions, workers, browser reporters, and BFF exceptions submit through `ErrorCapturePort` with service, route, actor, request, release, and tenant context where available.
+- Broker and ACL errors: the `gateway-broker` reports OpenClaw protocol errors, routing failures, scope denials, projection failures, reconnect/circuit events, webhook failures, and ACL translation errors.
+- OpenClaw via the ACL: broker-owned projectors read `logs.tail`, `diagnostics.stability`, task-ledger `failed`, `timed_out`, `cancelled`, and `lost` entries, Workboard failure flags, `health`, and usage spikes. They follow ADR-004 hybrid CQRS: snapshots are truth, WS/events are hints, and projection writes are tenant-scoped, idempotent, and reconcilable.
+- Customer reports: support/admin forms and customer-facing report flows create manually sourced `ErrorEvent` rows with tenant-redacted payloads and links to tickets, contacts, conversations, or PM cards where allowed.
+
+Capture is a lean built-in incident domain on day one. Self-hosted GlitchTip or another Sentry-compatible tracker may be added later as an `ErrorCapturePort` adapter for frontend source-map symbolication, raw stack grouping, or developer ergonomics. It is not the source of truth for incidents, card routing, tenant visibility, remediation policy, approvals, or admin audit.
+
+Deduplicate by fingerprint before card creation. The default fingerprint is SHA-256 of normalized `service|route|exception-type|normalized-message`, with request ids, run ids, task ids, session ids, URLs, emails, tokens, literal values, and other high-cardinality or sensitive values stripped. Gateway/runtime sources may include normalized `gatewayId`, `agentId`, task kind, tool/channel/plugin class, and top frame when those values improve grouping without leaking payload detail.
+
+Apply anti-storm controls before creating or reopening cards. Critical severity creates immediately. Other severities suppress card creation until the group reaches the configured threshold, defaulting to at least 3 events within 5 minutes. A 30-minute per-fingerprint cooldown prevents repeated card creation. Per-tenant and per-gateway hourly caps bound new-card fan-out; excess events increment counts, update `lastSeen`, emit digests, and route to alert summaries instead of creating more ADMIN cards. Platform-wide caps prevent a broken shared component from flooding the platform board.
+
+Separate platform and tenant visibility. The platform-ops ADMIN board has `tenantId = NULL` and spans Opzava app, infrastructure, broker, and all tenant Gateways. Tenant-visible error views are separate redacted projections where `tenantId` is set and `visibility` is `tenant_visible` or `tenant_redacted`. RLS plus query-layer guards forbid tenant reads of platform rows, other tenants' rows, and unredacted cross-tenant detail. Cross-tenant payloads, stack frames, customer data, secrets, channel content, and Gateway-local config never leave the platform board or the ingest boundary.
+
+Ask Admin Opzava uses the incident card as a triage surface and the ACL as its investigation surface. It may read `logs.tail`, `diagnostics.stability`, task snapshots, Workboard diagnostics, `health`, usage/cost projections, and related Opzava audit/activity rows through approved application ports. It then proposes a `RemediationAction` with a blast-radius class.
+
+Default Ask Admin Opzava autonomy is low: notify, label, summarize, request more data, and draft remediation only. Medium or higher blast-radius actions require an approval gate before execution. Restarting one Gateway, canceling or re-dispatching one task, replaying a projector, or repairing one route is at least medium. Re-provisioning, config or secret changes, queue drains, bulk repairs, data erasure, and any destructive operation require a two-step human confirm. Cross-tenant remediation is not allowed as one action; the blast radius is one tenant, one Gateway, or one bounded operational target at a time.
+
+Every remediation action runs dry-run-first where the target operation supports it, records an idempotency key, and writes immutable audit with acting human, Ask Admin Opzava actor, admin-token job ref, tenant/Gateway scope, requested change, before/after state, approval refs, OpenClaw refs, and result. Mutating runtime work uses the ADR-003 admin/provisioning credential only through the audited platform-ops job path, never through browser handlers or the broker hot path.
+
+## Consequences
+
+Notifications/Admin-Observability becomes the incident source of truth. Product screens, ADMIN cards, tenant-visible error views, notification fan-out, push alerts, activity rows, remediation proposals, and audit correlate through Opzava Postgres rather than through OpenClaw logs or an external tracker.
+
+OpenClaw remains the runtime owner of logs, diagnostics, health, task-ledger state, Workboard state, and usage snapshots. The broker reads those surfaces through the ACL and writes sanitized projections. Projection loss, duplicate observations, sequence gaps, or Gateway downtime are normal paths; projectors must deduplicate, checkpoint, reconcile from snapshots, and never read Gateway storage directly.
+
+The platform board can see cross-tenant operational incidents, but tenant views cannot. Visibility, redaction, RLS, and query guards are required invariants, not UI preferences. A tenant-scoped user may see that their own Gateway, workflow, channel, or task is degraded, but never raw payloads or correlations that reveal another tenant.
+
+Redaction happens at the ingest boundary. One `redact(payload, visibility)` path runs before storage, dead-letter, outbox, card projection, alert routing, or adapter forwarding. Payloads are not stored first and redacted at read time. No unredacted error payload may cross tenant scope, and stack traces, request bodies, customer messages, channel payloads, credentials, tokens, cookies, provider keys, and Gateway-local config values must be stripped or replaced with safe hashes before persistence.
+
+The incident pipeline must be observable by itself. `errors_ingest_deadletter` is the absolute sink for observations that cannot be normalized, grouped, redacted, or projected. Dead-letter writes are best-effort minimal records with redacted metadata and failure reason. They do not create ordinary cards directly, but they are counted and audited.
+
+A heartbeat watchdog card is non-suppressible. If no `ErrorEvent` lands within five minutes, a heartbeat-driven platform ADMIN card is created or reopened, regardless of fingerprint cooldowns, tenant caps, gateway caps, or ordinary suppression rules. This card indicates that the pipeline may be blind, not that the platform is healthy.
+
+Card storms become a modeled failure mode. Thresholds, cooldowns, per-tenant caps, per-gateway caps, platform caps, digest comments, and alert routes protect PM boards and notification channels from noisy incidents. The cost is that some lower-severity incidents first appear as counts or digests rather than individual cards.
+
+Ask Admin Opzava is useful but constrained. It can accelerate triage and draft safe fixes, but approval gates, dry runs, idempotency keys, one-tenant blast radius, two-step destructive confirms, and immutable admin-token audit prevent incident cards from becoming broad automated admin authority.
+
+## Alternatives
+
+Use a self-hosted tracker such as GlitchTip or Sentry as the incident source of truth. Rejected because Opzava needs tenant visibility, platform-board projection, remediation governance, RLS, PM-card lifecycle, outbox fan-out, and admin-token audit as product-domain behavior. A tracker can help with raw capture and symbolication behind `ErrorCapturePort`, but it must not own incident identity, card routing, approvals, or tenant disclosure policy.
+
+Create separate incident models per source. Rejected because app errors, broker errors, Gateway diagnostics, Workboard failures, health degradation, usage spikes, and customer reports all need one grouping, visibility, alerting, and remediation lifecycle. Separate models would fragment deduplication and make Ask Admin Opzava triage unreliable.
+
+Make ADMIN cards the source of truth for incidents. Rejected because PM cards are the human work projection. Incident grouping, event history, redaction state, thresholds, cooldowns, caps, and remediation actions need a domain aggregate that can project into cards, notifications, tenant views, and audit without making PM storage own observability semantics.
+
+Read OpenClaw logs and Workboard state directly from Gateway storage. Rejected because ADR-003 requires all OpenClaw access through the broker ACL and ADR-004 treats snapshots through the OpenClaw protocol as runtime truth. Direct storage reads would leak Gateway internals, bypass tenant routing and scope checks, and break protocol drift isolation.
+
+Let Ask Admin Opzava execute remediation automatically for any incident it can diagnose. Rejected because incident diagnosis is probabilistic and remediation can restart Gateways, replay work, mutate config, or affect customer data. The accepted model keeps low-risk actions at notify-and-draft, requires approval for medium or higher blast radius, and requires two-step confirmation for destructive work.
+
+Redact at read time. Rejected because a single missed query, projection, webhook, push route, admin-card comment, dead-letter row, export, or future adapter could leak raw payloads. Redaction must occur before storage and forwarding so no payload crosses tenant scope.
+
+## Related ADRs
+
+- ADR-003: `gateway-broker` ACL, two-token model, tenant routing, and runtime RPC.
+- ADR-004: Data model boundary, hybrid CQRS, outbox, and projections.
+- ADR-009: Realtime WS hub, internal chat, assistants-in-chat, and PWA/Web Push.

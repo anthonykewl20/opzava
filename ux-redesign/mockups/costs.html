@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Costs — Opzava</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="admin-nav.js" defer></script>
+  <style>
+    /* Page-specific layout only — no color, font-size, shadow, or radius overrides */
+    .two-col-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.8fr;
+      gap: var(--space-4);
+      align-items: start;
+    }
+    .spend-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: var(--space-2);
+      height: 72px;
+      padding: 0 var(--space-2);
+    }
+    .spend-chart-bar {
+      flex: 1;
+      border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+      min-width: 0;
+    }
+    .spend-chart-labels {
+      display: flex;
+      gap: var(--space-2);
+      padding: var(--space-1) var(--space-2) 0;
+    }
+    .spend-chart-labels span {
+      flex: 1;
+      text-align: center;
+    }
+    .activity-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      min-height: 40px;
+      padding: 0 var(--space-5);
+      border-bottom: 1px solid var(--border);
+    }
+    .activity-row:last-child {
+      border-bottom: 0;
+    }
+    .activity-time {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+      min-width: 68px;
+      flex: none;
+    }
+    .activity-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .nav-section-gap {
+      margin-top: var(--space-2);
+    }
+    .header-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--surface-3);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      flex: none;
+      cursor: pointer;
+      font-weight: var(--fw-semibold);
+    }
+    .notif-btn-wrap {
+      position: relative;
+    }
+    .notif-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: var(--radius-full);
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      font-weight: var(--fw-semibold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+    }
+    .spend-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .spend-row-sep {
+      color: var(--border-strong);
+    }
+    .page-stack {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+    .fleet-table-wrap {
+      overflow: hidden;
+    }
+    .activity-live-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       NAVIGATION RAIL
+  ══════════════════════════════════════════════════════════════════ -->
+  <aside class="rail" aria-label="Main navigation">
+
+    <!-- Logo / wordmark -->
+    <div class="rail-head">
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
+        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
+      </svg>
+      <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);letter-spacing:-.01em;">Opzava</span>
+      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
+    </div>
+
+    <!-- Nav groups -->
+    <nav class="rail-nav" aria-label="Application sections">
+      <a href="orchestrator-chat.html" class="rail-item" style="margin-bottom:4px;">
+        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
+        Ask Opzava
+        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
+      </a>
+      <div class="section-label">Operate</div>
+      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
+      <a href="agents.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
+      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
+      <a href="issues.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="9" r="1.75" fill="currentColor"/></svg> Issues <span class="count">12</span></a>
+      <a href="activity.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="4.5" cy="5" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="4.5" cy="12" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 12h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Activity</a>
+      <a href="messages-slack.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
+      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
+      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
+      <div class="section-label nav-section-gap">Observe</div>
+      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
+      <a href="logs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
+      <a href="costs.html" class="rail-item" aria-current="page"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
+      <div class="section-label nav-section-gap">Automate</div>
+      <a href="connections.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="5" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><path d="M7.3 9h3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Connections <span class="dot dot-success dot-beat" style="margin-left:auto;" aria-label="all tools connected"></span></a>
+      <a href="automation.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M10 2.5 4.5 10H8l-1 5.5L13.5 8H10z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Automation <span class="count">4</span></a>
+      <div class="section-label nav-section-gap">Govern</div>
+      <a href="security-audit.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5l5 1.8v3.7c0 3.3-2.1 5.6-5 6.5-2.9-.9-5-3.2-5-6.5V4.3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Security &amp; Audit <span class="count" style="background:var(--danger-soft);color:var(--danger);">1</span></a>
+      <a href="memory-skills.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 2.5 6 9 9.5 15.5 6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M2.5 10 9 13.5 15.5 10" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Memory &amp; Skills</a>
+      <a href="notifications-alerts.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
+      <a href="settings.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
+      <a href="debug.html" class="rail-item u-subtle"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="3.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7.5 7.5 9.5 5.5 11.5M9.5 11.5h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Debug</a>
+      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+    </nav>
+
+    <!-- Rail footer: ⌘K quick jump -->
+    <div class="rail-foot">
+      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (⌘K)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-subtle u-grow">Jump to…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIN COLUMN
+  ══════════════════════════════════════════════════════════════════ -->
+  <div class="main-col">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="header">
+
+      <!-- Sidebar collapse -->
+      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <!-- Search -->
+      <div class="search" role="search">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-grow u-subtle">Search agents, tasks, runs…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </div>
+
+      <!-- Spacer -->
+      <div class="u-grow"></div>
+
+      <!-- Health pill -->
+      <div class="health-pill" aria-label="System health: All systems healthy">
+        <span class="dot dot-success" aria-hidden="true"></span>
+        All systems healthy
+      </div>
+
+      <!-- Live indicator -->
+      <div class="live-indicator" aria-label="Live connection active">
+        <span class="dot dot-success live" aria-hidden="true"></span>
+        <span>Live</span>
+      </div>
+
+      <!-- Notifications -->
+      <div class="notif-btn-wrap">
+        <a href="notifications-alerts.html" class="btn btn-ghost btn-icon" aria-label="Notifications, 2 unread">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </a>
+        <span class="notif-badge" aria-hidden="true">2</span>
+        <span class="u-sr-only">2 unread notifications</span>
+      </div>
+
+      <!-- Avatar -->
+      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu — Anthony G.">AG</div>
+
+    </header>
+
+    <!-- ── Main content ────────────────────────────────────────── -->
+    <main class="main">
+      <div class="page">
+        <div class="page-stack">
+
+          <!-- ── Page header ─────────────────────────────────────────── -->
+          <div class="page-header">
+            <div>
+              <h1>Costs</h1>
+              <p class="page-sub">Expense bookkeeping · all service costs</p>
+            </div>
+            <div class="u-row" style="gap:var(--space-2);">
+
+              <!-- Period nav — static affordance -->
+              <div class="u-row" role="group" aria-label="Accounting period" style="gap:2px;">
+                <button type="button" class="btn btn-icon" aria-label="Previous month">
+                  <span aria-hidden="true" style="font-size:var(--text-lg);line-height:1;">‹</span>
+                </button>
+                <span class="u-mono" style="font-size:var(--text-sm);min-width:88px;text-align:center;">June 2026</span>
+                <button type="button" class="btn btn-icon" aria-label="Next month">
+                  <span aria-hidden="true" style="font-size:var(--text-lg);line-height:1;">›</span>
+                </button>
+              </div>
+
+              <!-- Export — secondary -->
+              <button type="button" class="btn">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M8 2.5v6.5m0 0 2.5-2.5M8 9 5.5 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M3 12.5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Export
+              </button>
+
+              <!-- The ONE primary action on the page -->
+              <button type="button" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Add cost source
+              </button>
+            </div>
+          </div>
+
+          <!-- ── 1 · Period summary — the anchor ─────────────────────── -->
+          <section aria-label="Period summary — June 2026">
+            <div class="stat-grid" style="margin-bottom:var(--space-4);">
+
+              <div class="stat">
+                <div class="stat-label">This period</div>
+                <div class="stat-value u-mono">$1,337</div>
+                <div class="stat-delta u-subtle">89% of budget used</div>
+              </div>
+
+              <div class="stat">
+                <div class="stat-label">Budget</div>
+                <div class="stat-value u-mono">$1,500</div>
+                <div class="stat-delta u-subtle">monthly cap</div>
+              </div>
+
+              <div class="stat">
+                <div class="stat-label">Remaining</div>
+                <div class="stat-value u-mono">$163</div>
+                <div class="stat-delta u-subtle">11% left this month</div>
+              </div>
+
+              <div class="stat">
+                <div class="stat-label">Transactions</div>
+                <div class="stat-value u-tnum">13</div>
+                <div class="stat-delta u-subtle">booked in June</div>
+              </div>
+
+            </div>
+
+            <!-- Budget meter — single accent bar; status read from the dot+label, not hue -->
+            <div class="card">
+              <div class="card-body">
+                <div class="u-between u-wrap" style="gap:var(--space-2);margin-bottom:var(--space-3);">
+                  <span class="u-row" style="gap:var(--space-2);">
+                    <span class="dot dot-success" aria-hidden="true"></span>
+                    <span style="font-weight:var(--fw-medium);">Within budget</span>
+                  </span>
+                  <span class="u-muted" style="font-size:var(--text-sm);">
+                    <span class="u-mono">$1,337</span> of <span class="u-mono">$1,500</span><span class="u-subtle" aria-hidden="true"> · </span>89% used
+                  </span>
+                </div>
+                <div class="progress" role="progressbar" aria-valuenow="89" aria-valuemin="0" aria-valuemax="100" aria-label="Budget used: 89 percent — $1,337 of $1,500, within budget">
+                  <i style="width:89%;"></i>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── 2 · By account — the extensible chart of accounts ───── -->
+          <section aria-labelledby="byacct-lbl">
+            <div class="u-between u-wrap" style="gap:var(--space-2);margin-bottom:var(--space-2);">
+              <div class="section-label" id="byacct-lbl" style="padding:0;">By account</div>
+              <span class="u-subtle" style="font-size:var(--text-xs);">Chart of accounts · share of $1,337</span>
+            </div>
+
+            <div class="card">
+              <table class="table table-compact table-cards">
+                <caption class="u-sr-only">Operating expenses by account for June 2026 — account, share of the period total, amount, and percent of period. Eight accounts totalling $1,337.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Account</th>
+                    <th scope="col" style="width:34%;">Share of period</th>
+                    <th scope="col" class="num">Amount</th>
+                    <th scope="col" class="num">% of period</th>
+                  </tr>
+                </thead>
+                <tbody>
+
+                  <!-- Ads -->
+                  <tr>
+                    <td data-label="Account">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Ads</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Google Ads · Meta Ads</div>
+                    </td>
+                    <td data-label="Share of period">
+                      <div class="perf-bar" aria-hidden="true"><div class="perf-bar-track"><i class="perf-bar-fill" style="width:54%;"></i></div></div>
+                    </td>
+                    <td data-label="Amount" class="num u-mono">$720</td>
+                    <td data-label="% of period" class="num u-subtle">54%</td>
+                  </tr>
+
+                  <!-- Plans -->
+                  <tr>
+                    <td data-label="Account">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Plans</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Claude Max · GPT Plus · fixed</div>
+                    </td>
+                    <td data-label="Share of period">
+                      <div class="perf-bar" aria-hidden="true"><div class="perf-bar-track"><i class="perf-bar-fill" style="width:16%;"></i></div></div>
+                    </td>
+                    <td data-label="Amount" class="num u-mono">$220</td>
+                    <td data-label="% of period" class="num u-subtle">16%</td>
+                  </tr>
+
+                  <!-- Token plans -->
+                  <tr>
+                    <td data-label="Account">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Token plans</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">GLM · KIMI · MiniMax</div>
+                    </td>
+                    <td data-label="Share of period">
+                      <div class="perf-bar" aria-hidden="true"><div class="perf-bar-track"><i class="perf-bar-fill" style="width:13%;"></i></div></div>
+                    </td>
+                    <td data-label="Amount" class="num u-mono">$180</td>
+                    <td data-label="% of period" class="num u-subtle">13%</td>
+                  </tr>
+
+                  <!-- Tools -->
+                  <tr>
+                    <td data-label="Account">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Tools</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Ahrefs</div>
+                    </td>
+                    <td data-label="Share of period">
+                      <div class="perf-bar" aria-hidden="true"><div class="perf-bar-track"><i class="perf-bar-fill" style="width:7%;"></i></div></div>
+                    </td>
+                    <td data-label="Amount" class="num u-mono">$99</td>
+                    <td data-label="% of period" class="num u-subtle">7%</td>
+                  </tr>
+
+                  <!-- Hosting -->
+                  <tr>
+                    <td data-label="Account">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Hosting</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Hetzner</div>
+                    </td>
+                    <td data-label="Share of period">
+                      <div class="perf-bar" aria-hidden="true"><div class="perf-bar-track"><i class="perf-bar-fill" style="width:4%;"></i></div></div>
+                    </td>
+                    <td data-label="Amount" class="num u-mono">$48</td>
+                    <td data-label="% of period" class="num u-subtle">4%</td>
+                  </tr>
+
+                  <!-- Domains -->
+                  <tr>
+                    <td data-label="Account">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Domains</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">3 domains</div>
+                    </td>
+                    <td data-label="Share of period">
+                      <div class="perf-bar" aria-hidden="true"><div class="perf-bar-track"><i class="perf-bar-fill" style="width:3%;"></i></div></div>
+                    </td>
+                    <td data-label="Amount" class="num u-mono">$42</td>
+                    <td data-label="% of period" class="num u-subtle">3%</td>
+                  </tr>
+
+                  <!-- Connected -->
+                  <tr>
+                    <td data-label="Account">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Connected</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Resend email</div>
+                    </td>
+                    <td data-label="Share of period">
+                      <div class="perf-bar" aria-hidden="true"><div class="perf-bar-track"><i class="perf-bar-fill" style="width:1%;"></i></div></div>
+                    </td>
+                    <td data-label="Amount" class="num u-mono">$16</td>
+                    <td data-label="% of period" class="num u-subtle">1%</td>
+                  </tr>
+
+                  <!-- Storage -->
+                  <tr>
+                    <td data-label="Account">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Storage</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">upcoming</div>
+                    </td>
+                    <td data-label="Share of period">
+                      <div class="perf-bar" aria-hidden="true"><div class="perf-bar-track"><i class="perf-bar-fill" style="width:1%;"></i></div></div>
+                    </td>
+                    <td data-label="Amount" class="num u-mono">$12</td>
+                    <td data-label="% of period" class="num u-subtle">1%</td>
+                  </tr>
+
+                </tbody>
+              </table>
+
+              <!-- Chart of accounts is extensible — quiet dashed add-source row, NOT a second primary action -->
+              <a href="#" rel="noopener" class="tile--add" style="min-height:48px;margin:var(--space-3) var(--space-5) var(--space-4);border-radius:var(--radius-md);font-size:var(--text-sm);">
+                <span aria-hidden="true" style="font-size:var(--text-base);">＋</span> Add cost source
+              </a>
+            </div>
+          </section>
+
+          <!-- ── 3 · Transactions — the ledger ───────────────────────── -->
+          <section aria-labelledby="ledger-lbl">
+            <div class="u-between u-wrap" style="gap:var(--space-2);margin-bottom:var(--space-2);">
+              <div class="section-label" id="ledger-lbl" style="padding:0;">Transactions</div>
+              <span class="u-subtle" style="font-size:var(--text-xs);">June 2026 · 13 entries</span>
+            </div>
+
+            <div class="card">
+
+              <div class="tabs" role="tablist" aria-label="Filter transactions by status">
+                <button type="button" class="tab" role="tab" aria-selected="true">All</button>
+                <button type="button" class="tab" role="tab" aria-selected="false">Paid</button>
+                <button type="button" class="tab" role="tab" aria-selected="false">Pending</button>
+                <button type="button" class="tab" role="tab" aria-selected="false">Upcoming</button>
+              </div>
+
+              <table class="table table-compact table-cards">
+                <caption class="u-sr-only">Expense transactions for June 2026 — date, vendor, account, amount, status, and receipt. Thirteen transactions totalling $1,337.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col">Vendor</th>
+                    <th scope="col">Account</th>
+                    <th scope="col" class="num">Amount</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Receipt</th>
+                  </tr>
+                </thead>
+                <tbody>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 1</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">Hetzner</td>
+                    <td data-label="Account"><span class="badge">Hosting</span></td>
+                    <td data-label="Amount" class="num u-mono">$48</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> Paid</span></td>
+                    <td data-label="Receipt"><a href="#" rel="noopener">View</a></td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 1</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">Anthropic — Claude Max</td>
+                    <td data-label="Account"><span class="badge">Plans</span></td>
+                    <td data-label="Amount" class="num u-mono">$200</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> Paid</span></td>
+                    <td data-label="Receipt"><a href="#" rel="noopener">View</a></td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 1</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">OpenAI — GPT Plus</td>
+                    <td data-label="Account"><span class="badge">Plans</span></td>
+                    <td data-label="Amount" class="num u-mono">$20</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> Paid</span></td>
+                    <td data-label="Receipt"><a href="#" rel="noopener">View</a></td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 3</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">Google Ads</td>
+                    <td data-label="Account"><span class="badge">Ads</span></td>
+                    <td data-label="Amount" class="num u-mono">$180</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> Paid</span></td>
+                    <td data-label="Receipt"><a href="#" rel="noopener">View</a></td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 8</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">Z.ai — GLM top-up</td>
+                    <td data-label="Account"><span class="badge">Token plans</span></td>
+                    <td data-label="Amount" class="num u-mono">$52</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> Paid</span></td>
+                    <td data-label="Receipt"><a href="#" rel="noopener">View</a></td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 10</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">Namecheap — 3 domains</td>
+                    <td data-label="Account"><span class="badge">Domains</span></td>
+                    <td data-label="Amount" class="num u-mono">$42</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> Paid</span></td>
+                    <td data-label="Receipt"><a href="#" rel="noopener">View</a></td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 12</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">Meta Ads</td>
+                    <td data-label="Account"><span class="badge">Ads</span></td>
+                    <td data-label="Amount" class="num u-mono">$200</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> Paid</span></td>
+                    <td data-label="Receipt"><a href="#" rel="noopener">View</a></td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 14</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">Moonshot — KIMI</td>
+                    <td data-label="Account"><span class="badge">Token plans</span></td>
+                    <td data-label="Amount" class="num u-mono">$38</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot dot-warning" aria-hidden="true"></span> Pending</span></td>
+                    <td data-label="Receipt"><span class="u-subtle" aria-label="No receipt yet">—</span></td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 16</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">Ahrefs</td>
+                    <td data-label="Account"><span class="badge">Tools</span></td>
+                    <td data-label="Amount" class="num u-mono">$99</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> Paid</span></td>
+                    <td data-label="Receipt"><a href="#" rel="noopener">View</a></td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 18</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">Google Ads</td>
+                    <td data-label="Account"><span class="badge">Ads</span></td>
+                    <td data-label="Amount" class="num u-mono">$340</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> Paid</span></td>
+                    <td data-label="Receipt"><a href="#" rel="noopener">View</a></td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 20</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">MiniMax</td>
+                    <td data-label="Account"><span class="badge">Token plans</span></td>
+                    <td data-label="Amount" class="num u-mono">$90</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot dot-warning" aria-hidden="true"></span> Pending</span></td>
+                    <td data-label="Receipt"><span class="u-subtle" aria-label="No receipt yet">—</span></td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 22</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">Resend</td>
+                    <td data-label="Account"><span class="badge">Connected</span></td>
+                    <td data-label="Amount" class="num u-mono">$16</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> Paid</span></td>
+                    <td data-label="Receipt"><a href="#" rel="noopener">View</a></td>
+                  </tr>
+
+                  <tr>
+                    <td data-label="Date" class="u-mono u-subtle">Jun 30</td>
+                    <td data-label="Vendor" style="font-weight:var(--fw-medium);">Hetzner — storage</td>
+                    <td data-label="Account"><span class="badge">Storage</span></td>
+                    <td data-label="Amount" class="num u-mono">$12</td>
+                    <td data-label="Status"><span class="u-row"><span class="dot" aria-hidden="true"></span> <span class="u-muted">Upcoming</span></span></td>
+                    <td data-label="Receipt"><span class="u-subtle" aria-label="No receipt yet">—</span></td>
+                  </tr>
+
+                </tbody>
+              </table>
+
+              <div class="card-footer">
+                <p class="hint">Bookkeeping for June 2026 · 13 transactions · synced from provider billing 1h ago. Export a statement for your accountant.</p>
+              </div>
+
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+</body>
+</html>

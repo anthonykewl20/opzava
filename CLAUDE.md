@@ -1,0 +1,22 @@
+# Opzava — build guide for AI agents
+
+**Read `docs/plan/EXECUTION.md` FIRST.** It is the single **living control doc** for building Opzava: it holds the current
+phase/slice, the exact next action, which **skills** to use, and the **acceptance signal**. Work **one slice at a time**, then
+update it (tick deliverables, set slice status, append a dated worklog entry) and commit. It supports clean start/stop/resume —
+use the `handoff` skill. Do not skip ahead; keep the doc in sync with reality.
+
+## Doc map (reference — `EXECUTION.md` is the control surface)
+- `ARCHITECTURE.md` — the whole system in ~5 minutes (bounded contexts, ports, invariants, deployment, ADR index).
+- `docs/plan/roadmap.md` — the phased product roadmap (P1–P8) after the MVP.
+- `docs/plan/grilling-decisions.md` — the canonical design record (Q1–Q14, every invariant).
+- `docs/adr/` — 15 ADRs (architecture decisions). `docs/prd/` — 18 PRDs (product specs).
+- `docs/plan/capability-parity.md` — every screen: OpenClaw-native vs Opzava-owned vs hybrid.
+- `docs/openclaw/` — vendored OpenClaw docs. **Design to these; harness, don't reinvent.**
+
+## Non-negotiables (full detail in `ARCHITECTURE.md` + the ADRs)
+- **OpenClaw parity:** design to OpenClaw's real capabilities (`docs/openclaw`); stay on its grain.
+- **Pure per-tenant Gateway**; **two-token** (hot-path `write`+`approvals` vs JIT `admin`); the **gateway-broker is the only ACL** to OpenClaw.
+- **Postgres is the source of truth**; projections are a **rebuildable cache** (RPC snapshots are truth, WS events are hints).
+- **Tool-policy-first** security ("SOUL can lie; tool policy cannot"); **RLS denial is a hard 403**, never a silent empty result.
+- **Local docker-compose in parity with live Dokploy** (single compose, Traefik labels); **no routable orphan Gateway**.
+- Scale-ready modular DDD (no MVP-then-rewrite); agnostic ports; sad-path-first; lean VPS ops.

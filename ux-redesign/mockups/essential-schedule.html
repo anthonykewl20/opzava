@@ -1,0 +1,1116 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Schedule · Customer Support</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* ── Shell (Basecamp-style Essential: calm, warm, top nav, layout-only) ── */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .bc-wrap { max-width: 1240px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+    .ava { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* ── Page header ────────────────────────────────────────────────── */
+    .view-pill { display: inline-flex; align-items: center; background: var(--surface-2); border-radius: var(--radius-full); padding: 3px; }
+
+    /* ── Three-pane layout: mini-nav rail + calendar + coming-up rail ── */
+    .sched-layout { display: grid; grid-template-columns: 196px 1fr 256px; gap: var(--space-6); align-items: start; }
+
+    /* ── Project mini-nav rail ──────────────────────────────────────── */
+    .proj-nav { position: sticky; top: 80px; display: flex; flex-direction: column; gap: 2px; }
+    .proj-nav a { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--fg-muted); text-decoration: none; }
+    .proj-nav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .proj-nav a.active { background: var(--accent-soft); color: var(--accent); font-weight: var(--fw-semibold); }
+    .proj-nav .nav-back { color: var(--fg); font-weight: var(--fw-semibold); margin-bottom: var(--space-2); }
+    .proj-nav-sep { height: 1px; background: var(--border); margin: var(--space-2) 0; }
+
+    /* ── ✦ Atlas "Here's your week" brief (collapsible) ─────────────── */
+    .week-brief { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); margin-bottom: var(--space-5); overflow: hidden; }
+    .week-brief > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); }
+    .week-brief > summary::-webkit-details-marker { display: none; }
+    .week-brief-lead { min-width: 0; flex: 1; }
+    .week-brief-lead .wb-title { font-size: var(--text-base); font-weight: var(--fw-semibold); color: var(--fg); }
+    .week-brief-lead .wb-sub { font-size: var(--text-xs); color: var(--fg-muted); margin-top: 2px; }
+    .week-brief .wb-caret { font-size: var(--text-sm); color: var(--fg-subtle); transition: transform var(--dur-fast); }
+    .week-brief[open] .wb-caret { transform: rotate(180deg); }
+    .week-brief-body { padding: 0 var(--space-4) var(--space-4) calc(var(--space-4) + 38px); display: flex; flex-direction: column; gap: var(--space-2); }
+    .wb-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); }
+    .wb-row--needs { background: var(--warning-soft); border-color: var(--border-strong); }
+    .wb-row .wb-text { min-width: 0; flex: 1; font-size: var(--text-base); color: var(--fg); }
+    .wb-row .wb-text .wb-glyph { color: var(--fg-subtle); margin-right: 6px; }
+
+    /* ── 7-column CSS grid calendar ─────────────────────────────────── */
+    .cal-grid-wrap { min-width: 0; }
+    .cal-toolbar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-4); }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+    .cal-dow { background: var(--surface-2); padding: var(--space-2) var(--space-3); font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); text-align: center; text-transform: uppercase; letter-spacing: .04em; }
+    .cal-cell { background: var(--surface); min-height: 96px; padding: var(--space-2) var(--space-2) var(--space-3); display: flex; flex-direction: column; gap: 3px; align-items: stretch; }
+    .cal-cell--empty { background: var(--surface-2); }
+    .cal-cell--today .cal-day-num { background: var(--accent); color: var(--accent-fg); border-radius: var(--radius-full); width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
+    .cal-day-num { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-muted); margin-bottom: 2px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; background: none; border: 0; font-family: inherit; cursor: pointer; }
+    .cal-day-num:hover { color: var(--fg); }
+    .cal-cell--today .cal-day-num:hover { color: var(--accent-fg); }
+
+    /* ── Event chip ─────────────────────────────────────────────────── */
+    /* NO nested <a> inside a chip that is itself inside an <a> — chips are <div> */
+    .cal-chip { display: flex; flex-direction: column; gap: 1px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 3px 6px; font-size: var(--text-xs); line-height: 1.35; cursor: pointer; transition: background var(--dur-fast); }
+    .cal-chip:hover { background: var(--surface-3); }
+    .cal-chip-title { font-weight: var(--fw-medium); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cal-chip-title .ctype { color: var(--fg-subtle); margin-right: 3px; }
+    .cal-chip-title a { color: var(--fg); text-decoration: none; }
+    .cal-chip-title a:hover { text-decoration: underline; }
+    .cal-chip-meta { display: flex; align-items: center; gap: 4px; color: var(--fg-subtle); flex-wrap: nowrap; overflow: hidden; }
+    .cal-chip-kind { font-weight: var(--fw-medium); color: var(--fg-muted); white-space: nowrap; }
+    .cal-chip-status { display: flex; align-items: center; gap: 3px; color: var(--fg-muted); font-size: var(--text-xs); white-space: nowrap; }
+    /* AI work-window chip: quiet identity cue, NOT a status colour */
+    .cal-chip--ai { border-style: dashed; }
+    /* The single accent needs-you chip */
+    .cal-chip--accent { border-left: 3px solid var(--accent); }
+    .cal-chip--accent .cal-chip-status { color: var(--accent); font-weight: var(--fw-medium); }
+    .cal-more { align-self: flex-start; background: none; border: 0; padding: 1px 4px; font: inherit; font-size: var(--text-xs); color: var(--fg-muted); cursor: pointer; border-radius: var(--radius-sm); }
+    .cal-more:hover { background: var(--surface-2); color: var(--fg); }
+
+    /* ── Day-detail panel (Level 2) ─────────────────────────────────── */
+    .day-detail { display: none; margin-top: var(--space-5); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-5); }
+    .day-detail.is-open { display: block; }
+    .day-detail-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+    .day-detail-head h3 { font-size: var(--text-md); font-weight: var(--fw-semibold); color: var(--fg); margin: 0; }
+    .day-detail-count { font-size: var(--text-xs); color: var(--fg-muted); }
+    .day-detail-close { margin-left: auto; background: none; border: 1px solid var(--border); border-radius: var(--radius-md); width: 30px; height: 30px; font-size: var(--text-md); color: var(--fg-muted); cursor: pointer; }
+    .day-detail-close:hover { background: var(--surface-2); color: var(--fg); }
+    .day-group-label { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); text-transform: uppercase; letter-spacing: .04em; margin: var(--space-4) 0 var(--space-2); }
+    .day-group-label:first-child { margin-top: 0; }
+    .day-row { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+    .day-row:last-child { border-bottom: none; }
+    .day-row-main { min-width: 0; flex: 1; }
+    .day-row-title { font-size: var(--text-base); font-weight: var(--fw-medium); color: var(--fg); }
+    .day-row-title .rtype { color: var(--fg-subtle); margin-right: 5px; }
+    .day-row-title a { color: var(--fg); text-decoration: none; }
+    .day-row-title a:hover { text-decoration: underline; }
+    .day-row-meta { font-size: var(--text-xs); color: var(--fg-subtle); margin: 2px 0 4px; }
+    .day-row--accent { border-left: 3px solid var(--accent); padding-left: var(--space-3); margin-left: calc(-1 * var(--space-3)); }
+
+    /* ── Right rail ─────────────────────────────────────────────────── */
+    .cal-rail { position: sticky; top: 80px; display: flex; flex-direction: column; gap: var(--space-4); }
+    .cal-rail-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); }
+    .cal-rail-head { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); margin-bottom: var(--space-3); }
+    .cal-upcoming-list { display: flex; flex-direction: column; gap: var(--space-2); }
+    .cal-upcoming-item { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+    .cal-upcoming-item:last-child { border-bottom: none; }
+    .cal-upcoming-item--accent { border-left: 3px solid var(--accent); padding-left: var(--space-2); }
+    .cal-upcoming-day { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); text-transform: uppercase; letter-spacing: .04em; }
+    .cal-upcoming-title { font-size: var(--text-base); font-weight: var(--fw-medium); color: var(--fg); display: flex; align-items: center; gap: 5px; }
+    .cal-upcoming-title a { color: var(--fg); text-decoration: none; }
+    .cal-upcoming-title a:hover { text-decoration: underline; }
+    .cal-upcoming-title .utype { color: var(--fg-subtle); }
+    .cal-upcoming-meta { font-size: var(--text-xs); color: var(--fg-subtle); }
+    .kind-count-row { display: flex; align-items: center; justify-content: space-between; padding: var(--space-1) 0; }
+    .kind-count-row .kc-label { font-size: var(--text-sm); color: var(--fg-muted); display: flex; align-items: center; gap: 6px; }
+    .kind-count-row .kc-num { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+    .kind-count-row--accent .kc-label, .kind-count-row--accent .kc-num { color: var(--accent); }
+
+    /* ── Legend ─────────────────────────────────────────────────────── */
+    .cal-legend { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-2) 0; font-size: var(--text-xs); color: var(--fg-muted); flex-wrap: wrap; }
+    .cal-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+    .cal-legend-note { font-size: var(--text-xs); color: var(--fg-subtle); font-style: italic; }
+    .cal-legend-label { font-weight: var(--fw-semibold); color: var(--fg-subtle); }
+    .cal-legend-disclosure { padding: var(--space-2) 0; }
+    .cal-legend-disclosure > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-sm); color: var(--fg-muted); }
+    .cal-legend-disclosure > summary::-webkit-details-marker { display: none; }
+    .cal-legend-disclosure > summary::before { content: "▸"; font-size: var(--text-xs); color: var(--fg-subtle); transition: transform var(--dur-fast); }
+    .cal-legend-disclosure[open] > summary::before { transform: rotate(90deg); }
+    .cal-legend-disclosure > summary:hover { color: var(--fg); }
+
+    /* ── Month nav ──────────────────────────────────────────────────── */
+    .cal-month-nav { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+    .cal-month-label { font-size: var(--text-md); font-weight: var(--fw-semibold); color: var(--fg); }
+
+    /* ── Empty-after-filter state ───────────────────────────────────── */
+    .cal-empty { display: none; }
+
+    /* ── Drawer (Level 3) extras layered on app.css .scrim/.drawer ──── */
+    .scrim { display: none; }            /* override app.css default-shown — closed until .is-open */
+    .scrim.is-open { display: flex; }
+    .dwr { padding: var(--space-5); overflow-y: auto; }
+    .dwr-eyebrow { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); text-transform: uppercase; letter-spacing: .04em; }
+    .dwr-title { font-size: var(--text-lg); font-weight: var(--fw-bold); color: var(--fg); margin: var(--space-1) 0 var(--space-3); }
+    .dwr-head-row { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4) var(--space-5) var(--space-3); border-bottom: 1px solid var(--border); }
+    .dwr-close { margin-left: auto; background: none; border: 1px solid var(--border); border-radius: var(--radius-md); width: 30px; height: 30px; font-size: var(--text-md); color: var(--fg-muted); cursor: pointer; flex: none; }
+    .dwr-close:hover { background: var(--surface-2); color: var(--fg); }
+    .kv { display: grid; grid-template-columns: 92px 1fr; gap: 6px var(--space-3); margin: var(--space-4) 0; font-size: var(--text-base); }
+    .kv dt { color: var(--fg-subtle); font-weight: var(--fw-medium); }
+    .kv dd { color: var(--fg); margin: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .dwr-sep { height: 1px; background: var(--border); margin: var(--space-4) 0; }
+    .dwr-people { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+    .dwr-people .dwr-people-label { font-size: var(--text-sm); color: var(--fg-muted); }
+    .dwr-also { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: 6px; }
+    .dwr-reminder { font-size: var(--text-xs); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); margin: var(--space-3) 0; }
+    .dwr-notes { font-size: var(--text-base); color: var(--fg); line-height: var(--lh-normal); }
+    .dwr-log { font-size: var(--text-xs); color: var(--fg-subtle); display: flex; flex-direction: column; gap: 4px; }
+    .dwr-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-4) 0; }
+    .dwr-composer { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+    .dwr-composer .textarea { flex: 1; min-height: 38px; }
+
+    /* ── Week view (hidden by default, shown via toggle) ────────────── */
+    .cal-week-view { display: none; }
+    .cal-week-view.is-active { display: block; }
+    .cal-month-view.is-hidden { display: none; }
+
+    /* ── Mobile collapse ────────────────────────────────────────────── */
+    @media (max-width: 860px) {
+      .sched-layout { grid-template-columns: 1fr; }
+      .proj-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+      .cal-grid-wrap { display: none; }
+      .cal-rail { position: static; }
+    }
+  </style>
+</head>
+<body>
+<div class="bc">
+
+  <!-- ── Topbar (canonical, from essential-project.html — do NOT change the bell) ── -->
+  <header class="topbar">
+    <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+      <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+      <strong style="font-size:var(--text-md)">Opzava</strong>
+    </a>
+    <nav class="topnav" aria-label="Primary">
+      <a href="essential-home.html">Home</a>
+      <a href="essential-my-stuff.html">My stuff</a>
+      <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+      <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+      <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+      <a href="essential-find.html">Find…</a>
+    </nav>
+    <span class="u-grow"></span>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
+    <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+  </header>
+
+  <main>
+    <div class="bc-wrap">
+
+      <!-- ── Breadcrumb ──────────────────────────────────────────────── -->
+      <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+        <a href="essential-home.html">Home</a>
+        <span class="sep">›</span>
+        <a href="essential-project.html">Customer Support</a>
+        <span class="sep">›</span>
+        <span class="current">Schedule</span>
+      </nav>
+
+      <!-- ── Page header ─────────────────────────────────────────────── -->
+      <div class="u-between" style="margin-bottom:var(--space-5);align-items:flex-start">
+        <div>
+          <h1 style="font-size:var(--text-xl);font-weight:var(--fw-bold);color:var(--fg);margin:0 0 var(--space-1)">
+            <span aria-hidden="true" style="margin-right:var(--space-2)">📅</span>Schedule
+          </h1>
+          <p class="u-muted" style="font-size:var(--text-sm);margin:0">
+            Meetings, deadlines, goals and your AI team's scheduled runs — all on one timeline.
+          </p>
+        </div>
+        <div class="u-row" style="gap:var(--space-2);flex:none">
+          <a href="essential-event-new.html" class="btn btn-primary" aria-label="Add a new event">
+            <span aria-hidden="true">＋</span> Add event
+          </a>
+          <a href="essential-event-new.html#ai-run" class="btn btn-ghost" aria-label="Schedule an AI run">
+            <span aria-hidden="true" style="color:var(--accent)">✦</span> Schedule an AI run
+          </a>
+        </div>
+      </div>
+
+      <!-- ── ✦ Atlas "Here's your week" brief (collapsible, narrates the grid) ── -->
+      <details class="week-brief" id="weekBrief" open>
+        <summary>
+          <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span>
+          <span class="week-brief-lead">
+            <span class="wb-title">Here's your week, Anthony.</span>
+            <span class="wb-sub">5 AI runs scheduled · 2 deadlines · 1 needs you · from Atlas</span>
+          </span>
+          <span class="wb-caret" aria-hidden="true">▾</span>
+        </summary>
+        <div class="week-brief-body">
+          <div class="wb-row wb-row--needs">
+            <span class="wb-text"><span class="wb-glyph" aria-hidden="true">◑</span> <strong>June newsletter is at risk.</strong> Atlas's draft window is full on Fri — move it or drop scope.</span>
+            <a href="#" class="btn btn-ghost btn-sm" data-open-drawer="agent" aria-label="Reschedule the June newsletter draft">Reschedule</a>
+          </div>
+          <div class="wb-row">
+            <span class="wb-text"><span class="wb-glyph" aria-hidden="true">✦</span> Atlas refreshes the help-centre FAQ tomorrow, 9:00–9:40 am — running now.</span>
+          </div>
+          <div class="wb-row">
+            <span class="wb-text"><span class="wb-glyph" aria-hidden="true">🗓</span> Customer call Thursday at 2:00 pm, and the Team sync next Tuesday.</span>
+          </div>
+          <div class="wb-row">
+            <span class="wb-text"><span class="wb-glyph" aria-hidden="true">🎯</span> Q2 content goal check-in is due — Atlas will draft it for your sign-off.</span>
+          </div>
+          <div class="u-row" style="justify-content:flex-end;margin-top:var(--space-1)">
+            <button class="btn btn-ghost btn-sm" type="button" id="weekBriefGotIt" aria-label="Got it — dismiss this week's brief">Got it</button>
+          </div>
+        </div>
+      </details>
+
+      <!-- ── Three-pane: mini-nav · calendar · coming-up ──────────────── -->
+      <div class="sched-layout">
+
+        <!-- ── Project mini-nav rail ─────────────────────────────────── -->
+        <nav class="proj-nav" aria-label="Customer Support tools">
+          <a href="essential-project.html" class="nav-back"><span aria-hidden="true">←</span> Customer Support</a>
+          <a href="essential-todos.html"><span aria-hidden="true">✓</span> To-dos</a>
+          <a href="essential-card-table.html"><span aria-hidden="true">▦</span> Board</a>
+          <a href="essential-goals.html"><span aria-hidden="true">🎯</span> Goals</a>
+          <a href="essential-schedule.html" class="active" aria-current="page"><span aria-hidden="true">📅</span> Schedule</a>
+          <a href="essential-mkt-assets.html"><span aria-hidden="true">📄</span> Docs</a>
+          <div class="proj-nav-sep" role="presentation"></div>
+          <a href="project-assistant.html"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask your assistant</a>
+          <a href="essential-team-room.html"><span aria-hidden="true">💬</span> Team</a>
+        </nav>
+
+        <!-- ── Calendar column ───────────────────────────────────────── -->
+        <div class="cal-grid-wrap">
+
+          <!-- Subscribe + month nav + Week/Month toggle -->
+          <div class="u-row" style="justify-content:flex-end;gap:var(--space-2);margin-bottom:var(--space-2)">
+            <a href="essential-my-schedule.html" class="btn btn-ghost btn-sm" aria-label="See your schedule across all projects">
+              <span aria-hidden="true">🗓</span> All projects
+            </a>
+            <a href="#" class="btn btn-ghost btn-sm" aria-label="Subscribe — add this schedule to your own calendar">
+              <span aria-hidden="true">↗</span> Subscribe / Add to your calendar
+            </a>
+          </div>
+
+          <div class="cal-month-nav">
+            <button class="btn btn-ghost btn-sm" type="button" aria-label="Previous month">‹</button>
+            <h2 class="cal-month-label" id="monthLabel">June 2026</h2>
+            <button class="btn btn-ghost btn-sm" type="button" aria-label="Next month">›</button>
+            <button class="btn btn-ghost btn-sm" type="button" aria-label="Jump to today" style="margin-left:var(--space-2)">Today</button>
+            <span class="u-grow"></span>
+            <div class="view-pill sb-tabs" role="tablist" aria-label="Calendar view">
+              <button type="button" class="sb-tab" role="tab" id="tab-week" aria-selected="false" style="border-radius:var(--radius-full)">Week</button>
+              <button type="button" class="sb-tab" role="tab" id="tab-month" aria-selected="true" style="border-radius:var(--radius-full)">Month</button>
+            </div>
+          </div>
+
+          <!-- Type filter toolbar -->
+          <div class="cal-toolbar">
+            <div style="position:relative">
+              <button class="btn btn-ghost btn-sm" type="button" id="showBtn" aria-haspopup="menu" aria-expanded="false">
+                Show <span aria-hidden="true">▾</span>
+              </button>
+              <div class="sb-menu" id="showMenu" role="menu" aria-label="Show item types" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:var(--z-dropdown);min-width:200px">
+                <label class="sb-menu-item" role="menuitemcheckbox" aria-checked="true"><input type="checkbox" data-kind="meeting" checked> 🗓 Meetings</label>
+                <label class="sb-menu-item" role="menuitemcheckbox" aria-checked="true"><input type="checkbox" data-kind="todo" checked> ✓ To-dos</label>
+                <label class="sb-menu-item" role="menuitemcheckbox" aria-checked="true"><input type="checkbox" data-kind="goal" checked> 🎯 Goals</label>
+                <label class="sb-menu-item" role="menuitemcheckbox" aria-checked="true"><input type="checkbox" data-kind="ai" checked> ✦ Agent runs</label>
+              </div>
+            </div>
+            <!-- Active-filter removable pills appear here -->
+            <div id="filterPills" class="u-row" style="gap:var(--space-2);flex-wrap:wrap"></div>
+          </div>
+
+          <!-- Month view -->
+          <div class="cal-month-view" id="monthView">
+            <div class="cal-grid" role="grid" aria-label="June 2026 schedule">
+
+              <!-- Day-of-week headers -->
+              <div class="cal-dow" role="columnheader" aria-label="Monday">Mon</div>
+              <div class="cal-dow" role="columnheader" aria-label="Tuesday">Tue</div>
+              <div class="cal-dow" role="columnheader" aria-label="Wednesday">Wed</div>
+              <div class="cal-dow" role="columnheader" aria-label="Thursday">Thu</div>
+              <div class="cal-dow" role="columnheader" aria-label="Friday">Fri</div>
+              <div class="cal-dow" role="columnheader" aria-label="Saturday">Sat</div>
+              <div class="cal-dow" role="columnheader" aria-label="Sunday">Sun</div>
+
+              <!-- Week 1: Jun 1–7 (Jun 1 = Monday) -->
+              <div class="cal-cell" role="gridcell" aria-label="June 1">
+                <button class="cal-day-num" type="button" data-day="1" aria-label="Open June 1">1</button>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 2, 1 item">
+                <button class="cal-day-num" type="button" data-day="2" aria-label="Open June 2">2</button>
+                <div class="cal-chip cal-chip--todo" role="button" tabindex="0" aria-label="Q1 blog post, report due, done, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✓</span>Q1 blog post</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">report due</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">✓</span> done</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 3">
+                <button class="cal-day-num" type="button" data-day="3" aria-label="Open June 3">3</button>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 4, 1 item">
+                <button class="cal-day-num" type="button" data-day="4" aria-label="Open June 4">4</button>
+                <div class="cal-chip cal-chip--ai" role="button" tabindex="0" aria-label="Echo, daily summary, agent run, recurring 8 am, window, by Echo, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span>Echo — daily summary</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · ↻ 8am</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◷</span> window</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 5">
+                <button class="cal-day-num" type="button" data-day="5" aria-label="Open June 5">5</button>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 6, weekend">
+                <button class="cal-day-num" type="button" data-day="6" style="color:var(--fg-subtle)" aria-label="Open June 6">6</button>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 7, weekend">
+                <button class="cal-day-num" type="button" data-day="7" style="color:var(--fg-subtle)" aria-label="Open June 7">7</button>
+              </div>
+
+              <!-- Week 2: Jun 8–14 -->
+              <div class="cal-cell" role="gridcell" aria-label="June 8">
+                <button class="cal-day-num" type="button" data-day="8" aria-label="Open June 8">8</button>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 9, 2 items">
+                <button class="cal-day-num" type="button" data-day="9" aria-label="Open June 9">9</button>
+                <div class="cal-chip cal-chip--meeting" role="button" tabindex="0" aria-label="Team sync, meeting, 10:00 am, scheduled, by Maria, human" data-open-drawer="meeting">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🗓</span>Team sync</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">meeting · 10:00 am</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+                <div class="cal-chip cal-chip--ai" role="button" tabindex="0" aria-label="Echo, daily summary, agent run, recurring 8 am, window, by Echo, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span>Echo — daily summary</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · ↻ 8am</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◷</span> window</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 10">
+                <button class="cal-day-num" type="button" data-day="10" aria-label="Open June 10">10</button>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 11, 1 item">
+                <button class="cal-day-num" type="button" data-day="11" aria-label="Open June 11">11</button>
+                <div class="cal-chip cal-chip--meeting" role="button" tabindex="0" aria-label="Customer call, meeting, 2:00 pm, scheduled, by David, human" data-open-drawer="meeting">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🗓</span>Customer call</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">meeting · 2:00 pm</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 12, 1 item">
+                <button class="cal-day-num" type="button" data-day="12" aria-label="Open June 12">12</button>
+                <div class="cal-chip cal-chip--todo" role="button" tabindex="0" aria-label="Refresh help-centre FAQ, to-do due, upcoming, by Iris, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✓</span>Refresh help-centre FAQ</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">to-do due</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◦</span> upcoming</span>
+                </div>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 13, weekend">
+                <button class="cal-day-num" type="button" data-day="13" style="color:var(--fg-subtle)" aria-label="Open June 13">13</button>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 14, weekend">
+                <button class="cal-day-num" type="button" data-day="14" style="color:var(--fg-subtle)" aria-label="Open June 14">14</button>
+              </div>
+
+              <!-- Week 3: Jun 15–21 -->
+              <div class="cal-cell" role="gridcell" aria-label="June 15, 1 item">
+                <button class="cal-day-num" type="button" data-day="15" aria-label="Open June 15">15</button>
+                <div class="cal-chip cal-chip--ai" role="button" tabindex="0" aria-label="Iris, weekly social roundup, agent run, 1:00 to 1:30 pm, done, made 3 posts, by Iris, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span>Iris — social roundup</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · 1:00–1:30</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">✓</span> done · 3 posts</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 16, 1 item">
+                <button class="cal-day-num" type="button" data-day="16" aria-label="Open June 16">16</button>
+                <div class="cal-chip cal-chip--meeting" role="button" tabindex="0" aria-label="Team sync, meeting, 10:00 am, scheduled, by Maria, human" data-open-drawer="meeting">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🗓</span>Team sync</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">meeting · 10:00 am</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 17, 1 item">
+                <button class="cal-day-num" type="button" data-day="17" aria-label="Open June 17">17</button>
+                <div class="cal-chip cal-chip--goal" role="button" tabindex="0" aria-label="Q2 content goal, goal check-in, monthly, on track, by Atlas, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🎯</span><a href="essential-goals.html">Q2 content goal</a></span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">goal check-in · monthly</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◴</span> on track</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 18">
+                <button class="cal-day-num" type="button" data-day="18" aria-label="Open June 18">18</button>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 19, 1 item">
+                <button class="cal-day-num" type="button" data-day="19" aria-label="Open June 19">19</button>
+                <div class="cal-chip cal-chip--todo" role="button" tabindex="0" aria-label="Draft macro replies, to-do due, upcoming, by David, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✓</span>Draft macro replies</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">to-do due</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◦</span> upcoming</span>
+                </div>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 20, weekend">
+                <button class="cal-day-num" type="button" data-day="20" style="color:var(--fg-subtle)" aria-label="Open June 20">20</button>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 21, weekend">
+                <button class="cal-day-num" type="button" data-day="21" style="color:var(--fg-subtle)" aria-label="Open June 21">21</button>
+              </div>
+
+              <!-- Week 4: Jun 22–28 -->
+              <div class="cal-cell" role="gridcell" aria-label="June 22">
+                <button class="cal-day-num" type="button" data-day="22" aria-label="Open June 22">22</button>
+              </div>
+              <div class="cal-cell cal-cell--today" role="gridcell" aria-label="June 23, today" aria-current="date">
+                <button class="cal-day-num" type="button" data-day="23" aria-label="Open June 23, today">23</button>
+                <div class="cal-chip cal-chip--ai" role="button" tabindex="0" aria-label="Echo, daily summary, agent run, recurring 8 am, window, by Echo, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span>Echo — daily summary</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · ↻ 8am</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◷</span> window</span>
+                </div>
+              </div>
+              <!-- Jun 24: busy day — 4 items → 3 chips + "+1 more" button -->
+              <div class="cal-cell" role="gridcell" aria-label="June 24, 4 items">
+                <button class="cal-day-num" type="button" data-day="24" aria-label="Open June 24">24</button>
+                <div class="cal-chip cal-chip--meeting" role="button" tabindex="0" aria-label="Support standup, meeting, 9:30 am, scheduled, by Maria, human" data-open-drawer="meeting">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🗓</span>Support standup</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">meeting · 9:30 am</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+                <div class="cal-chip cal-chip--ai" role="button" tabindex="0" aria-label="Atlas, refresh FAQ, agent run, 9:00 to 9:40 am, running now, by Atlas, AI" data-open-drawer="agent">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span><a href="#" data-open-drawer="agent">Atlas — refresh FAQ</a></span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · 9:00–9:40</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◐</span> running now</span>
+                </div>
+                <div class="cal-chip cal-chip--goal" role="button" tabindex="0" aria-label="Q2 content goal, goal check-in, monthly, on track, by Atlas, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🎯</span><a href="essential-goals.html">Q2 content goal</a></span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">goal check-in · monthly</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◴</span> on track</span>
+                </div>
+                <button class="cal-more" type="button" data-day="24" aria-label="Show 1 more item on June 24">+1 more</button>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 25, 1 item">
+                <button class="cal-day-num" type="button" data-day="25" aria-label="Open June 25">25</button>
+                <div class="cal-chip cal-chip--meeting" role="button" tabindex="0" aria-label="Customer call, meeting, 2:00 pm, scheduled, by David, human" data-open-drawer="meeting">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🗓</span>Customer call</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">meeting · 2:00 pm</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+              <!-- Jun 26: the SINGLE accent needs-you item (deadline-risk) -->
+              <div class="cal-cell" role="gridcell" aria-label="June 26, 1 item, needs you">
+                <button class="cal-day-num" type="button" data-day="26" aria-label="Open June 26">26</button>
+                <div class="cal-chip cal-chip--todo cal-chip--accent" role="button" tabindex="0" aria-label="June newsletter, asset due Friday, at risk, needs you, by Atlas, AI" data-open-drawer="agent">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✓</span>June newsletter</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">asset due Fri</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◑</span> at risk · needs you</span>
+                </div>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 27, weekend">
+                <button class="cal-day-num" type="button" data-day="27" style="color:var(--fg-subtle)" aria-label="Open June 27">27</button>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 28, weekend, 1 item">
+                <button class="cal-day-num" type="button" data-day="28" style="color:var(--fg-subtle)" aria-label="Open June 28">28</button>
+                <div class="cal-chip cal-chip--todo" role="button" tabindex="0" aria-label="End-of-quarter report, report due, upcoming, by Maria, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✓</span>End-of-quarter report</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">report due</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◦</span> upcoming</span>
+                </div>
+              </div>
+
+              <!-- Week 5: Jun 29–30 + overflow padding -->
+              <div class="cal-cell" role="gridcell" aria-label="June 29, 1 item">
+                <button class="cal-day-num" type="button" data-day="29" aria-label="Open June 29">29</button>
+                <div class="cal-chip cal-chip--goal" role="button" tabindex="0" aria-label="Q2 content goal, goal deadline, December 31, 18 days left, on track, by Atlas, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🎯</span><a href="essential-goals.html">Q2 content goal</a></span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">goal deadline · ◷ Dec 31 · 18 days left</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◴</span> on track</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 30, 2 items">
+                <button class="cal-day-num" type="button" data-day="30" aria-label="Open June 30">30</button>
+                <div class="cal-chip cal-chip--meeting" role="button" tabindex="0" aria-label="Team sync, meeting, 10:00 am, scheduled, by Maria, human" data-open-drawer="meeting">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🗓</span>Team sync</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">meeting · 10:00 am</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+                <div class="cal-chip cal-chip--ai" role="button" tabindex="0" aria-label="Atlas, newsletter draft, agent run, 9:00 to 9:40 am, queued, by Atlas, AI" data-open-drawer="agent">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span><a href="#" data-open-drawer="agent">Atlas — newsletter draft</a></span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · 9:00–9:40</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◦</span> queued</span>
+                </div>
+              </div>
+              <!-- Empty cells to fill the row to 7 -->
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="No date"></div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="No date"></div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="No date"></div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="No date"></div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="No date"></div>
+
+            </div><!-- /.cal-grid -->
+
+            <!-- Empty-after-filter state (shown when every type is unchecked) -->
+            <div class="cal-empty empty" id="calEmpty" role="status" aria-live="polite">
+              <span class="empty-icon" aria-hidden="true">📅</span>
+              <p class="empty-title">Nothing matches your filters</p>
+              <p class="empty-desc">Turn a type back on in <strong>Show ▾</strong>, or add a new event.</p>
+              <a href="essential-event-new.html" class="btn btn-primary empty-cta"><span aria-hidden="true">＋</span> Add event</a>
+            </div>
+          </div><!-- /.cal-month-view -->
+
+          <!-- Week view (hidden by default) -->
+          <div class="cal-week-view" id="weekView" aria-label="Week view — Jun 22–28, 2026">
+            <div class="card" style="padding:var(--space-6)">
+              <p class="u-muted" style="text-align:center;font-size:var(--text-sm)">
+                Week view · Jun 22–28, 2026 — 5 items
+              </p>
+              <div style="display:flex;flex-direction:column;gap:var(--space-3);margin-top:var(--space-4)">
+                <div style="display:flex;gap:var(--space-4);align-items:start">
+                  <span style="font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-subtle);width:32px;flex:none;padding-top:2px">Wed</span>
+                  <div class="cal-chip cal-chip--ai" style="flex:1" role="button" tabindex="0" aria-label="Atlas, refresh FAQ, agent run, 9:00 to 9:40 am, running now, by Atlas, AI">
+                    <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span>Atlas — refresh FAQ</span>
+                    <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · 9:00–9:40</span></span>
+                    <span class="cal-chip-status"><span aria-hidden="true">◐</span> running now</span>
+                  </div>
+                </div>
+                <div style="display:flex;gap:var(--space-4);align-items:start">
+                  <span style="font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-subtle);width:32px;flex:none;padding-top:2px">Fri</span>
+                  <div class="cal-chip cal-chip--todo cal-chip--accent" style="flex:1" role="button" tabindex="0" aria-label="June newsletter, asset due Friday, at risk, needs you, by Atlas, AI">
+                    <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✓</span>June newsletter</span>
+                    <span class="cal-chip-meta"><span class="cal-chip-kind">asset due Fri</span></span>
+                    <span class="cal-chip-status"><span aria-hidden="true">◑</span> at risk · needs you</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Legend — folded into a "what do these mean?" disclosure, trimmed to the statuses actually on this month -->
+          <details class="cal-legend-disclosure">
+            <summary class="cal-legend-summary"><span class="cal-legend-label">What do these mean?</span></summary>
+            <div class="cal-legend" role="note" aria-label="Schedule legend" style="flex-direction:column;align-items:flex-start;gap:var(--space-1);margin-top:var(--space-2)">
+              <div class="u-row" style="gap:var(--space-4);flex-wrap:wrap">
+                <span class="cal-legend-label">Types:</span>
+                <span class="cal-legend-item"><span aria-hidden="true">🗓</span> meeting</span>
+                <span class="cal-legend-item"><span aria-hidden="true">✓</span> to-do due</span>
+                <span class="cal-legend-item"><span aria-hidden="true">🎯</span> goal</span>
+                <span class="cal-legend-item"><span aria-hidden="true">✦</span> agent run (AI)</span>
+              </div>
+              <div class="u-row" style="gap:var(--space-4);flex-wrap:wrap">
+                <span class="cal-legend-label">Status:</span>
+                <span class="cal-legend-item"><span aria-hidden="true">●</span> scheduled</span>
+                <span class="cal-legend-item"><span aria-hidden="true">◦</span> upcoming/queued</span>
+                <span class="cal-legend-item"><span aria-hidden="true">◷</span> window</span>
+                <span class="cal-legend-item"><span aria-hidden="true">◐</span> running</span>
+                <span class="cal-legend-item"><span aria-hidden="true">✓</span> done</span>
+                <span class="cal-legend-item"><span aria-hidden="true">◴</span> on track</span>
+                <span class="cal-legend-item"><span aria-hidden="true">◑</span> at risk</span>
+              </div>
+              <span class="cal-legend-note">(type + status by glyph + label, never colour · ✦ = AI work · plain = human)</span>
+            </div>
+          </details>
+
+        </div><!-- /.cal-grid-wrap -->
+
+        <!-- ── Right rail: Coming up + by-kind counts ────────────────── -->
+        <aside class="cal-rail" aria-label="Coming up in the next 7 days">
+
+          <!-- By-kind count card -->
+          <div class="cal-rail-card">
+            <h3 class="cal-rail-head">This month</h3>
+            <div class="kind-count-row"><span class="kc-label"><span aria-hidden="true">✦</span> AI runs</span><span class="kc-num">5</span></div>
+            <div class="kind-count-row"><span class="kc-label"><span aria-hidden="true">🗓</span> Meetings</span><span class="kc-num">2</span></div>
+            <div class="kind-count-row"><span class="kc-label"><span aria-hidden="true">🎯</span> Deadlines</span><span class="kc-num">2</span></div>
+            <div class="kind-count-row kind-count-row--accent"><span class="kc-label"><span aria-hidden="true">◑</span> Needs you</span><span class="kc-num">1</span></div>
+          </div>
+
+          <!-- Coming up — needs-you first, then AI runs, meetings, due-dates -->
+          <div class="cal-rail-card">
+            <h3 class="cal-rail-head">Coming up · 7 days</h3>
+            <div class="cal-upcoming-list" role="list">
+
+              <div class="cal-upcoming-item cal-upcoming-item--accent" role="listitem">
+                <span class="cal-upcoming-day">Fri · Jun 26 · needs you</span>
+                <span class="cal-upcoming-title"><span class="utype" aria-hidden="true">✓</span> <a href="#" data-open-drawer="agent">June newsletter</a></span>
+                <span class="cal-upcoming-meta">◑ at risk · asset due — move it or drop scope</span>
+              </div>
+
+              <div class="cal-upcoming-item" role="listitem">
+                <span class="cal-upcoming-day">Wed · Jun 24</span>
+                <span class="cal-upcoming-title"><span class="utype" aria-hidden="true">✦</span> <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span> <a href="#" data-open-drawer="agent">Atlas — refresh FAQ</a></span>
+                <span class="cal-upcoming-meta">agent run · 9:00–9:40 · ◐ running</span>
+              </div>
+
+              <div class="cal-upcoming-item" role="listitem">
+                <span class="cal-upcoming-day">Tue · Jun 30</span>
+                <span class="cal-upcoming-title"><span class="utype" aria-hidden="true">✦</span> <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span> <a href="#" data-open-drawer="agent">Atlas — newsletter draft</a></span>
+                <span class="cal-upcoming-meta">agent run · 9:00–9:40 · ◦ queued</span>
+              </div>
+
+              <div class="cal-upcoming-item" role="listitem">
+                <span class="cal-upcoming-day">Thu · Jun 25</span>
+                <span class="cal-upcoming-title"><span class="utype" aria-hidden="true">🗓</span> <a href="#" data-open-drawer="meeting">Customer call</a></span>
+                <span class="cal-upcoming-meta">meeting · 2:00 pm</span>
+              </div>
+
+              <div class="cal-upcoming-item" role="listitem">
+                <span class="cal-upcoming-day">Sun · Jun 28</span>
+                <span class="cal-upcoming-title"><span class="utype" aria-hidden="true">✓</span> <a href="#" data-open-drawer="meeting">End-of-quarter report</a></span>
+                <span class="cal-upcoming-meta">report due</span>
+              </div>
+
+            </div>
+          </div>
+
+        </aside>
+
+      </div><!-- /.sched-layout -->
+
+      <!-- ── Day-detail panel (Level 2) — collapsed by default; opens on a day click ──────── -->
+      <section class="day-detail" id="dayDetail" aria-label="Items on June 24">
+        <div class="day-detail-head">
+          <h3 id="dayDetailTitle">Wednesday · June 24 · today</h3>
+          <span class="day-detail-count" id="dayDetailCount">4 items</span>
+          <button class="day-detail-close" type="button" id="dayDetailClose" aria-label="Close day detail">×</button>
+        </div>
+
+        <p class="day-group-label">Timed</p>
+
+        <div class="day-row">
+          <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" aria-hidden="true">M</span>
+          <div class="day-row-main">
+            <p class="day-row-title"><span class="rtype" aria-hidden="true">🗓</span><a href="#" data-open-drawer="meeting">Support standup</a></p>
+            <p class="day-row-meta">meeting · 9:30 am · with Maria</p>
+            <span class="sb-statusline" aria-label="Status: Scheduled"><span class="sl-glyph" aria-hidden="true">●</span> <span class="sl-label">Scheduled</span></span>
+          </div>
+        </div>
+
+        <div class="day-row">
+          <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span>
+          <div class="day-row-main">
+            <p class="day-row-title"><span class="rtype" aria-hidden="true">✦</span><a href="#" data-open-drawer="agent">Atlas — refresh FAQ</a></p>
+            <p class="day-row-meta">agent run · 9:00–9:40 am · by Atlas, AI</p>
+            <span class="sb-statusline" aria-label="Status: Running now"><span class="sl-glyph" aria-hidden="true">◐</span> <span class="sl-label">Running now</span></span>
+          </div>
+        </div>
+
+        <p class="day-group-label">All day / due today</p>
+
+        <div class="day-row">
+          <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span>
+          <div class="day-row-main">
+            <p class="day-row-title"><span class="rtype" aria-hidden="true">🎯</span><a href="essential-goals.html">Q2 content goal</a></p>
+            <p class="day-row-meta">goal check-in · monthly · by Atlas, AI</p>
+            <span class="sb-statusline" aria-label="Status: On track"><span class="sl-glyph" aria-hidden="true">◴</span> <span class="sl-label">On track</span></span>
+          </div>
+        </div>
+
+        <div class="day-row">
+          <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-5)" aria-hidden="true">E</span>
+          <div class="day-row-main">
+            <p class="day-row-title"><span class="rtype" aria-hidden="true">✦</span>Echo — daily summary</p>
+            <p class="day-row-meta">agent run · ↻ daily 8am · by Echo, AI</p>
+            <span class="sb-statusline" aria-label="Status: Window — planned"><span class="sl-glyph" aria-hidden="true">◷</span> <span class="sl-label">Window</span></span>
+          </div>
+        </div>
+      </section>
+
+      <!--
+        Empty-day variant of the day-detail panel (documented; swap markup in when a day has 0 items):
+        <section class="day-detail is-open" aria-label="Items on June 22">
+          <div class="day-detail-head">
+            <h3>Sunday · June 22</h3>
+            <span class="day-detail-count">No items</span>
+            <button class="day-detail-close" type="button" aria-label="Close day detail">×</button>
+          </div>
+          <div class="empty" style="display:block">
+            <span class="empty-icon" aria-hidden="true">📅</span>
+            <p class="empty-title">Nothing scheduled</p>
+            <p class="empty-desc">No meetings, deadlines, goals or agent runs on this day.</p>
+            <a href="essential-event-new.html" class="btn btn-primary empty-cta"><span aria-hidden="true">＋</span> Add event</a>
+          </div>
+        </section>
+      -->
+
+    </div><!-- /.bc-wrap -->
+  </main>
+
+  <!-- ── Single-event detail drawer (Level 3) — rendered CLOSED, two variants ── -->
+  <div class="scrim" id="eventScrim" role="dialog" aria-modal="true" aria-labelledby="dwrTitle">
+    <aside class="drawer">
+
+      <!-- Variant A: human meeting -->
+      <div id="dwrMeeting">
+        <div class="dwr-head-row">
+          <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" aria-hidden="true">M</span>
+          <div style="min-width:0">
+            <p class="dwr-eyebrow">Meeting</p>
+            <h2 class="dwr-title" id="dwrTitle">Customer call</h2>
+          </div>
+          <button class="dwr-close" type="button" data-close-drawer aria-label="Close">×</button>
+        </div>
+        <div class="dwr">
+          <span class="sb-statusline" aria-label="Status: Scheduled"><span class="sl-glyph" aria-hidden="true">●</span> <span class="sl-label">Scheduled</span></span>
+          <dl class="kv">
+            <dt>When</dt><dd>Thu · Jun 25 · 2:00 pm</dd>
+            <dt>Owner</dt><dd><span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" aria-hidden="true">D</span> David Okafor</dd>
+            <dt>Project</dt><dd>Customer Support</dd>
+            <dt>Linked to</dt><dd><a href="essential-todos.html" style="color:var(--accent);text-decoration:none">Onboarding follow-up to-do</a></dd>
+          </dl>
+          <p class="dwr-notes">Quarterly check-in with Acme — walk through open tickets and the new macro replies.</p>
+          <div class="dwr-sep"></div>
+          <div class="dwr-people">
+            <span aria-hidden="true">👥</span>
+            <span class="dwr-people-label">People involved (notified):</span>
+            <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" aria-hidden="true">D</span>
+            <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+          </div>
+          <p class="dwr-also">Also notified (comments only): Maria Santos</p>
+          <p class="dwr-reminder">We'll remind everyone involved 1 day and 1 hour before.</p>
+          <div class="dwr-actions">
+            <a href="#" class="btn btn-ghost"><span aria-hidden="true">🔗</span> Join</a>
+            <button class="btn btn-ghost" type="button">Reschedule</button>
+            <button class="btn btn-ghost" type="button">Cancel</button>
+          </div>
+          <div class="dwr-sep"></div>
+          <p class="cal-rail-head" style="margin-bottom:var(--space-2)">Comments</p>
+          <div class="dwr-composer">
+            <textarea class="textarea" placeholder="Add a comment…" aria-label="Add a comment"></textarea>
+            <button class="btn btn-ghost" type="button">Send</button>
+          </div>
+          <div class="dwr-log" style="margin-top:var(--space-4)">
+            <span>Maria moved this from Jun 10 to Jun 11.</span>
+            <span>David added Acme to the agenda.</span>
+            <a href="#" style="color:var(--accent);text-decoration:none">View all changes</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Variant B: ✦ agent-run window (the needs-you variant — single primary button) -->
+      <div id="dwrAgent" style="display:none">
+        <div class="dwr-head-row">
+          <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span>
+          <div style="min-width:0">
+            <p class="dwr-eyebrow">✦ Agent run · AI work window</p>
+            <h2 class="dwr-title">Atlas — June newsletter draft</h2>
+          </div>
+          <button class="dwr-close" type="button" data-close-drawer aria-label="Close">×</button>
+        </div>
+        <div class="dwr">
+          <span class="sb-statusline sb-statusline--accent" aria-label="Status: At risk, needs you"><span class="sl-glyph" aria-hidden="true">◑</span> <span class="sl-label">At risk · needs you</span></span>
+          <p class="dwr-reminder" style="margin-top:var(--space-3)">June newsletter due Fri — Atlas's draft window is full; needs you to move it or drop scope.</p>
+          <dl class="kv">
+            <dt>When</dt><dd>Tue · Jun 30 · 9:00–9:40 am · ↻ part of the weekly draft cadence</dd>
+            <dt>Owner</dt><dd><span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span> ✦ Atlas (AI)</dd>
+            <dt>Project</dt><dd>Customer Support</dd>
+            <dt>Linked to</dt><dd><a href="#" style="color:var(--accent);text-decoration:none">June newsletter (asset due Fri)</a></dd>
+          </dl>
+          <p class="dwr-notes">In this window Atlas will draft the June newsletter from the latest help-centre updates, then hand it to you for review before anything sends. Nothing publishes without your approval.</p>
+          <div class="dwr-sep"></div>
+          <div class="dwr-people">
+            <span aria-hidden="true">👥</span>
+            <span class="dwr-people-label">People involved (notified):</span>
+            <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+          </div>
+          <p class="dwr-also">Also notified (comments only): Iris (content)</p>
+          <p class="dwr-reminder">We'll remind everyone involved 1 day and 1 hour before.</p>
+          <div class="dwr-actions">
+            <button class="btn btn-primary" type="button">Review the draft</button>
+            <button class="btn btn-ghost" type="button">Reschedule window</button>
+            <button class="btn btn-ghost" type="button">Skip this run</button>
+          </div>
+          <div class="dwr-sep"></div>
+          <p class="cal-rail-head" style="margin-bottom:var(--space-2)">Comments</p>
+          <div class="dwr-composer">
+            <textarea class="textarea" placeholder="Add a comment…" aria-label="Add a comment"></textarea>
+            <button class="btn btn-ghost" type="button">Send</button>
+          </div>
+          <div class="dwr-log" style="margin-top:var(--space-4)">
+            <span>Atlas flagged this window as full when the newsletter scope grew.</span>
+            <span>Maria moved the newsletter due-date from Jun 10 to Jun 26.</span>
+            <a href="#" style="color:var(--accent);text-decoration:none">View all changes</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Variant C: to-do / report due -->
+      <div id="dwrTodo" style="display:none">
+        <div class="dwr-head-row">
+          <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span>
+          <div style="min-width:0">
+            <p class="dwr-eyebrow">To-do · due date</p>
+            <h2 class="dwr-title">Refresh help-centre FAQ</h2>
+          </div>
+          <button class="dwr-close" type="button" data-close-drawer aria-label="Close">×</button>
+        </div>
+        <div class="dwr">
+          <span class="sb-statusline" aria-label="Status: Upcoming"><span class="sl-glyph" aria-hidden="true">◦</span> <span class="sl-label">Upcoming</span> <span class="sl-meta">· due Fri Jun 12</span></span>
+          <dl class="kv">
+            <dt>Due</dt><dd>Fri · Jun 12 · all day</dd>
+            <dt>Owner</dt><dd><span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span> Maria</dd>
+            <dt>Project</dt><dd>Customer Support</dd>
+            <dt>Linked to</dt><dd><a href="essential-todos.html" style="color:var(--accent);text-decoration:none">Support to-dos</a></dd>
+          </dl>
+          <p class="dwr-notes">A dated to-do shows on the Schedule automatically. Update the date or owner from the to-do itself.</p>
+          <div class="dwr-sep"></div>
+          <div class="dwr-people">
+            <span aria-hidden="true">👥</span>
+            <span class="dwr-people-label">People involved (notified):</span>
+            <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span>
+            <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+          </div>
+          <p class="dwr-reminder">We'll remind the owner 1 day before it's due.</p>
+          <div class="dwr-actions">
+            <a href="essential-todos.html" class="btn btn-ghost">Open the to-do →</a>
+            <button class="btn btn-ghost" type="button">Mark done</button>
+            <button class="btn btn-ghost" type="button">Reschedule</button>
+          </div>
+          <div class="dwr-sep"></div>
+          <p class="cal-rail-head" style="margin-bottom:var(--space-2)">Comments</p>
+          <div class="dwr-composer">
+            <textarea class="textarea" placeholder="Add a comment…" aria-label="Add a comment"></textarea>
+            <button class="btn btn-ghost" type="button">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Variant D: goal deadline / check-in -->
+      <div id="dwrGoal" style="display:none">
+        <div class="dwr-head-row">
+          <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span>
+          <div style="min-width:0">
+            <p class="dwr-eyebrow">Goal · check-in</p>
+            <h2 class="dwr-title">Cut first-response time to under 2 hours</h2>
+          </div>
+          <button class="dwr-close" type="button" data-close-drawer aria-label="Close">×</button>
+        </div>
+        <div class="dwr">
+          <span class="sb-statusline" aria-label="Status: On track"><span class="sl-glyph" aria-hidden="true">◴</span> <span class="sl-label">On track</span> <span class="sl-meta">· 76% there</span></span>
+          <dl class="kv">
+            <dt>Measure</dt><dd>3h 10m → under 2h · <strong>2h 18m</strong> now</dd>
+            <dt>Check-in</dt><dd>Monthly · next Tue · Jun 24 · ↻ recurring</dd>
+            <dt>Deadline</dt><dd>◷ Sep 30 · 98 days left</dd>
+            <dt>Owner</dt><dd><span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span> ✦ Atlas (AI)</dd>
+          </dl>
+          <p class="dwr-notes">Atlas drafts the monthly check-in from the support metrics and posts it for your sign-off. The goal stays on the Schedule until it's achieved.</p>
+          <div class="dwr-sep"></div>
+          <p class="dwr-reminder">We'll remind you the day before each check-in is due.</p>
+          <div class="dwr-actions">
+            <a href="essential-goals.html" class="btn btn-ghost">Open the goal →</a>
+            <button class="btn btn-ghost" type="button">Reschedule check-in</button>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+  </div>
+
+</div><!-- /.bc -->
+
+<script>
+  (function () {
+    'use strict';
+
+    /* ── Week / Month toggle (kept) ───────────────────────────────── */
+    var tabWeek = document.getElementById('tab-week');
+    var tabMonth = document.getElementById('tab-month');
+    var monthView = document.getElementById('monthView');
+    var weekView = document.getElementById('weekView');
+    var monthLabel = document.getElementById('monthLabel');
+
+    function showMonth() {
+      tabMonth.setAttribute('aria-selected', 'true');
+      tabWeek.setAttribute('aria-selected', 'false');
+      monthView.classList.remove('is-hidden');
+      weekView.classList.remove('is-active');
+      monthLabel.textContent = 'June 2026';
+    }
+    function showWeek() {
+      tabWeek.setAttribute('aria-selected', 'true');
+      tabMonth.setAttribute('aria-selected', 'false');
+      monthView.classList.add('is-hidden');
+      weekView.classList.add('is-active');
+      monthLabel.textContent = 'Jun 22–28, 2026';
+    }
+    if (tabWeek) tabWeek.addEventListener('click', showWeek);
+    if (tabMonth) tabMonth.addEventListener('click', showMonth);
+
+    /* ── Chip keyboard activation (kept) ──────────────────────────── */
+    document.querySelectorAll('.cal-chip[role="button"]').forEach(function (chip) {
+      chip.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          // Don't hijack Space/Enter when focus is on a nested link/button
+          if (e.target.closest('a, button')) return;
+          e.preventDefault();
+          chip.click();
+        }
+      });
+    });
+
+    /* ── Day-detail panel (Level 2) — collapsed by default, opens on a day click ──── */
+    var dayDetail = document.getElementById('dayDetail');
+    var dayDetailClose = document.getElementById('dayDetailClose');
+    var dayDetailTitle = document.getElementById('dayDetailTitle');
+    var dayDetailCount = document.getElementById('dayDetailCount');
+    var dayReturnFocus = null;            // restore focus to the day that opened the panel
+
+    // Day numbers (1-based) → label + item count. Only Jun 24 has the populated detail below;
+    // every other day opens the same panel honestly retitled with an empty state.
+    var DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    var DAY_ITEMS = { 2: 1, 4: 1, 9: 2, 11: 1, 12: 1, 15: 1, 16: 1, 17: 1, 19: 1, 23: 1, 24: 4, 25: 1, 26: 1, 28: 1, 29: 1, 30: 2 };
+    var populatedRows = dayDetail ? Array.prototype.slice.call(dayDetail.querySelectorAll('.day-group-label, .day-row')) : [];
+    var emptyNote = null;
+
+    function setDayContent(day) {
+      if (!dayDetail) return;
+      var n = parseInt(day, 10);
+      var count = DAY_ITEMS[n] || 0;
+      // June 1 2026 is a Monday → weekday index = (n + 0) % 7 with Jun 1 = Monday(1)
+      var dow = DOW[(n) % 7];
+      if (dayDetailTitle) dayDetailTitle.textContent = dow + ' · June ' + n + (n === 24 ? ' · today' : '');
+      if (dayDetailCount) dayDetailCount.textContent = count === 0 ? 'No items' : (count + (count === 1 ? ' item' : ' items'));
+      dayDetail.setAttribute('aria-label', 'Items on June ' + n);
+      // Show the pre-built rows only for the day they describe (Jun 24); otherwise an empty note.
+      var showPopulated = (n === 24);
+      populatedRows.forEach(function (el) { el.style.display = showPopulated ? '' : 'none'; });
+      if (!emptyNote) {
+        emptyNote = document.createElement('p');
+        emptyNote.className = 'day-row-meta';
+        emptyNote.style.padding = 'var(--space-3) 0';
+        emptyNote.textContent = 'Nothing scheduled on this day.';
+        dayDetail.appendChild(emptyNote);
+      }
+      emptyNote.hidden = showPopulated;
+    }
+
+    function openDay(day, trigger) {
+      if (!dayDetail) return;
+      dayReturnFocus = trigger || null;
+      setDayContent(day);
+      dayDetail.classList.add('is-open');
+      dayDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      if (dayDetailClose) dayDetailClose.focus();
+    }
+    function closeDay() {
+      if (!dayDetail) return;
+      dayDetail.classList.remove('is-open');
+      if (dayReturnFocus && typeof dayReturnFocus.focus === 'function') dayReturnFocus.focus();
+      dayReturnFocus = null;
+    }
+    document.querySelectorAll('.cal-day-num, .cal-more').forEach(function (el) {
+      el.addEventListener('click', function (e) { e.stopPropagation(); openDay(el.getAttribute('data-day'), el); });
+    });
+    if (dayDetailClose) dayDetailClose.addEventListener('click', closeDay);
+
+    /* ── Single-event drawer (Level 3) ────────────────────────────── */
+    var scrim = document.getElementById('eventScrim');
+    var VARIANTS = { meeting: 'dwrMeeting', agent: 'dwrAgent', todo: 'dwrTodo', goal: 'dwrGoal' };
+    function openDrawer(variant) {
+      if (!scrim) return;
+      if (!VARIANTS[variant]) variant = 'meeting';
+      Object.keys(VARIANTS).forEach(function (k) {
+        var el = document.getElementById(VARIANTS[k]); if (el) el.style.display = (k === variant) ? 'block' : 'none';
+      });
+      scrim.classList.add('is-open');
+    }
+    function closeDrawer() { if (scrim) scrim.classList.remove('is-open'); }
+    // Derive the right detail from an explicit data-open-drawer, else the chip's type class.
+    function variantOf(el) {
+      var v = el.getAttribute('data-open-drawer'); if (v) return v;
+      var c = el.closest('.cal-chip') || el;
+      if (c.classList.contains('cal-chip--ai')) return 'agent';
+      if (c.classList.contains('cal-chip--goal')) return 'goal';
+      if (c.classList.contains('cal-chip--todo')) return 'todo';
+      return 'meeting';
+    }
+    // EVERY calendar item opens a detail: chips, day-detail rows, rail items.
+    document.querySelectorAll('.cal-chip[role="button"], [data-open-drawer]').forEach(function (el) {
+      el.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openDrawer(variantOf(el));
+      });
+    });
+    document.querySelectorAll('[data-close-drawer]').forEach(function (el) {
+      el.addEventListener('click', closeDrawer);
+    });
+    if (scrim) scrim.addEventListener('click', function (e) { if (e.target === scrim) closeDrawer(); });
+
+    /* ── Global Esc: close drawer first, then day-detail, then menus ─ */
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      if (scrim && scrim.classList.contains('is-open')) { closeDrawer(); return; }
+      if (dayDetail && dayDetail.classList.contains('is-open')) { closeDay(); return; }
+      closeMenu();
+    });
+
+    /* ── Atlas "Here's your week" brief: single "Got it" dismiss (acknowledge once) ─ */
+    var weekBrief = document.getElementById('weekBrief');
+    var weekBriefGotIt = document.getElementById('weekBriefGotIt');
+    if (weekBriefGotIt && weekBrief) {
+      weekBriefGotIt.addEventListener('click', function () {
+        weekBrief.open = false;          // collapse the brief; the actionable Reschedule row stays in the grid/rail
+        var summary = weekBrief.querySelector('summary');
+        if (summary) summary.focus();
+      });
+    }
+
+    /* ── Show ▾ type filter ───────────────────────────────────────── */
+    var showBtn = document.getElementById('showBtn');
+    var showMenu = document.getElementById('showMenu');
+    var filterPills = document.getElementById('filterPills');
+    var calEmpty = document.getElementById('calEmpty');
+    var calGrid = monthView ? monthView.querySelector('.cal-grid') : null;
+    var KIND_LABEL = { meeting: 'Meetings', todo: 'To-dos', goal: 'Goals', ai: 'Agent runs' };
+
+    function closeMenu() {
+      if (showMenu) showMenu.style.display = 'none';
+      if (showBtn) showBtn.setAttribute('aria-expanded', 'false');
+    }
+    if (showBtn) showBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = showMenu.style.display === 'block';
+      showMenu.style.display = open ? 'none' : 'block';
+      showBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
+    });
+    document.addEventListener('click', closeMenu);
+    if (showMenu) showMenu.addEventListener('click', function (e) { e.stopPropagation(); });
+
+    function applyFilters() {
+      var off = [];
+      showMenu.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+        var kind = cb.getAttribute('data-kind');
+        cb.closest('.sb-menu-item').setAttribute('aria-checked', cb.checked ? 'true' : 'false');
+        if (!cb.checked) off.push(kind);
+        document.querySelectorAll('.cal-chip--' + kind).forEach(function (chip) {
+          chip.style.display = cb.checked ? '' : 'none';
+        });
+      });
+      // Removable pills for each hidden type
+      filterPills.innerHTML = '';
+      off.forEach(function (kind) {
+        var pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = 'sb-badge sb-badge--secondary';
+        pill.style.cursor = 'pointer';
+        pill.setAttribute('aria-label', 'Show ' + KIND_LABEL[kind] + ' again');
+        pill.innerHTML = KIND_LABEL[kind] + ' <span aria-hidden="true">✕</span>';
+        pill.addEventListener('click', function () {
+          var cb = showMenu.querySelector('input[data-kind="' + kind + '"]');
+          if (cb) { cb.checked = true; applyFilters(); }
+        });
+        filterPills.appendChild(pill);
+      });
+      // Empty-after-filter state when every visible chip is hidden
+      var anyVisible = Array.prototype.some.call(
+        document.querySelectorAll('.cal-grid .cal-chip'),
+        function (c) { return c.style.display !== 'none'; }
+      );
+      if (calGrid) calGrid.style.display = anyVisible ? '' : 'none';
+      if (calEmpty) calEmpty.style.display = anyVisible ? 'none' : 'block';
+    }
+    showMenu && showMenu.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+      cb.addEventListener('change', applyFilters);
+    });
+  })();
+</script>
+</body>
+</html>

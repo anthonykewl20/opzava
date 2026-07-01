@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Docs &amp; Files · Customer Support</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* Basecamp-style Essential: calm, content-first, top nav. Layout only — no colour/font/radius overrides. */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+
+    /* Topbar (verbatim from essential-project.html) */
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .ava { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* Page wrap */
+    .bc-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-6) var(--space-6) var(--space-16); }
+
+    /* Page header */
+    .page-hero { display: flex; align-items: flex-start; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-6); }
+    .page-hero-body { flex: 1 1 320px; min-width: 0; }
+    .page-hero h1 { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; margin: 0 0 var(--space-1); }
+    .page-hero p { font-size: var(--text-md); color: var(--fg-muted); margin: 0; }
+    .page-hero-actions { display: flex; align-items: center; gap: var(--space-3); flex: none; padding-top: var(--space-1); }
+
+    /* Filter bar */
+    .filter-bar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6); flex-wrap: wrap; }
+
+    /* Pinned strip */
+    .pinned-strip { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6); flex-wrap: wrap; }
+    .pinned-strip-label { font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg-muted); white-space: nowrap; flex: none; }
+    .pinned-chip { display: inline-flex; align-items: center; gap: var(--space-2); padding: 4px var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-full); font-size: var(--text-sm); background: var(--surface-2); color: var(--fg); white-space: nowrap; text-decoration: none; }
+    .pinned-chip:hover { border-color: var(--border-strong); text-decoration: none; }
+    .pinned-chip .chip-check { color: var(--accent); font-weight: var(--fw-semibold); }
+    .pinned-chip .chip-pin { color: var(--fg-subtle); }
+
+    /* File/doc card grid — align-items:start so cards don't stretch */
+    .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-5); align-items: start; margin-bottom: var(--space-8); }
+
+    /* Individual card */
+    .asset-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-5); }
+    .asset-type-label { display: inline-block; font-size: var(--text-xs); font-weight: var(--fw-semibold); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); background: var(--surface-2); border-radius: var(--radius-sm); padding: 2px 6px; width: fit-content; }
+    .asset-name { font-size: var(--text-md); font-weight: var(--fw-semibold); color: var(--accent); text-decoration: none; line-height: var(--lh-snug); word-break: break-word; }
+    .asset-name:hover { text-decoration: underline; }
+    .asset-meta { font-size: var(--text-xs); color: var(--fg-subtle); margin: 0; }
+    .asset-who { font-size: var(--text-xs); color: var(--fg-muted); margin: 0; }
+    .asset-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border); margin-top: auto; }
+
+    /* Quiet status — glyph + label, never colour */
+    .asset-status { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--fg-muted); }
+    .asset-status .st-glyph { color: var(--fg-subtle); }
+
+    /* Activity feed */
+    .feed { display: flex; flex-direction: column; gap: 0; }
+    .feed-item { display: flex; align-items: baseline; gap: var(--space-4); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
+    .feed-item:last-child { border-bottom: 0; }
+    .feed-ava { width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; align-self: flex-start; margin-top: 2px; }
+    .feed-body { flex: 1 1 auto; min-width: 0; line-height: var(--lh-normal); }
+    .feed-time { font-size: var(--text-xs); color: var(--fg-subtle); white-space: nowrap; flex: none; align-self: flex-start; margin-top: 3px; }
+
+    /* Mobile */
+    @media (max-width: 640px) {
+      .asset-grid { grid-template-columns: 1fr; }
+      .pinned-strip { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--space-2); }
+      .topnav { display: none; }
+      .page-hero-actions { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bc">
+
+    <!-- ── Canonical Essential topbar (verbatim) ────────────────────────────── -->
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative">
+        <span aria-hidden="true">🔔</span>
+        <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span>
+      </a>
+      <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+    </header>
+
+    <main>
+      <div class="bc-wrap">
+
+        <!-- ── Breadcrumb ─────────────────────────────────────────────────── -->
+        <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+          <a href="essential-home.html">Home</a>
+          <span class="sep" aria-hidden="true">›</span>
+          <a href="essential-project.html">← Customer Support</a>
+          <span class="sep" aria-hidden="true">›</span>
+          <span class="current">📄 Docs &amp; Files</span>
+        </nav>
+
+        <!-- ── Page hero ─────────────────────────────────────────────────── -->
+        <div class="page-hero">
+          <div class="page-hero-body">
+            <h1>📄 Docs &amp; Files</h1>
+            <p>Every doc and file for this project, in one place.</p>
+          </div>
+          <div class="page-hero-actions">
+            <a href="essential-upload.html" class="btn btn-primary"><span aria-hidden="true">＋</span> Upload</a>
+            <a href="essential-compose.html" class="btn btn-ghost"><span aria-hidden="true">＋</span> New doc</a>
+          </div>
+        </div>
+
+        <!-- ── Filter bar ─────────────────────────────────────────────────── -->
+        <div class="filter-bar" role="toolbar" aria-label="Filter and sort">
+          <div style="position:relative">
+            <button class="btn btn-ghost btn-sm" id="typeFilterBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+              Type <span aria-hidden="true">▾</span>
+            </button>
+            <div class="sb-menu" id="typeFilterMenu" role="listbox" aria-label="Filter by type" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:var(--z-dropdown);min-width:180px">
+              <div class="sb-menu-label">Type</div>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="true">All types <span class="sb-shortcut">current</span></button>
+              <button class="sb-menu-item" role="option" type="button">Docs</button>
+              <button class="sb-menu-item" role="option" type="button">Files</button>
+              <button class="sb-menu-item" role="option" type="button">Images</button>
+            </div>
+          </div>
+          <div style="position:relative">
+            <button class="btn btn-ghost btn-sm" id="sortBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+              Sort <span aria-hidden="true">▾</span>
+            </button>
+            <div class="sb-menu" id="sortMenu" role="listbox" aria-label="Sort" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:var(--z-dropdown);min-width:180px">
+              <div class="sb-menu-label">Sort by</div>
+              <button class="sb-menu-item" role="option" type="button" aria-selected="true">Recently updated <span class="sb-shortcut">current</span></button>
+              <button class="sb-menu-item" role="option" type="button">Name (A–Z)</button>
+              <button class="sb-menu-item" role="option" type="button">Type</button>
+            </div>
+          </div>
+          <span class="u-subtle" style="font-size:var(--text-xs)">12 items · 4 docs · 8 files</span>
+        </div>
+
+        <!-- ── Pinned strip ───────────────────────────────────────────────── -->
+        <div class="pinned-strip" aria-label="Pinned docs">
+          <span class="pinned-strip-label">📌 Pinned ▸</span>
+          <a href="#" class="pinned-chip">
+            <span class="chip-pin" aria-hidden="true">📄</span> brand-guidelines.md <span class="chip-check" aria-label="final">✓</span>
+          </a>
+          <a href="#" class="pinned-chip">
+            <span class="chip-pin" aria-hidden="true">📄</span> editorial-calendar.md
+          </a>
+        </div>
+
+        <!-- ── Docs & files grid ──────────────────────────────────────────── -->
+        <div class="asset-grid" aria-label="Docs and files">
+
+          <!-- 1. brand-voice.md — DOC · Final -->
+          <div class="card asset-card">
+            <span class="asset-type-label">Doc</span>
+            <a href="#" class="asset-name">brand-voice.md</a>
+            <p class="asset-meta">18 KB · guideline</p>
+            <p class="asset-who">Maria · 2 weeks ago</p>
+            <div class="asset-foot">
+              <span class="asset-status" aria-label="Final"><span class="st-glyph" aria-hidden="true">✓</span> Final</span>
+            </div>
+          </div>
+
+          <!-- 2. editorial-calendar.md — DOC · Final -->
+          <div class="card asset-card">
+            <span class="asset-type-label">Doc</span>
+            <a href="#" class="asset-name">editorial-calendar.md</a>
+            <p class="asset-meta">9 KB · plan</p>
+            <p class="asset-who">Iris · 3 days ago</p>
+            <div class="asset-foot">
+              <span class="asset-status" aria-label="Final"><span class="st-glyph" aria-hidden="true">✓</span> Final</span>
+            </div>
+          </div>
+
+          <!-- 3. Q1-retro.md — DOC · Draft (✦ Atlas drafted) -->
+          <div class="card asset-card">
+            <span class="asset-type-label">Doc</span>
+            <a href="#" class="asset-name">Q1-retro.md</a>
+            <p class="asset-meta">14 KB · summary</p>
+            <p class="asset-who">Atlas · yesterday</p>
+            <div style="margin-bottom:var(--space-1)">
+              <span class="sb-badge sb-badge--accent" style="font-size:var(--text-xs)">✦ Atlas drafted</span>
+            </div>
+            <div class="asset-foot">
+              <span class="asset-status" aria-label="Draft"><span class="st-glyph" aria-hidden="true">◷</span> Draft</span>
+            </div>
+          </div>
+
+          <!-- 4. support-playbook.md — DOC · Final -->
+          <div class="card asset-card">
+            <span class="asset-type-label">Doc</span>
+            <a href="#" class="asset-name">support-playbook.md</a>
+            <p class="asset-meta">27 KB · guideline</p>
+            <p class="asset-who">Dan · 1 week ago</p>
+            <div class="asset-foot">
+              <span class="asset-status" aria-label="Final"><span class="st-glyph" aria-hidden="true">✓</span> Final</span>
+            </div>
+          </div>
+
+          <!-- 5. hero-launch.png — FILE · Final -->
+          <div class="card asset-card">
+            <span class="asset-type-label">Image</span>
+            <a href="#" class="asset-name">hero-launch.png</a>
+            <p class="asset-meta">1.2 MB · 2400×1260</p>
+            <p class="asset-who">Dan · 4 days ago</p>
+            <div class="asset-foot">
+              <span class="asset-status" aria-label="Final"><span class="st-glyph" aria-hidden="true">✓</span> Final</span>
+            </div>
+          </div>
+
+          <!-- 6. webinar-banner.png — FILE · Draft -->
+          <div class="card asset-card">
+            <span class="asset-type-label">Image</span>
+            <a href="#" class="asset-name">webinar-banner.png</a>
+            <p class="asset-meta">800 KB · 1600×600</p>
+            <p class="asset-who">Iris · 2 days ago</p>
+            <div class="asset-foot">
+              <span class="asset-status" aria-label="Draft"><span class="st-glyph" aria-hidden="true">◷</span> Draft</span>
+            </div>
+          </div>
+
+          <!-- 7. logo-pack.zip — FILE · Final -->
+          <div class="card asset-card">
+            <span class="asset-type-label">File</span>
+            <a href="#" class="asset-name">logo-pack.zip</a>
+            <p class="asset-meta">3.8 MB · brand kit</p>
+            <p class="asset-who">Maria · 2 weeks ago</p>
+            <div class="asset-foot">
+              <span class="asset-status" aria-label="Final"><span class="st-glyph" aria-hidden="true">✓</span> Final</span>
+            </div>
+          </div>
+
+          <!-- 8. launch-email.html — FILE · Draft -->
+          <div class="card asset-card">
+            <span class="asset-type-label">File</span>
+            <a href="#" class="asset-name">launch-email.html</a>
+            <p class="asset-meta">42 KB · email</p>
+            <p class="asset-who">Atlas · 6 hours ago</p>
+            <div class="asset-foot">
+              <span class="asset-status" aria-label="Draft"><span class="st-glyph" aria-hidden="true">◷</span> Draft</span>
+            </div>
+          </div>
+
+          <!-- 9. onboarding.pdf — FILE · Final -->
+          <div class="card asset-card">
+            <span class="asset-type-label">File</span>
+            <a href="#" class="asset-name">onboarding.pdf</a>
+            <p class="asset-meta">560 KB · 12 pages</p>
+            <p class="asset-who">Dan · 5 days ago</p>
+            <div class="asset-foot">
+              <span class="asset-status" aria-label="Final"><span class="st-glyph" aria-hidden="true">✓</span> Final</span>
+            </div>
+          </div>
+
+          <!-- 10. brand-guidelines.md — DOC · Final -->
+          <div class="card asset-card">
+            <span class="asset-type-label">Doc</span>
+            <a href="#" class="asset-name">brand-guidelines.md</a>
+            <p class="asset-meta">31 KB · guideline</p>
+            <p class="asset-who">Maria · 1 month ago</p>
+            <div class="asset-foot">
+              <span class="asset-status" aria-label="Final"><span class="st-glyph" aria-hidden="true">✓</span> Final</span>
+            </div>
+          </div>
+
+          <!-- 11. faq-responses.md — DOC · Draft -->
+          <div class="card asset-card">
+            <span class="asset-type-label">Doc</span>
+            <a href="#" class="asset-name">faq-responses.md</a>
+            <p class="asset-meta">16 KB · template</p>
+            <p class="asset-who">Iris · yesterday</p>
+            <div class="asset-foot">
+              <span class="asset-status" aria-label="Draft"><span class="st-glyph" aria-hidden="true">◷</span> Draft</span>
+            </div>
+          </div>
+
+          <!-- 12. ticket-export.csv — FILE · Final -->
+          <div class="card asset-card">
+            <span class="asset-type-label">File</span>
+            <a href="#" class="asset-name">ticket-export.csv</a>
+            <p class="asset-meta">2.1 MB · data</p>
+            <p class="asset-who">Dan · 3 days ago</p>
+            <div class="asset-foot">
+              <span class="asset-status" aria-label="Final"><span class="st-glyph" aria-hidden="true">✓</span> Final</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ── Recent activity ────────────────────────────────────────────── -->
+        <div class="card" style="margin-bottom:var(--space-8)">
+          <div class="card-header">
+            <span class="card-title">Recent activity</span>
+            <a href="#" class="u-accent" style="font-size:var(--text-sm);font-weight:var(--fw-medium)">See all</a>
+          </div>
+          <div class="feed">
+
+            <div class="feed-item">
+              <span class="feed-ava" style="background:var(--chart-1)" aria-hidden="true">At</span>
+              <div class="feed-body">
+                <strong>Atlas</strong> drafted <a href="#">Q1-retro.md</a> from this quarter's tickets — marked as draft for review.
+              </div>
+              <span class="feed-time">Yesterday</span>
+            </div>
+
+            <div class="feed-item">
+              <span class="feed-ava" style="background:var(--chart-3)" aria-hidden="true">M</span>
+              <div class="feed-body">
+                <strong>Maria</strong> edited <a href="#">brand-voice.md</a> and marked it Final.
+              </div>
+              <span class="feed-time">2 days ago</span>
+            </div>
+
+            <div class="feed-item">
+              <span class="feed-ava" style="background:var(--chart-2)" aria-hidden="true">D</span>
+              <div class="feed-body">
+                <strong>Dan</strong> uploaded <a href="#">ticket-export.csv</a> to Docs &amp; Files.
+              </div>
+              <span class="feed-time">3 days ago</span>
+            </div>
+
+            <div class="feed-item">
+              <span class="feed-ava" style="background:var(--chart-3)" aria-hidden="true">Ir</span>
+              <div class="feed-body">
+                <strong>Iris</strong> updated <a href="#">editorial-calendar.md</a> with July dates.
+              </div>
+              <span class="feed-time">3 days ago</span>
+            </div>
+
+            <div class="feed-item">
+              <span class="feed-ava" style="background:var(--chart-2)" aria-hidden="true">D</span>
+              <div class="feed-body">
+                <strong>Dan</strong> uploaded <a href="#">hero-launch.png</a> and marked it Final.
+              </div>
+              <span class="feed-time">4 days ago</span>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      function bindDropdown(btnId, menuId) {
+        var btn = document.getElementById(btnId);
+        var menu = document.getElementById(menuId);
+        if (!btn || !menu) return;
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var open = menu.style.display === 'block';
+          document.querySelectorAll('.sb-menu').forEach(function (m) { m.style.display = 'none'; });
+          document.querySelectorAll('[aria-haspopup]').forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+          if (!open) {
+            menu.style.display = 'block';
+            btn.setAttribute('aria-expanded', 'true');
+          }
+        });
+      }
+      bindDropdown('typeFilterBtn', 'typeFilterMenu');
+      bindDropdown('sortBtn', 'sortMenu');
+
+      document.addEventListener('click', function () {
+        document.querySelectorAll('.sb-menu').forEach(function (m) { m.style.display = 'none'; });
+        document.querySelectorAll('[aria-haspopup]').forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+          document.querySelectorAll('.sb-menu').forEach(function (m) { m.style.display = 'none'; });
+          document.querySelectorAll('[aria-haspopup]').forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+        }
+      });
+
+      document.querySelectorAll('.sb-menu [role="option"]').forEach(function (opt) {
+        opt.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var menu = opt.closest('.sb-menu');
+          menu.querySelectorAll('[role="option"]').forEach(function (o) {
+            o.setAttribute('aria-selected', 'false');
+            var s = o.querySelector('.sb-shortcut');
+            if (s) s.remove();
+          });
+          opt.setAttribute('aria-selected', 'true');
+          var shortcut = document.createElement('span');
+          shortcut.className = 'sb-shortcut';
+          shortcut.textContent = 'current';
+          opt.appendChild(shortcut);
+          menu.style.display = 'none';
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

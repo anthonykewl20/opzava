@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Add a goal</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* Basecamp-style Essential calm shell — layout only, no colour/font overrides */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .ava { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+    .bc-wrap { max-width: 720px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+    .story-note { font-size: var(--text-sm); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-6); line-height: var(--lh-relaxed); }
+
+    /* Wizard dialog frame (storyboard: one frame per step) — verbatim from connect-wizard */
+    .wiz-cap { font-size: var(--text-xs); color: var(--fg-subtle); font-weight: var(--fw-semibold); text-transform: uppercase; letter-spacing: var(--tracking-caps); margin: var(--space-8) 0 var(--space-3); }
+    .wiz { max-width: 560px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); overflow: hidden; }
+    .wiz-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) var(--space-6) var(--space-3); }
+    .wiz-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); flex: 1 1 auto;  margin: 0;}
+    .wiz-x { width: 30px; height: 30px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font-size: 17px; cursor: pointer; flex: none; }
+    .wiz-steps { padding: 0 var(--space-6) var(--space-4); }
+    .wiz-body { padding: var(--space-2) var(--space-6) var(--space-5); }
+    .wiz-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); }
+    .wiz-foot .u-grow { flex: 1 1 auto; }
+    .wiz-lead { font-size: var(--text-sm); color: var(--fg-muted); margin-bottom: var(--space-4); line-height: var(--lh-relaxed); }
+    .wiz-tabs { display: inline-flex; gap: 2px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 3px; margin-bottom: var(--space-3); }
+    .wiz-tab { height: 28px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-full); background: none; color: var(--fg-muted); font: inherit; font-size: var(--text-xs); font-weight: var(--fw-medium); cursor: pointer; }
+    .wiz-tab[aria-selected="true"] { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
+
+    /* The ✦ Atlas "Make it SMART" assist hero (offer, not the primary action) */
+    .smart-hero { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-4); }
+    .smart-hero .input { flex: 1 1 auto; min-width: 0; }
+
+    /* Atlas inline proposal — reuses .ai-card markup from essential-discovery.html */
+    .ai-card { border: 1px solid var(--accent-border); border-radius: var(--radius-md); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); background: var(--surface); margin-bottom: var(--space-5); }
+    .ai-card-row { display: flex; align-items: center; gap: var(--space-2); }
+    .ai-quote { font-size: var(--text-md); font-weight: var(--fw-medium); color: var(--fg); line-height: var(--lh-snug); }
+    .ai-flags { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+    .ai-suggest { font-size: var(--text-sm); color: var(--fg-muted); }
+
+    /* Manual fields */
+    .field + .field { margin-top: var(--space-4); }
+    .field-block { margin-top: var(--space-5); }
+
+    /* Disclosures */
+    .disc-d { margin-top: var(--space-5); border-top: 1px solid var(--border); padding-top: var(--space-4); }
+    .disc-d > summary { font-size: var(--text-sm); color: var(--fg-muted); cursor: pointer; list-style: none; font-weight: var(--fw-medium); }
+    .disc-d > summary::-webkit-details-marker { display: none; }
+    .disc-d[open] > summary { margin-bottom: var(--space-3); }
+    .disc-body { display: flex; flex-direction: column; gap: var(--space-3); }
+
+    /* Template rows */
+    .tpl-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); text-decoration: none; color: var(--fg); cursor: pointer; }
+    .tpl-row:hover { border-color: var(--border-strong); background: var(--surface-2); }
+    .tpl-glyph { font-size: var(--text-lg); flex: none; }
+    .tpl-text { font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-snug); }
+
+    /* SMART rubric tick strip — read-only, teaches the rubric */
+    .rubric { margin-top: var(--space-5); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+    .rubric-cap { font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg); margin-bottom: var(--space-3); }
+    .rubric-strip { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+    .rubric-item { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--fg); }
+
+    /* Step 2 — measure preview + roll-up rows */
+    .measure-preview { margin-top: var(--space-4); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+    .measure-line { font-size: var(--text-sm); color: var(--fg-muted); margin-top: var(--space-2); }
+    .src-method { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); margin-bottom: var(--space-2); cursor: pointer; }
+    .src-method[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .src-radio { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--border-strong); flex: none; margin-top: 1px; display: inline-flex; align-items: center; justify-content: center; }
+    .src-method[aria-checked="true"] .src-radio { border-color: var(--accent); }
+    .src-method[aria-checked="true"] .src-radio::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+    .src-name { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+    .src-gloss { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: 1px; }
+
+    /* Step 3 — owner avatar picker + connect-work chips */
+    .own-row { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
+    .own-pick { position: relative; display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--surface); cursor: pointer; font-size: var(--text-sm); color: var(--fg); }
+    .own-pick[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .chip-grid { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+    .work-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); cursor: pointer; }
+    .work-chip[aria-checked="true"] { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: var(--fw-medium); }
+    .end-note { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: var(--space-2); }
+
+    .final-note { font-size: var(--text-sm); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); margin-top: var(--space-8); line-height: var(--lh-relaxed); }
+
+    /* #5 — Atlas working state (shown only after "Make it SMART" is pressed, before the draft reveals) */
+    .ai-working { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--fg-muted); margin-bottom: var(--space-5); }
+    .ai-working-dots { width: 14px; height: 14px; flex: none; border: 2px solid var(--accent-border); border-top-color: var(--accent); border-radius: 50%; animation: ai-spin .7s linear infinite; }
+    @keyframes ai-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .ai-working-dots { animation: none; } }
+
+    /* #23 — SMART rubric as a read-only label+glyph readout (no broken/disabled controls) */
+    .rubric-item { color: var(--fg-muted); }
+    .rubric-item .rub-glyph { flex: none; color: var(--fg-subtle); }
+    .rubric-item .rub-when { font-size: var(--text-xs); }
+    .rubric-item[data-met="true"] { color: var(--fg); }
+    .rubric-item[data-met="true"] .rub-glyph { color: var(--accent); }
+
+    /* #24 — Goal-Gradient: early-fill affirmation under the step rail */
+    .step-gauge { font-size: var(--text-xs); color: var(--fg-subtle); margin: var(--space-2) 0 0; line-height: var(--lh-snug); }
+
+    @media (max-width: 640px) { .topnav { display: none; } .smart-hero { flex-direction: column; align-items: stretch; } }
+  </style>
+</head>
+<body>
+<div class="bc">
+
+  <header class="topbar">
+    <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+      <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+      <strong style="font-size:var(--text-md)">Opzava</strong>
+    </a>
+    <nav class="topnav" aria-label="Primary">
+      <a href="essential-home.html">Home</a>
+      <a href="essential-my-stuff.html">My stuff</a>
+      <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+      <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+      <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+      <a href="essential-find.html">Find…</a>
+    </nav>
+    <span class="u-grow"></span>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
+    <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+  </header>
+
+  <div class="bc-wrap">
+
+    <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+      <a href="essential-home.html">Home</a>
+      <span class="sep" aria-hidden="true">›</span>
+      <a href="essential-project.html">Customer Support</a>
+      <span class="sep" aria-hidden="true">›</span>
+      <a href="essential-goals.html">Goals</a>
+      <span class="sep" aria-hidden="true">›</span>
+      <span class="current">Add a goal</span>
+    </nav>
+
+    <div class="story-note">
+      <strong>Adding a goal is one calm dialog — three steps.</strong> Atlas can draft a SMART goal from a rough sentence; you always review. It's shown here step-by-step; in the app it's a single modal.
+    </div>
+
+    <!-- ════════ STEP 1 — Write (the S) ════════ -->
+    <div class="wiz-cap">Step 1 — Write</div>
+    <section class="wiz" aria-label="Add a goal — step 1 of 3, Write">
+      <div class="wiz-head">
+        <h1 class="wiz-title">New goal</h1>
+        <button class="wiz-x" type="button" aria-label="Close">✕</button>
+      </div>
+      <div class="wiz-steps">
+        <div class="sb-steps" aria-label="Step 1 of 3 — 1 Write · 2 Measure · 3 Own &amp; schedule">
+          <span class="sb-step" data-state="current" id="g-step-1"><span class="sb-step-dot">1</span> Write</span>
+          <span class="sb-step-bar" id="g-bar-1"></span>
+          <span class="sb-step" id="g-step-2"><span class="sb-step-dot">2</span> Measure</span>
+          <span class="sb-step-bar"></span>
+          <span class="sb-step"><span class="sb-step-dot">3</span> Own &amp; schedule</span>
+        </div>
+        <p class="step-gauge" id="g-gauge">Three short steps — Atlas can pre-fill Write and Measure, so you mostly just confirm.</p>
+      </div>
+      <div class="wiz-body">
+
+        <!-- HERO: ✦ Atlas "Make it SMART" assist (an offer, NOT the primary action) -->
+        <div class="smart-hero">
+          <input class="input" id="g-seed" type="text" value="get more signups" placeholder="In a sentence, what do you want to achieve?" aria-label="Describe your goal in a sentence">
+          <button class="btn btn-ghost" id="g-smart-btn" type="button" style="color:var(--accent);flex:none" aria-controls="g-ai-card" aria-expanded="false"><span aria-hidden="true">✦</span> Make it SMART</button>
+        </div>
+
+        <!-- Atlas working state — shown only while drafting, after the user presses "Make it SMART" -->
+        <div class="ai-working" id="g-ai-working" role="status" aria-live="polite" hidden>
+          <span class="sb-badge sb-badge--accent"><span aria-hidden="true">✦</span> Atlas</span>
+          <span class="ai-working-dots" aria-hidden="true"></span>
+          <span>Drafting a SMART version of “get more signups”…</span>
+        </div>
+
+        <!-- Atlas inline proposal (reuses .ai-card markup) — hidden until the user invokes "Make it SMART" -->
+        <div class="ai-card" id="g-ai-card" aria-label="Atlas draft" hidden>
+          <div class="ai-card-row">
+            <span class="sb-badge sb-badge--accent"><span aria-hidden="true">✦</span> Atlas</span>
+            <span class="u-subtle" style="font-size:var(--text-xs)">drafted — you review</span>
+          </div>
+          <p class="ai-quote">“Increase weekly signups <strong>from 120 to 200</strong> by <strong>30 Sep</strong> by launching the referral flow and a landing-page test.”</p>
+          <div class="ai-flags">
+            <span class="sb-statusline sb-statusline--accent" aria-label="Measure: no number yet"><span class="sl-glyph" aria-hidden="true">M</span> <span class="sl-label">▸ no number yet</span></span>
+            <span class="sb-statusline sb-statusline--accent" aria-label="Time: no deadline yet"><span class="sl-glyph" aria-hidden="true">T</span> <span class="sl-label">▸ no deadline yet</span></span>
+          </div>
+          <p class="ai-suggest"><span class="u-subtle">suggested:</span> start <strong>120</strong> · target <strong>200</strong> · by <strong>30 Sep</strong> <span class="u-subtle">(from this project)</span></p>
+          <div class="ai-card-row">
+            <button class="btn btn-sm" id="g-use-draft" type="button">Use this draft</button>
+            <button class="btn btn-ghost btn-sm" type="button">Tweak it</button>
+          </div>
+        </div>
+
+        <!-- Manual fields -->
+        <div class="field-block">
+          <div class="field">
+            <label class="label" for="g-title">Goal title</label>
+            <input class="input" id="g-title" type="text" value="" placeholder="Name the goal — or let Atlas draft one above" aria-label="Goal title">
+          </div>
+          <div class="field">
+            <label class="label" for="g-outcome">The outcome you want</label>
+            <textarea class="textarea" id="g-outcome" aria-label="The outcome you want" placeholder="What does success look like, in plain words?"></textarea>
+          </div>
+        </div>
+
+        <!-- Sanity-check (optional) -->
+        <details class="disc-d">
+          <summary>▸ Sanity-check (optional)</summary>
+          <div class="disc-body">
+            <div class="field">
+              <label class="label" for="g-ach">Do we have the skills &amp; resources? (Achievable)</label>
+              <input class="input" id="g-ach" type="text" placeholder="e.g. growth + design already in the team; referral flow is scoped">
+            </div>
+            <div class="field">
+              <label class="label" for="g-rel">Why does this matter — what bigger goal? (Relevant)</label>
+              <input class="input" id="g-rel" type="text" placeholder="e.g. feeds the H2 activation target">
+            </div>
+          </div>
+        </details>
+
+        <!-- Start from a template -->
+        <details class="disc-d">
+          <summary>▸ Start from a template</summary>
+          <div class="disc-body">
+            <a class="tpl-row" href="#"><span class="tpl-glyph" aria-hidden="true">🎧</span><span class="tpl-text">Increase support response-time satisfaction <strong>from 82% to 90%</strong> by Dec 31.</span></a>
+            <a class="tpl-row" href="#"><span class="tpl-glyph" aria-hidden="true">▣</span><span class="tpl-text">Produce at least <strong>3 large-scale marketing assets</strong> per month through Q1.</span></a>
+            <a class="tpl-row" href="#"><span class="tpl-glyph" aria-hidden="true">🎓</span><span class="tpl-text">Provide <strong>100 hours</strong> of free tutoring during February.</span></a>
+          </div>
+        </details>
+
+        <!-- SMART rubric — a read-only progress readout (label + glyph, never a control) -->
+        <div class="rubric" role="group" aria-label="Is this goal SMART?">
+          <div class="rubric-cap">Is this goal SMART?</div>
+          <div class="rubric-strip">
+            <span class="rubric-item" id="rub-s" data-met="false"><span class="rub-glyph" aria-hidden="true">◷</span> <span class="rub-text">Specific</span></span>
+            <span class="rubric-item" id="rub-m" data-met="false"><span class="rub-glyph" aria-hidden="true">◷</span> <span class="rub-text">Measurable</span> <span class="rub-when u-subtle">— set in step 2</span></span>
+            <span class="rubric-item" id="rub-a" data-met="false"><span class="rub-glyph" aria-hidden="true">◷</span> <span class="rub-text">Achievable</span></span>
+            <span class="rubric-item" id="rub-r" data-met="false"><span class="rub-glyph" aria-hidden="true">◷</span> <span class="rub-text">Relevant</span></span>
+            <span class="rubric-item" id="rub-t" data-met="false"><span class="rub-glyph" aria-hidden="true">◷</span> <span class="rub-text">Time-bound</span> <span class="rub-when u-subtle">— set in step 3</span></span>
+          </div>
+        </div>
+
+      </div>
+      <div class="wiz-foot">
+        <span></span>
+        <button class="btn btn-primary" type="button">Continue →</button>
+      </div>
+    </section>
+
+    <!-- ════════ STEP 2 — Measure (the M) ════════ -->
+    <div class="wiz-cap">Step 2 — Measure</div>
+    <section class="wiz" aria-label="Add a goal — step 2 of 3, Measure">
+      <div class="wiz-head">
+        <span class="wiz-title">How will you measure it?</span>
+        <button class="wiz-x" type="button" aria-label="Close">✕</button>
+      </div>
+      <div class="wiz-steps">
+        <div class="sb-steps" aria-label="Step 2 of 3 — 1 Write · 2 Measure · 3 Own &amp; schedule">
+          <span class="sb-step" data-state="done"><span class="sb-step-dot">✓</span> Write</span>
+          <span class="sb-step-bar" data-done="true"></span>
+          <span class="sb-step" data-state="current"><span class="sb-step-dot">2</span> Measure</span>
+          <span class="sb-step-bar"></span>
+          <span class="sb-step"><span class="sb-step-dot">3</span> Own &amp; schedule</span>
+        </div>
+      </div>
+      <div class="wiz-body">
+        <div class="wiz-tabs" role="tablist" aria-label="Metric type">
+          <button class="wiz-tab" role="tab" aria-selected="false" type="button">Number</button>
+          <button class="wiz-tab" role="tab" aria-selected="true" type="button">%</button>
+          <button class="wiz-tab" role="tab" aria-selected="false" type="button">Currency</button>
+        </div>
+
+        <div class="field-block">
+          <div class="field">
+            <label class="label" for="m-start">Starting / current value</label>
+            <input class="input" id="m-start" type="text" value="120" aria-label="Starting value">
+          </div>
+          <div class="field">
+            <label class="label" for="m-target">Target value</label>
+            <input class="input" id="m-target" type="text" value="200" aria-label="Target value">
+          </div>
+          <div class="field">
+            <label class="label" for="m-unit">Unit</label>
+            <input class="input" id="m-unit" type="text" value="weekly signups" aria-label="Unit">
+          </div>
+        </div>
+
+        <!-- LIVE preview -->
+        <div class="measure-preview" aria-label="Live preview">
+          <span class="perf-bar"><span class="perf-bar-track"><i class="perf-bar-fill" style="width:60%"></i></span></span>
+          <div class="measure-line u-mono">120 → 200 · 60% of the way</div>
+        </div>
+
+        <!-- Update method -->
+        <div class="field-block">
+          <div class="src-method" role="radio" aria-checked="false">
+            <span class="src-radio" aria-hidden="true"></span>
+            <div><div class="src-name">Update manually</div><div class="src-gloss">You post the number at each check-in.</div></div>
+          </div>
+          <div class="src-method" role="radio" aria-checked="true">
+            <span class="src-radio" aria-hidden="true"></span>
+            <div><div class="src-name">Roll up from connected work</div><div class="src-gloss">Atlas keeps it in sync from the linked to-dos.</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="wiz-foot">
+        <button class="btn btn-ghost" type="button">← Back</button>
+        <button class="btn btn-primary" type="button">Continue →</button>
+      </div>
+    </section>
+
+    <!-- ════════ STEP 3 — Own & schedule ════════ -->
+    <div class="wiz-cap">Step 3 — Own &amp; schedule</div>
+    <section class="wiz" aria-label="Add a goal — step 3 of 3, Own and schedule">
+      <div class="wiz-head">
+        <span class="wiz-title">Owner &amp; timing</span>
+        <button class="wiz-x" type="button" aria-label="Close">✕</button>
+      </div>
+      <div class="wiz-steps">
+        <div class="sb-steps" aria-label="Step 3 of 3 — 1 Write · 2 Measure · 3 Own &amp; schedule">
+          <span class="sb-step" data-state="done"><span class="sb-step-dot">✓</span> Write</span>
+          <span class="sb-step-bar" data-done="true"></span>
+          <span class="sb-step" data-state="done"><span class="sb-step-dot">✓</span> Measure</span>
+          <span class="sb-step-bar" data-done="true"></span>
+          <span class="sb-step" data-state="current"><span class="sb-step-dot">3</span> Own &amp; schedule</span>
+        </div>
+      </div>
+      <div class="wiz-body">
+
+        <!-- Owner avatar picker -->
+        <div class="field-block">
+          <div class="label" style="margin-bottom:var(--space-2)">Owner</div>
+          <div class="own-row" role="radiogroup" aria-label="Owner">
+            <span class="own-pick" role="radio" aria-checked="true">
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span> You
+            </span>
+            <span class="own-pick" role="radio" aria-checked="false">
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span> Maria
+            </span>
+            <span class="own-pick" role="radio" aria-checked="false">
+              <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-1)" aria-hidden="true">A</span> <span aria-hidden="true" style="color:var(--accent)">✦</span> Atlas
+            </span>
+          </div>
+        </div>
+
+        <!-- Time period -->
+        <div class="field-block">
+          <div class="label" style="margin-bottom:var(--space-2)">Time period <span class="u-subtle" style="font-weight:var(--fw-regular)">(the T)</span></div>
+          <div class="wiz-tabs" role="tablist" aria-label="Time period">
+            <button class="wiz-tab" role="tab" aria-selected="true" type="button">This quarter</button>
+            <button class="wiz-tab" role="tab" aria-selected="false" type="button">Half</button>
+            <button class="wiz-tab" role="tab" aria-selected="false" type="button">Year</button>
+            <button class="wiz-tab" role="tab" aria-selected="false" type="button">Custom</button>
+          </div>
+          <p class="end-note">Custom reveals an end-date field.</p>
+        </div>
+
+        <!-- Connect work -->
+        <div class="field-block">
+          <div class="label" style="margin-bottom:var(--space-2)">Link the work that moves this number</div>
+          <div class="chip-grid" role="group" aria-label="Connect work">
+            <span class="work-chip" role="checkbox" aria-checked="true"><span aria-hidden="true">✓</span> Referral flow</span>
+            <span class="work-chip" role="checkbox" aria-checked="true"><span aria-hidden="true">✓</span> Landing-page test</span>
+            <span class="work-chip" role="checkbox" aria-checked="false"><span aria-hidden="true">▦</span> Growth board</span>
+            <span class="work-chip" role="checkbox" aria-checked="false"><span aria-hidden="true">✓</span> Email nurture</span>
+          </div>
+          <p class="end-note"><a href="#" class="u-accent" style="text-decoration:none"><span aria-hidden="true">✦</span> Atlas can suggest which work moves this metric</a></p>
+        </div>
+
+      </div>
+      <div class="wiz-foot">
+        <button class="btn btn-ghost" type="button">← Back</button>
+        <button class="btn btn-primary" type="button">Create goal</button>
+      </div>
+    </section>
+
+    <!-- closing note -->
+    <p class="final-note">
+      On create, the goal appears on <strong>Goals</strong> and (if primary) pinned under the project header — status starts <span class="sb-statusline" style="display:inline-flex"><span class="sl-glyph" aria-hidden="true">◴</span> <span class="sl-label">On track</span></span>.
+    </p>
+
+  </div><!-- /.bc-wrap -->
+</div><!-- /.bc -->
+
+<script>
+/* Page-local: #5 AI-honesty (reveal-on-invoke) · #24 Goal-Gradient (early-fill progress).
+   No framework — vanilla, dependency-free, runs after the canonical head scripts. */
+(function () {
+  var seed     = document.getElementById('g-seed');
+  var smartBtn = document.getElementById('g-smart-btn');
+  var working  = document.getElementById('g-ai-working');
+  var card     = document.getElementById('g-ai-card');
+  var useDraft = document.getElementById('g-use-draft');
+  var title    = document.getElementById('g-title');
+  var outcome  = document.getElementById('g-outcome');
+  var gauge    = document.getElementById('g-gauge');
+  var bar1     = document.getElementById('g-bar-1');
+
+  // The concrete draft Atlas would produce (kept here so nothing is pre-rendered as "done").
+  var DRAFT_TITLE   = 'Increase weekly signups from 120 to 200 by 30 Sep';
+  var DRAFT_OUTCOME = 'More qualified signups each week, driven by the referral flow and a sharper '
+                    + 'landing page — so the team has a clear, shared target through Q3.';
+
+  function setMet(id, met) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.setAttribute('data-met', met ? 'true' : 'false');
+    var g = el.querySelector('.rub-glyph');
+    if (g) g.textContent = met ? '✓' : '◷';
+  }
+
+  // #5 — reveal the draft only after the user asks for it, with a brief (>400ms) working state.
+  var drafting = false;
+  if (smartBtn) {
+    smartBtn.addEventListener('click', function () {
+      if (drafting) return;
+      drafting = true;
+      var phrase = (seed && seed.value.trim()) ? seed.value.trim() : 'your goal';
+      working.querySelector('span:last-child').textContent =
+        'Drafting a SMART version of “' + phrase + '”…';
+      card.hidden = true;
+      working.hidden = false;
+      smartBtn.disabled = true;
+      smartBtn.setAttribute('aria-expanded', 'false');
+      window.setTimeout(function () {
+        working.hidden = true;
+        card.hidden = false;
+        smartBtn.disabled = false;
+        smartBtn.setAttribute('aria-expanded', 'true');
+        // Atlas drafting demonstrates the goal can be Specific; user still confirms via "Use this draft".
+        setMet('rub-s', true);
+        if (useDraft) useDraft.focus();
+        drafting = false;
+      }, 650); // > Doherty 400ms so the work is visible, not instant-fake
+    });
+  }
+
+  // #5 + #24 — accepting the draft fills the fields the user reviewed, advances the rubric and the
+  // step bar (Atlas has supplied Write + Measure), and updates the early-fill affirmation.
+  if (useDraft) {
+    useDraft.addEventListener('click', function () {
+      if (title)   title.value = DRAFT_TITLE;
+      if (outcome) outcome.value = DRAFT_OUTCOME;
+      setMet('rub-s', true);  // Specific  — named target
+      setMet('rub-a', true);  // Achievable — scoped to existing team/work
+      setMet('rub-r', true);  // Relevant  — tied to activation
+      setMet('rub-m', true);  // Measurable — draft carries 120 → 200 (confirmed in step 2)
+      if (bar1) bar1.setAttribute('data-done', 'true'); // momentum toward Measure
+      if (gauge) gauge.textContent = 'Draft accepted — Write and Measure are filled. One more step to go.';
+    });
+  }
+})();
+</script>
+</body>
+</html>

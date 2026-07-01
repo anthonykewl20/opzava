@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Sign in</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="a11y.js"></script>
+  <style>
+    /* ── Storyboard canvas. The credentials card is the actual login page;
+       the 2FA frame and alt-states below are captioned variations of it.
+       Card geometry is the exact sibling of essential-signout.html (.so-card):
+       400px wide, space-8/space-7 padding, shadow-md, ◆ indigo logo. ───────── */
+    .login {
+      min-height: 100vh;
+      background: radial-gradient(130% 120% at 50% 26%, hsl(245 35% 95%) 0%, hsl(240 20% 90%) 52%, hsl(240 22% 85%) 100%);
+      padding: var(--space-12) var(--space-6) var(--space-16);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-10);
+    }
+    .cap {
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+      font-weight: var(--fw-semibold);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-caps);
+      text-align: center;
+      max-width: 400px;
+    }
+
+    /* ── Card — identical proportions to essential-signout.html ─────────────── */
+    .card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 1px 3px hsl(240 30% 20% / .06), 0 8px 24px hsl(240 30% 20% / .10), 0 28px 56px hsl(240 30% 20% / .12);
+      padding: var(--space-6);
+    }
+    .logo {
+      width: 44px; height: 44px;
+      margin: 0 auto var(--space-4);
+      border-radius: var(--radius-md);
+      display: flex; align-items: center; justify-content: center;
+      background: var(--accent); color: var(--accent-fg);
+      font-size: var(--text-xl); font-weight: 700;
+    }
+    .card h1 { font-size: var(--text-xl); font-weight: var(--fw-semibold); text-align: center; margin-bottom: var(--space-2); }
+    .lead { font-size: var(--text-md); color: var(--fg-muted); text-align: center; margin-bottom: var(--space-5); line-height: var(--lh-normal); }
+
+    /* ── One control height for the whole card: 44px. Inputs, OAuth buttons,
+       and the Sign-in CTA all share it, so the card has a single vertical
+       rhythm (matches signout's 44px primary action). ──────────────────────── */
+    .card .input { height: 44px; }
+
+    /* OAuth — neutral secondary buttons; only the inline brand mark is coloured. */
+    .oauth { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-5); }
+    .oauth .btn { height: 44px; width: 100%; justify-content: center; }
+    .oauth .mark { width: 18px; height: 18px; flex: none; }
+
+    .divider { display: flex; align-items: center; gap: var(--space-3); margin: 0 0 var(--space-5); color: var(--fg-subtle); font-size: var(--text-xs); }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+    /* ── Form ───────────────────────────────────────────────────────────────── */
+    form .field + .field { margin-top: var(--space-3); }
+    .pw-wrap { position: relative; }
+    .pw-wrap .input { padding-right: 44px; }
+    .pw-toggle {
+      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+      width: 36px; height: 36px; border: 0; background: none; color: var(--fg-muted);
+      cursor: pointer; border-radius: var(--radius-sm); font-size: var(--text-md); line-height: 1;
+    }
+    .pw-toggle:hover { background: var(--surface-3); color: var(--fg); }
+
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-3); }
+    .check { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--fg-muted); cursor: pointer; }
+    .check input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+    .link { color: var(--accent); font-size: var(--text-sm); text-decoration: none; }
+    .link:hover { text-decoration: underline; }
+
+    .signin { width: 100%; height: 44px; margin-top: var(--space-5); font-size: var(--text-md); }
+
+    .foot { margin-top: var(--space-5); font-size: var(--text-xs); color: var(--fg-subtle); text-align: center; line-height: var(--lh-normal); }
+    .foot a { color: var(--accent); }
+
+    /* ── 2FA code boxes — the focal input of that step; 48px, mono, centred ─── */
+    .code { display: flex; gap: var(--space-2); justify-content: center; margin: var(--space-5) 0 var(--space-2); }
+    .code input {
+      width: 44px; height: 48px; padding: 0; text-align: center;
+      font-family: var(--font-mono); font-size: var(--text-xl); color: var(--fg);
+      background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+    }
+    .code input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .code input.is-current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+    /* ── Alt-states panel (verify-alts idiom: captioned, dimmed, not "live") ─── */
+    .alts { width: 100%; max-width: 720px; display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+    .alt { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-5); opacity: .94; }
+    .alt-cap { font-size: var(--text-xs); color: var(--fg-subtle); font-weight: var(--fw-semibold); margin-bottom: var(--space-3); }
+    .alt .hint { margin-top: var(--space-3); }
+    .alt .badge { vertical-align: middle; }
+
+    @media (max-width: 640px) { .alts { grid-template-columns: 1fr; } .login { padding: var(--space-10) var(--space-5) var(--space-12); } }
+  </style>
+</head>
+<body>
+  <main class="login">
+
+    <p class="cap">The sign-in screen</p>
+
+    <!-- ════════════ STEP 1 — Sign in (the actual login page) ════════════ -->
+    <section class="card" aria-label="Sign in to Opzava">
+      <div class="logo" aria-hidden="true">◆</div>
+      <h1>Welcome back</h1>
+      <p class="lead">Sign in to your workspace.</p>
+
+      <!-- OAuth — neutral buttons; only the inline brand logo carries colour.
+           Google is the one provider wired today; GitHub is net-new (see ARD 0026). -->
+      <div class="oauth">
+        <button class="btn" type="button" aria-label="Continue with Google">
+          <svg class="mark" viewBox="0 0 48 48" aria-hidden="true">
+            <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+            <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
+            <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
+            <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+          </svg>
+          <span>Continue with Google</span>
+        </button>
+        <button class="btn" type="button" aria-label="Continue with GitHub">
+          <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="#1b1f23" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+          </svg>
+          <span>Continue with GitHub</span>
+        </button>
+      </div>
+
+      <div class="divider" role="separator" aria-label="or use your email"><span>or use your email</span></div>
+
+      <form novalidate onsubmit="return false">
+        <div class="field">
+          <label class="label" for="li-email">Email</label>
+          <input class="input" id="li-email" name="email" type="email" inputmode="email" autocomplete="username" placeholder="you@company.com">
+        </div>
+        <div class="field">
+          <label class="label" for="li-pass">Password</label>
+          <div class="pw-wrap">
+            <input class="input" id="li-pass" name="password" type="password" autocomplete="current-password" placeholder="Your password">
+            <button class="pw-toggle" type="button" aria-label="Show password" aria-pressed="false" onclick="
+              const i=this.previousElementSibling;
+              const show = i.type==='password';
+              i.type = show ? 'text' : 'password';
+              this.setAttribute('aria-pressed', String(show));
+              this.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+              this.textContent = show ? '🙈' : '👁';
+            ">👁</button>
+          </div>
+        </div>
+
+        <div class="row-between">
+          <label class="check"><input type="checkbox" name="remember"> Remember this device</label>
+          <a class="link" href="essential-forgot-password.html">Forgot password?</a>
+        </div>
+
+        <button class="btn btn-primary signin" type="submit">Sign in →</button>
+      </form>
+
+      <p class="foot">First time here? <a href="essential-setup.html">Set up Opzava →</a></p>
+    </section>
+
+    <p class="cap">If you've turned on two-factor, you verify next</p>
+
+    <!-- ════════════ STEP 2 — Two-factor verification (ARD 0018) ════════════ -->
+    <section class="card" aria-label="Two-factor verification" aria-hidden="true">
+      <div class="logo" aria-hidden="true">◆</div>
+      <h1>Verify it's you</h1>
+      <p class="lead">Enter the 6-digit code from your authenticator app.</p>
+
+      <div class="code" role="group" aria-label="6-digit verification code">
+        <input class="is-current" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="digit 1">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="digit 2">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="digit 3">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="digit 4">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="digit 5">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="digit 6">
+      </div>
+
+      <button class="btn btn-primary signin" type="button" style="margin-top:var(--space-4)">Verify →</button>
+
+      <p class="foot"><a href="#">Use a recovery code</a> &nbsp;·&nbsp; <a href="#">← Back</a></p>
+    </section>
+
+    <p class="cap">If something goes wrong — these are the secured variations</p>
+
+    <!-- ════════════ ALT STATES — captioned previews, never a live second form ════════════ -->
+    <div class="alts" aria-hidden="true">
+
+      <div class="alt">
+        <p class="alt-cap">Wrong credentials — deliberately vague (no account enumeration)</p>
+        <div class="sb-alert sb-alert--destructive" role="alert">
+          <span class="ico" aria-hidden="true">⚠</span>
+          <strong class="sb-alert-title">Wrong email or password</strong>
+          <span class="sb-alert-desc">Check both and try again, or reset your password. The message never reveals whether the email exists.</span>
+        </div>
+      </div>
+
+      <div class="alt">
+        <p class="alt-cap">Too many attempts — brute-force lockout (HTTP 423)</p>
+        <div class="sb-alert sb-alert--warning" role="alert">
+          <span class="ico" aria-hidden="true">🔒</span>
+          <strong class="sb-alert-title">Too many attempts</strong>
+          <span class="sb-alert-desc">For your safety, sign-in is paused. Try again in 5 minutes.</span>
+        </div>
+      </div>
+
+      <div class="alt">
+        <p class="alt-cap">Wrong 2FA code · recovery codes running low</p>
+        <div class="sb-alert sb-alert--destructive" role="alert">
+          <span class="ico" aria-hidden="true">⚠</span>
+          <strong class="sb-alert-title">That code didn't match</strong>
+          <span class="sb-alert-desc">Codes refresh every 30 seconds — enter the newest one.</span>
+        </div>
+        <p class="hint"><span class="badge badge-warning">2 recovery codes left</span> &nbsp;Generate more in <strong>Profile → Security</strong> before you run out.</p>
+      </div>
+
+      <div class="alt">
+        <p class="alt-cap">Submitting — pending state (Doherty &lt; 400ms)</p>
+        <button class="btn btn-primary signin" type="button" disabled style="margin-top:0"><span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span> Signing in…</button>
+        <p class="hint">The button locks, shows a spinner, and an <code>aria-live</code> region announces “Signing in” while we check — no stale pre-rendered success.</p>
+      </div>
+
+    </div>
+
+  </main>
+</body>
+</html>

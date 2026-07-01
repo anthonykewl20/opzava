@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Add two-factor</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <link rel="stylesheet" href="auth.css">
+  <script src="a11y.js"></script>
+  <script src="auth.js" defer></script>
+</head>
+<body>
+  <main class="auth">
+
+    <p class="auth-cap">Profile → Security — turning on two-factor</p>
+
+    <!-- ════════════ STEP 1 — Scan the QR (the actual screen) ════════════ -->
+    <section class="auth-card" aria-label="Add two-factor — step 1 of 3, scan the QR">
+      <div class="auth-logo" aria-hidden="true">◆</div>
+      <h1>Add two-factor</h1>
+      <p class="auth-lead">Scan this with your authenticator app — 1Password, Google&nbsp;Authenticator, Authy…</p>
+
+      <ol class="auth-steps" aria-label="Setup progress">
+        <li class="auth-step is-current" aria-current="step"><span class="num">1</span><span class="lbl">Scan</span></li>
+        <li class="bar" aria-hidden="true"></li>
+        <li class="auth-step"><span class="num">2</span><span class="lbl">Verify</span></li>
+        <li class="bar" aria-hidden="true"></li>
+        <li class="auth-step"><span class="num">3</span><span class="lbl">Recovery</span></li>
+      </ol>
+
+      <div class="auth-qr" role="img" aria-label="QR code — scan it with your authenticator app, or use the setup key below">
+        <svg id="qr" viewBox="0 0 25 25" shape-rendering="crispEdges" aria-hidden="true"></svg>
+      </div>
+
+      <div class="field">
+        <label class="label" for="tfa-key">Can’t scan? Enter this setup key</label>
+        <div class="auth-key">
+          <code id="tfa-key">HZ4K 9QT2 4RM8 7PVB</code>
+          <button class="auth-key-copy" type="button"
+                  onclick="navigator.clipboard&amp;&amp;navigator.clipboard.writeText('HZ4K9QT24RM87PVB');this.textContent='Copied ✓'">⧉ Copy</button>
+        </div>
+        <p class="hint">Time-based (TOTP) · the app then shows a fresh 6-digit code every 30 seconds.</p>
+      </div>
+
+      <div class="auth-nav">
+        <a class="btn btn-ghost" href="essential-profile.html" aria-label="Cancel and return to Security">Cancel</a>
+        <button class="btn btn-primary auth-submit" type="button">Continue → Verify</button>
+      </div>
+
+      <p class="auth-foot">Prefer a <a href="#">security key / passkey</a> or <a href="#">a text message</a>?</p>
+    </section>
+
+    <p class="auth-cap">Step 2 — confirm the app is linked</p>
+
+    <!-- ════════════ STEP 2 — Verify the 6-digit code ════════════ -->
+    <section class="auth-card" aria-label="Add two-factor — step 2 of 3, verify the code" aria-hidden="true">
+      <div class="auth-logo" aria-hidden="true">◆</div>
+      <h1>Enter the 6-digit code</h1>
+      <p class="auth-lead">From your authenticator app, to prove it’s linked. It refreshes every 30&nbsp;seconds.</p>
+
+      <ol class="auth-steps" aria-label="Setup progress">
+        <li class="auth-step is-done"><span class="num" aria-hidden="true">✓</span><span class="lbl">Scan</span></li>
+        <li class="bar" aria-hidden="true"></li>
+        <li class="auth-step is-current" aria-current="step"><span class="num">2</span><span class="lbl">Verify</span></li>
+        <li class="bar" aria-hidden="true"></li>
+        <li class="auth-step"><span class="num">3</span><span class="lbl">Recovery</span></li>
+      </ol>
+
+      <div class="auth-code" role="group" aria-label="6-digit code from your authenticator app">
+        <input class="is-current" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="digit 1">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="digit 2">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="digit 3">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="digit 4">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="digit 5">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="digit 6">
+      </div>
+
+      <div class="auth-nav">
+        <button class="btn btn-ghost" type="button" aria-label="Back to scan the QR">← Back</button>
+        <button class="btn btn-primary auth-submit" type="button">Verify →</button>
+      </div>
+    </section>
+
+    <p class="auth-cap">Step 3 — save your recovery codes (you see these once)</p>
+
+    <!-- ════════════ STEP 3 — Save recovery codes ════════════ -->
+    <section class="auth-card" aria-label="Add two-factor — step 3 of 3, save recovery codes" aria-hidden="true">
+      <div class="auth-logo" aria-hidden="true">◆</div>
+      <h1>Save your recovery codes</h1>
+      <p class="auth-lead">Each one works <strong>once</strong> if you ever lose your phone. Store them somewhere safe — you won’t see them again.</p>
+
+      <ol class="auth-steps" aria-label="Setup progress">
+        <li class="auth-step is-done"><span class="num" aria-hidden="true">✓</span><span class="lbl">Scan</span></li>
+        <li class="bar" aria-hidden="true"></li>
+        <li class="auth-step is-done"><span class="num" aria-hidden="true">✓</span><span class="lbl">Verify</span></li>
+        <li class="bar" aria-hidden="true"></li>
+        <li class="auth-step is-current" aria-current="step"><span class="num">3</span><span class="lbl">Recovery</span></li>
+      </ol>
+
+      <ul class="auth-codes" id="rc-list" aria-label="Ten one-time recovery codes">
+        <li>4f9c-2a7b</li><li>8h1d-6q3e</li>
+        <li>0k5m-9x2r</li><li>7p4v-1c8n</li>
+        <li>3z6t-5b9w</li><li>a2j7-4d1f</li>
+        <li>6r8k-3m0q</li><li>9v1c-7x4p</li>
+        <li>2b5n-8h6d</li><li>5t3z-0k9m</li>
+      </ul>
+
+      <div class="auth-actions">
+        <button class="btn" type="button" onclick="rc('download')">⤓ Download</button>
+        <button class="btn" type="button" onclick="rc('copy')">⧉ Copy</button>
+        <button class="btn" type="button" onclick="window.print()">⎙ Print</button>
+      </div>
+
+      <label class="auth-check"><input type="checkbox"> I’ve saved my recovery codes somewhere safe</label>
+
+      <a class="btn btn-primary auth-submit" href="essential-profile.html">Finish — turn on two-factor →</a>
+    </section>
+
+    <p class="auth-cap">The confirmation, and the guarded variations</p>
+
+    <!-- ════════════ ALT STATES — captioned previews ════════════ -->
+    <div class="auth-alts" aria-hidden="true">
+
+      <div class="auth-alt">
+        <p class="auth-alt-cap">Turned on — back in Security with a confirmation</p>
+        <div class="sb-alert sb-alert--success" role="status">
+          <span class="ico" aria-hidden="true">✓</span>
+          <strong class="sb-alert-title">Two-factor is on</strong>
+          <span class="sb-alert-desc">You’ll enter a code from your app each time you sign in on a new device. 10 recovery codes saved.</span>
+        </div>
+      </div>
+
+      <div class="auth-alt">
+        <p class="auth-alt-cap">Wrong code — the app clock may have drifted</p>
+        <div class="sb-alert sb-alert--destructive" role="alert">
+          <span class="ico" aria-hidden="true">⚠</span>
+          <strong class="sb-alert-title">That code didn’t match</strong>
+          <span class="sb-alert-desc">Codes refresh every 30 seconds — enter the newest one. If it keeps failing, check your phone’s clock is set to automatic.</span>
+        </div>
+      </div>
+
+      <div class="auth-alt">
+        <p class="auth-alt-cap">Already on — enrolment is a no-op</p>
+        <div class="sb-alert sb-alert--warning" role="status">
+          <span class="ico" aria-hidden="true">🔒</span>
+          <strong class="sb-alert-title">Two-factor is already on</strong>
+          <span class="sb-alert-desc">Manage it in <strong>Security</strong> — regenerate recovery codes, or turn it off (re-enter your password first).</span>
+        </div>
+      </div>
+
+      <div class="auth-alt">
+        <p class="auth-alt-cap">Verifying — pending state (Doherty &lt; 400ms)</p>
+        <button class="btn btn-primary auth-submit" type="button" disabled style="margin-top:0"><span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span> Verifying code…</button>
+        <p class="hint">The button locks with a spinner; an <code>aria-live</code> region announces the result before we reveal the recovery codes.</p>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    /* Illustrative QR — a real one is a server-issued otpauth:// URI per secret.
+       Deterministic module pattern + three finder patterns, so it reads
+       unmistakably as a QR without pretending to be a live secret. */
+    (function () {
+      var svg = document.getElementById('qr'); if (!svg) return;
+      var NS = 'http://www.w3.org/2000/svg', N = 25;
+      function cell(x, y, w, h, white) {
+        var r = document.createElementNS(NS, 'rect');
+        r.setAttribute('x', x); r.setAttribute('y', y);
+        r.setAttribute('width', w); r.setAttribute('height', h);
+        if (white) r.style.fill = 'var(--surface)'; else r.setAttribute('fill', 'currentColor');
+        svg.appendChild(r);
+      }
+      function finder(ox, oy) { cell(ox, oy, 7, 7); cell(ox + 1, oy + 1, 5, 5, true); cell(ox + 2, oy + 2, 3, 3); }
+      function reserved(x, y) { return (x < 8 && y < 8) || (x > 16 && y < 8) || (x < 8 && y > 16); }
+      for (var y = 0; y < N; y++) for (var x = 0; x < N; x++) {
+        if (reserved(x, y)) continue;
+        var h = (x * 73856093 ^ y * 19349663 ^ x * y * 83492791) >>> 0;
+        if (h % 100 < 46) cell(x, y, 1, 1);
+      }
+      finder(0, 0); finder(18, 0); finder(0, 18);
+      cell(16, 16, 5, 5); cell(17, 17, 3, 3, true); cell(18, 18, 1, 1); /* alignment marker */
+    })();
+
+    /* Recovery codes — download / copy read from the rendered list, so the
+       file and clipboard always match what's on screen. */
+    function rc(mode) {
+      var text = [].slice.call(document.querySelectorAll('#rc-list li'))
+        .map(function (l) { return l.textContent.trim(); }).join('\n');
+      if (mode === 'copy') { if (navigator.clipboard) navigator.clipboard.writeText(text); return; }
+      var blob = new Blob([text + '\n'], { type: 'text/plain' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'opzava-recovery-codes.txt';
+      a.click(); URL.revokeObjectURL(a.href);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Messages</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* ── page layout only — no color/font/radius overrides ─────────────── */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+
+    /* Topbar (canonical Essential) */
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+
+    /* Page wrapper — 2-pane fills a generous width */
+    .bc-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-6) var(--space-10); }
+
+    /* Page heading */
+    .page-head { margin-bottom: var(--space-5); }
+    .page-head h1 { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; margin-bottom: var(--space-1); }
+    .page-head p { font-size: var(--text-sm); color: var(--fg-muted); }
+
+    /* AI-vs-human note line */
+    .ai-note { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--fg-muted); margin-bottom: var(--space-5); }
+    .ai-note strong { color: var(--fg); }
+    .ai-note .msg-link, .ai-note a { color: var(--accent); text-decoration: underline; }
+
+    /* ── 2-pane grid ──────────────────────────────────────────────────── */
+    .mx { display: grid; grid-template-columns: 300px 1fr; gap: var(--space-5); align-items: start; }
+
+    /* LEFT pane: conversation list */
+    .mx-list {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      overflow: hidden;
+      position: sticky;
+      top: calc(60px + var(--space-4));
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 60px - var(--space-8));
+    }
+    .mx-search { padding: var(--space-3); border-bottom: 1px solid var(--border); flex: none; }
+    .mx-search .field-wrap { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+    .mx-search .field-wrap:focus-within { border-color: var(--accent); background: var(--surface); }
+    .mx-search input { flex: 1 1 auto; min-width: 0; border: 0; background: none; font-size: var(--text-sm); color: var(--fg); outline: none; font-family: inherit; }
+    .mx-search input::placeholder { color: var(--fg-subtle); }
+
+    .mx-scroll { overflow-y: auto; flex: 1 1 auto; padding-bottom: var(--space-2); }
+
+    .mx-label { display: flex; align-items: center; padding: var(--space-4) var(--space-4) var(--space-1); font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
+    .mx-label .u-grow { flex: 1; }
+
+    /* a conversation row */
+    .conv {
+      display: flex; align-items: center; gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      text-decoration: none; color: var(--fg);
+      border-left: 3px solid transparent;
+      cursor: pointer;
+    }
+    .conv:hover { background: var(--surface-2); text-decoration: none; }
+    .conv.active { background: var(--accent-soft); border-left-color: var(--accent); }
+    .conv.active .conv-name { color: var(--accent); }
+    .conv-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+    .conv-avatar { position: relative; flex: none; }
+    .conv-body { flex: 1 1 auto; min-width: 0; }
+    .conv-name { font-size: var(--text-sm); font-weight: var(--fw-semibold); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .conv-prev { font-size: var(--text-xs); color: var(--fg-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+    .conv-unread { flex: none; min-width: 20px; height: 20px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-full); background: var(--accent); color: var(--accent-fg); font-size: var(--text-xs); font-weight: var(--fw-semibold); }
+
+    /* presence dot — HUMANS only, on DM avatars */
+    .presence-dot { position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--surface); }
+    .presence-dot.is-online { background: var(--success); }
+    .presence-dot.is-away   { background: var(--warning); }
+    .presence-dot.is-offline{ background: var(--fg-subtle); }
+
+    .mx-new { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); color: var(--accent); font-size: var(--text-sm); font-weight: var(--fw-medium); text-decoration: none; cursor: pointer; }
+    .mx-new:hover { background: var(--surface-2); text-decoration: none; }
+
+    /* RIGHT pane: open conversation */
+    .mx-room { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); display: flex; flex-direction: column; min-height: calc(100vh - 60px - var(--space-8)); overflow: hidden; }
+
+    .room-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); flex: none; }
+    .room-head-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); }
+    .room-head-meta { font-size: var(--text-sm); color: var(--fg-muted); }
+    .room-head .mention-link { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-weight: var(--fw-medium); font-size: var(--text-sm); text-decoration: none; white-space: nowrap; }
+    .room-head .mention-link:hover { text-decoration: underline; }
+
+    .room-body { flex: 1 1 auto; overflow-y: auto; padding: var(--space-4) var(--space-5) var(--space-2); }
+
+    /* message thread (reused from essential-team-room) */
+    .msg-log { display: flex; flex-direction: column; gap: 0; }
+    .msg-divider { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) 0 var(--space-3); font-size: var(--text-xs); color: var(--fg-subtle); font-weight: var(--fw-medium); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
+    .msg-divider::before, .msg-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+    .msg { display: flex; gap: var(--space-3); padding: var(--space-3) 0; }
+    .msg + .msg { padding-top: var(--space-1); }
+    .msg-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: 4px; }
+    .msg-author { font-weight: var(--fw-semibold); font-size: var(--text-sm); color: var(--fg); }
+    .msg-time { font-size: var(--text-xs); color: var(--fg-subtle); }
+    .msg-body { flex: 1 1 auto; min-width: 0; }
+    .msg-text { font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-normal); }
+    .msg-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
+    .reaction-row { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+    .reaction { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 1px solid var(--border); border-radius: var(--radius-full); font-size: var(--text-xs); background: var(--surface-2); cursor: pointer; transition: background var(--dur-fast) var(--ease-standard); user-select: none; }
+    .reaction:hover { background: var(--surface-3); }
+    .reaction.is-on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: var(--fw-semibold); }
+    .reaction-glyph { font-size: 15px; line-height: 1; }
+
+    /* sticky composer at the bottom of the room */
+    .composer-wrap { flex: none; background: var(--surface); border-top: 1px solid var(--border); padding: var(--space-3) var(--space-5) var(--space-4); position: sticky; bottom: 0; }
+    .composer { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+    .composer:focus-within { border-color: var(--accent); background: var(--surface); }
+    .composer-input { flex: 1 1 auto; min-width: 0; border: 0; background: none; font-size: var(--text-sm); color: var(--fg); outline: none; font-family: inherit; line-height: var(--lh-normal); padding: var(--space-2) 0; }
+    .composer-input::placeholder { color: var(--fg-subtle); }
+    .composer-sep { width: 1px; height: 22px; background: var(--border); flex: none; }
+
+    /* per-message send status (optimistic pending → sent / queued / failed)
+       LABEL + GLYPH only — never a traffic-light hue. Glyph stays neutral. */
+    .msg-status { display: inline-flex; align-items: center; gap: 5px; margin-top: var(--space-1); font-size: var(--text-xs); color: var(--fg-subtle); }
+    .msg-status .ms-glyph { line-height: 1; flex: none; }
+    .msg-status[data-state="sending"] .ms-glyph { animation: ms-spin 1s linear infinite; }
+    @keyframes ms-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .msg-status[data-state="sending"] .ms-glyph { animation: none; } }
+    .msg-status .ms-retry { border: 0; background: none; padding: 0; margin-left: 2px; font: inherit; font-size: var(--text-xs); color: var(--accent); text-decoration: underline; cursor: pointer; }
+    .msg-status .ms-retry:hover { color: var(--accent); }
+
+    /* skeleton (left list loading) */
+    .sk-conv { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
+    .sk-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+    .sk-conv .u-grow { flex: 1; }
+
+    /* offline banner sits above the room */
+    .offline-band { margin-bottom: var(--space-4); }
+
+    /* ── Mobile collapse ≤640px ───────────────────────────────────────────
+       The 2-pane grid stacks to ONE column. The conversation LIST shows
+       first (full width); the open conversation stacks BELOW it. A real
+       build would swap to a list↔detail toggle (tap a row → show the room,
+       a back arrow → return to the list); here both stack vertically. */
+    @media (max-width: 640px) {
+      .topnav a { padding: 0 var(--space-2); font-size: var(--text-sm); }
+      .topbar .btn-primary { display: none; }
+      .topbar { gap: var(--space-3); }
+      .mx { grid-template-columns: 1fr; gap: var(--space-4); }
+      .mx-list { position: static; max-height: none; }
+      .mx-scroll { max-height: 360px; }
+      .mx-room { min-height: 60vh; }
+      .room-head .mention-link { font-size: var(--text-xs); }
+    }
+  </style>
+</head>
+<body>
+  <div class="bc">
+
+    <!-- ── Essential topbar ─────────────────────────────────────────────── -->
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="sb-avatar sb-avatar--sm" style="background:var(--accent);color:var(--accent-fg);border-radius:var(--radius-md);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html" class="active" aria-current="page">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative">
+        <span aria-hidden="true">🔔</span>
+        <span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span>
+      </a>
+      <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-label="Account menu (Anthony Garces)" role="button" tabindex="0">AG</span>
+    </header>
+
+    <main>
+      <div class="bc-wrap">
+
+        <!-- ── Page heading ─────────────────────────────────────────────── -->
+        <div class="page-head">
+          <h1>Messages</h1>
+          <p>Your team chats across every project — like Slack, kept calm.</p>
+        </div>
+
+        <!-- ── AI-vs-human note: Messages is humans only ───────────────── -->
+        <div class="ai-note" role="note">
+          <span aria-hidden="true" style="color:var(--accent);font-size:var(--text-md)">✦</span>
+          <span>Chatting with the AI? Use <a href="project-assistant.html" class="msg-link">✦ Ask your assistant</a> (inside a project) or <a href="essential-ask-opzava.html" class="msg-link">✦ Ask Opzava</a> (across projects). <strong>Messages is your human team — people only.</strong></span>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════════════ -->
+        <!-- 2-PANE: conversation list (left) + open conversation (right) ── -->
+        <!-- ══════════════════════════════════════════════════════════════ -->
+        <div class="mx">
+
+          <!-- ── LEFT: conversation list ──────────────────────────────── -->
+          <aside class="mx-list" aria-label="Conversations">
+
+            <div class="mx-search">
+              <div class="field-wrap">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)"><circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                <label for="convSearch" class="u-sr-only">Find a conversation</label>
+                <input id="convSearch" type="search" placeholder="Find a conversation…" autocomplete="off">
+              </div>
+            </div>
+
+            <div class="mx-scroll" id="convScroll">
+
+              <!-- ── Async state: LOADING skeleton (toggle to show) ──────────
+                   While the conversation list is fetching, show this in place
+                   of the PROJECTS / DIRECT MESSAGES groups below. -->
+              <div id="listSkeleton" style="display:none" aria-busy="true" aria-label="Loading your conversations">
+                <div class="mx-label"><span class="skeleton sk-line" style="width:70px;height:11px"></span></div>
+                <div class="sk-conv"><span class="sk-dot skeleton"></span><div class="u-grow u-col-2"><span class="skeleton sk-line" style="width:60%;height:13px"></span><span class="skeleton sk-line" style="width:80%;height:11px;margin-top:5px"></span></div></div>
+                <div class="sk-conv"><span class="sk-dot skeleton"></span><div class="u-grow u-col-2"><span class="skeleton sk-line" style="width:50%;height:13px"></span><span class="skeleton sk-line" style="width:72%;height:11px;margin-top:5px"></span></div></div>
+                <div class="sk-conv"><span class="sk-dot skeleton"></span><div class="u-grow u-col-2"><span class="skeleton sk-line" style="width:65%;height:13px"></span><span class="skeleton sk-line" style="width:60%;height:11px;margin-top:5px"></span></div></div>
+              </div>
+
+              <!-- ── Async state: EMPTY (toggle to show in place of the list) ─
+                   Shown for a brand-new user with no rooms or DMs yet. -->
+              <div id="listEmpty" class="empty" style="display:none;margin:var(--space-8) var(--space-4)">
+                <div class="empty-icon" aria-hidden="true">#</div>
+                <div class="empty-title">No conversations yet</div>
+                <div class="empty-desc">When you join a project or start a direct message, it shows up here.</div>
+              </div>
+
+              <!-- ── PROJECTS — one row per project (its Team room) ──────── -->
+              <div id="listReal">
+                <div class="mx-label">Projects</div>
+
+                <!-- Q2 Content Push — active, 2 unread -->
+                <a href="essential-team-room.html" class="conv active" data-conv="q2" aria-current="true">
+                  <span class="conv-dot" style="background:var(--chart-1)" aria-hidden="true"></span>
+                  <div class="conv-body">
+                    <div class="conv-name">Q2 Content Push</div>
+                    <div class="conv-prev">Maria: @Anthony can you confirm the publish date…</div>
+                  </div>
+                  <span class="conv-unread" aria-label="2 unread">2</span>
+                </a>
+
+                <!-- Series B Outreach — 1 unread -->
+                <a href="essential-team-room.html" class="conv" data-conv="seriesb">
+                  <span class="conv-dot" style="background:var(--chart-2)" aria-hidden="true"></span>
+                  <div class="conv-body">
+                    <div class="conv-name">Series B Outreach</div>
+                    <div class="conv-prev">Dev: pushed the investor list to the board</div>
+                  </div>
+                  <span class="conv-unread" aria-label="1 unread">1</span>
+                </a>
+
+                <!-- Customer Support -->
+                <a href="essential-team-room.html" class="conv" data-conv="support">
+                  <span class="conv-dot" style="background:var(--chart-3)" aria-hidden="true"></span>
+                  <div class="conv-body">
+                    <div class="conv-name">Customer Support</div>
+                    <div class="conv-prev">You: thanks, closing that ticket out</div>
+                  </div>
+                </a>
+
+                <!-- Website Refresh -->
+                <a href="essential-team-room.html" class="conv" data-conv="website">
+                  <span class="conv-dot" style="background:var(--chart-5)" aria-hidden="true"></span>
+                  <div class="conv-body">
+                    <div class="conv-name">Website Refresh</div>
+                    <div class="conv-prev">Maria: new homepage copy is in Outputs</div>
+                  </div>
+                </a>
+
+                <!-- Market Research -->
+                <a href="essential-team-room.html" class="conv" data-conv="research">
+                  <span class="conv-dot" style="background:var(--chart-6)" aria-hidden="true"></span>
+                  <div class="conv-body">
+                    <div class="conv-name">Market Research</div>
+                    <div class="conv-prev">Dev: competitor summary ready when you are</div>
+                  </div>
+                </a>
+
+                <!-- Weekly Ops -->
+                <a href="essential-team-room.html" class="conv" data-conv="ops">
+                  <span class="conv-dot" style="background:var(--chart-4)" aria-hidden="true"></span>
+                  <div class="conv-body">
+                    <div class="conv-name">Weekly Ops</div>
+                    <div class="conv-prev">You: agenda's posted for Monday</div>
+                  </div>
+                </a>
+
+                <!-- ── DIRECT MESSAGES — 1:1 humans (presence dots HERE only) ─ -->
+                <div class="mx-label" style="padding-top:var(--space-5)">Direct messages</div>
+
+                <!-- Maria — online, 1 unread -->
+                <a href="#" class="conv" data-conv="dm-maria">
+                  <span class="conv-avatar" aria-hidden="true">
+                    <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)">M</span>
+                    <span class="presence-dot is-online" title="Online"></span>
+                  </span>
+                  <div class="conv-body">
+                    <div class="conv-name">Maria</div>
+                    <div class="conv-prev">Did you see the publish date question?</div>
+                  </div>
+                  <span class="conv-unread" aria-label="1 unread">1</span>
+                </a>
+
+                <!-- Dev — away -->
+                <a href="#" class="conv" data-conv="dm-dev">
+                  <span class="conv-avatar" aria-hidden="true">
+                    <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)">D</span>
+                    <span class="presence-dot is-away" title="Away"></span>
+                  </span>
+                  <div class="conv-body">
+                    <div class="conv-name">Dev</div>
+                    <div class="conv-prev">Back in an hour — ping me then</div>
+                  </div>
+                </a>
+
+                <!-- + New message -->
+                <a href="essential-compose.html" class="mx-new">
+                  <span aria-hidden="true" style="font-size:var(--text-md)">＋</span>
+                  <span>New message</span>
+                </a>
+              </div><!-- /listReal -->
+
+            </div><!-- /mx-scroll -->
+          </aside>
+
+          <!-- ── RIGHT: open conversation = Q2 Content Push Team room ──── -->
+          <section class="mx-room" aria-label="Q2 Content Push team room">
+
+            <!-- Room header -->
+            <header class="room-head">
+              <span aria-hidden="true" style="font-size:var(--text-md);color:var(--fg-muted)">#</span>
+              <span class="room-head-title">Q2 Content Push</span>
+              <span class="room-head-meta">·&nbsp;team room · 3 people</span>
+              <a href="mention-inbox.html" class="mention-link">
+                <span aria-hidden="true">＠</span> See your mentions
+              </a>
+            </header>
+
+            <!-- ── Async state: OFFLINE banner (toggle to show) ─────────────
+                 Shown above the thread when the connection drops; messages
+                 typed offline are queued and flushed on reconnect. -->
+            <div class="room-body" id="roomBody">
+
+              <div class="banner banner-warning offline-band" role="status" style="display:none" id="offlineBanner">
+                <span aria-hidden="true">⚠</span>
+                <span>You're offline. Messages you send will be delivered when you reconnect.</span>
+              </div>
+
+              <!-- ── Human message log (active state) ───────────────────────
+                   RULES: humans = plain sb-avatar circles, NO ✦, NO AI badge,
+                   NO presence dots in the thread. Only one reaction (👍). -->
+              <div class="msg-log" role="log" aria-label="Q2 Content Push conversation" aria-live="polite">
+
+                <!-- Day divider -->
+                <div class="msg-divider" aria-hidden="true">Monday, 23 Jun</div>
+
+                <!-- Anthony 10:02 -->
+                <div class="msg" aria-label="Message from Anthony at 10:02">
+                  <span class="sb-avatar" style="background:var(--chart-2);flex:none" aria-hidden="true">AG</span>
+                  <div class="msg-body">
+                    <div class="msg-head">
+                      <span class="msg-author">Anthony</span>
+                      <span class="msg-time">10:02</span>
+                    </div>
+                    <p class="msg-text">Can we ship the partner email today? Atlas says the draft is done — just needs a final OK before it goes out.</p>
+                  </div>
+                </div>
+
+                <!-- "2 new" unread marker -->
+                <div class="msg-divider" style="color:var(--accent);font-size:var(--text-xs)" aria-label="2 new messages below">
+                  <span style="color:var(--accent)">2 new</span>
+                </div>
+
+                <!-- Maria 10:04 — with 👍 reaction -->
+                <div class="msg" aria-label="Message from Maria at 10:04">
+                  <span class="sb-avatar" style="background:var(--chart-3);flex:none" aria-hidden="true">M</span>
+                  <div class="msg-body">
+                    <div class="msg-head">
+                      <span class="msg-author">Maria</span>
+                      <span class="msg-time">10:04</span>
+                    </div>
+                    <p class="msg-text">Draft's waiting for your ok in <a href="essential-mkt-approvals.html" class="msg-link">Approvals →</a></p>
+                    <div class="reaction-row">
+                      <button class="reaction is-on" type="button" id="likeBtn" aria-pressed="true" aria-label="You gave a thumbs up. 1 reaction. Click to remove.">
+                        <span class="reaction-glyph" aria-hidden="true">👍</span>
+                        <span id="likeCount">1</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Dev 10:09 -->
+                <div class="msg" aria-label="Message from Dev at 10:09">
+                  <span class="sb-avatar" style="background:var(--chart-4);flex:none" aria-hidden="true">D</span>
+                  <div class="msg-body">
+                    <div class="msg-head">
+                      <span class="msg-author">Dev</span>
+                      <span class="msg-time">10:09</span>
+                    </div>
+                    <p class="msg-text">On it — reviewing now. Should have a reply in 10.</p>
+                  </div>
+                </div>
+
+                <!-- Maria 10:11 — HIGHLIGHTED @mention of you -->
+                <div class="msg" aria-label="Message from Maria at 10:11 mentioning you" style="background:var(--accent-soft);border-radius:var(--radius-md);padding:var(--space-3);margin-top:var(--space-2)">
+                  <span class="sb-avatar" style="background:var(--chart-3);flex:none" aria-hidden="true">M</span>
+                  <div class="msg-body">
+                    <div class="msg-head">
+                      <span class="msg-author">Maria</span>
+                      <span class="msg-time">10:11</span>
+                      <span class="sb-badge sb-badge--accent" style="margin-left:4px">＠ mentioned you</span>
+                    </div>
+                    <p class="msg-text"><span style="color:var(--accent);font-weight:var(--fw-semibold);background:var(--surface);padding:0 4px;border-radius:var(--radius-sm)">@Anthony</span> can you confirm the publish date before this goes out? Need your go-ahead 🙏</p>
+                  </div>
+                </div>
+
+              </div><!-- /msg-log -->
+
+            </div><!-- /room-body -->
+
+            <!-- ── Sticky composer ────────────────────────────────────────── -->
+            <div class="composer-wrap" style="position:sticky">
+              <style>
+                .mention-pop { position:absolute; left:0; bottom:calc(100% - var(--space-1)); z-index:var(--z-dropdown); width:320px; max-width:calc(100vw - 32px); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); padding:6px; }
+                .mention-pop[hidden] { display:none; }
+                .mention-hd { font-size:var(--text-xs); color:var(--fg-subtle); text-transform:uppercase; letter-spacing:var(--tracking-caps); font-weight:var(--fw-semibold); padding:6px 8px 4px; }
+                .mention-item { display:flex; align-items:center; gap:8px; width:100%; padding:7px 8px; border:0; background:none; border-radius:var(--radius-sm); cursor:pointer; font:inherit; text-align:left; color:var(--fg); }
+                .mention-item:hover, .mention-item.active { background:var(--surface-2); }
+                .mention-nm { font-size:var(--text-sm); font-weight:var(--fw-medium); }
+                .mention-sub { font-size:var(--text-xs); color:var(--fg-subtle); margin-left:auto; }
+                .mention-at { width:26px; height:26px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:var(--surface-3); color:var(--fg-muted); font-size:var(--text-sm); flex:none; }
+              </style>
+              <div class="mention-pop" id="mentionPop" role="listbox" aria-label="Mention picker" hidden>
+                <div class="mention-hd">Mention</div>
+                <button class="mention-item active" role="option" type="button" data-name="Atlas" data-ai="1"><span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-5)" aria-hidden="true">A</span><span class="mention-nm">Atlas</span><span class="mention-sub">✦ assistant</span></button>
+                <button class="mention-item" role="option" type="button" data-name="Maria"><span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span><span class="mention-nm">Maria</span><span class="mention-sub">● online</span></button>
+                <button class="mention-item" role="option" type="button" data-name="Dan"><span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" aria-hidden="true">D</span><span class="mention-nm">Dan</span><span class="mention-sub">away</span></button>
+                <button class="mention-item" role="option" type="button" data-name="Iris" data-ai="1"><span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-6)" aria-hidden="true">I</span><span class="mention-nm">Iris</span><span class="mention-sub">✦ assistant</span></button>
+                <button class="mention-item" role="option" type="button" data-name="channel"><span class="mention-at" aria-hidden="true">@</span><span class="mention-nm">channel</span><span class="mention-sub">everyone here</span></button>
+              </div>
+              <div class="composer" role="form" aria-label="Write to Q2 Content Push">
+                <label for="roomMsg" class="u-sr-only">Write to #q2-content-push</label>
+                <input
+                  id="roomMsg"
+                  class="composer-input"
+                  type="text"
+                  placeholder="Write to #q2-content-push…"
+                  autocomplete="off"
+                  aria-label="Message the Q2 Content Push team"
+                >
+                <div class="composer-sep" aria-hidden="true"></div>
+                <button class="btn btn-ghost btn-sm" type="button" aria-label="Mention someone" title="Mention someone">＠</button>
+                <button class="btn btn-primary btn-sm" type="button" id="sendBtn" aria-label="Send message">Send</button>
+              </div>
+            </div>
+
+          </section><!-- /mx-room -->
+
+        </div><!-- /mx -->
+
+      </div><!-- /bc-wrap -->
+    </main>
+  </div><!-- /bc -->
+
+  <script>
+    (function () {
+      'use strict';
+
+      // ── Switch active conversation (highlight clicked left row) ────────
+      // Project rows navigate to essential-team-room.html via the href, so we
+      // only intercept to demo the active-highlight without leaving the page
+      // when a modifier/middle-click isn't used. Here we keep it simple: a
+      // click highlights the row in place (preventDefault) so the mockup shows
+      // the switch behaviour; remove preventDefault to let the link navigate.
+      var convs = document.querySelectorAll('.conv');
+      convs.forEach(function (row) {
+        row.addEventListener('click', function (e) {
+          e.preventDefault();
+          convs.forEach(function (r) {
+            r.classList.remove('active');
+            r.removeAttribute('aria-current');
+          });
+          row.classList.add('active');
+          row.setAttribute('aria-current', 'true');
+          // clear the unread badge on the now-open conversation
+          var badge = row.querySelector('.conv-unread');
+          if (badge) badge.remove();
+        });
+      });
+
+      // ── 👍 reaction toggle ─────────────────────────────────────────────
+      var likeBtn   = document.getElementById('likeBtn');
+      var likeCount = document.getElementById('likeCount');
+      var liked     = true;
+      if (likeBtn) {
+        likeBtn.addEventListener('click', function () {
+          liked = !liked;
+          likeBtn.classList.toggle('is-on', liked);
+          likeBtn.setAttribute('aria-pressed', liked ? 'true' : 'false');
+          likeCount.textContent = liked ? 1 : 0;
+          likeBtn.setAttribute('aria-label', liked
+            ? 'You gave a thumbs up. 1 reaction. Click to remove.'
+            : 'No reactions. Click to add a thumbs up.');
+        });
+      }
+
+      // ── Composer: send → optimistic append (pending → sent/queued) ──────
+      // Item #12 + #13: the bubble appears immediately (<400ms feedback) in a
+      // "Sending…" pending state, then resolves to "Sent" — or "Queued"
+      // offline, or "Not sent" with a Retry path on failure. Status is
+      // LABEL + GLYPH only, announced via aria-live, never a traffic-light hue.
+      var input   = document.getElementById('roomMsg');
+      var sendBtn = document.getElementById('sendBtn');
+      var log     = document.querySelector('.msg-log');
+
+      function escHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+
+      // status presentation per state — glyph + plain-language label, no hue
+      var MS = {
+        sending: { glyph: '◌', label: 'Sending…' },
+        sent:    { glyph: '✓', label: 'Sent' },
+        queued:  { glyph: '◷', label: 'Queued — will send when you reconnect' },
+        failed:  { glyph: '⚠', label: 'Not sent' }
+      };
+
+      // render/refresh the status line inside a message bubble
+      function setStatus(statusEl, state, retryFn) {
+        var s = MS[state] || MS.sending;
+        statusEl.dataset.state = state;
+        statusEl.setAttribute('aria-label', s.label);
+        statusEl.innerHTML =
+          '<span class="ms-glyph" aria-hidden="true">' + s.glyph + '</span>' +
+          '<span>' + s.label + '</span>';
+        if (state === 'failed' && retryFn) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'ms-retry';
+          btn.textContent = 'Retry';
+          btn.addEventListener('click', retryFn);
+          statusEl.appendChild(btn);
+        }
+      }
+
+      // simulate the network: queue if offline, otherwise succeed (demo never
+      // fails on its own — failure is reachable by going offline then back).
+      function deliver(statusEl, retryFn) {
+        setStatus(statusEl, 'sending');
+        if (!navigator.onLine) {           // offline → queue, don't fail
+          setStatus(statusEl, 'queued');
+          return;
+        }
+        setTimeout(function () {
+          setStatus(statusEl, 'sent');
+        }, 450);                            // brief working state, then "Sent"
+      }
+
+      function sendMessage() {
+        var text = input.value.trim();
+        if (!text) return;
+        var now  = new Date();
+        var hhmm = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+        var row  = document.createElement('div');
+        row.className = 'msg';
+        row.setAttribute('aria-label', 'Message from you at ' + hhmm);
+        row.innerHTML =
+          '<span class="sb-avatar" style="background:var(--chart-2);flex:none" aria-hidden="true">AG</span>' +
+          '<div class="msg-body">' +
+            '<div class="msg-head"><span class="msg-author">You</span><span class="msg-time">' + hhmm + '</span></div>' +
+            '<p class="msg-text">' + escHtml(text) + '</p>' +
+            '<div class="msg-status" data-state="sending" role="status" aria-live="polite"></div>' +
+          '</div>';
+        log.appendChild(row);
+        input.value = '';
+        row.scrollIntoView({ behavior: 'smooth', block: 'end' });
+
+        // optimistic delivery — pending now, resolves shortly after
+        var statusEl = row.querySelector('.msg-status');
+        function retry() { deliver(statusEl, retry); }
+        deliver(statusEl, retry);
+      }
+      if (sendBtn) sendBtn.addEventListener('click', sendMessage);
+      if (input) input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+      });
+
+      // ── Left-list filter (search) ──────────────────────────────────────
+      var search = document.getElementById('convSearch');
+      if (search) {
+        search.addEventListener('input', function () {
+          var q = search.value.trim().toLowerCase();
+          document.querySelectorAll('#listReal .conv').forEach(function (row) {
+            var name = (row.querySelector('.conv-name') || {}).textContent || '';
+            row.style.display = name.toLowerCase().indexOf(q) > -1 ? '' : 'none';
+          });
+        });
+      }
+
+      // ── Offline detection ──────────────────────────────────────────────
+      // Composer stays usable offline: messages send into a "Queued" state
+      // (see deliver) and flush to "Sent" on reconnect.
+      var offlineBanner = document.getElementById('offlineBanner');
+      function setOffline(off) {
+        if (offlineBanner) offlineBanner.style.display = off ? 'flex' : 'none';
+        if (!off) {
+          // reconnected → flush any queued bubbles to Sent
+          document.querySelectorAll('.msg-status[data-state="queued"]').forEach(function (el) {
+            setStatus(el, 'sending');
+            setTimeout(function () { setStatus(el, 'sent'); }, 450);
+          });
+        }
+      }
+      window.addEventListener('offline', function () { setOffline(true); });
+      window.addEventListener('online',  function () { setOffline(false); });
+      if (!navigator.onLine) setOffline(true);
+
+    })();
+  </script>
+  <!-- @-mention autocomplete in the message composer -->
+  <script>
+    (function () {
+      var inp = document.getElementById('roomMsg'),
+          pop = document.getElementById('mentionPop'),
+          items = pop ? Array.prototype.slice.call(pop.querySelectorAll('.mention-item')) : [],
+          atBtn = document.querySelector('.composer [aria-label="Mention someone"]');
+      if (!inp || !pop) return;
+      function open()  { pop.hidden = false; }
+      function close() { pop.hidden = true; }
+      function isOpen() { return !pop.hidden; }
+      function filter(q) {
+        q = (q || '').toLowerCase(); var shown = [];
+        items.forEach(function (it) {
+          var match = it.dataset.name.toLowerCase().indexOf(q) === 0;
+          it.style.display = match ? 'flex' : 'none'; it.classList.remove('active');
+          if (match) shown.push(it);
+        });
+        if (shown.length) shown[0].classList.add('active');
+        return shown.length;
+      }
+      function insert(name) {
+        if (/@\w*$/.test(inp.value)) inp.value = inp.value.replace(/@\w*$/, '@' + name + ' ');
+        else inp.value += (inp.value && !/\s$/.test(inp.value) ? ' ' : '') + '@' + name + ' ';
+        close(); inp.focus();
+      }
+      inp.addEventListener('input', function () {
+        var m = inp.value.match(/(?:^|\s)@(\w*)$/);
+        if (m) { (filter(m[1]) ? open() : close()); } else close();
+      });
+      inp.addEventListener('keydown', function (e) {
+        if (!isOpen()) return;
+        var vis = items.filter(function (i) { return i.style.display !== 'none'; }),
+            cur = vis.findIndex(function (i) { return i.classList.contains('active'); });
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault(); if (cur >= 0) vis[cur].classList.remove('active');
+          var nx = e.key === 'ArrowDown' ? (cur + 1) % vis.length : (cur <= 0 ? vis.length - 1 : cur - 1);
+          vis[nx].classList.add('active');
+        } else if ((e.key === 'Enter' || e.key === 'Tab') && cur >= 0) { e.preventDefault(); insert(vis[cur].dataset.name); }
+        else if (e.key === 'Escape') { close(); }
+      });
+      pop.addEventListener('click', function (e) { var it = e.target.closest('.mention-item'); if (it) insert(it.dataset.name); });
+      if (atBtn) atBtn.addEventListener('click', function () {
+        if (isOpen()) { close(); return; }
+        if (!/@$/.test(inp.value)) inp.value += (inp.value && !/\s$/.test(inp.value) ? ' @' : '@');
+        filter(''); open(); inp.focus();
+      });
+      document.addEventListener('click', function (e) {
+        if (isOpen() && !pop.contains(e.target) && e.target !== inp && !(atBtn && atBtn.contains(e.target))) close();
+      });
+      if (location.hash === '#mention-open') { inp.value = 'Can you take this one @'; filter(''); open(); }
+    })();
+  </script>
+</body>
+</html>

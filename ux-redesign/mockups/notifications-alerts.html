@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alerts &amp; Notifications — Opzava</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="admin-nav.js" defer></script>
+  <style>
+    /* Page-specific layout only — no color, font-size, shadow, or radius overrides */
+    .notif-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+      gap: var(--space-4);
+      align-items: start;
+    }
+    /* Below 1000px the two panes stack so the rules table keeps full width. */
+    @media (max-width: 1000px) {
+      .notif-grid { grid-template-columns: 1fr; }
+    }
+    .notif-row {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-3);
+      padding: var(--space-4) var(--space-5);
+      border-bottom: 1px solid var(--border);
+    }
+    .notif-row:last-child {
+      border-bottom: 0;
+    }
+    .notif-row.unread {
+      background: var(--surface-2);
+    }
+    .notif-meta {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+      flex: 1;
+      min-width: 0;
+    }
+    .notif-title-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+    }
+    .notif-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      margin-top: var(--space-2);
+    }
+    .notif-time-col {
+      flex: none;
+      text-align: right;
+      min-width: 64px;
+    }
+    .notif-icon-col {
+      display: flex;
+      align-items: center;
+      padding-top: 2px;
+      flex: none;
+    }
+    .rule-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      border-bottom: 1px solid var(--border);
+    }
+    .rule-row:last-child {
+      border-bottom: 0;
+    }
+    .rule-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      flex: 1;
+      min-width: 0;
+    }
+    .rule-controls {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      flex: none;
+    }
+    .section-group {
+      padding: var(--space-2) var(--space-5) var(--space-1);
+    }
+    .header-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--surface-3);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      flex: none;
+      cursor: pointer;
+      font-weight: var(--fw-semibold);
+    }
+    .notif-btn-wrap {
+      position: relative;
+    }
+    .notif-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: var(--radius-full);
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      font-weight: var(--fw-semibold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .nav-section-gap {
+      margin-top: var(--space-2);
+    }
+    .page-stack {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+    }
+    .unread-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex: none;
+      margin-top: 6px;
+    }
+    .sev-critical { color: var(--danger); }
+    .sev-warning  { color: var(--warning); }
+    .sev-info     { color: var(--info); }
+    .sev-success  { color: var(--success); }
+    .channel-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+    }
+  </style>
+</head>
+<body>
+
+<!--
+  ARIA live regions — per spec finding notifications-alerts #1 (WCAG 4.1.3).
+  #notification-announcer: polite — new non-critical notifications.
+  #critical-announcer: assertive — critical severity alerts only.
+  Both are visually hidden (.u-sr-only); JS writes their text on each new event.
+-->
+<div role="status" aria-live="polite" aria-atomic="false" class="u-sr-only" id="notification-announcer"></div>
+<div role="alert"  aria-live="assertive" aria-atomic="true"  class="u-sr-only" id="critical-announcer"></div>
+
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       NAVIGATION RAIL — verbatim from shell-overview.html
+       "Alerts" item set to active; "Overview" active removed.
+  ══════════════════════════════════════════════════════════════════ -->
+  <aside class="rail" aria-label="Main navigation">
+
+    <!-- Logo / wordmark -->
+    <div class="rail-head">
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
+        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
+      </svg>
+      <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);letter-spacing:-.01em;">Opzava</span>
+      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
+    </div>
+
+    <!-- Nav groups -->
+    <nav class="rail-nav" aria-label="Application sections">
+      <a href="orchestrator-chat.html" class="rail-item" style="margin-bottom:4px;">
+        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
+        Ask Opzava
+        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
+      </a>
+      <div class="section-label">Operate</div>
+      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
+      <a href="agents.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
+      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
+      <a href="issues.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="9" r="1.75" fill="currentColor"/></svg> Issues <span class="count">12</span></a>
+      <a href="activity.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="4.5" cy="5" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="4.5" cy="12" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 12h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Activity</a>
+      <a href="messages-slack.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
+      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
+      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
+      <div class="section-label nav-section-gap">Observe</div>
+      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
+      <a href="logs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
+      <a href="costs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
+      <div class="section-label nav-section-gap">Automate</div>
+      <a href="connections.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="5" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><path d="M7.3 9h3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Connections <span class="dot dot-success dot-beat" style="margin-left:auto;" aria-label="all tools connected"></span></a>
+      <a href="automation.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M10 2.5 4.5 10H8l-1 5.5L13.5 8H10z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Automation <span class="count">4</span></a>
+      <div class="section-label nav-section-gap">Govern</div>
+      <a href="security-audit.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5l5 1.8v3.7c0 3.3-2.1 5.6-5 6.5-2.9-.9-5-3.2-5-6.5V4.3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Security &amp; Audit <span class="count" style="background:var(--danger-soft);color:var(--danger);">1</span></a>
+      <a href="memory-skills.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 2.5 6 9 9.5 15.5 6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M2.5 10 9 13.5 15.5 10" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Memory &amp; Skills</a>
+      <a href="notifications-alerts.html" class="rail-item" aria-current="page"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
+      <a href="settings.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
+      <a href="debug.html" class="rail-item u-subtle"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="3.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7.5 7.5 9.5 5.5 11.5M9.5 11.5h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Debug</a>
+      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+    </nav>
+
+    <!-- Rail footer: ⌘K quick jump -->
+    <div class="rail-foot">
+      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (⌘K)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-subtle u-grow">Jump to…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIN COLUMN
+  ══════════════════════════════════════════════════════════════════ -->
+  <div class="main-col">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="header">
+
+      <!-- Sidebar collapse -->
+      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <!-- Search -->
+      <div class="search" role="search">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-grow u-subtle">Search agents, tasks, runs…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </div>
+
+      <!-- Spacer -->
+      <div class="u-grow"></div>
+
+      <!-- Health pill -->
+      <div class="health-pill" aria-label="System health: All systems healthy">
+        <span class="dot dot-success" aria-hidden="true"></span>
+        All systems healthy
+      </div>
+
+      <!-- Live indicator -->
+      <div class="live-indicator" aria-label="Live connection active">
+        <span class="dot dot-success live" aria-hidden="true"></span>
+        <span>Live</span>
+      </div>
+
+      <!-- Notifications bell — aria-label includes unread count -->
+      <div class="notif-btn-wrap">
+        <a href="notifications-alerts.html" class="btn btn-ghost btn-icon" aria-label="Notifications, 5 unread">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </a>
+        <span class="notif-badge" aria-hidden="true">5</span>
+        <span class="u-sr-only">5 unread notifications</span>
+      </div>
+
+      <!-- Avatar -->
+      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu — Anthony G.">AG</div>
+
+    </header>
+
+    <!-- ── Main content ────────────────────────────────────────── -->
+    <main class="main">
+      <div class="page">
+        <div class="page-stack">
+
+          <!-- Page header -->
+          <div class="page-header">
+            <div>
+              <h1>Alerts &amp; notifications</h1>
+              <p class="page-sub">Severity-tiered notifications and configurable alert rules</p>
+            </div>
+            <button type="button" class="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+              Add alert rule
+            </button>
+          </div>
+
+          <!-- Two-column grid: notification center + alert rules -->
+          <div class="notif-grid">
+
+            <!-- ── LEFT: Notification center ───────────────────── -->
+            <section aria-labelledby="notif-center-heading">
+              <div class="card">
+                <div class="card-header">
+                  <h2 class="card-title" id="notif-center-heading">Notification center</h2>
+                  <div class="u-row">
+                    <span class="badge badge-danger">5 unread</span>
+                    <button type="button" class="btn btn-ghost btn-sm">Mark all read</button>
+                  </div>
+                </div>
+
+                <!-- Severity filter tabs -->
+                <div class="tabs" role="tablist" aria-label="Filter notifications by severity">
+                  <button role="tab" class="tab active" aria-selected="true"  id="tab-all"      aria-controls="notif-panel">All <span class="u-subtle u-mono" style="font-size:var(--text-xs);">(9)</span></button>
+                  <button role="tab" class="tab"        aria-selected="false" id="tab-critical"  aria-controls="notif-panel">Critical <span class="u-subtle u-mono" style="font-size:var(--text-xs);">(1)</span></button>
+                  <button role="tab" class="tab"        aria-selected="false" id="tab-warning"   aria-controls="notif-panel">Warning <span class="u-subtle u-mono" style="font-size:var(--text-xs);">(3)</span></button>
+                  <button role="tab" class="tab"        aria-selected="false" id="tab-info"      aria-controls="notif-panel">Info <span class="u-subtle u-mono" style="font-size:var(--text-xs);">(5)</span></button>
+                </div>
+
+                <!-- Notification list -->
+                <div role="list" id="notif-panel" aria-labelledby="tab-all">
+
+                  <!-- Section group: Today -->
+                  <div class="section-group">
+                    <span class="u-caps">Today</span>
+                  </div>
+
+                  <!-- 1. Critical — unread -->
+                  <div class="notif-row unread" role="listitem">
+                    <div class="unread-dot" aria-hidden="true"></div>
+                    <div class="notif-icon-col">
+                      <span class="badge badge-danger" aria-label="Critical severity">
+                        <!-- Diamond shape for critical — shape + color, not color alone -->
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                          <path d="M5 1L9 5L5 9L1 5Z" fill="currentColor"/>
+                        </svg>
+                        Critical
+                      </span>
+                    </div>
+                    <div class="notif-meta">
+                      <div class="notif-title-row">
+                        <span style="font-weight:var(--fw-semibold);">Agent research-bot exceeded $5.00 budget</span>
+                      </div>
+                      <p class="u-muted" style="font-size:var(--text-sm);">research-bot consumed $5.42 against a $5.00 daily cap — all tasks paused until reset.</p>
+                      <div class="notif-actions">
+                        <a href="#" class="btn btn-sm btn-ghost">View agent</a>
+                        <a href="#" class="btn btn-sm btn-ghost">Adjust budget</a>
+                      </div>
+                    </div>
+                    <div class="notif-time-col">
+                      <span class="u-subtle" style="font-size:var(--text-xs);">2 min ago</span>
+                    </div>
+                  </div>
+
+                  <!-- 2. Warning — unread -->
+                  <div class="notif-row unread" role="listitem">
+                    <div class="unread-dot" aria-hidden="true"></div>
+                    <div class="notif-icon-col">
+                      <span class="badge badge-warning" aria-label="Warning severity">
+                        <!-- Triangle for warning -->
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                          <path d="M5 1.5L9 8.5H1L5 1.5Z" fill="currentColor"/>
+                        </svg>
+                        Warning
+                      </span>
+                    </div>
+                    <div class="notif-meta">
+                      <div class="notif-title-row">
+                        <span style="font-weight:var(--fw-semibold);">Echo agent went offline — gateway timeout</span>
+                      </div>
+                      <p class="u-muted" style="font-size:var(--text-sm);">Echo (Content dept) lost its gateway connection at 10:41:20. Last heartbeat: 14 min ago.</p>
+                      <div class="notif-actions">
+                        <a href="#" class="btn btn-sm btn-ghost">View agent</a>
+                        <a href="#" class="btn btn-sm btn-ghost">Check gateway</a>
+                      </div>
+                    </div>
+                    <div class="notif-time-col">
+                      <span class="u-subtle" style="font-size:var(--text-xs);">14 min ago</span>
+                    </div>
+                  </div>
+
+                  <!-- 3. Warning — unread -->
+                  <div class="notif-row unread" role="listitem">
+                    <div class="unread-dot" aria-hidden="true"></div>
+                    <div class="notif-icon-col">
+                      <span class="badge badge-warning" aria-label="Warning severity">
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                          <path d="M5 1.5L9 8.5H1L5 1.5Z" fill="currentColor"/>
+                        </svg>
+                        Warning
+                      </span>
+                    </div>
+                    <div class="notif-meta">
+                      <div class="notif-title-row">
+                        <span style="font-weight:var(--fw-semibold);">Daily spend at 80% — $40.20 of $50.00 used</span>
+                      </div>
+                      <p class="u-muted" style="font-size:var(--text-sm);">At the current run rate, the daily budget will be exhausted in approximately 2 hours.</p>
+                      <div class="notif-actions">
+                        <a href="#" class="btn btn-sm btn-ghost">Review spend</a>
+                      </div>
+                    </div>
+                    <div class="notif-time-col">
+                      <span class="u-subtle" style="font-size:var(--text-xs);">38 min ago</span>
+                    </div>
+                  </div>
+
+                  <!-- 4. Info — unread -->
+                  <div class="notif-row unread" role="listitem">
+                    <div class="unread-dot" aria-hidden="true"></div>
+                    <div class="notif-icon-col">
+                      <span class="badge badge-info" aria-label="Info severity">
+                        <!-- Circle for info -->
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                          <circle cx="5" cy="5" r="4" fill="currentColor"/>
+                        </svg>
+                        Info
+                      </span>
+                    </div>
+                    <div class="notif-meta">
+                      <div class="notif-title-row">
+                        <span style="font-weight:var(--fw-semibold);">Task #TASK-441 completed by Atlas-7</span>
+                      </div>
+                      <p class="u-muted" style="font-size:var(--text-sm);">"Summarize Q2 earnings report for board deck" finished in 4m 12s — output saved to artifacts.</p>
+                      <div class="notif-actions">
+                        <a href="#" class="btn btn-sm btn-ghost">View task</a>
+                        <button type="button" class="btn btn-sm btn-ghost">Dismiss</button>
+                      </div>
+                    </div>
+                    <div class="notif-time-col">
+                      <span class="u-subtle" style="font-size:var(--text-xs);">1 hr ago</span>
+                    </div>
+                  </div>
+
+                  <!-- 5. Info — unread -->
+                  <div class="notif-row unread" role="listitem">
+                    <div class="unread-dot" aria-hidden="true"></div>
+                    <div class="notif-icon-col">
+                      <span class="badge badge-info" aria-label="Info severity">
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                          <circle cx="5" cy="5" r="4" fill="currentColor"/>
+                        </svg>
+                        Info
+                      </span>
+                    </div>
+                    <div class="notif-meta">
+                      <div class="notif-title-row">
+                        <span style="font-weight:var(--fw-semibold);">Opzava v2.1.4 is available</span>
+                      </div>
+                      <p class="u-muted" style="font-size:var(--text-sm);">New features: improved cost tracking, faster task routing, and SSE reconnect hardening. You're on v2.1.3.</p>
+                      <div class="notif-actions">
+                        <a href="#" class="btn btn-sm btn-ghost">View changelog</a>
+                        <button type="button" class="btn btn-sm btn-primary">Update now</button>
+                      </div>
+                    </div>
+                    <div class="notif-time-col">
+                      <span class="u-subtle" style="font-size:var(--text-xs);">3 hr ago</span>
+                    </div>
+                  </div>
+
+                  <!-- Section group: Earlier -->
+                  <div class="section-group" style="margin-top:var(--space-1);">
+                    <span class="u-caps">Earlier</span>
+                  </div>
+
+                  <!-- 6. Success — read -->
+                  <div class="notif-row" role="listitem">
+                    <div style="width:8px;flex:none;"></div><!-- read — no dot -->
+                    <div class="notif-icon-col">
+                      <span class="badge badge-success" aria-label="Success">
+                        <!-- Checkmark for success -->
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                          <path d="M2 5.5L4.5 8L8 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Done
+                      </span>
+                    </div>
+                    <div class="notif-meta">
+                      <div class="notif-title-row">
+                        <span style="font-weight:var(--fw-semibold);">Campaign "Q3 Social Blast" published successfully</span>
+                      </div>
+                      <p class="u-muted" style="font-size:var(--text-sm);">12 posts scheduled across LinkedIn and X. Next post goes out at 14:00 UTC.</p>
+                      <div class="notif-actions">
+                        <a href="#" class="btn btn-sm btn-ghost">View campaign</a>
+                      </div>
+                    </div>
+                    <div class="notif-time-col">
+                      <span class="u-subtle" style="font-size:var(--text-xs);">Yesterday</span>
+                    </div>
+                  </div>
+
+                  <!-- 7. Warning — read -->
+                  <div class="notif-row" role="listitem">
+                    <div style="width:8px;flex:none;"></div>
+                    <div class="notif-icon-col">
+                      <span class="badge badge-warning" aria-label="Warning severity">
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                          <path d="M5 1.5L9 8.5H1L5 1.5Z" fill="currentColor"/>
+                        </svg>
+                        Warning
+                      </span>
+                    </div>
+                    <div class="notif-meta">
+                      <div class="notif-title-row">
+                        <span style="font-weight:var(--fw-semibold);">Nexus-3 retried tool call web_search 3 times</span>
+                      </div>
+                      <p class="u-muted" style="font-size:var(--text-sm);">Third attempt succeeded. Review search query phrasing in Nexus-3's task config to reduce retries.</p>
+                    </div>
+                    <div class="notif-time-col">
+                      <span class="u-subtle" style="font-size:var(--text-xs);">Yesterday</span>
+                    </div>
+                  </div>
+
+                  <!-- Empty state — demonstrated for filter with no results -->
+                  <!-- Shown as a comment-documented pattern; rendered visually hidden so the list has realistic items -->
+                  <!-- In production this replaces the list when a filter returns zero items: -->
+                  <!--
+                  <div class="empty" role="status" aria-live="polite">
+                    <div class="empty-icon" aria-hidden="true">🔔</div>
+                    <p class="empty-title">No critical alerts</p>
+                    <p class="empty-desc">Everything looks healthy. Critical notifications will appear here when they occur.</p>
+                  </div>
+                  -->
+
+                </div><!-- /role="list" -->
+
+                <!-- Skeleton loading state — shown while notifications fetch (data-loading on parent) -->
+                <div aria-label="Loading notifications" style="display:none;" class="card-body u-col-4">
+                  <div class="skeleton sk-line" style="width:90%"></div>
+                  <div class="skeleton sk-line" style="width:75%"></div>
+                  <div class="skeleton sk-line" style="width:85%"></div>
+                  <div class="skeleton sk-line" style="width:60%"></div>
+                </div>
+
+                <!-- Empty state (zero notifications) -->
+                <!-- Demonstrated as a clearly-commented fallback for the "All" tab with no data -->
+                <div class="empty" role="status" aria-live="polite" style="display:none;">
+                  <div class="empty-icon" aria-hidden="true">🔔</div>
+                  <p class="empty-title">All caught up</p>
+                  <p class="empty-desc">No notifications to show. New alerts and events will appear here as they occur.</p>
+                </div>
+
+                <!-- Error state -->
+                <div class="error-state" role="alert" style="display:none;">
+                  <div class="empty-icon" aria-hidden="true">⚠</div>
+                  <p class="empty-title">Could not load notifications</p>
+                  <p class="empty-desc">There was a problem fetching your notification history.</p>
+                  <div class="empty-cta">
+                    <button type="button" class="btn">Retry</button>
+                  </div>
+                </div>
+
+              </div>
+            </section><!-- /notification center -->
+
+            <!-- ── RIGHT: Alert rules ──────────────────────────── -->
+            <section aria-labelledby="alert-rules-heading">
+              <div class="card">
+                <div class="card-header">
+                  <h2 class="card-title" id="alert-rules-heading">Alert rules</h2>
+                  <button type="button" class="btn btn-sm">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    Add rule
+                  </button>
+                </div>
+
+                <!-- Rules table -->
+                <table class="table" aria-label="Configured alert rules">
+                  <caption class="u-sr-only">Alert rules — Rule name, condition, severity, delivery channel, and enabled status</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Rule</th>
+                      <th scope="col">Condition</th>
+                      <th scope="col">Severity</th>
+                      <th scope="col">Channel</th>
+                      <th scope="col" style="text-align:center;">Enabled</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+
+                    <!-- Rule 1: Agent offline — enabled -->
+                    <tr>
+                      <td>
+                        <span style="font-weight:var(--fw-medium);">Agent offline</span>
+                      </td>
+                      <td>
+                        <code class="u-mono u-subtle" style="font-size:var(--text-xs);">agent.status = offline</code>
+                      </td>
+                      <td>
+                        <span class="badge badge-warning" aria-label="Warning severity">
+                          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                            <path d="M5 1.5L9 8.5H1L5 1.5Z" fill="currentColor"/>
+                          </svg>
+                          Warning
+                        </span>
+                      </td>
+                      <td>
+                        <span class="channel-tag" aria-label="Slack channel">
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                            <rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1"/>
+                          </svg>
+                          Slack
+                        </span>
+                      </td>
+                      <td style="text-align:center;">
+                        <button
+                          type="button"
+                          class="switch on"
+                          role="switch"
+                          aria-checked="true"
+                          aria-label="Enable rule: Agent offline"
+                          style="margin:0 auto;">
+                        </button>
+                      </td>
+                    </tr>
+
+                    <!-- Rule 2: Budget threshold — enabled -->
+                    <tr>
+                      <td>
+                        <span style="font-weight:var(--fw-medium);">Budget threshold</span>
+                      </td>
+                      <td>
+                        <code class="u-mono u-subtle" style="font-size:var(--text-xs);">cost.daily &gt; 80% of cap</code>
+                      </td>
+                      <td>
+                        <span class="badge badge-warning" aria-label="Warning severity">
+                          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                            <path d="M5 1.5L9 8.5H1L5 1.5Z" fill="currentColor"/>
+                          </svg>
+                          Warning
+                        </span>
+                      </td>
+                      <td>
+                        <span class="channel-tag" aria-label="Email channel">
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                            <rect x="1" y="2.5" width="10" height="7" rx="1" stroke="currentColor" stroke-width="1"/>
+                            <path d="M1 4l5 3 5-3" stroke="currentColor" stroke-width="1"/>
+                          </svg>
+                          Email
+                        </span>
+                      </td>
+                      <td style="text-align:center;">
+                        <button
+                          type="button"
+                          class="switch on"
+                          role="switch"
+                          aria-checked="true"
+                          aria-label="Enable rule: Budget threshold"
+                          style="margin:0 auto;">
+                        </button>
+                      </td>
+                    </tr>
+
+                    <!-- Rule 3: Agent budget exceeded — enabled, critical -->
+                    <tr>
+                      <td>
+                        <span style="font-weight:var(--fw-medium);">Agent budget exceeded</span>
+                      </td>
+                      <td>
+                        <code class="u-mono u-subtle" style="font-size:var(--text-xs);">agent.cost &gt; agent.budget</code>
+                      </td>
+                      <td>
+                        <span class="badge badge-danger" aria-label="Critical severity">
+                          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                            <path d="M5 1L9 5L5 9L1 5Z" fill="currentColor"/>
+                          </svg>
+                          Critical
+                        </span>
+                      </td>
+                      <td>
+                        <span class="channel-tag" aria-label="Slack and email channels">
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                            <rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1"/>
+                          </svg>
+                          Slack + Email
+                        </span>
+                      </td>
+                      <td style="text-align:center;">
+                        <button
+                          type="button"
+                          class="switch on"
+                          role="switch"
+                          aria-checked="true"
+                          aria-label="Enable rule: Agent budget exceeded"
+                          style="margin:0 auto;">
+                        </button>
+                      </td>
+                    </tr>
+
+                    <!-- Rule 4: Task failure spike — disabled -->
+                    <tr>
+                      <td>
+                        <span style="font-weight:var(--fw-medium);">Task failure spike</span>
+                      </td>
+                      <td>
+                        <code class="u-mono u-subtle" style="font-size:var(--text-xs);">tasks.failed &gt; 5 in 10 min</code>
+                      </td>
+                      <td>
+                        <span class="badge badge-danger" aria-label="Critical severity">
+                          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                            <path d="M5 1L9 5L5 9L1 5Z" fill="currentColor"/>
+                          </svg>
+                          Critical
+                        </span>
+                      </td>
+                      <td>
+                        <span class="channel-tag" aria-label="Slack channel">
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                            <rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1"/>
+                          </svg>
+                          Slack
+                        </span>
+                      </td>
+                      <td style="text-align:center;">
+                        <!-- Disabled switch — off state -->
+                        <button
+                          type="button"
+                          class="switch"
+                          role="switch"
+                          aria-checked="false"
+                          aria-label="Enable rule: Task failure spike (currently disabled)"
+                          style="margin:0 auto;">
+                        </button>
+                      </td>
+                    </tr>
+
+                  </tbody>
+                </table>
+
+                <div class="card-footer">
+                  <p class="u-subtle" style="font-size:var(--text-xs);">
+                    Alert delivery uses the channels configured in
+                    <a href="settings.html">Settings → Integrations</a>.
+                    Recipient address is taken from your account — no manual entry required.
+                  </p>
+                </div>
+              </div>
+
+              <!-- Skeleton for rules table — loading state -->
+              <div aria-label="Loading alert rules" style="display:none;margin-top:var(--space-4);" class="card">
+                <div class="card-body u-col-4">
+                  <div class="skeleton sk-line" style="width:95%"></div>
+                  <div class="skeleton sk-line" style="width:80%"></div>
+                  <div class="skeleton sk-line" style="width:88%"></div>
+                  <div class="skeleton sk-line" style="width:70%"></div>
+                </div>
+              </div>
+
+            </section><!-- /alert rules -->
+
+          </div><!-- /notif-grid -->
+
+        </div><!-- /page-stack -->
+      </div><!-- /page -->
+    </main>
+
+  </div><!-- /main-col -->
+</div><!-- /app -->
+
+<!-- ══════════════════════════════════════════════════════════════
+     TOAST STACK — fixed bottom-right, z-index: --z-toast (500)
+
+     aria-live usage:
+       .toast-success / .toast-info use role="status" aria-live="polite"
+         — non-critical, doesn't interrupt the user mid-task.
+       .toast-warning / .toast-danger use role="alert" aria-live="assertive"
+         — demands immediate attention; interrupts AT reading flow.
+
+     Each toast has a dismiss button with a clear aria-label.
+     Toasts stack newest-on-top; oldest auto-dismiss after 7s (paused on hover).
+     If multiple agents fail simultaneously, they are deduplicated into one toast
+     reading "N agents errored — View details" (not N separate toasts).
+══════════════════════════════════════════════════════════════════ -->
+<div class="toast-stack" aria-label="Live notifications">
+
+  <!-- Toast 1: Success (polite) — task completed -->
+  <div class="toast toast-success" role="status" aria-live="polite">
+    <div class="u-col-2 u-grow">
+      <div class="u-between">
+        <div class="u-row">
+          <span class="dot dot-success" aria-hidden="true"></span>
+          <span class="toast-title">Task completed</span>
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Dismiss: Task completed notification" style="height:24px;width:24px;padding:0;margin-left:var(--space-2);">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <p class="toast-msg">Atlas-7 finished "Summarize Q2 report" in 4m 12s.</p>
+    </div>
+  </div>
+
+  <!-- Toast 2: Warning (assertive) — budget approaching cap -->
+  <div class="toast toast-warning" role="alert" aria-live="assertive">
+    <div class="u-col-2 u-grow">
+      <div class="u-between">
+        <div class="u-row">
+          <span class="dot dot-warning" aria-hidden="true"></span>
+          <span class="toast-title">Budget at 80%</span>
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Dismiss: Budget warning notification" style="height:24px;width:24px;padding:0;margin-left:var(--space-2);">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <p class="toast-msg">$40.20 of $50.00 daily budget used. At this rate, cap reached in ~2 hrs.</p>
+      <div style="margin-top:var(--space-2);">
+        <a href="#" class="btn btn-sm btn-ghost">Review spend</a>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /toast-stack -->
+
+</body>
+</html>

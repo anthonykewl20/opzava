@@ -1,0 +1,433 @@
+/* ============================================================================
+ * Opzava — Component Library  (UX redesign proposal)
+ * Minimalist primitives built on tokens.css. One primary action per region,
+ * 15px floor, restrained motion, no glow/glass. Components sit in @layer
+ * components so single-class utilities always win the cascade.
+ * Canonical class contract used by every mockup.
+ * ========================================================================== */
+
+@layer components {
+  /* ── App shell ────────────────────────────────────────────────────────────── */
+  .app { display: grid; grid-template-columns: var(--rail-w) 1fr; height: 100vh; overflow: hidden; }
+  .app.is-collapsed { grid-template-columns: var(--rail-w-collapsed) 1fr; }
+  .rail { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border-right: 1px solid var(--border); }
+  .rail-head { display: flex; align-items: center; gap: var(--space-2); height: var(--header-h); padding: 0 var(--space-3); border-bottom: 1px solid var(--border); }
+  .rail-logo { width: 26px; height: 26px; border-radius: var(--radius-md); flex: none; }
+  .rail-nav { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-2); display: flex; flex-direction: column; gap: 2px; }
+  .rail-foot { padding: var(--space-2); border-top: 1px solid var(--border); }
+  .section-label { padding: var(--space-3) var(--space-2) var(--space-1); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); }
+  .rail-item { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 36px; padding: 7px 10px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font: inherit; font-size: var(--text-sm); text-align: left; text-decoration: none; cursor: pointer; }
+  .rail-item:hover { background: var(--surface-2); color: var(--fg); }
+  .rail-item.active, .rail-item[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: var(--fw-medium); }
+  .rail-item .ico { width: 18px; height: 18px; flex: none; }
+  .rail-item .count { margin-left: auto; min-width: 20px; text-align: center; font-size: var(--text-xs); font-variant-numeric: tabular-nums; padding: 1px 6px; border-radius: var(--radius-full); background: var(--surface-3); color: var(--fg-muted); }
+
+  /* ── Main column + header ─────────────────────────────────────────────────── */
+  .main-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .header { display: flex; align-items: center; gap: var(--space-3); height: var(--header-h); padding: 0 var(--space-4); background: var(--surface); border-bottom: 1px solid var(--border); }
+  .main { flex: 1; min-height: 0; overflow-y: auto; }
+  .page { padding: var(--space-6); max-width: 1240px; margin: 0 auto; }
+  .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-5); }
+  .page-title { font-size: var(--text-xl); }
+  .page-sub { margin-top: 2px; color: var(--fg-muted); font-size: var(--text-sm); }
+
+  /* ── Search / command hint ────────────────────────────────────────────────── */
+  .search { flex: 1; max-width: 540px; display: flex; align-items: center; gap: var(--space-2); height: 34px; padding: 0 var(--space-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--fg-subtle); font-size: var(--text-sm); cursor: text; }
+  .kbd { font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1; padding: 3px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--fg-muted); background: var(--surface); }
+
+  /* ── Cards ────────────────────────────────────────────────────────────────── */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  .card-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
+  .card-title { font-size: var(--text-base); font-weight: var(--fw-semibold); }
+  .card-body { padding: var(--space-5); }
+  .card-footer { padding: var(--space-4) var(--space-5); border-top: 1px solid var(--border); }
+
+  /* ── Buttons — exactly one .btn-primary per region ────────────────────────── */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); height: 36px; padding: 0 var(--space-4); font: inherit; font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-md); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard); }
+  .btn:hover { background: var(--surface-3); }
+  .btn-primary { color: var(--accent-fg); background: var(--accent); border-color: var(--accent); }
+  .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .btn-ghost { color: var(--fg-muted); background: none; border-color: transparent; }
+  .btn-ghost:hover { color: var(--fg); background: var(--surface-2); }
+  .btn-danger { color: var(--danger); background: var(--danger-soft); border-color: transparent; }
+  .btn-danger:hover { color: #fff; background: var(--danger); }
+  .btn-sm { height: 30px; padding: 0 var(--space-3); }
+  .btn-icon { width: 36px; padding: 0; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ── Forms ────────────────────────────────────────────────────────────────── */
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .label { font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg); }
+  .hint { font-size: var(--text-xs); color: var(--fg-subtle); }
+  .input, .select, .textarea { width: 100%; height: 38px; padding: 0 var(--space-3); font: inherit; font-size: var(--text-sm); color: var(--fg); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-md); }
+  .textarea { height: auto; min-height: 88px; padding: var(--space-3); resize: vertical; }
+  .input::placeholder, .textarea::placeholder { color: var(--fg-subtle); }
+  .input:focus, .select:focus, .textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .switch { width: 38px; height: 22px; border-radius: var(--radius-full); background: var(--surface-3); border: 1px solid var(--border-strong); position: relative; cursor: pointer; flex: none; }
+  .switch.on { background: var(--accent); border-color: var(--accent); }
+  .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--fg); transition: transform var(--dur-fast) var(--ease-standard); }
+  .switch.on::after { transform: translateX(16px); background: var(--accent-fg); }
+
+  /* ── Badges / status ──────────────────────────────────────────────────────── */
+  .badge { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; font-size: var(--text-xs); font-weight: var(--fw-medium); white-space: nowrap; border-radius: var(--radius-full); color: var(--fg-muted); background: var(--surface-3); }
+  .badge-success { color: var(--success); background: var(--success-soft); }
+  .badge-warning { color: var(--warning); background: var(--warning-soft); }
+  .badge-danger  { color: var(--danger);  background: var(--danger-soft); }
+  .badge-info    { color: var(--info);    background: var(--info-soft); }
+  .badge-accent  { color: var(--accent);  background: var(--accent-soft); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--fg-subtle); }
+  .dot-success { background: var(--success); } .dot-warning { background: var(--warning); }
+  .dot-danger { background: var(--danger); } .dot-accent { background: var(--accent); }
+  .live { position: relative; }
+  .live::before { content: ''; position: absolute; inset: -3px; border-radius: 50%; background: var(--success); opacity: .4; animation: ping 1.8s var(--ease-standard) infinite; }
+  @keyframes ping { 0% { transform: scale(.6); opacity: .5; } 100% { transform: scale(2.4); opacity: 0; } }
+
+  /* ── Stat / KPI ───────────────────────────────────────────────────────────── */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(184px, 1fr)); gap: var(--space-3); }
+  .stat { padding: var(--space-4) var(--space-5); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  .stat-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); }
+  .stat-value { margin-top: 6px; font-size: var(--text-2xl); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
+  .stat-delta { margin-top: 4px; font-size: var(--text-xs); display: inline-flex; gap: 4px; }
+  .up { color: var(--success); } .down { color: var(--danger); }
+
+  /* ── Table ────────────────────────────────────────────────────────────────── */
+  .table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+  .table th { height: 36px; padding: 0 var(--space-4); text-align: left; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .04em; font-weight: var(--fw-semibold); color: var(--fg-subtle); border-bottom: 1px solid var(--border); }
+  .table td { height: var(--row-comfortable); padding: 0 var(--space-4); color: var(--fg); border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .table tbody tr:hover { background: var(--surface-2); }
+  .table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .table-compact td { height: var(--row-compact); }
+
+  /* ── Tabs ─────────────────────────────────────────────────────────────────── */
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); }
+  .tab { appearance: none; margin-bottom: -1px; padding: 10px var(--space-4); font: inherit; font-size: var(--text-sm); color: var(--fg-muted); background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer; }
+  .tab:hover { color: var(--fg); }
+  .tab.active, .tab[aria-selected="true"] { color: var(--fg); font-weight: var(--fw-medium); border-bottom-color: var(--accent); }
+
+  /* ── Banner (consolidated — at most ONE visible) ──────────────────────────── */
+  .banner { display: flex; align-items: center; gap: var(--space-3); padding: 10px var(--space-4); font-size: var(--text-sm); background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius-md); }
+  .banner-info { border-left-color: var(--info); }
+  .banner-warning { border-left-color: var(--warning); }
+  .banner-danger { border-left-color: var(--danger); }
+
+  /* ── Toast ────────────────────────────────────────────────────────────────── */
+  .toast-stack { position: fixed; right: var(--space-5); bottom: var(--space-5); z-index: var(--z-toast); width: 360px; max-width: calc(100vw - 2 * var(--space-5)); display: flex; flex-direction: column; gap: var(--space-2); }
+  .toast { display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--surface-2); border: 1px solid var(--border-strong); border-left: 3px solid var(--accent); border-radius: var(--radius-md); box-shadow: var(--shadow-md); }
+  .toast-success { border-left-color: var(--success); }
+  .toast-warning { border-left-color: var(--warning); }
+  .toast-danger { border-left-color: var(--danger); }
+  .toast-info { border-left-color: var(--info); }
+  .toast-title { font-size: var(--text-sm); font-weight: var(--fw-semibold); }
+  .toast-msg { margin-top: 2px; font-size: var(--text-xs); color: var(--fg-muted); }
+
+  /* ── Health pill (global aggregate) ───────────────────────────────────────── */
+  .health-pill { display: inline-flex; align-items: center; gap: var(--space-2); height: 30px; padding: 0 var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); border: 1px solid var(--border); border-radius: var(--radius-full); cursor: pointer; }
+
+  /* ── Skeleton (loading) ───────────────────────────────────────────────────── */
+  .skeleton { position: relative; overflow: hidden; background: var(--surface-2); border-radius: var(--radius-sm); }
+  .skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, var(--surface-3), transparent); animation: shimmer 1.4s infinite; }
+  @keyframes shimmer { 100% { transform: translateX(100%); } }
+  .sk-line { height: 12px; margin: 8px 0; }
+
+  /* ── Empty / error states ─────────────────────────────────────────────────── */
+  .empty, .error-state { padding: var(--space-10) var(--space-6); text-align: center; color: var(--fg-muted); }
+  .empty-icon { font-size: 26px; opacity: .55; }
+  .empty-title { margin-top: var(--space-3); font-size: var(--text-base); font-weight: var(--fw-semibold); color: var(--fg); }
+  .empty-desc { margin-top: 6px; font-size: var(--text-sm); color: var(--fg-muted); }
+  .empty-cta { margin-top: var(--space-4); }
+
+  /* ── Progress ─────────────────────────────────────────────────────────────── */
+  .progress { height: 6px; overflow: hidden; background: var(--surface-3); border-radius: var(--radius-full); }
+  .progress > i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+
+  /* ── Drawer / modal scrim (minimal) ───────────────────────────────────────── */
+  .scrim { position: fixed; inset: 0; z-index: var(--z-modal); background: hsl(220 50% 2% / .55); display: flex; }
+  .drawer { margin-left: auto; width: 440px; max-width: 92vw; height: 100%; background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; }
+  .modal { margin: auto; width: 480px; max-width: 92vw; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); }
+
+  /* ── Chat / conversation (Ask Opzava · Project Assistant · Team room) ──────── */
+  /* AI vs human is NEVER a second hue: AI uses sb-avatar--ai (✦ glyph), humans   */
+  /* use plain sb-avatar circles. --accent is reserved for unread/active/primary. */
+  .chat-log { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); }
+  .chat-row { display: flex; gap: var(--space-3); max-width: 720px; align-items: flex-start; }
+  .chat-row--user { margin-left: auto; flex-direction: row-reverse; }
+  .chat-stack { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+  .chat-meta { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--fg-subtle); }
+  .chat-meta strong { color: var(--fg); font-size: var(--text-sm); font-weight: var(--fw-semibold); }
+  .chat-time { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .chat-bubble { padding: 10px var(--space-4); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); font-size: var(--text-sm); line-height: var(--lh-normal); color: var(--fg); }
+  .chat-bubble--user { background: var(--accent-soft); border-color: var(--accent-border); }
+  .chat-status-pill { display: inline-flex; align-items: center; gap: var(--space-2); align-self: flex-start; padding: 4px 11px; font-size: var(--text-xs); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); }
+  /* collapsible tool_call / action card inside a thread */
+  .chat-tool-card { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); overflow: hidden; max-width: 560px; }
+  .chat-tool-head { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: 8px var(--space-3); font: inherit; font-size: var(--text-sm); color: var(--fg); background: none; border: 0; text-align: left; cursor: pointer; }
+  .chat-tool-head:hover { background: var(--surface-2); }
+  .chat-tool-head .tname { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-muted); }
+  .chat-tool-body { padding: var(--space-3); border-top: 1px solid var(--border); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-muted); white-space: pre-wrap; line-height: var(--lh-normal); }
+  .composer { display: flex; align-items: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); background: var(--surface); }
+  .composer .textarea { min-height: 40px; max-height: 160px; }
+
+  /* ── Messaging (Slack-style channels / DMs / team room / inbox) ───────────── */
+  .msg { display: flex; gap: var(--space-3); padding: 6px var(--space-2); border-radius: var(--radius-md); }
+  .msg:hover { background: var(--surface-2); }
+  .msg-body { min-width: 0; flex: 1; }
+  .msg-head { display: flex; align-items: baseline; gap: var(--space-2); }
+  .msg-author { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+  .msg-time { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-subtle); }
+  .msg-text { font-size: var(--text-sm); line-height: var(--lh-normal); color: var(--fg); }
+  .msg-divider { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-3) 0; font-size: var(--text-xs); color: var(--fg-subtle); }
+  .msg-divider::before, .msg-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .reaction-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .reaction { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; font-size: var(--text-xs); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); cursor: pointer; }
+  .reaction.is-on { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); }
+  /* channel / DM list row (Slack left pane) */
+  .chan { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 32px; padding: 5px 10px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer; }
+  .chan:hover { background: var(--surface-2); color: var(--fg); }
+  .chan.active { background: var(--accent-soft); color: var(--accent); font-weight: var(--fw-medium); }
+  .chan .gly { width: 16px; text-align: center; flex: none; color: var(--fg-subtle); }
+  .chan.active .gly { color: var(--accent); }
+  .chan-unread { font-weight: var(--fw-semibold); color: var(--fg); }
+  .chan .count { margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; font-size: var(--text-xs); font-variant-numeric: tabular-nums; text-align: center; line-height: 18px; border-radius: var(--radius-full); background: var(--accent); color: var(--accent-fg); }
+
+  /* ── Presence (humans only — never applied to AI senders) ─────────────────── */
+  .presence-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: transparent; border: 1.5px solid var(--fg-subtle); }
+  .presence-dot.is-online { background: var(--success); border-color: var(--success); }
+  .presence-dot.is-away { background: var(--warning); border-color: var(--warning); }
+  .presence-dot.is-offline { background: transparent; border-color: var(--fg-subtle); }
+
+  /* ── Measurable bar (promoted from the Performance page; shared by goals) ──── */
+  /* One accent for every bar — health is read from the number + status word +
+     trend glyph, NEVER from a bar hue. The fill is ALWAYS var(--accent). */
+  .perf-bar { display: flex; align-items: center; gap: var(--space-3); }
+  .perf-bar-track { flex: 1 1 120px; height: 6px; background: var(--surface-3); border-radius: var(--radius-full); overflow: hidden; min-width: 80px; }
+  .perf-bar-fill { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width 0.3s var(--ease-standard); }
+  .perf-pct { font-size: var(--text-sm); color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 3.5ch; }
+  .trend-up   { color: var(--fg); font-size: var(--text-base); font-weight: var(--fw-semibold); }
+  .trend-down { color: var(--fg-muted); font-size: var(--text-base); }
+
+  /* ── SMART Goal (doc 13) ───────────────────────────────────────────────────── */
+  /* The primary-goal banner pinned under the project header (the share-upfront
+     north star). A .card; only the ONE goal that needs you takes the accent edge. */
+  .proj-goal { display: block; margin-bottom: var(--space-6); }
+  .proj-goal--needs { border-left: 3px solid var(--accent); }
+  .goal-mrow { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+  .goal-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .goal-val .cur { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); }
+  .goal-val .tgt { font-size: var(--text-sm); color: var(--fg-muted); }
+  /* Goal-card footer disclosure (calm, the Discovery collapsed-footer pattern) */
+  .goal-more { font-size: var(--text-sm); color: var(--fg-muted); cursor: pointer; list-style: none; }
+  .goal-more::-webkit-details-marker { display: none; }
+
+  /* ── Add-a-card tile (doc 13 consensus) ────────────────────────────────────── */
+  /* The shared, always-visible dashed tile that is the FINAL child of every
+     project workspace's primary .tool-grid — opens the add-a-card picker. A quiet
+     ghost (no fill, dashed, --fg-muted) so it spends ZERO accent budget; the
+     header's solid "＋ New {item}" pill is a different altitude + form. align-self:
+     stretch matches sibling card height even under .tool-grid{align-items:start}.
+     Use as <a class="card tile--add" href="essential-add-card.html">. */
+  .tile--add { display: flex; align-items: center; justify-content: center; gap: var(--space-2); align-self: stretch; min-height: 118px; border: 1px dashed var(--border-strong); background: none; color: var(--fg-muted); font-weight: var(--fw-medium); text-decoration: none; transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard); }
+  .tile--add:hover { background: var(--surface-2); color: var(--fg); border-color: var(--fg-subtle); }
+
+  /* ── Motion primitives — the "living system" (typing · health · entrance · status) ── */
+  /* The admin signature: ONE calm "the fleet is alive" register. Animate transform/
+     opacity only (compositor-safe, zero CLS); every animation here is auto-curbed by
+     the universal prefers-reduced-motion reset in tokens.css. Motion is additive —
+     AI-vs-human stays glyph-not-hue, status stays label-not-hue, never motion alone. */
+
+  /* 1 · Typing — "Atlas is thinking…" (three dots); a chat element */
+  .chat-typing { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; padding: 12px var(--space-4); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  .chat-typing > i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-subtle); animation: typing-bounce 1.2s var(--ease-standard) infinite; }
+  .chat-typing > i:nth-child(2) { animation-delay: .16s; }
+  .chat-typing > i:nth-child(3) { animation-delay: .32s; }
+  @keyframes typing-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+  /* 2 · Health — a heartbeat ring on a watched indicator + a smooth colour transition
+     when status changes. Health is read from the WORD; the beat says "being watched". */
+  .dot { transition: background var(--dur-base) var(--ease-standard); }
+  .dot-beat, .dot.is-running { position: relative; }
+  .dot-beat::after, .dot.is-running::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: inherit; animation: heartbeat 2s var(--ease-standard) infinite; }
+  @keyframes heartbeat { 0% { transform: scale(1); opacity: .5; } 70%, 100% { transform: scale(2.5); opacity: 0; } }
+  /* one-shot attention when a status flips to bad — toggle .just-changed on transition */
+  .just-changed { animation: attn 1.4s var(--ease-emphasized) 2; }
+  @keyframes attn { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+
+  /* 3 · Entrance — toasts & banners slide + fade in once, on appear */
+  .toast, .banner { animation: enter-y var(--dur-base) var(--ease-emphasized) both; }
+  @keyframes enter-y { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+  /* 4 · Status — a Running task/agent reuses the same heartbeat ring (idle & done stay
+     calm). One ring primitive, two semantics; the dot's own class supplies the colour. */
+
+  @media (max-width: 860px) {
+    body.nav-locked { overflow: hidden; }
+
+    body > .app {
+      grid-template-columns: 1fr;
+      height: 100dvh;
+      overflow: hidden;
+    }
+
+    body > .app > .rail {
+      display: flex;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: var(--z-drawer);
+      width: min(84vw, 320px);
+      height: 100dvh;
+      min-height: 0;
+      overflow-y: auto;
+      box-shadow: var(--shadow-lg);
+      transform: translateX(-100%);
+      transition: transform var(--dur-base) var(--ease-standard);
+    }
+
+    body > .app.nav-open > .rail {
+      transform: translateX(0);
+    }
+
+    body > .app > .rail-scrim {
+      position: fixed;
+      inset: 0;
+      z-index: calc(var(--z-drawer) - 1);
+      background: hsl(220 50% 2% / .55);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity var(--dur-base) var(--ease-standard), visibility var(--dur-base) var(--ease-standard);
+    }
+
+    body > .app.nav-open > .rail-scrim {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    body > .app .main-col,
+    body > .app .main {
+      width: 100%;
+      min-width: 0;
+    }
+
+    body > .app .header {
+      position: sticky;
+      top: 0;
+      z-index: var(--z-sticky);
+      height: auto;
+      min-height: var(--header-h);
+      padding: var(--space-2) var(--space-3);
+      gap: var(--space-2);
+      flex-wrap: wrap;
+      align-content: center;
+    }
+
+    body > .app .header .btn-icon {
+      width: 44px;
+      min-width: 44px;
+      height: 44px;
+      min-height: 44px;
+    }
+
+    body > .app .rail-item {
+      min-height: 44px;
+    }
+
+    body > .app .header .search,
+    body > .app .header [role="search"] {
+      flex: 1 1 12rem;
+      min-width: 0;
+      max-width: none;
+    }
+
+    body > .app .header .search .u-grow,
+    body > .app .header [role="search"] .u-grow {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body > .app .header .health-pill,
+    body > .app .header .live-indicator,
+    body > .app .header .badge {
+      flex: 0 1 auto;
+    }
+
+    body > .app .page,
+    body > .app .oc-page {
+      max-width: none;
+      padding: var(--space-4);
+    }
+
+    body > .app .page-header,
+    body > .app .card-header,
+    body > .app .card-footer {
+      flex-wrap: wrap;
+    }
+
+    body > .app .card-header,
+    body > .app .card-body,
+    body > .app .card-footer {
+      padding: var(--space-4);
+    }
+
+    body > .app .stat-grid,
+    body > .app .oc-summary-strip,
+    body > .app .oc-grid,
+    body > .app .oc-grid-2,
+    body > .app .oc-grid-3,
+    body > .app .two-col-grid,
+    body > .app .monitor-grid,
+    body > .app .oc-decision-grid,
+    body > .app .oc-ops-grid,
+    body > .app .settings-layout,
+    body > .app .settings-mini-grid,
+    body > .app .settings-inline-fields,
+    body > .app .overview-grid,
+    body > .app .adv-config-grid,
+    body > .app .ops-state-grid,
+    body > .app .notif-grid,
+    body > .app .board-columns,
+    body > .app [class$="-grid"],
+    body > .app [class*="-grid "] {
+      grid-template-columns: 1fr !important;
+    }
+
+    body > .app .table-wrap,
+    body > .app .settings-table-wrap,
+    body > .app .fleet-table-wrap {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    @media (max-width: 560px) {
+      body > .app .page,
+      body > .app .oc-page {
+        padding: var(--space-3);
+      }
+
+      body > .app .header .search,
+      body > .app .header [role="search"] {
+        flex: 0 0 44px;
+        width: 44px;
+        min-width: 44px;
+        padding: 0;
+        justify-content: center;
+      }
+
+      body > .app .header .search .u-grow,
+      body > .app .header .search .kbd,
+      body > .app .header [role="search"] .u-grow,
+      body > .app .header [role="search"] .kbd {
+        display: none;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      body > .app > .rail,
+      body > .app > .rail-scrim {
+        transition: none;
+      }
+    }
+  }
+}

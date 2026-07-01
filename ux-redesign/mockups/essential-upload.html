@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Upload</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <script src="tools-bar.js"></script>
+  <style>
+    /* Basecamp-style Essential calm shell — layout only, no colour/font overrides */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .ava { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* ── Faded Assets shelf behind the dim (subtle hint only) ──────────────── */
+    .bc-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+    .page-hero { margin-bottom: var(--space-6); }
+    .page-hero h1 { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; margin: 0 0 var(--space-1); }
+    .page-hero p { font-size: var(--text-md); color: var(--fg-muted); margin: 0; }
+    .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-5); align-items: start; }
+    .asset-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-5); }
+    .asset-type-label { display: inline-block; font-size: var(--text-xs); font-weight: var(--fw-semibold); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); background: var(--surface-2); border-radius: var(--radius-sm); padding: 2px 6px; width: fit-content; }
+    .asset-name { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--accent); text-decoration: none; line-height: var(--lh-snug); }
+    .asset-meta { font-size: var(--text-xs); color: var(--fg-subtle); }
+    .asset-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border); margin-top: auto; }
+
+    /* ── The Upload DIALOG (reuses .sb-overlay dim + .wiz frame verbatim) ───── */
+    .wiz { width: 560px; max-width: 100%; margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); overflow: hidden; max-height: 92vh; display: flex; flex-direction: column; }
+    .wiz-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) var(--space-6) var(--space-4); border-bottom: 1px solid var(--border); }
+    .wiz-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); flex: 1 1 auto; }
+    .wiz-x { width: 30px; height: 30px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font-size: 17px; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+    .wiz-x:hover { background: var(--surface-2); color: var(--fg); }
+    .wiz-body { padding: var(--space-5) var(--space-6); overflow-y: auto; }
+    .wiz-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); }
+
+    /* Drop zone — a calm dashed area; raw 📎 glyph, "browse" as a ghost button */
+    .drop { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: var(--space-6) var(--space-5); border: 1.5px dashed var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-2); text-align: center; }
+    .drop-glyph { font-size: 1.75rem; line-height: 1; }
+    .drop-lead { font-size: var(--text-md); font-weight: var(--fw-medium); color: var(--fg); }
+    .drop-hint { font-size: var(--text-xs); color: var(--fg-subtle); }
+
+    /* Staged file rows — name · size + a quiet ✓ ready glyph */
+    .file-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-4); }
+    .file-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+    .file-glyph { font-size: var(--text-lg); flex: none; }
+    .file-main { flex: 1 1 auto; min-width: 0; }
+    .file-name { font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg); }
+    .file-size { font-size: var(--text-xs); color: var(--fg-subtle); }
+    .file-ready { font-size: var(--text-sm); color: var(--fg-muted); white-space: nowrap; flex: none; }
+    .file-x { width: 26px; height: 26px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-subtle); font-size: 14px; cursor: pointer; flex: none; }
+    .file-x:hover { background: var(--surface-2); color: var(--fg); }
+
+    /* Fields */
+    .field + .field { margin-top: var(--space-4); }
+    .field-block { margin-top: var(--space-5); }
+    .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+    .field-grid .field + .field { margin-top: 0; }
+    .field-hint { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: var(--space-1); }
+    .field-hint .spark { color: var(--accent); }
+
+    /* Review-status toggle — glyph + label, the ONE accent marks the picked side */
+    .rev-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); margin-top: var(--space-2); }
+    .rev-opt { position: relative; display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); cursor: pointer; }
+    .rev-opt[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .rev-radio { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--border-strong); flex: none; margin-top: 1px; display: inline-flex; align-items: center; justify-content: center; }
+    .rev-opt[aria-checked="true"] .rev-radio { border-color: var(--accent); }
+    .rev-opt[aria-checked="true"] .rev-radio::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+    .rev-name { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+    .rev-gloss { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: 1px; }
+
+    /* ✦ Atlas offer — quiet inline card, reuses .ai-card markup feel */
+    .ai-card { border: 1px solid var(--accent-border); border-radius: var(--radius-md); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); background: var(--surface); margin-top: var(--space-5); }
+    .ai-card-row { display: flex; align-items: center; gap: var(--space-2); }
+    .ai-offer { font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-snug); }
+
+    /* Inline validation error — label+glyph, shown only when there's nothing to upload */
+    .form-error { display: none; align-items: center; gap: var(--space-2); margin-top: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-2); font-size: var(--text-sm); color: var(--fg); }
+    .form-error[data-show="true"] { display: flex; }
+    .form-error .err-glyph { flex: none; font-size: var(--text-md); }
+
+    @media (max-width: 640px) {
+      .topnav { display: none; }
+      .asset-grid { grid-template-columns: 1fr; }
+      .field-grid { grid-template-columns: 1fr; }
+      .field-grid .field + .field { margin-top: var(--space-4); }
+      .rev-toggle { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ════════ Faded Assets shelf behind the dim (subtle hint) ════════ -->
+  <div class="bc" aria-hidden="true">
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages</a>
+        <a href="mention-inbox.html">Activity</a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <span class="ava" style="background:var(--chart-2)">AG</span>
+    </header>
+
+    <div class="bc-wrap">
+      <div class="page-hero">
+        <h1>📎 Assets</h1>
+        <p>Every approved file and draft, in one place.</p>
+      </div>
+      <div class="asset-grid">
+        <div class="card asset-card">
+          <span class="asset-type-label">image</span>
+          <span class="asset-name">hero-launch.png</span>
+          <p class="asset-meta">image · 1.2 MB</p>
+          <div class="asset-foot"><span class="ct-label" style="font-size:var(--text-xs);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:2px 7px;color:var(--fg-muted)">June Launch</span><span class="sb-badge">✓ Approved</span></div>
+        </div>
+        <div class="card asset-card">
+          <span class="asset-type-label">html</span>
+          <span class="asset-name">june-email.html</span>
+          <p class="asset-meta">html · email · 42 KB</p>
+          <div class="asset-foot"><span class="ct-label" style="font-size:var(--text-xs);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:2px 7px;color:var(--fg-muted)">June Launch</span><span class="sb-badge">✓ Approved</span></div>
+        </div>
+        <div class="card asset-card">
+          <span class="asset-type-label">doc</span>
+          <span class="asset-name">brand-voice.md</span>
+          <p class="asset-meta">doc · guideline · 18 KB</p>
+          <div class="asset-foot"><span class="ct-label" style="font-size:var(--text-xs);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:2px 7px;color:var(--fg-muted)">All campaigns</span><span class="sb-badge">✓ Approved</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ Upload DIALOG (open over the dimmed page) ════════ -->
+  <div class="sb-overlay open" role="dialog" aria-modal="true" aria-labelledby="uploadTitle">
+    <div class="wiz">
+
+      <div class="wiz-head">
+        <span class="wiz-title" id="uploadTitle">Upload to Assets</span>
+        <a class="wiz-x" href="essential-mkt-assets.html" aria-label="Close">✕</a>
+      </div>
+
+      <form id="uploadForm" novalidate>
+      <div class="wiz-body">
+
+        <!-- Drop zone -->
+        <div class="drop" id="dropZone" tabindex="-1" aria-describedby="uploadError">
+          <span class="drop-glyph" aria-hidden="true">📎</span>
+          <span class="drop-lead">Drag files here, or browse</span>
+          <span class="drop-hint">PNG, JPG, PDF, HTML, MP4 — up to 50 MB each</span>
+          <button class="btn btn-ghost btn-sm" type="button">Browse files</button>
+        </div>
+
+        <!-- Inline error: only appears if you try to upload with nothing staged -->
+        <div class="form-error" id="uploadError" role="alert" aria-live="assertive">
+          <span class="err-glyph" aria-hidden="true">!</span>
+          <span>Add at least one file before uploading.</span>
+        </div>
+
+        <!-- Staged files (2 already added) -->
+        <div class="file-list" id="fileList" aria-label="Files to upload">
+          <div class="file-row">
+            <span class="file-glyph" aria-hidden="true">🖼</span>
+            <div class="file-main">
+              <div class="file-name">hero-launch-v2.png</div>
+              <div class="file-size">1.4 MB</div>
+            </div>
+            <span class="file-ready"><span aria-hidden="true">✓</span> Ready</span>
+            <button class="file-x" type="button" aria-label="Remove hero-launch-v2.png">✕</button>
+          </div>
+          <div class="file-row">
+            <span class="file-glyph" aria-hidden="true">📄</span>
+            <div class="file-main">
+              <div class="file-name">launch-email.html</div>
+              <div class="file-size">42 KB</div>
+            </div>
+            <span class="file-ready"><span aria-hidden="true">✓</span> Ready</span>
+            <button class="file-x" type="button" aria-label="Remove launch-email.html">✕</button>
+          </div>
+        </div>
+
+        <!-- Campaign + Type -->
+        <div class="field-block">
+          <div class="field-grid">
+            <div class="field">
+              <label class="label" for="u-campaign">Campaign</label>
+              <select class="select" id="u-campaign" aria-label="Campaign">
+                <option>June Launch</option>
+                <option>Webinar promo</option>
+                <option>All campaigns</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="label" for="u-type">Type</label>
+              <select class="select" id="u-type" aria-label="Type">
+                <option>Atlas can detect</option>
+                <option>image</option>
+                <option>doc</option>
+                <option>video</option>
+                <option>template</option>
+              </select>
+            </div>
+          </div>
+          <p class="field-hint"><span class="spark" aria-hidden="true">✦</span> Leave Type on “Atlas can detect” and it'll label each file for you.</p>
+        </div>
+
+        <!-- Review-status toggle -->
+        <div class="field-block">
+          <div class="label" style="margin-bottom:var(--space-2)">When these land</div>
+          <div class="rev-toggle" role="radiogroup" aria-label="Review status">
+            <div class="rev-opt" role="radio" aria-checked="true" tabindex="0">
+              <span class="rev-radio" aria-hidden="true"></span>
+              <div>
+                <div class="rev-name"><span aria-hidden="true">◷</span> Send for review</div>
+                <div class="rev-gloss">A reviewer approves before it's marked final.</div>
+              </div>
+            </div>
+            <div class="rev-opt" role="radio" aria-checked="false" tabindex="0">
+              <span class="rev-radio" aria-hidden="true"></span>
+              <div>
+                <div class="rev-name"><span aria-hidden="true">✓</span> Mark approved</div>
+                <div class="rev-gloss">You're approving these yourself, right now.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ✦ Atlas offer -->
+        <div class="ai-card" aria-label="Atlas offer">
+          <div class="ai-card-row">
+            <span class="sb-badge sb-badge--accent"><span aria-hidden="true">✦</span> Atlas</span>
+            <span class="u-subtle" style="font-size:var(--text-xs)">optional — you review</span>
+          </div>
+          <p class="ai-offer">Atlas can tag and check these against brand guidelines before they go up.</p>
+          <div class="ai-card-row">
+            <button class="btn btn-ghost btn-sm" type="button" style="color:var(--accent)"><span aria-hidden="true">✦</span> Tag &amp; check</button>
+            <button class="btn btn-ghost btn-sm" type="button">Not now</button>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="wiz-foot">
+        <a class="btn btn-ghost" href="essential-mkt-assets.html">Cancel</a>
+        <button class="btn btn-primary" type="submit" id="uploadSubmit"><span aria-hidden="true">⬆</span> Upload 2 files</button>
+      </div>
+      </form>
+
+    </div>
+  </div>
+
+  <script>
+    // Calm review-status radiogroup: pick one side; the single accent marks it.
+    (function () {
+      var group = document.querySelector('.rev-toggle');
+      if (!group) return;
+      function select(opt) {
+        group.querySelectorAll('.rev-opt').forEach(function (o) {
+          o.setAttribute('aria-checked', o === opt ? 'true' : 'false');
+        });
+        opt.focus();
+      }
+      group.addEventListener('click', function (e) {
+        var opt = e.target.closest('.rev-opt');
+        if (opt) select(opt);
+      });
+      group.addEventListener('keydown', function (e) {
+        var opt = e.target.closest('.rev-opt');
+        if (opt && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); select(opt); }
+      });
+    })();
+
+    // Validated upload submit: real form, no navigation-as-submit.
+    // - Remove (✕) actually unstages a file, so the count is true.
+    // - Submit blocks when nothing is staged: inline error + focus, dialog stays open.
+    // - With ≥1 file: optimistic pending → done, then go to Assets.
+    (function () {
+      var form = document.getElementById('uploadForm');
+      var list = document.getElementById('fileList');
+      var error = document.getElementById('uploadError');
+      var drop = document.getElementById('dropZone');
+      var submit = document.getElementById('uploadSubmit');
+      if (!form || !list || !error || !submit) return;
+
+      function count() { return list.querySelectorAll('.file-row').length; }
+
+      function syncLabel() {
+        var n = count();
+        submit.innerHTML = '<span aria-hidden="true">⬆</span> Upload ' + n + (n === 1 ? ' file' : ' files');
+        submit.disabled = false;
+      }
+
+      function clearError() {
+        error.setAttribute('data-show', 'false');
+      }
+
+      // Unstage a file when its ✕ is pressed, then keep the label honest.
+      list.addEventListener('click', function (e) {
+        var btn = e.target.closest('.file-x');
+        if (!btn) return;
+        var row = btn.closest('.file-row');
+        if (row) row.remove();
+        syncLabel();
+        clearError();
+      });
+
+      // Any newly added file clears a standing error.
+      drop && drop.addEventListener('click', clearError);
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (count() === 0) {
+          error.setAttribute('data-show', 'true');
+          drop && drop.focus();
+          return;
+        }
+        clearError();
+        if (submit.dataset.pending === 'true') return;
+        submit.dataset.pending = 'true';
+        submit.disabled = true;
+        submit.setAttribute('aria-busy', 'true');
+        submit.innerHTML = 'Uploading…';
+        setTimeout(function () {
+          window.location.href = 'essential-mkt-assets.html';
+        }, 450);
+      });
+
+      syncLabel();
+    })();
+  </script>
+</body>
+</html>

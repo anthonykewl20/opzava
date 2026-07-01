@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — New project</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* Basecamp-style Essential calm shell — layout only, no colour/font overrides */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .ava { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* ── New-project picker ────────────────────────────────────────────── */
+    .np-wrap { max-width: 840px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+    .page-breadcrumb { margin-bottom: var(--space-5); }
+    .np-title { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; margin-bottom: var(--space-2); }
+    .np-sub { font-size: var(--text-md); color: var(--fg-muted); line-height: var(--lh-relaxed); max-width: 60ch; margin-bottom: var(--space-8); }
+
+    /* Goal-Gradient affirmation — this is a short form, not a long flow */
+    .np-progress { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-8); padding: var(--space-3) var(--space-4); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); }
+    .np-progress .np-step { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-muted); letter-spacing: .02em; flex: none; }
+    .np-progress .np-bar { flex: 1; height: 6px; max-width: 200px; background: var(--border); border-radius: var(--radius-full); overflow: hidden; }
+    .np-progress .np-bar > span { display: block; height: 100%; width: 50%; background: var(--accent); border-radius: var(--radius-full); transition: width var(--dur-base) var(--ease-standard); }
+    .np-progress .np-hint { font-size: var(--text-sm); color: var(--fg-muted); }
+
+    /* Inline validation — name is required */
+    .np-error { display: none; align-items: center; gap: 6px; margin-top: var(--space-2); font-size: var(--text-sm); color: var(--danger); }
+    .np-error.is-shown { display: flex; }
+    .input[aria-invalid="true"] { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+
+    .np-field { margin-bottom: var(--space-8); }
+    .np-label { display: block; font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg); margin-bottom: var(--space-2); }
+    .np-field .input { width: 100%; max-width: 460px; height: 44px; font-size: var(--text-md); }
+
+    .np-section-label { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); margin-bottom: var(--space-4); }
+
+    /* Type chooser — a calm radiogroup of cards */
+    .type-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-5); align-items: start; margin-bottom: var(--space-6); }
+    .type-card { position: relative; display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-6); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); cursor: pointer; transition: box-shadow var(--dur-fast) var(--ease-standard), transform var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard); }
+    .type-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+    .type-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    /* Selected — the one accent marks the choice; a corner ✓, never a colour wall */
+    .type-card[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .type-check { position: absolute; top: var(--space-4); right: var(--space-4); width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-fg); display: none; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-bold); }
+    .type-card[aria-checked="true"] .type-check { display: inline-flex; }
+
+    .type-head { display: flex; align-items: center; gap: var(--space-3); }
+    .type-glyph { font-size: 1.75rem; line-height: 1; flex: none; }
+    .type-name { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); }
+    .type-desc { font-size: var(--text-sm); color: var(--fg-muted); line-height: var(--lh-snug); }
+    .type-tiles { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--space-2); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+    .type-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px var(--space-3); font-size: var(--text-xs); color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); white-space: nowrap; }
+    .type-chip .g { font-size: var(--text-sm); }
+    .type-chip--ai { color: var(--accent); }
+
+    /* Future types — quiet, not yet selectable */
+    .type-soon-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-10); }
+    .type-soon-label { font-size: var(--text-sm); color: var(--fg-subtle); }
+    .type-soon { display: inline-flex; align-items: center; gap: 6px; padding: 6px var(--space-3); font-size: var(--text-sm); color: var(--fg-subtle); background: var(--surface-2); border: 1px dashed var(--border-strong); border-radius: var(--radius-full); }
+    .type-soon .soon-tag { font-size: var(--text-xs); color: var(--fg-subtle); }
+
+    .np-actions { display: flex; align-items: center; gap: var(--space-3); padding-top: var(--space-6); border-top: 1px solid var(--border); }
+    .np-actions .btn-primary { height: 44px; padding: 0 var(--space-6); font-size: var(--text-md); }
+
+    @media (max-width: 720px) {
+      .topnav { display: none; }
+      .type-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bc">
+
+    <!-- ── Topbar ─────────────────────────────────────────────────────────── -->
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
+      <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+    </header>
+
+    <main>
+      <div class="np-wrap">
+
+        <!-- ── Breadcrumb ──────────────────────────────────────────────────── -->
+        <nav class="sb-breadcrumb page-breadcrumb" aria-label="Breadcrumb">
+          <a href="essential-home.html">Home</a>
+          <span class="sep" aria-hidden="true">›</span>
+          <span class="current">New project</span>
+        </nav>
+
+        <h1 class="np-title">Start a new project</h1>
+        <p class="np-sub">Give it a name and choose a type — Opzava sets up the right tools for the job. You can always adjust them later.</p>
+
+        <!-- ── Goal-Gradient affirmation: this is a short, single-step form ──── -->
+        <div class="np-progress" role="status" aria-label="Almost done: just a name and a type">
+          <span class="np-step">Step 1 of 1</span>
+          <span class="np-bar" aria-hidden="true"><span></span></span>
+          <span class="np-hint">Two choices and you’re set.</span>
+        </div>
+
+        <!-- ── Project setup form: validates before creating ───────────────── -->
+        <form id="np-form" novalidate>
+
+        <!-- ── Name ────────────────────────────────────────────────────────── -->
+        <div class="np-field">
+          <label class="np-label" for="np-name">Project name</label>
+          <input class="input" id="np-name" name="np-name" type="text" value="Q3 Launch Campaign" required aria-describedby="np-name-error">
+          <p class="np-error" id="np-name-error" role="alert"><span aria-hidden="true">⚠</span> Give your project a name first.</p>
+        </div>
+
+        <!-- ── Choose a type ───────────────────────────────────────────────── -->
+        <div class="np-section-label" id="np-type-label">Choose a type</div>
+        <div class="type-grid" role="radiogroup" aria-labelledby="np-type-label">
+
+          <!-- Blank / generic -->
+          <div class="type-card" role="radio" aria-checked="false" tabindex="-1" data-href="essential-project.html">
+            <span class="type-check" aria-hidden="true">✓</span>
+            <div class="type-head">
+              <span class="type-glyph" aria-hidden="true">◻</span>
+              <span class="type-name">Blank project</span>
+            </div>
+            <p class="type-desc">Start with the everyday tools and shape it as you go — the calm all-purpose workspace.</p>
+            <div class="type-tiles" aria-label="Tools included">
+              <span class="type-chip"><span class="g" aria-hidden="true">✓</span> To-dos</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">▦</span> Board</span>
+              <span class="type-chip type-chip--ai"><span class="g" aria-hidden="true">✦</span> Assistant</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">💬</span> Team</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">▤</span> Docs</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">📅</span> Schedule</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">⌁</span> Updates</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">💡</span> Discovery</span>
+            </div>
+          </div>
+
+          <!-- Marketing & Promotion (shown selected) -->
+          <div class="type-card" role="radio" aria-checked="true" tabindex="0" data-href="essential-marketing.html">
+            <span class="type-check" aria-hidden="true">✓</span>
+            <div class="type-head">
+              <span class="type-glyph" aria-hidden="true">▣</span>
+              <span class="type-name">Marketing &amp; Promotion</span>
+            </div>
+            <p class="type-desc">Run campaigns end to end — <strong>Plan → Create → Approve → Publish → Measure</strong>. Marketing-native tiles, no KPI wall.</p>
+            <div class="type-tiles" aria-label="Tools included">
+              <span class="type-chip"><span class="g" aria-hidden="true">▣</span> Campaigns</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">📅</span> Content Calendar</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">✓◷</span> Approvals</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">📎</span> Assets</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">📈</span> Performance</span>
+              <span class="type-chip type-chip--ai"><span class="g" aria-hidden="true">✦</span> Ask your assistant</span>
+              <span class="type-chip"><span class="g" aria-hidden="true">💬</span> Team</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ── Future types (not yet selectable) ───────────────────────────── -->
+        <div class="type-soon-row">
+          <span class="type-soon-label">More types coming</span>
+          <span class="type-soon"><span aria-hidden="true">🤝</span> Sales <span class="soon-tag">· soon</span></span>
+          <span class="type-soon"><span aria-hidden="true">🎧</span> Support <span class="soon-tag">· soon</span></span>
+          <span class="type-soon"><span aria-hidden="true">🎟</span> Events <span class="soon-tag">· soon</span></span>
+        </div>
+
+        <!-- ── Actions ─────────────────────────────────────────────────────── -->
+        <div class="np-actions">
+          <button class="btn btn-primary" id="np-create" type="submit">Create project →</button>
+          <a class="btn btn-ghost" href="essential-home.html">Cancel</a>
+        </div>
+
+        </form>
+
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // Calm radiogroup with roving tabindex + arrow keys (ARIA radiogroup
+    // pattern): only the checked card is tab-reachable; arrows move selection
+    // AND focus together. The selected type decides which workspace the
+    // validated "Create project" submit lands in.
+    (function () {
+      var form = document.getElementById('np-form');
+      var group = document.querySelector('.type-grid');
+      var cards = Array.prototype.slice.call(group.querySelectorAll('.type-card'));
+      var nameInput = document.getElementById('np-name');
+      var nameError = document.getElementById('np-name-error');
+      var createBtn = document.getElementById('np-create');
+
+      function select(card, moveFocus) {
+        cards.forEach(function (c) {
+          var on = c === card;
+          c.setAttribute('aria-checked', on ? 'true' : 'false');
+          c.tabIndex = on ? 0 : -1;
+        });
+        if (moveFocus !== false) card.focus();
+      }
+      function selectedCard() {
+        return cards.filter(function (c) { return c.getAttribute('aria-checked') === 'true'; })[0] || cards[0];
+      }
+
+      group.addEventListener('click', function (e) {
+        var card = e.target.closest('.type-card');
+        if (card) select(card);
+      });
+      group.addEventListener('keydown', function (e) {
+        var card = e.target.closest('.type-card');
+        if (!card) return;
+        var i = cards.indexOf(card), next = null;
+        switch (e.key) {
+          case ' ': case 'Enter': e.preventDefault(); select(card); return;
+          case 'ArrowRight': case 'ArrowDown': next = cards[(i + 1) % cards.length]; break;
+          case 'ArrowLeft': case 'ArrowUp': next = cards[(i - 1 + cards.length) % cards.length]; break;
+          case 'Home': next = cards[0]; break;
+          case 'End': next = cards[cards.length - 1]; break;
+          default: return;
+        }
+        e.preventDefault();
+        select(next);
+      });
+
+      // Clear the inline error as soon as the user starts fixing the name.
+      nameInput.addEventListener('input', function () {
+        if (nameInput.value.trim()) {
+          nameInput.removeAttribute('aria-invalid');
+          nameError.classList.remove('is-shown');
+        }
+      });
+
+      // Validated submit: a project must have a name before it is created.
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!nameInput.value.trim()) {
+          nameInput.setAttribute('aria-invalid', 'true');
+          nameError.classList.add('is-shown');
+          nameInput.focus();
+          return; // keep the page open, error shown, focus on the offending field
+        }
+        // Optimistic pending → done, then go to the chosen type's workspace.
+        createBtn.disabled = true;
+        createBtn.setAttribute('aria-busy', 'true');
+        createBtn.textContent = 'Creating…';
+        var dest = selectedCard().getAttribute('data-href');
+        setTimeout(function () { window.location.href = dest; }, 450);
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Send for review</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <script src="tools-bar.js"></script>
+  <style>
+    /* Basecamp-style Essential calm shell — layout only, no colour/font overrides */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .ava { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* ── Faded Approvals queue behind the dim (subtle hint only) ──────────── */
+    .bc-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+    .apr-page-head { margin-bottom: var(--space-6); }
+    .apr-section-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); margin-bottom: 2px; font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+    .apr-section-count { font-size: var(--text-xs); font-weight: var(--fw-medium); color: var(--fg-subtle); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 1px 9px; }
+    .apr-rows-wrap { border-radius: 0 0 var(--radius-lg) var(--radius-lg); overflow: hidden; }
+    .apr-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-top: none; background: var(--surface); }
+    .apr-row:first-of-type { border-top: 1px solid var(--border); }
+    .apr-name { flex: 1 1 220px; min-width: 0; display: flex; align-items: center; gap: var(--space-2); }
+    .apr-name-link { font-size: var(--text-base); font-weight: var(--fw-medium); color: var(--fg); }
+    .apr-version { flex: none; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); font-family: var(--font-mono); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1px 6px; }
+    .apr-reviewer { flex: none; display: flex; align-items: center; gap: var(--space-2); }
+    .ava-sm { width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: var(--fw-semibold); color: #fff; flex: none; }
+    .reviewer-label { font-size: var(--text-xs); color: var(--fg-muted); }
+    .apr-age { flex: none; font-size: var(--text-xs); color: var(--fg-subtle); white-space: nowrap; }
+
+    /* ── The Send-for-review DIALOG (reuses .sb-overlay dim + .wiz frame) ──── */
+    .wiz { width: 560px; max-width: 100%; margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); overflow: hidden; max-height: 92vh; display: flex; flex-direction: column; }
+    .wiz-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) var(--space-6) var(--space-4); border-bottom: 1px solid var(--border); }
+    .wiz-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); color: var(--fg); flex: 1 1 auto; }
+    .wiz-x { width: 30px; height: 30px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font-size: 17px; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+    .wiz-x:hover { background: var(--surface-2); color: var(--fg); }
+    .wiz-body { padding: var(--space-5) var(--space-6); overflow-y: auto; }
+    .wiz-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); }
+
+    /* Fields */
+    .field + .field { margin-top: var(--space-5); }
+    .field-note { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: var(--space-2); line-height: var(--lh-snug); }
+
+    /* Reviewer avatar picker — multi-select, AI-vs-human by shape never colour */
+    .rev-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); }
+    .rev-pick { position: relative; display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--surface); cursor: pointer; font-size: var(--text-sm); color: var(--fg); }
+    .rev-pick[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .rev-check { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--border-strong); flex: none; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; color: var(--accent-fg); }
+    .rev-pick[aria-checked="true"] .rev-check { background: var(--accent); border-color: var(--accent); }
+
+    /* Status preview line */
+    .status-preview { margin-top: var(--space-5); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); display: flex; align-items: baseline; gap: var(--space-3); }
+    .status-preview .pre-cap { font-size: var(--text-xs); color: var(--fg-subtle); font-weight: var(--fw-medium); }
+
+    /* Inline validation error — label+glyph, neutral until shown */
+    .field-error { display: none; margin-top: var(--space-2); font-size: var(--text-xs); font-weight: var(--fw-medium); color: var(--danger-fg, var(--fg)); }
+    .field-error[data-shown="true"] { display: flex; align-items: center; gap: var(--space-2); }
+    .rev-row[data-invalid="true"] { outline: 1.5px solid var(--border-strong); outline-offset: var(--space-2); border-radius: var(--radius-md); }
+    .rev-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    @media (max-width: 640px) { .topnav { display: none; } }
+  </style>
+</head>
+<body>
+
+  <!-- ════════ Faded Approvals queue behind the dim (subtle hint) ════════ -->
+  <div class="bc" aria-hidden="true">
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages</a>
+        <a href="mention-inbox.html">Activity</a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <span class="ava" style="background:var(--chart-2)">AG</span>
+    </header>
+
+    <div class="bc-wrap">
+      <div class="apr-page-head">
+        <h1 style="font-size:var(--text-xl);font-weight:var(--fw-semibold);display:flex;align-items:center;gap:var(--space-3)"><span aria-hidden="true">✓◷</span> Approvals</h1>
+        <p class="u-muted" style="font-size:var(--text-sm);margin-top:var(--space-2)">Everything waiting on a sign-off. Oldest first.</p>
+      </div>
+      <section class="apr-section" aria-label="Needs review">
+        <div class="apr-section-head"><span aria-hidden="true">◷</span> Needs review <span class="apr-section-count">3</span></div>
+        <div class="apr-rows-wrap">
+          <div class="apr-row">
+            <div class="apr-name"><span class="apr-name-link">Webinar banner</span></div>
+            <span class="apr-version">v2</span>
+            <div class="apr-reviewer"><span class="ava-sm" style="background:var(--chart-3)">M</span><span class="reviewer-label">Maria</span></div>
+            <span class="apr-age">◷ 2 days</span>
+          </div>
+          <div class="apr-row">
+            <div class="apr-name"><span class="apr-name-link">Launch email — hero</span></div>
+            <span class="apr-version">v1</span>
+            <div class="apr-reviewer"><span class="ava-sm" style="background:var(--chart-2)">AG</span><span class="reviewer-label">You</span></div>
+            <span class="apr-age">◷ 4 hrs</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ════════ Send-for-review DIALOG (open over the dimmed page) ════════ -->
+  <div class="sb-overlay open" role="dialog" aria-modal="true" aria-labelledby="srTitle">
+    <div class="wiz">
+
+      <div class="wiz-head">
+        <span class="wiz-title" id="srTitle">Send for review</span>
+        <a class="wiz-x" href="essential-mkt-approvals.html" aria-label="Close">✕</a>
+      </div>
+
+      <form class="wiz-form" id="srForm" novalidate>
+      <div class="wiz-body">
+
+        <!-- Asset -->
+        <div class="field">
+          <label class="label" for="sr-asset">Asset</label>
+          <select class="select" id="sr-asset" aria-label="Asset to send for review">
+            <option selected>Webinar banner — v2</option>
+            <option>Launch email — hero v1</option>
+            <option>Paid ad copy set — v1</option>
+          </select>
+        </div>
+
+        <!-- Reviewers — avatar picker, multi-select -->
+        <div class="field">
+          <span class="label" id="sr-rev-label">Reviewers</span>
+          <div class="rev-row" id="sr-rev-row" role="group" aria-labelledby="sr-rev-label" aria-describedby="sr-rev-error">
+            <span class="rev-pick" role="checkbox" aria-checked="true" tabindex="0">
+              <span class="rev-check" aria-hidden="true">✓</span>
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-3)" aria-hidden="true">M</span> Maria
+            </span>
+            <span class="rev-pick" role="checkbox" aria-checked="false" tabindex="0">
+              <span class="rev-check" aria-hidden="true"></span>
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-4)" aria-hidden="true">D</span> Dan
+            </span>
+            <span class="rev-pick" role="checkbox" aria-checked="false" tabindex="0">
+              <span class="rev-check" aria-hidden="true"></span>
+              <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span> You
+            </span>
+          </div>
+          <p class="field-note">Oldest-first in their queue.</p>
+          <p class="field-error" id="sr-rev-error" role="alert"><span aria-hidden="true">✕</span> Pick at least one reviewer before sending.</p>
+        </div>
+
+        <!-- Due / needed by -->
+        <div class="field">
+          <label class="label" for="sr-due">Due / needed by</label>
+          <input class="input" id="sr-due" type="date" value="2026-06-26" aria-label="Due date" aria-describedby="sr-due-note">
+          <p class="field-note" id="sr-due-note">Fri — a 2-day lead time, so reviewers aren't rushed. Change it if you need it sooner.</p>
+        </div>
+
+        <!-- Note for reviewer -->
+        <div class="field">
+          <label class="label" for="sr-note">Note for the reviewer <span class="u-subtle" style="font-weight:var(--fw-regular)">(optional)</span></label>
+          <textarea class="textarea" id="sr-note" aria-label="Note for the reviewer">Please tighten the CTA.</textarea>
+        </div>
+
+        <!-- Status preview — glyph + label, never a colour -->
+        <div class="status-preview" aria-label="Status preview">
+          <span class="pre-cap">Will appear as</span>
+          <span class="sb-statusline"><span class="sl-glyph" aria-hidden="true">◷</span> <span class="sl-label">Needs review</span></span>
+        </div>
+
+      </div>
+
+      <div class="wiz-foot">
+        <a class="btn btn-ghost" href="essential-mkt-approvals.html">Cancel</a>
+        <button class="btn btn-primary" type="submit"><span aria-hidden="true">＋</span> Send for review</button>
+      </div>
+      </form>
+
+    </div>
+  </div>
+
+  <script>
+    // Reviewer picker — multi-select toggle (avatar chips; AI-vs-human by shape, never colour).
+    (function () {
+      var group = document.querySelector('.rev-row');
+      if (!group) return;
+      function toggle(chip) {
+        var on = chip.getAttribute('aria-checked') === 'true';
+        chip.setAttribute('aria-checked', on ? 'false' : 'true');
+        chip.querySelector('.rev-check').textContent = on ? '' : '✓';
+      }
+      group.addEventListener('click', function (e) {
+        var chip = e.target.closest('.rev-pick');
+        if (chip) toggle(chip);
+      });
+      group.addEventListener('keydown', function (e) {
+        var chip = e.target.closest('.rev-pick');
+        if (chip && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); toggle(chip); clearRevError(); }
+      });
+      group.addEventListener('click', clearRevError);
+    })();
+
+    // Validated submit — require ≥1 reviewer; on failure keep dialog open,
+    // show the inline error, and move focus to the first reviewer chip.
+    var revRow = document.getElementById('sr-rev-row');
+    var revError = document.getElementById('sr-rev-error');
+
+    function clearRevError() {
+      if (!revRow || !revError) return;
+      revRow.removeAttribute('data-invalid');
+      revError.removeAttribute('data-shown');
+    }
+
+    (function () {
+      var form = document.getElementById('srForm');
+      if (!form) return;
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var checked = revRow ? revRow.querySelectorAll('.rev-pick[aria-checked="true"]').length : 0;
+        if (checked < 1) {
+          revRow.setAttribute('data-invalid', 'true');
+          revError.setAttribute('data-shown', 'true');
+          var first = revRow.querySelector('.rev-pick');
+          if (first) first.focus();
+          return; // dialog stays open
+        }
+        // Valid — record the send and return to the approvals queue.
+        window.location = 'essential-mkt-approvals.html';
+      });
+    })();
+  </script>
+</body>
+</html>

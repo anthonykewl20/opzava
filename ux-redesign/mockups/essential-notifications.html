@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Notifications</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* ── Essential calm layout. Layout geometry only — no colour or size tokens overridden. ── */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+
+    /* ── Top bar ── */
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .ava { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* ── Page wrapper ── */
+    .bc-wrap { max-width: 880px; margin: 0 auto; padding: var(--space-7) var(--space-6) var(--space-16); }
+
+    /* ── Page heading row ── */
+    .page-header-row { display: flex; align-items: baseline; gap: var(--space-4); margin: var(--space-5) 0 var(--space-2); flex-wrap: wrap; }
+    .page-header-row h1 { font-size: var(--text-2xl); letter-spacing: -.02em; margin: 0; }
+    .mark-all { font-size: var(--text-sm); color: var(--fg-muted); cursor: pointer; }
+    /* Sub-header stating this surface's job (Notifications, not Activity) */
+    .page-sub { font-size: var(--text-sm); color: var(--fg-muted); margin: 0 var(--space-1) var(--space-6); line-height: 1.5; }
+    .page-sub a { color: var(--fg-muted); }
+
+    /* ── Async state toggles (loading / error / empty) — happy path is .state-content ── */
+    .state-loading { display: none; }
+    .state-error   { display: none; }
+    .state-empty   { display: none; }
+
+    /* ── Group ── */
+    .group { margin-bottom: var(--space-7); }
+    .group-cap { display: flex; align-items: baseline; gap: var(--space-2); margin: 0 var(--space-1) var(--space-3); }
+    .group-cap .count { font-size: var(--text-xs); color: var(--fg-subtle); font-weight: var(--fw-medium); letter-spacing: 0; text-transform: none; }
+
+    /* ── Notification list (reuses .card .feed shell) ── */
+    .feed { display: flex; flex-direction: column; }
+
+    /* Each row */
+    .note-row { display: flex; align-items: flex-start; gap: var(--space-4); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
+    .note-row:last-child { border-bottom: none; }
+    .note-row.is-read { opacity: .72; }
+    /* Needs-you rows: the one accent — a calm left rule, never a colour wall */
+    .note-row.needs-you { border-left: 3px solid var(--accent); padding-left: calc(var(--space-5) - 3px); }
+
+    /* unread dot column */
+    .note-unread { flex: none; width: 10px; display: flex; align-items: center; justify-content: center; padding-top: 5px; }
+
+    /* leading glyph */
+    .note-glyph { flex: none; width: 24px; font-size: var(--text-lg); color: var(--fg-muted); display: flex; align-items: center; justify-content: center; padding-top: 1px; line-height: 1; }
+
+    /* body */
+    .note-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .note-text { font-size: var(--text-base); color: var(--fg); line-height: 1.45; }
+    .note-sub { font-size: var(--text-xs); color: var(--fg-subtle); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+
+    /* time + action */
+    .note-meta { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
+    .note-time { font-size: var(--text-xs); color: var(--fg-subtle); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .note-act { font-size: var(--text-sm); color: var(--fg-muted); text-decoration: none; white-space: nowrap; }
+    .note-act:hover { color: var(--fg); text-decoration: underline; }
+    /* the needs-you action is the single quiet accent affordance per row */
+    .note-row.needs-you .note-act { color: var(--accent); }
+
+    /* ── pointer + footer ── */
+    .group-more { padding: var(--space-3) var(--space-1) 0; font-size: var(--text-sm); }
+    .group-more a { color: var(--fg-muted); text-decoration: none; }
+    .group-more a:hover { color: var(--fg); text-decoration: underline; }
+    .foot-note { font-size: var(--text-sm); color: var(--fg-subtle); text-align: center; padding-top: var(--space-7); border-top: 1px solid var(--border); margin-top: var(--space-4); }
+
+    @media (max-width: 640px) {
+      .topnav { display: none; }
+      .bc-wrap { padding: var(--space-5) var(--space-4) var(--space-12); }
+      .note-row { flex-wrap: wrap; }
+      .note-meta { flex-direction: row; align-items: center; width: 100%; justify-content: flex-end; }
+      .page-header-row { gap: var(--space-2); }
+    }
+  </style>
+</head>
+<body>
+  <div class="bc">
+
+    <!-- ── Canonical Essential top bar (verbatim) — bell active here ── -->
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, viewing" aria-current="page" style="position:relative;color:var(--accent)"><span aria-hidden="true">🔔</span></a>
+      <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+    </header>
+
+    <main id="main-content">
+      <div class="bc-wrap">
+
+        <!-- ── Breadcrumb ── -->
+        <nav class="sb-breadcrumb" aria-label="Breadcrumb">
+          <a href="essential-home.html">Home</a>
+          <span class="sep" aria-hidden="true">›</span>
+          <span class="current">Notifications</span>
+        </nav>
+
+        <!-- ── Page heading ── -->
+        <div class="page-header-row">
+          <h1>Notifications</h1>
+          <span class="u-grow"></span>
+          <button class="btn btn-ghost mark-all" type="button" id="mark-all-btn">Mark all read</button>
+        </div>
+        <!-- #15: state this surface's job and draw the boundary with Activity -->
+        <p class="page-sub" id="page-sub">
+          System, tool, and goal alerts — plus a pointer to anything that needs you.
+          Mentions and hand-offs from people and assistants live in <a href="mention-inbox.html">Activity</a>.
+        </p>
+
+        <!-- ════════ GROUP 1 — Needs you (the accent group) ════════ -->
+        <!-- ── Loading state (skeleton) — #12 ──
+             ASYNC STATE: loading. Toggle .state-loading display:block and hide #state-content when fetching /api/notifications. -->
+        <div class="state-loading card" id="state-loading" aria-busy="true" aria-label="Loading notifications">
+          <div style="padding:var(--space-5);display:flex;flex-direction:column;gap:var(--space-4)">
+            <div class="skeleton sk-line" style="width:68%"></div>
+            <div class="skeleton sk-line" style="width:52%"></div>
+            <div class="skeleton sk-line" style="width:60%"></div>
+            <div class="skeleton sk-line" style="width:45%"></div>
+          </div>
+        </div>
+
+        <!-- ── Error state — #12 ──
+             ASYNC STATE: error. Show this block + retry if /api/notifications fails. -->
+        <div class="state-error sb-alert sb-alert--destructive" id="state-error" role="alert">
+          <span class="ico" aria-hidden="true">✕</span>
+          <div>
+            <strong class="sb-alert-title">Could not load notifications.</strong>
+            <span class="sb-alert-desc">Check your connection and <button class="mark-all" type="button" id="retry-btn" style="color:var(--accent)">retry</button>.</span>
+          </div>
+        </div>
+
+        <!-- ── Empty / all-caught-up state — #12 ──
+             ASYNC STATE: empty. Shown when nothing is unread or pending. -->
+        <div class="state-empty card" id="state-empty" aria-live="polite">
+          <div style="padding:var(--space-10) var(--space-6);display:flex;flex-direction:column;align-items:center;gap:var(--space-3);text-align:center">
+            <span style="font-size:28px" aria-hidden="true">✅</span>
+            <p class="u-subtle" style="margin:0">You're all caught up — no notifications need you right now.<br>Your assistants will let you know when something new comes in.</p>
+          </div>
+        </div>
+
+        <!-- ── Happy-path content ── -->
+        <div class="state-content" id="state-content">
+        <section class="group" aria-labelledby="grp-needs">
+          <div class="group-cap">
+            <span class="u-caps" id="grp-needs">Needs you</span>
+            <span class="count">3</span>
+          </div>
+
+          <div class="card feed" aria-label="Items that need you">
+
+            <!-- Approval request (AI-drafted, human-approved) -->
+            <div class="note-row needs-you" aria-label="Needs you: approve the Webinar banner">
+              <div class="note-unread" aria-hidden="true"><span class="dot dot-accent"></span></div>
+              <div class="note-glyph" aria-hidden="true" title="Awaiting your approval" style="font-size:var(--text-base)">✓◷</div>
+              <div class="note-body">
+                <span class="note-text">Approve the <strong>Webinar banner</strong> — Q3 Launch Campaign</span>
+                <div class="note-sub">
+                  <span>Maria requested</span>
+                  <span class="sb-badge sb-badge--outline" style="height:18px;font-size:var(--text-xs)">Drafted by ✦ Atlas · your sign-off</span>
+                </div>
+              </div>
+              <div class="note-meta">
+                <span class="note-time">2 days</span>
+                <a class="note-act" href="essential-mkt-approvals.html">Review →</a>
+              </div>
+            </div>
+
+            <!-- Goal at risk -->
+            <div class="note-row needs-you" aria-label="Needs you: goal at risk">
+              <div class="note-unread" aria-hidden="true"><span class="dot dot-accent"></span></div>
+              <div class="note-glyph" aria-hidden="true" title="Goal at risk">◓</div>
+              <div class="note-body">
+                <span class="note-text"><strong>Goal at risk</strong> — 3 marketing assets: 2 of 3, 6 days left</span>
+                <div class="note-sub">
+                  <span>Q3 Launch Campaign</span>
+                </div>
+              </div>
+              <div class="note-meta">
+                <span class="note-time">today</span>
+                <a class="note-act" href="essential-goals.html">Open goal →</a>
+              </div>
+            </div>
+
+            <!-- Tool offline -->
+            <div class="note-row needs-you" aria-label="Needs you: Codex Desktop offline">
+              <div class="note-unread" aria-hidden="true"><span class="dot dot-accent"></span></div>
+              <div class="note-glyph" aria-hidden="true" title="Disconnected">○</div>
+              <div class="note-body">
+                <span class="note-text"><strong>Codex Desktop</strong> went offline 2h ago</span>
+                <div class="note-sub">
+                  <span>Assistants using it are paused</span>
+                </div>
+              </div>
+              <div class="note-meta">
+                <span class="note-time">2h</span>
+                <a class="note-act" href="essential-tools.html">Reconnect →</a>
+              </div>
+            </div>
+
+          </div><!-- /.feed -->
+        </section>
+
+        <!-- ════════ GROUP 2 — Updates ════════ -->
+        <section class="group" aria-labelledby="grp-updates">
+          <div class="group-cap">
+            <span class="u-caps" id="grp-updates">Updates</span>
+            <span class="count">4</span>
+          </div>
+
+          <div class="card feed" aria-label="Recent updates">
+
+            <!-- Atlas drafted + moved to Approve (AI) -->
+            <div class="note-row" aria-label="Atlas drafted the June Launch email brief">
+              <div class="note-unread" aria-hidden="true"><span class="dot dot-accent"></span></div>
+              <div class="note-glyph" aria-hidden="true" title="From an assistant">✦</div>
+              <div class="note-body">
+                <span class="note-text"><strong>Atlas</strong> <span class="u-subtle">assistant</span> drafted the <strong>June Launch email brief</strong> and moved it to Approve</span>
+                <div class="note-sub">
+                  <span>Q3 Launch Campaign</span>
+                </div>
+              </div>
+              <div class="note-meta">
+                <span class="note-time">2h</span>
+                <a class="note-act" href="essential-mkt-approvals.html">View</a>
+              </div>
+            </div>
+
+            <!-- Atlas check-in (AI) -->
+            <div class="note-row" aria-label="Atlas finished the daily check-in">
+              <div class="note-unread" aria-hidden="true"><span class="dot dot-accent"></span></div>
+              <div class="note-glyph" aria-hidden="true" title="From an assistant">✦</div>
+              <div class="note-body">
+                <span class="note-text"><strong>Atlas</strong> <span class="u-subtle">assistant</span> finished the daily check-in — support CSAT up to <strong>88%</strong></span>
+                <div class="note-sub">
+                  <span>Customer Support</span>
+                </div>
+              </div>
+              <div class="note-meta">
+                <span class="note-time">4h</span>
+                <a class="note-act" href="essential-project.html">View</a>
+              </div>
+            </div>
+
+            <!-- Dan scheduled posts (human) -->
+            <div class="note-row is-read" aria-label="Dan scheduled 3 LinkedIn posts">
+              <div class="note-unread" aria-hidden="true"><span style="width:8px;display:inline-block"></span></div>
+              <div class="note-glyph" aria-hidden="true" title="From a teammate" style="font-size:var(--text-base)">📅</div>
+              <div class="note-body">
+                <span class="note-text"><strong>Dan</strong> scheduled <strong>3 LinkedIn posts</strong> for the Webinar promo</span>
+                <div class="note-sub">
+                  <span>Q3 Launch Campaign</span>
+                </div>
+              </div>
+              <div class="note-meta">
+                <span class="note-time">4h</span>
+                <a class="note-act" href="essential-project.html">View</a>
+              </div>
+            </div>
+
+            <!-- Maria approved asset (human) -->
+            <div class="note-row is-read" aria-label="Maria approved hero-launch.png">
+              <div class="note-unread" aria-hidden="true"><span style="width:8px;display:inline-block"></span></div>
+              <div class="note-glyph" aria-hidden="true" title="From a teammate" style="font-size:var(--text-base)">✓</div>
+              <div class="note-body">
+                <span class="note-text"><strong>Maria</strong> approved <strong>hero-launch.png</strong></span>
+                <div class="note-sub">
+                  <span>Q3 Launch Campaign</span>
+                </div>
+              </div>
+              <div class="note-meta">
+                <span class="note-time">yesterday</span>
+                <a class="note-act" href="essential-mkt-approvals.html">View</a>
+              </div>
+            </div>
+
+          </div><!-- /.feed -->
+        </section>
+
+        <!-- #15: Mentions + hand-offs live in Activity, not here. A single pointer replaces
+             the duplicated mention rows so the two surfaces don't overlap. -->
+        <p class="group-more" style="padding-top:0">
+          <a href="mention-inbox.html">Mentions and hand-offs that need you → Activity</a>
+        </p>
+
+        </div><!-- /#state-content -->
+
+        <!-- ── Footer note ── -->
+        <p class="foot-note">Manage alert rules in <span class="u-subtle">Settings (admin)</span>.</p>
+
+      </div><!-- /.bc-wrap -->
+    </main>
+
+  </div><!-- /.bc -->
+
+  <!-- ── Undo toast stack (#3) — aria-live region announces the reversible bulk action ── -->
+  <div class="toast-stack" id="toast-stack" role="status" aria-live="polite" aria-atomic="false"></div>
+
+  <script>
+    /* ── Notifications: reversible "Mark all read" (#3) + async-state demo wiring (#12) ── */
+    (function () {
+      var markBtn  = document.getElementById('mark-all-btn');
+      var stack    = document.getElementById('toast-stack');
+      var undoTimer = null;
+
+      /* Mark a single row read (no colour swap — just dim + drop the unread dot) */
+      function markRow(row) {
+        if (!row || row.classList.contains('is-read')) return false;
+        row.classList.add('is-read');
+        var dot = row.querySelector('.dot.dot-accent');
+        if (dot) dot.style.opacity = '0';
+        return true;
+      }
+      function unmarkRow(row) {
+        row.classList.remove('is-read');
+        var dot = row.querySelector('.dot.dot-accent');
+        if (dot) dot.style.opacity = '';
+      }
+
+      /* Build the "Marked N read · Undo" toast and announce it via the live region */
+      function showUndoToast(rows) {
+        if (!stack) return;
+        if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
+        stack.innerHTML = '';
+        var toast = document.createElement('div');
+        toast.className = 'toast toast-info';
+        var body = document.createElement('div');
+        body.style.flex = '1 1 auto';
+        var title = document.createElement('div');
+        title.className = 'toast-title';
+        title.textContent = 'Marked ' + rows.length + ' read';
+        var msg = document.createElement('div');
+        msg.className = 'toast-msg';
+        msg.textContent = 'These notifications are now marked read.';
+        body.appendChild(title);
+        body.appendChild(msg);
+        var undo = document.createElement('button');
+        undo.type = 'button';
+        undo.className = 'btn btn-sm btn-ghost';
+        undo.textContent = 'Undo';
+        undo.style.alignSelf = 'center';
+        undo.style.color = 'var(--accent)';
+        undo.addEventListener('click', function () {
+          rows.forEach(unmarkRow);
+          if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
+          stack.innerHTML = '';
+          refreshEmptyState();
+        });
+        toast.appendChild(body);
+        toast.appendChild(undo);
+        stack.appendChild(toast);
+        undoTimer = setTimeout(function () { stack.innerHTML = ''; undoTimer = null; }, 8000);
+      }
+
+      /* When nothing is unread, fall back to the calm "all caught up" empty state (#12) */
+      function refreshEmptyState() {
+        var content = document.getElementById('state-content');
+        var empty   = document.getElementById('state-empty');
+        if (!content || !empty) return;
+        var anyUnread = !!document.querySelector('.note-row:not(.is-read)');
+        content.style.display = anyUnread ? '' : 'none';
+        empty.style.display   = anyUnread ? 'none' : 'block';
+      }
+
+      if (markBtn) {
+        markBtn.addEventListener('click', function () {
+          var changed = Array.prototype.filter.call(
+            document.querySelectorAll('.note-row:not(.is-read)'),
+            markRow
+          );
+          if (changed.length) showUndoToast(changed);
+          refreshEmptyState();
+        });
+      }
+
+      /* Clicking a row action marks just that row read (no toast for single rows) */
+      document.querySelectorAll('.note-row .note-act').forEach(function (a) {
+        a.addEventListener('click', function () {
+          markRow(a.closest('.note-row'));
+          refreshEmptyState();
+        });
+      });
+
+      /* #12: retry on the error state re-shows the happy path (static demo) */
+      var retry = document.getElementById('retry-btn');
+      if (retry) {
+        retry.addEventListener('click', function () {
+          var err = document.getElementById('state-error');
+          if (err) err.style.display = 'none';
+          var content = document.getElementById('state-content');
+          if (content) content.style.display = '';
+          refreshEmptyState();
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

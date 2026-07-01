@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Accept your invite</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <link rel="stylesheet" href="auth.css">
+  <script src="a11y.js"></script>
+  <script src="auth.js" defer></script>
+</head>
+<body>
+  <main class="auth">
+
+    <p class="auth-cap">You’ve been invited to a workspace</p>
+
+    <!-- ════════════ STEP 1 — Accept the invite (the actual page) ════════════ -->
+    <section class="auth-card" aria-label="Accept your invite to Acme Inc.">
+      <div class="auth-logo" aria-hidden="true">◆</div>
+      <h1>Join Acme&nbsp;Inc.</h1>
+      <p class="auth-lead">Set up your account to get started.</p>
+
+      <!-- Who invited you, to what, as what -->
+      <div class="auth-invite">
+        <div class="ai-tile" aria-hidden="true">A</div>
+        <div>
+          <div class="ai-ws">Acme Inc.</div>
+          <div class="ai-by">Invited by <strong>Mara Lee</strong> · expires in 6 days</div>
+        </div>
+        <span class="badge badge-accent ai-role">Member</span>
+      </div>
+
+      <!-- Join via SSO — provider account must match the invited address -->
+      <div class="auth-oauth">
+        <button class="btn" type="button" aria-label="Join with Google">
+          <svg class="mark" viewBox="0 0 48 48" aria-hidden="true">
+            <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+            <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
+            <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
+            <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+          </svg>
+          <span>Join with Google</span>
+        </button>
+        <button class="btn" type="button" aria-label="Join with GitHub">
+          <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="#1b1f23" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+          </svg>
+          <span>Join with GitHub</span>
+        </button>
+      </div>
+
+      <div class="auth-divider" role="separator" aria-label="or set a password"><span>or set a password</span></div>
+
+      <form novalidate onsubmit="return false">
+        <!-- The invited address — fixed to the invite, so it can't be re-pointed -->
+        <div class="field">
+          <span class="label">Email</span>
+          <div class="auth-locked">
+            <span class="lk-ico" aria-hidden="true">🔒</span>
+            <span class="lk-val">sam@acme.com</span>
+            <span class="hint lk-swap">from your invite</span>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="ai-name">Your name</label>
+          <input class="input" id="ai-name" name="name" type="text" autocomplete="name" placeholder="Sam Rivera">
+        </div>
+        <div class="field">
+          <label class="label" for="ai-pass">Create a password</label>
+          <div class="auth-pw auth-pw--metered">
+            <input class="input" id="ai-pass" name="password" type="password" autocomplete="new-password"
+                   placeholder="At least 12 characters" data-strength="ai-strength">
+            <button class="auth-pw-toggle" type="button" aria-label="Show password" aria-pressed="false" data-pw-toggle>👁</button>
+            <div class="auth-strength" id="ai-strength" data-score="0" aria-hidden="true">
+              <div class="auth-strength-bars"><span></span><span></span><span></span><span></span></div>
+              <div class="auth-strength-row">
+                <span class="auth-strength-word"></span>
+                <span class="auth-strength-hint">12+ characters, mixed case &amp; a number</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary auth-submit" type="submit">Join Acme&nbsp;Inc. →</button>
+      </form>
+
+      <p class="auth-foot">By joining you agree to the <a href="#">Terms</a> and <a href="#">Privacy&nbsp;Policy</a>.</p>
+    </section>
+
+    <p class="auth-cap">If the invite is stale, or meant for someone else — the guarded variations</p>
+
+    <!-- ════════════ ALT STATES — captioned previews ════════════ -->
+    <div class="auth-alts" aria-hidden="true">
+
+      <div class="auth-alt">
+        <p class="auth-alt-cap">Invite expired — the whole card falls back to this</p>
+        <div class="sb-alert sb-alert--warning" role="alert">
+          <span class="ico" aria-hidden="true">⌛</span>
+          <strong class="sb-alert-title">This invite has expired</strong>
+          <span class="sb-alert-desc">Invites last 7 days. Ask <strong>Mara Lee</strong> to send a fresh one — the link can’t be revived.</span>
+        </div>
+      </div>
+
+      <div class="auth-alt">
+        <p class="auth-alt-cap">Signed in as someone else — invite is address-locked</p>
+        <div class="sb-alert sb-alert--warning" role="alert">
+          <span class="ico" aria-hidden="true">⚠</span>
+          <strong class="sb-alert-title">This invite is for sam@acme.com</strong>
+          <span class="sb-alert-desc">You’re signed in as ada@acme.com. <a href="essential-signout.html">Sign out</a> and open the link again, or ask for a new invite.</span>
+        </div>
+      </div>
+
+      <div class="auth-alt">
+        <p class="auth-alt-cap">Already a member — nothing to accept</p>
+        <div class="sb-alert sb-alert--success" role="status">
+          <span class="ico" aria-hidden="true">✓</span>
+          <strong class="sb-alert-title">You already have access</strong>
+          <span class="sb-alert-desc">Your account is already in Acme Inc. — just <a href="essential-login.html">sign in</a>.</span>
+        </div>
+      </div>
+
+      <div class="auth-alt">
+        <p class="auth-alt-cap">Joining — pending state (Doherty &lt; 400ms)</p>
+        <button class="btn btn-primary auth-submit" type="button" disabled style="margin-top:0"><span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span> Joining Acme Inc.…</button>
+        <p class="hint">The button locks with a spinner; an <code>aria-live</code> region confirms before we drop you into Home for the first time.</p>
+      </div>
+
+    </div>
+
+  </main>
+</body>
+</html>

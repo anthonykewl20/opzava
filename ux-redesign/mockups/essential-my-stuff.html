@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Essential · Your stuff</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* Essential: Basecamp-style calm top-nav layout. Layout geometry only — no
+       colour or size values hardcoded. */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+
+    /* ── Top bar ── */
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .ava { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; }
+
+    /* ── Page wrapper ── */
+    .bc-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+
+    /* ── Section spacing ── */
+    .section { margin-bottom: var(--space-8); }
+    .section-head { display: flex; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-4); }
+    .section-head h2 { font-size: var(--text-lg); }
+    .section-count { font-size: var(--text-sm); color: var(--fg-subtle); font-weight: var(--fw-regular); }
+
+    /* ── Assignment rows inside a card ── */
+    .item-list { display: flex; flex-direction: column; }
+    .item-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
+    .item-row:last-child { border-bottom: none; }
+
+    /* left: title + meta stack */
+    .item-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .item-title { font-size: var(--text-base); font-weight: var(--fw-medium); color: var(--fg); }
+    .item-meta { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+
+    /* project chip: colored dot + name */
+    .proj-chip { display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-xs); font-weight: var(--fw-medium); color: var(--fg-muted); }
+
+    /* following row: assistant avatar circle */
+    .asst-ava { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    /* ── Needs-you summary band (Zeigarnik / Goal-Gradient — decrements as rows clear) ── */
+    .needs-band { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-6); border-left: 3px solid var(--accent); }
+    .needs-band-glyph { flex: none; color: var(--fg-subtle); line-height: 1; font-size: var(--text-md); }
+    .needs-band-text { flex: 1 1 auto; min-width: 0; font-size: var(--text-base); color: var(--fg); }
+    .needs-band-text strong { font-weight: var(--fw-semibold); }
+    .needs-band-sub { font-size: var(--text-xs); color: var(--fg-muted); }
+    /* the at-risk count names what is urgent — emphasis by weight + accent, never a hue-coded badge */
+    #needsRisk strong { color: var(--accent); font-weight: var(--fw-semibold); }
+    #needsRisk[hidden] { display: none; }
+    /* thin progress meter toward "all cleared" — single accent, not a hue-coded status */
+    .needs-progress { flex: none; width: 96px; height: 6px; border-radius: var(--radius-full); background: var(--surface-2); overflow: hidden; }
+    .needs-progress > span { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width .25s ease; }
+
+    /* a cleared row collapses out, leaving a brief confirm before removal */
+    .item-row.is-clearing { opacity: .5; }
+    .item-cleared { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); font-size: var(--text-base); color: var(--fg-muted); }
+    .item-cleared:last-child { border-bottom: none; }
+    .item-cleared .clr-glyph { color: var(--fg-subtle); }
+
+    /* calm all-caught-up state once every row in the section is cleared */
+    .needs-done { padding: var(--space-6) var(--space-5); text-align: center; font-size: var(--text-base); color: var(--fg-muted); }
+    .needs-done .nd-glyph { display: block; font-size: var(--text-xl); margin-bottom: var(--space-2); color: var(--fg-subtle); }
+
+    /* schedule rows */
+    .sched-list { display: flex; flex-direction: column; }
+    .sched-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
+    .sched-row:last-child { border-bottom: none; }
+    .sched-date { min-width: 100px; font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg-subtle); }
+    .sched-body { flex: 1 1 auto; min-width: 0; }
+    .sched-title { font-size: var(--text-base); color: var(--fg); }
+  </style>
+</head>
+<body>
+  <div class="bc">
+
+    <!-- ── Top bar (copied from essential-home.html; "My stuff" active) ── -->
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html" class="active" aria-current="page">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
+      <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+    </header>
+
+    <main>
+      <div class="bc-wrap">
+
+        <!-- ── Page title ── -->
+        <h1 style="font-size:var(--text-xl);margin-bottom:var(--space-2)">Your stuff</h1>
+        <p class="u-muted" style="margin-bottom:var(--space-8)">Everything across your projects that needs you, or that you're following.</p>
+
+        <!-- ════════════════════════════════════════════════════
+             Section 1 — Needs your input
+        ═════════════════════════════════════════════════════ -->
+        <section class="section" aria-labelledby="needs-input-heading">
+          <div class="section-head">
+            <h2 id="needs-input-heading">Needs your input</h2>
+            <span class="section-count" id="needsCount">4 items</span>
+          </div>
+
+          <!-- Needs-you progress band — Zeigarnik / Goal-Gradient: decrements live as
+               each row is reviewed, pulling toward "all cleared today". -->
+          <div class="card needs-band" id="needsBand" role="status" aria-live="polite"
+               data-cleared="1" data-total="5" data-remaining="4" data-at-risk="1"
+               aria-label="Needs your input: 1 of 5 cleared today, 4 still waiting on you, 1 due today.">
+            <span class="needs-band-glyph" aria-hidden="true">◷</span>
+            <div class="needs-band-text">
+              <strong>Needs your input</strong>
+              <span class="needs-band-sub">·&nbsp;<span id="needsCleared">1</span> of <span id="needsTotal">5</span> cleared today<span id="needsRisk"> · <strong>1 due today</strong></span></span>
+            </div>
+            <div class="needs-progress" role="presentation">
+              <span id="needsBar" style="width:20%"></span>
+            </div>
+          </div>
+
+          <div class="card item-list" id="needsList">
+
+            <!-- Row 1 — due today · the single most urgent item → the page's one key action.
+                 data-risk surfaces this at-risk row above the calm on-track ones (assertable). -->
+            <div class="item-row" data-needs-row data-risk="today">
+              <div class="item-body">
+                <span class="item-title">Approve the partner outreach email</span>
+                <div class="item-meta">
+                  <!-- project chip -->
+                  <span class="proj-chip">
+                    <span class="dot" style="background:var(--chart-2)" aria-hidden="true"></span>
+                    Series B Outreach
+                  </span>
+                  <span class="u-subtle" style="font-size:var(--text-xs)">drafted by Cipher</span>
+                  <span class="badge badge-warning"><span class="dot dot-warning" aria-hidden="true"></span> Today</span>
+                </div>
+              </div>
+              <button class="btn btn-primary" type="button" data-review="Approve the partner outreach email">Review</button>
+            </div>
+
+            <!-- Row 2 -->
+            <div class="item-row" data-needs-row>
+              <div class="item-body">
+                <span class="item-title">Review the June newsletter draft</span>
+                <div class="item-meta">
+                  <span class="proj-chip">
+                    <span class="dot" style="background:var(--chart-1)" aria-hidden="true"></span>
+                    Q2 Content Push
+                  </span>
+                  <span class="u-subtle" style="font-size:var(--text-xs)">drafted by Atlas</span>
+                  <span class="badge">Due Thu</span>
+                </div>
+              </div>
+              <button class="btn" type="button" data-review="Review the June newsletter draft">Review</button>
+            </div>
+
+            <!-- Row 3 -->
+            <div class="item-row" data-needs-row>
+              <div class="item-body">
+                <span class="item-title">Pick the blog headline — three options ready</span>
+                <div class="item-meta">
+                  <span class="proj-chip">
+                    <span class="dot" style="background:var(--chart-1)" aria-hidden="true"></span>
+                    Q2 Content Push
+                  </span>
+                  <span class="u-subtle" style="font-size:var(--text-xs)">drafted by Iris</span>
+                  <span class="badge">Due Fri</span>
+                </div>
+              </div>
+              <button class="btn" type="button" data-review="Pick the blog headline">Review</button>
+            </div>
+
+            <!-- Row 4 -->
+            <div class="item-row" data-needs-row>
+              <div class="item-body">
+                <span class="item-title">Confirm the data room is ready to share with investors</span>
+                <div class="item-meta">
+                  <span class="proj-chip">
+                    <span class="dot" style="background:var(--chart-2)" aria-hidden="true"></span>
+                    Series B Outreach
+                  </span>
+                  <span class="u-subtle" style="font-size:var(--text-xs)">compiled by Nexus</span>
+                  <span class="badge">Due next Tue</span>
+                </div>
+              </div>
+              <button class="btn" type="button" data-review="Confirm the data room is ready">Review</button>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- ════════════════════════════════════════════════════
+             Section 2 — Following
+        ═════════════════════════════════════════════════════ -->
+        <section class="section" aria-labelledby="following-heading">
+          <div class="section-head">
+            <h2 id="following-heading">Following</h2>
+            <span class="section-count">3 items</span>
+          </div>
+          <div class="card item-list">
+
+            <!-- Following row 1 -->
+            <div class="item-row">
+              <div class="item-body">
+                <span class="item-title">Social posts for the product launch</span>
+                <div class="item-meta">
+                  <span class="proj-chip">
+                    <span class="dot" style="background:var(--chart-5)" aria-hidden="true"></span>
+                    Website Refresh
+                  </span>
+                  <!-- assistant avatar -->
+                  <span class="asst-ava" style="background:var(--chart-5)" title="Echo">E</span>
+                  <span class="u-subtle" style="font-size:var(--text-xs)">Echo is working on it</span>
+                  <span class="badge badge-info">In progress</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Following row 2 -->
+            <div class="item-row">
+              <div class="item-body">
+                <span class="item-title">Competitor landscape summary — Market Research</span>
+                <div class="item-meta">
+                  <span class="proj-chip">
+                    <span class="dot" style="background:var(--chart-3)" aria-hidden="true"></span>
+                    Market Research
+                  </span>
+                  <span class="asst-ava" style="background:var(--chart-4)" title="Nexus">N</span>
+                  <span class="u-subtle" style="font-size:var(--text-xs)">Nexus researching</span>
+                  <span class="badge">Due Fri</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Following row 3 -->
+            <div class="item-row">
+              <div class="item-body">
+                <span class="item-title">Weekly ops digest — auto-generated Monday morning</span>
+                <div class="item-meta">
+                  <span class="proj-chip">
+                    <span class="dot" style="background:var(--chart-6)" aria-hidden="true"></span>
+                    Weekly Ops
+                  </span>
+                  <span class="asst-ava" style="background:var(--chart-1)" title="Atlas">A</span>
+                  <span class="u-subtle" style="font-size:var(--text-xs)">Atlas runs this</span>
+                  <span class="badge badge-info"><span class="dot dot-accent" aria-hidden="true"></span> Scheduled</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- ════════════════════════════════════════════════════
+             Section 3 — Your schedule
+        ═════════════════════════════════════════════════════ -->
+        <section class="section" aria-labelledby="schedule-heading">
+          <div class="section-head">
+            <h2 id="schedule-heading">Your schedule</h2>
+            <a href="essential-my-schedule.html" class="msg-link" style="margin-left:auto;font-size:var(--text-sm)" aria-label="Open your full schedule across all projects">Open calendar →</a>
+          </div>
+          <div class="card sched-list">
+
+            <div class="sched-row">
+              <span class="sched-date">Fri 27 Jun</span>
+              <div class="sched-body">
+                <span class="sched-title">June newsletter goes out</span>
+                <div class="item-meta" style="margin-top:4px">
+                  <span class="proj-chip">
+                    <span class="dot" style="background:var(--chart-1)" aria-hidden="true"></span>
+                    Q2 Content Push
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="sched-row">
+              <span class="sched-date">Mon 30 Jun · 9:00</span>
+              <div class="sched-body">
+                <span class="sched-title">Weekly report</span>
+                <div class="item-meta" style="margin-top:4px">
+                  <span class="proj-chip">
+                    <span class="dot" style="background:var(--chart-6)" aria-hidden="true"></span>
+                    Weekly Ops
+                  </span>
+                  <span class="u-subtle" style="font-size:var(--text-xs)">auto-prepared by Atlas</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="sched-row">
+              <span class="sched-date">Tue 1 Jul</span>
+              <div class="sched-body">
+                <span class="sched-title">Series B data room due</span>
+                <div class="item-meta" style="margin-top:4px">
+                  <span class="proj-chip">
+                    <span class="dot" style="background:var(--chart-2)" aria-hidden="true"></span>
+                    Series B Outreach
+                  </span>
+                  <span class="badge badge-warning">Hard deadline</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- ── Calm closing note ── -->
+        <p class="u-subtle" style="font-size:var(--text-sm);text-align:center;padding-top:var(--space-4)">
+          That's everything on your plate right now. Your assistants will let you know when something new needs you.
+        </p>
+
+      </div>
+    </main>
+
+  </div>
+
+  <!-- Page-local: "Needs your input" clears live and the summary band decrements
+       toward "all cleared today" (Zeigarnik / Goal-Gradient). Vanilla, no framework. -->
+  <script>
+    (function () {
+      var list     = document.getElementById('needsList');
+      var band     = document.getElementById('needsBand');
+      var bar      = document.getElementById('needsBar');
+      var clearedEl = document.getElementById('needsCleared');
+      var totalEl   = document.getElementById('needsTotal');
+      var countEl   = document.getElementById('needsCount');
+      var riskEl    = document.getElementById('needsRisk');
+      if (!list || !band) return;
+
+      var total   = parseInt(totalEl.textContent, 10) || 5;   // items that needed you today
+      var cleared = parseInt(clearedEl.textContent, 10) || 0;  // already cleared before this session
+
+      function remaining() {
+        return list.querySelectorAll('[data-needs-row]').length;
+      }
+      // count at-risk (due today / overdue) rows still waiting — surfaces what is urgent
+      function atRisk() {
+        return list.querySelectorAll('[data-needs-row][data-risk="today"]').length;
+      }
+
+      function syncBand() {
+        var left = remaining();
+        var risk = atRisk();
+        var pct  = Math.round((cleared / total) * 100);
+        bar.style.width = pct + '%';
+        clearedEl.textContent = cleared;
+        countEl.textContent = left + (left === 1 ? ' item' : ' items');
+        // keep the assertable summary in sync so humans + AI read one source of truth
+        band.setAttribute('data-cleared', cleared);
+        band.setAttribute('data-remaining', left);
+        band.setAttribute('data-at-risk', risk);
+
+        // Name what is urgent (due today) so the pull is concrete, not just a cleared count.
+        if (riskEl) {
+          if (risk > 0) {
+            riskEl.hidden = false;
+            riskEl.innerHTML = ' · <strong>' + risk + ' due today</strong>';
+          } else {
+            riskEl.hidden = true;
+          }
+        }
+
+        if (left === 0) {
+          // Calm all-caught-up state — no traffic-light hue, just label + glyph.
+          band.setAttribute('aria-label', 'Needs your input: all ' + total + ' cleared today.');
+          band.querySelector('.needs-band-text').innerHTML =
+            '<strong>All caught up</strong><span class="needs-band-sub">·&nbsp;' +
+            total + ' of ' + total + ' cleared today</span>';
+          list.innerHTML =
+            '<div class="needs-done"><span class="nd-glyph" aria-hidden="true">✓</span>' +
+            'Nothing waiting on you right now. Your assistants will flag the next one.</div>';
+        } else {
+          band.setAttribute('aria-label',
+            'Needs your input: ' + cleared + ' of ' + total + ' cleared today, ' +
+            left + (left === 1 ? ' still waiting on you' : ' still waiting on you') +
+            (risk > 0 ? ', ' + risk + ' due today.' : '.'));
+        }
+      }
+
+      list.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-review]');
+        if (!btn) return;
+        var row = btn.closest('[data-needs-row]');
+        if (!row || row.classList.contains('is-clearing')) return;
+
+        // Optimistic, reversible-looking confirm before the row leaves (<400ms feedback).
+        row.classList.add('is-clearing');
+        btn.disabled = true;
+        var title = btn.getAttribute('data-review') || 'this item';
+
+        var done = document.createElement('div');
+        done.className = 'item-cleared';
+        done.setAttribute('role', 'status');
+        done.innerHTML = '<span class="clr-glyph" aria-hidden="true">✓</span> Reviewed — ' +
+          title.replace(/[<>&]/g, '') + '.';
+        row.replaceWith(done);
+
+        cleared += 1;
+        syncBand();
+
+        // Brief confirm, then the cleared receipt fades from the list.
+        window.setTimeout(function () {
+          if (done.parentNode) done.remove();
+          // If that was the last row, render the caught-up state cleanly.
+          if (remaining() === 0 && !list.querySelector('.needs-done')) syncBand();
+        }, 1600);
+      });
+    })();
+  </script>
+</body>
+</html>

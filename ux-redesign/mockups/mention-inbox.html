@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Activity</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* ── Essential calm layout. Layout geometry only — no colour or size tokens overridden. ── */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+
+    /* ── Top bar ── */
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+
+    /* ── Page wrapper ── */
+    .bc-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+
+    /* ── Filter tab row (sb-tabs reuse) ── */
+    .filter-bar { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-6); flex-wrap: wrap; }
+
+    /* ── Inbox list ── */
+    .inbox-list { display: flex; flex-direction: column; }
+
+    /* Each inbox row */
+    .inbox-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); position: relative; }
+    .inbox-row:last-child { border-bottom: none; }
+    .inbox-row.is-read { opacity: .85; }
+
+    /* Leading unread dot column (8px wide, centred) */
+    .inbox-unread { flex: none; width: 10px; display: flex; align-items: center; justify-content: center; }
+
+    /* Source glyph column */
+    .inbox-glyph { flex: none; width: 22px; font-size: var(--text-base); color: var(--fg-muted); display: flex; align-items: center; justify-content: center; }
+
+    /* Actor avatar */
+    .inbox-actor { flex: none; }
+
+    /* Text body */
+    .inbox-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .inbox-text { font-size: var(--text-base); color: var(--fg); line-height: 1.45; }
+    .inbox-sub { font-size: var(--text-xs); color: var(--fg-subtle); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+
+    /* Time + action column */
+    .inbox-meta { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
+    .inbox-time { font-size: var(--text-xs); color: var(--fg-subtle); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    /* Empty state inside a secondary card */
+    .empty-secondary { padding: var(--space-10) var(--space-6); display: flex; flex-direction: column; align-items: center; gap: var(--space-3); }
+
+    /* ── Loading skeleton (shown via .state-loading/.state-content toggle) ── */
+    .state-loading { display: none; }
+    .state-error   { display: none; }
+    .state-offline { display: none; }
+
+    /* Page header row */
+    .page-header-row { display: flex; align-items: baseline; gap: var(--space-4); margin-bottom: var(--space-6); flex-wrap: wrap; }
+    .page-header-row h1 { font-size: var(--text-xl); margin: 0; }
+    .page-header-row .hd-sub { font-size: var(--text-sm); color: var(--fg-muted); }
+
+    /* ── Offline banner ── */
+    .offline-bar { display: none; }
+
+    /* ── Section separator label ── */
+    .inbox-divider { padding: var(--space-3) var(--space-5); font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+
+    /* ── Mark all read link ── */
+    .mark-all { font-size: var(--text-sm); color: var(--accent); cursor: pointer; background: none; border: none; padding: 0; font-weight: var(--fw-medium); }
+    .mark-all:hover { text-decoration: underline; }
+
+    /* ── Mobile: stack and reduce padding ──
+       Collapses: inbox-meta moves below inbox-body; topnav wraps under logo. */
+    @media (max-width: 640px) {
+      .topnav { display: none; } /* collapse to hamburger in production */
+      .bc-wrap { padding: var(--space-5) var(--space-4) var(--space-12); }
+      .inbox-row { flex-wrap: wrap; gap: var(--space-3); }
+      .inbox-meta { flex-direction: row; align-items: center; width: 100%; justify-content: flex-end; }
+      .filter-bar { gap: var(--space-1); }
+      .page-header-row { flex-direction: column; gap: var(--space-1); }
+    }
+  </style>
+</head>
+<body>
+  <div class="bc">
+
+    <!-- ── Offline banner (hidden by default; shown when SSE drops) ── -->
+    <div class="offline-bar sb-alert sb-alert--warning" role="alert" id="offline-bar" style="border-radius:0;border-left:none;border-right:none;border-top:none;" aria-live="polite">
+      <span class="ico" aria-hidden="true">⚠</span>
+      <div>
+        <strong class="sb-alert-title">You're offline.</strong>
+        <span class="sb-alert-desc">Activity won't update until the connection comes back.</span>
+      </div>
+    </div>
+
+    <!-- ── Top bar ("Activity" active) ── -->
+    <header class="topbar">
+      <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+        <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+        <strong style="font-size:var(--text-md)">Opzava</strong>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <a href="essential-home.html">Home</a>
+        <a href="essential-my-stuff.html">My stuff</a>
+        <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+        <a href="mention-inbox.html" class="active" aria-current="page">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+        <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+        <a href="essential-find.html">Find…</a>
+      </nav>
+      <span class="u-grow"></span>
+      <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+      <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
+      <span class="sb-avatar sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+    </header>
+
+    <main id="main-content">
+      <div class="bc-wrap">
+
+        <!-- ── Page heading ── -->
+        <div class="page-header-row">
+          <h1>Activity</h1>
+          <span class="hd-sub">People and assistants directed something at you — mentions, hand-offs, and approvals. System and tool alerts live in <a href="essential-notifications.html">Notifications</a>.</span>
+          <span class="u-grow"></span>
+          <button class="mark-all" type="button" id="mark-all-btn" aria-label="Mark all as read">Mark all read</button>
+        </div>
+
+        <!-- ── Loading state (skeleton) ── -->
+        <!-- ASYNC STATE: loading. Toggle .state-loading display:flex and hide .state-content when fetching. -->
+        <div class="state-loading card" aria-busy="true" aria-label="Loading activity">
+          <div style="padding:var(--space-5);display:flex;flex-direction:column;gap:var(--space-4)">
+            <div class="sk-line" style="width:70%"></div>
+            <div class="sk-line" style="width:55%"></div>
+            <div class="sk-line" style="width:62%"></div>
+            <div class="sk-line" style="width:48%"></div>
+          </div>
+        </div>
+
+        <!-- ── Error state ── -->
+        <!-- ASYNC STATE: error. Show this block + a retry button if /api/notifications fails. -->
+        <div class="state-error sb-alert sb-alert--destructive" role="alert">
+          <span class="ico" aria-hidden="true">✕</span>
+          <div>
+            <strong class="sb-alert-title">Could not load activity.</strong>
+            <span class="sb-alert-desc">Check your connection and <button class="mark-all" type="button">retry</button>.</span>
+          </div>
+        </div>
+
+        <!-- ── Main content ── -->
+        <div class="state-content" id="state-content">
+
+          <!-- ── Filter tab row ── -->
+          <!-- Using sb-tabs segmented style; "For you" tab active.
+               "For you" = everything directed at you (mentions + AI hand-offs + approvals),
+               so it is renamed from "@ You" — the old label implied @-mentions only. -->
+          <div class="sb-tabs filter-bar" role="tablist" aria-label="Activity filters" id="filter-tabs">
+            <button type="button" class="sb-tab" role="tab" aria-selected="false" data-filter="all"
+                    aria-controls="inbox-panel">All</button>
+            <button type="button" class="sb-tab" role="tab" aria-selected="true" data-filter="mentions"
+                    aria-controls="inbox-panel">For you <span class="sb-badge sb-badge--accent" style="margin-left:4px;height:18px;padding:0 6px">2</span></button>
+            <button type="button" class="sb-tab" role="tab" aria-selected="false" data-filter="approvals"
+                    aria-controls="inbox-panel">Approvals <span class="sb-badge sb-badge--secondary" style="margin-left:4px;height:18px;padding:0 6px">1</span></button>
+            <button type="button" class="sb-tab" role="tab" aria-selected="false" data-filter="following"
+                    aria-controls="inbox-panel">Following</button>
+          </div>
+
+          <!-- ── Inbox panel — "For you" view active ── -->
+          <div id="inbox-panel" role="tabpanel">
+
+            <!-- ─── Active / unread section ─── -->
+            <div class="card inbox-list" id="inbox-active" aria-label="Unread activity">
+
+              <!-- ── Row 1: human mention (unread) ── -->
+              <div class="inbox-row" data-kind="mentions" data-id="act-1" aria-label="Unread: Anthony mentioned you">
+                <!-- unread dot -->
+                <div class="inbox-unread" aria-hidden="true">
+                  <span class="dot dot-accent"></span>
+                </div>
+                <!-- source glyph: @ = human mention -->
+                <div class="inbox-glyph" aria-hidden="true" title="Mention">@</div>
+                <!-- actor: human = plain circle initials, NO color distinction -->
+                <div class="inbox-actor">
+                  <span class="sb-avatar sb-avatar--sm" title="Anthony" aria-label="Anthony">AG</span>
+                </div>
+                <!-- text body -->
+                <div class="inbox-body">
+                  <span class="inbox-text"><strong>Anthony</strong> mentioned you in <strong>Team · Q2 Content Push</strong></span>
+                  <div class="inbox-sub">
+                    <span>"Can you confirm the newsletter publish date?"</span>
+                  </div>
+                </div>
+                <!-- time + action -->
+                <div class="inbox-meta">
+                  <span class="inbox-time u-mono">2m</span>
+                  <a href="essential-project.html" class="btn btn-sm" type="button">Open</a>
+                </div>
+              </div>
+
+              <!-- ── Row 2: AI hand-off (unread) ── -->
+              <div class="inbox-row" data-kind="mentions" data-id="act-2" aria-label="Unread: Iris needs your ok">
+                <!-- unread dot -->
+                <div class="inbox-unread" aria-hidden="true">
+                  <span class="dot dot-accent"></span>
+                </div>
+                <!-- source glyph: ✦ = AI assistant hand-off -->
+                <div class="inbox-glyph" aria-hidden="true" title="AI hand-off" style="color:var(--fg-muted)">✦</div>
+                <!-- actor: AI = sb-avatar--ai (rounded square, auto ✦ corner) -->
+                <div class="inbox-actor">
+                  <span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-3)" title="Iris (assistant)" aria-label="Iris, AI assistant">Ir</span>
+                </div>
+                <!-- text body -->
+                <div class="inbox-body">
+                  <span class="inbox-text"><strong>Iris</strong> <span class="u-subtle">assistant</span> needs your ok on the partner email</span>
+                  <div class="inbox-sub">
+                    <span>Series B Outreach</span>
+                    <span class="sb-badge sb-badge--outline" style="height:18px;font-size:var(--text-xs)">✦ AI hand-off</span>
+                  </div>
+                </div>
+                <!-- time + action -->
+                <div class="inbox-meta">
+                  <span class="inbox-time u-mono">10m</span>
+                  <a href="essential-my-stuff.html" class="btn btn-sm" type="button">Review</a>
+                </div>
+              </div>
+
+              <!-- ── Row 3: approval request (unread, kind=approvals) ── -->
+              <div class="inbox-row" data-kind="approvals" data-id="act-3" aria-label="Approval requested for outreach-seriesb.md">
+                <!-- unread dot — shown in "For you" filter because it's directed at you -->
+                <div class="inbox-unread" aria-hidden="true">
+                  <!-- read: empty space -->
+                  <span style="width:8px;display:inline-block"></span>
+                </div>
+                <!-- source glyph: ✓ = approval -->
+                <div class="inbox-glyph" aria-hidden="true" title="Approval request" style="font-size:var(--text-sm)">✓</div>
+                <!-- actor: Iris (AI drafted, system approval request) -->
+                <div class="inbox-actor">
+                  <span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-3)" title="Iris (assistant)" aria-label="Iris, AI assistant">Ir</span>
+                </div>
+                <!-- text body -->
+                <div class="inbox-body">
+                  <span class="inbox-text">Approval requested · <strong>outreach-seriesb.md</strong></span>
+                  <div class="inbox-sub">
+                    <span>Series B Outreach</span>
+                    <span class="sb-badge sb-badge--warning" style="height:18px;font-size:var(--text-xs)">Needs your sign-off</span>
+                  </div>
+                </div>
+                <!-- time + action -->
+                <div class="inbox-meta">
+                  <span class="inbox-time u-mono">18m</span>
+                  <a href="essential-my-stuff.html" class="btn btn-sm" type="button">Review</a>
+                </div>
+              </div>
+
+              <!-- ── Row 4: human reply (read) ── -->
+              <div class="inbox-row is-read" data-kind="mentions" data-id="act-4" aria-label="Dev replied to your thread">
+                <!-- read: no dot -->
+                <div class="inbox-unread" aria-hidden="true">
+                  <span style="width:8px;display:inline-block"></span>
+                </div>
+                <!-- source glyph: @ = human reply in thread -->
+                <div class="inbox-glyph" aria-hidden="true" title="Thread reply">@</div>
+                <!-- actor: human Dev -->
+                <div class="inbox-actor">
+                  <span class="sb-avatar sb-avatar--sm" title="Dev" aria-label="Dev">D</span>
+                </div>
+                <!-- text body -->
+                <div class="inbox-body">
+                  <span class="inbox-text"><strong>Dev</strong> replied to your thread in <strong>Series B</strong></span>
+                  <div class="inbox-sub">
+                    <span>"Investor list updated, lmk if you want the export"</span>
+                  </div>
+                </div>
+                <!-- time + action -->
+                <div class="inbox-meta">
+                  <span class="inbox-time u-mono">1h</span>
+                  <a href="essential-team-room.html" class="btn btn-sm btn-ghost">Open</a>
+                </div>
+              </div>
+
+            </div><!-- /.inbox-list -->
+
+            <!-- ── Earlier divider ── -->
+            <div class="inbox-divider" role="separator">Earlier today</div>
+
+            <!-- ── Earlier card ── -->
+            <div class="card inbox-list" id="inbox-earlier">
+
+              <!-- Row 5: human mention (read, earlier) -->
+              <div class="inbox-row is-read" data-kind="mentions" data-id="act-5" aria-label="Maria mentioned you">
+                <div class="inbox-unread" aria-hidden="true">
+                  <span style="width:8px;display:inline-block"></span>
+                </div>
+                <div class="inbox-glyph" aria-hidden="true" title="Mention">@</div>
+                <div class="inbox-actor">
+                  <span class="sb-avatar sb-avatar--sm" title="Maria" aria-label="Maria">M</span>
+                </div>
+                <div class="inbox-body">
+                  <span class="inbox-text"><strong>Maria</strong> mentioned you in <strong>Team · Website Refresh</strong></span>
+                  <div class="inbox-sub">
+                    <span>"Heads up on the copy deadline"</span>
+                  </div>
+                </div>
+                <div class="inbox-meta">
+                  <span class="inbox-time u-mono">3h</span>
+                  <a href="essential-team-room.html" class="btn btn-sm btn-ghost">Open</a>
+                </div>
+              </div>
+
+              <!-- Row 6: AI hand-off (read, earlier) -->
+              <div class="inbox-row is-read" data-kind="mentions" data-id="act-6" aria-label="Atlas finished the market analysis">
+                <div class="inbox-unread" aria-hidden="true">
+                  <span style="width:8px;display:inline-block"></span>
+                </div>
+                <div class="inbox-glyph" aria-hidden="true" title="AI hand-off">✦</div>
+                <div class="inbox-actor">
+                  <span class="sb-avatar sb-avatar--sm sb-avatar--ai" style="background:var(--chart-1)" title="Atlas (assistant)" aria-label="Atlas, AI assistant">At</span>
+                </div>
+                <div class="inbox-body">
+                  <span class="inbox-text"><strong>Atlas</strong> <span class="u-subtle">assistant</span> finished the market analysis — ready for your review</span>
+                  <div class="inbox-sub">
+                    <span>Market Research</span>
+                    <span class="sb-badge sb-badge--outline" style="height:18px;font-size:var(--text-xs)">✦ AI hand-off</span>
+                  </div>
+                </div>
+                <div class="inbox-meta">
+                  <span class="inbox-time u-mono">5h</span>
+                  <a href="essential-card.html" class="btn btn-sm btn-ghost">Review</a>
+                </div>
+              </div>
+
+            </div><!-- /.inbox-list (earlier) -->
+
+          </div><!-- /#inbox-panel -->
+
+          <!-- ── Empty state: caught-up (no-results) ── -->
+          <!-- ASYNC STATE: empty. Shown when "All", "For you", or "Approvals" return zero items.
+               In JS toggle: hide #inbox-active + #inbox-earlier + divider; show #empty-state. -->
+          <div class="card" id="empty-state" style="display:none;" aria-live="polite">
+            <div class="empty-secondary">
+              <span style="font-size:28px" aria-hidden="true">✅</span>
+              <p class="u-subtle" style="margin:0;text-align:center">You're all caught up — nothing here needs your attention right now.<br>Your assistants will let you know when something new comes in.</p>
+            </div>
+          </div>
+
+          <!-- ── Empty state: Following first-use ── -->
+          <!-- First-use copy for "Following" — distinct from the "all caught up" no-results state.
+               Shown only when the Following filter is active and it has no followed items yet. -->
+          <div class="card" id="empty-following" style="display:none;" aria-live="polite">
+            <div class="empty-secondary">
+              <span style="font-size:28px" aria-hidden="true">☆</span>
+              <p class="u-subtle" style="margin:0;text-align:center">You're not following anything yet.<br>Follow a project, thread, or to-do and its updates will show up here — even when you're not mentioned.</p>
+            </div>
+          </div>
+
+        </div><!-- /#state-content -->
+
+        <!-- ── Calm closing note ── -->
+        <p class="u-subtle" style="font-size:var(--text-sm);text-align:center;padding-top:var(--space-6)">
+          Activity collects mentions, AI hand-offs, and approvals in one place — separate from your chat with Opzava and from team conversations.
+        </p>
+
+      </div><!-- /.bc-wrap -->
+    </main>
+
+  </div><!-- /.bc -->
+
+  <!-- ── Toast stack — undo affordance for reversible bulk actions (e.g. Mark all read) ── -->
+  <div class="toast-stack" id="toast-stack" aria-label="Notifications"></div>
+
+  <script>
+    /* ── Filter tabs ── */
+    (function () {
+      var tabs = document.querySelectorAll('#filter-tabs .sb-tab');
+      var rows = document.querySelectorAll('.inbox-row');
+
+      function applyFilter(filter) {
+        tabs.forEach(function (t) {
+          var active = t.dataset.filter === filter;
+          t.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+
+        if (filter === 'all' || filter === 'mentions') {
+          // show every row; the "For you" tab shows mentions + AI hand-offs + approvals (all directed)
+          rows.forEach(function (r) { r.style.display = ''; });
+        } else if (filter === 'approvals') {
+          rows.forEach(function (r) {
+            r.style.display = r.dataset.kind === 'approvals' ? '' : 'none';
+          });
+        } else if (filter === 'following') {
+          // following has no items in this snapshot — show the Following first-use empty state
+          rows.forEach(function (r) { r.style.display = 'none'; });
+        }
+
+        // toggle empty-state visibility — Following gets its own first-use copy,
+        // the other filters fall back to the "all caught up" no-results state.
+        var anyVisible = Array.from(rows).some(function (r) { return r.style.display !== 'none'; });
+        var caughtUpEl = document.getElementById('empty-state');
+        var followingEl = document.getElementById('empty-following');
+        var showFollowingEmpty = (filter === 'following') && !anyVisible;
+        var showCaughtUp = !anyVisible && !showFollowingEmpty;
+        if (caughtUpEl) caughtUpEl.style.display = showCaughtUp ? '' : 'none';
+        if (followingEl) followingEl.style.display = showFollowingEmpty ? '' : 'none';
+      }
+
+      tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          applyFilter(tab.dataset.filter);
+        });
+      });
+
+      /* ── Mark all read (reversible — confirm-with-consequence via an undo toast) ── */
+      var markAllBtn = document.getElementById('mark-all-btn');
+      var toastStack = document.getElementById('toast-stack');
+      var undoTimer = null;
+
+      function showUndoToast(count, restore) {
+        if (!toastStack) return;
+        // Only one undo toast at a time — committing or dismissing clears the prior one.
+        toastStack.innerHTML = '';
+        if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
+
+        var toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.setAttribute('role', 'status');
+        toast.setAttribute('aria-live', 'polite');
+
+        var body = document.createElement('div');
+        body.className = 'u-col-2 u-grow';
+        body.style.display = 'flex';
+        body.style.alignItems = 'center';
+        body.style.justifyContent = 'space-between';
+        body.style.gap = 'var(--space-3)';
+
+        var title = document.createElement('span');
+        title.className = 'toast-title';
+        title.textContent = 'Marked ' + count + ' read';
+
+        var undoBtn = document.createElement('button');
+        undoBtn.type = 'button';
+        undoBtn.className = 'mark-all';
+        undoBtn.textContent = 'Undo';
+        undoBtn.setAttribute('aria-label', 'Undo — mark ' + count + ' back as unread');
+
+        body.appendChild(title);
+        body.appendChild(undoBtn);
+        toast.appendChild(body);
+        toastStack.appendChild(toast);
+
+        function dismiss() {
+          if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }
+
+        undoBtn.addEventListener('click', function () {
+          restore();
+          dismiss();
+        });
+
+        // Auto-commit (drop the undo affordance) after a short window.
+        undoTimer = setTimeout(dismiss, 8000);
+      }
+
+      if (markAllBtn) {
+        markAllBtn.addEventListener('click', function () {
+          // Capture prior state so Undo can restore it exactly.
+          var changedRows = Array.prototype.slice.call(
+            document.querySelectorAll('.inbox-row:not(.is-read)')
+          );
+          var changedDots = Array.prototype.slice.call(
+            document.querySelectorAll('.dot.dot-accent')
+          ).filter(function (dot) { return dot.style.opacity !== '0'; });
+          var badges = Array.prototype.slice.call(
+            document.querySelectorAll('#filter-tabs .sb-badge--accent')
+          ).map(function (b) {
+            return { el: b, text: b.textContent, display: b.style.display };
+          });
+
+          var count = changedRows.length;
+          if (count === 0) return; // nothing to do — no toast
+
+          // Apply read state.
+          changedRows.forEach(function (r) { r.classList.add('is-read'); });
+          changedDots.forEach(function (dot) { dot.style.opacity = '0'; });
+          badges.forEach(function (b) {
+            b.el.textContent = '0';
+            b.el.style.display = 'none';
+          });
+
+          showUndoToast(count, function restore() {
+            changedRows.forEach(function (r) { r.classList.remove('is-read'); });
+            changedDots.forEach(function (dot) { dot.style.opacity = ''; });
+            badges.forEach(function (b) {
+              b.el.textContent = b.text;
+              b.el.style.display = b.display;
+            });
+          });
+        });
+      }
+
+      /* ── Mark individual row as read on action click ── */
+      document.querySelectorAll('.inbox-row .btn').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+          var row = btn.closest('.inbox-row');
+          if (row && !row.classList.contains('is-read')) {
+            row.classList.add('is-read');
+            var dot = row.querySelector('.dot.dot-accent');
+            if (dot) dot.style.opacity = '0';
+          }
+        });
+      });
+
+      // Initialise: "For you" tab active
+      applyFilter('mentions');
+    })();
+
+    /* ── Offline banner demo (triggered if navigator.onLine = false) ──
+       In production, wire to SSE 'close' event from useServerEvents. */
+    (function () {
+      var bar = document.getElementById('offline-bar');
+      function syncOffline() {
+        if (bar) bar.style.display = navigator.onLine ? 'none' : 'flex';
+      }
+      window.addEventListener('online',  syncOffline);
+      window.addEventListener('offline', syncOffline);
+      syncOffline();
+    })();
+  </script>
+</body>
+</html>

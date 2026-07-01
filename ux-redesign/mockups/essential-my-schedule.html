@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — My schedule</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* ── Shell ──────────────────────────────────────────────────────── */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .bc-wrap { max-width: 1240px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+    .ava { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: #fff; flex: none; }
+
+    .view-pill { display: inline-flex; align-items: center; background: var(--surface-2); border-radius: var(--radius-full); padding: 3px; }
+
+    /* ── Two-pane layout: NO project mini-nav (cross-project) ───────── */
+    .myc-layout { display: grid; grid-template-columns: 1fr 256px; gap: var(--space-6); align-items: start; }
+
+    /* ── Project colour dot (identity, never status) ────────────────── */
+    .proj-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+
+    /* ── Toolbar ────────────────────────────────────────────────────── */
+    .cal-toolbar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-4); }
+
+    /* ── 7-column CSS grid calendar ─────────────────────────────────── */
+    .cal-grid-wrap { min-width: 0; }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+    .cal-dow { background: var(--surface-2); padding: var(--space-2) var(--space-3); font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); text-align: center; text-transform: uppercase; letter-spacing: .04em; }
+    .cal-cell { background: var(--surface); min-height: 96px; padding: var(--space-2) var(--space-2) var(--space-3); display: flex; flex-direction: column; gap: 3px; align-items: stretch; }
+    .cal-cell--empty { background: var(--surface-2); }
+    .cal-cell--today .cal-day-num { background: var(--accent); color: var(--accent-fg); border-radius: var(--radius-full); width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
+    /* Day numbers are real focusable buttons (open a cross-project day view), matching essential-schedule.html */
+    .cal-day-num { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-muted); margin-bottom: 2px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; background: none; border: 0; font-family: inherit; cursor: pointer; }
+    .cal-day-num:hover { color: var(--fg); }
+    .cal-cell--today .cal-day-num:hover { color: var(--accent-fg); }
+    .cal-day-num:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--radius-full); }
+
+    /* ── Event chip ─────────────────────────────────────────────────── */
+    /* NO nested <a> inside a chip that is itself inside an <a> — chips are <div> */
+    .cal-chip { display: flex; flex-direction: column; gap: 1px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 3px 6px; font-size: var(--text-xs); line-height: 1.35; cursor: pointer; transition: background var(--dur-fast); }
+    .cal-chip:hover { background: var(--surface-3); }
+    .cal-chip-title { font-weight: var(--fw-medium); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
+    .cal-chip-title .ctype { color: var(--fg-subtle); }
+    .cal-chip-title a { color: var(--fg); text-decoration: none; }
+    .cal-chip-title a:hover { text-decoration: underline; }
+    .cal-chip-meta { display: flex; align-items: center; gap: 4px; color: var(--fg-subtle); flex-wrap: nowrap; overflow: hidden; }
+    .cal-chip-kind { font-weight: var(--fw-medium); color: var(--fg-muted); white-space: nowrap; }
+    .cal-chip-proj { color: var(--fg-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cal-chip-status { display: flex; align-items: center; gap: 3px; color: var(--fg-muted); font-size: var(--text-xs); white-space: nowrap; }
+    .cal-chip--ai { border-style: dashed; }
+    .cal-chip--accent { border-left: 3px solid var(--accent); }
+    .cal-chip--accent .cal-chip-status { color: var(--accent); font-weight: var(--fw-medium); }
+
+    /* ── Right rail ─────────────────────────────────────────────────── */
+    .cal-rail { position: sticky; top: 80px; display: flex; flex-direction: column; gap: var(--space-4); }
+    .cal-rail-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); }
+    .cal-rail-head { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); margin-bottom: var(--space-3); }
+    .cal-upcoming-list { display: flex; flex-direction: column; gap: var(--space-2); }
+    .cal-upcoming-item { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+    .cal-upcoming-item:last-child { border-bottom: none; }
+    .cal-upcoming-item--accent { border-left: 3px solid var(--accent); padding-left: var(--space-2); }
+    .cal-upcoming-day { font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); text-transform: uppercase; letter-spacing: .04em; }
+    .cal-upcoming-title { font-size: var(--text-base); font-weight: var(--fw-medium); color: var(--fg); display: flex; align-items: center; gap: 5px; }
+    .cal-upcoming-title a { color: var(--fg); text-decoration: none; }
+    .cal-upcoming-title a:hover { text-decoration: underline; }
+    .cal-upcoming-title .utype { color: var(--fg-subtle); }
+    .cal-upcoming-meta { font-size: var(--text-xs); color: var(--fg-subtle); display: flex; align-items: center; gap: 5px; }
+
+    /* ── Project key card ───────────────────────────────────────────── */
+    .proj-key-row { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) 0; font-size: var(--text-sm); color: var(--fg-muted); }
+
+    /* ── Legend ─────────────────────────────────────────────────────── */
+    .cal-legend { display: flex; align-items: flex-start; gap: var(--space-1); padding: var(--space-2) 0; font-size: var(--text-xs); color: var(--fg-muted); flex-direction: column; }
+    .cal-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+    .cal-legend-note { font-size: var(--text-xs); color: var(--fg-subtle); font-style: italic; }
+    .cal-legend-label { font-weight: var(--fw-semibold); color: var(--fg-subtle); }
+
+    /* ── Needs-you summary band (Zeigarnik / Goal-Gradient) ─────────── */
+    .needs-band { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-5); padding: var(--space-3) var(--space-4); background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius-lg); }
+    .needs-band-text { font-size: var(--text-base); color: var(--fg); }
+    .needs-band-text strong { color: var(--accent); font-weight: var(--fw-semibold); }
+    .needs-band-text .nb-sep { color: var(--fg-subtle); margin: 0 4px; }
+    .needs-band-text .nb-rest { color: var(--fg-muted); }
+    .needs-band .btn { margin-left: auto; }
+
+    /* ── Month nav ──────────────────────────────────────────────────── */
+    .cal-month-nav { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+    .cal-month-label { font-size: var(--text-md); font-weight: var(--fw-semibold); color: var(--fg); }
+
+    /* ── Cross-project day-detail panel (opened by a day number or chip) ── */
+    .day-detail { display: none; margin-top: var(--space-5); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-5); }
+    .day-detail.is-open { display: block; }
+    .day-detail-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+    .day-detail-head h3 { font-size: var(--text-md); font-weight: var(--fw-semibold); color: var(--fg); margin: 0; }
+    .day-detail-count { font-size: var(--text-xs); color: var(--fg-muted); }
+    .day-detail-close { margin-left: auto; background: none; border: 1px solid var(--border); border-radius: var(--radius-md); width: 30px; height: 30px; font-size: var(--text-md); color: var(--fg-muted); cursor: pointer; font-family: inherit; }
+    .day-detail-close:hover { background: var(--surface-2); color: var(--fg); }
+    .day-detail-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .day-row { display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+    .day-row:last-child { border-bottom: none; }
+    .day-row-main { min-width: 0; }
+    .day-row-title { font-size: var(--text-base); font-weight: var(--fw-medium); color: var(--fg); margin: 0 0 2px; display: flex; align-items: center; gap: 5px; }
+    .day-row-title .rtype { color: var(--fg-subtle); }
+    .day-row-title a { color: var(--fg); text-decoration: none; }
+    .day-row-title a:hover { text-decoration: underline; }
+    .day-row-meta { font-size: var(--text-xs); color: var(--fg-subtle); margin: 0 0 4px; }
+
+    /* ── Week view (hidden by default) ──────────────────────────────── */
+    .cal-week-view { display: none; }
+    .cal-week-view.is-active { display: block; }
+    .cal-month-view.is-hidden { display: none; }
+    .cal-empty { display: none; }
+
+    /* ── Mobile collapse ────────────────────────────────────────────── */
+    @media (max-width: 860px) {
+      .myc-layout { grid-template-columns: 1fr; }
+      .cal-grid-wrap { display: none; }
+      .cal-rail { position: static; }
+    }
+  </style>
+</head>
+<body>
+<div class="bc">
+
+  <!-- ── Topbar (canonical) ─────────────────────────────────────────── -->
+  <header class="topbar">
+    <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+      <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+      <strong style="font-size:var(--text-md)">Opzava</strong>
+    </a>
+    <nav class="topnav" aria-label="Primary">
+      <a href="essential-home.html">Home</a>
+      <a href="essential-my-stuff.html">My stuff</a>
+      <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+      <a href="mention-inbox.html" class="active">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+      <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+      <a href="essential-find.html">Find…</a>
+    </nav>
+    <span class="u-grow"></span>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a href="essential-notifications.html" class="btn btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
+    <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+  </header>
+
+  <main>
+    <div class="bc-wrap">
+
+      <!-- ── Breadcrumb ──────────────────────────────────────────────── -->
+      <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+        <a href="essential-home.html">Home</a>
+        <span class="sep">›</span>
+        <span class="current">My schedule</span>
+      </nav>
+
+      <!-- ── Page header ─────────────────────────────────────────────── -->
+      <div class="u-between" style="margin-bottom:var(--space-5);align-items:flex-start">
+        <div>
+          <h1 style="font-size:var(--text-xl);font-weight:var(--fw-bold);color:var(--fg);margin:0 0 var(--space-1)">
+            <span aria-hidden="true" style="margin-right:var(--space-2)">📅</span>My schedule
+          </h1>
+          <p class="u-muted" style="font-size:var(--text-sm);margin:0">
+            Everything on your plate — meetings, deadlines, goals and your AI team's runs, across every project.
+          </p>
+        </div>
+        <span class="sb-badge sb-badge--secondary" aria-label="Showing the next 3 months" style="flex:none">Next 3 months</span>
+      </div>
+
+      <!-- ── Needs-you summary band (Zeigarnik / Goal-Gradient) ───────── -->
+      <!-- Decrements live as the needs-you item is cleared; deep-links to the at-risk item, never dead text. -->
+      <div class="needs-band" id="needsBand" role="status" aria-live="polite" data-needs="1">
+        <p class="needs-band-text" id="needsBandText" style="margin:0">
+          <strong>1 needs you</strong><span class="nb-sep" aria-hidden="true">·</span><span class="nb-rest">3 meetings · 4 AI runs — next 7 days</span>
+        </p>
+        <a class="btn btn-primary btn-sm" id="needsBandCta" href="#cell-jun26" data-day="26">Review June newsletter <span aria-hidden="true">→</span></a>
+      </div>
+
+      <!-- ── Two-pane: calendar + coming-up (NO project mini-nav rail) ─── -->
+      <div class="myc-layout">
+
+        <!-- ── Calendar column ───────────────────────────────────────── -->
+        <div class="cal-grid-wrap">
+
+          <!-- Subscribe + month nav + Week/Month toggle -->
+          <div class="u-row" style="justify-content:flex-end;margin-bottom:var(--space-2)">
+            <a href="#" class="btn btn-ghost btn-sm" aria-label="Subscribe — add your schedule to your own calendar">
+              <span aria-hidden="true">↗</span> Subscribe / Add to your calendar
+            </a>
+          </div>
+
+          <div class="cal-month-nav">
+            <button class="btn btn-ghost btn-sm" type="button" aria-label="Previous month">‹</button>
+            <h2 class="cal-month-label" id="monthLabel">June 2026</h2>
+            <button class="btn btn-ghost btn-sm" type="button" aria-label="Next month">›</button>
+            <button class="btn btn-ghost btn-sm" type="button" aria-label="Jump to today" style="margin-left:var(--space-2)">Today</button>
+            <span class="u-grow"></span>
+            <div class="view-pill sb-tabs" role="tablist" aria-label="Calendar view">
+              <button type="button" class="sb-tab" role="tab" id="tab-week" aria-selected="false" style="border-radius:var(--radius-full)">Week</button>
+              <button type="button" class="sb-tab" role="tab" id="tab-month" aria-selected="true" style="border-radius:var(--radius-full)">Month</button>
+            </div>
+          </div>
+
+          <!-- Project filter -->
+          <div class="cal-toolbar">
+            <div style="position:relative">
+              <button class="btn btn-ghost btn-sm" type="button" id="projBtn" aria-haspopup="menu" aria-expanded="false">
+                Project <span aria-hidden="true">▾</span>
+              </button>
+              <div class="sb-menu" id="projMenu" role="menu" aria-label="Filter by project" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:var(--z-dropdown);min-width:220px">
+                <label class="sb-menu-item" role="menuitemcheckbox" aria-checked="true"><input type="checkbox" data-proj="p1" checked> <span class="proj-dot" style="background:var(--chart-1)" aria-hidden="true"></span> Customer Support</label>
+                <label class="sb-menu-item" role="menuitemcheckbox" aria-checked="true"><input type="checkbox" data-proj="p2" checked> <span class="proj-dot" style="background:var(--chart-3)" aria-hidden="true"></span> Q2 Content Push</label>
+                <label class="sb-menu-item" role="menuitemcheckbox" aria-checked="true"><input type="checkbox" data-proj="p3" checked> <span class="proj-dot" style="background:var(--chart-6)" aria-hidden="true"></span> Series B Outreach</label>
+              </div>
+            </div>
+            <div id="filterPills" class="u-row" style="gap:var(--space-2);flex-wrap:wrap"></div>
+            <span class="u-grow"></span>
+            <span class="u-muted" style="font-size:var(--text-xs)">Add events from a project's Schedule</span>
+          </div>
+
+          <!-- Month view -->
+          <div class="cal-month-view" id="monthView">
+            <div class="cal-grid" role="grid" aria-label="June 2026 — my schedule across projects">
+
+              <!-- Day-of-week headers -->
+              <div class="cal-dow" role="columnheader" aria-label="Monday">Mon</div>
+              <div class="cal-dow" role="columnheader" aria-label="Tuesday">Tue</div>
+              <div class="cal-dow" role="columnheader" aria-label="Wednesday">Wed</div>
+              <div class="cal-dow" role="columnheader" aria-label="Thursday">Thu</div>
+              <div class="cal-dow" role="columnheader" aria-label="Friday">Fri</div>
+              <div class="cal-dow" role="columnheader" aria-label="Saturday">Sat</div>
+              <div class="cal-dow" role="columnheader" aria-label="Sunday">Sun</div>
+
+              <!-- Week 1: Jun 1–7 -->
+              <div class="cal-cell" role="gridcell" aria-label="June 1">
+                <button class="cal-day-num" type="button" data-day="1" aria-label="June 1, no items">1</button>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 2, 1 item">
+                <button class="cal-day-num" type="button" data-day="2" aria-label="June 2, 1 item">2</button>
+                <div class="cal-chip cal-chip--ai cal-chip--p2" role="button" tabindex="0" aria-label="Echo, content digest, agent run, recurring 8 am, window, Q2 Content Push, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span><span class="proj-dot" style="background:var(--chart-3)" aria-hidden="true"></span>Echo — content digest</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · ↻ 8am</span> · <span class="cal-chip-proj">Q2 Content</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◷</span> window</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 3">
+                <button class="cal-day-num" type="button" data-day="3" aria-label="June 3, no items">3</button>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 4, 1 item">
+                <button class="cal-day-num" type="button" data-day="4" aria-label="June 4, 1 item">4</button>
+                <div class="cal-chip cal-chip--meeting cal-chip--p3" role="button" tabindex="0" aria-label="Investor intro call, meeting, 11:00 am, scheduled, Series B Outreach, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🗓</span><span class="proj-dot" style="background:var(--chart-6)" aria-hidden="true"></span>Investor intro call</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">meeting · 11:00 am</span> · <span class="cal-chip-proj">Series B</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 5">
+                <button class="cal-day-num" type="button" data-day="5" aria-label="June 5, no items">5</button>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 6, weekend">
+                <button class="cal-day-num" type="button" data-day="6" aria-label="June 6, weekend, no items" style="color:var(--fg-subtle)">6</button>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 7, weekend">
+                <button class="cal-day-num" type="button" data-day="7" aria-label="June 7, weekend, no items" style="color:var(--fg-subtle)">7</button>
+              </div>
+
+              <!-- Week 2: Jun 8–14 -->
+              <div class="cal-cell" role="gridcell" aria-label="June 8">
+                <button class="cal-day-num" type="button" data-day="8" aria-label="June 8, no items">8</button>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 9, 1 item">
+                <button class="cal-day-num" type="button" data-day="9" aria-label="June 9, 1 item">9</button>
+                <div class="cal-chip cal-chip--meeting cal-chip--p1" role="button" tabindex="0" aria-label="Team sync, meeting, 10:00 am, scheduled, Customer Support, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🗓</span><span class="proj-dot" style="background:var(--chart-1)" aria-hidden="true"></span>Team sync</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">meeting · 10:00 am</span> · <span class="cal-chip-proj">Support</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 10">
+                <button class="cal-day-num" type="button" data-day="10" aria-label="June 10, no items">10</button>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 11, 1 item">
+                <button class="cal-day-num" type="button" data-day="11" aria-label="June 11, 1 item">11</button>
+                <div class="cal-chip cal-chip--goal cal-chip--p2" role="button" tabindex="0" aria-label="Q2 content goal, goal check-in, monthly, on track, Q2 Content Push, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🎯</span><span class="proj-dot" style="background:var(--chart-3)" aria-hidden="true"></span><a href="essential-goals.html">Q2 content goal</a></span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">goal check-in · monthly</span> · <span class="cal-chip-proj">Q2 Content</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◴</span> on track</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 12, 1 item">
+                <button class="cal-day-num" type="button" data-day="12" aria-label="June 12, 1 item">12</button>
+                <div class="cal-chip cal-chip--todo cal-chip--p1" role="button" tabindex="0" aria-label="Refresh help-centre FAQ, to-do due, upcoming, Customer Support, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✓</span><span class="proj-dot" style="background:var(--chart-1)" aria-hidden="true"></span>Refresh help-centre FAQ</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">to-do due</span> · <span class="cal-chip-proj">Support</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◦</span> upcoming</span>
+                </div>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 13, weekend">
+                <button class="cal-day-num" type="button" data-day="13" aria-label="June 13, weekend, no items" style="color:var(--fg-subtle)">13</button>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 14, weekend">
+                <button class="cal-day-num" type="button" data-day="14" aria-label="June 14, weekend, no items" style="color:var(--fg-subtle)">14</button>
+              </div>
+
+              <!-- Week 3: Jun 15–21 -->
+              <div class="cal-cell" role="gridcell" aria-label="June 15, 1 item">
+                <button class="cal-day-num" type="button" data-day="15" aria-label="June 15, 1 item">15</button>
+                <div class="cal-chip cal-chip--ai cal-chip--p3" role="button" tabindex="0" aria-label="Iris, investor outreach posts, agent run, 1:00 to 1:30 pm, done, made 3 posts, Series B Outreach, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span><span class="proj-dot" style="background:var(--chart-6)" aria-hidden="true"></span>Iris — outreach posts</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · 1:00–1:30</span> · <span class="cal-chip-proj">Series B</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">✓</span> done · 3 posts</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 16, 1 item">
+                <button class="cal-day-num" type="button" data-day="16" aria-label="June 16, 1 item">16</button>
+                <div class="cal-chip cal-chip--meeting cal-chip--p1" role="button" tabindex="0" aria-label="Team sync, meeting, 10:00 am, scheduled, Customer Support, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🗓</span><span class="proj-dot" style="background:var(--chart-1)" aria-hidden="true"></span>Team sync</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">meeting · 10:00 am</span> · <span class="cal-chip-proj">Support</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 17">
+                <button class="cal-day-num" type="button" data-day="17" aria-label="June 17, no items">17</button>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 18, 1 item">
+                <button class="cal-day-num" type="button" data-day="18" aria-label="June 18, 1 item">18</button>
+                <div class="cal-chip cal-chip--todo cal-chip--p2" role="button" tabindex="0" aria-label="Blog outline due, to-do due, upcoming, Q2 Content Push, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✓</span><span class="proj-dot" style="background:var(--chart-3)" aria-hidden="true"></span>Blog outline</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">to-do due</span> · <span class="cal-chip-proj">Q2 Content</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◦</span> upcoming</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 19">
+                <button class="cal-day-num" type="button" data-day="19" aria-label="June 19, no items">19</button>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 20, weekend">
+                <button class="cal-day-num" type="button" data-day="20" aria-label="June 20, weekend, no items" style="color:var(--fg-subtle)">20</button>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 21, weekend">
+                <button class="cal-day-num" type="button" data-day="21" aria-label="June 21, weekend, no items" style="color:var(--fg-subtle)">21</button>
+              </div>
+
+              <!-- Week 4: Jun 22–28 -->
+              <div class="cal-cell" role="gridcell" aria-label="June 22">
+                <button class="cal-day-num" type="button" data-day="22" aria-label="June 22, no items">22</button>
+              </div>
+              <div class="cal-cell cal-cell--today" role="gridcell" aria-label="June 23, today, 1 item" aria-current="date">
+                <button class="cal-day-num" type="button" data-day="23" aria-label="June 23, today, 1 item">23</button>
+                <div class="cal-chip cal-chip--ai cal-chip--p1" role="button" tabindex="0" aria-label="Echo, daily summary, agent run, recurring 8 am, window, Customer Support, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span><span class="proj-dot" style="background:var(--chart-1)" aria-hidden="true"></span>Echo — daily summary</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · ↻ 8am</span> · <span class="cal-chip-proj">Support</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◷</span> window</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 24, 2 items">
+                <button class="cal-day-num" type="button" data-day="24" aria-label="June 24, 2 items">24</button>
+                <div class="cal-chip cal-chip--ai cal-chip--p1" role="button" tabindex="0" aria-label="Atlas, refresh FAQ, agent run, 9:00 to 9:40 am, running now, Customer Support, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span><span class="proj-dot" style="background:var(--chart-1)" aria-hidden="true"></span>Atlas — refresh FAQ</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · 9:00–9:40</span> · <span class="cal-chip-proj">Support</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◐</span> running now</span>
+                </div>
+                <div class="cal-chip cal-chip--meeting cal-chip--p3" role="button" tabindex="0" aria-label="Term-sheet review, meeting, 3:00 pm, scheduled, Series B Outreach, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🗓</span><span class="proj-dot" style="background:var(--chart-6)" aria-hidden="true"></span>Term-sheet review</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">meeting · 3:00 pm</span> · <span class="cal-chip-proj">Series B</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 25, 1 item">
+                <button class="cal-day-num" type="button" data-day="25" aria-label="June 25, 1 item">25</button>
+                <div class="cal-chip cal-chip--meeting cal-chip--p1" role="button" tabindex="0" aria-label="Customer call, meeting, 2:00 pm, scheduled, Customer Support, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🗓</span><span class="proj-dot" style="background:var(--chart-1)" aria-hidden="true"></span>Customer call</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">meeting · 2:00 pm</span> · <span class="cal-chip-proj">Support</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+              </div>
+              <!-- Jun 26: the SINGLE accent needs-you item -->
+              <div class="cal-cell" id="cell-jun26" role="gridcell" aria-label="June 26, 1 item, needs you">
+                <button class="cal-day-num" type="button" data-day="26" aria-label="June 26, 1 item, needs you">26</button>
+                <div class="cal-chip cal-chip--todo cal-chip--accent cal-chip--p2" role="button" tabindex="0" aria-label="June newsletter, asset due Friday, at risk, needs you, Q2 Content Push, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✓</span><span class="proj-dot" style="background:var(--chart-3)" aria-hidden="true"></span>June newsletter</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">asset due Fri</span> · <span class="cal-chip-proj">Q2 Content</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◑</span> at risk · needs you</span>
+                </div>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 27, weekend">
+                <button class="cal-day-num" type="button" data-day="27" aria-label="June 27, weekend, no items" style="color:var(--fg-subtle)">27</button>
+              </div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="June 28, weekend, 1 item">
+                <button class="cal-day-num" type="button" data-day="28" aria-label="June 28, weekend, 1 item" style="color:var(--fg-subtle)">28</button>
+                <div class="cal-chip cal-chip--todo cal-chip--p3" role="button" tabindex="0" aria-label="Diligence checklist due, report due, upcoming, Series B Outreach, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✓</span><span class="proj-dot" style="background:var(--chart-6)" aria-hidden="true"></span>Diligence checklist</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">report due</span> · <span class="cal-chip-proj">Series B</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◦</span> upcoming</span>
+                </div>
+              </div>
+
+              <!-- Week 5: Jun 29–30 + overflow padding -->
+              <div class="cal-cell" role="gridcell" aria-label="June 29, 1 item">
+                <button class="cal-day-num" type="button" data-day="29" aria-label="June 29, 1 item">29</button>
+                <div class="cal-chip cal-chip--goal cal-chip--p2" role="button" tabindex="0" aria-label="Q2 content goal, goal deadline, December 31, 18 days left, on track, Q2 Content Push, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🎯</span><span class="proj-dot" style="background:var(--chart-3)" aria-hidden="true"></span><a href="essential-goals.html">Q2 content goal</a></span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">goal deadline · ◷ Dec 31</span> · <span class="cal-chip-proj">Q2 Content</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◴</span> on track</span>
+                </div>
+              </div>
+              <div class="cal-cell" role="gridcell" aria-label="June 30, 2 items">
+                <button class="cal-day-num" type="button" data-day="30" aria-label="June 30, 2 items">30</button>
+                <div class="cal-chip cal-chip--meeting cal-chip--p1" role="button" tabindex="0" aria-label="Team sync, meeting, 10:00 am, scheduled, Customer Support, human">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">🗓</span><span class="proj-dot" style="background:var(--chart-1)" aria-hidden="true"></span>Team sync</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">meeting · 10:00 am</span> · <span class="cal-chip-proj">Support</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">●</span> scheduled</span>
+                </div>
+                <div class="cal-chip cal-chip--ai cal-chip--p2" role="button" tabindex="0" aria-label="Atlas, newsletter draft, agent run, 9:00 to 9:40 am, queued, Q2 Content Push, AI">
+                  <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span><span class="proj-dot" style="background:var(--chart-3)" aria-hidden="true"></span>Atlas — newsletter draft</span>
+                  <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · 9:00–9:40</span> · <span class="cal-chip-proj">Q2 Content</span></span>
+                  <span class="cal-chip-status"><span aria-hidden="true">◦</span> queued</span>
+                </div>
+              </div>
+              <!-- Empty cells to fill the row to 7 -->
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="No date"></div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="No date"></div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="No date"></div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="No date"></div>
+              <div class="cal-cell cal-cell--empty" role="gridcell" aria-label="No date"></div>
+
+            </div><!-- /.cal-grid -->
+
+            <!-- Empty-after-filter state -->
+            <div class="cal-empty empty" id="calEmpty" role="status" aria-live="polite">
+              <span class="empty-icon" aria-hidden="true">📅</span>
+              <p class="empty-title">No items from the selected projects</p>
+              <p class="empty-desc">Turn a project back on in <strong>Project ▾</strong> to see its schedule here.</p>
+            </div>
+          </div><!-- /.cal-month-view -->
+
+          <!-- Week view (hidden by default) -->
+          <div class="cal-week-view" id="weekView" aria-label="Week view — Jun 22–28, 2026">
+            <div class="card" style="padding:var(--space-6)">
+              <p class="u-muted" style="text-align:center;font-size:var(--text-sm)">
+                Week view · Jun 22–28, 2026 — 6 items across 3 projects
+              </p>
+              <div style="display:flex;flex-direction:column;gap:var(--space-3);margin-top:var(--space-4)">
+                <div style="display:flex;gap:var(--space-4);align-items:start">
+                  <span style="font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-subtle);width:32px;flex:none;padding-top:2px">Wed</span>
+                  <div class="cal-chip cal-chip--ai cal-chip--p1" style="flex:1" role="button" tabindex="0" aria-label="Atlas, refresh FAQ, agent run, 9:00 to 9:40 am, running now, Customer Support, AI">
+                    <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✦</span><span class="proj-dot" style="background:var(--chart-1)" aria-hidden="true"></span>Atlas — refresh FAQ</span>
+                    <span class="cal-chip-meta"><span class="cal-chip-kind">agent run · 9:00–9:40</span> · <span class="cal-chip-proj">Support</span></span>
+                    <span class="cal-chip-status"><span aria-hidden="true">◐</span> running now</span>
+                  </div>
+                </div>
+                <div style="display:flex;gap:var(--space-4);align-items:start">
+                  <span style="font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-subtle);width:32px;flex:none;padding-top:2px">Fri</span>
+                  <div class="cal-chip cal-chip--todo cal-chip--accent cal-chip--p2" style="flex:1" role="button" tabindex="0" aria-label="June newsletter, asset due Friday, at risk, needs you, Q2 Content Push, AI">
+                    <span class="cal-chip-title"><span class="ctype" aria-hidden="true">✓</span><span class="proj-dot" style="background:var(--chart-3)" aria-hidden="true"></span>June newsletter</span>
+                    <span class="cal-chip-meta"><span class="cal-chip-kind">asset due Fri</span> · <span class="cal-chip-proj">Q2 Content</span></span>
+                    <span class="cal-chip-status"><span aria-hidden="true">◑</span> at risk · needs you</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Two-row legend -->
+          <div class="cal-legend" role="note" aria-label="Schedule legend">
+            <div class="u-row" style="gap:var(--space-4);flex-wrap:wrap">
+              <span class="cal-legend-label">Types:</span>
+              <span class="cal-legend-item"><span aria-hidden="true">🗓</span> meeting</span>
+              <span class="cal-legend-item"><span aria-hidden="true">✓</span> to-do due</span>
+              <span class="cal-legend-item"><span aria-hidden="true">🎯</span> goal</span>
+              <span class="cal-legend-item"><span aria-hidden="true">✦</span> agent run (AI)</span>
+            </div>
+            <div class="u-row" style="gap:var(--space-4);flex-wrap:wrap">
+              <span class="cal-legend-label">Status:</span>
+              <span class="cal-legend-item"><span aria-hidden="true">●</span> scheduled</span>
+              <span class="cal-legend-item"><span aria-hidden="true">◦</span> upcoming/queued</span>
+              <span class="cal-legend-item"><span aria-hidden="true">◷</span> window</span>
+              <span class="cal-legend-item"><span aria-hidden="true">◐</span> running</span>
+              <span class="cal-legend-item"><span aria-hidden="true">✓</span> done</span>
+              <span class="cal-legend-item"><span aria-hidden="true">◴</span> on track</span>
+              <span class="cal-legend-item"><span aria-hidden="true">◑</span> at risk</span>
+              <span class="cal-legend-item"><span aria-hidden="true">⏸</span> paused/skipped</span>
+            </div>
+            <span class="cal-legend-note">(type + status by glyph + label, never colour · ✦ = AI work · plain = human · • dot = which project)</span>
+          </div>
+
+          <!-- ── Cross-project day-detail panel (opened by a day number or chip) ── -->
+          <!-- Collapsed by default; a day-number button or a chip fills + opens it. Plain language, no CLI. -->
+          <section class="day-detail" id="dayDetail" aria-labelledby="dayDetailHead" tabindex="-1" hidden>
+            <div class="day-detail-head">
+              <h3 id="dayDetailHead">June 24</h3>
+              <span class="day-detail-count" id="dayDetailCount">2 items across your projects</span>
+              <button class="day-detail-close" type="button" id="dayDetailClose" aria-label="Close day view">✕</button>
+            </div>
+            <div id="dayDetailBody"></div>
+          </section>
+
+        </div><!-- /.cal-grid-wrap -->
+
+        <!-- ── Right rail: Project key + Coming up ───────────────────── -->
+        <aside class="cal-rail" aria-label="Coming up across your projects">
+
+          <!-- Project key (colour-dot = identity only) -->
+          <div class="cal-rail-card">
+            <h3 class="cal-rail-head">Your projects</h3>
+            <div class="proj-key-row"><span class="proj-dot" style="background:var(--chart-1)" aria-hidden="true"></span> <a href="essential-schedule.html" style="color:var(--fg-muted);text-decoration:none">Customer Support</a></div>
+            <div class="proj-key-row"><span class="proj-dot" style="background:var(--chart-3)" aria-hidden="true"></span> <a href="essential-schedule.html" style="color:var(--fg-muted);text-decoration:none">Q2 Content Push</a></div>
+            <div class="proj-key-row"><span class="proj-dot" style="background:var(--chart-6)" aria-hidden="true"></span> <a href="essential-schedule.html" style="color:var(--fg-muted);text-decoration:none">Series B Outreach</a></div>
+          </div>
+
+          <!-- Coming up — needs-you first -->
+          <div class="cal-rail-card">
+            <h3 class="cal-rail-head">Coming up · 7 days</h3>
+            <div class="cal-upcoming-list" role="list">
+
+              <div class="cal-upcoming-item cal-upcoming-item--accent" role="listitem">
+                <span class="cal-upcoming-day">Fri · Jun 26 · needs you</span>
+                <span class="cal-upcoming-title"><span class="utype" aria-hidden="true">✓</span> <span class="proj-dot" style="background:var(--chart-3)" aria-hidden="true"></span> <a href="essential-schedule.html">June newsletter</a></span>
+                <span class="cal-upcoming-meta">◑ at risk · Q2 Content Push</span>
+              </div>
+
+              <div class="cal-upcoming-item" role="listitem">
+                <span class="cal-upcoming-day">Wed · Jun 24</span>
+                <span class="cal-upcoming-title"><span class="utype" aria-hidden="true">✦</span> <span class="sb-avatar sb-avatar--ai sb-avatar--sm" style="background:var(--chart-2)" aria-hidden="true">A</span> <a href="essential-schedule.html">Atlas — refresh FAQ</a></span>
+                <span class="cal-upcoming-meta"><span class="proj-dot" style="background:var(--chart-1)" aria-hidden="true"></span> agent run · 9:00–9:40 · Support</span>
+              </div>
+
+              <div class="cal-upcoming-item" role="listitem">
+                <span class="cal-upcoming-day">Wed · Jun 24</span>
+                <span class="cal-upcoming-title"><span class="utype" aria-hidden="true">🗓</span> <a href="essential-schedule.html">Term-sheet review</a></span>
+                <span class="cal-upcoming-meta"><span class="proj-dot" style="background:var(--chart-6)" aria-hidden="true"></span> meeting · 3:00 pm · Series B</span>
+              </div>
+
+              <div class="cal-upcoming-item" role="listitem">
+                <span class="cal-upcoming-day">Thu · Jun 25</span>
+                <span class="cal-upcoming-title"><span class="utype" aria-hidden="true">🗓</span> <a href="essential-schedule.html">Customer call</a></span>
+                <span class="cal-upcoming-meta"><span class="proj-dot" style="background:var(--chart-1)" aria-hidden="true"></span> meeting · 2:00 pm · Support</span>
+              </div>
+
+              <div class="cal-upcoming-item" role="listitem">
+                <span class="cal-upcoming-day">Sun · Jun 28</span>
+                <span class="cal-upcoming-title"><span class="utype" aria-hidden="true">✓</span> <a href="essential-schedule.html">Diligence checklist</a></span>
+                <span class="cal-upcoming-meta"><span class="proj-dot" style="background:var(--chart-6)" aria-hidden="true"></span> report due · Series B</span>
+              </div>
+
+            </div>
+          </div>
+
+        </aside>
+
+      </div><!-- /.myc-layout -->
+
+    </div><!-- /.bc-wrap -->
+  </main>
+
+</div><!-- /.bc -->
+
+<script>
+  (function () {
+    'use strict';
+
+    /* ── Week / Month toggle ───────────────────────────────────────── */
+    var tabWeek = document.getElementById('tab-week');
+    var tabMonth = document.getElementById('tab-month');
+    var monthView = document.getElementById('monthView');
+    var weekView = document.getElementById('weekView');
+    var monthLabel = document.getElementById('monthLabel');
+
+    function showMonth() {
+      tabMonth.setAttribute('aria-selected', 'true');
+      tabWeek.setAttribute('aria-selected', 'false');
+      monthView.classList.remove('is-hidden');
+      weekView.classList.remove('is-active');
+      monthLabel.textContent = 'June 2026';
+    }
+    function showWeek() {
+      tabWeek.setAttribute('aria-selected', 'true');
+      tabMonth.setAttribute('aria-selected', 'false');
+      monthView.classList.add('is-hidden');
+      weekView.classList.add('is-active');
+      monthLabel.textContent = 'Jun 22–28, 2026';
+    }
+    if (tabWeek) tabWeek.addEventListener('click', showWeek);
+    if (tabMonth) tabMonth.addEventListener('click', showMonth);
+
+    /* ── Cross-project day-detail panel (opened by a day number or a chip) ── */
+    var dayDetail = document.getElementById('dayDetail');
+    var dayDetailHead = document.getElementById('dayDetailHead');
+    var dayDetailCount = document.getElementById('dayDetailCount');
+    var dayDetailBody = document.getElementById('dayDetailBody');
+    var dayDetailClose = document.getElementById('dayDetailClose');
+    var lastDayTrigger = null;
+
+    function cellForDay(day) {
+      var btn = document.querySelector('.cal-day-num[data-day="' + day + '"]');
+      return btn ? btn.closest('.cal-cell') : null;
+    }
+
+    // Build a plain-language row from a chip's existing parts (retains concrete facts, no CLI).
+    function rowFromChip(chip) {
+      var title = chip.querySelector('.cal-chip-title');
+      var meta = chip.querySelector('.cal-chip-meta');
+      var status = chip.querySelector('.cal-chip-status');
+      var row = document.createElement('div');
+      row.className = 'day-row';
+      var main = document.createElement('div');
+      main.className = 'day-row-main';
+      var h = document.createElement('p');
+      h.className = 'day-row-title';
+      if (title) h.innerHTML = title.innerHTML;
+      var m = document.createElement('p');
+      m.className = 'day-row-meta';
+      if (meta) m.textContent = meta.textContent.replace(/\s+/g, ' ').trim();
+      var s = document.createElement('p');
+      s.className = 'day-row-meta';
+      if (status) s.textContent = status.textContent.replace(/\s+/g, ' ').trim();
+      main.appendChild(h);
+      main.appendChild(m);
+      main.appendChild(s);
+      row.appendChild(main);
+      return row;
+    }
+
+    function openDay(day, trigger) {
+      if (!dayDetail) return;
+      var cell = cellForDay(day);
+      // Only count chips currently visible (respects the project filter).
+      var chips = cell ? Array.prototype.filter.call(
+        cell.querySelectorAll('.cal-chip'),
+        function (c) { return c.style.display !== 'none'; }
+      ) : [];
+      dayDetailHead.textContent = 'June ' + day;
+      dayDetailCount.textContent = chips.length === 0
+        ? 'Nothing scheduled — a clear day.'
+        : (chips.length === 1 ? '1 item across your projects' : chips.length + ' items across your projects');
+      dayDetailBody.innerHTML = '';
+      if (chips.length === 0) {
+        var none = document.createElement('p');
+        none.className = 'u-muted';
+        none.style.fontSize = 'var(--text-sm)';
+        none.style.margin = '0';
+        none.textContent = 'No meetings, deadlines, goals or AI runs on this day.';
+        dayDetailBody.appendChild(none);
+      } else {
+        chips.forEach(function (chip) { dayDetailBody.appendChild(rowFromChip(chip)); });
+      }
+      // Jun 26 is the single needs-you item — offer a 'Mark handled' affordance that decrements the band.
+      if (day === '26' && chips.length && needsBand && needsBand.getAttribute('data-needs') !== '0') {
+        var clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'btn btn-ghost btn-sm';
+        clearBtn.style.marginTop = 'var(--space-3)';
+        clearBtn.textContent = '✓ Mark handled';
+        clearBtn.setAttribute('aria-label', 'Mark June newsletter handled and clear it from needs you');
+        clearBtn.addEventListener('click', function () { clearNeedsYou(); closeDay(); });
+        dayDetailBody.appendChild(clearBtn);
+      }
+      lastDayTrigger = trigger || null;
+      dayDetail.hidden = false;
+      dayDetail.classList.add('is-open');
+      dayDetail.scrollIntoView({ block: 'nearest' });
+      dayDetail.focus();
+    }
+
+    function closeDay() {
+      if (!dayDetail) return;
+      dayDetail.classList.remove('is-open');
+      dayDetail.hidden = true;
+      if (lastDayTrigger && document.contains(lastDayTrigger)) lastDayTrigger.focus();
+      lastDayTrigger = null;
+    }
+
+    if (dayDetailClose) dayDetailClose.addEventListener('click', closeDay);
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && dayDetail && !dayDetail.hidden) { e.stopPropagation(); closeDay(); }
+    });
+
+    // Day-number buttons open the cross-project day view.
+    document.querySelectorAll('.cal-day-num[data-day]').forEach(function (btn) {
+      btn.addEventListener('click', function () { openDay(btn.getAttribute('data-day'), btn); });
+    });
+
+    /* ── Chip click + keyboard activation (chips open their day's detail) ── */
+    document.querySelectorAll('.cal-chip[role="button"]').forEach(function (chip) {
+      function activate() {
+        // Find the owning day; week-view chips fall back to the at-risk day.
+        var cell = chip.closest('.cal-cell');
+        var btn = cell ? cell.querySelector('.cal-day-num[data-day]') : null;
+        var day = btn ? btn.getAttribute('data-day') : '26';
+        openDay(day, chip);
+      }
+      chip.addEventListener('click', function (e) {
+        if (e.target.closest('a')) return; // let real links navigate
+        activate();
+      });
+      chip.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          if (e.target.closest('a, button')) return;
+          e.preventDefault();
+          activate();
+        }
+      });
+    });
+
+    /* ── Needs-you band: deep-link to the at-risk item + live decrement ─ */
+    var needsBand = document.getElementById('needsBand');
+    var needsBandText = document.getElementById('needsBandText');
+    var needsBandCta = document.getElementById('needsBandCta');
+    if (needsBandCta) {
+      needsBandCta.addEventListener('click', function (e) {
+        e.preventDefault();
+        var target = document.getElementById('cell-jun26');
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        openDay('26', needsBandCta);
+      });
+    }
+    // Clearing the at-risk item decrements the band (Zeigarnik pull toward closure).
+    function clearNeedsYou() {
+      if (!needsBand || needsBand.getAttribute('data-needs') === '0') return;
+      needsBand.setAttribute('data-needs', '0');
+      needsBand.style.borderLeftColor = 'var(--border)';
+      needsBandText.innerHTML = '<strong>Nothing needs you right now</strong>'
+        + '<span class="nb-sep" aria-hidden="true">·</span>'
+        + '<span class="nb-rest">3 meetings · 4 AI runs — next 7 days</span>';
+      if (needsBandCta && needsBandCta.parentNode) needsBandCta.parentNode.removeChild(needsBandCta);
+    }
+
+    /* ── Project ▾ filter (hide chips by project class) ───────────── */
+    var projBtn = document.getElementById('projBtn');
+    var projMenu = document.getElementById('projMenu');
+    var filterPills = document.getElementById('filterPills');
+    var calEmpty = document.getElementById('calEmpty');
+    var calGrid = monthView ? monthView.querySelector('.cal-grid') : null;
+    var PROJ_LABEL = { p1: 'Customer Support', p2: 'Q2 Content Push', p3: 'Series B Outreach' };
+
+    function closeMenu() {
+      if (projMenu) projMenu.style.display = 'none';
+      if (projBtn) projBtn.setAttribute('aria-expanded', 'false');
+    }
+    if (projBtn) projBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = projMenu.style.display === 'block';
+      projMenu.style.display = open ? 'none' : 'block';
+      projBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
+    });
+    document.addEventListener('click', closeMenu);
+    if (projMenu) projMenu.addEventListener('click', function (e) { e.stopPropagation(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeMenu(); });
+
+    function applyFilters() {
+      var off = [];
+      projMenu.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+        var proj = cb.getAttribute('data-proj');
+        cb.closest('.sb-menu-item').setAttribute('aria-checked', cb.checked ? 'true' : 'false');
+        if (!cb.checked) off.push(proj);
+        document.querySelectorAll('.cal-chip--' + proj).forEach(function (chip) {
+          chip.style.display = cb.checked ? '' : 'none';
+        });
+      });
+      filterPills.innerHTML = '';
+      off.forEach(function (proj) {
+        var pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = 'sb-badge sb-badge--secondary';
+        pill.style.cursor = 'pointer';
+        pill.setAttribute('aria-label', 'Show ' + PROJ_LABEL[proj] + ' again');
+        pill.innerHTML = PROJ_LABEL[proj] + ' <span aria-hidden="true">✕</span>';
+        pill.addEventListener('click', function () {
+          var cb = projMenu.querySelector('input[data-proj="' + proj + '"]');
+          if (cb) { cb.checked = true; applyFilters(); }
+        });
+        filterPills.appendChild(pill);
+      });
+      var anyVisible = Array.prototype.some.call(
+        document.querySelectorAll('.cal-grid .cal-chip'),
+        function (c) { return c.style.display !== 'none'; }
+      );
+      if (calGrid) calGrid.style.display = anyVisible ? '' : 'none';
+      if (calEmpty) calEmpty.style.display = anyVisible ? 'none' : 'block';
+    }
+    projMenu && projMenu.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+      cb.addEventListener('change', applyFilters);
+    });
+  })();
+</script>
+</body>
+</html>

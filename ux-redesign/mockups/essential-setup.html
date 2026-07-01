@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Set up your workspace</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <link rel="stylesheet" href="auth.css">
+  <script src="a11y.js"></script>
+  <script src="auth.js" defer></script>
+</head>
+<body>
+  <main class="auth">
+
+    <p class="auth-cap">First run — setting up Opzava (this happens once)</p>
+
+    <!-- ════════════ STEP 1 — Owner account (the actual first screen) ════════════ -->
+    <section class="auth-card" aria-label="Set up Opzava — step 1 of 3, owner account">
+      <div class="auth-logo" aria-hidden="true">◆</div>
+      <h1>Set up Opzava</h1>
+      <p class="auth-lead">Create the owner account — the first person on this install.</p>
+
+      <ol class="auth-steps" aria-label="Setup progress">
+        <li class="auth-step is-current" aria-current="step"><span class="num">1</span><span class="lbl">Account</span></li>
+        <li class="bar" aria-hidden="true"></li>
+        <li class="auth-step"><span class="num">2</span><span class="lbl">Workspace</span></li>
+        <li class="bar" aria-hidden="true"></li>
+        <li class="auth-step"><span class="num">3</span><span class="lbl">Team</span></li>
+      </ol>
+
+      <form novalidate onsubmit="return false">
+        <div class="field">
+          <label class="label" for="su-name">Your name</label>
+          <input class="input" id="su-name" name="name" type="text" autocomplete="name" placeholder="Ada Lovelace">
+        </div>
+        <div class="field">
+          <label class="label" for="su-email">Email</label>
+          <input class="input" id="su-email" name="email" type="email" inputmode="email" autocomplete="username" placeholder="you@company.com">
+        </div>
+        <div class="field">
+          <label class="label" for="su-pass">Password</label>
+          <div class="auth-pw auth-pw--metered">
+            <input class="input" id="su-pass" name="password" type="password" autocomplete="new-password"
+                   placeholder="At least 12 characters" data-strength="su-strength">
+            <button class="auth-pw-toggle" type="button" aria-label="Show password" aria-pressed="false" data-pw-toggle>👁</button>
+            <div class="auth-strength" id="su-strength" data-score="0" aria-hidden="true">
+              <div class="auth-strength-bars"><span></span><span></span><span></span><span></span></div>
+              <div class="auth-strength-row">
+                <span class="auth-strength-word"></span>
+                <span class="auth-strength-hint">12+ characters, mixed case &amp; a number</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="hint" style="margin-top:var(--space-4)">This first account is the <strong>workspace owner</strong> — full admin. You can add more admins in a moment.</p>
+
+        <button class="btn btn-primary auth-submit" type="submit">Continue → Name workspace</button>
+      </form>
+    </section>
+
+    <p class="auth-cap">Step 2 — name the space your team will live in</p>
+
+    <!-- ════════════ STEP 2 — Name workspace ════════════ -->
+    <section class="auth-card" aria-label="Set up Opzava — step 2 of 3, name workspace" aria-hidden="true">
+      <div class="auth-logo" aria-hidden="true">◆</div>
+      <h1>Name your workspace</h1>
+      <p class="auth-lead">This is what your team sees in the top bar and in email.</p>
+
+      <ol class="auth-steps" aria-label="Setup progress">
+        <li class="auth-step is-done"><span class="num" aria-hidden="true">✓</span><span class="lbl">Account</span></li>
+        <li class="bar" aria-hidden="true"></li>
+        <li class="auth-step is-current" aria-current="step"><span class="num">2</span><span class="lbl">Workspace</span></li>
+        <li class="bar" aria-hidden="true"></li>
+        <li class="auth-step"><span class="num">3</span><span class="lbl">Team</span></li>
+      </ol>
+
+      <form novalidate onsubmit="return false">
+        <div class="field">
+          <label class="label" for="su-ws">Workspace name</label>
+          <input class="input" id="su-ws" name="workspace" type="text" autocomplete="organization" placeholder="Acme Inc." value="Acme Inc.">
+        </div>
+        <div class="field">
+          <label class="label" for="su-tz">Time zone</label>
+          <select class="select" id="su-tz" name="timezone">
+            <option selected>Europe/London — GMT+01:00</option>
+            <option>America/New_York — GMT−04:00</option>
+            <option>America/Los_Angeles — GMT−07:00</option>
+            <option>Asia/Singapore — GMT+08:00</option>
+          </select>
+          <p class="hint">Used for schedules, digests, and “needs you by” dates. Each person can override their own later.</p>
+        </div>
+
+        <div class="auth-nav">
+          <a class="btn btn-ghost" href="#" aria-label="Back to owner account">← Back</a>
+          <button class="btn btn-primary auth-submit" type="submit">Continue → Invite team</button>
+        </div>
+      </form>
+    </section>
+
+    <p class="auth-cap">Step 3 — bring your team, or skip and do it later</p>
+
+    <!-- ════════════ STEP 3 — Invite team (optional) ════════════ -->
+    <section class="auth-card" aria-label="Set up Opzava — step 3 of 3, invite team" aria-hidden="true">
+      <div class="auth-logo" aria-hidden="true">◆</div>
+      <h1>Invite your team</h1>
+      <p class="auth-lead">Add a few people now — or skip and invite anyone later from <strong>Admin → Users</strong>.</p>
+
+      <ol class="auth-steps" aria-label="Setup progress">
+        <li class="auth-step is-done"><span class="num" aria-hidden="true">✓</span><span class="lbl">Account</span></li>
+        <li class="bar" aria-hidden="true"></li>
+        <li class="auth-step is-done"><span class="num" aria-hidden="true">✓</span><span class="lbl">Workspace</span></li>
+        <li class="bar" aria-hidden="true"></li>
+        <li class="auth-step is-current" aria-current="step"><span class="num">3</span><span class="lbl">Team</span></li>
+      </ol>
+
+      <form novalidate onsubmit="return false">
+        <div class="field">
+          <label class="label" for="su-invites">Email addresses</label>
+          <textarea class="textarea" id="su-invites" name="invites" placeholder="One per line&#10;priya@acme.com&#10;sam@acme.com"></textarea>
+          <p class="hint">They’ll each get an invite link to set their own password. Invites expire in 7 days.</p>
+        </div>
+        <div class="field">
+          <label class="label" for="su-role">Default role</label>
+          <select class="select" id="su-role" name="role">
+            <option>Admin</option>
+            <option selected>Member</option>
+            <option>Viewer</option>
+          </select>
+        </div>
+
+        <div class="auth-nav">
+          <a class="btn btn-ghost" href="#" aria-label="Back to workspace name">← Back</a>
+          <button class="btn btn-primary auth-submit" type="submit">Send invites &amp; finish →</button>
+        </div>
+      </form>
+
+      <p class="auth-foot"><a href="essential-home.html">Skip for now — open Opzava →</a></p>
+    </section>
+
+    <p class="auth-cap">If something interrupts the once-only setup — the secured variations</p>
+
+    <!-- ════════════ ALT STATES — captioned previews, never a live form ════════════ -->
+    <div class="auth-alts" aria-hidden="true">
+
+      <div class="auth-alt">
+        <p class="auth-alt-cap">Already set up — setup runs only once</p>
+        <div class="sb-alert sb-alert--warning" role="alert">
+          <span class="ico" aria-hidden="true">🔒</span>
+          <strong class="sb-alert-title">Opzava is already set up</strong>
+          <span class="sb-alert-desc">This install already has an owner. Setup can’t run twice — <a href="essential-login.html">sign in</a> instead.</span>
+        </div>
+      </div>
+
+      <div class="auth-alt">
+        <p class="auth-alt-cap">Owner password too weak — inline guard before continue</p>
+        <div class="sb-alert sb-alert--destructive" role="alert">
+          <span class="ico" aria-hidden="true">⚠</span>
+          <strong class="sb-alert-title">Pick a stronger password</strong>
+          <span class="sb-alert-desc">The owner account guards everything — use at least 12 characters with mixed case and a number.</span>
+        </div>
+      </div>
+
+      <div class="auth-alt">
+        <p class="auth-alt-cap">Creating the workspace — pending state (Doherty &lt; 400ms)</p>
+        <button class="btn btn-primary auth-submit" type="button" disabled style="margin-top:0"><span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span> Creating workspace…</button>
+        <p class="hint">The button locks with a spinner and an <code>aria-live</code> region announces progress while the owner, workspace, and first invites are written.</p>
+      </div>
+
+      <div class="auth-alt">
+        <p class="auth-alt-cap">Invites sent — the confirmation before Home</p>
+        <div class="sb-alert sb-alert--success" role="status">
+          <span class="ico" aria-hidden="true">✓</span>
+          <strong class="sb-alert-title">Workspace ready · 2 invites sent</strong>
+          <span class="sb-alert-desc">You’re signed in as the owner. Invitees appear under <strong>Admin → Users → Invites</strong> until they join.</span>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+</body>
+</html>

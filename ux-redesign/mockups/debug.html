@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Debug — Opzava</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="admin-nav.js" defer></script>
+  <style>
+    /* Page-specific layout only — no color, font-size, shadow, or radius overrides */
+    .two-col-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.8fr;
+      gap: var(--space-4);
+      align-items: start;
+    }
+    .spend-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: var(--space-2);
+      height: 72px;
+      padding: 0 var(--space-2);
+    }
+    .spend-chart-bar {
+      flex: 1;
+      border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+      min-width: 0;
+    }
+    .spend-chart-labels {
+      display: flex;
+      gap: var(--space-2);
+      padding: var(--space-1) var(--space-2) 0;
+    }
+    .spend-chart-labels span {
+      flex: 1;
+      text-align: center;
+    }
+    .activity-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      min-height: 40px;
+      padding: 0 var(--space-5);
+      border-bottom: 1px solid var(--border);
+    }
+    .activity-row:last-child {
+      border-bottom: 0;
+    }
+    .activity-time {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+      min-width: 68px;
+      flex: none;
+    }
+    .activity-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .nav-section-gap {
+      margin-top: var(--space-2);
+    }
+    .header-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--surface-3);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      flex: none;
+      cursor: pointer;
+      font-weight: var(--fw-semibold);
+    }
+    .notif-btn-wrap {
+      position: relative;
+    }
+    .notif-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: var(--radius-full);
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      font-weight: var(--fw-semibold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+    }
+    .spend-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .spend-row-sep {
+      color: var(--border-strong);
+    }
+    .page-stack {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+    .fleet-table-wrap {
+      overflow: hidden;
+    }
+    .activity-live-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    /* Debug page — collapsible diagnostics disclosures (layout/interaction only) */
+    .dbg-disc > summary {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-4) var(--space-5);
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+    .dbg-disc > summary::-webkit-details-marker { display: none; }
+    .dbg-disc > summary:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+      border-radius: var(--radius-lg);
+    }
+    .dbg-disc[open] > summary .chev { transform: rotate(90deg); }
+    .chev { flex: none; transition: transform var(--dur-fast) var(--ease-standard); }
+    .kv th { width: 176px; }
+    .flag-cell { width: 1%; white-space: nowrap; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       NAVIGATION RAIL
+  ══════════════════════════════════════════════════════════════════ -->
+  <aside class="rail" aria-label="Main navigation">
+
+    <!-- Logo / wordmark -->
+    <div class="rail-head">
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
+        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
+      </svg>
+      <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);letter-spacing:-.01em;">Opzava</span>
+      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
+    </div>
+
+    <!-- Nav groups -->
+    <nav class="rail-nav" aria-label="Application sections">
+      <a href="orchestrator-chat.html" class="rail-item" style="margin-bottom:4px;">
+        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
+        Ask Opzava
+        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
+      </a>
+      <div class="section-label">Operate</div>
+      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
+      <a href="agents.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
+      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
+      <a href="issues.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="9" r="1.75" fill="currentColor"/></svg> Issues <span class="count">12</span></a>
+      <a href="activity.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="4.5" cy="5" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="4.5" cy="12" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 12h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Activity</a>
+      <a href="messages-slack.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
+      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
+      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
+      <div class="section-label nav-section-gap">Observe</div>
+      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
+      <a href="logs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
+      <a href="costs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
+      <div class="section-label nav-section-gap">Automate</div>
+      <a href="connections.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="5" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><path d="M7.3 9h3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Connections <span class="dot dot-success dot-beat" style="margin-left:auto;" aria-label="all tools connected"></span></a>
+      <a href="automation.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M10 2.5 4.5 10H8l-1 5.5L13.5 8H10z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Automation <span class="count">4</span></a>
+      <div class="section-label nav-section-gap">Govern</div>
+      <a href="security-audit.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5l5 1.8v3.7c0 3.3-2.1 5.6-5 6.5-2.9-.9-5-3.2-5-6.5V4.3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Security &amp; Audit <span class="count" style="background:var(--danger-soft);color:var(--danger);">1</span></a>
+      <a href="memory-skills.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 2.5 6 9 9.5 15.5 6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M2.5 10 9 13.5 15.5 10" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Memory &amp; Skills</a>
+      <a href="notifications-alerts.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
+      <a href="settings.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
+      <a href="debug.html" class="rail-item u-subtle" aria-current="page"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="3.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7.5 7.5 9.5 5.5 11.5M9.5 11.5h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Debug</a>
+      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+    </nav>
+
+    <!-- Rail footer: ⌘K quick jump -->
+    <div class="rail-foot">
+      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (⌘K)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-subtle u-grow">Jump to…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIN COLUMN
+  ══════════════════════════════════════════════════════════════════ -->
+  <div class="main-col">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="header">
+
+      <!-- Sidebar collapse -->
+      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <!-- Search -->
+      <div class="search" role="search">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-grow u-subtle">Search agents, tasks, runs…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </div>
+
+      <!-- Spacer -->
+      <div class="u-grow"></div>
+
+      <!-- Health pill -->
+      <div class="health-pill" aria-label="System health: All systems healthy">
+        <span class="dot dot-success" aria-hidden="true"></span>
+        All systems healthy
+      </div>
+
+      <!-- Live indicator -->
+      <div class="live-indicator" aria-label="Live connection active">
+        <span class="dot dot-success live" aria-hidden="true"></span>
+        <span>Live</span>
+      </div>
+
+      <!-- Notifications -->
+      <div class="notif-btn-wrap">
+        <a href="notifications-alerts.html" class="btn btn-ghost btn-icon" aria-label="Notifications, 2 unread">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </a>
+        <span class="notif-badge" aria-hidden="true">2</span>
+        <span class="u-sr-only">2 unread notifications</span>
+      </div>
+
+      <!-- Avatar -->
+      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu — Anthony G.">AG</div>
+
+    </header>
+
+    <!-- ── Main content ────────────────────────────────────────── -->
+    <main class="main">
+      <div class="page">
+        <div class="page-stack">
+
+          <!-- ── Page header ─────────────────────────────────── -->
+          <div class="page-header">
+            <div>
+              <h1>Debug</h1>
+              <p class="page-sub">Advanced internal diagnostics</p>
+            </div>
+            <div class="u-row" style="gap:var(--space-2);">
+              <button type="button" class="btn">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M1.5 8h2l1.5-4 2.5 7 2-4 1 1h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Run diagnostics
+              </button>
+              <button type="button" class="btn btn-primary">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M3.5 10.5H3A1.5 1.5 0 0 1 1.5 9V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Copy debug bundle
+              </button>
+            </div>
+          </div>
+
+          <!-- ── Advanced warning ─────────────────────────────── -->
+          <div class="banner banner-warning" role="note" aria-label="Advanced debugging surface">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--warning);">
+              <path d="M8 2 1.5 13.5h13L8 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <path d="M8 6v4M8 11.5v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span><strong>Advanced</strong> — internal state for debugging. Changes here can affect the running system.</span>
+          </div>
+
+          <!-- ── a · System (open) ────────────────────────────── -->
+          <details class="card dbg-disc" open>
+            <summary>
+              <svg class="chev" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style="color:var(--fg-subtle);">
+                <path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <h2 class="card-title" id="dbg-system">System</h2>
+              <span class="u-subtle" style="font-size:var(--text-xs);">v2.1.0 · production · up 4d 12h</span>
+              <span class="badge" style="margin-left:auto;"><span class="dot dot-success" aria-hidden="true"></span> Healthy</span>
+            </summary>
+            <hr style="margin:0;">
+            <table class="table table-compact kv" aria-labelledby="dbg-system">
+              <caption class="u-sr-only">System runtime — setting and value pairs.</caption>
+              <tbody>
+                <tr><th scope="row">Version</th><td class="u-mono">Opzava v2.1.0</td></tr>
+                <tr><th scope="row">Node</th><td class="u-mono">v22.14</td></tr>
+                <tr><th scope="row">DB</th><td class="u-mono">better-sqlite3 <span class="u-subtle">(Postgres-ready)</span></td></tr>
+                <tr><th scope="row">Uptime</th><td class="u-mono">4d 12h</td></tr>
+                <tr><th scope="row">Env</th><td class="u-mono">production</td></tr>
+                <tr><th scope="row">Data dir</th><td class="u-mono">/var/opzava/.data</td></tr>
+                <tr><th scope="row">Build</th><td class="u-mono">a1b2c3d</td></tr>
+              </tbody>
+            </table>
+          </details>
+
+          <!-- ── b · Feature flags (collapsed) ────────────────── -->
+          <details class="card dbg-disc">
+            <summary>
+              <svg class="chev" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style="color:var(--fg-subtle);">
+                <path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <h2 class="card-title" id="dbg-flags">Feature flags</h2>
+              <span class="u-subtle" style="font-size:var(--text-xs);">interface_mode=full · 3 enabled</span>
+              <span class="badge" style="margin-left:auto;">6 flags</span>
+            </summary>
+            <hr style="margin:0;">
+            <table class="table table-compact" aria-labelledby="dbg-flags">
+              <caption class="u-sr-only">Feature flags — toggle, flag id, and behaviour. interface_mode, essential_default and decomposition are on; gateway_optional, usage_overlay and multi_account_switch are off.</caption>
+              <thead>
+                <tr>
+                  <th scope="col" class="flag-cell">Enabled</th>
+                  <th scope="col">Flag</th>
+                  <th scope="col">Behaviour</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="flag-cell"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="interface_mode — on"></button></td>
+                  <td class="u-mono">interface_mode</td>
+                  <td class="u-muted">Admin interface — currently <span class="u-mono">full</span></td>
+                </tr>
+                <tr>
+                  <td class="flag-cell"><button type="button" class="switch" role="switch" aria-checked="false" aria-label="gateway_optional — off"></button></td>
+                  <td class="u-mono">gateway_optional</td>
+                  <td class="u-muted">Require gateway connectivity at boot</td>
+                </tr>
+                <tr>
+                  <td class="flag-cell"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="essential_default — on"></button></td>
+                  <td class="u-mono">essential_default</td>
+                  <td class="u-muted">New users start in Essential view</td>
+                </tr>
+                <tr>
+                  <td class="flag-cell"><button type="button" class="switch on" role="switch" aria-checked="true" aria-label="decomposition — on"></button></td>
+                  <td class="u-mono">decomposition</td>
+                  <td class="u-muted">Lead auto-splits large tasks into steps</td>
+                </tr>
+                <tr>
+                  <td class="flag-cell"><button type="button" class="switch" role="switch" aria-checked="false" aria-label="usage_overlay — off"></button></td>
+                  <td class="u-mono">usage_overlay</td>
+                  <td class="u-muted">Show provider-usage overlay in the UI</td>
+                </tr>
+                <tr>
+                  <td class="flag-cell"><button type="button" class="switch" role="switch" aria-checked="false" aria-label="multi_account_switch — off"></button></td>
+                  <td class="u-mono">multi_account_switch</td>
+                  <td class="u-muted">Hot-swap provider accounts mid-run</td>
+                </tr>
+              </tbody>
+            </table>
+          </details>
+
+          <!-- ── c · Orchestrator state (collapsed) ───────────── -->
+          <details class="card dbg-disc">
+            <summary>
+              <svg class="chev" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style="color:var(--fg-subtle);">
+                <path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <h2 class="card-title" id="dbg-orch">Orchestrator state</h2>
+              <span class="u-subtle" style="font-size:var(--text-xs);">queue 3 · 4 in-flight</span>
+              <span class="badge" style="margin-left:auto;"><span class="dot dot-success" aria-hidden="true"></span> Lead active</span>
+            </summary>
+            <hr style="margin:0;">
+            <table class="table table-compact kv" aria-labelledby="dbg-orch">
+              <caption class="u-sr-only">Lead orchestrator runtime — setting and value pairs.</caption>
+              <tbody>
+                <tr><th scope="row">Queue depth</th><td class="u-mono">3</td></tr>
+                <tr><th scope="row">In-flight tasks</th><td class="u-mono">4</td></tr>
+                <tr><th scope="row">AccountCapacity</th><td class="u-mono">gpt-plus 2/5</td></tr>
+                <tr><th scope="row">ModelTier seed</th><td class="u-mono">loaded <span class="u-subtle">(frontier=gpt)</span></td></tr>
+                <tr><th scope="row">Last decomposition</th><td class="u-mono">card #34 (4 steps)</td></tr>
+                <tr>
+                  <th scope="row">Lead session</th>
+                  <td>
+                    <span class="u-row">
+                      <span class="dot dot-success" aria-hidden="true"></span>
+                      <span class="u-mono">r_8f3a</span>
+                      <span class="u-muted">active</span>
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </details>
+
+          <!-- ── d · Diagnostics (collapsed) ──────────────────── -->
+          <details class="card dbg-disc">
+            <summary>
+              <svg class="chev" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style="color:var(--fg-subtle);">
+                <path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <h2 class="card-title" id="dbg-diag">Diagnostics</h2>
+              <span class="u-subtle" style="font-size:var(--text-xs);">5 health checks</span>
+              <span class="badge" style="margin-left:auto;"><span class="dot dot-warning" aria-hidden="true"></span> 1 warning</span>
+            </summary>
+            <hr style="margin:0;">
+            <table class="table table-compact" aria-labelledby="dbg-diag">
+              <caption class="u-sr-only">Health checks — check name and result. Gateway, provider auth, database and memory pass; disk usage is a warning.</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Check</th>
+                  <th scope="col">Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Gateway reachable</td>
+                  <td><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> OK</span></td>
+                </tr>
+                <tr>
+                  <td>Provider auth</td>
+                  <td><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> OK</span></td>
+                </tr>
+                <tr>
+                  <td>Database</td>
+                  <td><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> OK</span></td>
+                </tr>
+                <tr>
+                  <td>Disk</td>
+                  <td>
+                    <span class="u-row">
+                      <span class="dot dot-warning" aria-hidden="true"></span>
+                      <span>Warning</span>
+                      <span class="u-mono u-muted">82% used</span>
+                      <span class="u-subtle">· nearing 90% threshold</span>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Memory</td>
+                  <td><span class="u-row"><span class="dot dot-success" aria-hidden="true"></span> OK <span class="u-mono u-muted">1.2 / 4 GB</span></span></td>
+                </tr>
+              </tbody>
+            </table>
+          </details>
+
+          <!-- ── e · Raw config (collapsed) ───────────────────── -->
+          <details class="card dbg-disc">
+            <summary>
+              <svg class="chev" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style="color:var(--fg-subtle);">
+                <path d="M5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <h2 class="card-title" id="dbg-config">Raw config</h2>
+              <span class="u-subtle" style="font-size:var(--text-xs);">effective settings · secrets hidden</span>
+              <span class="badge" style="margin-left:auto;"><span class="dot" aria-hidden="true"></span> Redacted</span>
+            </summary>
+            <hr style="margin:0;">
+            <div class="card-body">
+              <pre aria-label="Effective configuration, redacted" style="margin:0;overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:var(--lh-normal);color:var(--fg-muted);white-space:pre;">{
+  "interfaceMode": "full",
+  "gateway": {
+    "primary": true,
+    "url": "https://gateway.opzava.internal",
+    "apiKey": "***"
+  },
+  "modelTiers": {
+    "frontier": { "provider": "gpt-plus", "model": "***" },
+    "balanced": { "provider": "minimax",  "model": "***" },
+    "fast":     { "provider": "glm",       "model": "***" }
+  },
+  "providers": {
+    "gpt-plus": { "auth": "***", "capacity": "2/5" },
+    "minimax":  { "auth": "***", "billingMode": "metered" },
+    "glm":      { "auth": "***" }
+  },
+  "flags": {
+    "decomposition": true,
+    "essential_default": true,
+    "usage_overlay": false
+  }
+}</pre>
+            </div>
+          </details>
+
+          <!-- ── Footer hint ──────────────────────────────────── -->
+          <p class="hint">Debug · build <code class="u-mono">a1b2c3d</code> · generated just now. Secrets are redacted.</p>
+
+        </div>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+</body>
+</html>

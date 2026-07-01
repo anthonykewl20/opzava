@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en" data-theme="calm">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opzava — Your tools</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="a11y.js"></script>
+  <script src="tools-bar.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="account-menu.js"></script>
+  <script src="menu-filter.js"></script>
+  <style>
+    /* Calm Essential shell — layout only */
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+    .topnav a.active { background: var(--accent-soft); color: var(--accent); }
+    .bc-wrap { max-width: 840px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-16); }
+
+    .pg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-2); }
+    .pg-title { font-size: var(--text-2xl); font-weight: var(--fw-semibold); letter-spacing: -.02em; }
+    .pg-sub { font-size: var(--text-md); color: var(--fg-muted); margin-bottom: var(--space-5); }
+
+    /* Per-tool row — de-coloured .service-row (status is a glyph+label badge, never a hue) */
+    .tool-list { padding: 0; }
+    .tool-item { border-bottom: 1px solid var(--border); }
+    .tool-item:last-child { border-bottom: 0; }
+    .tool-row { display: flex; align-items: center; gap: var(--space-3); min-height: 60px; padding: var(--space-3) var(--space-5); }
+    .tool-id { min-width: 0; flex: 1 1 auto; }
+    .tool-name { font-size: var(--text-base); font-weight: var(--fw-medium); color: var(--fg); }
+    .tool-via { font-size: var(--text-xs); color: var(--fg-subtle); margin-top: 1px; }
+    .tool-meta { font-size: var(--text-xs); color: var(--fg-subtle); font-family: var(--font-mono); white-space: nowrap; flex: none; }
+    .tool-more { width: 32px; height: 32px; border-radius: var(--radius-md); border: 0; background: none; color: var(--fg-muted); font-size: 18px; line-height: 1; cursor: pointer; flex: none; }
+    .tool-more:hover { background: var(--surface-2); color: var(--fg); }
+
+    /* Status badge — glyph + label, neutral chip; accent only for "needs you" */
+    .st { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+    .st .g { line-height: 1; }
+
+    /* Technical details disclosure (admin re-link command) */
+    .tool-details { padding: 0 var(--space-5) var(--space-4) calc(var(--space-5) + 44px); }
+    .tool-details > summary { font-size: var(--text-xs); color: var(--fg-subtle); cursor: pointer; list-style: none; padding: 4px 0; }
+    .tool-details > summary::-webkit-details-marker { display: none; }
+    .tool-details > summary::before { content: "▸ "; }
+    .tool-details[open] > summary::before { content: "▾ "; }
+
+    .legend { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-5); margin-top: var(--space-5); padding-top: var(--space-5); border-top: 1px solid var(--border); font-size: var(--text-xs); color: var(--fg-subtle); }
+    .legend span .g { color: var(--fg-muted); }
+
+    @media (max-width: 640px) { .topnav { display: none; } .tool-meta { display: none; } }
+  </style>
+</head>
+<body>
+<div class="bc">
+
+  <!-- ── Canonical calm topbar ────────────────────────────────────────── -->
+  <header class="topbar">
+    <a href="essential-home.html" class="u-row" style="text-decoration:none;color:var(--fg);gap:var(--space-2)">
+      <span class="rail-logo" style="display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:700" aria-hidden="true">◆</span>
+      <strong style="font-size:var(--text-md)">Opzava</strong>
+    </a>
+    <nav class="topnav" aria-label="Primary">
+      <a href="essential-home.html">Home</a>
+      <a href="essential-my-stuff.html">My stuff</a>
+      <a href="essential-messages.html">Messages <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="3 unread">3</span></a>
+      <a href="mention-inbox.html">Activity <span class="badge badge-accent" style="margin-left:6px;height:18px;padding:0 7px" aria-label="2 new for you">2</span></a>
+      <a href="essential-ask-opzava.html" style="gap:6px"><span aria-hidden="true" style="color:var(--accent)">✦</span> Ask Opzava</a>
+      <a href="essential-find.html">Find…</a>
+    </nav>
+    <span class="u-grow"></span>
+    <a class="btn btn-ghost" href="essential-new-project.html"><span aria-hidden="true">＋</span> New project</a>
+    <a href="essential-notifications.html" class="btn-icon btn-ghost" aria-label="Notifications, 3 unread" style="position:relative"><span aria-hidden="true">🔔</span><span class="badge badge-danger" style="position:absolute;top:-4px;right:-4px;height:16px;padding:0 5px" aria-hidden="true">3</span></a>
+    <span class="ava" style="background:var(--chart-2)" aria-hidden="true">AG</span>
+  </header>
+
+  <div class="bc-wrap">
+
+    <nav class="sb-breadcrumb" aria-label="Breadcrumb" style="margin-bottom:var(--space-5)">
+      <a href="essential-home.html">Home</a>
+      <span class="sep" aria-hidden="true">›</span>
+      <span class="current">Your tools</span>
+    </nav>
+
+    <div class="pg-head">
+      <div>
+        <h1 class="pg-title">Your tools</h1>
+      </div>
+      <a class="btn btn-ghost" href="essential-connect-wizard.html"><span aria-hidden="true">＋</span> Connect another</a>
+    </div>
+    <p class="pg-sub">The terminal and desktop tools linked to your Opzava account. Opzava runs your tasks through these and keeps an eye on them.</p>
+
+    <!-- Glance pill — label + glyph, no coloured dot, no traffic light -->
+    <div style="margin-bottom:var(--space-5)">
+      <span class="health-pill" aria-label="5 of 5 local tools listed" style="cursor:default">
+        <span aria-hidden="true">✓</span> 5 of 5 local tools
+        <span class="u-subtle" style="margin-left:6px">· Codex Desktop needs reconnecting</span>
+      </span>
+    </div>
+
+    <!-- ── The five local tools ─────────────────────────────────────────── -->
+    <div class="card tool-list" role="list" aria-label="Linked tools">
+
+      <!-- 1 · Claude Code — Active -->
+      <div class="tool-item" role="listitem">
+        <div class="tool-row">
+          <span class="sb-avatar sb-avatar--ai sb-avatar--sm" aria-hidden="true" style="background:var(--chart-2)">▮</span>
+          <div class="tool-id">
+            <div class="tool-name">Claude Code</div>
+            <div class="tool-via">on your computer · via MCP</div>
+          </div>
+          <span class="sb-badge sb-badge--secondary st"><span class="g" aria-hidden="true">✦</span> Active</span>
+          <span class="tool-meta">running a deploy step</span>
+          <button class="tool-more" type="button" aria-label="More actions for Claude Code">⋯</button>
+        </div>
+      </div>
+
+      <!-- 2 · OpenCode — Connected -->
+      <div class="tool-item" role="listitem">
+        <div class="tool-row">
+          <span class="sb-avatar sb-avatar--ai sb-avatar--sm" aria-hidden="true" style="background:var(--chart-4)">▮</span>
+          <div class="tool-id">
+            <div class="tool-name">OpenCode</div>
+            <div class="tool-via">on your computer · via CLI</div>
+          </div>
+          <span class="sb-badge sb-badge--secondary st"><span class="g" aria-hidden="true" style="color:var(--fg-subtle)">●</span> Connected</span>
+          <button class="tool-more" type="button" aria-label="More actions for OpenCode">⋯</button>
+        </div>
+      </div>
+
+      <!-- 3 · Codex CLI — Degraded -->
+      <div class="tool-item" role="listitem">
+        <div class="tool-row">
+          <span class="sb-avatar sb-avatar--ai sb-avatar--sm" aria-hidden="true" style="background:var(--chart-5)">▮</span>
+          <div class="tool-id">
+            <div class="tool-name">Codex CLI</div>
+            <div class="tool-via">on your computer · via MCP</div>
+          </div>
+          <span class="sb-badge sb-badge--secondary st"><span class="g" aria-hidden="true">◐</span> Degraded</span>
+          <span class="tool-meta">slow · p95 1.8s</span>
+          <button class="tool-more" type="button" aria-label="More actions for Codex CLI">⋯</button>
+        </div>
+      </div>
+
+      <!-- 4 · Codex Desktop — Disconnected (Reconnect + admin details) -->
+      <div class="tool-item" role="listitem">
+        <div class="tool-row">
+          <span class="sb-avatar sb-avatar--sm" aria-hidden="true" style="background:var(--chart-3)">▢</span>
+          <div class="tool-id">
+            <div class="tool-name">Codex Desktop</div>
+            <div class="tool-via">desktop app · via MCP</div>
+          </div>
+          <span class="sb-badge sb-badge--outline st"><span class="g" aria-hidden="true">○</span> Disconnected</span>
+          <span class="tool-meta">last seen 2h ago</span>
+          <button class="btn btn-ghost btn-sm js-connect" type="button" data-href="essential-connect-wizard.html" data-pending="Reconnecting…">Reconnect</button>
+          <button class="tool-more" type="button" aria-label="More actions for Codex Desktop">⋯</button>
+        </div>
+        <details class="tool-details">
+          <summary>Technical details</summary>
+          <p style="font-size:var(--text-xs);color:var(--fg-muted);margin:6px 0 8px">Re-add Opzava to Codex Desktop's MCP config, then reopen the app:</p>
+          <div class="sb-copy">
+            <div class="sb-term" aria-label="Re-link command">
+              <div class="ln"><span class="tag t-cmd">$</span><span class="t-cmd">opzava mcp install --client codex-desktop --url https://ops.acme.dev</span></div>
+            </div>
+            <button class="sb-copy-btn" type="button" aria-label="Copy command"><span aria-hidden="true">⧉</span> Copy</button>
+          </div>
+        </details>
+      </div>
+
+      <!-- 5 · Claude Desktop — Connected -->
+      <div class="tool-item" role="listitem">
+        <div class="tool-row">
+          <span class="sb-avatar sb-avatar--sm" aria-hidden="true" style="background:var(--chart-1)">▢</span>
+          <div class="tool-id">
+            <div class="tool-name">Claude Desktop</div>
+            <div class="tool-via">desktop app · via MCP</div>
+          </div>
+          <span class="sb-badge sb-badge--secondary st"><span class="g" aria-hidden="true" style="color:var(--fg-subtle)">●</span> Connected</span>
+          <button class="tool-more" type="button" aria-label="More actions for Claude Desktop">⋯</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Within-400ms feedback for the action buttons (Connect / Reconnect) -->
+    <div id="toolStatus" class="u-sr-only" role="status" aria-live="polite"></div>
+
+    <!-- Quiet legend — status is read by glyph + word, never colour -->
+    <div class="legend" aria-label="What the marks mean">
+      <span><span class="g" aria-hidden="true">✦</span> Active</span>
+      <span><span class="g" aria-hidden="true">●</span> Connected</span>
+      <span><span class="g" aria-hidden="true">◐</span> Degraded</span>
+      <span><span class="g" aria-hidden="true">○</span> Disconnected</span>
+      <span><span class="g" aria-hidden="true">＋</span> Not linked</span>
+    </div>
+
+  </div><!-- /.bc-wrap -->
+</div><!-- /.bc -->
+
+<!-- Page-local: within-400ms pending → confirm feedback on Connect / Reconnect -->
+<script>
+  (function () {
+    var status = document.getElementById('toolStatus');
+    function announce(msg) { if (status) { status.textContent = ''; status.textContent = msg; } }
+
+    document.querySelectorAll('.js-connect').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.disabled) return;
+        var href = btn.getAttribute('data-href');
+        var pending = btn.getAttribute('data-pending') || 'Working…';
+        var item = btn.closest('.tool-item');
+        var nameEl = item && item.querySelector('.tool-name');
+        var tool = nameEl ? nameEl.textContent : '';
+        var label = btn.textContent;
+
+        // Optimistic pending state (well under the 400ms Doherty threshold).
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+        btn.textContent = pending;
+        announce((tool ? tool + ': ' : '') + pending);
+
+        // Brief working state, then hand off to the connect wizard.
+        setTimeout(function () {
+          announce((tool ? tool + ': ' : '') + 'opening the connect steps…');
+          if (href) window.location.href = href;
+          else {
+            btn.disabled = false;
+            btn.removeAttribute('aria-busy');
+            btn.textContent = label;
+          }
+        }, 320);
+      });
+    });
+  })();
+</script>
+</body>
+</html>
