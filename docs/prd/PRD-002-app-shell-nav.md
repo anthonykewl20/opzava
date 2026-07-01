@@ -294,3 +294,6 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 - PRD-012: Admin monitoring, logs, issues, security/audit, alerts, and debug surfaces.
 - PRD-013: Connections, providers, channels, tools, MCP, and connect wizard for linked-tool details.
 - PRD-016: PWA install/offline behavior and Web Push preferences for push preference management and offline gates.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

@@ -361,3 +361,6 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - PRD-002: App shell, Essential top bar, full/admin rail, command palette, Find, notification bell, Home/My stuff entry points, and shell async states.
 - PRD-003: Projects, project assistant entry, project cards/to-dos/docs/schedules/outputs/updates, `pm.Card`, project approvals, and project activity projections.
 - PRD-004: Internal chat, Activity inbox, assistant hand-offs, mentions, notifications, Web Push, project Team rooms, and assistant participant attribution in collaboration surfaces.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

@@ -13,13 +13,14 @@ This doc supersedes the generic walking-skeleton MVP in `docs/plan/roadmap.md`. 
 3. Find the first unchecked slice under Current State and The Build. Never skip ahead.
 4. Load that slice's listed Skills before implementation.
 5. If a listed Skill is in Skills To Build and is not yet created, author it first with the `writing-great-skills` skill, then use it for the slice.
-6. Implement only that slice. Keep changes inside the slice's bounded contexts and deliverables.
-7. Use `tdd` while implementing and `verify-deep` before marking the slice done.
-8. Run the slice Acceptance / usable-signal exactly as written.
-9. Tick deliverable checkboxes only after they match reality.
-10. Set the slice Status, update Current State, append a dated Worklog entry, and keep this doc in sync.
-11. Commit with `commit-style` after the doc and code match reality.
-12. Stop or continue from the next unchecked slice. Use `handoff` for clean start/stop/resume.
+6. Validate APIs against official docs before coding: `docs/plan/official-docs.md`, `docs/openclaw`, and current framework/library docs.
+7. Implement only that slice. Keep changes inside the slice's bounded contexts and deliverables.
+8. Use `tdd` while implementing and `verify-deep` before marking the slice done.
+9. Run the slice Acceptance / usable-signal exactly as written.
+10. Tick deliverable checkboxes only after they match reality.
+11. Set the slice Status, update Current State, append a dated Worklog entry, and keep this doc in sync.
+12. Commit with `commit-style` after the doc and code match reality.
+13. Stop or continue from the next unchecked slice. Use `handoff` for clean start/stop/resume.
 
 Do not let this document become aspirational. If implementation changes the plan, update this document in the same slice.
 
@@ -27,10 +28,14 @@ Do not let this document become aspirational. If implementation changes the plan
 
 | Field | Value |
 | --- | --- |
-| Active slice | Slice 0 - De-risk spike (throwaway) |
+| Active slice | Slice 1 - Admin Tasks MVP |
 | Status | not-started |
-| Next concrete action | Slice 0 skills authored (openclaw-broker, openclaw-gateway-provisioning). Implement the throwaway local provisioning→Traefik→broker→Gateway streaming round-trip spike. |
+| Next concrete action | Start Slice 1 by reading its listed skills and validating current official docs before implementing the local parity stack and admin Tasks MVP. |
 | Blockers | None |
+
+## Operating Mode
+
+Opzava runs single-tenant internally first to market and promote Opzava itself. The scale-ready multi-tenant architecture is retained and runs one tenant now; Opzava is not a public multi-tenant SaaS yet. The first business-value build after the admin-Tasks MVP is Marketing + CRM.
 
 ## Reference Map
 
@@ -39,6 +44,7 @@ Do not let this document become aspirational. If implementation changes the plan
 | `ARCHITECTURE.md` | System overview: bounded contexts, ports, invariants, deployment topology, ADR index. |
 | `docs/plan/roadmap.md` | Phase detail after the admin Tasks MVP; this doc controls execution order. |
 | `docs/plan/grilling-decisions.md` | Locked design record and sad-path invariants from Q1-Q14. |
+| `docs/plan/official-docs.md` | Official documentation registry; validate every API against it before coding. |
 | `docs/adr/` | Accepted architecture decisions ADR-001 through ADR-015. |
 | `docs/prd/` | Product contracts PRD-001 through PRD-018. |
 | `docs/plan/capability-parity.md` | OpenClaw-native vs Opzava-owned vs hybrid capability map. |
@@ -74,17 +80,17 @@ Execute slices in order. Slice 1 is the dogfood MVP. From Slice 1 onward, all ph
 
 ### Slice 0 - De-risk spike (throwaway)
 
-Status: [x] not-started | [ ] in-progress | [ ] blocked | [ ] done
+Status: [ ] not-started | [ ] in-progress | [ ] blocked | [x] done
 
 Goal: Prove the riskiest local runtime path before product code: provisioning worker -> Docker socket proxy -> dynamic Gateway -> Traefik -> broker WS -> first streamed token.
 
 Deliverables:
 
-- [ ] Throwaway local Compose spike with Traefik, `docker-socket-proxy`, and `dokploy-network` assumptions.
-- [ ] `spike-provisioner` starts exactly one OpenClaw Gateway or fake Gateway container through a `GatewayRuntimePort`-shaped adapter.
-- [ ] Gateway container receives generated Traefik labels, `opzava.gateway=true`, tenant/Gateway labels, and attaches to `dokploy-network`.
-- [ ] `spike-broker` dials the Gateway over WS and performs the two-token auth shape.
-- [ ] Local script triggers provisioning and prints a final streamed token round-trip receipt with tenant id, route, idempotency key, and policy decision.
+- [x] Throwaway local Compose spike with Traefik, `docker-socket-proxy`, and `dokploy-network` assumptions.
+- [x] `spike-provisioner` starts exactly one OpenClaw Gateway or fake Gateway container through a `GatewayRuntimePort`-shaped adapter.
+- [x] Gateway container receives generated Traefik labels, `opzava.gateway=true`, tenant/Gateway labels, and attaches to `dokploy-network`.
+- [x] `spike-broker` dials the Gateway over WS and performs the two-token auth shape.
+- [x] Local script triggers provisioning and prints a final streamed token round-trip receipt with tenant id, route, idempotency key, and policy decision.
 
 Skills: `docker`, `dokploy`, `nodejs`, `socketio`, `openclaw-broker`*, `openclaw-gateway-provisioning`*
 
@@ -96,7 +102,17 @@ PRD refs: none directly; architecture proof only
 
 Bounded contexts: Tenant Provisioning, Platform-Ops, Runtime-Control, Gateway Runtime
 
-### Slice 1 - ADMIN TASKS MVP (dogfoodable)
+Real-implementation de-risk follow-ups:
+
+- [ ] Real OpenClaw operator WS handshake: `connect.challenge` nonce signing, device-token pairing, protocol v4, `operator.write` + `operator.approvals` scopes.
+- [ ] Wildcard TLS issuance/renewal plus `*.localhost` / `*.opzava.app` DNS lifecycle and SNI.
+- [ ] Readiness/health gating plus reconnect/backoff/circuit-breaker behavior under sustained load and idle WS death.
+- [ ] Reaper concurrency with leases/fencing to avoid double-kill and orphan Gateway containers.
+- [ ] Lazy-start/idle-stop cold-start latency versus idle cost.
+- [ ] Secrets lifecycle for device tokens, TLS certs, Gateway keys, rotation, and per-tenant scoping.
+- [ ] Mapping onto Dokploy's Compose deployer while attaching to Dokploy's existing Traefik.
+
+### Slice 1 - Admin Tasks MVP (dogfoodable)
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
@@ -352,5 +368,8 @@ Per slice:
 
 ## Worklog
 
+- 2026-07-02 - Slice 0 spike PASS: validated Traefik routing to dynamic Gateway containers, broker WS route, worker-only Docker mutation through socket-proxy, Docker API pinning need, and denied endpoint behavior; findings recorded in ADR-015 and the provisioning skill.
+- 2026-07-02 - codex+mmx review confirmed genuine infra proof, not a fake pass; real OpenClaw handshake, wildcard TLS/DNS, readiness/backoff, reaper concurrency, lazy-start cost, secrets lifecycle, and Dokploy mapping gaps captured as follow-ups.
+- 2026-07-02 - Governance updated: official-docs validation rule and registry added; BillingPort deferred as a null adapter until external monetization; operating mode clarified as internal single-tenant first, then Marketing + CRM after the admin-Tasks MVP.
 - 2026-07-02 - Authored the 4 build skills (openclaw-broker, openclaw-gateway-provisioning, better-auth, opzava-conventions) in `.claude/skills/`; Slice 0 ready to implement.
 - 2026-07-02 - EXECUTION.md created; design complete (15 ADRs + 18 PRDs verified); next action = Slice 0 de-risk spike.

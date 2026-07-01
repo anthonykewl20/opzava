@@ -456,3 +456,6 @@ Net-new screens to design:
 - PRD-014 and ADR-014 for billing/cost limits, plan enforcement, budget caps, invoices, and usage/metering inputs.
 - Mockup implementation conventions from `connections.html`, `essential-connect-wizard.html`, `essential-tools.html`, `essential-tools-empty.html`, and `settings.html`.
 - No `CLAUDE.md`, `CONTEXT.md`, or in-repo `docs/agents/` conventions were present in the repository file list during discovery.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

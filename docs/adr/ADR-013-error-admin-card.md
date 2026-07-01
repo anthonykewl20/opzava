@@ -86,3 +86,6 @@ Redact at read time. Rejected because a single missed query, projection, webhook
 - ADR-003: `gateway-broker` ACL, two-token model, tenant routing, and runtime RPC.
 - ADR-004: Data model boundary, hybrid CQRS, outbox, and projections.
 - ADR-009: Realtime WS hub, internal chat, assistants-in-chat, and PWA/Web Push.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

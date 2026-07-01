@@ -118,3 +118,6 @@ Use one broad sandbox/elevated exception for all agents. Rejected because elevat
 - ADR-004: Data model boundary, hybrid CQRS, outbox, and projections.
 - ADR-008: AI Workforce, delegate agents, personas, and `AgentDispatch`.
 - ADR-012: Department workflow engine, approvals, content pipeline, reports.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

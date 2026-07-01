@@ -325,3 +325,6 @@ Net-new screens to design:
 - PRD-012 Admin Observability for Monitoring, Security & Audit, Debug, incidents, alerts, Activity, notifications, and broad admin screen conventions.
 - PRD-014 Billing settings for entitlement, suspension, dunning, and runtime-start blocking surfaces.
 - Mockup implementation conventions from `security-audit.html`, `monitoring-health.html`, and `debug.html`.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

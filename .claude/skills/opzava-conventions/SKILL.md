@@ -8,6 +8,10 @@ description: The load-bearing Opzava invariants EVERY implementation slice must 
 Read `CLAUDE.md` + `docs/plan/EXECUTION.md` + `ARCHITECTURE.md` first. These are the non-negotiable invariants distilled from the
 15 ADRs — violating one is a **bug even if tests pass**.
 
+## Official docs rule
+- Validate against official documentation before coding any API. Training knowledge is a starting point, never the source of truth.
+- Use `docs/plan/official-docs.md` as the registry; verify current official docs for OpenClaw (`docs/openclaw`) and every framework, language, and library used in the slice.
+
 ## Tenant isolation (ADR-007)
 - Every tenant-table access goes through a single **`withTenant(org, fn)` transaction** wrapper that issues `SET LOCAL app.current_org`. **Postgres RLS** is the fail-closed backstop. **PgBouncer in transaction pooling mode** (session pooling breaks `SET LOCAL`).
 - An authz denial is a **hard 403**, NEVER a silent 200-with-empty. Integration tests assert 403.
@@ -31,4 +35,4 @@ Read `CLAUDE.md` + `docs/plan/EXECUTION.md` + `ARCHITECTURE.md` first. These are
 - Local docker-compose in **parity with Dokploy** (single compose, Traefik labels); **no routable orphan Gateway**.
 
 ## References
-`ARCHITECTURE.md`, `docs/plan/grilling-decisions.md`, all `docs/adr/*`. Companion skills: `openclaw-broker`, `openclaw-gateway-provisioning`, `better-auth`.
+`ARCHITECTURE.md`, `docs/plan/grilling-decisions.md`, `docs/plan/official-docs.md`, all `docs/adr/*`. Companion skills: `openclaw-broker`, `openclaw-gateway-provisioning`, `better-auth`.

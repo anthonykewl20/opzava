@@ -405,3 +405,6 @@ Net-new screens to design:
 - Tenant Provisioning/Platform-Ops for workflow/report provisioning jobs, admin-token usage, drift detection, and provision receipts.
 - Billing/Plan limits for tenant, department, employee, workflow, report, budget, concurrency, and usage ceilings.
 - Net-new design dependencies listed in the UX walkthrough for asset detail/review, report artifact history/detail, and governed report action confirmation/proposal screens.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

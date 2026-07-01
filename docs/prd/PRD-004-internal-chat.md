@@ -311,3 +311,6 @@ The solution is an Opzava-owned Internal Collaboration product surface for Slack
 - PRD-005: Ask Opzava and project assistant conversation UX; required for dedicated assistant chat flows linked from Messages and Team rooms.
 - Notifications/Admin-Observability bounded context for notification rows, admin/fleet Activity, alert/admin-card inputs, and push delivery policy.
 - Department Workflows bounded context for approval prompts, generated-content lifecycle, workflow hand-offs, and assistant completion events that appear in Activity or Notifications.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

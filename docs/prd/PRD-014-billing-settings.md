@@ -1,5 +1,7 @@
 # PRD-014: Billing settings, plan limits, usage budgets, and onboarding completion
 
+> Status: DEFERRED (2026-07-02). `BillingPort` stays as a null-adapter seam for internal single-tenant use. No payment provider, including Stripe, is implemented until external monetization. The product design below is retained for that later stage.
+
 ## Problem
 
 Opzava needs a complete tenant-facing billing and entitlement surface before paid tenants can safely operate AI employees, channels, local tools, and per-tenant Gateway runtime.
@@ -332,3 +334,6 @@ Net-new screens to design:
 - ADR-004 data boundary/outbox/projections: durable billing projections, outbox events, and rebuildable read models.
 - ADR-012 workflow engine, approvals, cost budgets, and run limiting: workflow/mechanism budget limits and publish/runtime admission.
 - ADR-013 incident pipeline: metering failures, dunning failures, usage spikes, stale projections, and billing/provider posting failures as incidents where appropriate.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

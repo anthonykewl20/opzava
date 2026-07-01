@@ -122,3 +122,6 @@ Keep Gateway runtime state only in Docker labels or scheduler metadata. Rejected
 - ADR-001: Monorepo, DDD module structure, and locked stack.
 - ADR-003: `gateway-broker` ACL, two-token model, tenant routing, and runtime RPC.
 - ADR-014: Billing, usage metering, plan enforcement, dunning, and entitlement lifecycle.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

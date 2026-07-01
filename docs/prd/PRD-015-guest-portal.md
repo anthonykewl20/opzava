@@ -323,3 +323,6 @@ Net-new screens to design:
 - Notification/email delivery mechanism through outbox/EventBus for sending and resending guest links.
 - Object Store integration for guest-visible file downloads and support-ticket attachments.
 - Net-new design work for the guest portal screens listed in the UX walkthrough before implementation beyond backend/API foundations.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

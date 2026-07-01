@@ -81,3 +81,6 @@ Keep a single broad admin token in the broker for both knowledge and runtime wor
 - ADR-004: Data model boundary, hybrid CQRS, outbox, and projections.
 - ADR-005: Tool-policy-first security, approval gates, and sandbox posture.
 - ADR-008: AI Workforce, delegate agents, personas, and `AgentDispatch`.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

@@ -51,11 +51,31 @@ Tenant Gateway containers must join `dokploy-network` and carry Docker-provider 
 
 Traefik Docker-provider parity is mandatory. Local Traefik enables the Docker provider with `exposedByDefault=false` and watches `dokploy-network`. On Dokploy, the existing Traefik must also enable the Docker provider with pinned flags that can discover plain Docker containers on `dokploy-network`; Swarm-provider discovery is insufficient for tenant Gateways because those containers are not Swarm services. If Dokploy's existing Traefik cannot guarantee those Docker-provider settings, run a dedicated Opzava Traefik on `dokploy-network` for Opzava routes and tenant Gateway routing rather than relying on partial provider behavior.
 
-Use `tecnativa/docker-socket-proxy` as the only component that mounts `/var/run/docker.sock`. The proxy is mutation-scoped to the narrow Docker API subset required by provisioning: container create/start/stop/remove/inspect, image pull/inspect where required for approved Gateway images, network connect/disconnect/inspect, and volume or mount operations explicitly required by the Gateway runtime state model. Disable exec, build, plugins, swarm services/nodes, broad system endpoints, secrets APIs, arbitrary privileged containers, host bind mounts outside approved Gateway paths, and image push.
+Use direct read-only Docker socket access only for Traefik Docker-provider discovery, following the Dokploy pattern. Use `tecnativa/docker-socket-proxy` for Docker mutation only. The proxy is mutation-scoped to the narrow Docker API subset required by provisioning: container create/start/stop/remove/inspect, image pull/inspect where required for approved Gateway images, network connect/disconnect/inspect, and volume or mount operations explicitly required by the Gateway runtime state model. Disable exec, build, plugins, swarm services/nodes, broad system endpoints, secrets APIs, arbitrary privileged containers, host bind mounts outside approved Gateway paths, and image push.
 
-Only `worker-provisioning` can reach the mutation-scoped socket proxy. The proxy is not routable from `next`, `gateway-broker`, `worker-projection`, `worker-metering`, or tenant Gateway containers. The `gateway-broker` never mounts Docker, never receives a Docker endpoint, and never provisions containers on the hot path. A CI lint enforces that `/var/run/docker.sock` appears nowhere except the proxy service and that Docker proxy mutation flags stay within the approved allowlist.
+Only `worker-provisioning` can reach the mutation-scoped socket proxy. The proxy is not routable from `next`, `gateway-broker`, `worker-projection`, `worker-metering`, or tenant Gateway containers. The `gateway-broker` never mounts Docker, never receives a Docker endpoint, and never provisions containers on the hot path. A CI lint enforces that `/var/run/docker.sock` appears only on the approved read-only Traefik discovery mount and the socket-proxy service, and that Docker proxy mutation flags stay within the approved allowlist.
 
 Secrets use parity by key, not by value. Local and live use the same environment variable names and same secret references in Compose. Local values come from `.env` or local secret files ignored by git. Live values come from Dokploy secrets or the live secret manager. No raw provider tokens, OpenClaw channel secrets, broker device tokens, database passwords, TLS private keys, or Docker credentials are committed to the repository.
+
+## Spike-validated refinements (2026-07-02)
+
+Validated by a passing local spike in `spike/slice-0/` and codex+mmx review in `docs/plan/consensus/slice0-review.codex.md` and `docs/plan/consensus/slice0-review.mmx.md`:
+
+1. Traefik reads `/var/run/docker.sock` read-only directly for Docker label discovery, matching Dokploy's pattern. Only `worker-provisioning` Docker mutation goes through the least-privilege socket proxy. The broker never touches Docker.
+2. Traefik must be at least `v3.6.1` on Docker Engine 29, whose minimum Docker API is `1.44`; older Traefik broke against that API floor. Use the same Traefik image and version Dokploy ships, not an unpinned vanilla Traefik.
+3. Pin `DOCKER_API_VERSION=1.44` for dockerode and any Docker client. Client negotiation can override environment defaults, so adapters must make the API version explicit.
+4. Socket-proxy path granularity matters: `POST /containers/{id}/exec` falls under the `/containers` scope. Prove least privilege by denying `/exec` create and start against a live container and by asserting a truly denied endpoint such as `/volumes` returns `403`. The worker never needs exec.
+5. Use uncommon/configurable Gateway ports and a dedicated external network, but confirm Dokploy's actual network name and default ports before assuming `dokploy-network` or any tenant Gateway port contract in production.
+
+### Real-implementation de-risk follow-ups
+
+1. [ ] Real OpenClaw operator WS handshake: `connect.challenge` nonce signing, device-token pairing, protocol v4, and `operator.write` + `operator.approvals` scopes.
+2. [ ] Wildcard TLS issuance/renewal and `*.localhost` / `*.opzava.app` DNS lifecycle, including SNI behavior.
+3. [ ] Readiness/health gating plus reconnect/backoff/circuit-breaker behavior under sustained load and idle WS death.
+4. [ ] Reaper concurrency with leases/fencing to avoid double-kill and orphan Gateway containers.
+5. [ ] Lazy-start/idle-stop cold-start latency versus idle cost.
+6. [ ] Secrets lifecycle for device tokens, TLS certs, Gateway keys, rotation, and per-tenant scoping.
+7. [ ] Mapping onto Dokploy's Compose deployer while attaching to Dokploy's existing Traefik.
 
 ## Compose service topology
 
@@ -107,7 +127,7 @@ Suspend and deprovision must remove routability and runtime authority together. 
 
 The reaper is part of the deployment architecture. It scans running `opzava.gateway=true` containers and Traefik-routable Gateway labels, compares them to tenant lifecycle, entitlement, `GatewayInstance`, expected labels, expected mounts, expected network, and lease state, then stops, quarantines, or removes anything without a valid owner. The same reaper runs locally and live.
 
-The Docker socket invariant is absolute: `/var/run/docker.sock` is never mounted into any service except the scoped socket proxy. Docker API access is never given to the broker, web app, projection worker, metering worker, or tenant Gateway containers. CI linting must fail any Compose, Dockerfile, or deployment change that violates this boundary.
+The Docker socket invariant is absolute: Traefik may read `/var/run/docker.sock` directly only for Docker-provider discovery, the scoped socket proxy is the only Docker mutation surface, and Docker API access is never given to the broker, web app, projection worker, metering worker, or tenant Gateway containers. CI linting must fail any Compose, Dockerfile, or deployment change that violates this boundary.
 
 The `GatewayRuntimePort` docker adapter becomes responsible for label correctness, network attachment, socket-proxy use, mount policy, image allowlisting, and idempotent reconciliation. This refines ADR-002 without changing the tenant lifecycle model or the option to add K8s/Nomad adapters later.
 
@@ -139,3 +159,6 @@ Rely on Traefik's Swarm provider for tenant Gateways on Dokploy. Rejected becaus
 - ADR-002: Pure-per-tenant tenancy, `GatewayRuntimePort`, provisioning saga, lifecycle state machine, and anti-orphan invariant.
 - ADR-003: `gateway-broker` ACL, two-token model, tenant routing, and runtime RPC.
 - ADR-014: Billing, usage metering, plan enforcement, dunning, and entitlement lifecycle.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

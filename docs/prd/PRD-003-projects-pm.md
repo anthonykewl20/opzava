@@ -359,3 +359,6 @@ The solution is an Opzava-owned Project Management experience that uses ADR-004 
 - AI Workforce provisioning must provide eligible `AgentEmployee` records and assignment admission before AI assignment flows are enabled.
 - Knowledge Management object storage and corpus indexing must exist before docs/files can become project knowledge sources.
 - External issue/calendar/content integrations may be stubbed behind provider ports for first implementation, but the UI must show explicit sync/unavailable states when providers are not connected.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

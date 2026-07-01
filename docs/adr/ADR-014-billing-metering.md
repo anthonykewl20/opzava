@@ -1,5 +1,7 @@
 # ADR-014: Billing, usage metering, and plan enforcement
 
+> Status: DEFERRED (2026-07-02). `BillingPort` stays as a null-adapter seam for internal single-tenant use. No payment provider, including Stripe, is implemented until external monetization. The design below is retained for that later stage.
+
 Status: Accepted
 
 Opzava will own billing, usage metering, invoices, plan limits, quota enforcement, and entitlement state in the Finance and Billing bounded context, with Stripe isolated behind `BillingPort`. The ADR-002 provisioning saga, `GatewayRuntimePort`, and tenant lifecycle state machine remain the owners of Gateway creation, runtime control, and lifecycle transitions; this decision defines how billing and entitlement couple to that lifecycle without moving provisioning into Billing.
@@ -87,3 +89,6 @@ Merge billing, provisioning, and runtime lifecycle into one bounded context. Rej
 - ADR-004: Data model boundary, hybrid CQRS, outbox, and projections.
 - ADR-012: Department workflow engine, approvals, cost budgets, and run limiting.
 - ADR-013: Error-to-admin-card incident pipeline and remediation loop.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

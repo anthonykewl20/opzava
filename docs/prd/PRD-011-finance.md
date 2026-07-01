@@ -347,3 +347,6 @@ Net-new screens to design:
 - Identity & Access / AuthorizationPort for tenant/org/project/resource authorization, role revocation, and audit actor identity.
 - Notifications, Activity, Realtime, and Push ports for approval prompts, budget warnings, missing receipt tasks, workflow failures, and export-ready events.
 - Net-new UX design for Finance approval detail, Add cost source, source detail/settings, ledger transaction detail, receipt/invoice inbox, reconciliation workbench, Finance workflow settings/run detail, budget/spend policy, and export history.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

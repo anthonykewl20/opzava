@@ -99,3 +99,6 @@ Handle GDPR erasure only in Opzava Postgres. Rejected because customer data can 
 - ADR-008: AI Workforce, delegate agents, personas, and `AgentDispatch`.
 - ADR-009: Realtime WS hub, internal chat, assistants-in-chat, PWA/Web Push.
 - ADR-010: Knowledge Mgmt SoT, OKF ingestion, memory/wiki/vector indexes, skill catalog.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

@@ -371,3 +371,6 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 - PRD-003: Projects, `pm.Card`, project tools, project schedules, project Updates, issue links, and `AgentDispatch` from project work.
 - PRD-004: Internal collaboration, Activity, notifications, assistant hand-offs, approvals surfaced to users, and Web Push delivery.
 - PRD-005: Ask Opzava, project assistant, Ask Admin Opzava, assistant conversations, inline approvals, delegation, and assistant run/projection consumers.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

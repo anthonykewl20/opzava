@@ -349,3 +349,6 @@ Net-new screens to design:
 - PRD-014 for budget threshold/exceeded notification sources and billing-state/tenant-suspension effects.
 - Browser platform support for service workers, web app manifests, Notification API, Push API, and VAPID Web Push.
 - Net-new design work for install prompt/help, push permission onboarding, offline auth-required gate, device management, iOS caveat, and push diagnostics before implementation beyond backend/API foundations.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

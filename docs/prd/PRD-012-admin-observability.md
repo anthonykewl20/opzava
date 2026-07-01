@@ -419,3 +419,6 @@ Net-new screens to design:
 - PRD-011 Finance for Costs ledger semantics, chart of accounts, expense exports, and separation between tenant expense ledger and ADR-014 billing/metering.
 - Mockup implementation conventions from `activity.html`, `logs.html`, `monitoring-health.html`, `security-audit.html`, `costs.html`, `debug.html`, `notifications-alerts.html`, and `issues.html`.
 - No `CLAUDE.md`, `CONTEXT.md`, or `docs/agents/` conventions were present in the repository file list during discovery; the only issue-triage vocabulary found was in `issues.html`.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

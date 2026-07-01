@@ -309,3 +309,6 @@ Net-new screens or artifacts to design:
 - Depends on ADR-013 for admin error disclosure, redaction, incident linkage, and retry/remediation context.
 - Related to ADR-005 where tool-policy and approval state appear in UI, but this PRD does not change those controls.
 - Related to ADR-006 and PRD-016 for PWA auth gates, service-worker constraints, and push-safe notification surfaces.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

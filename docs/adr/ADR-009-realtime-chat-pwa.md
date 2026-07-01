@@ -108,3 +108,6 @@ Send sensitive details in push payloads for convenience. Rejected because Web Pu
 - ADR-004: Data model boundary, hybrid CQRS, outbox, and projections.
 - ADR-006: Better Auth, revocable sessions, MFA/passkeys, and PWA auth.
 - ADR-008: AI Workforce, delegate agents, personas, and `AgentDispatch`.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

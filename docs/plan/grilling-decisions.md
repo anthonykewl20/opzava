@@ -18,6 +18,9 @@ auto-creates cards in an ADMIN board.
 - **OpenClaw capability parity — harness, do not reinvent.** Design strictly to what `docs/openclaw` says OpenClaw
   can and cannot do; surface and orchestrate its native capabilities (tool policy, sandbox, memory/wiki/skills, cron,
   channels, sessions, Workboard) rather than building parallel mechanisms. Stay on OpenClaw's grain. (user directive)
+- **Official docs before coding APIs.** Training knowledge is a starting point, never the source of truth. Validate
+  OpenClaw against `docs/openclaw` and validate every framework, language, and library against current official docs in
+  `docs/plan/official-docs.md` before implementation.
 - **Lean VPS / cheap ops — efficiency first.** Prefer the lowest-resource control that meets the goal; avoid
   per-project processes/containers; keep resource cost O(tenants), not O(tenants×projects). (user directive)
 
@@ -30,6 +33,10 @@ Humans + AI collaborate in a **Slack-grade internal chat hub** (Opzava-owned; si
 the AI assistants are **first-class participants** — bridged to OpenClaw agents via the **broker** (live token streaming)
 and the **Webhooks plugin** (TaskFlow ingress for external automation + proactive delivery). Delivered as a **PWA**
 (installable desktop + mobile) with **Web Push** notifications.
+
+**Operating mode (2026-07-02):** Opzava runs single-tenant internally first to market and promote Opzava itself. The
+scale-ready multi-tenant architecture is retained; it runs one tenant now, not a public multi-tenant SaaS yet. The first
+business-value build after the admin-Tasks MVP is **Marketing + CRM**.
 
 **Two assistant personas (= the two-token context split):**
 - **Ask Opzava** — the tenant/user **Personal Assistant** (Runtime-Control context, `write`+`approvals` token, project-scoped knowledge).
@@ -305,9 +312,12 @@ retry/failure/rollback.
 (unique `OPENCLAW_CONFIG_PATH`+`OPENCLAW_STATE_DIR`+`workspace`+`gateway.port`+derived ports), **lazy-start + idle-stop** (~10min),
 image-cached → **~50+ tenants/VPS**. Scale path: K8s Deployment / Nomad alloc behind a **`GatewayRuntimePort`**
 (`GatewayInstance.runtime = {docker|k8s|nomad}`) — no domain change.
-**Billing:** Stripe behind a **`BillingPort`**. Aggregates: `Subscription`, `Plan(slug, limits_json, stripe_price_id)`, `UsageMeter`,
+**Billing status: DEFERRED (2026-07-02).** `BillingPort` stays as a null-adapter seam for internal single-tenant use. No
+payment provider, including Stripe, is implemented until external monetization. The billing/metering design is retained
+for that later stage.
+**Billing design retained:** provider behind a **`BillingPort`**. Aggregates: `Subscription`, `Plan(slug, limits_json, provider_price_id)`, `UsageMeter`,
 `MeterEvent(idempotency_key = sha256(tenant, agent, window, raw usage.cost))`, `Invoice`, `ProvisioningJob`, `GatewayInstance`. A 1-min
-`usage.cost` poller emits idempotent MeterEvents → Stripe metered `usage_records`.
+`usage.cost` poller emits idempotent MeterEvents for the future provider adapter.
 **Plan enforcement:** BFF quota middleware checks `Plan` + `UsageMeter` per request (agent count, cost budgets [Q11], channels, seats,
 autonomy tiers, features); overage → 402; **dunning → `Suspended`** (block gateway start, 30-day data grace) → `Deprovisioning`.
 **Biggest sad path + invariant: the ORPHANED Gateway** (billing paused but container still burning CPU; or a double-provision race →
@@ -327,8 +337,9 @@ healthchecks. Diverges only: TLS issuer, Traefik ownership, replicas/limits, sec
 **`worker-provisioning`** service (the admin/provisioning context) via the `GatewayRuntimePort` docker adapter — NOT baked into compose.
 **Docker access security (codex corrects mmx):** provisioning needs WRITE (create/start/stop/remove containers + network connect),
 so a read-only proxy is insufficient — use **`tecnativa/docker-socket-proxy` scoped to a NARROW MUTATION subset** (containers +
-networks; deny image push, host bind-mounts, privileged, arbitrary exec), reachable **ONLY by `worker-provisioning`**. **The broker
-(hot path) NEVER touches Docker.** CI lints that `/var/run/docker.sock` appears nowhere except the proxy.
+networks; deny image push, host bind-mounts, privileged, arbitrary exec), reachable **ONLY by `worker-provisioning`**. Traefik may
+read `/var/run/docker.sock` directly as read-only for Docker-provider discovery. **The broker (hot path) NEVER touches Docker.**
+CI lints that `/var/run/docker.sock` appears only on the approved read-only Traefik discovery mount and socket-proxy service.
 **Traefik provider parity:** tenant Gateways are plain containers → Traefik must have the **Docker provider enabled** to route them.
 On Dokploy (Swarm) ensure its Traefik has the Docker provider on (pinned flags), OR run a **dedicated Opzava Traefik** for tenant
 routing on `dokploy-network`. Local plain-compose uses the Docker provider natively → labels resolve identically.

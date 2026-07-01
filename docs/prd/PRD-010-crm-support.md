@@ -362,3 +362,6 @@ Net-new screens to design:
 - Identity & Access for org membership, role grants, PII/legal action authorization, session revocation, and audit actor identity.
 - Notifications/Admin-Observability for SLA alerts, scrub failures, policy denials, incident surfacing, and push delivery.
 - Net-new design work for CRM home, Contacts, Accounts, UnknownContact resolution, Ticket queue/detail, external conversation panel, Deal pipeline/detail, Consent admin, and GDPR erasure workflow.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

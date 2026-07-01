@@ -115,3 +115,6 @@ Use only persona text or `AGENTS.md` instructions for budget, approval, and conc
 - ADR-009: Realtime WS hub, internal chat, assistants-in-chat, and PWA/Web Push.
 - ADR-010: Knowledge Mgmt SoT, OKF ingestion, memory/wiki/vector indexes, skill catalog.
 - ADR-011: CRM, external channel identity, and Contact resolution.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

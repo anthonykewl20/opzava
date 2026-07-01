@@ -140,3 +140,6 @@ Make OpenClaw `agents.list` and workspace files the source of truth for employee
 - ADR-007: Resource RBAC, roles-as-data, and Postgres RLS.
 - ADR-010: Knowledge Mgmt SoT, OKF ingestion, memory/wiki/vector indexes, skill catalog.
 - ADR-012: Department workflow engine, approvals, content pipeline, reports.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

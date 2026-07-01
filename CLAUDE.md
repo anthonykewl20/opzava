@@ -9,12 +9,14 @@ use the `handoff` skill. Do not skip ahead; keep the doc in sync with reality.
 - `ARCHITECTURE.md` — the whole system in ~5 minutes (bounded contexts, ports, invariants, deployment, ADR index).
 - `docs/plan/roadmap.md` — the phased product roadmap (P1–P8) after the MVP.
 - `docs/plan/grilling-decisions.md` — the canonical design record (Q1–Q14, every invariant).
+- `docs/plan/official-docs.md` — official documentation registry; validate every API against it before coding.
 - `docs/adr/` — 15 ADRs (architecture decisions). `docs/prd/` — 18 PRDs (product specs).
 - `docs/plan/capability-parity.md` — every screen: OpenClaw-native vs Opzava-owned vs hybrid.
 - `docs/openclaw/` — vendored OpenClaw docs. **Design to these; harness, don't reinvent.**
 
 ## Non-negotiables (full detail in `ARCHITECTURE.md` + the ADRs)
 - **OpenClaw parity:** design to OpenClaw's real capabilities (`docs/openclaw`); stay on its grain.
+- **Official-docs rule:** validate against official documentation before coding any API. Training knowledge is a starting point, never the source of truth; verify current official docs for OpenClaw (`docs/openclaw`) and every framework, language, and library used.
 - **Pure per-tenant Gateway**; **two-token** (hot-path `write`+`approvals` vs JIT `admin`); the **gateway-broker is the only ACL** to OpenClaw.
 - **Postgres is the source of truth**; projections are a **rebuildable cache** (RPC snapshots are truth, WS events are hints).
 - **Tool-policy-first** security ("SOUL can lie; tool policy cannot"); **RLS denial is a hard 403**, never a silent empty result.
@@ -25,9 +27,10 @@ use the `handoff` skill. Do not skip ahead; keep the doc in sync with reality.
 Every unit of work follows the same gates, in order — do not skip:
 1. **Orient:** read this file + `docs/plan/EXECUTION.md`; load the `opzava-conventions` skill and the skills named on the issue/slice.
 2. **Scope:** work ONLY the current slice/issue (`EXECUTION.md` → Current State). Never skip ahead.
-3. **Build to spec:** implement strictly to the linked ADR/PRD; honor every invariant above; design to `docs/openclaw` (parity — harness, don't reinvent).
-4. **Prove:** `tdd` (red→green) → `verify-deep` (tests + lint + typecheck) → `code-review`. Local↔Dokploy parity must stay intact.
-5. **Record:** update `EXECUTION.md` (slice status + dated worklog) and the issue; commit via `commit-style` on a branch off `development`.
+3. **Validate official docs:** use `docs/plan/official-docs.md`, `docs/openclaw`, official vendor docs, and validation tools before coding any API.
+4. **Build to spec:** implement strictly to the linked ADR/PRD; honor every invariant above; design to `docs/openclaw` (parity — harness, don't reinvent).
+5. **Prove:** `tdd` (red→green) → `verify-deep` (tests + lint + typecheck) → `code-review`. Local↔Dokploy parity must stay intact.
+6. **Record:** update `EXECUTION.md` (slice status + dated worklog) and the issue; commit via `commit-style` on a branch off `development`.
 
-A slice/issue is **Done** only when all five gates pass. Missing a skill? Author it with `writing-great-skills` before proceeding.
+A slice/issue is **Done** only when all six gates pass. Missing a skill? Author it with `writing-great-skills` before proceeding.
 Each GitHub issue restates this workflow + its exact skill set — follow it verbatim.

@@ -430,3 +430,6 @@ The solution is an Opzava-owned Knowledge Management product surface and source 
 - PRD-005: Ask Opzava and project assistant conversations that consume authorized corpus overlays, citations, artifacts, and candidate memory.
 - PRD-006: Agent roster/detail Memory tab, task board/run trace artifact refs, tool catalog adjacency, and employee memory/skills summaries.
 - Object storage adapter and secrets/config mechanism for source blobs, artifacts, LanceDB/index storage credentials, and no hardcoded credentials.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

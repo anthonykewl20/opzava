@@ -4,13 +4,16 @@
 
 Opzava is an AI-workforce PM/CRM SaaS over OpenClaw: persona'd delegate agents act as human-like teammates across Marketing, Support, Finance, and CRM, collaborating with humans in a Slack-grade internal chat hub on an installable PWA. Opzava owns the multi-tenant product system of record, policy, billing, approvals, audit, and user experience; OpenClaw owns runtime execution capabilities such as sessions, channels, skills, memory/wiki, Workboard, cron, logs, diagnostics, and usage behind the `gateway-broker` anti-corruption layer.
 
+Current operating mode (2026-07-02): Opzava runs single-tenant internally first to market and promote Opzava itself. The scale-ready multi-tenant architecture is retained and runs one tenant now; Opzava is not a public multi-tenant SaaS yet. The first business-value build after the admin-Tasks MVP is Marketing + CRM.
+
 ## Governing principles
 
 | Principle | What it means here |
 | --- | --- |
 | Scale-ready modular DDD | One pnpm/turborepo monorepo, one bounded-context package per domain, Drizzle/Postgres ownership per context, and no "MVP now, rewrite later" shortcut. See [ADR-001](docs/adr/ADR-001-stack-ddd-structure.md). |
 | OpenClaw capability parity | Harness OpenClaw's native runtime grain instead of cloning it: delegate agents, sessions, channels, Workboard, memory/wiki, skills, cron, TaskFlow, tool policy, approvals, logs, and usage. |
-| Agnostic ports | Core domain code depends on capability ports, not vendors, provider SDKs, Gateway DTOs, Stripe DTOs, or framework types. |
+| Official docs before APIs | Validate OpenClaw against `docs/openclaw` and every framework, language, and library against current official docs in [official-docs.md](docs/plan/official-docs.md) before coding. Training knowledge is a starting point, never the source of truth. |
+| Agnostic ports | Core domain code depends on capability ports, not vendors, provider SDKs, Gateway DTOs, payment-provider DTOs, or framework types. |
 | Sad-path-first | Design around tenant leaks, orphan Gateways, missed events, duplicate delivery, stale projections, prompt injection, dunning, bad provider callbacks, and remediation blast radius. |
 | Lean VPS ops | Keep normal runtime cost O(tenants), not O(tenants x projects). Start with rootless Docker, self-hosted WS, Postgres outbox, Redis fan-out, MinIO/S3-compatible storage, and Dokploy parity. |
 
@@ -61,7 +64,7 @@ flowchart LR
 | CRM | Opzava Postgres: contacts, accounts, deals, pipelines, activities, tickets, segments, consent, `ChannelIdentity`, merge/erasure audit. | [ADR-011](docs/adr/ADR-011-crm-channel-identity.md) |
 | External Channels | Opzava Postgres for channel correlation/projections; OpenClaw Gateway for provider connectivity, credentials, external conversation runtime, sends/receives. | [ADR-011](docs/adr/ADR-011-crm-channel-identity.md), [ADR-003](docs/adr/ADR-003-gateway-broker-acl-two-token.md) |
 | Department Workflows | Opzava Postgres: `Workflow`/`Playbook`, mechanisms, approvals, workflow runs, run steps, campaigns, content pipeline, reports, run limits. OpenClaw executes provisioned mechanisms. | [ADR-012](docs/adr/ADR-012-dept-workflow-engine.md) |
-| Finance & Billing | Opzava Postgres: plans, subscriptions, invoices, usage meters, meter events, entitlement state, quota policy, dunning. Stripe is behind a port. | [ADR-014](docs/adr/ADR-014-billing-metering.md) |
+| Finance & Billing | Opzava Postgres: plans, subscriptions, invoices, usage meters, meter events, entitlement state, quota policy, dunning. Billing is deferred; `BillingPort` is a null-adapter seam until external monetization. | [ADR-014](docs/adr/ADR-014-billing-metering.md) |
 | Notifications/Admin-Observability | Opzava Postgres: notifications, error groups, error events, alert routes, remediation actions, tenant-visible incident projections. | [ADR-013](docs/adr/ADR-013-error-admin-card.md) |
 | Gateway Runtime | OpenClaw Gateway per tenant: sessions, runs, task ledger, streaming, Workboard, logs, diagnostics, health, usage/cost snapshots. | [ADR-003](docs/adr/ADR-003-gateway-broker-acl-two-token.md), [ADR-004](docs/adr/ADR-004-data-boundary-cqrs.md) |
 | Channel / Automation / Skills / Memory Runtime | OpenClaw Gateway per tenant: channel runtime and secrets, cron, TaskFlow, standing-order execution, skills, memory-wiki, memory-lancedb, Gateway-local config. | [ADR-003](docs/adr/ADR-003-gateway-broker-acl-two-token.md), [ADR-010](docs/adr/ADR-010-knowledge-okf.md), [ADR-012](docs/adr/ADR-012-dept-workflow-engine.md) |
@@ -73,7 +76,7 @@ flowchart LR
 | `OpenClawGatewayPort` | Runtime RPC to OpenClaw capabilities through the ACL, including sessions, streams, tasks, channels, logs, diagnostics, usage, cron, approvals, skills, memory, and Workboard projections. | `gateway-broker` OpenClaw client |
 | `EventBusPort` | Domain events, outbox dispatch, projection notifications, and future broker swaps without changing domain code. | Postgres outbox + `LISTEN/NOTIFY` |
 | `GatewayRuntimePort` | Provision, start, stop, health-check, suspend, resume, and deprovision per-tenant Gateway instances. | Rootless Docker runtime |
-| `BillingPort` | Subscription, plan, metered usage, invoice, dunning, and entitlement integration. | Stripe |
+| `BillingPort` | Subscription, plan, metered usage, invoice, dunning, and entitlement integration. | Deferred null adapter; payment provider added only when external monetization starts |
 | `PushNotificationPort` | Background notifications for mentions, approvals, assignments, assistant completions, and alerts. | Web Push with VAPID |
 | `RealtimeTransportPort` | Online fan-out for chat, activity, agent streaming, presence, typing, and notifications. | WebSocket hub + Redis backplane |
 | `AuthPort` | Authentication, sessions, MFA/passkeys, invitations, password reset, and session revocation. | Better Auth |
@@ -127,7 +130,7 @@ One canonical root `docker-compose.yml` is the deployment contract for local and
 
 Compose-managed services are `traefik` (local profile only), `postgres`, `pgbouncer`, `redis`, `minio`, `next`, `gateway-broker`, `worker-provisioning`, `worker-projection`, `worker-metering`, and `dockerproxy`. Per-tenant OpenClaw Gateways are dynamic runtime Docker containers created by `worker-provisioning` through `GatewayRuntimePort`, joined to `dokploy-network`, labeled for Traefik Docker-provider routing, and reconciled by the same reaper locally and live.
 
-Docker host control is isolated: only `tecnativa/docker-socket-proxy` mounts `/var/run/docker.sock`, only `worker-provisioning` can reach the scoped mutation API, and the broker/web/projection/metering services never receive Docker access. If Dokploy Traefik cannot discover plain Docker-provider containers on `dokploy-network` with `exposedByDefault=false`, Opzava must run a dedicated Traefik for tenant Gateway routing rather than relying on partial Swarm-provider behavior.
+Docker host control is isolated: Traefik may read `/var/run/docker.sock` directly only for Docker-provider discovery, `tecnativa/docker-socket-proxy` is the only mutation surface, only `worker-provisioning` can reach the scoped mutation API, and the broker/web/projection/metering services never receive Docker access. If Dokploy Traefik cannot discover plain Docker-provider containers on `dokploy-network` with `exposedByDefault=false`, Opzava must run a dedicated Traefik for tenant Gateway routing rather than relying on partial Swarm-provider behavior.
 
 ## ADR index
 
@@ -146,5 +149,5 @@ Docker host control is isolated: only `tecnativa/docker-socket-proxy` mounts `/v
 | [ADR-011](docs/adr/ADR-011-crm-channel-identity.md) | CRM, external channel identity, and Contact resolution | Own CRM truth in Postgres, resolve external senders conservatively through tenant-scoped `ChannelIdentity`, and project conversations into CRM. | Accepted |
 | [ADR-012](docs/adr/ADR-012-dept-workflow-engine.md) | Department workflow engine, approvals, and content pipeline | Let Opzava define workflows/playbooks and approvals while OpenClaw executes provisioned standing orders, cron, TaskFlow, sessions, and channels. | Accepted |
 | [ADR-013](docs/adr/ADR-013-error-admin-card.md) | Error-to-admin-card incident pipeline and remediation loop | Own incident grouping, redaction, ADMIN-card projection, alerting, and constrained remediation in Opzava Postgres. | Accepted |
-| [ADR-014](docs/adr/ADR-014-billing-metering.md) | Billing, usage metering, and plan enforcement | Own billing, metering, quotas, invoices, and entitlement state in Opzava, with Stripe behind `BillingPort` and dunning tied to tenant lifecycle. | Accepted |
+| [ADR-014](docs/adr/ADR-014-billing-metering.md) | Billing, usage metering, and plan enforcement | Deferred: retain billing, metering, quotas, invoices, entitlement, and dunning design in Opzava; keep `BillingPort` as a null adapter until external monetization. | Accepted / Deferred |
 | [ADR-015](docs/adr/ADR-015-deployment-parity.md) | Deployment and environment parity | Use one canonical Compose stack for local and Dokploy, with Traefik parity and runtime per-tenant Gateway containers created by provisioning. | Accepted |

@@ -337,3 +337,6 @@ The solution is an Opzava-owned Identity & Access and onboarding product surface
 - ADR-009: PWA/Web Push delivery consumers, push privacy, and realtime reconnect consumers that depend on session validity.
 - PRD-002: App shell and navigation consume authenticated session, active Organization, Profile route, notification bell, and shell forbidden/offline states.
 - PRD-013: Connected-tools doorway (connections/providers/channels + connect wizard) is detailed in the connections/tools surfaces.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

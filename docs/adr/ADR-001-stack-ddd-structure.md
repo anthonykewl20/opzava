@@ -177,3 +177,6 @@ Use managed-first services for realtime, auth, billing, object storage, and even
 - ADR-012: Department workflow engine, approvals, content pipeline, reports.
 - ADR-013: Error-to-admin-card incident pipeline and remediation loop.
 - ADR-014: Billing, usage metering, plan enforcement, and dunning lifecycle.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).

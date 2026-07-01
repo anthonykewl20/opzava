@@ -111,3 +111,6 @@ Give Guest-Clients Better Auth organization membership with a restricted role. R
 - ADR-004: Data model boundary, hybrid CQRS, outbox, and projections.
 - ADR-007: Resource RBAC, roles-as-data, and Postgres RLS.
 - ADR-009: Realtime WS hub, internal chat, assistants-in-chat, PWA/Web Push.
+
+---
+> **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).
