@@ -24,6 +24,7 @@ function pool() {
 }
 
 async function resetIdentityData(): Promise<void> {
+  await pool().query("delete from public.tasks");
   await pool().query("delete from public.first_owner_setup");
   await pool().query("delete from public.role_grants");
   await pool().query("delete from public.memberships");
@@ -86,4 +87,25 @@ test("first owner setup signs in, shell resolves tenant context, signout revokes
   await expect(page.locator('[aria-label="Active organization and workspace"]')).toContainText(
     workspaceName
   );
+
+  await page.goto("/tasks");
+  await expect(page.getByRole("heading", { name: "Tasks" })).toBeVisible();
+
+  const taskTitle = `Persisted task ${randomUUID()}`;
+  await page.getByRole("button", { name: "New task" }).click();
+  await page.getByLabel("Title", { exact: true }).fill(taskTitle);
+  await page
+    .getByLabel("Description", { exact: true })
+    .fill("Created by the slice 1e board e2e.");
+  await page.getByLabel("Priority", { exact: true }).selectOption("high");
+  await page.getByLabel("Assignee", { exact: true }).selectOption("me");
+  await page.getByLabel("Labels", { exact: true }).fill("e2e, slice1e");
+  await page.getByRole("button", { name: "Create task" }).click();
+
+  await expect(page.getByRole("article", { name: `Task: ${taskTitle}` })).toBeVisible();
+  await page.getByRole("button", { name: `Move ${taskTitle} to Done` }).click();
+  await expect(page.locator('section[aria-labelledby="tasks-col-done"]')).toContainText(taskTitle);
+
+  await page.reload();
+  await expect(page.locator('section[aria-labelledby="tasks-col-done"]')).toContainText(taskTitle);
 });

@@ -1,7 +1,16 @@
-const operateItems = [
-  { label: "Overview", href: "/", active: true },
+"use client";
+
+import { usePathname } from "next/navigation";
+
+const operateItems: readonly {
+  readonly label: string;
+  readonly href?: string;
+  readonly active?: boolean;
+  readonly count?: string;
+}[] = [
+  { label: "Overview", href: "/" },
   { label: "Agents", active: false, count: "0" },
-  { label: "Tasks", active: false, count: "0" },
+  { label: "Tasks", href: "/tasks" },
   { label: "Activity", active: false },
   { label: "Messages", active: false }
 ] as const;
@@ -65,6 +74,8 @@ function RailSection({
 }
 
 export function AdminNav() {
+  const pathname = usePathname();
+
   return (
     <aside className="rail" aria-label="Main navigation">
       <div className="rail-head">
@@ -101,7 +112,15 @@ export function AdminNav() {
 
         <div className="section-label">Operate</div>
         {operateItems.map((item) => (
-          <RailItem key={item.label} {...item} />
+          <RailItem
+            key={item.label}
+            {...item}
+            active={
+              item.href === "/"
+                ? pathname === "/"
+                : item.href !== undefined && pathname.startsWith(item.href)
+            }
+          />
         ))}
 
         <div className="section-label">Projects</div>

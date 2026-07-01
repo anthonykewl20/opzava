@@ -6,6 +6,7 @@ export interface AuthorizationSubject {
   readonly tenantId: TenantId;
   readonly orgId: OrgId;
   readonly workspaceIds: readonly WorkspaceId[];
+  readonly roleKeys?: readonly string[];
 }
 
 export type AuthorizationAction =

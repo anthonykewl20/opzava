@@ -12,3 +12,7 @@ coverage/
 .DS_Store
 secrets/*
 !secrets/*.example
+
+# Playwright
+test-results/
+playwright-report/

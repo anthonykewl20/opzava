@@ -10,7 +10,10 @@ if (migrationDatabaseUrl === undefined || migrationDatabaseUrl.trim() === "") {
 
 export default defineConfig({
   dialect: "postgresql",
-  schema: ["../identity-access/src/adapters/postgres/schema/index.ts"],
+  schema: [
+    "../identity-access/src/adapters/postgres/schema/index.ts",
+    "../project-management/src/adapters/postgres/schema/index.ts"
+  ],
   out: "../identity-access/drizzle",
   dbCredentials: {
     url: migrationDatabaseUrl
