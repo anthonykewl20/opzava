@@ -2,54 +2,56 @@ import type { OrgId, TenantId, UserId } from "@opzava/shared-kernel";
 import type { Result } from "@opzava/shared-kernel";
 
 export type SessionId = string & { readonly __sessionId: "SessionId" };
+export type SessionToken = string & { readonly __sessionToken: "SessionToken" };
 export type MfaChallengeId = string & { readonly __mfaChallengeId: "MfaChallengeId" };
+
+export interface AuthMembership {
+  readonly orgId: OrgId;
+  readonly tenantId: TenantId;
+  readonly membershipVersion: number;
+  readonly roleKeys: readonly string[];
+}
 
 export interface AuthIdentity {
   readonly userId: UserId;
-  readonly tenantId: TenantId;
-  readonly orgId: OrgId;
   readonly email: string;
+  readonly activeMembership: AuthMembership;
+  readonly memberships: readonly AuthMembership[];
 }
 
 export interface AuthSession {
   readonly sessionId: SessionId;
+  readonly sessionToken: SessionToken;
   readonly identity: AuthIdentity;
   readonly issuedAt: Date;
   readonly expiresAt: Date;
   readonly mfaSatisfiedAt?: Date;
 }
 
-export interface SignUpInput {
-  readonly email: string;
-  readonly password: string;
-  readonly tenantId: TenantId;
-  readonly orgId: OrgId;
-  readonly displayName?: string;
-}
-
 export interface SignInInput {
   readonly email: string;
   readonly password: string;
-  readonly tenantId: TenantId;
+  readonly userAgent?: string;
+  readonly ipAddress?: string;
 }
 
 export interface GetSessionInput {
-  readonly sessionToken: string;
+  readonly sessionToken?: string;
+  readonly headers?: Headers;
 }
 
 export interface RevokeSessionInput {
-  readonly sessionId: SessionId;
+  readonly sessionId?: SessionId;
+  readonly sessionToken?: SessionToken;
   readonly actorUserId: UserId;
 }
 
 export interface ListSessionsInput {
   readonly userId: UserId;
-  readonly tenantId: TenantId;
 }
 
 export interface LogoutAllInput {
   readonly userId: UserId;
-  readonly tenantId: TenantId;
   readonly keepSessionId?: SessionId;
 }
 
@@ -81,7 +83,6 @@ export interface MfaHooks {
 }
 
 export interface AuthPort {
-  signUp(input: SignUpInput): Promise<Result<AuthSession>>;
   signIn(input: SignInInput, hooks?: MfaHooks): Promise<Result<AuthSession | MfaChallenge>>;
   getSession(input: GetSessionInput): Promise<Result<AuthSession | null>>;
   revokeSession(input: RevokeSessionInput): Promise<Result<void>>;

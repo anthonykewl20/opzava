@@ -5,11 +5,11 @@ const emptyToUndefined = (value: unknown) => (value === "" ? undefined : value);
 export const appEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   APP_URL: z.string().url(),
+  BETTER_AUTH_URL: z.string().url(),
+  BETTER_AUTH_SECRET: z.string().min(32),
   DATABASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
   // DATABASE_MIGRATION_URL belongs to one-shot migration/test-admin jobs, not web runtime.
-  DATABASE_MIGRATION_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
-  // BETTER_AUTH_SECRET is required from 1c when Better Auth is wired.
-  BETTER_AUTH_SECRET: z.preprocess(emptyToUndefined, z.string().min(32).optional())
+  DATABASE_MIGRATION_URL: z.preprocess(emptyToUndefined, z.string().url().optional())
 });
 
 export type AppEnv = z.infer<typeof appEnvSchema>;

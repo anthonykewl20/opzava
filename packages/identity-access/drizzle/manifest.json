@@ -4,6 +4,10 @@
     {
       "path": "0000_slice1b_tenancy_rls.sql",
       "sha256": "40f28676326bea087b57302442fceb31868409db06c3553c821cf1553fd09653"
+    },
+    {
+      "path": "0001_slice1c_auth.sql",
+      "sha256": "0c07f6240a6f09402b801394de2254e37e8532ad4247b1cf97474e3739c6ef8f"
     }
   ]
 }

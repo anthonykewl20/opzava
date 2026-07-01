@@ -8,6 +8,13 @@
       "when": 1782950400000,
       "tag": "0000_slice1b_tenancy_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782950500000,
+      "tag": "0001_slice1c_auth",
+      "breakpoints": true
     }
   ]
 }

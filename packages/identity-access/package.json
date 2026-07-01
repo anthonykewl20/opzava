@@ -10,6 +10,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./better-auth": {
+      "types": "./src/adapters/better-auth/index.ts",
+      "default": "./dist/adapters/better-auth/index.js"
     }
   },
   "scripts": {
@@ -21,7 +25,11 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@better-auth/drizzle-adapter": "1.6.23",
+    "@opzava/adapters": "workspace:*",
+    "@opzava/ports": "workspace:*",
     "@opzava/shared-kernel": "workspace:*",
+    "better-auth": "1.6.23",
     "drizzle-orm": "0.45.2"
   },
   "devDependencies": {

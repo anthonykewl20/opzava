@@ -34,15 +34,55 @@ export const organizations = pgTable(
   },
   (table) => [
     uniqueIndex("organizations_slug_unique").on(table.slug),
-    pgPolicy("organizations_tenant_isolation", {
-      for: "all",
+    pgPolicy("organizations_identity_membership_select", {
+      for: "select",
+      to: appRole,
+      using: sql`exists (
+        select 1
+        from public.memberships m
+        where m.organization_id = ${table.id}
+          and m.user_id = app.current_user_id()
+          and m.status = 'active'
+      )`
+    }),
+    pgPolicy("organizations_select_identity_context_required", {
+      as: "restrictive",
+      for: "select",
+      to: appRole,
+      using: sql`app.current_user_id() is not null`
+    }),
+    pgPolicy("organizations_insert_tenant_isolation", {
+      for: "insert",
+      to: appRole,
+      withCheck: sql`${table.id} = app.current_org_id()`
+    }),
+    pgPolicy("organizations_update_tenant_isolation", {
+      for: "update",
       to: appRole,
       using: sql`${table.id} = app.current_org_id()`,
       withCheck: sql`${table.id} = app.current_org_id()`
     }),
-    pgPolicy("organizations_tenant_context_required", {
+    pgPolicy("organizations_delete_tenant_isolation", {
+      for: "delete",
+      to: appRole,
+      using: sql`${table.id} = app.current_org_id()`
+    }),
+    pgPolicy("organizations_insert_tenant_context_required", {
       as: "restrictive",
-      for: "all",
+      for: "insert",
+      to: appRole,
+      withCheck: sql`app.current_org_id() is not null`
+    }),
+    pgPolicy("organizations_update_tenant_context_required", {
+      as: "restrictive",
+      for: "update",
+      to: appRole,
+      using: sql`app.current_org_id() is not null`,
+      withCheck: sql`app.current_org_id() is not null`
+    }),
+    pgPolicy("organizations_delete_tenant_context_required", {
+      as: "restrictive",
+      for: "delete",
       to: appRole,
       using: sql`app.current_org_id() is not null`
     }),
