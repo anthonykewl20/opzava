@@ -3,6 +3,7 @@
   "envMode": "strict",
   "globalPassThroughEnv": [
     "DATABASE_URL",
+    "DATABASE_MIGRATION_URL",
     "BETTER_AUTH_SECRET",
     "NODE_ENV",
     "APP_URL"

@@ -15,3 +15,7 @@ services:
       - "--api.insecure=true"
     ports:
       - "18089:8080"
+
+  postgres:
+    ports:
+      - "15432:5432"

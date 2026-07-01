@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import { parseAppEnv } from "../lib/env";
 
 describe("web env schema", () => {
-  it("parses required boot environment and leaves 1a secrets optional", () => {
+  it("parses required boot environment and leaves future runtime secrets optional", () => {
     const env = parseAppEnv({
       APP_URL: "http://web.opzava.localhost:18088",
       DATABASE_URL: "",
+      DATABASE_MIGRATION_URL: "",
       NODE_ENV: "development",
       BETTER_AUTH_SECRET: ""
     });
@@ -14,6 +15,7 @@ describe("web env schema", () => {
     expect(env.APP_URL).toBe("http://web.opzava.localhost:18088");
     expect(env.NODE_ENV).toBe("development");
     expect(env.DATABASE_URL).toBeUndefined();
+    expect(env.DATABASE_MIGRATION_URL).toBeUndefined();
     expect(env.BETTER_AUTH_SECRET).toBeUndefined();
   });
 

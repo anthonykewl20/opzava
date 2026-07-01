@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "migrations": [
+    {
+      "path": "0000_slice1b_tenancy_rls.sql",
+      "sha256": "40f28676326bea087b57302442fceb31868409db06c3553c821cf1553fd09653"
+    }
+  ]
+}

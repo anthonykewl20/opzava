@@ -25,6 +25,7 @@ services:
       - postgres_password
     volumes:
       - opzava-pgdata:/var/lib/postgresql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U opzava -d opzava"]
       interval: 10s
@@ -40,8 +41,8 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       APP_URL: ${APP_URL:-http://web.opzava.localhost:18088}
-      # DATABASE_URL is injected in sub-slice 1b via a secret-derived value; the
-      # web app does not open a DB connection in 1a.
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://opzava_app:opzava_app_local_only@postgres:5432/opzava}
+      # DATABASE_MIGRATION_URL is intentionally not passed to runtime services.
     depends_on:
       postgres:
         condition: service_healthy
