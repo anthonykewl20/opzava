@@ -5,11 +5,8 @@ import type { OpenClawGatewayRouteId } from "@opzava/ports";
 import { makeOrgId, makeTenantId, makeUserId, makeWorkspaceId } from "@opzava/shared-kernel";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  FakeOpenClawGateway,
-  type FakeGatewayMode
-} from "../acl/openclaw/fake-gateway.js";
-import { HmacDeviceKeypair } from "../acl/openclaw/signing.js";
+import { FakeOpenClawGateway, type FakeGatewayMode } from "../acl/openclaw/fake-gateway.js";
+import { HmacDeviceKeypair, deriveDeviceIdFromPublicKey } from "../acl/openclaw/signing.js";
 import { createBrokerInternalHttpServer } from "../internal/http-server.js";
 import { GatewayConnectionManager } from "../routing/connection-manager.js";
 import { StaticGatewayRoutingTable } from "../routing/routes.js";
@@ -23,6 +20,10 @@ const pairedDeviceToken = "paired-device-token";
 
 const managers: GatewayConnectionManager[] = [];
 const gateways: FakeOpenClawGateway[] = [];
+const fakeRawPublicKey = Buffer.from(
+  "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+  "hex",
+);
 
 interface InternalHttpFixture {
   readonly gateway: FakeOpenClawGateway;
@@ -30,10 +31,12 @@ interface InternalHttpFixture {
 }
 
 function createDeviceKeypair(): HmacDeviceKeypair {
+  const publicKey = fakeRawPublicKey.toString("base64url");
+
   return new HmacDeviceKeypair({
-    deviceId: "opzava-broker-device",
-    publicKey: "opzava-broker-public-key",
-    secret: randomUUID()
+    deviceId: deriveDeviceIdFromPublicKey(publicKey),
+    publicKey,
+    secret: randomUUID(),
   });
 }
 
@@ -42,7 +45,7 @@ async function createFixture(mode?: FakeGatewayMode): Promise<InternalHttpFixtur
   const gateway = new FakeOpenClawGateway({
     deviceKeypair,
     pairedDeviceToken,
-    ...(mode === undefined ? {} : { mode })
+    ...(mode === undefined ? {} : { mode }),
   });
   await gateway.ready;
   gateways.push(gateway);
@@ -57,14 +60,14 @@ async function createFixture(mode?: FakeGatewayMode): Promise<InternalHttpFixtur
         authMode: "paired-device",
         pairedDeviceToken,
         deviceKeypair,
-        clientVersion: "0.0.0"
-      }
+        clientVersion: "0.0.0",
+      },
     ]),
     clientOptions: {
       challengeTimeoutMs: 500,
       connectBudgetMs: 1_000,
-      requestTimeoutMs: 500
-    }
+      requestTimeoutMs: 500,
+    },
   });
   managers.push(broker);
 
@@ -85,14 +88,12 @@ function requestBody(idempotencyKey = `idem-${randomUUID()}`) {
       orgId,
       workspaceId,
       userId,
-      roleKeys: ["admin"]
-    }
+      roleKeys: ["admin"],
+    },
   };
 }
 
-async function listen(
-  server: ReturnType<typeof createBrokerInternalHttpServer>
-): Promise<string> {
+async function listen(server: ReturnType<typeof createBrokerInternalHttpServer>): Promise<string> {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (typeof address === "string" || address === null) {
@@ -103,7 +104,7 @@ async function listen(
 }
 
 async function closeServer(
-  server: ReturnType<typeof createBrokerInternalHttpServer>
+  server: ReturnType<typeof createBrokerInternalHttpServer>,
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     server.close((error) => {
@@ -140,7 +141,7 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
     const { broker } = await createFixture();
     const server = createBrokerInternalHttpServer({
       gatewayPort: broker,
-      internalToken: randomUUID()
+      internalToken: randomUUID(),
     });
     const baseUrl = await listen(server);
 
@@ -148,7 +149,7 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
       const response = await fetch(`${baseUrl}/internal/assistant/stream`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(requestBody())
+        body: JSON.stringify(requestBody()),
       });
 
       expect(response.status).toBe(401);
@@ -162,7 +163,7 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
     const internalToken = randomUUID();
     const server = createBrokerInternalHttpServer({
       gatewayPort: broker,
-      internalToken
+      internalToken,
     });
     const baseUrl = await listen(server);
 
@@ -170,10 +171,10 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
       const response = await fetch(`${baseUrl}/internal/assistant/stream`, {
         method: "POST",
         headers: {
-          "authorization": `Bearer ${internalToken}`,
-          "content-type": "application/json"
+          authorization: `Bearer ${internalToken}`,
+          "content-type": "application/json",
         },
-        body: JSON.stringify(requestBody("internal-http-idempotency"))
+        body: JSON.stringify(requestBody("internal-http-idempotency")),
       });
 
       expect(response.status).toBe(200);
@@ -182,7 +183,7 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
         "queued",
         "delta",
         "delta",
-        "assistant.final"
+        "assistant.final",
       ]);
     } finally {
       await closeServer(server);
@@ -194,7 +195,7 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
     const internalToken = randomUUID();
     const server = createBrokerInternalHttpServer({
       gatewayPort: broker,
-      internalToken
+      internalToken,
     });
     const baseUrl = await listen(server);
 
@@ -202,10 +203,10 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
       const response = await fetch(`${baseUrl}/internal/assistant/stream`, {
         method: "POST",
         headers: {
-          "authorization": `Bearer ${internalToken}`,
-          "content-type": "application/json"
+          authorization: `Bearer ${internalToken}`,
+          "content-type": "application/json",
         },
-        body: JSON.stringify(requestBody("internal-http-scripted-tool-call"))
+        body: JSON.stringify(requestBody("internal-http-scripted-tool-call")),
       });
 
       expect(response.status).toBe(200);
@@ -214,7 +215,7 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
         "delta",
         "tool.call",
         "delta",
-        "assistant.final"
+        "assistant.final",
       ]);
     } finally {
       await closeServer(server);

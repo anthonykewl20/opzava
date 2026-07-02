@@ -9,10 +9,12 @@ import {
   askAdminStatusBadgeClassName,
   askAdminStatusLabel,
   emptyAskAdminDraft,
+  interruptedAskAdminStreamEvent,
+  isAskAdminTerminalStreamEvent,
   parseAskAdminSseBuffer,
   type AskAdminClientStreamEvent,
   type AskAdminDraft,
-  type AskAdminStreamState
+  type AskAdminStreamState,
 } from "@/lib/ask-admin-stream";
 
 export interface AskAdminPanelProps {
@@ -20,7 +22,7 @@ export interface AskAdminPanelProps {
   readonly initialTurns: readonly AskAdminTurnView[];
   readonly currentUserName: string;
   readonly onToolSucceeded?: (
-    event: Extract<AskAdminClientStreamEvent, { readonly type: "tool.succeeded" }>
+    event: Extract<AskAdminClientStreamEvent, { readonly type: "tool.succeeded" }>,
   ) => void;
 }
 
@@ -78,9 +80,7 @@ function draftTitle(draft: AskAdminDraft): string {
 
 export function AskAdminStatusBadge({ status }: { readonly status: AskAdminStreamState }) {
   return (
-    <span className={askAdminStatusBadgeClassName(status)}>
-      {askAdminStatusLabel(status)}
-    </span>
+    <span className={askAdminStatusBadgeClassName(status)}>{askAdminStatusLabel(status)}</span>
   );
 }
 
@@ -88,7 +88,7 @@ export function AskAdminPanel({
   conversationId,
   initialTurns,
   currentUserName,
-  onToolSucceeded
+  onToolSucceeded,
 }: AskAdminPanelProps) {
   const router = useRouter();
   const [turns, setTurns] = useState<readonly AskAdminTurnView[]>(initialTurns);
@@ -102,7 +102,7 @@ export function AskAdminPanel({
 
   const visibleTurns = useMemo(
     () => turns.filter((turn) => turn.role === "user" || turn.role === "assistant"),
-    [turns]
+    [turns],
   );
 
   const applyEvent = (event: AskAdminClientStreamEvent) => {
@@ -131,7 +131,7 @@ export function AskAdminPanel({
     setPrompt("");
     setDraft({
       ...emptyAskAdminDraft(),
-      status: "queued"
+      status: "queued",
     });
     setTurns((current) => [
       ...current,
@@ -143,8 +143,8 @@ export function AskAdminPanel({
         errorCode: null,
         errorMessage: null,
         createdAt: new Date().toISOString(),
-        finalizedAt: new Date().toISOString()
-      }
+        finalizedAt: new Date().toISOString(),
+      },
     ]);
 
     try {
@@ -154,8 +154,8 @@ export function AskAdminPanel({
         body: JSON.stringify({
           conversationId,
           prompt: normalizedPrompt,
-          idempotencyKey: key
-        })
+          idempotencyKey: key,
+        }),
       });
 
       if (!response.ok || response.body === null) {
@@ -163,7 +163,7 @@ export function AskAdminPanel({
           type: "failed",
           code: response.status === 409 ? "runtimeControl.idempotencyConflict" : "askAdmin.failed",
           message: "Ask Admin Opzava request failed.",
-          state: response.status === 409 ? "duplicate_send" : "failed"
+          state: response.status === 409 ? "duplicate_send" : "failed",
         });
         return;
       }
@@ -171,6 +171,8 @@ export function AskAdminPanel({
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let sawTerminal = false;
+      let streamDraft = emptyAskAdminDraft();
 
       while (true) {
         const chunk = await reader.read();
@@ -182,21 +184,34 @@ export function AskAdminPanel({
         const parsed = parseAskAdminSseBuffer(buffer);
         buffer = parsed.remainder;
         for (const streamEvent of parsed.events) {
+          streamDraft = applyAskAdminStreamEvent(streamDraft, streamEvent);
           applyEvent(streamEvent);
+          sawTerminal = sawTerminal || isAskAdminTerminalStreamEvent(streamEvent);
         }
       }
 
       buffer += decoder.decode();
       const parsed = parseAskAdminSseBuffer(`${buffer}\n\n`);
       for (const streamEvent of parsed.events) {
+        streamDraft = applyAskAdminStreamEvent(streamDraft, streamEvent);
         applyEvent(streamEvent);
+        sawTerminal = sawTerminal || isAskAdminTerminalStreamEvent(streamEvent);
+      }
+
+      if (!sawTerminal) {
+        const interrupted = interruptedAskAdminStreamEvent(
+          streamDraft.status === "idle" ? { ...streamDraft, status: "working" } : streamDraft,
+        );
+        if (interrupted !== null) {
+          applyEvent(interrupted);
+        }
       }
     } catch {
       applyEvent({
         type: "failed",
         code: "webGateway.gatewayUnavailable",
         message: "Gateway broker internal stream endpoint is unreachable.",
-        state: "gateway_unavailable"
+        state: "gateway_unavailable",
       });
     } finally {
       setSending(false);
@@ -241,7 +256,7 @@ export function AskAdminPanel({
             <p>
               {draft.text.trim() !== ""
                 ? draft.text
-                : draft.errorMessage ?? askAdminStatusLabel(draft.status)}
+                : (draft.errorMessage ?? askAdminStatusLabel(draft.status))}
             </p>
             {draft.activeToolName === null ? null : (
               <p className="u-subtle">Tool: {draft.activeToolName}</p>
@@ -259,7 +274,11 @@ export function AskAdminPanel({
           maxLength={4000}
           placeholder="Ask about tasks..."
         />
-        <button className="btn btn-primary" type="submit" disabled={sending || prompt.trim() === ""}>
+        <button
+          className="btn btn-primary"
+          type="submit"
+          disabled={sending || prompt.trim() === ""}
+        >
           Send
         </button>
       </form>

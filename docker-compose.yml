@@ -59,9 +59,9 @@ services:
 
   openclaw-platform-gateway:
     profiles: ["openclaw"]
-    # Official image per docs/openclaw/install/docker.md. Keep `latest` only until
-    # the first verified real-Gateway run pins an exact OpenClaw version tag.
-    image: ghcr.io/openclaw/openclaw:${OPENCLAW_IMAGE_TAG:-latest}
+    # Official image per docs/openclaw/install/docker.md. Default pin matches
+    # the first verified local real-Gateway bring-up.
+    image: ghcr.io/openclaw/openclaw:${OPENCLAW_IMAGE_TAG:-2026.6.11}
     command: ["node", "openclaw.mjs", "gateway", "--port", "18789", "--bind", "lan"]
     environment:
       OPENCLAW_SKIP_ONBOARDING: ${OPENCLAW_SKIP_ONBOARDING:-1}

@@ -2,11 +2,7 @@ import { createPostgresPool, db, pool, sql } from "@opzava/adapters";
 import { listTasks } from "@opzava/project-management";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import {
-  roadmapTaskTitles,
-  seedRoadmapTasks,
-  type SeedRoadmapTasksReceipt
-} from "../roadmap.js";
+import { roadmapTaskTitles, seedRoadmapTasks, type SeedRoadmapTasksReceipt } from "../roadmap.js";
 
 const adminPool = createPostgresPool(readMigrationDatabaseUrlForTest());
 
@@ -37,7 +33,9 @@ function rowsFromExecuteResult(result: unknown): ReadonlyArray<Record<string, un
 }
 
 async function adminCountFirstOwnerSetups(): Promise<number> {
-  const result = await adminPool.query("select count(*)::int as count from public.first_owner_setup");
+  const result = await adminPool.query(
+    "select count(*)::int as count from public.first_owner_setup",
+  );
   return Number(result.rows[0]?.["count"] ?? 0);
 }
 
@@ -45,35 +43,33 @@ async function cleanupCreatedRows(receipt: SeedRoadmapTasksReceipt): Promise<voi
   if (!cleanupFirstOwner) {
     await adminPool.query(
       "delete from public.tasks where organization_id = $1 and title = any($2::text[])",
-      [receipt.organizationId, receipt.createdTitles]
+      [receipt.organizationId, receipt.createdTitles],
     );
     return;
   }
 
   await adminPool.query("delete from public.tasks where organization_id = $1", [
-    receipt.organizationId
+    receipt.organizationId,
   ]);
   await adminPool.query("delete from public.auth_sessions where user_id = $1", [
-    receipt.ownerUserId
+    receipt.ownerUserId,
   ]);
   await adminPool.query("delete from public.auth_accounts where user_id = $1", [
-    receipt.ownerUserId
+    receipt.ownerUserId,
   ]);
   await adminPool.query("delete from public.first_owner_setup where organization_id = $1", [
-    receipt.organizationId
+    receipt.organizationId,
   ]);
   await adminPool.query("delete from public.role_grants where organization_id = $1", [
-    receipt.organizationId
+    receipt.organizationId,
   ]);
   await adminPool.query("delete from public.memberships where organization_id = $1", [
-    receipt.organizationId
+    receipt.organizationId,
   ]);
   await adminPool.query("delete from public.workspaces where organization_id = $1", [
-    receipt.organizationId
+    receipt.organizationId,
   ]);
-  await adminPool.query("delete from public.organizations where id = $1", [
-    receipt.organizationId
-  ]);
+  await adminPool.query("delete from public.organizations where id = $1", [receipt.organizationId]);
   await adminPool.query("delete from public.auth_users where id = $1", [receipt.ownerUserId]);
 }
 
@@ -90,7 +86,7 @@ beforeAll(async () => {
     row?.["bypass_rls"] === true
   ) {
     throw new Error(
-      `Roadmap seed integration test must run as non-owner opzava_app; got ${JSON.stringify(row)}`
+      `Roadmap seed integration test must run as non-owner opzava_app; got ${JSON.stringify(row)}`,
     );
   }
 });
@@ -117,21 +113,41 @@ describe("roadmap task seed", () => {
     // behind (its cleanup only removes titles from its own receipt), which
     // would break the fresh-run assertions below.
     const existingSetup = await adminPool.query(
-      "select organization_id from public.first_owner_setup limit 1"
+      "select organization_id from public.first_owner_setup limit 1",
     );
     const existingOrgId = (existingSetup.rows[0] as { organization_id?: string } | undefined)
       ?.organization_id;
     if (existingOrgId !== undefined) {
       await adminPool.query(
         "delete from public.tasks where organization_id = $1 and title = any($2::text[])",
-        [existingOrgId, [...roadmapTaskTitles]]
+        [existingOrgId, [...roadmapTaskTitles]],
       );
     }
 
     const first = await seedRoadmapTasks({ logger: null });
     lastReceipt = first;
 
-    expect(first.totalCount).toBeGreaterThan(0);
+    expect(first.roadmapTitles).toEqual([
+      "Slice 2 - Ask Admin Opzava on Tasks",
+      "Slice 3 - CRM core (thin)",
+      "Slice 4 - Marketing content pipeline (thin)",
+      "P1 - AI Workforce",
+      "P2 - Realtime + PWA",
+      "P3 - Knowledge",
+      "P4 - CRM",
+      "P5 - Dept-Workflows + Marketing",
+      "P6 - Finance + Billing",
+      "P7 - Notifications + Admin + Error Pipeline",
+      "P8 - External Channels + Guest + Polish",
+      "Real OpenClaw operator WS handshake",
+      "Wildcard TLS issuance and DNS lifecycle",
+      "Readiness and reconnect hardening",
+      "Gateway reaper leases and fencing",
+      "Lazy-start and idle-stop cost model",
+      "Secrets lifecycle for Gateway credentials",
+      "Dokploy Compose deployer mapping",
+    ]);
+    expect(first.totalCount).toBe(18);
     expect(first.createdCount).toBe(first.totalCount);
     expect(first.skippedCount).toBe(0);
 
@@ -148,8 +164,8 @@ describe("roadmap task seed", () => {
       workspaceId: first.workspaceId,
       actor: {
         userId: first.ownerUserId,
-        roleKeys: first.ownerRoleKeys
-      }
+        roleKeys: first.ownerRoleKeys,
+      },
     });
 
     expect(listed.ok).toBe(true);
@@ -158,12 +174,10 @@ describe("roadmap task seed", () => {
     }
 
     const roadmapTasks = listed.value.filter(
-      (task) => task.labels.includes("roadmap") && first.roadmapTitles.includes(task.title)
+      (task) => task.labels.includes("roadmap") && first.roadmapTitles.includes(task.title),
     );
 
     expect(roadmapTasks).toHaveLength(first.totalCount);
-    expect(roadmapTasks.map((task) => task.title).sort()).toEqual(
-      [...first.roadmapTitles].sort()
-    );
+    expect(roadmapTasks.map((task) => task.title).sort()).toEqual([...first.roadmapTitles].sort());
   });
 });

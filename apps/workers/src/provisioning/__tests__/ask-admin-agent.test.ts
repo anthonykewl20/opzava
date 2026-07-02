@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
+import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -15,9 +15,213 @@ import {
   renderAskAdminAgentConfigFragment,
   renderAskAdminToolPolicy,
 } from "../ask-admin-agent.js";
-import { bootstrapPlatformGateway } from "../bootstrap-platform-gateway.js";
+import {
+  bootstrapPlatformGateway,
+  deriveOpenClawDeviceIdentity,
+  type BootstrapDeviceKeypair,
+  type BootstrapWebSocketFactory,
+} from "../bootstrap-platform-gateway.js";
 
 const tempDirectories: string[] = [];
+const fakeBootstrapRawPublicKey = Buffer.from(
+  "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+  "hex",
+);
+const fakeBootstrapPublicKey = fakeBootstrapRawPublicKey.toString("base64url");
+const fakeBootstrapDeviceId = createHash("sha256").update(fakeBootstrapRawPublicKey).digest("hex");
+
+const fakeDeviceKeypair: BootstrapDeviceKeypair = {
+  deviceId: fakeBootstrapDeviceId,
+  publicKey: fakeBootstrapPublicKey,
+  async sign() {
+    return "fake-signature";
+  },
+};
+
+function testEd25519PrivateKeyPem(): string {
+  const { privateKey } = generateKeyPairSync("ed25519");
+
+  return privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+}
+
+function fakeGatewaySocketFactory(input: {
+  readonly mode: "pending_approval" | "validated" | "issuance_then_validated";
+  readonly requestId?: string;
+  readonly scopes?: readonly string[];
+  readonly gatewayToken?: string;
+  readonly issuedDeviceToken?: string;
+}): {
+  readonly sentFrames: Record<string, unknown>[];
+  readonly socketFactory: BootstrapWebSocketFactory;
+} {
+  const sentFrames: Record<string, unknown>[] = [];
+  let connectionCount = 0;
+
+  return {
+    sentFrames,
+    socketFactory: () => {
+      connectionCount += 1;
+      let messageListener: ((data: string) => void) | undefined;
+
+      return {
+        send(data) {
+          const frame = JSON.parse(data) as Record<string, unknown>;
+          sentFrames.push(frame);
+          queueMicrotask(() => {
+            const params = frame["params"] as Record<string, unknown> | undefined;
+            const auth = params?.["auth"] as Record<string, unknown> | undefined;
+
+            if (input.mode === "pending_approval") {
+              messageListener?.(
+                JSON.stringify({
+                  type: "res",
+                  id: "connect:ask-admin-opzava-bootstrap",
+                  ok: false,
+                  error: {
+                    code: "PAIRING_REQUIRED",
+                    message: "approval required",
+                    details: {
+                      requestId: input.requestId ?? "request-1",
+                      recommendedNextStep: "wait_then_retry",
+                    },
+                  },
+                }),
+              );
+              return;
+            }
+
+            if (input.mode === "issuance_then_validated") {
+              const issuedDeviceToken = input.issuedDeviceToken ?? "issued-device-token";
+              if (connectionCount === 1 && auth?.["token"] === input.gatewayToken) {
+                messageListener?.(
+                  JSON.stringify({
+                    type: "res",
+                    id: "connect:ask-admin-opzava-bootstrap",
+                    ok: true,
+                    payload: {
+                      type: "hello-ok",
+                      protocol: 4,
+                      server: { version: "fake-gateway", connId: "conn-issuance" },
+                      features: { methods: [], events: [] },
+                      snapshot: {},
+                      auth: {
+                        role: "operator",
+                        scopes: [
+                          "operator.write",
+                          "operator.approvals",
+                          "operator.read",
+                          "operator.admin",
+                        ],
+                        deviceToken: issuedDeviceToken,
+                        issuedAtMs: 1737264000001,
+                      },
+                      policy: {
+                        maxPayload: 262144,
+                        maxBufferedBytes: 524288,
+                        tickIntervalMs: 15000,
+                      },
+                    },
+                  }),
+                );
+                return;
+              }
+
+              if (connectionCount === 2 && auth?.["deviceToken"] === issuedDeviceToken) {
+                messageListener?.(
+                  JSON.stringify({
+                    type: "res",
+                    id: "connect:ask-admin-opzava-bootstrap",
+                    ok: true,
+                    payload: {
+                      type: "hello-ok",
+                      protocol: 4,
+                      server: { version: "fake-gateway", connId: "conn-validation" },
+                      features: { methods: [], events: [] },
+                      snapshot: {},
+                      auth: {
+                        role: "operator",
+                        scopes: ["operator.write", "operator.approvals", "operator.read"],
+                      },
+                      policy: {
+                        maxPayload: 262144,
+                        maxBufferedBytes: 524288,
+                        tickIntervalMs: 15000,
+                      },
+                    },
+                  }),
+                );
+                return;
+              }
+
+              messageListener?.(
+                JSON.stringify({
+                  type: "res",
+                  id: "connect:ask-admin-opzava-bootstrap",
+                  ok: false,
+                  error: {
+                    code: "AUTH_TOKEN_MISMATCH",
+                    message: "gateway token mismatch",
+                    details: { reason: "gateway-token-mismatch" },
+                  },
+                }),
+              );
+              return;
+            }
+
+            messageListener?.(
+              JSON.stringify({
+                type: "res",
+                id: "connect:ask-admin-opzava-bootstrap",
+                ok: true,
+                payload: {
+                  type: "hello-ok",
+                  protocol: 4,
+                  server: { version: "fake-gateway", connId: "conn-1" },
+                  features: { methods: [], events: [] },
+                  snapshot: {},
+                  auth: {
+                    role: "operator",
+                    scopes: input.scopes ?? [
+                      "operator.write",
+                      "operator.approvals",
+                      "operator.read",
+                    ],
+                  },
+                  policy: {
+                    maxPayload: 262144,
+                    maxBufferedBytes: 524288,
+                    tickIntervalMs: 15000,
+                  },
+                },
+              }),
+            );
+          });
+        },
+        close() {
+          return undefined;
+        },
+        onMessage(listener) {
+          messageListener = listener;
+          queueMicrotask(() => {
+            listener(
+              JSON.stringify({
+                type: "event",
+                event: "connect.challenge",
+                payload: { nonce: "nonce-1", ts: 1737264000000 },
+              }),
+            );
+          });
+        },
+        onClose() {
+          return undefined;
+        },
+        onError() {
+          return undefined;
+        },
+      };
+    },
+  };
+}
 
 function sanitizedArtifactsSnapshot(): string {
   return renderAskAdminAgentArtifacts()
@@ -176,12 +380,114 @@ Required behavior:
 });
 
 describe("bootstrapPlatformGateway", () => {
+  it("derives the operator device id and wire public key from the Ed25519 private key", () => {
+    const identity = deriveOpenClawDeviceIdentity(testEd25519PrivateKeyPem());
+    const rawPublicKey = Buffer.from(identity.publicKeyBase64Url, "base64url");
+
+    expect(rawPublicKey).toHaveLength(32);
+    expect(identity.deviceId).toBe(createHash("sha256").update(rawPublicKey).digest("hex"));
+  });
+
+  it("rejects explicit device identity overrides that do not match the private key", async () => {
+    await expect(
+      bootstrapPlatformGateway({
+        env: {
+          OPENCLAW_GATEWAY_URL: "ws://127.0.0.1:18789",
+          OPENCLAW_DEVICE_PRIVATE_KEY_PEM: testEd25519PrivateKeyPem(),
+          OPENCLAW_DEVICE_ID: "wrong-device-id",
+        },
+        logger: null,
+        socketFactory: fakeGatewaySocketFactory({ mode: "pending_approval" }).socketFactory,
+      }),
+    ).rejects.toMatchObject({
+      code: "workers.openclawBootstrap.deviceIdentityMismatch",
+    });
+  });
+
+  it("dials the Gateway without a paired token to initiate operator-device pairing", async () => {
+    const fakeGateway = fakeGatewaySocketFactory({
+      mode: "pending_approval",
+      requestId: "pair-request-1",
+    });
+
+    const receipt = await bootstrapPlatformGateway({
+      env: {
+        OPENCLAW_GATEWAY_URL: "ws://127.0.0.1:18789",
+      },
+      logger: null,
+      deviceKeypair: fakeDeviceKeypair,
+      socketFactory: fakeGateway.socketFactory,
+      now: () => 1737264000000,
+    });
+
+    expect(receipt.deviceTokenStored).toBe(false);
+    expect(receipt.pairing).toMatchObject({
+      status: "pending_approval",
+      requestId: "pair-request-1",
+      approvalCommand:
+        'openclaw devices approve pair-request-1 --url ws://127.0.0.1:18789/ --token "$OPENCLAW_GATEWAY_TOKEN"',
+    });
+    expect(receipt.manualSteps.join("\n")).toContain(
+      'openclaw devices approve pair-request-1 --url ws://127.0.0.1:18789/ --token "$OPENCLAW_GATEWAY_TOKEN"',
+    );
+
+    const connectParams = fakeGateway.sentFrames[0]?.["params"] as
+      Record<string, unknown> | undefined;
+    expect(connectParams).toMatchObject({
+      client: {
+        id: "cli",
+        mode: "cli",
+      },
+      role: "operator",
+      scopes: ["operator.write", "operator.approvals"],
+      auth: {},
+      device: {
+        id: fakeBootstrapDeviceId,
+        publicKey: fakeBootstrapPublicKey,
+        signature: "fake-signature",
+        nonce: "nonce-1",
+      },
+    });
+  });
+
+  it("surfaces a pending approval request when gateway-token issuance still needs approval", async () => {
+    const gatewayToken = `gateway-token-${randomUUID()}`;
+    const fakeGateway = fakeGatewaySocketFactory({
+      mode: "pending_approval",
+      requestId: "gateway-token-pair-request-1",
+    });
+
+    const receipt = await bootstrapPlatformGateway({
+      env: {
+        OPENCLAW_GATEWAY_URL: "ws://127.0.0.1:18789",
+        OPENCLAW_GATEWAY_TOKEN: gatewayToken,
+      },
+      logger: null,
+      deviceKeypair: fakeDeviceKeypair,
+      socketFactory: fakeGateway.socketFactory,
+      now: () => 1737264000000,
+    });
+
+    expect(receipt.deviceTokenStored).toBe(false);
+    expect(receipt.pairing).toMatchObject({
+      status: "pending_approval",
+      requestId: "gateway-token-pair-request-1",
+    });
+    expect(receipt.phases).toHaveLength(1);
+
+    const connectParams = fakeGateway.sentFrames[0]?.["params"] as
+      Record<string, unknown> | undefined;
+    expect(connectParams?.["auth"]).toEqual({ token: gatewayToken });
+    expect(JSON.stringify(receipt)).not.toContain(gatewayToken);
+  });
+
   it("stores a provided device token through a vault ref and never prints the secret", async () => {
     const directory = await mkdtemp(join(tmpdir(), "opzava-openclaw-bootstrap-"));
     tempDirectories.push(directory);
 
     const logs: string[] = [];
     const suppliedDeviceToken = `test-only-${randomUUID()}`;
+    const fakeGateway = fakeGatewaySocketFactory({ mode: "validated" });
     const receipt = await bootstrapPlatformGateway({
       env: {
         OPENCLAW_GATEWAY_URL: "ws://127.0.0.1:18789",
@@ -193,14 +499,121 @@ describe("bootstrapPlatformGateway", () => {
           logs.push(message);
         },
       },
+      deviceKeypair: fakeDeviceKeypair,
+      socketFactory: fakeGateway.socketFactory,
+      now: () => 1737264000000,
     });
 
     expect(receipt.deviceTokenStored).toBe(true);
+    expect(receipt.pairing).toMatchObject({
+      status: "validated",
+      negotiatedProtocol: 4,
+      scopes: ["operator.write", "operator.approvals", "operator.read"],
+      serverVersion: "fake-gateway",
+      connectionId: "conn-1",
+    });
+    expect(receipt.phases).toHaveLength(1);
     expect(receipt.provisioningReceipt.deviceTokenRef.id).toBe(
       "local-dev:platform:openclaw:platform-operator-device-token",
     );
-    expect(receipt.manualSteps.join("\n")).toContain("openclaw devices approve <requestId>");
+    expect(receipt.manualSteps.join("\n")).toContain(
+      "Paired operator device token validated with protocol 4.",
+    );
     expect(JSON.stringify(receipt)).not.toContain(suppliedDeviceToken);
     expect(logs.join("\n")).not.toContain(suppliedDeviceToken);
+
+    const connectParams = fakeGateway.sentFrames[0]?.["params"] as
+      Record<string, unknown> | undefined;
+    expect(connectParams?.["auth"]).toEqual({ deviceToken: suppliedDeviceToken });
+  });
+
+  it("issues a device token with the shared Gateway token, stores only the vault ref, then validates it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "opzava-openclaw-bootstrap-"));
+    tempDirectories.push(directory);
+
+    const logs: string[] = [];
+    const gatewayToken = `gateway-token-${randomUUID()}`;
+    const issuedDeviceToken = `issued-device-token-${randomUUID()}`;
+    const fakeGateway = fakeGatewaySocketFactory({
+      mode: "issuance_then_validated",
+      gatewayToken,
+      issuedDeviceToken,
+    });
+
+    const receipt = await bootstrapPlatformGateway({
+      env: {
+        OPENCLAW_GATEWAY_URL: "ws://127.0.0.1:18789",
+        OPENCLAW_DEV_SECRETS_FILE: join(directory, "openclaw-secrets.json"),
+        OPENCLAW_GATEWAY_TOKEN: gatewayToken,
+      },
+      logger: {
+        log(message) {
+          logs.push(message);
+        },
+      },
+      deviceKeypair: fakeDeviceKeypair,
+      socketFactory: fakeGateway.socketFactory,
+      now: () => 1737264000000,
+    });
+
+    expect(receipt.deviceTokenStored).toBe(true);
+    expect(receipt.pairing).toMatchObject({
+      status: "validated",
+      negotiatedProtocol: 4,
+      scopes: ["operator.write", "operator.approvals", "operator.read"],
+      serverVersion: "fake-gateway",
+      connectionId: "conn-validation",
+    });
+    expect(receipt.phases).toEqual([
+      {
+        status: "validated",
+        negotiatedProtocol: 4,
+        scopes: ["operator.write", "operator.approvals", "operator.read", "operator.admin"],
+        serverVersion: "fake-gateway",
+        connectionId: "conn-issuance",
+        issuedDeviceToken: true,
+        issuedAtMs: 1737264000001,
+      },
+      {
+        status: "validated",
+        negotiatedProtocol: 4,
+        scopes: ["operator.write", "operator.approvals", "operator.read"],
+        serverVersion: "fake-gateway",
+        connectionId: "conn-validation",
+      },
+    ]);
+    expect(JSON.stringify(receipt)).not.toContain(gatewayToken);
+    expect(JSON.stringify(receipt)).not.toContain(issuedDeviceToken);
+    expect(logs.join("\n")).not.toContain(gatewayToken);
+    expect(logs.join("\n")).not.toContain(issuedDeviceToken);
+
+    const issuanceParams = fakeGateway.sentFrames[0]?.["params"] as
+      Record<string, unknown> | undefined;
+    const validationParams = fakeGateway.sentFrames[1]?.["params"] as
+      Record<string, unknown> | undefined;
+    expect(issuanceParams?.["auth"]).toEqual({ token: gatewayToken });
+    expect(validationParams?.["auth"]).toEqual({ deviceToken: issuedDeviceToken });
+  });
+
+  it("rejects a provided token when hello-ok scopes are not exact", async () => {
+    const suppliedDeviceToken = `test-only-${randomUUID()}`;
+    const fakeGateway = fakeGatewaySocketFactory({
+      mode: "validated",
+      scopes: ["operator.write", "operator.approvals", "operator.admin"],
+    });
+
+    await expect(
+      bootstrapPlatformGateway({
+        env: {
+          OPENCLAW_GATEWAY_URL: "ws://127.0.0.1:18789",
+          OPENCLAW_OPERATOR_DEVICE_TOKEN: suppliedDeviceToken,
+        },
+        logger: null,
+        deviceKeypair: fakeDeviceKeypair,
+        socketFactory: fakeGateway.socketFactory,
+      }),
+    ).rejects.toMatchObject({
+      code: "workers.openclawBootstrap.scopeMismatch",
+    });
   });
 });

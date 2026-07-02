@@ -91,7 +91,7 @@ export function emptyAskAdminDraft(): AskAdminDraft {
     text: "",
     activeToolName: null,
     errorCode: null,
-    errorMessage: null
+    errorMessage: null,
   };
 }
 
@@ -106,7 +106,7 @@ export function askAdminStatusLabel(status: AskAdminStreamState): string {
     failed: "Failed",
     gateway_unavailable: "Gateway unavailable",
     policy_denied: "Policy denied",
-    duplicate_send: "Duplicate send"
+    duplicate_send: "Duplicate send",
   };
 
   return labels[status];
@@ -117,11 +117,7 @@ export function askAdminStatusBadgeClassName(status: AskAdminStreamState): strin
     return "badge badge-success";
   }
 
-  if (
-    status === "gateway_unavailable" ||
-    status === "duplicate_send" ||
-    status === "finalizing"
-  ) {
+  if (status === "gateway_unavailable" || status === "duplicate_send" || status === "finalizing") {
     return "badge badge-warning";
   }
 
@@ -138,7 +134,7 @@ export function askAdminStatusBadgeClassName(status: AskAdminStreamState): strin
 
 export function applyAskAdminStreamEvent(
   draft: AskAdminDraft,
-  event: AskAdminClientStreamEvent
+  event: AskAdminClientStreamEvent,
 ): AskAdminDraft {
   if (draft.status === "completed" && event.type === "assistant.final") {
     return draft;
@@ -151,7 +147,7 @@ export function applyAskAdminStreamEvent(
       turnId: event.turnId,
       userTurnId: event.userTurnId,
       errorCode: null,
-      errorMessage: null
+      errorMessage: null,
     };
   }
 
@@ -162,7 +158,7 @@ export function applyAskAdminStreamEvent(
       turnId: event.turnId,
       text: event.text,
       errorCode: null,
-      errorMessage: null
+      errorMessage: null,
     };
   }
 
@@ -171,7 +167,7 @@ export function applyAskAdminStreamEvent(
       ...draft,
       status: event.state,
       turnId: event.turnId,
-      activeToolName: event.toolName
+      activeToolName: event.toolName,
     };
   }
 
@@ -182,7 +178,7 @@ export function applyAskAdminStreamEvent(
       turnId: event.turnId,
       activeToolName: event.toolName,
       errorCode: event.code,
-      errorMessage: event.message
+      errorMessage: event.message,
     };
   }
 
@@ -191,7 +187,7 @@ export function applyAskAdminStreamEvent(
       ...draft,
       status: event.state,
       turnId: event.turnId,
-      text: event.text
+      text: event.text,
     };
   }
 
@@ -203,7 +199,7 @@ export function applyAskAdminStreamEvent(
       text: event.text,
       activeToolName: null,
       errorCode: null,
-      errorMessage: null
+      errorMessage: null,
     };
   }
 
@@ -213,7 +209,34 @@ export function applyAskAdminStreamEvent(
     turnId: event.turnId ?? draft.turnId,
     activeToolName: null,
     errorCode: event.code,
-    errorMessage: event.message
+    errorMessage: event.message,
+  };
+}
+
+export function isAskAdminTerminalStreamEvent(event: AskAdminClientStreamEvent): boolean {
+  return event.type === "assistant.final" || event.type === "failed";
+}
+
+export function interruptedAskAdminStreamEvent(
+  draft: AskAdminDraft,
+): Extract<AskAdminClientStreamEvent, { readonly type: "failed" }> | null {
+  if (
+    draft.status === "idle" ||
+    draft.status === "completed" ||
+    draft.status === "failed" ||
+    draft.status === "gateway_unavailable" ||
+    draft.status === "policy_denied" ||
+    draft.status === "duplicate_send"
+  ) {
+    return null;
+  }
+
+  return {
+    type: "failed",
+    ...(draft.turnId === null ? {} : { turnId: draft.turnId }),
+    code: "webGateway.streamInterrupted",
+    message: "Ask Admin Opzava stream ended before a final response.",
+    state: "gateway_unavailable",
   };
 }
 

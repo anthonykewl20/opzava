@@ -1,17 +1,25 @@
 import type {
   OpenClawGatewayRouteId,
   OpenClawStreamEvent,
-  StartAssistantStreamInput
+  StartAssistantStreamInput,
 } from "@opzava/ports";
 import { makeOrgId, makeTenantId, makeUserId, makeWorkspaceId } from "@opzava/shared-kernel";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
+import WebSocket from "ws";
 
+import { FakeOpenClawGateway, type FakeGatewayMode } from "../acl/openclaw/fake-gateway.js";
 import {
-  FakeOpenClawGateway,
-  type FakeGatewayMode
-} from "../acl/openclaw/fake-gateway.js";
-import { HmacDeviceKeypair } from "../acl/openclaw/signing.js";
+  EXPECTED_OPERATOR_SCOPES,
+  parseOpenClawFrame,
+  serializeOpenClawFrame,
+  type OpenClawResponseFrame,
+} from "../acl/openclaw/protocol.js";
+import {
+  HmacDeviceKeypair,
+  deriveDeviceIdFromPublicKey,
+  type DeviceKeypair,
+} from "../acl/openclaw/signing.js";
 import { GatewayConnectionManager } from "../routing/connection-manager.js";
 import type { GatewayAuthMode } from "../routing/routes.js";
 import { StaticGatewayRoutingTable } from "../routing/routes.js";
@@ -25,6 +33,10 @@ const pairedDeviceToken = "paired-device-token";
 
 const managers: GatewayConnectionManager[] = [];
 const gateways: FakeOpenClawGateway[] = [];
+const fakeRawPublicKey = Buffer.from(
+  "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+  "hex",
+);
 
 interface BrokerFixture {
   readonly gateway: FakeOpenClawGateway;
@@ -32,22 +44,35 @@ interface BrokerFixture {
 }
 
 function createDeviceKeypair(): HmacDeviceKeypair {
+  const publicKey = fakeRawPublicKey.toString("base64url");
+
   return new HmacDeviceKeypair({
-    deviceId: "opzava-broker-device",
-    publicKey: "opzava-broker-public-key",
-    secret: randomUUID()
+    deviceId: deriveDeviceIdFromPublicKey(publicKey),
+    publicKey,
+    secret: randomUUID(),
   });
 }
 
-async function createBrokerFixture(input: {
-  readonly mode?: FakeGatewayMode;
-  readonly authMode?: GatewayAuthMode;
-} = {}): Promise<BrokerFixture> {
-  const deviceKeypair = createDeviceKeypair();
+function createMismatchedDeviceKeypair(): HmacDeviceKeypair {
+  return new HmacDeviceKeypair({
+    deviceId: "not-the-sha256-raw-public-key",
+    publicKey: fakeRawPublicKey.toString("base64url"),
+    secret: randomUUID(),
+  });
+}
+
+async function createBrokerFixture(
+  input: {
+    readonly mode?: FakeGatewayMode;
+    readonly authMode?: GatewayAuthMode;
+    readonly deviceKeypair?: HmacDeviceKeypair;
+  } = {},
+): Promise<BrokerFixture> {
+  const deviceKeypair = input.deviceKeypair ?? createDeviceKeypair();
   const gateway = new FakeOpenClawGateway({
     deviceKeypair,
     pairedDeviceToken,
-    ...(input.mode !== undefined ? { mode: input.mode } : {})
+    ...(input.mode !== undefined ? { mode: input.mode } : {}),
   });
   await gateway.ready;
   gateways.push(gateway);
@@ -63,14 +88,14 @@ async function createBrokerFixture(input: {
         authMode: input.authMode ?? "paired-device",
         pairedDeviceToken,
         deviceKeypair,
-        clientVersion: "0.0.0"
-      }
+        clientVersion: "0.0.0",
+      },
     ]),
     clientOptions: {
       challengeTimeoutMs: 500,
       connectBudgetMs: 1_000,
-      requestTimeoutMs: 500
-    }
+      requestTimeoutMs: 500,
+    },
   });
   managers.push(broker);
 
@@ -90,13 +115,13 @@ function startInput(idempotencyKey = `idem-${randomUUID()}`): StartAssistantStre
       orgId,
       workspaceId,
       userId,
-      roleKeys: ["admin"]
-    }
+      roleKeys: ["admin"],
+    },
   };
 }
 
 async function collectUntilTerminal(
-  events: AsyncIterable<OpenClawStreamEvent>
+  events: AsyncIterable<OpenClawStreamEvent>,
 ): Promise<readonly OpenClawStreamEvent[]> {
   const collected: OpenClawStreamEvent[] = [];
 
@@ -111,10 +136,119 @@ async function collectUntilTerminal(
     })(),
     new Promise<void>((_, reject) => {
       setTimeout(() => reject(new Error("Timed out waiting for stream terminal event.")), 1_000);
-    })
+    }),
   ]);
 
   return collected;
+}
+
+async function rawConnect(input: {
+  readonly gateway: FakeOpenClawGateway;
+  readonly deviceKeypair: DeviceKeypair;
+  readonly clientId: string;
+  readonly clientMode: string;
+  readonly auth?: {
+    readonly token?: string;
+    readonly deviceToken?: string;
+    readonly bootstrapToken?: string;
+  };
+}): Promise<OpenClawResponseFrame> {
+  const socket = new WebSocket(input.gateway.url, { perMessageDeflate: false });
+
+  return await new Promise<OpenClawResponseFrame>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      socket.close();
+      reject(new Error("Timed out waiting for raw connect response."));
+    }, 1_000);
+
+    socket.on("message", (data) => {
+      const frame = parseOpenClawFrame(data.toString());
+      if (frame?.type === "event" && frame.event === "connect.challenge") {
+        const payload = frame.payload as { readonly nonce?: unknown };
+        if (typeof payload.nonce !== "string") {
+          clearTimeout(timeout);
+          socket.close();
+          reject(new Error("Expected connect.challenge nonce."));
+          return;
+        }
+
+        const signedAt = Date.now();
+        const auth = input.auth ?? { deviceToken: pairedDeviceToken };
+        const signatureToken = auth.token ?? auth.deviceToken ?? auth.bootstrapToken ?? "";
+        void input.deviceKeypair
+          .sign({
+            clientId: input.clientId,
+            clientMode: input.clientMode,
+            clientVersion: "0.0.0",
+            platform: "node",
+            deviceFamily: "server",
+            deviceId: input.deviceKeypair.deviceId,
+            publicKey: input.deviceKeypair.publicKey,
+            role: "operator",
+            scopes: EXPECTED_OPERATOR_SCOPES,
+            token: signatureToken,
+            nonce: payload.nonce,
+            signedAt,
+          })
+          .then((signature) => {
+            socket.send(
+              serializeOpenClawFrame({
+                type: "req",
+                id: "connect:raw-test",
+                method: "connect",
+                params: {
+                  minProtocol: 4,
+                  maxProtocol: 4,
+                  client: {
+                    id: input.clientId,
+                    version: "0.0.0",
+                    platform: "node",
+                    mode: input.clientMode,
+                  },
+                  role: "operator",
+                  scopes: EXPECTED_OPERATOR_SCOPES,
+                  caps: [],
+                  commands: [],
+                  permissions: {},
+                  auth,
+                  locale: "en-US",
+                  userAgent: "opzava-gateway-broker/0.0.0",
+                  device: {
+                    id: input.deviceKeypair.deviceId,
+                    publicKey: input.deviceKeypair.publicKey,
+                    signature,
+                    signedAt,
+                    nonce: payload.nonce,
+                  },
+                },
+              }),
+            );
+          })
+          .catch((error: unknown) => {
+            clearTimeout(timeout);
+            socket.close();
+            reject(error);
+          });
+        return;
+      }
+
+      if (frame?.type === "res") {
+        clearTimeout(timeout);
+        socket.close();
+        resolve(frame);
+        return;
+      }
+
+      clearTimeout(timeout);
+      socket.close();
+      reject(new Error("Expected response frame."));
+    });
+
+    socket.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+  });
 }
 
 afterEach(async () => {
@@ -128,6 +262,120 @@ afterEach(async () => {
 });
 
 describe("[fake-gateway] broker operator client", () => {
+  it("rejects unknown client presentation enum values like the live Gateway", async () => {
+    const deviceKeypair = createDeviceKeypair();
+    const gateway = new FakeOpenClawGateway({
+      deviceKeypair,
+      pairedDeviceToken,
+    });
+    await gateway.ready;
+    gateways.push(gateway);
+
+    await expect(
+      rawConnect({
+        gateway,
+        deviceKeypair,
+        clientId: "opzava-gateway-broker",
+        clientMode: "operator",
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "BAD_REQUEST",
+        details: { reason: "invalid-client-presentation" },
+      },
+    });
+  });
+
+  it("issues then accepts a fresh paired device token from shared gateway-token auth", async () => {
+    const deviceKeypair = createDeviceKeypair();
+    const gateway = new FakeOpenClawGateway({
+      deviceKeypair,
+      pairedDeviceToken,
+      sharedGatewayToken: "shared-gateway-token",
+    });
+    await gateway.ready;
+    gateways.push(gateway);
+
+    const issuance = await rawConnect({
+      gateway,
+      deviceKeypair,
+      clientId: "cli",
+      clientMode: "cli",
+      auth: { token: "shared-gateway-token" },
+    });
+
+    expect(issuance.ok).toBe(true);
+    const issuancePayload = issuance.payload as
+      | { readonly auth?: { readonly deviceToken?: string; readonly issuedAtMs?: number } }
+      | undefined;
+    expect(issuancePayload?.auth?.deviceToken).toMatch(/^issued-device-token-/);
+    expect(issuancePayload?.auth?.issuedAtMs).toEqual(expect.any(Number));
+
+    const validation = await rawConnect({
+      gateway,
+      deviceKeypair,
+      clientId: "cli",
+      clientMode: "cli",
+      auth: { deviceToken: issuancePayload?.auth?.deviceToken ?? "" },
+    });
+
+    expect(validation.ok).toBe(true);
+  });
+
+  it("rejects stale paired device tokens like the live Gateway", async () => {
+    const deviceKeypair = createDeviceKeypair();
+    const gateway = new FakeOpenClawGateway({
+      deviceKeypair,
+      pairedDeviceToken,
+    });
+    await gateway.ready;
+    gateways.push(gateway);
+
+    await expect(
+      rawConnect({
+        gateway,
+        deviceKeypair,
+        clientId: "cli",
+        clientMode: "cli",
+        auth: { deviceToken: "stale-device-token" },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "AUTH_DEVICE_TOKEN_MISMATCH",
+        message: "device token mismatch (rotate/reissue)",
+      },
+    });
+  });
+
+  it("rejects mismatched shared gateway tokens like the live Gateway", async () => {
+    const deviceKeypair = createDeviceKeypair();
+    const gateway = new FakeOpenClawGateway({
+      deviceKeypair,
+      pairedDeviceToken,
+      sharedGatewayToken: "shared-gateway-token",
+    });
+    await gateway.ready;
+    gateways.push(gateway);
+
+    await expect(
+      rawConnect({
+        gateway,
+        deviceKeypair,
+        clientId: "cli",
+        clientMode: "cli",
+        auth: { token: "wrong-gateway-token" },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "AUTH_TOKEN_MISMATCH",
+        message: "gateway token mismatch",
+      },
+    });
+  });
+
   it("negotiates protocol v4 and streams one idempotent session request", async () => {
     const { broker, gateway } = await createBrokerFixture();
     const first = await broker.startAssistantStream(startInput("same-idempotency-key"));
@@ -146,37 +394,37 @@ describe("[fake-gateway] broker operator client", () => {
         turnId: "turn-1",
         content: { text: "Created the task." },
         sessionRef: { system: "openclaw", kind: "session", value: "conversation-1" },
-        runRef: { system: "openclaw", kind: "run", value: "run:same-idempotency-key" }
-      }
+        runRef: { system: "openclaw", kind: "run", value: "run:same-idempotency-key" },
+      },
     ]);
 
     const tools = await broker.getEffectiveTools({
       sessionRef: first.value.sessionRef,
-      toolNames: ["opzava_tasks_list", "opzava_tasks_create", "opzava_tasks_update"]
+      toolNames: ["opzava_tasks_list", "opzava_tasks_create", "opzava_tasks_update"],
     });
     expect(tools).toMatchObject({
       ok: true,
       value: {
-        toolNames: ["opzava_tasks_list", "opzava_tasks_create", "opzava_tasks_update"]
-      }
+        toolNames: ["opzava_tasks_list", "opzava_tasks_create", "opzava_tasks_update"],
+      },
     });
 
     const replay = await broker.startAssistantStream(startInput("same-idempotency-key"));
     expect(replay).toMatchObject({
       ok: true,
       value: {
-        runRef: { value: "run:same-idempotency-key" }
-      }
+        runRef: { value: "run:same-idempotency-key" },
+      },
     });
     expect(gateway.sessionRequestCount).toBe(2);
 
     const driftedTools = await broker.getEffectiveTools({
       sessionRef: first.value.sessionRef,
-      toolNames: ["opzava_tasks_list"]
+      toolNames: ["opzava_tasks_list"],
     });
     expect(driftedTools).toMatchObject({
       ok: false,
-      error: { code: "gatewayBroker.toolInventoryMismatch" }
+      error: { code: "gatewayBroker.toolInventoryMismatch" },
     });
   });
 
@@ -199,8 +447,8 @@ describe("[fake-gateway] broker operator client", () => {
         description: "Created through Ask Admin Opzava.",
         priority: "normal",
         status: "todo",
-        labels: ["ask-admin"]
-      }
+        labels: ["ask-admin"],
+      },
     });
   });
 
@@ -218,7 +466,7 @@ describe("[fake-gateway] broker operator client", () => {
 
     expect(result).toMatchObject({
       ok: false,
-      error: { code: "gatewayBroker.authModeForbidden" }
+      error: { code: "gatewayBroker.authModeForbidden" },
     });
     expect(gateway.connectionCount).toBe(0);
   });
@@ -230,13 +478,13 @@ describe("[fake-gateway] broker operator client", () => {
       ...input,
       actingPrincipal: {
         ...input.actingPrincipal,
-        tenantId: makeTenantId("tenant-other")
-      }
+        tenantId: makeTenantId("tenant-other"),
+      },
     });
 
     expect(result).toMatchObject({
       ok: false,
-      error: { code: "gatewayBroker.tenantMismatch" }
+      error: { code: "gatewayBroker.tenantMismatch" },
     });
     expect(gateway.connectionCount).toBe(0);
   });
@@ -247,7 +495,19 @@ describe("[fake-gateway] broker operator client", () => {
 
     expect(result).toMatchObject({
       ok: false,
-      error: { code: "gatewayBroker.authScopeMismatch" }
+      error: { code: "gatewayBroker.authScopeMismatch" },
+    });
+  });
+
+  it("rejects a device id that is not derived from the raw Ed25519 public key", async () => {
+    const { broker } = await createBrokerFixture({
+      deviceKeypair: createMismatchedDeviceKeypair(),
+    });
+    const result = await broker.startAssistantStream(startInput());
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "gatewayBroker.authScopeMismatch" },
     });
   });
 
@@ -257,7 +517,7 @@ describe("[fake-gateway] broker operator client", () => {
 
     expect(result).toMatchObject({
       ok: false,
-      error: { code: "gatewayBroker.scopeMismatch" }
+      error: { code: "gatewayBroker.scopeMismatch" },
     });
   });
 
@@ -267,7 +527,7 @@ describe("[fake-gateway] broker operator client", () => {
 
     expect(result).toMatchObject({
       ok: false,
-      error: { code: "gatewayBroker.protocolMismatch" }
+      error: { code: "gatewayBroker.protocolMismatch" },
     });
   });
 
@@ -282,7 +542,7 @@ describe("[fake-gateway] broker operator client", () => {
     const events = await collectUntilTerminal(result.value.events);
     expect(events.at(-1)).toMatchObject({
       type: "failed",
-      code: "gatewayBroker.unknownEventFamily"
+      code: "gatewayBroker.unknownEventFamily",
     });
   });
 
@@ -298,7 +558,7 @@ describe("[fake-gateway] broker operator client", () => {
     expect(events).toContainEqual({ type: "delta", turnId: "turn-1", deltaText: "Created " });
     expect(events.at(-1)).toMatchObject({
       type: "failed",
-      code: "gatewayBroker.connectionClosed"
+      code: "gatewayBroker.connectionClosed",
     });
   });
 
@@ -313,7 +573,7 @@ describe("[fake-gateway] broker operator client", () => {
     const events = await collectUntilTerminal(result.value.events);
     expect(events.at(-1)).toMatchObject({
       type: "failed",
-      code: "gatewayBroker.duplicateResponse"
+      code: "gatewayBroker.duplicateResponse",
     });
   });
 });

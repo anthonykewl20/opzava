@@ -44,10 +44,10 @@ export interface OpenClawConnectParams {
   readonly minProtocol: number;
   readonly maxProtocol: number;
   readonly client: {
-    readonly id: "opzava-gateway-broker";
+    readonly id: "cli";
     readonly version: string;
     readonly platform: "node";
-    readonly mode: "operator";
+    readonly mode: "cli";
   };
   readonly role: "operator";
   readonly scopes: readonly OperatorScope[];
@@ -55,7 +55,9 @@ export interface OpenClawConnectParams {
   readonly commands: readonly string[];
   readonly permissions: Record<string, never>;
   readonly auth: {
-    readonly token: string;
+    readonly token?: string;
+    readonly deviceToken?: string;
+    readonly bootstrapToken?: string;
   };
   readonly locale: "en-US";
   readonly userAgent: string;
@@ -84,6 +86,7 @@ export interface HelloOkPayload {
     readonly role: "operator";
     readonly scopes: readonly string[];
     readonly deviceToken?: string;
+    readonly issuedAtMs?: number;
   };
   readonly policy: {
     readonly maxPayload: number;
@@ -151,7 +154,7 @@ export function parseOpenClawFrame(raw: string): OpenClawFrame | null {
       ...(typeof record["seq"] === "number" ? { seq: record["seq"] } : {}),
       ...(typeof record["stateVersion"] === "number"
         ? { stateVersion: record["stateVersion"] }
-        : {})
+        : {}),
     };
   }
 
@@ -164,7 +167,7 @@ export function parseOpenClawFrame(raw: string): OpenClawFrame | null {
       type: "req",
       id: record["id"],
       method: record["method"],
-      params: isRecord(record["params"]) ? record["params"] : {}
+      params: isRecord(record["params"]) ? record["params"] : {},
     };
   }
 
@@ -178,9 +181,7 @@ export function parseOpenClawFrame(raw: string): OpenClawFrame | null {
       id: record["id"],
       ok: record["ok"],
       ...(record["payload"] === undefined ? {} : { payload: record["payload"] }),
-      ...(isRecord(record["error"])
-        ? { error: record["error"] as OpenClawErrorPayload }
-        : {})
+      ...(isRecord(record["error"]) ? { error: record["error"] as OpenClawErrorPayload } : {}),
     };
   }
 
@@ -192,7 +193,7 @@ export function serializeOpenClawFrame(frame: OpenClawFrame): string {
 }
 
 export function isConnectChallenge(
-  frame: OpenClawFrame
+  frame: OpenClawFrame,
 ): frame is OpenClawEventFrame & { readonly payload: ConnectChallengePayload } {
   return (
     frame.type === "event" &&
@@ -235,10 +236,18 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const IMPLIED_OPERATOR_SCOPES = ["operator.read"] as const;
+
 export function hasExactExpectedScopes(scopes: readonly string[]): boolean {
+  // The live Gateway materializes operator.read alongside operator.write
+  // ("write implies read"); it is the ONLY tolerated addition - any other
+  // scope (admin, pairing, talk.secrets, unknown) stays fail-closed.
+  const allowed = new Set<string>([...EXPECTED_OPERATOR_SCOPES, ...IMPLIED_OPERATOR_SCOPES]);
+  const unique = new Set(scopes);
   return (
-    scopes.length === EXPECTED_OPERATOR_SCOPES.length &&
-    EXPECTED_OPERATOR_SCOPES.every((scope) => scopes.includes(scope))
+    unique.size === scopes.length &&
+    EXPECTED_OPERATOR_SCOPES.every((scope) => scopes.includes(scope)) &&
+    scopes.every((scope) => allowed.has(scope))
   );
 }
 

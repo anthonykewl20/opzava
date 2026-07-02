@@ -10,10 +10,17 @@ import {
   parseOpenClawFrame,
   serializeOpenClawFrame,
   type OpenClawConnectParams,
+  type OpenClawErrorPayload,
   type OpenClawRequestFrame,
-  type OpenClawResponseFrame
+  type OpenClawResponseFrame,
 } from "./protocol.js";
-import type { DeviceKeypair, DeviceSignatureInput } from "./signing.js";
+import {
+  OPENCLAW_EXTERNAL_OPERATOR_CLIENT_ID,
+  OPENCLAW_EXTERNAL_OPERATOR_CLIENT_MODE,
+  deriveDeviceIdFromPublicKey,
+  type DeviceKeypair,
+  type DeviceSignatureInput,
+} from "./signing.js";
 
 export type FakeGatewayMode =
   | "normal"
@@ -29,6 +36,7 @@ export type FakeGatewayMode =
 export interface FakeGatewayOptions {
   readonly deviceKeypair: DeviceKeypair;
   readonly pairedDeviceToken: string;
+  readonly sharedGatewayToken?: string;
   readonly mode?: FakeGatewayMode;
 }
 
@@ -42,20 +50,24 @@ export class FakeOpenClawGateway {
   private readonly server = new WebSocketServer({
     port: 0,
     host: "127.0.0.1",
-    perMessageDeflate: false
+    perMessageDeflate: false,
   });
   private readonly deviceKeypair: DeviceKeypair;
   private readonly pairedDeviceToken: string;
+  private readonly sharedGatewayToken: string;
   private readonly mode: FakeGatewayMode;
   private readonly sessionsByIdempotencyKey = new Map<string, FakeGatewaySessionRecord>();
+  private readonly issuedDeviceTokens = new Set<string>();
   public readonly ready: Promise<void>;
   private startupUnavailableSent = false;
   private connectionCountValue = 0;
   private sessionRequestCountValue = 0;
+  private issuedDeviceTokenSequence = 0;
 
   public constructor(options: FakeGatewayOptions) {
     this.deviceKeypair = options.deviceKeypair;
     this.pairedDeviceToken = options.pairedDeviceToken;
+    this.sharedGatewayToken = options.sharedGatewayToken ?? "shared-gateway-token";
     this.mode = options.mode ?? "normal";
     this.ready = new Promise((resolve) => {
       if (this.server.address() !== null) {
@@ -108,8 +120,8 @@ export class FakeOpenClawGateway {
       serializeOpenClawFrame({
         type: "event",
         event: "connect.challenge",
-        payload: { nonce, ts: challengeTs }
-      })
+        payload: { nonce, ts: challengeTs },
+      }),
     );
 
     socket.on("message", (data) => {
@@ -119,17 +131,18 @@ export class FakeOpenClawGateway {
         return;
       }
 
-      void this.handleRequest(socket, frame, nonce);
+      void this.handleRequest(socket, frame, nonce, challengeTs);
     });
   }
 
   private async handleRequest(
     socket: WebSocket,
     frame: OpenClawRequestFrame,
-    nonce: string
+    nonce: string,
+    challengeTs: number,
   ): Promise<void> {
     if (frame.method === "connect") {
-      await this.handleConnect(socket, frame, nonce);
+      await this.handleConnect(socket, frame, nonce, challengeTs);
       return;
     }
 
@@ -147,9 +160,9 @@ export class FakeOpenClawGateway {
           tools: [
             { name: "opzava_tasks_list", source: "core" },
             { name: "opzava_tasks_create", source: "core" },
-            { name: "opzava_tasks_update", source: "core" }
-          ]
-        }
+            { name: "opzava_tasks_update", source: "core" },
+          ],
+        },
       });
       return;
     }
@@ -158,14 +171,15 @@ export class FakeOpenClawGateway {
       type: "res",
       id: frame.id,
       ok: false,
-      error: { code: "NOT_FOUND", message: "unknown method" }
+      error: { code: "NOT_FOUND", message: "unknown method" },
     });
   }
 
   private async handleConnect(
     socket: WebSocket,
     frame: OpenClawRequestFrame,
-    nonce: string
+    nonce: string,
+    challengeTs: number,
   ): Promise<void> {
     if (this.mode === "startup-sidecars-once" && !this.startupUnavailableSent) {
       this.startupUnavailableSent = true;
@@ -176,8 +190,8 @@ export class FakeOpenClawGateway {
         error: {
           code: "UNAVAILABLE",
           message: "startup sidecars not ready",
-          details: { reason: "startup-sidecars", retryAfterMs: 1 }
-        }
+          details: { reason: "startup-sidecars", retryAfterMs: 1 },
+        },
       });
       socket.close();
       return;
@@ -186,6 +200,29 @@ export class FakeOpenClawGateway {
     const params = this.connectParams(frame.params);
     if (params === null) {
       this.authScopeMismatch(socket, frame.id, "invalid connect params");
+      return;
+    }
+
+    const clientId = params.client.id as string;
+    const clientMode = params.client.mode as string;
+    if (
+      clientId !== OPENCLAW_EXTERNAL_OPERATOR_CLIENT_ID ||
+      clientMode !== OPENCLAW_EXTERNAL_OPERATOR_CLIENT_MODE
+    ) {
+      this.sendResponse(socket, {
+        type: "res",
+        id: frame.id,
+        ok: false,
+        error: {
+          code: "BAD_REQUEST",
+          message: "client presentation failed enum validation",
+          details: {
+            reason: "invalid-client-presentation",
+            clientId,
+            clientMode,
+          },
+        },
+      });
       return;
     }
 
@@ -201,8 +238,8 @@ export class FakeOpenClawGateway {
         error: {
           code: "PROTOCOL_MISMATCH",
           message: "protocol range unsupported",
-          details: { minProtocol: params.minProtocol, maxProtocol: params.maxProtocol }
-        }
+          details: { minProtocol: params.minProtocol, maxProtocol: params.maxProtocol },
+        },
       });
       return;
     }
@@ -212,11 +249,25 @@ export class FakeOpenClawGateway {
       return;
     }
 
-    const signatureValid = await this.verifySignature(params, nonce);
+    const auth = this.resolveAuth(params);
+    if (!auth.ok) {
+      this.sendResponse(socket, {
+        type: "res",
+        id: frame.id,
+        ok: false,
+        error: auth.error,
+      });
+      return;
+    }
+
+    const signatureValid = await this.verifySignature(params, nonce, challengeTs, auth.token);
     if (!signatureValid || !hasExactExpectedScopes(params.scopes)) {
       this.authScopeMismatch(socket, frame.id, "signature or scopes invalid");
       return;
     }
+
+    const issuedDeviceToken =
+      auth.kind === "gateway-token" ? this.issueDeviceToken(params.device.id) : undefined;
 
     this.sendResponse(socket, {
       type: "res",
@@ -228,22 +279,26 @@ export class FakeOpenClawGateway {
         server: { version: "fake-gateway", connId: randomUUID() },
         features: {
           methods: ["sessions.send", "tools.effective"],
-          events: ["chat", "session.message", "exec.approval.requested"]
+          events: ["chat", "session.message", "exec.approval.requested"],
         },
         snapshot: {},
         auth: {
           role: "operator",
+          // The real Gateway materializes operator.read ("write implies read").
           scopes:
             this.mode === "scope-inflated"
               ? [...EXPECTED_OPERATOR_SCOPES, "operator.admin"]
-              : [...EXPECTED_OPERATOR_SCOPES]
+              : [...EXPECTED_OPERATOR_SCOPES, "operator.read"],
+          ...(issuedDeviceToken === undefined
+            ? {}
+            : { deviceToken: issuedDeviceToken, issuedAtMs: Date.now() }),
         },
         policy: {
           maxPayload: 262144,
           maxBufferedBytes: 524288,
-          tickIntervalMs: 15000
-        }
-      }
+          tickIntervalMs: 15000,
+        },
+      },
     });
   }
 
@@ -257,7 +312,7 @@ export class FakeOpenClawGateway {
         type: "res",
         id: frame.id,
         ok: false,
-        error: { code: "BAD_REQUEST", message: "idempotency key required" }
+        error: { code: "BAD_REQUEST", message: "idempotency key required" },
       });
       return;
     }
@@ -268,7 +323,7 @@ export class FakeOpenClawGateway {
       ({
         sessionKey,
         idempotencyKey,
-        runId: `run:${idempotencyKey}`
+        runId: `run:${idempotencyKey}`,
       } satisfies FakeGatewaySessionRecord);
     this.sessionsByIdempotencyKey.set(idempotencyKey, record);
 
@@ -276,7 +331,7 @@ export class FakeOpenClawGateway {
       type: "res",
       id: frame.id,
       ok: true,
-      payload: { sessionKey: record.sessionKey, runId: record.runId }
+      payload: { sessionKey: record.sessionKey, runId: record.runId },
     };
     this.sendResponse(socket, response);
 
@@ -290,8 +345,8 @@ export class FakeOpenClawGateway {
         serializeOpenClawFrame({
           type: "event",
           event: "runtime.secret",
-          payload: { redacted: false }
-        })
+          payload: { redacted: false },
+        }),
       );
       return;
     }
@@ -307,9 +362,9 @@ export class FakeOpenClawGateway {
         payload: {
           sessionKey: record.sessionKey,
           runId: record.runId,
-          deltaText: "Created "
-        }
-      })
+          deltaText: "Created ",
+        },
+      }),
     );
 
     if (this.mode === "mid-stream-close") {
@@ -333,11 +388,11 @@ export class FakeOpenClawGateway {
                 description: "Created through Ask Admin Opzava.",
                 priority: "normal",
                 status: "todo",
-                labels: ["ask-admin"]
-              }
-            }
-          }
-        })
+                labels: ["ask-admin"],
+              },
+            },
+          },
+        }),
       );
     }
 
@@ -348,9 +403,9 @@ export class FakeOpenClawGateway {
         payload: {
           sessionKey: record.sessionKey,
           runId: record.runId,
-          deltaText: "the task."
-        }
-      })
+          deltaText: "the task.",
+        },
+      }),
     );
     socket.send(
       serializeOpenClawFrame({
@@ -360,24 +415,37 @@ export class FakeOpenClawGateway {
           sessionKey: record.sessionKey,
           runId: record.runId,
           message: "Created the task.",
-          done: true
-        }
-      })
+          done: true,
+        },
+      }),
     );
   }
 
-  private async verifySignature(params: OpenClawConnectParams, nonce: string): Promise<boolean> {
+  private async verifySignature(
+    params: OpenClawConnectParams,
+    nonce: string,
+    challengeTs: number,
+    token: string,
+  ): Promise<boolean> {
+    let derivedDeviceId: string;
+    try {
+      derivedDeviceId = deriveDeviceIdFromPublicKey(params.device.publicKey);
+    } catch {
+      return false;
+    }
+
     if (
-      params.auth.token !== this.pairedDeviceToken ||
       params.device.nonce !== nonce ||
       params.device.id !== this.deviceKeypair.deviceId ||
-      params.device.publicKey !== this.deviceKeypair.publicKey
+      params.device.id !== derivedDeviceId ||
+      Math.abs(params.device.signedAt - challengeTs) > 5 * 60_000
     ) {
       return false;
     }
 
     const signatureInput: DeviceSignatureInput = {
       clientId: params.client.id,
+      clientMode: params.client.mode,
       clientVersion: params.client.version,
       platform: params.client.platform,
       deviceFamily: "server",
@@ -385,12 +453,77 @@ export class FakeOpenClawGateway {
       publicKey: params.device.publicKey,
       role: params.role,
       scopes: EXPECTED_OPERATOR_SCOPES,
-      token: params.auth.token,
+      token,
       nonce,
-      signedAt: params.device.signedAt
+      signedAt: params.device.signedAt,
     };
     const expected = await this.deviceKeypair.sign(signatureInput);
     return params.device.signature === expected;
+  }
+
+  private resolveAuth(params: OpenClawConnectParams):
+    | { readonly ok: true; readonly kind: "device-token" | "gateway-token"; readonly token: string }
+    | { readonly ok: false; readonly error: OpenClawErrorPayload } {
+    const gatewayToken = params.auth.token;
+    const deviceToken = params.auth.deviceToken;
+    const bootstrapToken = params.auth.bootstrapToken;
+
+    if (gatewayToken !== undefined) {
+      if (gatewayToken !== this.sharedGatewayToken) {
+        return {
+          ok: false,
+          error: {
+            code: "AUTH_TOKEN_MISMATCH",
+            message: "gateway token mismatch",
+            details: { reason: "gateway-token-mismatch" },
+          },
+        };
+      }
+
+      return { ok: true, kind: "gateway-token", token: gatewayToken };
+    }
+
+    if (deviceToken !== undefined) {
+      if (deviceToken !== this.pairedDeviceToken && !this.issuedDeviceTokens.has(deviceToken)) {
+        return {
+          ok: false,
+          error: {
+            code: "AUTH_DEVICE_TOKEN_MISMATCH",
+            message: "device token mismatch (rotate/reissue)",
+            details: { reason: "device-token-mismatch" },
+          },
+        };
+      }
+
+      return { ok: true, kind: "device-token", token: deviceToken };
+    }
+
+    if (bootstrapToken !== undefined) {
+      return {
+        ok: false,
+        error: {
+          code: "AUTH_TOKEN_MISMATCH",
+          message: "gateway token mismatch",
+          details: { reason: "bootstrap-token-unsupported" },
+        },
+      };
+    }
+
+    return {
+      ok: false,
+      error: {
+        code: "PAIRING_REQUIRED",
+        message: "approval required",
+        details: { requestId: `fake-pairing-${params.device.id}`, recommendedNextStep: "approve" },
+      },
+    };
+  }
+
+  private issueDeviceToken(deviceId: string): string {
+    this.issuedDeviceTokenSequence += 1;
+    const token = `issued-device-token-${deviceId}-${this.issuedDeviceTokenSequence}`;
+    this.issuedDeviceTokens.add(token);
+    return token;
   }
 
   private authScopeMismatch(socket: WebSocket, id: string, message: string): void {
@@ -401,8 +534,8 @@ export class FakeOpenClawGateway {
       error: {
         code: "AUTH_SCOPE_MISMATCH",
         message,
-        details: { recommendedNextStep: "re_pair", reason: "scope-mismatch" }
-      }
+        details: { recommendedNextStep: "re_pair", reason: "scope-mismatch" },
+      },
     });
   }
 

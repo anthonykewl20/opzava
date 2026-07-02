@@ -8,14 +8,14 @@ import type {
   OpenClawToolCallId,
   StartAssistantStreamInput,
   StartAssistantStreamReceipt,
-  ToolInventorySnapshot
+  ToolInventorySnapshot,
 } from "@opzava/ports";
 import {
   err,
   makeOpaqueExternalRef,
   ok,
   type DomainError,
-  type Result
+  type Result,
 } from "@opzava/shared-kernel";
 import WebSocket from "ws";
 
@@ -45,9 +45,13 @@ import {
   type OpenClawRequestFrame,
   type OpenClawResponseFrame,
   type SessionMessageEventPayload,
-  type ToolsEffectivePayload
+  type ToolsEffectivePayload,
 } from "./protocol.js";
-import type { DeviceSignatureInput } from "./signing.js";
+import {
+  OPENCLAW_EXTERNAL_OPERATOR_CLIENT_ID,
+  OPENCLAW_EXTERNAL_OPERATOR_CLIENT_MODE,
+  type DeviceSignatureInput,
+} from "./signing.js";
 
 type WebSocketFactory = (url: string) => WebSocket;
 
@@ -87,7 +91,7 @@ interface HelloPolicy {
 const defaultPolicy: HelloPolicy = {
   maxPayload: 25 * 1024 * 1024,
   maxBufferedBytes: 50 * 1024 * 1024,
-  tickIntervalMs: 30_000
+  tickIntervalMs: 30_000,
 };
 
 const defaultSocketFactory: WebSocketFactory = (url) =>
@@ -106,7 +110,7 @@ function errorFromGatewayPayload(error: OpenClawErrorPayload | undefined): Domai
     return gatewayBrokerError(
       "gatewayBroker.authScopeMismatch",
       "OpenClaw paired-device token scopes do not match the broker contract.",
-      sanitized
+      sanitized,
     );
   }
 
@@ -114,7 +118,7 @@ function errorFromGatewayPayload(error: OpenClawErrorPayload | undefined): Domai
     return gatewayBrokerError(
       "gatewayBroker.protocolMismatch",
       "OpenClaw Gateway rejected the broker protocol range.",
-      sanitized
+      sanitized,
     );
   }
 
@@ -122,14 +126,14 @@ function errorFromGatewayPayload(error: OpenClawErrorPayload | undefined): Domai
     return gatewayBrokerError(
       "gatewayBroker.gatewayUnavailable",
       "OpenClaw Gateway startup sidecars are not ready.",
-      sanitized
+      sanitized,
     );
   }
 
   return gatewayBrokerError(
     "gatewayBroker.requestFailed",
     "OpenClaw Gateway request failed.",
-    sanitized
+    sanitized,
   );
 }
 
@@ -151,7 +155,7 @@ function externalSessionRef(value: string): OpenClawSessionRef {
   return makeOpaqueExternalRef({
     system: "openclaw",
     kind: "session",
-    value
+    value,
   }) as OpenClawSessionRef;
 }
 
@@ -159,7 +163,7 @@ function externalRunRef(value: string): OpenClawRunRef {
   return makeOpaqueExternalRef({
     system: "openclaw",
     kind: "run",
-    value
+    value,
   }) as OpenClawRunRef;
 }
 
@@ -207,7 +211,7 @@ export class OpenClawOperatorClient {
   public disconnect(): void {
     this.connected = false;
     this.rejectPending(
-      gatewayBrokerError("gatewayBroker.connectionClosed", "OpenClaw connection closed.")
+      gatewayBrokerError("gatewayBroker.connectionClosed", "OpenClaw connection closed."),
     );
     this.failActiveStreams("gatewayBroker.connectionClosed", "OpenClaw connection closed.");
     this.socket?.close();
@@ -220,9 +224,7 @@ export class OpenClawOperatorClient {
       reachable: this.connected,
       circuitOpen: this.circuitOpenReason !== undefined,
       checkedAt: new Date(),
-      ...(this.circuitOpenReason === undefined
-        ? {}
-        : { degradedReason: this.circuitOpenReason })
+      ...(this.circuitOpenReason === undefined ? {} : { degradedReason: this.circuitOpenReason }),
     };
   }
 
@@ -231,8 +233,8 @@ export class OpenClawOperatorClient {
       return err(
         gatewayBrokerError(
           "gatewayBroker.authModeForbidden",
-          "Gateway broker hot path requires paired-device auth."
-        )
+          "Gateway broker hot path requires paired-device auth.",
+        ),
       );
     }
 
@@ -270,20 +272,20 @@ export class OpenClawOperatorClient {
       lastError ??
         gatewayBrokerError(
           "gatewayBroker.gatewayUnavailable",
-          "OpenClaw Gateway did not become available inside the connection budget."
-        )
+          "OpenClaw Gateway did not become available inside the connection budget.",
+        ),
     );
   }
 
   public async startAssistantStream(
-    input: StartAssistantStreamInput
+    input: StartAssistantStreamInput,
   ): Promise<Result<StartAssistantStreamReceipt>> {
     if (input.actingPrincipal.tenantId !== this.route.tenantId) {
       return err(
         gatewayBrokerError(
           "gatewayBroker.tenantMismatch",
-          "Gateway route tenant does not match the authenticated principal."
-        )
+          "Gateway route tenant does not match the authenticated principal.",
+        ),
       );
     }
 
@@ -297,7 +299,7 @@ export class OpenClawOperatorClient {
       sessionKey,
       turnId: input.turnId,
       queue: new AsyncQueue<OpenClawStreamEvent>(),
-      text: ""
+      text: "",
     };
     this.activeStreams.set(sessionKey, stream);
     stream.queue.push({ type: "queued", turnId: input.turnId });
@@ -308,9 +310,9 @@ export class OpenClawOperatorClient {
         sessionKey,
         agentId: input.assistantKey,
         message: input.prompt,
-        conversationId: input.conversationId
+        conversationId: input.conversationId,
       },
-      { sideEffect: true, idempotencyKey: input.idempotencyKey }
+      { sideEffect: true, idempotencyKey: input.idempotencyKey },
     );
 
     if (!response.ok) {
@@ -332,12 +334,12 @@ export class OpenClawOperatorClient {
     return ok({
       sessionRef: externalSessionRef(responseSessionKey),
       runRef: externalRunRef(runId),
-      events: stream.queue
+      events: stream.queue,
     });
   }
 
   public async getEffectiveTools(
-    input: ExpectedToolInventory
+    input: ExpectedToolInventory,
   ): Promise<Result<ToolInventorySnapshot>> {
     const connected = await this.ensureConnected();
     if (!connected.ok) {
@@ -347,7 +349,7 @@ export class OpenClawOperatorClient {
     const response = await this.request(
       "tools.effective",
       { sessionKey: input.sessionRef.value },
-      { sideEffect: false }
+      { sideEffect: false },
     );
     if (!response.ok) {
       return err(response.error);
@@ -356,7 +358,7 @@ export class OpenClawOperatorClient {
     const payload = isRecord(response.value) ? (response.value as ToolsEffectivePayload) : {};
     const tools = payload.tools ?? payload.entries ?? [];
     const toolNames = tools.flatMap((tool) =>
-      typeof tool.name === "string" && tool.name.trim() !== "" ? [tool.name] : []
+      typeof tool.name === "string" && tool.name.trim() !== "" ? [tool.name] : [],
     );
     const expected = new Set(input.toolNames);
     const actual = new Set(toolNames);
@@ -368,23 +370,23 @@ export class OpenClawOperatorClient {
         {
           routeId: this.route.routeId,
           unknownToolNames,
-          missingToolNames
+          missingToolNames,
         },
-        "OpenClaw effective tool inventory failed closed."
+        "OpenClaw effective tool inventory failed closed.",
       );
       return err(
         gatewayBrokerError(
           "gatewayBroker.toolInventoryMismatch",
           "OpenClaw effective tool inventory does not match the broker policy.",
-          { unknownToolNames, missingToolNames }
-        )
+          { unknownToolNames, missingToolNames },
+        ),
       );
     }
 
     return ok({
       sessionRef: input.sessionRef,
       toolNames,
-      checkedAt: new Date()
+      checkedAt: new Date(),
     });
   }
 
@@ -412,9 +414,9 @@ export class OpenClawOperatorClient {
           err(
             gatewayBrokerError(
               "gatewayBroker.connectChallengeTimeout",
-              "OpenClaw Gateway did not send connect.challenge in time."
-            )
-          )
+              "OpenClaw Gateway did not send connect.challenge in time.",
+            ),
+          ),
         );
       }, this.challengeTimeoutMs);
 
@@ -449,9 +451,9 @@ export class OpenClawOperatorClient {
             err(
               gatewayBrokerError(
                 "gatewayBroker.connectionClosed",
-                "OpenClaw connection closed during handshake."
-              )
-            )
+                "OpenClaw connection closed during handshake.",
+              ),
+            ),
           );
           return;
         }
@@ -466,9 +468,9 @@ export class OpenClawOperatorClient {
               "gatewayBroker.gatewayUnavailable",
               "OpenClaw Gateway socket failed.",
               {},
-              error
-            )
-          )
+              error,
+            ),
+          ),
         );
       });
     });
@@ -477,7 +479,7 @@ export class OpenClawOperatorClient {
   private async handleHandshakeFrame(
     socket: WebSocket,
     frame: OpenClawFrame,
-    complete: (result: Result<void>) => void
+    complete: (result: Result<void>) => void,
   ): Promise<void> {
     if (isConnectChallenge(frame)) {
       const connectFrame = await this.buildConnectFrame(frame.payload.nonce);
@@ -492,7 +494,7 @@ export class OpenClawOperatorClient {
 
     if (frame.type !== "res" || !frame.id.startsWith("connect:")) {
       complete(
-        err(gatewayBrokerError("gatewayBroker.invalidFrame", "Unexpected handshake frame."))
+        err(gatewayBrokerError("gatewayBroker.invalidFrame", "Unexpected handshake frame.")),
       );
       return;
     }
@@ -507,9 +509,9 @@ export class OpenClawOperatorClient {
               gatewayBrokerError(
                 "gatewayBroker.gatewayUnavailable",
                 "OpenClaw Gateway startup sidecars are not ready.",
-                { ...sanitizeGatewayError(frame.error), retryAfterMs: retryMs }
-              )
-            )
+                { ...sanitizeGatewayError(frame.error), retryAfterMs: retryMs },
+              ),
+            ),
       );
       return;
     }
@@ -530,8 +532,8 @@ export class OpenClawOperatorClient {
       return err(
         gatewayBrokerError(
           "gatewayBroker.protocolMismatch",
-          "OpenClaw Gateway negotiated an unsupported protocol."
-        )
+          "OpenClaw Gateway negotiated an unsupported protocol.",
+        ),
       );
     }
 
@@ -540,15 +542,15 @@ export class OpenClawOperatorClient {
         gatewayBrokerError(
           "gatewayBroker.scopeMismatch",
           "OpenClaw Gateway returned scopes outside the broker hot-path contract.",
-          { scopes: [...payload.auth.scopes].sort() }
-        )
+          { scopes: [...payload.auth.scopes].sort() },
+        ),
       );
     }
 
     this.policy = {
       maxPayload: payload.policy.maxPayload,
       maxBufferedBytes: payload.policy.maxBufferedBytes,
-      tickIntervalMs: payload.policy.tickIntervalMs
+      tickIntervalMs: payload.policy.tickIntervalMs,
     };
     return ok(undefined);
   }
@@ -557,7 +559,8 @@ export class OpenClawOperatorClient {
     const signedAt = this.now();
     const clientVersion = this.route.clientVersion ?? "0.0.0";
     const signatureInput: DeviceSignatureInput = {
-      clientId: "opzava-gateway-broker",
+      clientId: OPENCLAW_EXTERNAL_OPERATOR_CLIENT_ID,
+      clientMode: OPENCLAW_EXTERNAL_OPERATOR_CLIENT_MODE,
       clientVersion,
       platform: "node",
       deviceFamily: "server",
@@ -567,7 +570,7 @@ export class OpenClawOperatorClient {
       scopes: EXPECTED_OPERATOR_SCOPES,
       token: this.route.pairedDeviceToken,
       nonce,
-      signedAt
+      signedAt,
     };
 
     let signature: string;
@@ -579,26 +582,30 @@ export class OpenClawOperatorClient {
           "gatewayBroker.deviceSignatureFailed",
           "Broker device keypair failed to sign the OpenClaw challenge.",
           {},
-          error
-        )
+          error,
+        ),
       );
     }
 
     const params: OpenClawConnectParams = {
       minProtocol: MIN_OPENCLAW_PROTOCOL_VERSION,
       maxProtocol: MAX_OPENCLAW_PROTOCOL_VERSION,
+      // The real Gateway enum-validates client.id/mode ("cli" is the documented
+      // external operator presentation); our identity is the signed device.
       client: {
-        id: "opzava-gateway-broker",
+        id: OPENCLAW_EXTERNAL_OPERATOR_CLIENT_ID,
         version: clientVersion,
         platform: "node",
-        mode: "operator"
+        mode: OPENCLAW_EXTERNAL_OPERATOR_CLIENT_MODE,
       },
       role: "operator",
       scopes: EXPECTED_OPERATOR_SCOPES,
       caps: [],
       commands: [],
       permissions: {},
-      auth: { token: this.route.pairedDeviceToken },
+      // Paired device tokens ride in auth.deviceToken; auth.token is reserved
+      // for the shared gateway token, which the hot path must never hold.
+      auth: { deviceToken: this.route.pairedDeviceToken },
       locale: "en-US",
       userAgent: `opzava-gateway-broker/${clientVersion}`,
       device: {
@@ -606,41 +613,41 @@ export class OpenClawOperatorClient {
         publicKey: this.route.deviceKeypair.publicKey,
         signature,
         signedAt,
-        nonce
-      }
+        nonce,
+      },
     };
 
     return ok({
       type: "req",
       id: `connect:${String(this.route.routeId)}`,
       method: "connect",
-      params: params as unknown as Record<string, unknown>
+      params: params as unknown as Record<string, unknown>,
     });
   }
 
   private async request(
     method: string,
     params: Record<string, unknown>,
-    options: { readonly sideEffect: boolean; readonly idempotencyKey?: string }
+    options: { readonly sideEffect: boolean; readonly idempotencyKey?: string },
   ): Promise<Result<unknown>> {
     if (options.sideEffect && stringValue(options.idempotencyKey) === null) {
       return err(
         gatewayBrokerError(
           "gatewayBroker.missingIdempotencyKey",
-          "Side-effecting Gateway methods require an idempotency key."
-        )
+          "Side-effecting Gateway methods require an idempotency key.",
+        ),
       );
     }
 
     if (!this.connected || this.socket === undefined) {
       return err(
-        gatewayBrokerError("gatewayBroker.connectionClosed", "OpenClaw connection is not open.")
+        gatewayBrokerError("gatewayBroker.connectionClosed", "OpenClaw connection is not open."),
       );
     }
 
     const requestParams = {
       ...params,
-      ...(options.sideEffect ? { idempotencyKey: options.idempotencyKey } : {})
+      ...(options.sideEffect ? { idempotencyKey: options.idempotencyKey } : {}),
     };
     const id = `${method}:${this.requestSequence}`;
     this.requestSequence += 1;
@@ -648,7 +655,7 @@ export class OpenClawOperatorClient {
       type: "req",
       id,
       method,
-      params: requestParams
+      params: requestParams,
     };
     const serialized = serializeOpenClawFrame(frame);
     if (serialized.length > this.policy.maxPayload) {
@@ -659,7 +666,7 @@ export class OpenClawOperatorClient {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         resolve(
-          err(gatewayBrokerError("gatewayBroker.requestTimeout", "Gateway request timed out."))
+          err(gatewayBrokerError("gatewayBroker.requestTimeout", "Gateway request timed out.")),
         );
       }, this.requestTimeoutMs);
 
@@ -668,7 +675,7 @@ export class OpenClawOperatorClient {
         method,
         timeout,
         resolve: (payload) => resolve(ok(payload)),
-        reject: (error) => resolve(err(error))
+        reject: (error) => resolve(err(error)),
       });
 
       this.socket?.send(serialized, (error) => {
@@ -682,9 +689,9 @@ export class OpenClawOperatorClient {
                 "gatewayBroker.connectionClosed",
                 "Gateway request could not be sent.",
                 {},
-                error
-              )
-            )
+                error,
+              ),
+            ),
           );
         }
       });
@@ -705,7 +712,7 @@ export class OpenClawOperatorClient {
   private handleResponse(frame: OpenClawResponseFrame): void {
     if (this.respondedIds.has(frame.id)) {
       this.failConnection(
-        gatewayBrokerError("gatewayBroker.duplicateResponse", "Gateway sent a duplicate response.")
+        gatewayBrokerError("gatewayBroker.duplicateResponse", "Gateway sent a duplicate response."),
       );
       return;
     }
@@ -713,7 +720,7 @@ export class OpenClawOperatorClient {
     const pending = this.pending.get(frame.id);
     if (pending === undefined) {
       this.failConnection(
-        gatewayBrokerError("gatewayBroker.unknownResponse", "Gateway sent an unknown response id.")
+        gatewayBrokerError("gatewayBroker.unknownResponse", "Gateway sent an unknown response id."),
       );
       return;
     }
@@ -734,14 +741,14 @@ export class OpenClawOperatorClient {
     if (!isAllowedEventFamily(frame.event)) {
       this.logger.warn(
         { routeId: this.route.routeId, event: frame.event, family: eventFamily(frame.event) },
-        "OpenClaw event family failed closed."
+        "OpenClaw event family failed closed.",
       );
       this.failConnection(
         gatewayBrokerError(
           "gatewayBroker.unknownEventFamily",
           "OpenClaw Gateway emitted an unknown event family.",
-          { event: frame.event }
-        )
+          { event: frame.event },
+        ),
       );
       return;
     }
@@ -780,7 +787,7 @@ export class OpenClawOperatorClient {
         type: "failed",
         turnId: stream.turnId,
         code: record.error.code ?? "openclaw.streamFailed",
-        message: record.error.message ?? "OpenClaw stream failed."
+        message: record.error.message ?? "OpenClaw stream failed.",
       });
       stream.queue.close();
       this.activeStreams.delete(sessionKey);
@@ -793,7 +800,7 @@ export class OpenClawOperatorClient {
       stream.queue.push({
         type: "delta",
         turnId: stream.turnId,
-        deltaText: record.deltaText
+        deltaText: record.deltaText,
       });
     }
 
@@ -808,7 +815,7 @@ export class OpenClawOperatorClient {
           turnId: stream.turnId,
           toolCallId: toolCallId as OpenClawToolCallId,
           toolName,
-          args
+          args,
         });
       }
     }
@@ -819,7 +826,7 @@ export class OpenClawOperatorClient {
         turnId: stream.turnId,
         content: { text: typeof record.message === "string" ? record.message : stream.text },
         sessionRef: externalSessionRef(sessionKey),
-        ...(stream.runId === undefined ? {} : { runRef: externalRunRef(stream.runId) })
+        ...(stream.runId === undefined ? {} : { runRef: externalRunRef(stream.runId) }),
       });
       stream.queue.close();
       this.activeStreams.delete(sessionKey);
@@ -848,9 +855,9 @@ export class OpenClawOperatorClient {
       approvalRef: makeOpaqueExternalRef({
         system: "openclaw",
         kind: "approval",
-        value: approvalRef
+        value: approvalRef,
       }),
-      summary: stringValue(payload["summary"]) ?? "OpenClaw requested approval."
+      summary: stringValue(payload["summary"]) ?? "OpenClaw requested approval.",
     });
   }
 
@@ -858,7 +865,7 @@ export class OpenClawOperatorClient {
     this.connected = false;
     this.socket = undefined;
     this.rejectPending(
-      gatewayBrokerError("gatewayBroker.connectionClosed", "OpenClaw connection closed.")
+      gatewayBrokerError("gatewayBroker.connectionClosed", "OpenClaw connection closed."),
     );
     this.failActiveStreams("gatewayBroker.connectionClosed", "OpenClaw connection closed.");
   }
@@ -866,7 +873,7 @@ export class OpenClawOperatorClient {
   private failConnection(error: DomainError): void {
     this.logger.error(
       { routeId: this.route.routeId, code: error.code },
-      "OpenClaw connection failed closed."
+      "OpenClaw connection failed closed.",
     );
     this.rejectPending(error);
     this.failActiveStreams(error.code, error.message);
@@ -889,7 +896,7 @@ export class OpenClawOperatorClient {
         type: "failed",
         turnId: stream.turnId,
         code,
-        message
+        message,
       });
       stream.queue.close();
     }

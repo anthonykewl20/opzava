@@ -1,13 +1,14 @@
 import type {
+  ErrorCapturePort,
   OpenClawGatewayPort,
   OpenClawGatewayRouteId,
   OpenClawStreamEvent,
-  StartAssistantStreamInput
+  StartAssistantStreamInput,
 } from "@opzava/ports";
 import type {
   AssistantTurn,
   RuntimeControlTaskToolExecution,
-  ToolExecutionContext
+  ToolExecutionContext,
 } from "@opzava/runtime-control";
 import {
   appendAssistantDelta,
@@ -16,15 +17,13 @@ import {
   failAssistantTurn,
   finalizeAssistantTurn,
   startAssistantTurn,
-  toolExecutionContextFromSessionPrincipal
+  toolExecutionContextFromSessionPrincipal,
 } from "@opzava/runtime-control";
+import { makeOrgId, makeTenantId, makeUserId, makeWorkspaceId, ok } from "@opzava/shared-kernel";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import {
-  askAdminAssistantKey,
-  askAdminRouteId
-} from "@/lib/ask-admin-history";
+import { askAdminAssistantKey, askAdminRouteId } from "@/lib/ask-admin-history";
 import type { AskAdminClientStreamEvent } from "@/lib/ask-admin-stream";
 import { readBrokerInternalEnv } from "@/lib/broker-internal-env";
 import { createBrokerOpenClawGatewayPort } from "@/lib/openclaw-gateway-broker";
@@ -35,7 +34,7 @@ export const dynamic = "force-dynamic";
 const requestSchema = z.object({
   conversationId: z.string().trim().min(1).max(180),
   prompt: z.string().trim().min(1).max(4000),
-  idempotencyKey: z.string().trim().min(1).max(120)
+  idempotencyKey: z.string().trim().min(1).max(120),
 });
 
 interface RuntimeControlServices {
@@ -52,6 +51,7 @@ export interface AskAdminTurnPostDependencies {
   readonly getSessionContext: (headers: Headers) => Promise<AppSessionContext | null>;
   readonly createGatewayPort: (context: AppSessionContext) => OpenClawGatewayPort;
   readonly runtime: RuntimeControlServices;
+  readonly errorCapture: ErrorCapturePort;
   readonly revalidateTasks: () => void;
 }
 
@@ -62,7 +62,13 @@ const runtimeControlServices: RuntimeControlServices = {
   finalizeAssistantTurn,
   failAssistantTurn,
   executeRuntimeControlTaskTool,
-  toolExecutionContextFromSessionPrincipal
+  toolExecutionContextFromSessionPrincipal,
+};
+
+const noopErrorCapturePort: ErrorCapturePort = {
+  async capture() {
+    return ok(undefined);
+  },
 };
 
 function defaultDependencies(): AskAdminTurnPostDependencies {
@@ -74,18 +80,19 @@ function defaultDependencies(): AskAdminTurnPostDependencies {
       return createBrokerOpenClawGatewayPort({
         baseUrl: brokerEnv.BROKER_INTERNAL_URL,
         internalToken: brokerEnv.BROKER_INTERNAL_TOKEN,
-        principalSessionId: context.sessionId
+        principalSessionId: context.sessionId,
       });
     },
     runtime: runtimeControlServices,
-    revalidateTasks: () => revalidatePath("/tasks")
+    errorCapture: noopErrorCapturePort,
+    revalidateTasks: () => revalidatePath("/tasks"),
   };
 }
 
 function actorFromContext(context: AppSessionContext) {
   return {
     userId: context.user.id,
-    roleKeys: context.roleKeys
+    roleKeys: context.roleKeys,
   };
 }
 
@@ -122,7 +129,7 @@ function errorMessage(error: unknown): string {
 
 function failureState(
   code: string | undefined,
-  status: number | undefined
+  status: number | undefined,
 ): "gateway_unavailable" | "policy_denied" | "duplicate_send" | "failed" {
   if (code === "runtimeControl.idempotencyConflict") {
     return "duplicate_send";
@@ -146,7 +153,8 @@ function failureState(
     code === "gatewayBroker.circuitOpen" ||
     code === "gatewayBroker.connectionClosed" ||
     code === "webGateway.gatewayUnavailable" ||
-    code === "webGateway.emptyStream"
+    code === "webGateway.emptyStream" ||
+    code === "webGateway.streamInterrupted"
   ) {
     return "gateway_unavailable";
   }
@@ -156,7 +164,7 @@ function failureState(
 
 function failureEvent(
   error: unknown,
-  turnId?: string
+  turnId?: string,
 ): Extract<AskAdminClientStreamEvent, { readonly type: "failed" }> {
   const code = errorCode(error) ?? "askAdmin.failed";
   return {
@@ -164,8 +172,54 @@ function failureEvent(
     ...(turnId === undefined ? {} : { turnId }),
     code,
     message: errorMessage(error),
-    state: failureState(code, errorStatus(error))
+    state: failureState(code, errorStatus(error)),
   };
+}
+
+function failureSeverity(
+  state: Extract<AskAdminClientStreamEvent, { readonly type: "failed" }>["state"],
+): "warning" | "error" {
+  return state === "failed" ? "error" : "warning";
+}
+
+async function captureAskAdminFailure(
+  deps: AskAdminTurnPostDependencies,
+  context: AppSessionContext,
+  failure: Extract<AskAdminClientStreamEvent, { readonly type: "failed" }>,
+  cause?: unknown,
+): Promise<void> {
+  try {
+    await deps.errorCapture.capture({
+      source: "apps/web",
+      operation: "tasks.ask_admin.turn",
+      severity: failureSeverity(failure.state),
+      code: failure.code,
+      message: failure.message,
+      tenantId: makeTenantId(context.orgId),
+      orgId: makeOrgId(context.orgId),
+      workspaceId: makeWorkspaceId(context.workspaceId),
+      userId: makeUserId(context.user.id),
+      details: {
+        state: failure.state,
+        ...(failure.turnId === undefined ? {} : { turnId: failure.turnId }),
+      },
+      ...(failure.turnId === undefined ? {} : { correlationId: failure.turnId }),
+      ...(cause === undefined ? {} : { cause }),
+    });
+  } catch {
+    // Error capture is an observability hook; it must not affect the user stream.
+  }
+}
+
+async function writeFailureEvent(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  deps: AskAdminTurnPostDependencies,
+  context: AppSessionContext,
+  failure: Extract<AskAdminClientStreamEvent, { readonly type: "failed" }>,
+  cause?: unknown,
+): Promise<void> {
+  await captureAskAdminFailure(deps, context, failure, cause);
+  writeEvent(controller, failure);
 }
 
 function encodeSse(event: AskAdminClientStreamEvent): Uint8Array {
@@ -174,7 +228,7 @@ function encodeSse(event: AskAdminClientStreamEvent): Uint8Array {
 
 function writeEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
-  event: AskAdminClientStreamEvent
+  event: AskAdminClientStreamEvent,
 ): void {
   controller.enqueue(encodeSse(event));
 }
@@ -183,7 +237,7 @@ async function safeFailAssistantTurn(
   runtime: RuntimeControlServices,
   context: AppSessionContext,
   turnId: string,
-  failure: Extract<AskAdminClientStreamEvent, { readonly type: "failed" }>
+  failure: Extract<AskAdminClientStreamEvent, { readonly type: "failed" }>,
 ): Promise<void> {
   await runtime.failAssistantTurn({
     orgId: context.orgId,
@@ -191,7 +245,7 @@ async function safeFailAssistantTurn(
     actor: actorFromContext(context),
     turnId,
     errorCode: failure.code,
-    errorMessage: failure.message
+    errorMessage: failure.message,
   });
 }
 
@@ -200,7 +254,7 @@ function streamInput(
   conversationId: string,
   turnId: string,
   prompt: string,
-  idempotencyKey: string
+  idempotencyKey: string,
 ): StartAssistantStreamInput {
   return {
     routeId: askAdminRouteId as OpenClawGatewayRouteId,
@@ -215,25 +269,25 @@ function streamInput(
       workspaceId:
         context.workspaceId as StartAssistantStreamInput["actingPrincipal"]["workspaceId"],
       userId: context.user.id as StartAssistantStreamInput["actingPrincipal"]["userId"],
-      roleKeys: context.roleKeys
-    }
+      roleKeys: context.roleKeys,
+    },
   };
 }
 
 function completedEventFromTurn(
-  turn: AssistantTurn
+  turn: AssistantTurn,
 ): Extract<AskAdminClientStreamEvent, { readonly type: "assistant.final" }> {
   return {
     type: "assistant.final",
     turnId: turn.id,
     text: assistantText(turn.content),
-    state: "completed"
+    state: "completed",
   };
 }
 
 function toolFailureFromError(
   error: unknown,
-  event: Extract<OpenClawStreamEvent, { readonly type: "tool.call" }>
+  event: Extract<OpenClawStreamEvent, { readonly type: "tool.call" }>,
 ): Extract<AskAdminClientStreamEvent, { readonly type: "tool.failed" }> {
   return {
     type: "tool.failed",
@@ -242,13 +296,13 @@ function toolFailureFromError(
     toolName: event.toolName,
     code: errorCode(error) ?? "runtimeControl.toolExecutionFailed",
     message: errorMessage(error),
-    state: "tool_running"
+    state: "tool_running",
   };
 }
 
 function toolSucceededEvent(
   execution: Extract<RuntimeControlTaskToolExecution, { readonly status: "succeeded" }>,
-  event: Extract<OpenClawStreamEvent, { readonly type: "tool.call" }>
+  event: Extract<OpenClawStreamEvent, { readonly type: "tool.call" }>,
 ): Extract<AskAdminClientStreamEvent, { readonly type: "tool.succeeded" }> {
   return {
     type: "tool.succeeded",
@@ -256,13 +310,13 @@ function toolSucceededEvent(
     toolCallId: execution.toolCallId,
     toolName: execution.toolName,
     output: execution.output as Readonly<Record<string, unknown>>,
-    state: "tool_running"
+    state: "tool_running",
   };
 }
 
 function toolFailedEvent(
   execution: Extract<RuntimeControlTaskToolExecution, { readonly status: "failed" }>,
-  event: Extract<OpenClawStreamEvent, { readonly type: "tool.call" }>
+  event: Extract<OpenClawStreamEvent, { readonly type: "tool.call" }>,
 ): Extract<AskAdminClientStreamEvent, { readonly type: "tool.failed" }> {
   return {
     type: "tool.failed",
@@ -271,7 +325,7 @@ function toolFailedEvent(
     toolName: execution.toolName,
     code: execution.code,
     message: execution.message,
-    state: "tool_running"
+    state: "tool_running",
   };
 }
 
@@ -280,7 +334,7 @@ async function handleGatewayEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
   context: AppSessionContext,
   toolContext: ToolExecutionContext,
-  deps: AskAdminTurnPostDependencies
+  deps: AskAdminTurnPostDependencies,
 ): Promise<boolean> {
   const { runtime } = deps;
 
@@ -294,12 +348,12 @@ async function handleGatewayEvent(
       workspaceId: context.workspaceId,
       actor: actorFromContext(context),
       turnId: event.turnId,
-      deltaText: event.deltaText
+      deltaText: event.deltaText,
     });
     if (!updated.ok) {
       const failure = failureEvent(updated.error, event.turnId);
       await safeFailAssistantTurn(runtime, context, event.turnId, failure);
-      writeEvent(controller, failure);
+      await writeFailureEvent(controller, deps, context, failure, updated.error);
       return true;
     }
 
@@ -308,7 +362,7 @@ async function handleGatewayEvent(
       turnId: event.turnId,
       deltaText: event.deltaText,
       text: assistantText(updated.value.content),
-      state: "working"
+      state: "working",
     });
     return false;
   }
@@ -319,7 +373,7 @@ async function handleGatewayEvent(
       turnId: event.turnId,
       toolCallId: event.toolCallId,
       toolName: event.toolName,
-      state: "tool_running"
+      state: "tool_running",
     });
     return false;
   }
@@ -330,14 +384,14 @@ async function handleGatewayEvent(
       turnId: event.turnId,
       toolCallId: event.toolCallId,
       toolName: event.toolName,
-      state: "tool_running"
+      state: "tool_running",
     });
 
     const execution = await runtime.executeRuntimeControlTaskTool({
       context: toolContext,
       toolName: event.toolName,
       toolCallId: event.toolCallId,
-      args: event.args
+      args: event.args,
     });
 
     if (!execution.ok) {
@@ -362,7 +416,7 @@ async function handleGatewayEvent(
       toolCallId: event.toolCallId,
       toolName: event.toolName,
       output: event.output,
-      state: "tool_running"
+      state: "tool_running",
     });
     deps.revalidateTasks();
     return false;
@@ -378,10 +432,10 @@ async function handleGatewayEvent(
       turnId: event.turnId,
       code: event.code,
       message: event.message,
-      state: failureState(event.code, undefined)
+      state: failureState(event.code, undefined),
     };
     await safeFailAssistantTurn(runtime, context, event.turnId, failure);
-    writeEvent(controller, failure);
+    await writeFailureEvent(controller, deps, context, failure);
     return true;
   }
 
@@ -389,7 +443,7 @@ async function handleGatewayEvent(
     type: "finalizing",
     turnId: event.turnId,
     text: assistantText(event.content),
-    state: "finalizing"
+    state: "finalizing",
   });
 
   const finalized = await runtime.finalizeAssistantTurn({
@@ -399,11 +453,17 @@ async function handleGatewayEvent(
     turnId: event.turnId,
     content: event.content,
     ...(event.sessionRef === undefined ? {} : { openclawSessionRef: event.sessionRef.value }),
-    ...(event.runRef === undefined ? {} : { openclawRunRef: event.runRef.value })
+    ...(event.runRef === undefined ? {} : { openclawRunRef: event.runRef.value }),
   });
 
   if (!finalized.ok) {
-    writeEvent(controller, failureEvent(finalized.error, event.turnId));
+    await writeFailureEvent(
+      controller,
+      deps,
+      context,
+      failureEvent(finalized.error, event.turnId),
+      finalized.error,
+    );
     return true;
   }
 
@@ -416,7 +476,7 @@ async function runAssistantStream(
   controller: ReadableStreamDefaultController<Uint8Array>,
   deps: AskAdminTurnPostDependencies,
   context: AppSessionContext,
-  input: z.infer<typeof requestSchema>
+  input: z.infer<typeof requestSchema>,
 ): Promise<void> {
   const actor = actorFromContext(context);
   const userTurn = await deps.runtime.appendUserTurn({
@@ -425,10 +485,16 @@ async function runAssistantStream(
     actor,
     conversationId: input.conversationId,
     idempotencyKey: `user:${input.idempotencyKey}`,
-    content: { text: input.prompt }
+    content: { text: input.prompt },
   });
   if (!userTurn.ok) {
-    writeEvent(controller, failureEvent(userTurn.error));
+    await writeFailureEvent(
+      controller,
+      deps,
+      context,
+      failureEvent(userTurn.error),
+      userTurn.error,
+    );
     return;
   }
   const userTurnValue = userTurn.value;
@@ -440,10 +506,16 @@ async function runAssistantStream(
     conversationId: input.conversationId,
     idempotencyKey: `assistant:${input.idempotencyKey}`,
     assistantKey: askAdminAssistantKey,
-    content: { text: "" }
+    content: { text: "" },
   });
   if (!assistantTurn.ok) {
-    writeEvent(controller, failureEvent(assistantTurn.error));
+    await writeFailureEvent(
+      controller,
+      deps,
+      context,
+      failureEvent(assistantTurn.error),
+      assistantTurn.error,
+    );
     return;
   }
   const assistantTurnValue = assistantTurn.value;
@@ -454,12 +526,12 @@ async function runAssistantStream(
   }
 
   if (assistantTurnValue.status === "failed") {
-    writeEvent(controller, {
+    await writeFailureEvent(controller, deps, context, {
       type: "failed",
       turnId: assistantTurnValue.id,
       code: "runtimeControl.assistantTurnFailed",
       message: "Assistant turn already failed.",
-      state: "failed"
+      state: "failed",
     });
     return;
   }
@@ -469,16 +541,16 @@ async function runAssistantStream(
       orgId: context.orgId,
       workspaceId: context.workspaceId,
       actor,
-      sessionId: context.sessionId
+      sessionId: context.sessionId,
     },
     conversationId: input.conversationId,
     assistantTurnId: assistantTurnValue.id,
-    commandIdempotencyKey: input.idempotencyKey
+    commandIdempotencyKey: input.idempotencyKey,
   });
   if (!toolContext.ok) {
     const failure = failureEvent(toolContext.error, assistantTurnValue.id);
     await safeFailAssistantTurn(deps.runtime, context, assistantTurnValue.id, failure);
-    writeEvent(controller, failure);
+    await writeFailureEvent(controller, deps, context, failure, toolContext.error);
     return;
   }
 
@@ -486,7 +558,7 @@ async function runAssistantStream(
     type: "queued",
     turnId: assistantTurnValue.id,
     userTurnId: userTurnValue.id,
-    state: "queued"
+    state: "queued",
   });
 
   const gateway = deps.createGatewayPort(context);
@@ -496,14 +568,14 @@ async function runAssistantStream(
       input.conversationId,
       assistantTurnValue.id,
       input.prompt,
-      `assistant:${input.idempotencyKey}`
-    )
+      `assistant:${input.idempotencyKey}`,
+    ),
   );
 
   if (!receipt.ok) {
     const failure = failureEvent(receipt.error, assistantTurnValue.id);
     await safeFailAssistantTurn(deps.runtime, context, assistantTurnValue.id, failure);
-    writeEvent(controller, failure);
+    await writeFailureEvent(controller, deps, context, failure, receipt.error);
     return;
   }
 
@@ -521,15 +593,15 @@ async function runAssistantStream(
       turnId: assistantTurnValue.id,
       code: "gatewayBroker.connectionClosed",
       message: "Gateway stream ended before a final assistant message.",
-      state: "gateway_unavailable"
+      state: "gateway_unavailable",
     };
     await safeFailAssistantTurn(deps.runtime, context, assistantTurnValue.id, failure);
-    writeEvent(controller, failure);
+    await writeFailureEvent(controller, deps, context, failure);
   }
 }
 
 export function createAskAdminTurnPostHandler(
-  dependencyOverrides: Partial<AskAdminTurnPostDependencies> = {}
+  dependencyOverrides: Partial<AskAdminTurnPostDependencies> = {},
 ) {
   return async function POST(request: Request): Promise<Response> {
     const deps = { ...defaultDependencies(), ...dependencyOverrides };
@@ -556,19 +628,19 @@ export function createAskAdminTurnPostHandler(
         try {
           await runAssistantStream(controller, deps, context, parsed.data);
         } catch (error) {
-          writeEvent(controller, failureEvent(error));
+          await writeFailureEvent(controller, deps, context, failureEvent(error), error);
         } finally {
           controller.close();
         }
-      }
+      },
     });
 
     return new Response(stream, {
       headers: {
         "cache-control": "no-store, no-transform",
         "content-type": "text/event-stream; charset=utf-8",
-        "x-accel-buffering": "no"
-      }
+        "x-accel-buffering": "no",
+      },
     });
   };
 }
