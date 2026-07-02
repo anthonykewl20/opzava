@@ -1,6 +1,6 @@
 # Opzava Capability-Parity Map
 
-Source of truth: `docs/plan/grilling-decisions.md` locked architecture (Q1-Q12 plus Q4b/Q4c), mockup feature surface in `ux-redesign/mockups/*.html`, and OpenClaw docs under `docs/openclaw`.
+Source of truth: `docs/plan/grilling-decisions.md` locked architecture (this map classifies the Q1-Q12 plus Q4b/Q4c decision set and is itself the Q13 deliverable; Q14/Q15 landed later and do not change classifications), mockup feature surface in `ux-redesign/mockups/*.html`, and OpenClaw docs under `docs/openclaw`.
 
 ## Classification legend
 

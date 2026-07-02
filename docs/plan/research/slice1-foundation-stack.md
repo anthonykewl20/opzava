@@ -10,7 +10,7 @@ Scope: official-doc validation for the Opzava foundation scaffold as of 2026-07.
 | pnpm | `11.9.0`; set `packageManager: "pnpm@11.9.0"` | https://pnpm.io/installation |
 | pnpm workspaces | `pnpm-workspace.yaml` with `apps/*` and `packages/*` | https://pnpm.io/workspaces |
 | Turborepo | current stable `turbo` from the v3 docs line; pin exact patch when package metadata is resolved during scaffold | https://turborepo.com/docs/getting-started/installation |
-| TypeScript | `6.0.3` | https://www.typescriptlang.org/download/ |
+| TypeScript | `6.0.3` (superseded - locked to 5.9.x, see Locked pins below) | https://www.typescriptlang.org/download/ |
 | Next.js App Router | `16.2.9` | https://nextjs.org/docs/app/getting-started/installation |
 | React / React DOM | `19.2.7` | https://react.dev/learn/installation |
 | Drizzle ORM | `drizzle-orm@0.45.2` stable; `1.0.0-rc.4` is latest pre-release | https://github.com/drizzle-team/drizzle-orm/releases |
