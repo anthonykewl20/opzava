@@ -42,6 +42,13 @@ type BrokerInternalStreamEvent =
       readonly toolName: string;
     }
   | {
+      readonly type: "tool.call";
+      readonly turnId: string;
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly args: Readonly<Record<string, unknown>>;
+    }
+  | {
       readonly type: "tool.succeeded";
       readonly turnId: string;
       readonly toolCallId: string;
@@ -148,6 +155,16 @@ function toPortEvent(event: BrokerInternalStreamEvent): OpenClawStreamEvent {
       turnId: event.turnId ?? "unknown",
       code: event.code,
       message: event.message
+    };
+  }
+
+  if (event.type === "tool.call") {
+    return {
+      type: "tool.call",
+      turnId: event.turnId,
+      toolCallId: event.toolCallId as OpenClawToolCallId,
+      toolName: event.toolName,
+      args: event.args
     };
   }
 

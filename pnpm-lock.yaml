@@ -252,6 +252,9 @@ importers:
       '@opzava/ports':
         specifier: workspace:*
         version: link:../ports
+      '@opzava/project-management':
+        specifier: workspace:*
+        version: link:../project-management
       '@opzava/shared-kernel':
         specifier: workspace:*
         version: link:../shared-kernel

@@ -36,6 +36,7 @@ export type AskAdminClientStreamEvent =
       readonly turnId: string;
       readonly toolCallId: string;
       readonly toolName: string;
+      readonly output: Readonly<Record<string, unknown>>;
       readonly state: "tool_running";
     }
   | {

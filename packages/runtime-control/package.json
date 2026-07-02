@@ -23,6 +23,7 @@
   "dependencies": {
     "@opzava/adapters": "workspace:*",
     "@opzava/ports": "workspace:*",
+    "@opzava/project-management": "workspace:*",
     "@opzava/shared-kernel": "workspace:*",
     "drizzle-orm": "0.45.2"
   },

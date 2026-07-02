@@ -5,6 +5,7 @@ import type {
   OpenClawRunRef,
   OpenClawSessionRef,
   OpenClawStreamEvent,
+  OpenClawToolCallId,
   StartAssistantStreamInput,
   StartAssistantStreamReceipt,
   ToolInventorySnapshot
@@ -164,6 +165,10 @@ function externalRunRef(value: string): OpenClawRunRef {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+function recordValue(value: unknown): Readonly<Record<string, unknown>> | null {
+  return isRecord(value) ? value : null;
 }
 
 export class OpenClawOperatorClient {
@@ -790,6 +795,22 @@ export class OpenClawOperatorClient {
         turnId: stream.turnId,
         deltaText: record.deltaText
       });
+    }
+
+    const toolCall = recordValue(record.toolCall);
+    if (toolCall !== null) {
+      const toolCallId = stringValue(toolCall["id"]);
+      const toolName = stringValue(toolCall["name"]);
+      const args = recordValue(toolCall["args"]) ?? {};
+      if (toolCallId !== null && toolName !== null) {
+        stream.queue.push({
+          type: "tool.call",
+          turnId: stream.turnId,
+          toolCallId: toolCallId as OpenClawToolCallId,
+          toolName,
+          args
+        });
+      }
     }
 
     if (record.done === true) {

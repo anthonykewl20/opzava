@@ -49,6 +49,13 @@ type InternalAssistantStreamEvent =
       readonly toolName: string;
     }
   | {
+      readonly type: "tool.call";
+      readonly turnId: string;
+      readonly toolCallId: OpenClawToolCallId;
+      readonly toolName: string;
+      readonly args: Readonly<Record<string, unknown>>;
+    }
+  | {
       readonly type: "tool.succeeded";
       readonly turnId: string;
       readonly toolCallId: OpenClawToolCallId;
@@ -245,7 +252,12 @@ function toGatewayInput(input: InternalAssistantStreamRequest): StartAssistantSt
 }
 
 function normalizeEvent(event: OpenClawStreamEvent): InternalAssistantStreamEvent | null {
-  if (event.type === "queued" || event.type === "delta" || event.type === "tool.started") {
+  if (
+    event.type === "queued" ||
+    event.type === "delta" ||
+    event.type === "tool.started" ||
+    event.type === "tool.call"
+  ) {
     return event;
   }
 

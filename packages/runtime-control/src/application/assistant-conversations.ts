@@ -65,6 +65,11 @@ export interface RuntimeControlDependencies {
   readonly authorizationPort?: AuthorizationPort;
 }
 
+export interface StartedToolOutcomeReceipt {
+  readonly outcome: AssistantToolOutcome;
+  readonly inserted: boolean;
+}
+
 export interface CreateConversationInput extends RuntimeControlApplicationContext {
   readonly surface: string;
   readonly assistantKey: string;
@@ -505,7 +510,7 @@ function validateToolOutcomeReplay(
   if (
     existing.toolName !== expected.toolName ||
     existing.idempotencyKey !== expected.idempotencyKey ||
-    (expected.targetRef ?? null) !== existing.targetRef ||
+    (expected.targetRef !== undefined && expected.targetRef !== existing.targetRef) ||
     !sameJson(existing.requestSummary, expected.requestSummary)
   ) {
     return err(
@@ -1014,7 +1019,7 @@ export async function failAssistantTurn(
 async function insertStartedToolOutcome(
   tx: TenantTransaction,
   input: Extract<RecordToolOutcomeInput, { readonly status: "started" }>
-): Promise<Result<AssistantToolOutcome>> {
+): Promise<Result<StartedToolOutcomeReceipt>> {
   const turn = await selectTurnInScope(tx, input);
   if (!turn.ok) {
     return err(turn.error);
@@ -1058,7 +1063,7 @@ async function insertStartedToolOutcome(
   const insertedRow = rowsFromExecuteResult(inserted)[0];
 
   if (insertedRow !== undefined) {
-    return ok(rowToToolOutcome(insertedRow));
+    return ok({ outcome: rowToToolOutcome(insertedRow), inserted: true });
   }
 
   const existing = await tx.execute(sql`
@@ -1075,7 +1080,12 @@ async function insertStartedToolOutcome(
     );
   }
 
-  return validateToolOutcomeReplay(rowToToolOutcome(existingRow), input);
+  const replay = validateToolOutcomeReplay(rowToToolOutcome(existingRow), input);
+  if (!replay.ok) {
+    return err(replay.error);
+  }
+
+  return ok({ outcome: replay.value, inserted: false });
 }
 
 async function finishToolOutcome(
@@ -1103,7 +1113,11 @@ async function finishToolOutcome(
   }
 
   const current = rowToToolOutcome(row);
-  const replay = validateToolOutcomeReplay(current, input);
+  const replayTargetRef = current.status === "started" ? current.targetRef : input.targetRef;
+  const replay = validateToolOutcomeReplay(current, {
+    ...input,
+    ...(replayTargetRef === undefined ? {} : { targetRef: replayTargetRef })
+  });
   if (!replay.ok) {
     return err(replay.error);
   }
@@ -1129,6 +1143,7 @@ async function finishToolOutcome(
     set
       status = ${input.status}::public.assistant_tool_outcome_status,
       result_summary = ${JSON.stringify(input.resultSummary)}::jsonb,
+      target_ref = ${input.targetRef ?? current.targetRef},
       completed_at = now(),
       updated_at = now()
     where id = ${current.id}
@@ -1183,9 +1198,10 @@ export async function recordToolOutcome(
         idempotencyKey: idempotencyKey.value
       };
 
-      return await withTenant(input.orgId, async (tx) =>
+      const receipt = await withTenant(input.orgId, async (tx) =>
         insertStartedToolOutcome(tx, normalizedInput)
       );
+      return receipt.ok ? ok(receipt.value.outcome) : err(receipt.error);
     }
 
     const normalizedInput: Extract<
@@ -1200,6 +1216,50 @@ export async function recordToolOutcome(
 
     return await withTenant(input.orgId, async (tx) =>
       finishToolOutcome(tx, normalizedInput)
+    );
+  } catch (error) {
+    return err(
+      runtimeError(
+        "runtimeControl.toolOutcomeRecordFailed",
+        "Tool outcome could not be recorded.",
+        mapDatabaseError(error)
+      )
+    );
+  }
+}
+
+export async function recordStartedToolOutcome(
+  input: Extract<RecordToolOutcomeInput, { readonly status: "started" }>,
+  dependencies: RuntimeControlDependencies = {}
+): Promise<Result<StartedToolOutcomeReceipt>> {
+  const authorized = await validateCommonInput(input, dependencies, "execute");
+  if (!authorized.ok) {
+    return err(authorized.error);
+  }
+
+  const toolName = normalizeRuntimeKey(input.toolName, "toolName");
+  const toolCallId = normalizeRuntimeKey(input.toolCallId, "toolCallId");
+  const idempotencyKey = normalizeRuntimeKey(input.idempotencyKey, "idempotencyKey");
+  if (!toolName.ok) {
+    return err(toolName.error);
+  }
+  if (!toolCallId.ok) {
+    return err(toolCallId.error);
+  }
+  if (!idempotencyKey.ok) {
+    return err(idempotencyKey.error);
+  }
+
+  const normalizedInput: Extract<RecordToolOutcomeInput, { readonly status: "started" }> = {
+    ...input,
+    toolName: toolName.value,
+    toolCallId: toolCallId.value,
+    idempotencyKey: idempotencyKey.value
+  };
+
+  try {
+    return await withTenant(input.orgId, async (tx) =>
+      insertStartedToolOutcome(tx, normalizedInput)
     );
   } catch (error) {
     return err(

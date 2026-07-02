@@ -34,6 +34,13 @@ export type OpenClawStreamEvent =
       readonly toolName: string;
     }
   | {
+      readonly type: "tool.call";
+      readonly turnId: string;
+      readonly toolCallId: OpenClawToolCallId;
+      readonly toolName: string;
+      readonly args: Readonly<Record<string, unknown>>;
+    }
+  | {
       readonly type: "tool.completed";
       readonly turnId: string;
       readonly toolCallId: OpenClawToolCallId;

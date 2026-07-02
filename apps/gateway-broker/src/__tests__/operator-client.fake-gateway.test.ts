@@ -152,12 +152,12 @@ describe("[fake-gateway] broker operator client", () => {
 
     const tools = await broker.getEffectiveTools({
       sessionRef: first.value.sessionRef,
-      toolNames: ["opzava_tasks_read", "opzava_tasks_create", "opzava_tasks_update"]
+      toolNames: ["opzava_tasks_list", "opzava_tasks_create", "opzava_tasks_update"]
     });
     expect(tools).toMatchObject({
       ok: true,
       value: {
-        toolNames: ["opzava_tasks_read", "opzava_tasks_create", "opzava_tasks_update"]
+        toolNames: ["opzava_tasks_list", "opzava_tasks_create", "opzava_tasks_update"]
       }
     });
 
@@ -172,11 +172,35 @@ describe("[fake-gateway] broker operator client", () => {
 
     const driftedTools = await broker.getEffectiveTools({
       sessionRef: first.value.sessionRef,
-      toolNames: ["opzava_tasks_read"]
+      toolNames: ["opzava_tasks_list"]
     });
     expect(driftedTools).toMatchObject({
       ok: false,
       error: { code: "gatewayBroker.toolInventoryMismatch" }
+    });
+  });
+
+  it("streams scripted task tool-call intents without exposing OpenClaw frames", async () => {
+    const { broker } = await createBrokerFixture({ mode: "scripted-task-tool-call" });
+    const result = await broker.startAssistantStream(startInput());
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw result.error;
+    }
+
+    const events = await collectUntilTerminal(result.value.events);
+    expect(events).toContainEqual({
+      type: "tool.call",
+      turnId: "turn-1",
+      toolCallId: "tool-call-create-task",
+      toolName: "opzava_tasks_create",
+      args: {
+        title: "Scripted fake-lane task",
+        description: "Created through Ask Admin Opzava.",
+        priority: "normal",
+        status: "todo",
+        labels: ["ask-admin"]
+      }
     });
   });
 

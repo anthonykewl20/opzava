@@ -19,6 +19,9 @@ export interface AskAdminPanelProps {
   readonly conversationId: string;
   readonly initialTurns: readonly AskAdminTurnView[];
   readonly currentUserName: string;
+  readonly onToolSucceeded?: (
+    event: Extract<AskAdminClientStreamEvent, { readonly type: "tool.succeeded" }>
+  ) => void;
 }
 
 function idempotencyKey(): string {
@@ -84,7 +87,8 @@ export function AskAdminStatusBadge({ status }: { readonly status: AskAdminStrea
 export function AskAdminPanel({
   conversationId,
   initialTurns,
-  currentUserName
+  currentUserName,
+  onToolSucceeded
 }: AskAdminPanelProps) {
   const router = useRouter();
   const [turns, setTurns] = useState<readonly AskAdminTurnView[]>(initialTurns);
@@ -103,6 +107,9 @@ export function AskAdminPanel({
 
   const applyEvent = (event: AskAdminClientStreamEvent) => {
     setDraft((current) => applyAskAdminStreamEvent(current, event));
+    if (event.type === "tool.succeeded") {
+      onToolSucceeded?.(event);
+    }
     if (
       event.type === "tool.succeeded" ||
       event.type === "assistant.final" ||

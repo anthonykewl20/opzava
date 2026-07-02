@@ -9,9 +9,17 @@ export type {
   RuntimeControlApplicationContext,
   RuntimeControlDependencies,
   SessionDerivedPrincipal,
+  StartedToolOutcomeReceipt,
   StartAssistantTurnInput,
   ToolExecutionContext,
-  ToolExecutionContextInput
+  ToolExecutionContextInput,
+  ExecuteRuntimeControlTaskToolInput,
+  RuntimeControlTaskToolDependencies,
+  RuntimeControlTaskToolDefinition,
+  RuntimeControlTaskToolExecution,
+  RuntimeControlTaskToolName,
+  RuntimeControlTaskToolOutput,
+  RuntimeControlTaskServices
 } from "./application/index.js";
 export {
   RoleKeyRuntimeControlAuthorizationPort,
@@ -19,9 +27,13 @@ export {
   appendUserTurn,
   createConversation,
   defaultRuntimeControlAuthorizationPort,
+  executeRuntimeControlTaskTool,
   failAssistantTurn,
   finalizeAssistantTurn,
+  recordStartedToolOutcome,
   recordToolOutcome,
+  runtimeControlTaskToolRegistry,
+  runtimeControlTaskToolNames,
   startAssistantTurn,
   toolExecutionContextFromSessionPrincipal
 } from "./application/index.js";

@@ -4,13 +4,19 @@ import type {
   OpenClawStreamEvent,
   StartAssistantStreamInput
 } from "@opzava/ports";
-import type { AssistantTurn } from "@opzava/runtime-control";
+import type {
+  AssistantTurn,
+  RuntimeControlTaskToolExecution,
+  ToolExecutionContext
+} from "@opzava/runtime-control";
 import {
   appendAssistantDelta,
   appendUserTurn,
+  executeRuntimeControlTaskTool,
   failAssistantTurn,
   finalizeAssistantTurn,
-  startAssistantTurn
+  startAssistantTurn,
+  toolExecutionContextFromSessionPrincipal
 } from "@opzava/runtime-control";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -38,6 +44,8 @@ interface RuntimeControlServices {
   readonly appendAssistantDelta: typeof appendAssistantDelta;
   readonly finalizeAssistantTurn: typeof finalizeAssistantTurn;
   readonly failAssistantTurn: typeof failAssistantTurn;
+  readonly executeRuntimeControlTaskTool: typeof executeRuntimeControlTaskTool;
+  readonly toolExecutionContextFromSessionPrincipal: typeof toolExecutionContextFromSessionPrincipal;
 }
 
 export interface AskAdminTurnPostDependencies {
@@ -52,7 +60,9 @@ const runtimeControlServices: RuntimeControlServices = {
   startAssistantTurn,
   appendAssistantDelta,
   finalizeAssistantTurn,
-  failAssistantTurn
+  failAssistantTurn,
+  executeRuntimeControlTaskTool,
+  toolExecutionContextFromSessionPrincipal
 };
 
 function defaultDependencies(): AskAdminTurnPostDependencies {
@@ -221,10 +231,55 @@ function completedEventFromTurn(
   };
 }
 
+function toolFailureFromError(
+  error: unknown,
+  event: Extract<OpenClawStreamEvent, { readonly type: "tool.call" }>
+): Extract<AskAdminClientStreamEvent, { readonly type: "tool.failed" }> {
+  return {
+    type: "tool.failed",
+    turnId: event.turnId,
+    toolCallId: event.toolCallId,
+    toolName: event.toolName,
+    code: errorCode(error) ?? "runtimeControl.toolExecutionFailed",
+    message: errorMessage(error),
+    state: "tool_running"
+  };
+}
+
+function toolSucceededEvent(
+  execution: Extract<RuntimeControlTaskToolExecution, { readonly status: "succeeded" }>,
+  event: Extract<OpenClawStreamEvent, { readonly type: "tool.call" }>
+): Extract<AskAdminClientStreamEvent, { readonly type: "tool.succeeded" }> {
+  return {
+    type: "tool.succeeded",
+    turnId: event.turnId,
+    toolCallId: execution.toolCallId,
+    toolName: execution.toolName,
+    output: execution.output as Readonly<Record<string, unknown>>,
+    state: "tool_running"
+  };
+}
+
+function toolFailedEvent(
+  execution: Extract<RuntimeControlTaskToolExecution, { readonly status: "failed" }>,
+  event: Extract<OpenClawStreamEvent, { readonly type: "tool.call" }>
+): Extract<AskAdminClientStreamEvent, { readonly type: "tool.failed" }> {
+  return {
+    type: "tool.failed",
+    turnId: event.turnId,
+    toolCallId: execution.toolCallId,
+    toolName: execution.toolName,
+    code: execution.code,
+    message: execution.message,
+    state: "tool_running"
+  };
+}
+
 async function handleGatewayEvent(
   event: OpenClawStreamEvent,
   controller: ReadableStreamDefaultController<Uint8Array>,
   context: AppSessionContext,
+  toolContext: ToolExecutionContext,
   deps: AskAdminTurnPostDependencies
 ): Promise<boolean> {
   const { runtime } = deps;
@@ -269,12 +324,44 @@ async function handleGatewayEvent(
     return false;
   }
 
+  if (event.type === "tool.call") {
+    writeEvent(controller, {
+      type: "tool.started",
+      turnId: event.turnId,
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      state: "tool_running"
+    });
+
+    const execution = await runtime.executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: event.toolName,
+      toolCallId: event.toolCallId,
+      args: event.args
+    });
+
+    if (!execution.ok) {
+      writeEvent(controller, toolFailureFromError(execution.error, event));
+      return false;
+    }
+
+    if (execution.value.status === "failed") {
+      writeEvent(controller, toolFailedEvent(execution.value, event));
+      return false;
+    }
+
+    writeEvent(controller, toolSucceededEvent(execution.value, event));
+    deps.revalidateTasks();
+    return false;
+  }
+
   if (event.type === "tool.completed") {
     writeEvent(controller, {
       type: "tool.succeeded",
       turnId: event.turnId,
       toolCallId: event.toolCallId,
       toolName: event.toolName,
+      output: event.output,
       state: "tool_running"
     });
     deps.revalidateTasks();
@@ -377,6 +464,24 @@ async function runAssistantStream(
     return;
   }
 
+  const toolContext = deps.runtime.toolExecutionContextFromSessionPrincipal({
+    principal: {
+      orgId: context.orgId,
+      workspaceId: context.workspaceId,
+      actor,
+      sessionId: context.sessionId
+    },
+    conversationId: input.conversationId,
+    assistantTurnId: assistantTurnValue.id,
+    commandIdempotencyKey: input.idempotencyKey
+  });
+  if (!toolContext.ok) {
+    const failure = failureEvent(toolContext.error, assistantTurnValue.id);
+    await safeFailAssistantTurn(deps.runtime, context, assistantTurnValue.id, failure);
+    writeEvent(controller, failure);
+    return;
+  }
+
   writeEvent(controller, {
     type: "queued",
     turnId: assistantTurnValue.id,
@@ -404,7 +509,7 @@ async function runAssistantStream(
 
   let sawTerminal = false;
   for await (const event of receipt.value.events) {
-    sawTerminal = await handleGatewayEvent(event, controller, context, deps);
+    sawTerminal = await handleGatewayEvent(event, controller, context, toolContext.value, deps);
     if (sawTerminal) {
       return;
     }

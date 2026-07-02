@@ -6,6 +6,8 @@ import {
   sql,
   withTenant
 } from "@opzava/adapters";
+import type { AuthorizationPort } from "@opzava/ports";
+import { ok } from "@opzava/shared-kernel";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -13,11 +15,13 @@ import {
   appendAssistantDelta,
   appendUserTurn,
   createConversation,
+  executeRuntimeControlTaskTool,
   finalizeAssistantTurn,
   recordToolOutcome,
+  type ToolExecutionContext,
   startAssistantTurn,
   toolExecutionContextFromSessionPrincipal
-} from "../application/assistant-conversations.js";
+} from "../application/index.js";
 
 interface TenantFixture {
   readonly organizationId: string;
@@ -116,6 +120,61 @@ function context(tenant: TenantFixture) {
   };
 }
 
+async function assistantToolContext(
+  tenant: TenantFixture,
+  label: string
+): Promise<ToolExecutionContext> {
+  const appContext = context(tenant);
+  const conversation = await createConversation({
+    ...appContext,
+    surface: "tasks.ask_admin",
+    assistantKey: "ask-admin-opzava"
+  });
+  expect(conversation.ok).toBe(true);
+  if (!conversation.ok) {
+    throw conversation.error;
+  }
+
+  const assistantTurn = await startAssistantTurn({
+    ...appContext,
+    conversationId: conversation.value.id,
+    idempotencyKey: `assistant-${label}`,
+    assistantKey: "ask-admin-opzava"
+  });
+  expect(assistantTurn.ok).toBe(true);
+  if (!assistantTurn.ok) {
+    throw assistantTurn.error;
+  }
+
+  const toolContext = toolExecutionContextFromSessionPrincipal({
+    principal: {
+      ...appContext,
+      sessionId: `session-${label}`
+    },
+    conversationId: conversation.value.id,
+    assistantTurnId: assistantTurn.value.id,
+    commandIdempotencyKey: `command-${label}`
+  });
+  expect(toolContext.ok).toBe(true);
+  if (!toolContext.ok) {
+    throw toolContext.error;
+  }
+
+  return toolContext.value;
+}
+
+const denyingAuthorizationPort: AuthorizationPort = {
+  async can() {
+    return ok({ allowed: false, reason: "test-denied" });
+  },
+  async hasTenantGrant() {
+    return ok({ allowed: false, reason: "test-denied" });
+  },
+  async hasProjectGrant() {
+    return ok({ allowed: false, reason: "test-denied" });
+  }
+};
+
 async function cleanupCreatedRows(): Promise<void> {
   const organizationResult = await adminPool.query<{ id: string }>(
     `select id::text as id
@@ -138,6 +197,10 @@ async function cleanupCreatedRows(): Promise<void> {
   const userIds = [...new Set([...createdUserIds, ...userResult.rows.map((row) => row.id)])];
 
   if (organizationIds.length > 0) {
+    await adminPool.query(
+      "delete from public.tasks where organization_id = any($1::uuid[])",
+      [organizationIds]
+    );
     await adminPool.query(
       "delete from public.assistant_tool_outcomes where organization_id = any($1::uuid[])",
       [organizationIds]
@@ -438,6 +501,207 @@ describe("slice 2a Runtime-Control", () => {
     });
   });
 
+  it("executes task tools through Project Management services with outcome-first idempotency", async () => {
+    const tenant = await adminCreateTenant("task-tools");
+    const toolContext = await assistantToolContext(tenant, "task-tools");
+
+    const created = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_create",
+      toolCallId: "tool-call-create",
+      args: {
+        title: "Create through Runtime-Control tool",
+        description: "Write through the Project Management service.",
+        status: "todo",
+        priority: "high",
+        labels: ["Ask Admin"]
+      }
+    });
+    expect(created).toMatchObject({
+      ok: true,
+      value: {
+        status: "succeeded",
+        output: {
+          kind: "tasks.create",
+          task: {
+            title: "Create through Runtime-Control tool",
+            status: "todo",
+            priority: "high",
+            labels: ["ask admin"]
+          }
+        }
+      }
+    });
+    if (
+      !created.ok ||
+      created.value.status !== "succeeded" ||
+      created.value.output.kind !== "tasks.create"
+    ) {
+      throw new Error("Task tool create must succeed for replay assertions.");
+    }
+    const createdTask = created.value.output.task;
+
+    const replay = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_create",
+      toolCallId: "tool-call-create",
+      args: {
+        title: "Create through Runtime-Control tool",
+        description: "Write through the Project Management service.",
+        status: "todo",
+        priority: "high",
+        labels: ["Ask Admin"]
+      }
+    });
+    expect(replay).toMatchObject({
+      ok: true,
+      value: {
+        status: "succeeded",
+        output: {
+          kind: "tasks.create",
+          task: { id: createdTask.id }
+        }
+      }
+    });
+
+    const conflictingReplay = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_create",
+      toolCallId: "tool-call-create",
+      args: {
+        title: "Different title under the same tool call id"
+      }
+    });
+    expect(conflictingReplay).toMatchObject({
+      ok: false,
+      error: { code: "runtimeControl.toolOutcomeConflict" }
+    });
+
+    const listed = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_list",
+      toolCallId: "tool-call-list",
+      args: { status: "todo", limit: 10 }
+    });
+    expect(listed).toMatchObject({
+      ok: true,
+      value: {
+        status: "succeeded",
+        output: {
+          kind: "tasks.list",
+          tasks: [{ id: createdTask.id }]
+        }
+      }
+    });
+
+    const updated = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_update",
+      toolCallId: "tool-call-update",
+      args: {
+        taskId: createdTask.id,
+        title: "Updated through Runtime-Control tool",
+        status: "done",
+        priority: "urgent",
+        labels: ["Done"]
+      }
+    });
+    expect(updated).toMatchObject({
+      ok: true,
+      value: {
+        status: "succeeded",
+        output: {
+          kind: "tasks.update",
+          task: {
+            id: createdTask.id,
+            title: "Updated through Runtime-Control tool",
+            status: "done",
+            priority: "urgent",
+            labels: ["done"]
+          }
+        }
+      }
+    });
+
+    const afterReplayList = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_list",
+      toolCallId: "tool-call-list-after-update",
+      args: { limit: 10 }
+    });
+    expect(afterReplayList).toMatchObject({
+      ok: true,
+      value: {
+        output: {
+          tasks: [{ id: createdTask.id }]
+        }
+      }
+    });
+    if (
+      !afterReplayList.ok ||
+      afterReplayList.value.status !== "succeeded" ||
+      afterReplayList.value.output.kind !== "tasks.list"
+    ) {
+      throw new Error("Task tool list must succeed for count assertions.");
+    }
+    expect(
+      afterReplayList.value.output.tasks.filter((task) => task.id === createdTask.id)
+    ).toHaveLength(1);
+  });
+
+  it("fails task tool execution closed for malformed args, authz denial, and row absence", async () => {
+    const tenant = await adminCreateTenant("task-tool-failures");
+    const toolContext = await assistantToolContext(tenant, "task-tool-failures");
+
+    const malformed = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_create",
+      toolCallId: "tool-call-malformed",
+      args: { description: "title is required" }
+    });
+    expect(malformed).toMatchObject({
+      ok: true,
+      value: {
+        status: "failed",
+        code: "malformed_args"
+      }
+    });
+
+    const denied = await executeRuntimeControlTaskTool(
+      {
+        context: toolContext,
+        toolName: "opzava_tasks_create",
+        toolCallId: "tool-call-denied",
+        args: { title: "Denied task" }
+      },
+      { taskAuthorizationPort: denyingAuthorizationPort }
+    );
+    expect(denied).toMatchObject({
+      ok: true,
+      value: {
+        status: "failed",
+        code: "forbidden"
+      }
+    });
+
+    const missing = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_update",
+      toolCallId: "tool-call-missing",
+      args: {
+        taskId: "missing-task",
+        title: "Still missing"
+      }
+    });
+    expect(missing).toMatchObject({
+      ok: true,
+      value: {
+        status: "failed",
+        code: "not_found"
+      }
+    });
+  });
+
   it("constructs tool execution context only from a session-derived principal", async () => {
     const tenant = await adminCreateTenant("context");
     const principal = {
@@ -505,6 +769,33 @@ describe("slice 2a Runtime-Control", () => {
             'ask-admin-opzava',
             'open',
             ${tenantA.userId}
+          )
+        `);
+      })
+    ).rejects.toMatchObject({ status: 403 });
+
+    await expect(
+      withTenant(tenantB.organizationId, async (tx) => {
+        await tx.execute(sql`
+          insert into public.tasks (
+            organization_id,
+            workspace_id,
+            title,
+            description,
+            status,
+            priority,
+            labels,
+            position
+          )
+          values (
+            ${tenantA.organizationId},
+            ${tenantA.workspaceId},
+            'Cross-tenant task probe',
+            '',
+            'todo',
+            'normal',
+            '{}'::text[],
+            1
           )
         `);
       })

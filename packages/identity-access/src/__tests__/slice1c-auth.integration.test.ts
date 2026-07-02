@@ -221,6 +221,12 @@ async function cleanupCreatedRows(): Promise<void> {
   createdUserIds.length = 0;
 }
 
+// This suite proves first-owner setup on a never-set-up database, but the
+// shared local DB may already hold a completed setup (e.g. the workers
+// roadmap seed). Park any existing singleton for the duration of the suite
+// and restore it afterwards so other suites keep their expected state.
+let parkedFirstOwnerSetup: Record<string, unknown> | null = null;
+
 beforeAll(async () => {
   const result = await db.execute(sql`
     select current_user as session_role, rolsuper as is_super, rolbypassrls as bypass_rls
@@ -239,6 +245,12 @@ beforeAll(async () => {
       )}`
     );
   }
+
+  const existing = await adminPool.query(
+    "select setup_attempt_id, organization_id, owner_user_id, completed_at from public.first_owner_setup"
+  );
+  parkedFirstOwnerSetup = (existing.rows[0] as Record<string, unknown> | undefined) ?? null;
+  await adminPool.query("delete from public.first_owner_setup");
 });
 
 afterEach(async () => {
@@ -246,6 +258,20 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
+  if (parkedFirstOwnerSetup !== null) {
+    await adminPool.query(
+      `insert into public.first_owner_setup
+         (singleton_id, setup_attempt_id, organization_id, owner_user_id, completed_at)
+       values (true, $1, $2, $3, $4)
+       on conflict (singleton_id) do nothing`,
+      [
+        parkedFirstOwnerSetup["setup_attempt_id"],
+        parkedFirstOwnerSetup["organization_id"],
+        parkedFirstOwnerSetup["owner_user_id"],
+        parkedFirstOwnerSetup["completed_at"]
+      ]
+    );
+  }
   await pool.end();
   await adminPool.end();
 });

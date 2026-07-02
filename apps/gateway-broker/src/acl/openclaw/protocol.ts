@@ -98,6 +98,11 @@ export interface SessionMessageEventPayload {
   readonly message?: string;
   readonly deltaText?: string;
   readonly done?: boolean;
+  readonly toolCall?: {
+    readonly id?: string;
+    readonly name?: string;
+    readonly args?: Record<string, unknown>;
+  };
   readonly error?: {
     readonly code?: string;
     readonly message?: string;

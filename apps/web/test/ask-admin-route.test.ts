@@ -4,14 +4,18 @@ import type {
   OpenClawRunRef,
   OpenClawSessionRef,
   OpenClawStreamEvent,
+  OpenClawToolCallId,
   StartAssistantStreamInput,
   StartAssistantStreamReceipt,
   ToolInventorySnapshot
 } from "@opzava/ports";
 import type { AssistantTurn } from "@opzava/runtime-control";
+import { toolExecutionContextFromSessionPrincipal } from "@opzava/runtime-control";
 import {
   DomainError,
+  makeOrgId,
   makeOpaqueExternalRef,
+  makeWorkspaceId,
   ok,
   type Result
 } from "@opzava/shared-kernel";
@@ -158,7 +162,11 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
             })
           );
         },
-        failAssistantTurn: async () => ok(assistantTurn({ status: "failed" }))
+        failAssistantTurn: async () => ok(assistantTurn({ status: "failed" })),
+        executeRuntimeControlTaskTool: async () => {
+          throw new Error("not used");
+        },
+        toolExecutionContextFromSessionPrincipal
       },
       revalidateTasks: () => {
         revalidateCalls += 1;
@@ -219,7 +227,11 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         startAssistantTurn: async () => ok(assistantTurn()),
         appendAssistantDelta: async () => ok(assistantTurn()),
         finalizeAssistantTurn: async () => ok(assistantTurn({ status: "final" })),
-        failAssistantTurn: async () => ok(assistantTurn({ status: "failed" }))
+        failAssistantTurn: async () => ok(assistantTurn({ status: "failed" })),
+        executeRuntimeControlTaskTool: async () => {
+          throw new Error("not used");
+        },
+        toolExecutionContextFromSessionPrincipal
       },
       revalidateTasks: () => undefined
     });
@@ -244,5 +256,119 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         state: "duplicate_send"
       }
     ]);
+  });
+
+  it("executes scripted task tool-call intents and streams the write-through DTO", async () => {
+    let revalidateCalls = 0;
+    const handler = createAskAdminTurnPostHandler({
+      getSessionContext: async () => context,
+      createGatewayPort: () =>
+        gatewayPort([
+          {
+            type: "tool.call",
+            turnId: "assistant-turn-1",
+            toolCallId: "tool-call-create-task" as OpenClawToolCallId,
+            toolName: "opzava_tasks_create",
+            args: { title: "Scripted fake-lane task" }
+          },
+          {
+            type: "final",
+            turnId: "assistant-turn-1",
+            content: { text: "Created Scripted fake-lane task." },
+            sessionRef: sessionRef()
+          }
+        ]),
+      runtime: {
+        appendUserTurn: async () => ok(userTurn()),
+        startAssistantTurn: async () => ok(assistantTurn()),
+        appendAssistantDelta: async () => ok(assistantTurn()),
+        finalizeAssistantTurn: async () =>
+          ok(
+            assistantTurn({
+              status: "final",
+              content: { text: "Created Scripted fake-lane task." },
+              finalizedAt: new Date("2026-07-02T00:00:01.000Z")
+            })
+          ),
+        failAssistantTurn: async () => ok(assistantTurn({ status: "failed" })),
+        executeRuntimeControlTaskTool: async () =>
+          ok({
+            status: "succeeded",
+            toolName: "opzava_tasks_create",
+            toolCallId: "tool-call-create-task",
+            output: {
+              kind: "tasks.create",
+              task: {
+                id: "task-created-1",
+                organizationId: "org-1",
+                workspaceId: "workspace-1",
+                title: "Scripted fake-lane task",
+                description: "",
+                status: "todo",
+                priority: "normal",
+                assigneeUserId: null,
+                assigneeName: null,
+                labels: [],
+                position: 1,
+                createdAt: "2026-07-02T00:00:00.000Z",
+                updatedAt: "2026-07-02T00:00:00.000Z"
+              }
+            },
+            outcome: {
+              id: "outcome-1",
+              organizationId: makeOrgId("org-1"),
+              workspaceId: makeWorkspaceId("workspace-1"),
+              turnId: "assistant-turn-1",
+              toolName: "opzava_tasks_create",
+              toolCallId: "tool-call-create-task",
+              idempotencyKey: "idempotency-1",
+              status: "succeeded",
+              requestSummary: { title: "Scripted fake-lane task" },
+              resultSummary: {},
+              targetRef: "task-created-1",
+              createdAt: new Date("2026-07-02T00:00:00.000Z"),
+              updatedAt: new Date("2026-07-02T00:00:00.000Z"),
+              completedAt: new Date("2026-07-02T00:00:00.000Z")
+            }
+          }),
+        toolExecutionContextFromSessionPrincipal
+      },
+      revalidateTasks: () => {
+        revalidateCalls += 1;
+      }
+    });
+
+    const response = await handler(
+      new Request("http://web.test/api/tasks/ask-admin/turn", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: "conversation-1",
+          prompt: "Add a task called Scripted fake-lane task",
+          idempotencyKey: "idempotency-1"
+        })
+      })
+    );
+
+    const events = await readEvents(response);
+
+    expect(events.map((event) => event.type)).toEqual([
+      "queued",
+      "tool.started",
+      "tool.succeeded",
+      "finalizing",
+      "assistant.final"
+    ]);
+    expect(events[2]).toMatchObject({
+      type: "tool.succeeded",
+      output: {
+        kind: "tasks.create",
+        task: {
+          id: "task-created-1",
+          title: "Scripted fake-lane task"
+        }
+      }
+    });
+    expect(revalidateCalls).toBe(2);
   });
 });

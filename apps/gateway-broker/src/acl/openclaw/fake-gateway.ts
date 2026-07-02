@@ -21,6 +21,7 @@ export type FakeGatewayMode =
   | "duplicate-response"
   | "mid-stream-close"
   | "protocol-mismatch"
+  | "scripted-task-tool-call"
   | "scope-inflated"
   | "startup-sidecars-once"
   | "unknown-event-family";
@@ -144,7 +145,7 @@ export class FakeOpenClawGateway {
         ok: true,
         payload: {
           tools: [
-            { name: "opzava_tasks_read", source: "core" },
+            { name: "opzava_tasks_list", source: "core" },
             { name: "opzava_tasks_create", source: "core" },
             { name: "opzava_tasks_update", source: "core" }
           ]
@@ -314,6 +315,30 @@ export class FakeOpenClawGateway {
     if (this.mode === "mid-stream-close") {
       socket.close();
       return;
+    }
+
+    if (this.mode === "scripted-task-tool-call") {
+      socket.send(
+        serializeOpenClawFrame({
+          type: "event",
+          event: "session.message",
+          payload: {
+            sessionKey: record.sessionKey,
+            runId: record.runId,
+            toolCall: {
+              id: "tool-call-create-task",
+              name: "opzava_tasks_create",
+              args: {
+                title: "Scripted fake-lane task",
+                description: "Created through Ask Admin Opzava.",
+                priority: "normal",
+                status: "todo",
+                labels: ["ask-admin"]
+              }
+            }
+          }
+        })
+      );
     }
 
     socket.send(

@@ -5,7 +5,10 @@ import type { OpenClawGatewayRouteId } from "@opzava/ports";
 import { makeOrgId, makeTenantId, makeUserId, makeWorkspaceId } from "@opzava/shared-kernel";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { FakeOpenClawGateway } from "../acl/openclaw/fake-gateway.js";
+import {
+  FakeOpenClawGateway,
+  type FakeGatewayMode
+} from "../acl/openclaw/fake-gateway.js";
 import { HmacDeviceKeypair } from "../acl/openclaw/signing.js";
 import { createBrokerInternalHttpServer } from "../internal/http-server.js";
 import { GatewayConnectionManager } from "../routing/connection-manager.js";
@@ -34,11 +37,12 @@ function createDeviceKeypair(): HmacDeviceKeypair {
   });
 }
 
-async function createFixture(): Promise<InternalHttpFixture> {
+async function createFixture(mode?: FakeGatewayMode): Promise<InternalHttpFixture> {
   const deviceKeypair = createDeviceKeypair();
   const gateway = new FakeOpenClawGateway({
     deviceKeypair,
-    pairedDeviceToken
+    pairedDeviceToken,
+    ...(mode === undefined ? {} : { mode })
   });
   await gateway.ready;
   gateways.push(gateway);
@@ -177,6 +181,38 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
       await expect(readSseTypes(response)).resolves.toEqual([
         "queued",
         "delta",
+        "delta",
+        "assistant.final"
+      ]);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it("streams scripted task tool-call intents through the authenticated internal endpoint", async () => {
+    const { broker } = await createFixture("scripted-task-tool-call");
+    const internalToken = randomUUID();
+    const server = createBrokerInternalHttpServer({
+      gatewayPort: broker,
+      internalToken
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const response = await fetch(`${baseUrl}/internal/assistant/stream`, {
+        method: "POST",
+        headers: {
+          "authorization": `Bearer ${internalToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(requestBody("internal-http-scripted-tool-call"))
+      });
+
+      expect(response.status).toBe(200);
+      await expect(readSseTypes(response)).resolves.toEqual([
+        "queued",
+        "delta",
+        "tool.call",
         "delta",
         "assistant.final"
       ]);

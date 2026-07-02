@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   createTaskAction,
@@ -11,6 +11,7 @@ import {
   AskAdminPanel,
   type AskAdminPanelProps
 } from "@/components/tasks/ask-admin-panel";
+import type { AskAdminClientStreamEvent } from "@/lib/ask-admin-stream";
 import type { TaskDto, TaskPriority, TaskStatus } from "@opzava/project-management";
 
 interface TasksBoardProps {
@@ -104,6 +105,27 @@ function priorityBadgeClassName(priority: TaskPriority): string {
   }
 
   return "badge badge-accent";
+}
+
+function isTaskDto(value: unknown): value is TaskDto {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { readonly id?: unknown }).id === "string" &&
+    typeof (value as { readonly title?: unknown }).title === "string" &&
+    typeof (value as { readonly status?: unknown }).status === "string" &&
+    typeof (value as { readonly priority?: unknown }).priority === "string" &&
+    typeof (value as { readonly position?: unknown }).position === "number"
+  );
+}
+
+function upsertTask(tasks: readonly TaskDto[], task: TaskDto): readonly TaskDto[] {
+  const existingIndex = tasks.findIndex((current) => current.id === task.id);
+  if (existingIndex === -1) {
+    return [...tasks, task];
+  }
+
+  return tasks.map((current) => (current.id === task.id ? task : current));
 }
 
 function TaskForm({
@@ -502,14 +524,19 @@ function ListView({
 }
 
 export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: TasksBoardProps) {
+  const [boardTasks, setBoardTasks] = useState<readonly TaskDto[]>(tasks);
   const [view, setView] = useState<BoardView>("kanban");
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
   const [editingTask, setEditingTask] = useState<TaskDto | undefined>(undefined);
 
+  useEffect(() => {
+    setBoardTasks(tasks);
+  }, [tasks]);
+
   const nextPositions = useMemo(() => {
     return statusColumns.reduce<Record<TaskStatus, number>>(
       (accumulator, column) => {
-        const currentMax = tasks
+        const currentMax = boardTasks
           .filter((task) => task.status === column.status)
           .reduce((max, task) => Math.max(max, task.position), 0);
         accumulator[column.status] = currentMax + 1;
@@ -517,7 +544,7 @@ export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: Task
       },
       { todo: 1, in_progress: 1, blocked: 1, done: 1 }
     );
-  }, [tasks]);
+  }, [boardTasks]);
 
   const openCreateForm = () => {
     setEditingTask(undefined);
@@ -532,6 +559,19 @@ export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: Task
   const closeForm = () => {
     setFormMode(null);
     setEditingTask(undefined);
+  };
+
+  const applyTaskToolSucceeded = (
+    event: Extract<AskAdminClientStreamEvent, { readonly type: "tool.succeeded" }>
+  ) => {
+    const outputKind = event.output["kind"];
+    const outputTask = event.output["task"];
+    if (
+      (outputKind === "tasks.create" || outputKind === "tasks.update") &&
+      isTaskDto(outputTask)
+    ) {
+      setBoardTasks((current) => upsertTask(current, outputTask));
+    }
   };
 
   return (
@@ -572,10 +612,10 @@ export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: Task
         <div
           className="task-count-summary"
           role="status"
-          aria-label={`${tasks.length} total tasks`}
+          aria-label={`${boardTasks.length} total tasks`}
         >
           <span className="dot dot-accent" aria-hidden="true" />
-          <strong>{tasks.length}</strong>
+          <strong>{boardTasks.length}</strong>
           <span className="u-subtle">total tasks</span>
         </div>
       </section>
@@ -583,9 +623,9 @@ export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: Task
       <div className="tasks-workspace">
         <div className="tasks-board-area">
           {view === "kanban" ? (
-            <KanbanView tasks={tasks} nextPositions={nextPositions} onEdit={openEditForm} />
+            <KanbanView tasks={boardTasks} nextPositions={nextPositions} onEdit={openEditForm} />
           ) : (
-            <ListView tasks={tasks} nextPositions={nextPositions} onEdit={openEditForm} />
+            <ListView tasks={boardTasks} nextPositions={nextPositions} onEdit={openEditForm} />
           )}
         </div>
 
@@ -593,6 +633,7 @@ export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: Task
           conversationId={askAdmin.conversationId}
           initialTurns={askAdmin.initialTurns}
           currentUserName={currentUser.name}
+          onToolSucceeded={applyTaskToolSucceeded}
         />
       </div>
 
