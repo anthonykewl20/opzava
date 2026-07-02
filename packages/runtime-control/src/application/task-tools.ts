@@ -231,6 +231,25 @@ function optionalString(
   return ok(normalized);
 }
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function requiredTaskId(value: unknown): Result<string> {
+  const parsed = requiredString(value, "taskId", 180);
+  if (!parsed.ok) {
+    return parsed;
+  }
+
+  // A model-supplied id that is not a UUID is a malformed argument, not a
+  // database probe; only well-formed ids may reach SQL and map to not_found.
+  if (!uuidPattern.test(parsed.value)) {
+    return err(
+      toolError("runtimeControl.toolMalformedArgs", 'Tool argument "taskId" must be a task id.')
+    );
+  }
+
+  return parsed;
+}
+
 function optionalTitle(value: unknown): Result<string | undefined> {
   if (value === undefined) {
     return ok(undefined);
@@ -420,7 +439,7 @@ function parseUpdateArgs(value: unknown): Result<ParsedToolArgs> {
     return err(unknownKeys.error);
   }
 
-  const taskId = requiredString(value["taskId"], "taskId", 180);
+  const taskId = requiredTaskId(value["taskId"]);
   const title = optionalTitle(value["title"]);
   const description = optionalString(value["description"], "description", 4000);
   const status = optionalStatus(value["status"]);

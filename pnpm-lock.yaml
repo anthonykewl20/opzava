@@ -158,6 +158,9 @@ importers:
       '@opzava/config':
         specifier: workspace:*
         version: link:../config
+      '@opzava/ports':
+        specifier: workspace:*
+        version: link:../ports
       '@opzava/shared-kernel':
         specifier: workspace:*
         version: link:../shared-kernel

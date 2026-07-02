@@ -2,7 +2,11 @@ import { createPostgresPool, db, pool, sql } from "@opzava/adapters";
 import { listTasks } from "@opzava/project-management";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { seedRoadmapTasks, type SeedRoadmapTasksReceipt } from "../roadmap.js";
+import {
+  roadmapTaskTitles,
+  seedRoadmapTasks,
+  type SeedRoadmapTasksReceipt
+} from "../roadmap.js";
 
 const adminPool = createPostgresPool(readMigrationDatabaseUrlForTest());
 
@@ -108,6 +112,21 @@ afterAll(async () => {
 describe("roadmap task seed", () => {
   it("creates the remaining roadmap once and skips it on the second run", async () => {
     cleanupFirstOwner = (await adminCountFirstOwnerSetups()) === 0;
+
+    // Self-heal: an aborted earlier run can leave canonical roadmap tasks
+    // behind (its cleanup only removes titles from its own receipt), which
+    // would break the fresh-run assertions below.
+    const existingSetup = await adminPool.query(
+      "select organization_id from public.first_owner_setup limit 1"
+    );
+    const existingOrgId = (existingSetup.rows[0] as { organization_id?: string } | undefined)
+      ?.organization_id;
+    if (existingOrgId !== undefined) {
+      await adminPool.query(
+        "delete from public.tasks where organization_id = $1 and title = any($2::text[])",
+        [existingOrgId, [...roadmapTaskTitles]]
+      );
+    }
 
     const first = await seedRoadmapTasks({ logger: null });
     lastReceipt = first;

@@ -93,6 +93,36 @@ Fallback:
   automating device-keypair pairing, and proving the operator WS handshake
   against the container through compose.
 
+2e implementation status (2026-07-02):
+
+- Implemented Opzava-owned, versioned Ask Admin Opzava artifacts
+  (`SOUL.md`, `IDENTITY.md`, `AGENTS.md`), the `ask-admin-opzava` agent config
+  fragment with `skills: []`, and the ADR-005 deny-wins tool policy source in
+  `apps/workers/src/provisioning`. The rendered receipt records hashes and a
+  `SecretsVaultPort` device-token ref only; it never records the token value.
+  Agent config and tool-policy claims still map to `docs/openclaw/gateway/config-agents.md`
+  and `docs/openclaw/gateway/config-tools.md`.
+- Implemented a worker bootstrap entry,
+  `pnpm --filter @opzava/workers bootstrap:platform-gateway`, that reads a
+  running Gateway URL, renders provisioning materials, stores a provided local
+  operator device token in a dev-only file-backed vault, and otherwise prints
+  the documented manual CLI boundary for `openclaw devices approve` /
+  `openclaw devices list`. Operator device approval is still CLI-mediated
+  because `docs/openclaw/cli/devices.md` documents approval by exact
+  `requestId`, while `docs/openclaw/gateway/pairing.md` covers node pairing
+  rather than a complete non-interactive operator-device bootstrap.
+- Implemented a profile-gated `openclaw-platform-gateway` compose service using
+  the official `ghcr.io/openclaw/openclaw:${OPENCLAW_IMAGE_TAG:-latest}` image,
+  persistent config/workspace/auth-profile volumes, `/healthz` healthcheck, no
+  Traefik labels, and no default-profile startup. This is compose material only;
+  it does not mark real OpenClaw acceptance complete.
+- Remaining real-acceptance gates: pin an exact OpenClaw image tag after the
+  first verified container run, prove the documented Gateway command/bind shape
+  against that image, approve/persist the broker paired-device token with exactly
+  `operator.write` + `operator.approvals`, and run the broker operator WS
+  handshake against the real container. Until those pass, fake-lane tests remain
+  the Slice 2 regression signal and not OpenClaw acceptance.
+
 ### 2. Operator WS handshake
 
 Recommendation: implement the broker OpenClaw client exactly to
@@ -655,3 +685,11 @@ Verdict was UNSOUND. The following resolutions are locked for implementation.
     exact version is pinned at install time and validated against the official
     `ws` docs listed in `docs/plan/official-docs.md`. Sub-slice 2a adds no new
     npm dependency.
+
+### Live bring-up findings (2026-07-02, real Gateway)
+
+- `ghcr.io/openclaw/openclaw` pulls publicly; pinned `2026.6.11` (built 2026-06-30). Same digest on docker.io.
+- Compose profile `openclaw` brings the platform Gateway UP and HEALTHY locally (`/healthz` 200 on host port 18799 via local override; 18789 is the developer's own OpenClaw).
+- Required first-run steps proven: `config set gateway.mode=local` + `gateway.bind=lan` via in-container CLI, then `OPENCLAW_GATEWAY_TOKEN` set (gateway refuses lan bind without auth — fail-closed as documented). Compose `command` must be `["node","openclaw.mjs","gateway",...]` (image entrypoint is tini; a bare `gateway` arg does not exec).
+- CLI works in-container via loopback only (`docker compose exec ... node openclaw.mjs devices list --url ws://127.0.0.1:18789/`); plaintext ws:// to non-loopback is refused by the CLI (documented security posture).
+- REMAINING for real acceptance: (1) pairing initiation — the bootstrap stops before dialing and the 2b client fails fast without a paired token, so nothing creates the pending device request yet; implement the documented connect-for-pairing path, then `devices approve` + store token via vault ref; (2) real handshake proof with the paired token; (3) a model-provider credential on the Gateway for actual agent responses (user-supplied).

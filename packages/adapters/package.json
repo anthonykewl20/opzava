@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@opzava/config": "workspace:*",
+    "@opzava/ports": "workspace:*",
     "@opzava/shared-kernel": "workspace:*",
     "dotenv": "17.4.2",
     "drizzle-orm": "0.45.2",

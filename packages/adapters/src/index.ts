@@ -4,7 +4,7 @@ export {
   withAuthenticatedIdentity,
   type AuthenticatedIdentity,
   type AuthenticatedIdentityInput,
-  type IdentityTransaction
+  type IdentityTransaction,
 } from "./postgres/identity-context.js";
 export {
   assertCurrentTenant,
@@ -12,7 +12,7 @@ export {
   assertValidTenantUuid,
   withTenant,
   type TenantQueryable,
-  type TenantTransaction
+  type TenantTransaction,
 } from "./postgres/tenant-context.js";
 export {
   ConflictError,
@@ -21,10 +21,17 @@ export {
   RuntimeDatabaseRoleError,
   TenantContextMissingError,
   isPublicDatabaseError,
-  mapDatabaseError
+  mapDatabaseError,
 } from "./postgres/errors.js";
 
 // Re-export the Drizzle `sql` tag so the BFF/server layer can build parameterized
 // read queries against the adapters `db` without taking a direct drizzle-orm
 // dependency (keeps the ADR-001 boundary: apps depend on @opzava/adapters).
 export { sql } from "drizzle-orm";
+
+export {
+  expectedLocalFileSecretReference,
+  LocalFileSecretsVault,
+  type LocalFileSecretsVaultOptions,
+  type PutLocalFileSecretInput,
+} from "./secrets/local-file-secrets-vault.js";

@@ -328,6 +328,8 @@ async function listExistingRoadmapTasks(owner: RoadmapOwnerContext): Promise<rea
   return unwrapResult(await listTasks(taskContext(owner)));
 }
 
+export const roadmapTaskTitles: readonly string[] = roadmapTasks.map((task) => task.title);
+
 function roadmapTitleSet(tasks: readonly TaskDto[]): Set<string> {
   return new Set(tasks.map((task) => task.title));
 }

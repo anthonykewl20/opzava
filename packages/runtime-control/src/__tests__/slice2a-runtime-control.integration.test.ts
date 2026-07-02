@@ -684,12 +684,29 @@ describe("slice 2a Runtime-Control", () => {
       }
     });
 
+    const malformedId = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_update",
+      toolCallId: "tool-call-malformed-id",
+      args: {
+        taskId: "missing-task",
+        title: "Still missing"
+      }
+    });
+    expect(malformedId).toMatchObject({
+      ok: true,
+      value: {
+        status: "failed",
+        code: "malformed_args"
+      }
+    });
+
     const missing = await executeRuntimeControlTaskTool({
       context: toolContext,
       toolName: "opzava_tasks_update",
       toolCallId: "tool-call-missing",
       args: {
-        taskId: "missing-task",
+        taskId: randomUUID(),
         title: "Still missing"
       }
     });

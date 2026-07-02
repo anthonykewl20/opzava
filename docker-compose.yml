@@ -57,12 +57,46 @@ services:
     networks:
       - dokploy-network
 
+  openclaw-platform-gateway:
+    profiles: ["openclaw"]
+    # Official image per docs/openclaw/install/docker.md. Keep `latest` only until
+    # the first verified real-Gateway run pins an exact OpenClaw version tag.
+    image: ghcr.io/openclaw/openclaw:${OPENCLAW_IMAGE_TAG:-latest}
+    command: ["node", "openclaw.mjs", "gateway", "--port", "18789", "--bind", "lan"]
+    environment:
+      OPENCLAW_SKIP_ONBOARDING: ${OPENCLAW_SKIP_ONBOARDING:-1}
+      OPENCLAW_DISABLE_BONJOUR: ${OPENCLAW_DISABLE_BONJOUR:-1}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+    volumes:
+      - openclaw-platform-config:/home/node/.openclaw
+      - openclaw-platform-workspace:/home/node/.openclaw/workspace
+      - openclaw-platform-auth-profiles:/home/node/.config/openclaw
+    expose:
+      - "18789"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+
 networks:
+  default:
   dokploy-network:
     external: true
 
 volumes:
   opzava-pgdata:
+  openclaw-platform-config:
+  openclaw-platform-workspace:
+  openclaw-platform-auth-profiles:
 
 secrets:
   postgres_password:
