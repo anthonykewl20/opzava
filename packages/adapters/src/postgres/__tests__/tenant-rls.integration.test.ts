@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { db, pool } from "../client.js";
+import { createPostgresDatabase, db, pool } from "../client.js";
 import { readMigrationDatabaseUrl } from "../env.js";
 import { assertCurrentTenant, withTenant } from "../tenant-context.js";
 
@@ -102,6 +102,24 @@ beforeAll(async () => {
 });
 
 describe("tenant RLS integration", () => {
+  it("rejects tenant units of work when the database role is not opzava_app", async () => {
+    const org = await adminCreateOrganization("role-guard");
+    const adminDb = createPostgresDatabase(adminPool);
+
+    await expect(
+      withTenant(
+        org.id,
+        async (tx) => {
+          await tx.execute(sql`select 1`);
+        },
+        adminDb
+      )
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "postgres.runtimeDatabaseRoleMismatch"
+    });
+  });
+
   it("isolates tenant rows by app.current_org", async () => {
     const orgA = await adminCreateOrganization("read-a");
     const orgB = await adminCreateOrganization("read-b");

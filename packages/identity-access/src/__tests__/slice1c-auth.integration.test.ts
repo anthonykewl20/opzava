@@ -19,6 +19,9 @@ const ownerEmail = `owner-${testRunId}@example.test`;
 const otherEmail = `other-${testRunId}@example.test`;
 const secondSetupEmail = `second-owner-${testRunId}@example.test`;
 const ownerPassword = "Correct-Horse-Battery-Staple-1";
+const failedSetupIdempotencyKey = `${testRunId}-slice1c-fail`;
+const createdSetupIdempotencyKey = `${testRunId}-slice1c-create`;
+const secondSetupIdempotencyKey = `${testRunId}-slice1c-second`;
 const adminPool = createPostgresPool(readMigrationDatabaseUrlForTest());
 
 const createdOrganizationIds: string[] = [];
@@ -47,6 +50,33 @@ function rowsFromExecuteResult(result: unknown): ReadonlyArray<Record<string, un
   return Array.isArray(rows) ? (rows as ReadonlyArray<Record<string, unknown>>) : [];
 }
 
+function slugifyForSetup(value: string, fallback: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+
+  return slug === "" ? fallback : slug;
+}
+
+function setupOrganizationSlug(organizationName: string, idempotencyKey: string): string {
+  return `${slugifyForSetup(organizationName, "organization")}-${idempotencyKey.slice(0, 8)}`;
+}
+
+const setupEmails = [ownerEmail, secondSetupEmail];
+const setupAttemptIds = [
+  failedSetupIdempotencyKey,
+  createdSetupIdempotencyKey,
+  secondSetupIdempotencyKey
+];
+const setupOrganizationSlugs = [
+  setupOrganizationSlug("Opzava Internal", failedSetupIdempotencyKey),
+  setupOrganizationSlug("Opzava Internal", createdSetupIdempotencyKey),
+  setupOrganizationSlug("Second Org", secondSetupIdempotencyKey)
+];
+
 async function adminCount(table: string): Promise<number> {
   const allowedTables = new Set([
     "auth_users",
@@ -63,7 +93,64 @@ async function adminCount(table: string): Promise<number> {
     throw new Error(`Unexpected count table ${table}`);
   }
 
-  const result = await adminPool.query(`select count(*)::int as count from public.${table}`);
+  const countQueries: Record<string, { readonly text: string; readonly values: unknown[] }> = {
+    auth_users: {
+      text: "select count(*)::int as count from public.auth_users where email = any($1::text[])",
+      values: [setupEmails]
+    },
+    auth_accounts: {
+      text: `select count(*)::int as count
+             from public.auth_accounts a
+             join public.auth_users u on u.id = a.user_id
+             where u.email = any($1::text[])`,
+      values: [setupEmails]
+    },
+    auth_sessions: {
+      text: `select count(*)::int as count
+             from public.auth_sessions s
+             join public.auth_users u on u.id = s.user_id
+             where u.email = any($1::text[])`,
+      values: [setupEmails]
+    },
+    organizations: {
+      text: "select count(*)::int as count from public.organizations where slug = any($1::text[])",
+      values: [setupOrganizationSlugs]
+    },
+    workspaces: {
+      text: `select count(*)::int as count
+             from public.workspaces w
+             join public.organizations o on o.id = w.organization_id
+             where o.slug = any($1::text[])`,
+      values: [setupOrganizationSlugs]
+    },
+    memberships: {
+      text: `select count(*)::int as count
+             from public.memberships m
+             join public.organizations o on o.id = m.organization_id
+             where o.slug = any($1::text[])`,
+      values: [setupOrganizationSlugs]
+    },
+    role_grants: {
+      text: `select count(*)::int as count
+             from public.role_grants r
+             join public.organizations o on o.id = r.organization_id
+             where o.slug = any($1::text[])`,
+      values: [setupOrganizationSlugs]
+    },
+    first_owner_setup: {
+      text: `select count(*)::int as count
+             from public.first_owner_setup
+             where setup_attempt_id = any($1::text[])`,
+      values: [setupAttemptIds]
+    }
+  };
+
+  const query = countQueries[table];
+  if (query === undefined) {
+    throw new Error(`Unexpected count table ${table}`);
+  }
+
+  const result = await adminPool.query(query.text, query.values);
   return Number(result.rows[0]?.["count"] ?? 0);
 }
 
@@ -104,12 +191,14 @@ async function cleanupCreatedRows(): Promise<void> {
       "delete from public.first_owner_setup where organization_id = any($1::uuid[])",
       [organizationIds]
     );
-    await adminPool.query("delete from public.role_grants where organization_id = any($1::uuid[])", [
-      organizationIds
-    ]);
-    await adminPool.query("delete from public.memberships where organization_id = any($1::uuid[])", [
-      organizationIds
-    ]);
+    await adminPool.query(
+      "delete from public.role_grants where organization_id = any($1::uuid[])",
+      [organizationIds]
+    );
+    await adminPool.query(
+      "delete from public.memberships where organization_id = any($1::uuid[])",
+      [organizationIds]
+    );
     await adminPool.query("delete from public.workspaces where organization_id = any($1::uuid[])", [
       organizationIds
     ]);
@@ -162,7 +251,7 @@ afterAll(async () => {
 });
 
 describe("slice 1c auth acceptance", () => {
-  it("proves atomic first-owner setup, DB sessions, identity discovery, and tenant denial", async () => {
+  it("proves atomic setup, DB sessions, identity discovery, and tenant denial", async () => {
     const authPort = new BetterAuthPortAdapter(db);
 
     const failingSetup = new FirstOwnerSetupService({
@@ -182,7 +271,7 @@ describe("slice 1c auth acceptance", () => {
       organizationName: "Opzava Internal",
       workspaceName: "Admin",
       timezone: "Asia/Manila",
-      idempotencyKey: `slice1c-fail-${testRunId}`
+      idempotencyKey: failedSetupIdempotencyKey
     });
 
     expect(failed.ok).toBe(false);
@@ -202,7 +291,7 @@ describe("slice 1c auth acceptance", () => {
       organizationName: "Opzava Internal",
       workspaceName: "Admin",
       timezone: "Asia/Manila",
-      idempotencyKey: `slice1c-create-${testRunId}`
+      idempotencyKey: createdSetupIdempotencyKey
     });
 
     expect(created.ok).toBe(true);
@@ -233,7 +322,7 @@ describe("slice 1c auth acceptance", () => {
       organizationName: "Second Org",
       workspaceName: "Second Workspace",
       timezone: "Asia/Manila",
-      idempotencyKey: `slice1c-second-${testRunId}`
+      idempotencyKey: secondSetupIdempotencyKey
     });
 
     expect(second).toMatchObject({ ok: true, value: { status: "already-set-up" } });

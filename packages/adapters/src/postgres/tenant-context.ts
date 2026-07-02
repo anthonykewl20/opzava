@@ -1,7 +1,11 @@
 import { sql, type SQL } from "drizzle-orm";
 
 import { db } from "./client.js";
-import { mapDatabaseError, TenantContextMissingError } from "./errors.js";
+import {
+  mapDatabaseError,
+  RuntimeDatabaseRoleError,
+  TenantContextMissingError
+} from "./errors.js";
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -57,6 +61,27 @@ export async function assertCurrentTenant(
   }
 }
 
+export async function assertRuntimeDatabaseRole(client: TenantQueryable): Promise<void> {
+  try {
+    const result = await client.execute(sql`
+      select current_user as session_role, rolsuper as is_super, rolbypassrls as bypass_rls
+      from pg_roles
+      where rolname = current_user
+    `);
+    const row = rowsFromExecuteResult(result)[0];
+
+    if (
+      row?.["session_role"] !== "opzava_app" ||
+      row?.["is_super"] === true ||
+      row?.["bypass_rls"] === true
+    ) {
+      throw new RuntimeDatabaseRoleError();
+    }
+  } catch (error) {
+    throw mapDatabaseError(error);
+  }
+}
+
 export async function withTenant<T>(
   orgId: string,
   fn: (tx: TenantTransaction) => Promise<T> | T,
@@ -66,6 +91,7 @@ export async function withTenant<T>(
 
   try {
     const result = await database.transaction(async (tx) => {
+      await assertRuntimeDatabaseRole(tx);
       // Invariant: the tenant GUC is set only after Drizzle has opened BEGIN for
       // this transaction, so it scopes to fn()'s queries and cannot leak across
       // PgBouncer transaction-pooled connections. set_config(..., true) binds the

@@ -8,6 +8,7 @@ export {
 } from "./postgres/identity-context.js";
 export {
   assertCurrentTenant,
+  assertRuntimeDatabaseRole,
   assertValidTenantUuid,
   withTenant,
   type TenantQueryable,
@@ -17,6 +18,7 @@ export {
   ConflictError,
   DatabaseOperationError,
   ForbiddenError,
+  RuntimeDatabaseRoleError,
   TenantContextMissingError,
   isPublicDatabaseError,
   mapDatabaseError

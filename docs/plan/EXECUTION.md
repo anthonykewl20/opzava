@@ -29,8 +29,8 @@ Do not let this document become aspirational. If implementation changes the plan
 | Field | Value |
 | --- | --- |
 | Active slice | Slice 2 - Ask Admin Opzava on Tasks |
-| Status | not-started |
-| Next concrete action | Slice 1 (Admin Tasks MVP, 1a-1f) is COMPLETE + verify-deep green on branch `slice/1-admin-tasks-mvp` @ `50de556` (PR #121 open to `development`). Begin Slice 2: provision one platform OpenClaw agent reachable only through the broker and add a streaming Ask Admin Opzava chat panel on the Tasks board. Decided 2026-07-02: after Slice 2, thin CRM core (Slice 3) and thin Marketing content pipeline (Slice 4) come BEFORE full P1-P3; re-order the dogfood Tasks board seed to match during Slice 2. |
+| Status | in-progress |
+| Next concrete action | Slice 1 merged (#121) + docs-sync merged (#122); on branch `slice/2-ask-admin-opzava`. Slice 2 design memo in progress (codex-exec) -> `docs/plan/research/slice2-ask-admin-opzava.md`; then implement sub-slices per the memo. Decided 2026-07-02: after Slice 2, thin CRM core (Slice 3) and thin Marketing content pipeline (Slice 4) come BEFORE full P1-P3; re-order the dogfood Tasks board seed to match during Slice 2. |
 | Blockers | None |
 
 ## Operating Mode
@@ -148,7 +148,7 @@ Bounded contexts: Identity & Access, Project Management, Tenant Provisioning, Pl
 
 ### Slice 2 - Ask Admin Opzava on Tasks
 
-Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
+Status: [ ] not-started | [x] in-progress | [ ] blocked | [ ] done
 
 Goal: Add the first admin assistant loop so Ask Admin Opzava can read, create, and update admin Tasks through streaming chat.
 
