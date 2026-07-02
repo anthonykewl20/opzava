@@ -113,12 +113,19 @@ export interface SessionMessageEventPayload {
 }
 
 export interface ChatEventPayload {
-  readonly sessionKey?: string;
+  readonly state?: "delta" | "final" | "aborted" | "error" | string;
   readonly runId?: string;
-  readonly message?: string;
+  readonly sessionKey?: string;
+  readonly agentId?: string;
+  readonly spawnedBy?: string;
+  readonly seq?: number;
+  readonly message?: unknown;
   readonly deltaText?: string;
-  readonly done?: boolean;
   readonly replace?: boolean;
+  readonly usage?: unknown;
+  readonly stopReason?: string;
+  readonly errorMessage?: string;
+  readonly errorKind?: string;
 }
 
 export interface ToolsEffectivePayload {

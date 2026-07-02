@@ -67,6 +67,7 @@ interface ActiveStream {
   readonly sessionKey: string;
   readonly turnId: string;
   readonly queue: AsyncQueue<OpenClawStreamEvent>;
+  readonly seenChatSeqs: Set<number>;
   text: string;
   runId?: string;
 }
@@ -175,6 +176,53 @@ function recordValue(value: unknown): Readonly<Record<string, unknown>> | null {
   return isRecord(value) ? value : null;
 }
 
+function textFromMessage(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  return (
+    stringValue(value["text"]) ?? stringValue(value["content"]) ?? stringValue(value["message"])
+  );
+}
+
+function sanitizedStreamCode(value: unknown, fallback: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    return fallback;
+  }
+
+  const sanitized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return sanitized === "" ? fallback : sanitized;
+}
+
+function textFromGatewayError(error: DomainError): string {
+  const message = typeof error.details?.["message"] === "string" ? error.details["message"] : "";
+  const code = typeof error.details?.["code"] === "string" ? error.details["code"] : "";
+  const reason = typeof error.details?.["reason"] === "string" ? error.details["reason"] : "";
+  return `${error.message} ${code} ${reason} ${message}`.toLowerCase();
+}
+
+function isAlreadyExistsError(error: DomainError): boolean {
+  const text = textFromGatewayError(error);
+  return (
+    text.includes("already exists") ||
+    text.includes("already-exists") ||
+    text.includes("already_exists")
+  );
+}
+
+function isSessionNotFoundError(error: DomainError): boolean {
+  return textFromGatewayError(error).includes("session not found");
+}
+
 export class OpenClawOperatorClient {
   private readonly route: GatewayRouteConfig;
   private readonly requestTimeoutMs: number;
@@ -187,6 +235,7 @@ export class OpenClawOperatorClient {
   private readonly pending = new Map<string, PendingRequest>();
   private readonly respondedIds = new Set<string>();
   private readonly activeStreams = new Map<string, ActiveStream>();
+  private readonly createdSessionKeys = new Set<string>();
   private requestSequence = 0;
   private socket: WebSocket | undefined;
   private policy: HelloPolicy = defaultPolicy;
@@ -210,6 +259,7 @@ export class OpenClawOperatorClient {
 
   public disconnect(): void {
     this.connected = false;
+    this.createdSessionKeys.clear();
     this.rejectPending(
       gatewayBrokerError("gatewayBroker.connectionClosed", "OpenClaw connection closed."),
     );
@@ -294,26 +344,42 @@ export class OpenClawOperatorClient {
       return err(connected.error);
     }
 
-    const sessionKey = input.sessionRef?.value ?? input.conversationId;
+    // The live Gateway canonicalizes session keys to `agent:<agentId>:<name>` and
+    // publishes chat events under the CANONICAL key; derive it ourselves so
+    // create/send/subscribe and event correlation all agree.
+    const rawSessionKey = input.sessionRef?.value ?? input.conversationId;
+    const sessionKey = rawSessionKey.startsWith("agent:")
+      ? rawSessionKey
+      : `agent:${input.assistantKey}:${rawSessionKey}`;
     const stream: ActiveStream = {
       sessionKey,
       turnId: input.turnId,
       queue: new AsyncQueue<OpenClawStreamEvent>(),
+      seenChatSeqs: new Set<number>(),
       text: "",
     };
     this.activeStreams.set(sessionKey, stream);
     stream.queue.push({ type: "queued", turnId: input.turnId });
 
-    const response = await this.request(
-      "sessions.send",
-      {
-        sessionKey,
-        agentId: input.assistantKey,
-        message: input.prompt,
-        conversationId: input.conversationId,
-      },
-      { sideEffect: true, idempotencyKey: input.idempotencyKey },
-    );
+    const created = await this.ensureSessionCreated(sessionKey, input.assistantKey);
+    if (!created.ok) {
+      this.activeStreams.delete(sessionKey);
+      stream.queue.close();
+      return err(created.error);
+    }
+
+    let response = await this.sendSessionMessage(input, sessionKey);
+    if (!response.ok && isSessionNotFoundError(response.error)) {
+      this.createdSessionKeys.delete(sessionKey);
+      const recreated = await this.ensureSessionCreated(sessionKey, input.assistantKey, {
+        force: true,
+      });
+      if (recreated.ok) {
+        response = await this.sendSessionMessage(input, sessionKey);
+      } else {
+        response = err(recreated.error);
+      }
+    }
 
     if (!response.ok) {
       this.activeStreams.delete(sessionKey);
@@ -322,7 +388,8 @@ export class OpenClawOperatorClient {
     }
 
     const payload = isRecord(response.value) ? response.value : {};
-    const responseSessionKey = stringValue(payload["sessionKey"]) ?? sessionKey;
+    const responseSessionKey =
+      stringValue(payload["key"]) ?? stringValue(payload["sessionKey"]) ?? sessionKey;
     const runId = stringValue(payload["runId"]) ?? `run:${input.idempotencyKey}`;
     stream.runId = runId;
 
@@ -330,6 +397,22 @@ export class OpenClawOperatorClient {
       this.activeStreams.delete(sessionKey);
       this.activeStreams.set(responseSessionKey, stream);
     }
+
+    void this.request(
+      "sessions.messages.subscribe",
+      { key: responseSessionKey, agentId: input.assistantKey },
+      { sideEffect: false },
+    ).then((subscribed) => {
+      if (!subscribed.ok) {
+        this.logger.warn(
+          {
+            routeId: this.route.routeId,
+            code: subscribed.error.code,
+          },
+          "OpenClaw session message subscribe failed; continuing on sender chat stream.",
+        );
+      }
+    });
 
     return ok({
       sessionRef: externalSessionRef(responseSessionKey),
@@ -346,6 +429,7 @@ export class OpenClawOperatorClient {
       return err(connected.error);
     }
 
+    // Live sessions.create rejects idempotencyKey; duplicate-key failures are normalized below.
     const response = await this.request(
       "tools.effective",
       { sessionKey: input.sessionRef.value },
@@ -388,6 +472,66 @@ export class OpenClawOperatorClient {
       toolNames,
       checkedAt: new Date(),
     });
+  }
+
+  private async ensureSessionCreated(
+    sessionKey: string,
+    agentId: string,
+    options: { readonly force?: boolean } = {},
+  ): Promise<Result<void>> {
+    if (options.force !== true && this.createdSessionKeys.has(sessionKey)) {
+      return ok(undefined);
+    }
+
+    const response = await this.request(
+      "sessions.create",
+      { key: sessionKey, agentId },
+      { sideEffect: false },
+    );
+    if (!response.ok) {
+      if (isAlreadyExistsError(response.error)) {
+        this.createdSessionKeys.add(sessionKey);
+        return ok(undefined);
+      }
+
+      return err(response.error);
+    }
+
+    if (isRecord(response.value) && response.value["ok"] === false) {
+      const message =
+        stringValue(response.value["message"]) ??
+        stringValue(response.value["error"]) ??
+        "OpenClaw Gateway rejected session creation.";
+      const code = stringValue(response.value["code"]) ?? "gatewayBroker.requestFailed";
+      const createError = gatewayBrokerError("gatewayBroker.requestFailed", message, {
+        code,
+        message,
+      });
+      if (isAlreadyExistsError(createError)) {
+        this.createdSessionKeys.add(sessionKey);
+        return ok(undefined);
+      }
+
+      return err(createError);
+    }
+
+    this.createdSessionKeys.add(sessionKey);
+    return ok(undefined);
+  }
+
+  private async sendSessionMessage(
+    input: StartAssistantStreamInput,
+    sessionKey: string,
+  ): Promise<Result<unknown>> {
+    return await this.request(
+      "sessions.send",
+      {
+        key: sessionKey,
+        agentId: input.assistantKey,
+        message: input.prompt,
+      },
+      { sideEffect: true, idempotencyKey: input.idempotencyKey },
+    );
   }
 
   private async connectOnce(): Promise<Result<void>> {
@@ -739,16 +883,13 @@ export class OpenClawOperatorClient {
 
   private handleEvent(frame: OpenClawEventFrame): void {
     if (!isAllowedEventFamily(frame.event)) {
+      // Fail closed = never project an unrecognized payload; the connection and
+      // active streams stay healthy (the live gateway emits benign operational
+      // families we do not consume). Only protocol-integrity violations kill
+      // the connection.
       this.logger.warn(
         { routeId: this.route.routeId, event: frame.event, family: eventFamily(frame.event) },
-        "OpenClaw event family failed closed.",
-      );
-      this.failConnection(
-        gatewayBrokerError(
-          "gatewayBroker.unknownEventFamily",
-          "OpenClaw Gateway emitted an unknown event family.",
-          { event: frame.event },
-        ),
+        "OpenClaw event family ignored (fail-closed, not projected).",
       );
       return;
     }
@@ -779,7 +920,25 @@ export class OpenClawOperatorClient {
 
     const runId = stringValue(record.runId);
     if (runId !== null) {
+      if (stream.runId !== undefined && runId !== stream.runId) {
+        return;
+      }
       stream.runId = runId;
+    }
+
+    if (typeof record.state === "string") {
+      // The live Gateway reuses the last delta's seq on the terminal event
+      // (observed: delta seq 16 then final seq 16), so seq-dedup applies to
+      // deltas only; terminal states always pass (finalization upstream is
+      // idempotent).
+      if (record.state === "delta" && typeof record.seq === "number") {
+        if (stream.seenChatSeqs.has(record.seq)) {
+          return;
+        }
+        stream.seenChatSeqs.add(record.seq);
+      }
+      this.handleChatStreamState(stream, sessionKey, record);
+      return;
     }
 
     if (record.error !== undefined) {
@@ -824,13 +983,81 @@ export class OpenClawOperatorClient {
       stream.queue.push({
         type: "final",
         turnId: stream.turnId,
-        content: { text: typeof record.message === "string" ? record.message : stream.text },
+        content: { text: textFromMessage(record.message) ?? stream.text },
         sessionRef: externalSessionRef(sessionKey),
         ...(stream.runId === undefined ? {} : { runRef: externalRunRef(stream.runId) }),
       });
       stream.queue.close();
       this.activeStreams.delete(sessionKey);
     }
+  }
+
+  private handleChatStreamState(
+    stream: ActiveStream,
+    sessionKey: string,
+    record: ChatEventPayload,
+  ): void {
+    if (record.state === "delta") {
+      if (typeof record.deltaText === "string" && record.deltaText !== "") {
+        stream.text =
+          record.replace === true ? record.deltaText : `${stream.text}${record.deltaText}`;
+        stream.queue.push({
+          type: "delta",
+          turnId: stream.turnId,
+          deltaText: record.deltaText,
+        });
+      }
+      return;
+    }
+
+    if (record.state === "final") {
+      stream.queue.push({
+        type: "final",
+        turnId: stream.turnId,
+        content: { text: textFromMessage(record.message) ?? stream.text },
+        sessionRef: externalSessionRef(sessionKey),
+        ...(stream.runId === undefined ? {} : { runRef: externalRunRef(stream.runId) }),
+      });
+      stream.queue.close();
+      this.activeStreams.delete(sessionKey);
+      return;
+    }
+
+    if (record.state === "aborted") {
+      stream.queue.push({
+        type: "failed",
+        turnId: stream.turnId,
+        code: "aborted",
+        message: textFromMessage(record.message) ?? "OpenClaw stream aborted.",
+      });
+      stream.queue.close();
+      this.activeStreams.delete(sessionKey);
+      return;
+    }
+
+    if (record.state === "error") {
+      stream.queue.push({
+        type: "failed",
+        turnId: stream.turnId,
+        code: sanitizedStreamCode(record.errorKind ?? record.errorMessage, "openclaw_stream_error"),
+        message:
+          stringValue(record.errorMessage) ??
+          textFromMessage(record.message) ??
+          "OpenClaw stream failed.",
+      });
+      stream.queue.close();
+      this.activeStreams.delete(sessionKey);
+      return;
+    }
+
+    stream.queue.push({
+      type: "failed",
+      turnId: stream.turnId,
+      code: "openclaw_unknown_chat_state",
+      message: "OpenClaw emitted an unknown chat stream state.",
+    });
+    stream.queue.close();
+    this.activeStreams.delete(sessionKey);
   }
 
   private handleApprovalEvent(payload: unknown): void {
@@ -864,6 +1091,7 @@ export class OpenClawOperatorClient {
   private handleSocketClosed(): void {
     this.connected = false;
     this.socket = undefined;
+    this.createdSessionKeys.clear();
     this.rejectPending(
       gatewayBrokerError("gatewayBroker.connectionClosed", "OpenClaw connection closed."),
     );
@@ -878,6 +1106,7 @@ export class OpenClawOperatorClient {
     this.rejectPending(error);
     this.failActiveStreams(error.code, error.message);
     this.connected = false;
+    this.createdSessionKeys.clear();
     this.socket?.close();
     this.socket = undefined;
   }

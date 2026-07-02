@@ -676,6 +676,28 @@ following resolutions are locked for implementation.
   (platform, userAgent, client version), so issuance and validation use the same bootstrap constants.
   Shared-token connects may materialize broader scopes, but the immediate validation re-dial must be
   exactly the hot-path set plus `operator.read`.
+- Live wire-schema correction from the running `2026.6.11` dist source:
+  `sessions.create` creates an existing-session target before send and accepts `{ key?, agentId?,
+  label?, model?, parentSessionKey?, emitCommandHooks?, task?, message? }`; `sessions.send` sends
+  into an existing session and accepts `key`, optional `agentId`, `message`, optional execution
+  hints, and optional `idempotencyKey` with `additionalProperties:false`. This matches
+  `docs/openclaw/gateway/protocol.md` session-control wording that `sessions.create` creates a
+  session and `sessions.send` sends into an existing session. `sessions.resolve` accepts `{ key?,
+  sessionId?, label?, agentId?, spawnedBy?, includeGlobal?, includeUnknown?, allowMissing? }`.
+  `sessionKey` and `conversationId` are rejected from `sessions.send` as unexpected properties.
+  `tools.effective` remains inconsistent and requires `sessionKey` plus optional `agentId`;
+  `tools.invoke` accepts `name`, optional `args`, optional `sessionKey`, optional `agentId`,
+  optional `confirm`, and optional `idempotencyKey`. Live `chat` events are state-based: base payload
+  `runId`, `sessionKey`, optional `agentId`, optional `spawnedBy`, and `seq`, with states `delta`,
+  `final`, `aborted`, and `error`. The broker now sends `sessions.create { key, agentId }` once per
+  connection/session key before `sessions.send`, treats already-exists-style create responses as
+  success, retries send exactly once after `session not found`, sends `sessions.send.key`, keeps the
+  Opzava conversation binding in the key value, parses the send result defensively, maps
+  `chat.state` to normalized stream events, and defensively calls `sessions.messages.subscribe`
+  after send with chat `seq` dedupe because `docs/openclaw/gateway/protocol.md` only states that
+  `session.message` updates are for subscribed sessions while `chat` sender-delivery semantics are
+  not explicit. Fake-Gateway duplicate `sessions.create` is accepted as an explicit fake-lane
+  assumption because duplicate-create behavior is not specified in the vendored docs.
 
 ### Live proof (2026-07-03)
 

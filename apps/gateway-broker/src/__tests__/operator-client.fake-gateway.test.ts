@@ -13,6 +13,7 @@ import {
   EXPECTED_OPERATOR_SCOPES,
   parseOpenClawFrame,
   serializeOpenClawFrame,
+  type OpenClawRequestFrame,
   type OpenClawResponseFrame,
 } from "../acl/openclaw/protocol.js";
 import {
@@ -152,10 +153,17 @@ async function rawConnect(input: {
     readonly deviceToken?: string;
     readonly bootstrapToken?: string;
   };
+  readonly afterConnectRequest?: OpenClawRequestFrame;
+  readonly afterConnectRequests?: readonly OpenClawRequestFrame[];
 }): Promise<OpenClawResponseFrame> {
   const socket = new WebSocket(input.gateway.url, { perMessageDeflate: false });
 
   return await new Promise<OpenClawResponseFrame>((resolve, reject) => {
+    let connected = false;
+    const queuedRequests = [
+      ...(input.afterConnectRequest === undefined ? [] : [input.afterConnectRequest]),
+      ...(input.afterConnectRequests ?? []),
+    ];
     const timeout = setTimeout(() => {
       socket.close();
       reject(new Error("Timed out waiting for raw connect response."));
@@ -233,6 +241,22 @@ async function rawConnect(input: {
       }
 
       if (frame?.type === "res") {
+        if (
+          !connected &&
+          frame.id === "connect:raw-test" &&
+          frame.ok &&
+          queuedRequests.length > 0
+        ) {
+          connected = true;
+          socket.send(serializeOpenClawFrame(queuedRequests.shift() as OpenClawRequestFrame));
+          return;
+        }
+
+        if (connected && frame.ok && queuedRequests.length > 0) {
+          socket.send(serializeOpenClawFrame(queuedRequests.shift() as OpenClawRequestFrame));
+          return;
+        }
+
         clearTimeout(timeout);
         socket.close();
         resolve(frame);
@@ -376,6 +400,119 @@ describe("[fake-gateway] broker operator client", () => {
     });
   });
 
+  it("rejects the stale sessions.send wire shape with unexpected properties", async () => {
+    const deviceKeypair = createDeviceKeypair();
+    const gateway = new FakeOpenClawGateway({
+      deviceKeypair,
+      pairedDeviceToken,
+    });
+    await gateway.ready;
+    gateways.push(gateway);
+
+    await expect(
+      rawConnect({
+        gateway,
+        deviceKeypair,
+        clientId: "cli",
+        clientMode: "cli",
+        afterConnectRequest: {
+          type: "req",
+          id: "sessions.send:bad-shape",
+          method: "sessions.send",
+          params: {
+            sessionKey: "conversation-1",
+            conversationId: "conversation-1",
+            agentId: "ask-admin-opzava",
+            message: "Create a task",
+            idempotencyKey: "bad-shape-idempotency",
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "BAD_REQUEST",
+        message: 'unexpected property "sessionKey"',
+      },
+    });
+  });
+
+  it("rejects sessions.send when the session was not created first", async () => {
+    const deviceKeypair = createDeviceKeypair();
+    const gateway = new FakeOpenClawGateway({
+      deviceKeypair,
+      pairedDeviceToken,
+    });
+    await gateway.ready;
+    gateways.push(gateway);
+
+    await expect(
+      rawConnect({
+        gateway,
+        deviceKeypair,
+        clientId: "cli",
+        clientMode: "cli",
+        afterConnectRequest: {
+          type: "req",
+          id: "sessions.send:missing-session",
+          method: "sessions.send",
+          params: {
+            key: "agent:ask-admin-opzava:conversation-1",
+            agentId: "ask-admin-opzava",
+            message: "Create a task",
+            idempotencyKey: "missing-session-idempotency",
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "NOT_FOUND",
+        message: "session not found: agent:ask-admin-opzava:conversation-1",
+      },
+    });
+  });
+
+  it("tolerates duplicate sessions.create requests for the same key in the fake lane", async () => {
+    const deviceKeypair = createDeviceKeypair();
+    const gateway = new FakeOpenClawGateway({
+      deviceKeypair,
+      pairedDeviceToken,
+    });
+    await gateway.ready;
+    gateways.push(gateway);
+
+    await expect(
+      rawConnect({
+        gateway,
+        deviceKeypair,
+        clientId: "cli",
+        clientMode: "cli",
+        afterConnectRequests: [
+          {
+            type: "req",
+            id: "sessions.create:first",
+            method: "sessions.create",
+            params: { key: "agent:ask-admin-opzava:conversation-1", agentId: "ask-admin-opzava" },
+          },
+          {
+            type: "req",
+            id: "sessions.create:second",
+            method: "sessions.create",
+            params: { key: "agent:ask-admin-opzava:conversation-1", agentId: "ask-admin-opzava" },
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      payload: {
+        key: "agent:ask-admin-opzava:conversation-1",
+        alreadyExisted: true,
+      },
+    });
+    expect(gateway.sessionCreateCount).toBe(2);
+  });
+
   it("negotiates protocol v4 and streams one idempotent session request", async () => {
     const { broker, gateway } = await createBrokerFixture();
     const first = await broker.startAssistantStream(startInput("same-idempotency-key"));
@@ -393,10 +530,17 @@ describe("[fake-gateway] broker operator client", () => {
         type: "final",
         turnId: "turn-1",
         content: { text: "Created the task." },
-        sessionRef: { system: "openclaw", kind: "session", value: "conversation-1" },
+        sessionRef: { system: "openclaw", kind: "session", value: "agent:ask-admin-opzava:conversation-1" },
         runRef: { system: "openclaw", kind: "run", value: "run:same-idempotency-key" },
       },
     ]);
+    expect(gateway.lastSessionSendParams).toEqual({
+      key: "agent:ask-admin-opzava:conversation-1",
+      agentId: "ask-admin-opzava",
+      message: "Create a task",
+      idempotencyKey: "same-idempotency-key",
+    });
+    expect(gateway.sessionCreateCount).toBe(1);
 
     const tools = await broker.getEffectiveTools({
       sessionRef: first.value.sessionRef,
@@ -417,6 +561,7 @@ describe("[fake-gateway] broker operator client", () => {
       },
     });
     expect(gateway.sessionRequestCount).toBe(2);
+    expect(gateway.sessionCreateCount).toBe(1);
 
     const driftedTools = await broker.getEffectiveTools({
       sessionRef: first.value.sessionRef,
@@ -458,6 +603,75 @@ describe("[fake-gateway] broker operator client", () => {
 
     expect(result.ok).toBe(true);
     expect(gateway.connectionCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("creates once again and retries sessions.send once when the session was pruned", async () => {
+    const { broker, gateway } = await createBrokerFixture({
+      mode: "session-pruned-once-before-send",
+    });
+    const result = await broker.startAssistantStream(startInput());
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw result.error;
+    }
+
+    const events = await collectUntilTerminal(result.value.events);
+    expect(events.at(-1)).toMatchObject({ type: "final" });
+    expect(gateway.sessionCreateCount).toBe(2);
+    expect(gateway.sessionRequestCount).toBe(2);
+  });
+
+  it("does not loop forever when sessions.send keeps reporting session not found", async () => {
+    const { broker, gateway } = await createBrokerFixture({
+      mode: "session-pruned-always-before-send",
+    });
+    const result = await broker.startAssistantStream(startInput());
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "gatewayBroker.requestFailed",
+        details: { message: "session not found: agent:ask-admin-opzava:conversation-1" },
+      },
+    });
+    expect(gateway.sessionCreateCount).toBe(2);
+    expect(gateway.sessionRequestCount).toBe(2);
+  });
+
+  it("maps live chat aborted state to a failed stream event", async () => {
+    const { broker } = await createBrokerFixture({ mode: "chat-aborted" });
+    const result = await broker.startAssistantStream(startInput());
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw result.error;
+    }
+
+    const events = await collectUntilTerminal(result.value.events);
+    expect(events).toContainEqual({ type: "delta", turnId: "turn-1", deltaText: "Created " });
+    expect(events.at(-1)).toEqual({
+      type: "failed",
+      turnId: "turn-1",
+      code: "aborted",
+      message: "OpenClaw run was aborted.",
+    });
+  });
+
+  it("maps live chat error state to a sanitized failed stream event", async () => {
+    const { broker } = await createBrokerFixture({ mode: "chat-error" });
+    const result = await broker.startAssistantStream(startInput());
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw result.error;
+    }
+
+    const events = await collectUntilTerminal(result.value.events);
+    expect(events).toContainEqual({ type: "delta", turnId: "turn-1", deltaText: "Created " });
+    expect(events.at(-1)).toEqual({
+      type: "failed",
+      turnId: "turn-1",
+      code: "rate_limit",
+      message: "Provider rate limit.",
+    });
   });
 
   it("rejects shared-secret hot-path configuration before connecting", async () => {
@@ -531,7 +745,7 @@ describe("[fake-gateway] broker operator client", () => {
     });
   });
 
-  it("turns unknown event families into sanitized failed stream events", async () => {
+  it("ignores unknown event families without projecting them and finishes the run", async () => {
     const { broker } = await createBrokerFixture({ mode: "unknown-event-family" });
     const result = await broker.startAssistantStream(startInput());
     expect(result.ok).toBe(true);
@@ -540,10 +754,9 @@ describe("[fake-gateway] broker operator client", () => {
     }
 
     const events = await collectUntilTerminal(result.value.events);
-    expect(events.at(-1)).toMatchObject({
-      type: "failed",
-      code: "gatewayBroker.unknownEventFamily",
-    });
+    expect(events.some((event) => "deltaText" in event)).toBe(true);
+    expect(events.at(-1)).toMatchObject({ type: "final" });
+    expect(JSON.stringify(events)).not.toContain("runtime.secret");
   });
 
   it("fails the stream when the socket dies mid-stream", async () => {

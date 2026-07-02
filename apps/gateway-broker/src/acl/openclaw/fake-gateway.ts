@@ -25,9 +25,13 @@ import {
 export type FakeGatewayMode =
   | "normal"
   | "auth-scope-mismatch"
+  | "chat-aborted"
+  | "chat-error"
   | "duplicate-response"
   | "mid-stream-close"
   | "protocol-mismatch"
+  | "session-pruned-always-before-send"
+  | "session-pruned-once-before-send"
   | "scripted-task-tool-call"
   | "scope-inflated"
   | "startup-sidecars-once"
@@ -56,13 +60,17 @@ export class FakeOpenClawGateway {
   private readonly pairedDeviceToken: string;
   private readonly sharedGatewayToken: string;
   private readonly mode: FakeGatewayMode;
+  private readonly createdSessionKeys = new Set<string>();
+  private readonly prunedSessionKeys = new Set<string>();
   private readonly sessionsByIdempotencyKey = new Map<string, FakeGatewaySessionRecord>();
   private readonly issuedDeviceTokens = new Set<string>();
   public readonly ready: Promise<void>;
   private startupUnavailableSent = false;
   private connectionCountValue = 0;
+  private sessionCreateCountValue = 0;
   private sessionRequestCountValue = 0;
   private issuedDeviceTokenSequence = 0;
+  private lastSessionSendParamsValue: Record<string, unknown> | undefined;
 
   public constructor(options: FakeGatewayOptions) {
     this.deviceKeypair = options.deviceKeypair;
@@ -98,6 +106,14 @@ export class FakeOpenClawGateway {
 
   public get sessionRequestCount(): number {
     return this.sessionRequestCountValue;
+  }
+
+  public get sessionCreateCount(): number {
+    return this.sessionCreateCountValue;
+  }
+
+  public get lastSessionSendParams(): Readonly<Record<string, unknown>> | undefined {
+    return this.lastSessionSendParamsValue;
   }
 
   public async close(): Promise<void> {
@@ -151,7 +167,23 @@ export class FakeOpenClawGateway {
       return;
     }
 
+    if (frame.method === "sessions.create") {
+      this.handleSessionCreate(socket, frame);
+      return;
+    }
+
+    if (frame.method === "sessions.messages.subscribe") {
+      this.handleSessionMessagesSubscribe(socket, frame);
+      return;
+    }
+
     if (frame.method === "tools.effective") {
+      const shapeError = this.validateExactParams(frame.params, ["sessionKey", "agentId"]);
+      if (shapeError !== null || this.stringParam(frame.params, "sessionKey") === null) {
+        this.badRequest(socket, frame.id, shapeError ?? "sessionKey is required");
+        return;
+      }
+
       this.sendResponse(socket, {
         type: "res",
         id: frame.id,
@@ -278,7 +310,12 @@ export class FakeOpenClawGateway {
         protocol: OPENCLAW_PROTOCOL_VERSION,
         server: { version: "fake-gateway", connId: randomUUID() },
         features: {
-          methods: ["sessions.send", "tools.effective"],
+          methods: [
+            "sessions.create",
+            "sessions.send",
+            "sessions.messages.subscribe",
+            "tools.effective",
+          ],
           events: ["chat", "session.message", "exec.approval.requested"],
         },
         snapshot: {},
@@ -304,9 +341,39 @@ export class FakeOpenClawGateway {
 
   private handleSessionSend(socket: WebSocket, frame: OpenClawRequestFrame): void {
     this.sessionRequestCountValue += 1;
+    this.lastSessionSendParamsValue = { ...frame.params };
+
+    const shapeError = this.validateExactParams(frame.params, [
+      "key",
+      "agentId",
+      "message",
+      "thinking",
+      "attachments",
+      "timeoutMs",
+      "idempotencyKey",
+    ]);
+    if (shapeError !== null) {
+      this.badRequest(socket, frame.id, shapeError);
+      return;
+    }
+
+    const sessionKey = this.stringParam(frame.params, "key");
+    if (sessionKey === null) {
+      this.badRequest(socket, frame.id, "key is required");
+      return;
+    }
+
+    if (typeof frame.params["message"] !== "string") {
+      this.badRequest(socket, frame.id, "message must be string");
+      return;
+    }
+
+    if (this.shouldPruneBeforeSend(sessionKey) || !this.createdSessionKeys.has(sessionKey)) {
+      this.sessionNotFound(socket, frame.id, sessionKey);
+      return;
+    }
 
     const idempotencyKey = this.stringParam(frame.params, "idempotencyKey");
-    const sessionKey = this.stringParam(frame.params, "sessionKey") ?? "fake-session";
     if (idempotencyKey === null) {
       this.sendResponse(socket, {
         type: "res",
@@ -331,7 +398,7 @@ export class FakeOpenClawGateway {
       type: "res",
       id: frame.id,
       ok: true,
-      payload: { sessionKey: record.sessionKey, runId: record.runId },
+      payload: { key: record.sessionKey, runId: record.runId },
     };
     this.sendResponse(socket, response);
 
@@ -348,10 +415,61 @@ export class FakeOpenClawGateway {
           payload: { redacted: false },
         }),
       );
+      // Live gateways interleave benign unknown families with the run stream;
+      // the client must ignore them and still finish the run.
+      this.emitStream(socket, record);
       return;
     }
 
     this.emitStream(socket, record);
+  }
+
+  private handleSessionCreate(socket: WebSocket, frame: OpenClawRequestFrame): void {
+    this.sessionCreateCountValue += 1;
+
+    const shapeError = this.validateExactParams(frame.params, [
+      "key",
+      "agentId",
+      "label",
+      "model",
+      "parentSessionKey",
+      "emitCommandHooks",
+      "task",
+      "message",
+    ]);
+    if (shapeError !== null) {
+      this.badRequest(socket, frame.id, shapeError);
+      return;
+    }
+
+    const sessionKey = this.stringParam(frame.params, "key") ?? `session:${randomUUID()}`;
+    const alreadyExisted = this.createdSessionKeys.has(sessionKey);
+    this.createdSessionKeys.add(sessionKey);
+
+    this.sendResponse(socket, {
+      type: "res",
+      id: frame.id,
+      ok: true,
+      payload: {
+        key: sessionKey,
+        alreadyExisted,
+      },
+    });
+  }
+
+  private handleSessionMessagesSubscribe(socket: WebSocket, frame: OpenClawRequestFrame): void {
+    const shapeError = this.validateExactParams(frame.params, ["key", "agentId"]);
+    if (shapeError !== null || this.stringParam(frame.params, "key") === null) {
+      this.badRequest(socket, frame.id, shapeError ?? "key is required");
+      return;
+    }
+
+    this.sendResponse(socket, {
+      type: "res",
+      id: frame.id,
+      ok: true,
+      payload: { subscribed: true },
+    });
   }
 
   private emitStream(socket: WebSocket, record: FakeGatewaySessionRecord): void {
@@ -360,8 +478,11 @@ export class FakeOpenClawGateway {
         type: "event",
         event: "chat",
         payload: {
-          sessionKey: record.sessionKey,
           runId: record.runId,
+          sessionKey: record.sessionKey,
+          agentId: "ask-admin-opzava",
+          seq: 0,
+          state: "delta",
           deltaText: "Created ",
         },
       }),
@@ -369,6 +490,43 @@ export class FakeOpenClawGateway {
 
     if (this.mode === "mid-stream-close") {
       socket.close();
+      return;
+    }
+
+    if (this.mode === "chat-aborted") {
+      socket.send(
+        serializeOpenClawFrame({
+          type: "event",
+          event: "chat",
+          payload: {
+            runId: record.runId,
+            sessionKey: record.sessionKey,
+            agentId: "ask-admin-opzava",
+            seq: 1,
+            state: "aborted",
+            message: "OpenClaw run was aborted.",
+          },
+        }),
+      );
+      return;
+    }
+
+    if (this.mode === "chat-error") {
+      socket.send(
+        serializeOpenClawFrame({
+          type: "event",
+          event: "chat",
+          payload: {
+            runId: record.runId,
+            sessionKey: record.sessionKey,
+            agentId: "ask-admin-opzava",
+            seq: 1,
+            state: "error",
+            errorKind: "rate_limit",
+            errorMessage: "Provider rate limit.",
+          },
+        }),
+      );
       return;
     }
 
@@ -399,23 +557,30 @@ export class FakeOpenClawGateway {
     socket.send(
       serializeOpenClawFrame({
         type: "event",
-        event: "session.message",
+        event: "chat",
         payload: {
-          sessionKey: record.sessionKey,
           runId: record.runId,
+          sessionKey: record.sessionKey,
+          agentId: "ask-admin-opzava",
+          seq: 2,
+          state: "delta",
           deltaText: "the task.",
         },
       }),
     );
+    // Mirror the live Gateway: the terminal event REUSES the last delta's seq
+    // (observed live: delta seq 16 then final seq 16).
     socket.send(
       serializeOpenClawFrame({
         type: "event",
-        event: "session.message",
+        event: "chat",
         payload: {
-          sessionKey: record.sessionKey,
           runId: record.runId,
+          sessionKey: record.sessionKey,
+          agentId: "ask-admin-opzava",
+          seq: 2,
+          state: "final",
           message: "Created the task.",
-          done: true,
         },
       }),
     );
@@ -558,6 +723,54 @@ export class FakeOpenClawGateway {
   private stringParam(params: Record<string, unknown>, key: string): string | null {
     const value = params[key];
     return typeof value === "string" && value.trim() !== "" ? value : null;
+  }
+
+  private validateExactParams(
+    params: Record<string, unknown>,
+    allowedKeys: readonly string[],
+  ): string | null {
+    const allowed = new Set(allowedKeys);
+    const unexpected = Object.keys(params).find((key) => !allowed.has(key));
+    return unexpected === undefined ? null : `unexpected property "${unexpected}"`;
+  }
+
+  private shouldPruneBeforeSend(sessionKey: string): boolean {
+    if (this.mode === "session-pruned-always-before-send") {
+      this.createdSessionKeys.delete(sessionKey);
+      return true;
+    }
+
+    if (
+      this.mode === "session-pruned-once-before-send" &&
+      !this.prunedSessionKeys.has(sessionKey)
+    ) {
+      this.prunedSessionKeys.add(sessionKey);
+      this.createdSessionKeys.delete(sessionKey);
+      return true;
+    }
+
+    return false;
+  }
+
+  private sessionNotFound(socket: WebSocket, id: string, sessionKey: string): void {
+    this.sendResponse(socket, {
+      type: "res",
+      id,
+      ok: false,
+      error: {
+        code: "NOT_FOUND",
+        message: `session not found: ${sessionKey}`,
+      },
+    });
+  }
+
+  private badRequest(socket: WebSocket, id: string, message: string): void {
+    this.sendResponse(socket, {
+      type: "res",
+      id,
+      ok: false,
+      error: { code: "BAD_REQUEST", message },
+    });
   }
 
   private sendResponse(socket: WebSocket, frame: OpenClawResponseFrame): void {

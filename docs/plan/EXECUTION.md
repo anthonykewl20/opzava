@@ -82,7 +82,7 @@ Author each skill with `writing-great-skills` before the first slice that needs 
 | `openclaw-gateway-provisioning` | Captures docker-socket-proxy usage, `GatewayRuntimePort`, dynamic Gateway containers, Traefik labels, leases, and reaper constraints. | Slice 0 | [x] created — `.claude/skills/openclaw-gateway-provisioning/` |
 | `better-auth` | Captures Better Auth behind `AuthPort`, revocable DB sessions, TOTP/passkeys, disabled cookie cache, and in-transaction invitation re-validation. | Slice 1 | [x] created — `.claude/skills/better-auth/` |
 | `opzava-conventions` | Project skill for `withTenant` RLS wrapper, two-token split, projections-are-cache, tool-policy-first, and other local invariants. | Slice 1 | [x] created — `.claude/skills/opzava-conventions/` |
-| `opzava-task-authoring` | How agents (Ask Admin, local Claude Code via MCP) write task cards humans understand: imperative titles, context/impact/evidence descriptions, verifiable steps with owners, status-forward comments, label/priority semantics. | Slice 2.5 | [ ] to build |
+| `opzava-task-authoring` | How agents (Ask Admin, local Claude Code via MCP) write task cards humans understand: imperative titles, context/impact/evidence descriptions, verifiable steps with owners, status-forward comments, label/priority semantics. | Slice 2.5 | [x] created — `.claude/skills/opzava-task-authoring/` |
 
 ## The Build
 
