@@ -8,7 +8,7 @@ use the `handoff` skill. Do not skip ahead; keep the doc in sync with reality.
 ## Doc map (reference — `EXECUTION.md` is the control surface)
 - `ARCHITECTURE.md` — the whole system in ~5 minutes (bounded contexts, ports, invariants, deployment, ADR index).
 - `docs/plan/roadmap.md` — the phased product roadmap (P1–P8) after the MVP.
-- `docs/plan/grilling-decisions.md` — the canonical design record (Q1–Q15, every invariant).
+- `docs/plan/grilling-decisions.md` — the canonical design record (Q1–Q16, every invariant).
 - `docs/plan/official-docs.md` — official documentation registry; validate every API against it before coding.
 - `docs/adr/` — 15 ADRs (architecture decisions). `docs/prd/` — 18 PRDs (product specs).
 - `docs/plan/capability-parity.md` — every screen: OpenClaw-native vs Opzava-owned vs hybrid.

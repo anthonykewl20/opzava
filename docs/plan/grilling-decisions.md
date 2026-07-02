@@ -369,13 +369,44 @@ Walking-skeleton MVP + phased P1–P8 build order locked from mmx consensus → 
 Opzava tracks its own build); roadmap P1–P8 remain the phase-detail reference, EXECUTION.md controls order.
 Consensus trail: `docs/plan/consensus/q15-mvp-roadmap.mmx.md`.
 
+## Q16 — Platform orchestrator runtime + local coding harness — LOCKED (2026-07-03)
+- **Orchestrator model:** ChatGPT/Codex **subscription OAuth** (operator's GPT Pro account) drives `openai/gpt-5.5` through
+  OpenClaw's **native Codex app-server runtime** on the platform Gateway, powering **Ask Admin Opzava / Ask Opzava** (the
+  orchestrator chat services). `auth.order.openai` places a direct **API-key profile as automatic fallback**; OpenClaw
+  auth-monitoring surfaces any silent fallback as an admin-observability event ("running on metered API billing").
+  **Tripwire:** move to a dedicated account/API-key profile BEFORE external users or scheduled marketing automation (P5).
+- **Auth ops:** OAuth profiles are per-environment interactive sign-ins (refresh tokens non-portable; SecretRef explicitly
+  rejected for OAuth material) → one documented in-container runbook step per environment; tokens persist in the
+  `openclaw-platform-auth-profiles` volume and never leave the environment they were minted in.
+- **Streaming:** agent runtimes are embedded below the session layer, so the broker's deltaText relay is runtime-agnostic
+  (verified: `docs/openclaw/concepts/agent-runtimes.md`).
+- **Local coding harness:** the developer's **Claude Code runs locally** and connects to **Opzava's own MCP server**, which
+  exposes exactly the governed `opzava_tasks_*` registry (Slice 2d path: same validation, outcome-first receipts,
+  forbidden ≠ not_found). **Not** ACP-hosted — ACP spawns the harness on the gateway host, which contradicts local-first
+  dev work; ACP harness sessions are revisited in P1 for Opzava-dispatched code work. Gateway `mcp.servers` registration
+  of the same server is **deferred to P1**: the first gateway-native consumer (standing orders/cron) forces the
+  autonomous-agent principal question, which is ADR-008 territory — do not wire authority-less tool access earlier.
+- **Authority (hybrid on-behalf-of):** the link credential binds (human user + client identity `claude-code`); execution
+  authority comes ONLY from the human's RBAC/RLS; every audit/tool-outcome row records actor + via-client. Client-supplied
+  tenant/user/workspace ids are never authority (the 2d invariant, unchanged).
+- **Credential:** scoped revocable **link token** (admin-UI issued, shown once, stored hashed, `tasks:read`/`tasks:write`
+  scopes, expiry, dies with membership/session-version revocation). Upgrade to a true device-authorization flow at the
+  multi-user tripwire, validated against Better Auth official docs at that time (P8/PRD-013 already anticipates this).
+- → **Slice 2.5** (after Slice 2, before Slice 3 CRM): Opzava MCP server + link tokens + Claude Code connect recipe +
+  audit attribution. Acceptance: a local Claude Code session lists/creates/moves a Task and it appears live on the admin
+  board; a revoked token fails with a clean auth error; task activity shows actor-via-claude-code.
+- OpenClaw parity citations: `docs/openclaw/providers/openai.md` (subscription OAuth explicitly supported; `auth.order`
+  fallback), `auth-credential-semantics.md` (OAuth non-portability, SecretRef guard), `concepts/agent-runtimes.md`
+  (embedded runtimes), `tools/acp-agents.md` (ACP = gateway-hosted harness), `cli/mcp.md` (MCP surfaces).
+
 ---
 
-## Grilling status — COMPLETE ✅ (Q1–Q15)
+## Grilling status — COMPLETE ✅ (Q1–Q16)
 All architecture branches locked with paired codex + mmx consensus: **Q1** BFF+DB · **Q1b** stack · **Q2** pure-B tenancy · **Q3**
 WS broker+scoped token · **Q4** contexts+CQRS+ACL · **Q4b** knowledge mgmt+two-token · **Q4c** tool-policy-first security · **Q5**
 RBAC+RLS · **Q6** auth (Better Auth) · **Q7** realtime+chat+assistants+PWA/Push · **Q8** AI Workforce · **Q9** error→admin-card ·
 **Q10** CRM · **Q11** dept workflows · **Q12** billing+provisioning · **Q13** capability-parity map + ADR/PRD backlog ·
-**Q14** local⇄Dokploy parity · **Q15** MVP roadmap.
+**Q14** local⇄Dokploy parity · **Q15** MVP roadmap · **Q16** orchestrator runtime + local coding harness (user-grilled, no
+paired consensus — decisions taken interactively 2026-07-03).
 The grilling sequence is complete. Design is realized in ADR-001..015 + PRD-001..018; execution is controlled by
 `docs/plan/EXECUTION.md`.

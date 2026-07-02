@@ -30,7 +30,7 @@ Do not let this document become aspirational. If implementation changes the plan
 | --- | --- |
 | Active slice | Slice 2 - Ask Admin Opzava on Tasks |
 | Status | in-progress |
-| Next concrete action | Slice 2 sub-slices 2a-2f implemented + committed on `slice/2-ask-admin-opzava` (design memo + spark red-team in `docs/plan/research` + `consensus`). 4/5 deliverables done; live real-Gateway proof complete (pairing + validated handshake). Remaining: install ask-admin agent config into the platform Gateway, model-provider credential (user-owned), real-agent acceptance run, then verify-deep + PR. Seed reorder to the decided order (Slice 3 CRM, Slice 4 Marketing before P1-P3) is done. |
+| Next concrete action | Slice 2 sub-slices 2a-2f implemented + committed on `slice/2-ask-admin-opzava`; 4/5 deliverables done; live real-Gateway proof complete. Remaining per Q16: install ask-admin agent config (model `openai/gpt-5.5`, native Codex runtime) into the platform Gateway, operator runs the per-environment Codex subscription OAuth sign-in (in-container runbook step) + configures `auth.order.openai` API-key fallback, real-agent acceptance run, then verify-deep + PR. Then Slice 2.5 (Q16): local Claude Code on Tasks via the Opzava MCP server. |
 | Blockers | None |
 
 ## Operating Mode
@@ -43,7 +43,7 @@ Opzava runs single-tenant internally first to market and promote Opzava itself. 
 | --- | --- |
 | `ARCHITECTURE.md` | System overview: bounded contexts, ports, invariants, deployment topology, ADR index. |
 | `docs/plan/roadmap.md` | Phase detail after the admin Tasks MVP; this doc controls execution order. |
-| `docs/plan/grilling-decisions.md` | Locked design record and sad-path invariants from Q1-Q15. |
+| `docs/plan/grilling-decisions.md` | Locked design record and sad-path invariants from Q1-Q16. |
 | `docs/plan/official-docs.md` | Official documentation registry; validate every API against it before coding. |
 | `docs/adr/` | Accepted architecture decisions ADR-001 through ADR-015. |
 | `docs/prd/` | Product contracts PRD-001 through PRD-018. |
@@ -83,7 +83,7 @@ Author each skill with `writing-great-skills` before the first slice that needs 
 
 Execute slices in order. Slice 1 is the dogfood MVP. From Slice 1 onward, all phase work is tracked inside the admin Tasks board.
 
-Decided order (2026-07-02, operationalizes the Operating Mode): Slice 0 -> Slice 1 -> Slice 2 -> Slice 3 (CRM core, thin) -> Slice 4 (Marketing content pipeline, thin) -> P1..P8 remainders. Slice 2 stays first because the broker/AI loop is the keystone both Marketing (agent-drafted content) and CRM (assistant/support drafts) depend on.
+Decided order (2026-07-02, operationalizes the Operating Mode; Slice 2.5 added 2026-07-03 per Q16): Slice 0 -> Slice 1 -> Slice 2 -> Slice 2.5 (local Claude Code on Tasks via MCP) -> Slice 3 (CRM core, thin) -> Slice 4 (Marketing content pipeline, thin) -> P1..P8 remainders. Slice 2 stays first because the broker/AI loop is the keystone both Marketing (agent-drafted content) and CRM (assistant/support drafts) depend on.
 
 ### Slice 0 - De-risk spike (throwaway)
 
@@ -169,6 +169,32 @@ ADR refs: ADR-003, ADR-008, ADR-009, ADR-013
 PRD refs: PRD-005, PRD-018
 
 Bounded contexts: Runtime-Control, AI Workforce, Project Management, Internal Collaboration, Notifications/Admin-Observability
+
+### Slice 2.5 - Local Claude Code on Tasks via MCP (Q16)
+
+Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
+
+Goal: The developer's local Claude Code session controls the admin Tasks board through Opzava's own MCP server, under the Q16 hybrid on-behalf-of authority model. Design record: `docs/plan/grilling-decisions.md` Q16.
+
+Deliverables:
+
+- [ ] Opzava-hosted MCP server exposing exactly the Slice 2d tool registry (`opzava_tasks_list/create/update`) - same validation, outcome-first receipts, forbidden vs not_found semantics; built consumer-agnostic so P1 gateway `mcp.servers` registration is pure config.
+- [ ] Scoped revocable link token: admin-UI issuance page (shown once, stored hashed, `tasks:read`/`tasks:write` scopes, expiry), listed + revocable like sessions, dies with membership/session-version revocation.
+- [ ] MCP credential verification constructs the on-behalf-of `ToolExecutionContext` (authority = linked human's RBAC/RLS only; client identity `claude-code` stamped on receipts; client-supplied ids never authority).
+- [ ] Claude Code connect recipe (`.mcp.json` entry + docs) with no secrets committed.
+- [ ] Task activity/audit shows actor-via-client attribution in the admin UI.
+
+Skills: `nodejs`, `better-auth`*, `opzava-conventions`*, `tdd`
+
+Acceptance / usable-signal: From a local Claude Code session: list the board, create a task, move it - changes appear live in the admin UI; revoke the link token and the next call fails with a clean auth error; the task activity shows the human actor via claude-code.
+
+ADR refs: ADR-005 (on-behalf-of), ADR-007, ADR-004; Q16
+
+PRD refs: PRD-003 (tasks), PRD-013 (local tool link, anticipated)
+
+Bounded contexts: Runtime-Control, Project Management, Identity & Access
+
+Deferred to P1: gateway `mcp.servers` registration of the same server (requires the autonomous-agent principal, ADR-008); ACP-hosted coding sessions.
 
 ### Slice 3 - CRM core (thin, pulled forward from P4)
 
@@ -429,6 +455,7 @@ Per slice:
 
 ## Worklog
 
+- 2026-07-03 - Q16 GRILLED + LOCKED (orchestrator runtime + local coding harness): ChatGPT/Codex subscription OAuth drives `openai/gpt-5.5` via OpenClaw's native Codex runtime on the platform Gateway (shared personal GPT Pro accepted for the internal phase; `auth.order.openai` API-key fallback + auth-monitoring; tripwire to dedicated account before external users/P5 automation); per-environment interactive sign-in (OAuth non-portable); broker streaming verified runtime-agnostic; local Claude Code connects via an Opzava-hosted MCP server exposing the 2d task-tool registry (NOT ACP - that spawns the harness on the gateway host; ACP revisited in P1); hybrid on-behalf-of authority (human's RBAC/RLS + client attribution); scoped revocable link token now, device-authorization flow at the multi-user tripwire. New Slice 2.5 inserted before Slice 3. Slice 2's remaining credential step is now the Codex OAuth sign-in, not an API key.
 - 2026-07-03 - Slice 2 sub-slices 2a-2f GREEN + committed; live real-Gateway proof COMPLETE. 2a `@opzava/runtime-control` (turn state machine, outcome-first receipts, 0003 RLS with composite tenant FKs, withTenant role assert) after a spark red-team of the design memo (UNSOUND -> 9 findings resolved). 2b broker operator client + adversarial fake Gateway (found: ws success callback passes null not undefined). 2c internal-token SSE endpoint + OpenClawGatewayPort adapter + chat panel (broker env lazy; stream-state logic pure-TS for vitest). 2d governed task tools through PM services (UUID-shaped taskId rule; forbidden vs not_found split). 2e agent artifacts + provisioning receipts + compose profile `openclaw`; real image pinned 2026.6.11 and brought up healthy. 2f seed reorder (18 tasks, decided order) + protocol alignment to the LIVE gateway (client id/mode enums, sha256-raw device id, v2 signature payload, auth.deviceToken vs auth.token, metadata-bound approvals, implied operator.read) — vendored docs were stale on several of these; every fact verified in the running container and the fake tightened to match. Live loop proven: pairing request -> devices approve -> fresh device token vaulted by ref -> validation handshake protocol 4, scopes exactly write+approvals+read. Test-infra hardenings en route: slice1c suite parks/restores the first_owner_setup singleton; roadmap seed test self-heals leftovers; run-unique identifiers across suites. Remaining for slice-done: agent config install into the Gateway, model-provider credential (user), real-agent acceptance, verify-deep, PR.
 - 2026-07-02 - Execution order DECIDED (user; resolves audit S1-2): Slice 2 stays next (the broker/AI loop is the keystone Marketing and CRM both need), then business value pulls forward — new Slice 3 (CRM core, thin P4 subset) and Slice 4 (Marketing content pipeline, thin P5 subset) inserted before P1-P3; P4/P5 sections now carry the remainders. Follow-up owned by Slice 2: re-order the dogfood Tasks board seed to the new slice order.
 - 2026-07-02 - Docs deep-audit + sync fixes (codex-exec audit -> `docs/plan/audits/2026-07-02-docs-audit.md`, 21 findings, all applied except S1-2 which is a user decision). Fixed: roadmap.md superseded banner + historical P0/P0.5 markers; grilling-decisions.md Q13/Q15 recorded, Drizzle locked (was `Prisma|Drizzle TBD`), stale "Next Q13" queue removed, status now Q1-Q15; ADR-014/PRD-014 billing language recast as deferred null-adapter now / Stripe future design; official-docs.md gained missing registry rows + a "Current locked pins" section; new `docs/plan/consensus/README.md` + `docs/plan/research/README.md` frozen-evidence indexes; HISTORICAL banners on q13/q15 memos; TS 6.0.3 raw pin marked superseded; backlog.md marked planning-input with partial-chain note; CLAUDE.md doc map + this doc's Reference Map now cover backlog/consensus/research/audits/ux-law. Open decision (audit S1-2): operationalize "Marketing + CRM first" vs current Slice 2 -> P1..P8 order.
