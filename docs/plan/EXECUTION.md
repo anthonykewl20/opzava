@@ -79,6 +79,7 @@ Author each skill with `writing-great-skills` before the first slice that needs 
 | `openclaw-gateway-provisioning` | Captures docker-socket-proxy usage, `GatewayRuntimePort`, dynamic Gateway containers, Traefik labels, leases, and reaper constraints. | Slice 0 | [x] created — `.claude/skills/openclaw-gateway-provisioning/` |
 | `better-auth` | Captures Better Auth behind `AuthPort`, revocable DB sessions, TOTP/passkeys, disabled cookie cache, and in-transaction invitation re-validation. | Slice 1 | [x] created — `.claude/skills/better-auth/` |
 | `opzava-conventions` | Project skill for `withTenant` RLS wrapper, two-token split, projections-are-cache, tool-policy-first, and other local invariants. | Slice 1 | [x] created — `.claude/skills/opzava-conventions/` |
+| `opzava-task-authoring` | How agents (Ask Admin, local Claude Code via MCP) write task cards humans understand: imperative titles, context/impact/evidence descriptions, verifiable steps with owners, status-forward comments, label/priority semantics. | Slice 2.5 | [ ] to build |
 
 ## The Build
 
@@ -171,31 +172,35 @@ PRD refs: PRD-005, PRD-018
 
 Bounded contexts: Runtime-Control, AI Workforce, Project Management, Internal Collaboration, Notifications/Admin-Observability
 
-### Slice 2.5 - Local Claude Code on Tasks via MCP (Q16)
+### Slice 2.5 - Local Claude Code on Tasks via MCP + live Task Card (Q16)
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: The developer's local Claude Code session controls the admin Tasks board through Opzava's own MCP server, under the Q16 hybrid on-behalf-of authority model. Design record: `docs/plan/grilling-decisions.md` Q16.
+Goal: The developer's local Claude Code session controls the admin Tasks board through Opzava's own MCP server (Q16 hybrid on-behalf-of authority), and the Task card detail matches `ux-redesign/mockups/essential-card.html` with every card feature working and live. Agent-written cards read like a human wrote them (task-authoring skill).
 
 Deliverables:
 
-- [ ] Opzava-hosted MCP server exposing exactly the Slice 2d tool registry (`opzava_tasks_list/create/update`) - same validation, outcome-first receipts, forbidden vs not_found semantics; built consumer-agnostic so P1 gateway `mcp.servers` registration is pure config.
-- [ ] Scoped revocable link token: admin-UI issuance page (shown once, stored hashed, `tasks:read`/`tasks:write` scopes, expiry), listed + revocable like sessions, dies with membership/session-version revocation.
-- [ ] MCP credential verification constructs the on-behalf-of `ToolExecutionContext` (authority = linked human's RBAC/RLS only; client identity `claude-code` stamped on receipts; client-supplied ids never authority).
-- [ ] Claude Code connect recipe (`.mcp.json` entry + docs) with no secrets committed.
+- [ ] Task model extension: human-readable card id (per-workspace sequence + copy chip), due date, provenance ("added ... from ..."), watchers, Steps checklist (per-step assignee, done state, counter), Comments (human + AI-attributed, timestamps).
+- [ ] Card detail page per the mockup: id chip, title, status/label/due chips, assigned-to with AI badge, watching avatars, Mark done, Overview tab fully functional; AI Run tab shows REAL assistant turn/tool-outcome traces linked to the task (runtime-control receipts via target refs); Evidence & Files and Quality Review tabs render honest PRD-017 empty states (data arrives P3/P1 - never fake data).
+- [ ] AI liveness WITHOUT the P2 hub (derived from runtime-control stream/receipt state over the 2c SSE pattern): "assistant working..." on a step, "assistant is replying..." in comments, "Read by <assistant>" when the agent session consumed a comment; task-activity SSE feed (outbox/task events) so board + card update live on MCP/assistant mutations.
+- [ ] @-mention popover in the comment composer; mentioning the assistant creates an assistant reply turn through the existing Slice 2 loop.
+- [ ] Opzava-hosted MCP server exposing the governed task tool registry EXTENDED to the card surface (steps/comments/due/watchers CRUD alongside list/create/update) - same validation, outcome-first receipts, forbidden vs not_found; consumer-agnostic so P1 gateway `mcp.servers` registration is pure config.
+- [ ] Scoped revocable link token (admin-UI issuance, shown once, hashed, `tasks:read`/`tasks:write`, expiry, dies with membership/session-version) + on-behalf-of `ToolExecutionContext` from the credential (client ids never authority) + `.mcp.json` connect recipe.
+- [ ] GitHub issue linkage behind an agnostic `IssueTrackerPort` (GitHub adapter; credential via vault ref, never committed): a Task can link to a repo issue (opaque external ref on the card with the `#NN` chip), and the Issues admin page per `ux-redesign/mockups/issues.html` shows the synced issue table (number, title + triage labels, assignee, updated, status), "Synced with GitHub ... updated N min ago", and a "Sync now" action. Issue rows are a REBUILDABLE PROJECTION - GitHub is the source of truth for issues; sync is idempotent; divergence (issue closed vs task open) is SHOWN, never auto-mutated. Internal phase: this repo's issues.
+- [ ] `opzava-task-authoring` skill (authored via `writing-great-skills`): how agents write cards humans understand - imperative titles, context/impact/evidence descriptions, verifiable steps with owners, status-forward comments, label/priority semantics. Referenced by the Ask Admin AGENTS.md, the MCP tool descriptions, and local Claude Code.
 - [ ] Task activity/audit shows actor-via-client attribution in the admin UI.
 
-Skills: `nodejs`, `better-auth`*, `opzava-conventions`*, `tdd`
+Skills: `nodejs`, `nextjs`, `senior-frontend`, `domain-modeling`, `better-auth`*, `opzava-conventions`*, `tdd`, `opzava-task-authoring`* (to build)
 
-Acceptance / usable-signal: From a local Claude Code session: list the board, create a task, move it - changes appear live in the admin UI; revoke the link token and the next call fails with a clean auth error; the task activity shows the human actor via claude-code.
+Acceptance / usable-signal: From a local Claude Code session: create a task with steps via MCP - the card appears live on the board and reads like a human wrote it; open the card and every visible feature works (steps tick with strikethrough + counter, comments post, mention the assistant and watch it reply live with working/replying indicators and read receipts, due/labels/watchers edit, Mark done); revoke the link token and the next MCP call fails clean; activity shows actor-via-claude-code.
 
-ADR refs: ADR-005 (on-behalf-of), ADR-007, ADR-004; Q16
+ADR refs: ADR-004, ADR-005 (on-behalf-of), ADR-007, ADR-009 (degraded one-way path); Q16
 
-PRD refs: PRD-003 (tasks), PRD-013 (local tool link, anticipated)
+PRD refs: PRD-003 (tasks/card), PRD-005 (assistant in threads), PRD-012 (issues page), PRD-013 (local tool link + connections, anticipated), PRD-017 (empty states)
 
-Bounded contexts: Runtime-Control, Project Management, Identity & Access
+Bounded contexts: Runtime-Control, Project Management, Identity & Access, Internal Collaboration (comments only)
 
-Deferred to P1: gateway `mcp.servers` registration of the same server (requires the autonomous-agent principal, ADR-008); ACP-hosted coding sessions.
+Deferred: human-to-human presence (typing indicators / cross-human read receipts) -> P2 WS hub (single-human internal phase makes these moot for now); AI Run full run-trace projections + gateway `mcp.servers` registration + autonomous-agent principal -> P1 (ADR-008); Evidence & Files storage -> P3.
 
 ### Slice 3 - CRM core (thin, pulled forward from P4)
 
