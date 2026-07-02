@@ -1,6 +1,11 @@
 # Opzava MVP Roadmap
 
-This roadmap is the executable build order for Opzava. It starts with the risky runtime loop before product code, then ships the thinnest usable app, then adds one bounded capability at a time. Every phase must leave the product shippable and usable.
+> **Status (2026-07-02): superseded as the execution control surface.** `docs/plan/EXECUTION.md` now controls the MVP
+> definition and execution order. The P0.5 walking-skeleton MVP below was replaced by the admin-Tasks MVP
+> (EXECUTION.md Slice 1, complete); P0 was delivered as EXECUTION.md Slice 0. This file remains the reference for
+> P1–P8 phase deliverable detail.
+
+This roadmap describes the phased build order for Opzava. It starts with the risky runtime loop before product code, then ships the thinnest usable app, then adds one bounded capability at a time. Every phase must leave the product shippable and usable.
 
 Source spine: `docs/plan/consensus/q15-mvp-roadmap.mmx.md`, `docs/plan/backlog.md`, `docs/plan/grilling-decisions.md`, `ARCHITECTURE.md`, ADR-001 through ADR-015, and PRD-001 through PRD-018.
 
@@ -13,7 +18,7 @@ Source spine: `docs/plan/consensus/q15-mvp-roadmap.mmx.md`, `docs/plan/backlog.m
 - [ ] Treat Postgres projections as rebuildable caches. OpenClaw snapshots are runtime truth; OpenClaw WS events are hints.
 - [ ] Preserve one deploy contract. Local and Dokploy use one Compose topology, one service naming scheme, one Traefik label contract, and the same env key names.
 
-## P0 - Week-0 De-risk Spike
+## P0 - Week-0 De-risk Spike (historical — delivered as EXECUTION.md Slice 0)
 
 Throw this away after it proves the runtime path. Do this before building the real app shell, auth, database schema, or product UI. The spike validates the highest-risk loop in ADR-002, ADR-003, ADR-005, and ADR-015.
 
@@ -45,7 +50,7 @@ Throw this away after it proves the runtime path. Do this before building the re
 - PRDs: none directly; this is an architecture proof.
 - Bounded contexts touched as throwaway shapes: Tenant Provisioning, Platform-Ops, Runtime-Control, Gateway Runtime.
 
-## P0.5 - Walking-Skeleton MVP
+## P0.5 - Walking-Skeleton MVP (historical — superseded by the admin-Tasks MVP, EXECUTION.md Slice 1)
 
 Goal: the thinnest real Opzava slice that a user can run locally, sign up for, use end-to-end, and reload without losing work.
 

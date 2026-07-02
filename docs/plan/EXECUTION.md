@@ -30,7 +30,7 @@ Do not let this document become aspirational. If implementation changes the plan
 | --- | --- |
 | Active slice | Slice 2 - Ask Admin Opzava on Tasks |
 | Status | not-started |
-| Next concrete action | Slice 1 (Admin Tasks MVP, 1a-1f) is COMPLETE + verify-deep green on branch `slice/1-admin-tasks-mvp` (PR open to `development`). Begin Slice 2: provision one platform OpenClaw agent reachable only through the broker and add a streaming Ask Admin Opzava chat panel on the Tasks board. (Operating mode: consider whether to reprioritize toward Marketing + CRM first.) |
+| Next concrete action | Slice 1 (Admin Tasks MVP, 1a-1f) is COMPLETE + verify-deep green on branch `slice/1-admin-tasks-mvp` @ `50de556` (PR #121 open to `development`). Begin Slice 2: provision one platform OpenClaw agent reachable only through the broker and add a streaming Ask Admin Opzava chat panel on the Tasks board. Decided 2026-07-02: after Slice 2, thin CRM core (Slice 3) and thin Marketing content pipeline (Slice 4) come BEFORE full P1-P3; re-order the dogfood Tasks board seed to match during Slice 2. |
 | Blockers | None |
 
 ## Operating Mode
@@ -43,12 +43,17 @@ Opzava runs single-tenant internally first to market and promote Opzava itself. 
 | --- | --- |
 | `ARCHITECTURE.md` | System overview: bounded contexts, ports, invariants, deployment topology, ADR index. |
 | `docs/plan/roadmap.md` | Phase detail after the admin Tasks MVP; this doc controls execution order. |
-| `docs/plan/grilling-decisions.md` | Locked design record and sad-path invariants from Q1-Q14. |
+| `docs/plan/grilling-decisions.md` | Locked design record and sad-path invariants from Q1-Q15. |
 | `docs/plan/official-docs.md` | Official documentation registry; validate every API against it before coding. |
 | `docs/adr/` | Accepted architecture decisions ADR-001 through ADR-015. |
 | `docs/prd/` | Product contracts PRD-001 through PRD-018. |
 | `docs/plan/capability-parity.md` | OpenClaw-native vs Opzava-owned vs hybrid capability map. |
 | `docs/openclaw/` | Vendored OpenClaw docs; harness native capabilities, do not reinvent them. |
+| `docs/plan/backlog.md` | Initial ADR/PRD dependency backlog; planning input only — this doc controls order. |
+| `docs/plan/consensus/` | Frozen consensus memos (evidence trail; see its README — never current truth). |
+| `docs/plan/research/` | Frozen research memos incl. locked version pins (see its README). |
+| `docs/plan/audits/` | Dated docs-audit reports. |
+| `docs/ux-law/` | Curated UX reference library for frontend/design work (PRD-017). |
 
 ## Skills
 
@@ -77,6 +82,8 @@ Author each skill with `writing-great-skills` before the first slice that needs 
 ## The Build
 
 Execute slices in order. Slice 1 is the dogfood MVP. From Slice 1 onward, all phase work is tracked inside the admin Tasks board.
+
+Decided order (2026-07-02, operationalizes the Operating Mode): Slice 0 -> Slice 1 -> Slice 2 -> Slice 3 (CRM core, thin) -> Slice 4 (Marketing content pipeline, thin) -> P1..P8 remainders. Slice 2 stays first because the broker/AI loop is the keystone both Marketing (agent-drafted content) and CRM (assistant/support drafts) depend on.
 
 ### Slice 0 - De-risk spike (throwaway)
 
@@ -163,6 +170,58 @@ PRD refs: PRD-005, PRD-018
 
 Bounded contexts: Runtime-Control, AI Workforce, Project Management, Internal Collaboration, Notifications/Admin-Observability
 
+### Slice 3 - CRM core (thin, pulled forward from P4)
+
+Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
+
+Goal: Own customer truth in Postgres with manually managed CRM records so Opzava can track real prospects while promoting itself. No channel ingest yet.
+
+Deliverables:
+
+- [ ] Contact, Account, Deal (pipeline/stage), and Ticket aggregates with tenant/workspace RLS through `withTenant` (same pattern as the Task aggregate).
+- [ ] Contacts and Accounts list + detail admin surfaces with manual create/edit.
+- [ ] Deal pipeline board and a simple ticket queue (manual creation only; no `SenderSeen`/UnknownContact projection yet).
+- [ ] Contact timeline skeleton fed by Opzava-owned activities only.
+- [ ] Assistant read access via the Slice 2 loop: list/summarize CRM records through admitted server-side tools.
+
+Skills: `postgres`, `domain-modeling`, `senior-frontend`, `tdd`, `opzava-conventions`*
+
+Acceptance / usable-signal: An admin creates an Account and Contact, opens a Deal, moves it across stages, files a Ticket, reloads, and all state persists under RLS.
+
+ADR refs: ADR-004, ADR-007, ADR-011
+
+PRD refs: PRD-010 (thin subset)
+
+Bounded contexts: CRM, Project Management, Identity & Access
+
+Deferred to P4 remainder: `SenderSeen` projection, UnknownContact shells, channel ingest, governed ticket replies, Contact merge, GDPR erasure.
+
+### Slice 4 - Marketing content pipeline (thin, pulled forward from P5)
+
+Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
+
+Goal: Run Opzava's own marketing inside Opzava: campaigns and a content pipeline with the exact-version approval invariant, using the Slice 2 agent for drafting. Manual publish; no workflow engine yet.
+
+Deliverables:
+
+- [ ] Campaign and ContentItem aggregates (draft -> review -> approved -> published states) with RLS.
+- [ ] Campaigns board plus Content Pipeline and Content Calendar views.
+- [ ] Exact-version business approval invariant: no ContentItem reaches Published without an `Approval` matching the exact content version/hash (ADR-012 invariant, enforced from day one).
+- [ ] Assistant drafting flow through the Slice 2 loop: drafts land in the pipeline as ContentItems.
+- [ ] Manual publish/mark-published with audit trail; scheduling via cron/TaskFlow deferred to P5 remainder.
+
+Skills: `nextjs`, `senior-frontend`, `domain-modeling`, `tdd`, `opzava-conventions`*, `openclaw-broker`*
+
+Acceptance / usable-signal: A campaign is created, the assistant drafts a ContentItem, it goes through review and is approved at an exact version, then published manually with an audit trail; an unapproved or stale-version item cannot publish.
+
+ADR refs: ADR-004, ADR-007, ADR-012 (approval invariant)
+
+PRD refs: PRD-008, PRD-009 (thin subsets)
+
+Bounded contexts: Marketing, Department Workflows (approval records only), AI Workforce, Project Management
+
+Deferred to P5 remainder: Department Workflow engine, cron/TaskFlow publish runs, external channels, Automation page, report artifacts.
+
 ### P1 - AI Workforce
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
@@ -239,7 +298,7 @@ Bounded contexts: Knowledge Management, AI Workforce, Runtime-Control, Project M
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: Own customer truth in Opzava while projecting external channel observations through the Gateway ACL. See `docs/plan/roadmap.md` P4 for deliverable detail.
+Goal: Own customer truth in Opzava while projecting external channel observations through the Gateway ACL. See `docs/plan/roadmap.md` P4 for deliverable detail. Note: the CRM core (records + admin surfaces) was pulled forward as Slice 3 (2026-07-02); this phase covers the remainder (channel ingest, projections, governed replies, merge/erasure).
 
 Deliverables:
 
@@ -263,7 +322,7 @@ Bounded contexts: CRM, External Channels, AI Workforce, Runtime-Control, Knowled
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: Let Opzava define department work while OpenClaw executes native standing orders, cron, TaskFlow, sessions, and channels. See `docs/plan/roadmap.md` P5 for deliverable detail.
+Goal: Let Opzava define department work while OpenClaw executes native standing orders, cron, TaskFlow, sessions, and channels. See `docs/plan/roadmap.md` P5 for deliverable detail. Note: the Marketing content pipeline (campaigns, content states, exact-version approvals, manual publish) was pulled forward as Slice 4 (2026-07-02); this phase covers the remainder (workflow engine, cron/TaskFlow runs, Automation page, reports).
 
 Deliverables:
 
@@ -370,6 +429,8 @@ Per slice:
 
 ## Worklog
 
+- 2026-07-02 - Execution order DECIDED (user; resolves audit S1-2): Slice 2 stays next (the broker/AI loop is the keystone Marketing and CRM both need), then business value pulls forward — new Slice 3 (CRM core, thin P4 subset) and Slice 4 (Marketing content pipeline, thin P5 subset) inserted before P1-P3; P4/P5 sections now carry the remainders. Follow-up owned by Slice 2: re-order the dogfood Tasks board seed to the new slice order.
+- 2026-07-02 - Docs deep-audit + sync fixes (codex-exec audit -> `docs/plan/audits/2026-07-02-docs-audit.md`, 21 findings, all applied except S1-2 which is a user decision). Fixed: roadmap.md superseded banner + historical P0/P0.5 markers; grilling-decisions.md Q13/Q15 recorded, Drizzle locked (was `Prisma|Drizzle TBD`), stale "Next Q13" queue removed, status now Q1-Q15; ADR-014/PRD-014 billing language recast as deferred null-adapter now / Stripe future design; official-docs.md gained missing registry rows + a "Current locked pins" section; new `docs/plan/consensus/README.md` + `docs/plan/research/README.md` frozen-evidence indexes; HISTORICAL banners on q13/q15 memos; TS 6.0.3 raw pin marked superseded; backlog.md marked planning-input with partial-chain note; CLAUDE.md doc map + this doc's Reference Map now cover backlog/consensus/research/audits/ux-law. Open decision (audit S1-2): operationalize "Marketing + CRM first" vs current Slice 2 -> P1..P8 order.
 - 2026-07-02 - Slice 1f dogfood seed + verify-deep GREEN; **Slice 1 (Admin Tasks MVP) COMPLETE**. `apps/workers` `seed:roadmap` idempotently populates the admin Tasks board with the 16 remaining roadmap items (Slice 2, P1-P8, 7 de-risk follow-ups) via the PM services; smoke test proves idempotency as `opzava_app`. verify-deep across the workspace: typecheck 8/8, build 8/8, lint 9/9, all tests 13/13, seed 16 tasks, e2e loop pass. Fixes: workers `vitest.config` include src-only (the compiled `dist/**/*.test.js` double-ran and raced the `first_owner_setup` singleton), workers `tsconfig.build` excludes tests, `eslint.config.mjs` imports `@opzava/config` by relative path (repo root is not a workspace package), empty interface -> type alias. Note: `pnpm lint` can OOM/segfault at full parallelism on a constrained host; use `turbo run lint --concurrency=1`. Slice 1 = 1a..1f, all green + committed on `slice/1-admin-tasks-mvp`.
 - 2026-07-02 - Slice 1e admin Tasks board GREEN. New `@opzava/project-management` bounded context: Task aggregate (title/description/status/priority/assignee/labels/position) + `0002` migration copying the 1b RLS pattern (FORCE RLS, current_org isolation, restrictive no-context, explicit grants, a composite `(workspace_id, organization_id)` FK preventing cross-org workspace assignment); application command/query services through `withTenant` + `AuthorizationPort`; admin Tasks board (list + kanban, create/edit/move) in the `(app)` shell reading via the 1d session context. Tasks RLS integration test 2/2 as `opzava_app` (create + cross-tenant isolation); board e2e passes. codex-spark PASS; the authz subject is session-grounded (documented contract) with RLS as the DB backstop. Fix en route: Drizzle spread `${array}::text[]` into a row expression -> use `sql.param()` for single-array binding. Build + typecheck 8/8.
 - 2026-07-02 - Slice 1d admin app shell + auth UI GREEN. First-owner setup / login / signout pages (server actions -> FirstOwnerSetupService + AuthPort), the protected app shell + nav matched to the Essential mockups (design tokens from style-guide.html), Next 16 `proxy.ts` + `(app)` layout fail-closed guards, and the session->tenant resolver. Playwright e2e passes the full loop: first-owner setup signs in -> shell resolves tenant context -> signout revokes -> login restores. codex-spark fixes applied: fail-closed session context (removed the raw-cookie fallback that bypassed membership_version revocation), domain password policy (12+ chars + 3 classes), `sql` re-exported from `@opzava/adapters` (keeps web off a direct drizzle dep). Build + typecheck 7/7; 1c regression green.

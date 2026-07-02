@@ -1,3 +1,5 @@
+> HISTORICAL: Superseded by `docs/plan/backlog.md`; old PRD-019..028 / ADR-016 ids were renumbered and do not exist. See `docs/plan/consensus/README.md`.
+
 | id | title | tier | depends-on | effort |
 |---|---|---|---|---|
 | ADR-001 | Monorepo + DDD module boundaries + stack lock (Next.js App Router, TS, Postgres, pnpm/turbo) | P0 | — | S |

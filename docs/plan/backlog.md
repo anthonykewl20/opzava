@@ -1,5 +1,8 @@
 # Opzava ADR / PRD Backlog
 
+> **Status:** planning input, fully realized as ADR-001..015 (`docs/adr/`) + PRD-001..018 (`docs/prd/`).
+> Execution order is controlled by `docs/plan/EXECUTION.md`, not this file.
+
 Proposed priority-ordered backlog derived from the capability-parity map and the locked grilling decisions. Foundation ADRs come first because later PRDs depend on their boundaries, ports, and invariants.
 
 ## Priority Tiers
@@ -69,7 +72,9 @@ Proposed priority-ordered backlog derived from the capability-parity map and the
 | PRD-017 | Design system, async states, blank states, and accessibility acceptance rules | Q13 parity surface; all UI contexts; screens: style-guide, blank-slates, index, loading/error variants | PRD-002 | P4 | M |
 | PRD-018 | Admin remediation actions and one-tenant blast-radius controls | Q9, Q12; Notifications/Admin-Observability, Platform-Ops; dry-run, approval, re-dispatch, restart, reprovision, audit | ADR-013, ADR-014, PRD-012 | P4 | L |
 
-## Top Dependency Chain
+## Initial Dependency Chain (intentionally partial)
+
+Ranks 1-12 cover the foundation ADR spine only; ADR-013..015 and PRD-001..018 hang off these per the tier tables above.
 
 | Rank | Item | Tier | Depends on |
 | --- | --- | --- | --- |

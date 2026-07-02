@@ -1,3 +1,5 @@
+> HISTORICAL: Superseded by `docs/plan/EXECUTION.md`; the admin-Tasks MVP replaced this walking-skeleton MVP. See `docs/plan/consensus/README.md`.
+
 ```
 WALKING-SKELETON MVP
 IN  ▸ docker-compose: traefik, postgres, redis(min), BFF(next), gateway-broker(node+ws), ONE per-tenant opclgw container (docker-socket-proxy sidecar provisions), mailcatcher.

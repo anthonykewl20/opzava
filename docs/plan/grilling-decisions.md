@@ -56,7 +56,9 @@ Rationale: OpenClaw docs state the Gateway is single-operator-domain and *not* a
 Workboard is deliberately small ("not a replacement for Jira/Linear"). So RBAC/tenancy/sessions must live in the app.
 
 ## Q1b — Tech stack — LOCKED (user)
-Next.js App Router + TypeScript + Postgres (Prisma|Drizzle TBD) + shadcn/ui + Tailwind. Server-only OpenClaw RPC client.
+Next.js App Router + TypeScript + Postgres + **Drizzle** (locked 2026-07-02 via Slice 1 foundation research —
+`docs/plan/research/slice1-foundation-stack.md`, `docs/plan/research/slice1b-data-rls.md`) + shadcn/ui + Tailwind.
+Server-only OpenClaw RPC client.
 
 ## Q2 — Tenant ↔ Gateway topology — LOCKED
 **Pure B: one OpenClaw Gateway per tenant/workspace, from day one.** No shared/pooled Gateway path.
@@ -327,6 +329,12 @@ a live provisioner lease; `GatewayInstance.tenant_id` UNIQUE and `(state_dir, po
 purge (Q10/Q4b) in one tx; failure → idempotent cron reaper.
 Consensus trail: `docs/plan/consensus/q12-billing-provisioning.{codex,mmx}.md`.
 
+## Q13 — Capability-parity map + ADR/PRD backlog — DELIVERED
+Every mockup screen classified OpenClaw-native / Opzava-owned / hybrid → `docs/plan/capability-parity.md`; priority-ordered
+ADR/PRD backlog → `docs/plan/backlog.md`, realized as ADR-001..015 (`docs/adr/`) + PRD-001..018 (`docs/prd/`).
+Consensus trail: `docs/plan/consensus/q13-backlog.mmx.md` (historical — its draft PRD-019..028/ADR-016 ids were
+renumbered into the final ADR/PRD set).
+
 ## Q14 — Local Docker stack ⇄ live Dokploy parity (Traefik) — LOCKED
 **One canonical `docker-compose.yml` (with Compose profiles) is the source of truth for BOTH environments.** Local runs the
 full stack incl. its own Traefik (a `local` profile) with **mkcert** TLS on `*.localhost`; on **Dokploy** the app deploys as a
@@ -355,20 +363,19 @@ Consensus trail: `docs/plan/consensus/q14-local-dokploy-parity.{codex,mmx}.md`.
 
 ---
 
-## Grilling status — FOUNDATION + CORE COMPLETE ✅
+## Q15 — MVP roadmap — LOCKED, then superseded for execution order
+Walking-skeleton MVP + phased P1–P8 build order locked from mmx consensus → `docs/plan/roadmap.md`.
+2026-07-02: `docs/plan/EXECUTION.md` superseded the walking-skeleton MVP with the **admin-Tasks MVP** (dogfood:
+Opzava tracks its own build); roadmap P1–P8 remain the phase-detail reference, EXECUTION.md controls order.
+Consensus trail: `docs/plan/consensus/q15-mvp-roadmap.mmx.md`.
+
+---
+
+## Grilling status — COMPLETE ✅ (Q1–Q15)
 All architecture branches locked with paired codex + mmx consensus: **Q1** BFF+DB · **Q1b** stack · **Q2** pure-B tenancy · **Q3**
 WS broker+scoped token · **Q4** contexts+CQRS+ACL · **Q4b** knowledge mgmt+two-token · **Q4c** tool-policy-first security · **Q5**
 RBAC+RLS · **Q6** auth (Better Auth) · **Q7** realtime+chat+assistants+PWA/Push · **Q8** AI Workforce · **Q9** error→admin-card ·
-**Q10** CRM · **Q11** dept workflows · **Q12** billing+provisioning.
-
-## Next — Q13 (the original goal)
-- **Q13 — Capability-parity map (every mockup → OpenClaw-native / Opzava-owned / hybrid) + priority-ordered ADR/PRD backlog → then
-  generate ADR/PRD docs one-by-one via codex-exec.**  ← current
-- Q11 — Marketing + Finance + Support department workflows (standing-orders/cron)
-- Q12 — Billing/plans + tenant onboarding/provisioning lifecycle
-- **Q13 — Capability-parity map + priority-ordered ADR/PRD backlog (the original goal)**
-- Q8 — Error → admin-card pipeline
-- Q9 — CRM domain model
-- Q10 — Marketing suite scope
-- Q11 — Agents/orchestrator mapping to OpenClaw
-- Q12 — Priority ordering + ADR/PRD backlog (final synthesis)
+**Q10** CRM · **Q11** dept workflows · **Q12** billing+provisioning · **Q13** capability-parity map + ADR/PRD backlog ·
+**Q14** local⇄Dokploy parity · **Q15** MVP roadmap.
+The grilling sequence is complete. Design is realized in ADR-001..015 + PRD-001..018; execution is controlled by
+`docs/plan/EXECUTION.md`.
