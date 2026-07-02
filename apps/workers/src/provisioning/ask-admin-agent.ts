@@ -4,9 +4,15 @@ import type { SecretReference } from "@opzava/ports";
 import { makeTenantId, type TenantId } from "@opzava/shared-kernel";
 
 export const ASK_ADMIN_AGENT_ID = "ask-admin-opzava";
-export const ASK_ADMIN_AGENT_VERSION = "2026-07-02.slice2e";
+// Live config alignment from consensus:
+// - docs/plan/consensus/slice2-agent-install-redteam.mmx.md (refuted-in-part)
+// - docs/plan/consensus/slice2e-agent-config-review.codex.md (SOUND-WITH-FIXES)
+// `tools.profile: "minimal"` means session_status only per docs/openclaw/gateway/config-tools.md.
+export const ASK_ADMIN_AGENT_VERSION = "2026-07-03.slice2-live";
+const ASK_ADMIN_AGENT_ARTIFACT_VERSION = "2026-07-02.slice2e";
 export const ASK_ADMIN_AGENT_WORKSPACE = "/home/node/.openclaw/workspace/ask-admin-opzava";
 export const ASK_ADMIN_AGENT_DIR = "/home/node/.openclaw/agents/ask-admin-opzava/agent";
+export const ASK_ADMIN_AGENT_MODEL = "openai/gpt-5.5";
 export const ASK_ADMIN_TOOL_POLICY_ID = "ask-admin-opzava-tool-policy";
 export const ASK_ADMIN_DEVICE_TOKEN_LABEL = "platform-operator-device-token";
 export const ASK_ADMIN_PLATFORM_TENANT_ID = makeTenantId("platform");
@@ -61,15 +67,17 @@ export interface AskAdminAgentConfigFragment {
         readonly workspace: typeof ASK_ADMIN_AGENT_WORKSPACE;
         readonly agentDir: typeof ASK_ADMIN_AGENT_DIR;
         readonly skills: readonly [];
-        readonly contextInjection: "always";
+        readonly contextInjection: "continuation-skip";
         readonly bootstrapMaxChars: 20000;
+        readonly default: true;
+        readonly model: typeof ASK_ADMIN_AGENT_MODEL;
+        readonly tools: {
+          readonly profile: "minimal";
+          readonly allow: typeof ASK_ADMIN_TOOL_POLICY_ALLOW;
+          readonly deny: typeof ASK_ADMIN_TOOL_POLICY_DENY;
+        };
       },
     ];
-  };
-  readonly tools: {
-    readonly profile: "minimal";
-    readonly allow: typeof ASK_ADMIN_TOOL_POLICY_ALLOW;
-    readonly deny: typeof ASK_ADMIN_TOOL_POLICY_DENY;
   };
 }
 
@@ -223,15 +231,17 @@ export const ASK_ADMIN_AGENT_CONFIG_FRAGMENT: AskAdminAgentConfigFragment = {
         workspace: ASK_ADMIN_AGENT_WORKSPACE,
         agentDir: ASK_ADMIN_AGENT_DIR,
         skills: [],
-        contextInjection: "always",
+        contextInjection: "continuation-skip",
         bootstrapMaxChars: 20000,
+        default: true,
+        model: ASK_ADMIN_AGENT_MODEL,
+        tools: {
+          profile: "minimal",
+          allow: ASK_ADMIN_TOOL_POLICY_ALLOW,
+          deny: ASK_ADMIN_TOOL_POLICY_DENY,
+        },
       },
     ],
-  },
-  tools: {
-    profile: "minimal",
-    allow: ASK_ADMIN_TOOL_POLICY_ALLOW,
-    deny: ASK_ADMIN_TOOL_POLICY_DENY,
   },
 };
 
@@ -248,7 +258,7 @@ export function renderAskAdminAgentArtifacts(): readonly RenderedAskAdminArtifac
     const body = `${template.body.trim()}\n`;
     const bodyHash = sha256Hex(body);
     const content = [
-      `<!-- opzava:${ASK_ADMIN_AGENT_ID} version:${ASK_ADMIN_AGENT_VERSION} artifact:${template.path} body-sha256:${bodyHash} -->`,
+      `<!-- opzava:${ASK_ADMIN_AGENT_ID} version:${ASK_ADMIN_AGENT_ARTIFACT_VERSION} artifact:${template.path} body-sha256:${bodyHash} -->`,
       "",
       body,
     ].join("\n");

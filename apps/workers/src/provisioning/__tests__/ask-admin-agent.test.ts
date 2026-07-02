@@ -14,6 +14,7 @@ import {
   renderAskAdminAgentArtifacts,
   renderAskAdminAgentConfigFragment,
   renderAskAdminToolPolicy,
+  sha256Hex,
 } from "../ask-admin-agent.js";
 import {
   bootstrapPlatformGateway,
@@ -315,30 +316,93 @@ Required behavior:
 - If a task is absent in the authorized workspace, report that it was not found.
 - Do not run SQL, direct database access, Docker commands, shell commands, file
   reads, file writes, edits, patches, or OpenClaw administrative actions.`);
+
+    expect(
+      renderAskAdminAgentArtifacts().map((artifact) => ({
+        path: artifact.path,
+        sha256: artifact.sha256,
+      })),
+    ).toEqual([
+      {
+        path: "SOUL.md",
+        sha256: "94a8a71d172b05e8d76f065914399e7583a153ea9dfea271f7bbec74d68129ab",
+      },
+      {
+        path: "IDENTITY.md",
+        sha256: "64da520adb1a3ca8eac2c505e2e507fbbb5b5475fdc7a817a8fb9bb9f9265d74",
+      },
+      {
+        path: "AGENTS.md",
+        sha256: "50e59553f27617e86560fca1aa3bbb1907f198e77af15393e0498fe5cb42025c",
+      },
+    ]);
   });
 
-  it("renders a config fragment with no inherited skills and deny-wins tool policy", () => {
-    expect(JSON.parse(renderAskAdminAgentConfigFragment())).toMatchObject({
+  it("renders the live per-agent config fragment with no inherited skills and deny-wins tools", () => {
+    const config = renderAskAdminAgentConfigFragment();
+
+    expect(config).toBe(`{
+  "agents": {
+    "list": [
+      {
+        "id": "ask-admin-opzava",
+        "name": "Ask Admin Opzava",
+        "workspace": "/home/node/.openclaw/workspace/ask-admin-opzava",
+        "agentDir": "/home/node/.openclaw/agents/ask-admin-opzava/agent",
+        "skills": [],
+        "contextInjection": "continuation-skip",
+        "bootstrapMaxChars": 20000,
+        "default": true,
+        "model": "openai/gpt-5.5",
+        "tools": {
+          "profile": "minimal",
+          "allow": [
+            "opzava_tasks_list",
+            "opzava_tasks_create",
+            "opzava_tasks_update"
+          ],
+          "deny": [
+            "group:runtime",
+            "write",
+            "edit",
+            "apply_patch",
+            "group:fs"
+          ]
+        }
+      }
+    ]
+  }
+}
+`);
+    expect(sha256Hex(config)).toBe(
+      "112124a78526d345099914be2520cba2f5d905b5c5e1b9a1e5a6510fb4b23612",
+    );
+    expect(JSON.parse(config)).toEqual({
       agents: {
         list: [
           {
             id: "ask-admin-opzava",
+            name: "Ask Admin Opzava",
             workspace: "/home/node/.openclaw/workspace/ask-admin-opzava",
             agentDir: "/home/node/.openclaw/agents/ask-admin-opzava/agent",
             skills: [],
+            contextInjection: "continuation-skip",
+            bootstrapMaxChars: 20000,
+            default: true,
+            model: "openai/gpt-5.5",
+            tools: {
+              profile: "minimal",
+              allow: ["opzava_tasks_list", "opzava_tasks_create", "opzava_tasks_update"],
+              deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
+            },
           },
         ],
-      },
-      tools: {
-        profile: "minimal",
-        allow: ["opzava_tasks_list", "opzava_tasks_create", "opzava_tasks_update"],
-        deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
       },
     });
 
     expect(JSON.parse(renderAskAdminToolPolicy())).toEqual({
       id: "ask-admin-opzava-tool-policy",
-      version: "2026-07-02.slice2e",
+      version: "2026-07-03.slice2-live",
       mode: "deny-wins",
       allow: ["opzava_tasks_list", "opzava_tasks_create", "opzava_tasks_update"],
       deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
@@ -369,10 +433,15 @@ Required behavior:
       tenantId: "platform",
       purpose: "openclaw",
       label: "platform-operator-device-token",
-      version: "2026-07-02.slice2e",
+      version: "2026-07-03.slice2-live",
     });
-    expect(receipt.toolPolicy.sha256).toMatch(/^[a-f0-9]{64}$/);
-    expect(receipt.agentConfig.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(receipt.version).toBe("2026-07-03.slice2-live");
+    expect(receipt.toolPolicy.sha256).toBe(
+      "4683ee1e03abb26040e17c7e69098a26cc6d8c894dadd9744256352d2f9fc4cd",
+    );
+    expect(receipt.agentConfig.sha256).toBe(
+      "112124a78526d345099914be2520cba2f5d905b5c5e1b9a1e5a6510fb4b23612",
+    );
     expect(
       Object.values(receipt.artifacts).every((artifact) => /^[a-f0-9]{64}$/.test(artifact.sha256)),
     ).toBe(true);

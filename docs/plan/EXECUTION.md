@@ -55,6 +55,7 @@ Opzava runs single-tenant internally first to market and promote Opzava itself. 
 | `docs/plan/consensus/` | Frozen consensus memos (evidence trail; see its README — never current truth). |
 | `docs/plan/research/` | Frozen research memos incl. locked version pins (see its README). |
 | `docs/plan/audits/` | Dated docs-audit reports. |
+| `docs/runbooks/` | Operational runbooks (platform Gateway bring-up, pairing, model auth). |
 | `docs/ux-law/` | Curated UX reference library for frontend/design work (PRD-017). |
 | `ux-redesign/mockups/` | Canonical screen mockups; UI slices design to these with tokens from `style-guide.html` (PRD-017 contract). |
 
