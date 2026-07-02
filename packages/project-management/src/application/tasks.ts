@@ -78,7 +78,7 @@ export interface GetTaskInput extends TaskApplicationContext {
   readonly taskId: string;
 }
 
-export interface ListTasksInput extends TaskApplicationContext {}
+export type ListTasksInput = TaskApplicationContext;
 
 export interface TaskApplicationDependencies {
   readonly authorizationPort?: AuthorizationPort;

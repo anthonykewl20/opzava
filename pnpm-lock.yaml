@@ -110,10 +110,32 @@ importers:
         version: 5.9.3
 
   apps/workers:
+    dependencies:
+      '@opzava/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
+      '@opzava/identity-access':
+        specifier: workspace:*
+        version: link:../../packages/identity-access
+      '@opzava/ports':
+        specifier: workspace:*
+        version: link:../../packages/ports
+      '@opzava/project-management':
+        specifier: workspace:*
+        version: link:../../packages/project-management
+      '@opzava/shared-kernel':
+        specifier: workspace:*
+        version: link:../../packages/shared-kernel
+      dotenv:
+        specifier: 17.4.2
+        version: 17.4.2
     devDependencies:
       '@opzava/config':
         specifier: workspace:*
         version: link:../../packages/config
+      tsx:
+        specifier: ^4.0.0
+        version: 4.22.4
 
   packages/adapters:
     dependencies:
