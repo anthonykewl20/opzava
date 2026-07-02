@@ -16,6 +16,7 @@ use the `handoff` skill. Do not skip ahead; keep the doc in sync with reality.
 - `docs/plan/consensus/` + `docs/plan/research/` — frozen evidence memos behind the decisions (see each dir's README; never current truth).
 - `docs/plan/audits/` — dated docs-audit reports.
 - `docs/ux-law/` — curated UX reference library; use for frontend/design work (PRD-017).
+- `ux-redesign/mockups/` — the canonical screen mockups every PRD/UI slice designs to (tokens from `style-guide.html`; PRD-017 is the contract).
 - `docs/openclaw/` — vendored OpenClaw docs. **Design to these; harness, don't reinvent.**
 
 ## Non-negotiables (full detail in `ARCHITECTURE.md` + the ADRs)
