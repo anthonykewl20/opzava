@@ -1,0 +1,22 @@
+{
+  "name": "@opzava/config",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./eslint/base": "./eslint/base.mjs",
+    "./postcss/next": "./postcss/next.mjs",
+    "./tailwind/preset.css": "./tailwind/preset.css",
+    "./tsconfig/base.json": "./tsconfig/base.json",
+    "./tsconfig/nextjs.json": "./tsconfig/nextjs.json",
+    "./tsconfig/node-lib.json": "./tsconfig/node-lib.json"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "peerDependencies": {
+    "eslint": "^9.0.0",
+    "typescript": "~5.9.0"
+  }
+}

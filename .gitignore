@@ -1,11 +1,18 @@
 node_modules/
 .next/
+.turbo/
 dist/
 build/
-.turbo/
 coverage/
+*.tsbuildinfo
 .env
 .env.*
 !.env.example
 *.log
 .DS_Store
+secrets/*
+!secrets/*.example
+
+# Playwright
+test-results/
+playwright-report/

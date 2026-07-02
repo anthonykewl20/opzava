@@ -28,9 +28,9 @@ Do not let this document become aspirational. If implementation changes the plan
 
 | Field | Value |
 | --- | --- |
-| Active slice | Slice 1 - Admin Tasks MVP |
+| Active slice | Slice 2 - Ask Admin Opzava on Tasks |
 | Status | not-started |
-| Next concrete action | Start Slice 1 by reading its listed skills and validating current official docs before implementing the local parity stack and admin Tasks MVP. |
+| Next concrete action | Slice 1 (Admin Tasks MVP, 1a-1f) is COMPLETE + verify-deep green on branch `slice/1-admin-tasks-mvp` (PR open to `development`). Begin Slice 2: provision one platform OpenClaw agent reachable only through the broker and add a streaming Ask Admin Opzava chat panel on the Tasks board. (Operating mode: consider whether to reprioritize toward Marketing + CRM first.) |
 | Blockers | None |
 
 ## Operating Mode
@@ -114,18 +114,20 @@ Real-implementation de-risk follow-ups:
 
 ### Slice 1 - Admin Tasks MVP (dogfoodable)
 
-Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
+Status: [ ] not-started | [ ] in-progress | [ ] blocked | [x] done
+
+Foundation validated: `docs/plan/research/slice1-foundation-stack.md` (codex official-docs research + mmx adversarial consensus). Sub-slices: 1a foundation + parity Compose; 1b Postgres/Drizzle/`withTenant` RLS + migrations; 1c Better Auth admin login behind `AuthPort`; 1d app shell + admin nav; 1e Task aggregate + admin Tasks list/kanban; 1f seed build slices as Tasks + `verify-deep` + commit.
 
 Goal: Ship the smallest real Opzava surface: admins log in and track Opzava's own build slices in an admin Tasks board.
 
 Deliverables:
 
-- [ ] `docker-compose up` starts the local parity stack with Traefik and Postgres.
-- [ ] Better Auth admin sign-up/login runs behind `AuthPort` with DB-backed revocable sessions.
-- [ ] App shell renders admin navigation and tenant/workspace context.
-- [ ] Task aggregate persists `title`, `description`, `status`, `priority`, `assignee`, and `labels` in Postgres.
-- [ ] Admin Tasks supports list and kanban views, create/edit/move flows, reload persistence, and tenant/workspace RLS through `withTenant`.
-- [ ] Seed or create this build's slices as Tasks so Opzava tracks its own execution from here forward.
+- [x] `docker-compose up` starts the local parity stack with Traefik and Postgres.
+- [x] Better Auth admin sign-up/login runs behind `AuthPort` with DB-backed revocable sessions.
+- [x] App shell renders admin navigation and tenant/workspace context.
+- [x] Task aggregate persists `title`, `description`, `status`, `priority`, `assignee`, and `labels` in Postgres.
+- [x] Admin Tasks supports list and kanban views, create/edit/move flows, reload persistence, and tenant/workspace RLS through `withTenant`.
+- [x] Seed or create this build's slices as Tasks so Opzava tracks its own execution from here forward.
 
 Skills: `docker`, `dokploy`, `postgres`, `nextjs`, `senior-frontend`, `domain-modeling`, `codebase-design`, `tdd`, `verify-deep`, `better-auth`*, `opzava-conventions`*
 
@@ -368,6 +370,13 @@ Per slice:
 
 ## Worklog
 
+- 2026-07-02 - Slice 1f dogfood seed + verify-deep GREEN; **Slice 1 (Admin Tasks MVP) COMPLETE**. `apps/workers` `seed:roadmap` idempotently populates the admin Tasks board with the 16 remaining roadmap items (Slice 2, P1-P8, 7 de-risk follow-ups) via the PM services; smoke test proves idempotency as `opzava_app`. verify-deep across the workspace: typecheck 8/8, build 8/8, lint 9/9, all tests 13/13, seed 16 tasks, e2e loop pass. Fixes: workers `vitest.config` include src-only (the compiled `dist/**/*.test.js` double-ran and raced the `first_owner_setup` singleton), workers `tsconfig.build` excludes tests, `eslint.config.mjs` imports `@opzava/config` by relative path (repo root is not a workspace package), empty interface -> type alias. Note: `pnpm lint` can OOM/segfault at full parallelism on a constrained host; use `turbo run lint --concurrency=1`. Slice 1 = 1a..1f, all green + committed on `slice/1-admin-tasks-mvp`.
+- 2026-07-02 - Slice 1e admin Tasks board GREEN. New `@opzava/project-management` bounded context: Task aggregate (title/description/status/priority/assignee/labels/position) + `0002` migration copying the 1b RLS pattern (FORCE RLS, current_org isolation, restrictive no-context, explicit grants, a composite `(workspace_id, organization_id)` FK preventing cross-org workspace assignment); application command/query services through `withTenant` + `AuthorizationPort`; admin Tasks board (list + kanban, create/edit/move) in the `(app)` shell reading via the 1d session context. Tasks RLS integration test 2/2 as `opzava_app` (create + cross-tenant isolation); board e2e passes. codex-spark PASS; the authz subject is session-grounded (documented contract) with RLS as the DB backstop. Fix en route: Drizzle spread `${array}::text[]` into a row expression -> use `sql.param()` for single-array binding. Build + typecheck 8/8.
+- 2026-07-02 - Slice 1d admin app shell + auth UI GREEN. First-owner setup / login / signout pages (server actions -> FirstOwnerSetupService + AuthPort), the protected app shell + nav matched to the Essential mockups (design tokens from style-guide.html), Next 16 `proxy.ts` + `(app)` layout fail-closed guards, and the session->tenant resolver. Playwright e2e passes the full loop: first-owner setup signs in -> shell resolves tenant context -> signout revokes -> login restores. codex-spark fixes applied: fail-closed session context (removed the raw-cookie fallback that bypassed membership_version revocation), domain password policy (12+ chars + 3 classes), `sql` re-exported from `@opzava/adapters` (keeps web off a direct drizzle dep). Build + typecheck 7/7; 1c regression green.
+- 2026-07-02 - Slice 1c auth boundary GREEN. Better Auth core (1.6.23) behind `AuthPort` with DB-backed revocable sessions (cookie cache disabled), a custom scrypt hasher shared with an ATOMIC first-owner setup (advisory lock + singleton guard, all writes in one `opzava_app` tx), the `app.current_user` identity read-path for pre-tenant membership discovery, and the 0001 migration (global auth tables + membership/role_grants RLS). Design: codex memo + mmx auth/RLS red-team (`docs/plan/consensus/slice1c-auth-redteam.mmx.md`, 6 hardenings folded in); codex-spark review SOUND (0 findings). Acceptance test passes (40 assertions: atomic setup + forced-rollback, DB session + revoke, run-once guard, identity-path isolation, tenant denial) as non-owner `opzava_app`. Build + typecheck 7/7. Fixes en route: scrypt promisify overload, drizzle `_journal` 0001 entry, flat `dist` (`rootDir: src`) so packages resolve by name, lazy pg client (no import side-effects), `BETTER_AUTH_URL` turbo passthrough. Pins: better-auth 1.6.23, @better-auth/drizzle-adapter 1.6.23.
+- 2026-07-02 - Slice 1b tenant-isolation data layer GREEN. `@opzava/identity-access` (canonical organizations/workspaces + hand-written RLS migration) + `@opzava/adapters` (pg client, `withTenant`, sanitized errors, one-shot migrate runner, SHA-256 migration gate). Design: codex memo + mmx RLS red-team (`docs/plan/consensus/slice1b-rls-redteam.mmx.md`); codex-spark review returned SOUND (`docs/plan/consensus/slice1b-review.spark.md`). RLS integration test passes 3/3 as non-owner `opzava_app`: cross-tenant read invisible, cross-tenant write 403, missing-context 403. Hardenings: RESTRICTIVE no-context policy, `set_config()` instead of interpolated SET LOCAL, explicit per-table grants (no blanket default privileges), error-mapper walks Drizzle's `cause` chain for SQLSTATE, test asserts it runs as `opzava_app`. Fixes en route: pnpm `allowBuilds` esbuild, `tsx` migrate runner, `TenantTransaction` type extraction. Pins: drizzle-orm 0.45.2, drizzle-kit 0.31.10, pg 8.22.0.
+- 2026-07-02 - Slice 1a foundation GREEN. Monorepo scaffolded (codex-exec gpt-5.5 codegen) + adversarially reviewed (codex-spark, `docs/plan/consensus/slice1a-review.spark.md`) + fixed. `pnpm install` clean, typecheck 5/5, test 6/6, `next build` production build passes; `docker compose up` brings up Traefik (18088/18448) + Postgres 18.4 (healthy). Key fixes: `turbo@^2.10.2` (no v3 exists), pnpm 11.9 build gate is `allowBuilds: {sharp: true}` (not `onlyBuiltDependencies`), Traefik host ports remapped 18088/18448/18089 off the local-Dokploy collision, Vitest 4 oxc needs relative tsconfig `extends` (not the `@opzava/config` package specifier), `NODE_ENV` is read-only under @types/node 24, Traefik dashboard moved to a local-only `docker-compose.override.yml`, `DATABASE_URL` deferred to 1b.
+- 2026-07-02 - Slice 1 foundation validated: codex-exec deep-researched official docs -> `docs/plan/research/slice1-foundation-stack.md` (Node 24.18, pnpm 11.9, Next 16.2.9, React 19.2.7, Drizzle 0.45.2 stable, Postgres 18.4, Better Auth 1.6 org/2FA/passkey, Tailwind v4.3, Traefik v3.6.1). mmx adversarial consensus locked TS 5.9.x over 6.0.3, a PgBouncer-transaction RLS client with prepared statements off, boundaries lint, Vitest, migration gating, and env-schema fail-fast. Next: scaffold sub-slice 1a.
 - 2026-07-02 - Slice 0 spike PASS: validated Traefik routing to dynamic Gateway containers, broker WS route, worker-only Docker mutation through socket-proxy, Docker API pinning need, and denied endpoint behavior; findings recorded in ADR-015 and the provisioning skill.
 - 2026-07-02 - codex+mmx review confirmed genuine infra proof, not a fake pass; real OpenClaw handshake, wildcard TLS/DNS, readiness/backoff, reaper concurrency, lazy-start cost, secrets lifecycle, and Dokploy mapping gaps captured as follow-ups.
 - 2026-07-02 - Governance updated: official-docs validation rule and registry added; BillingPort deferred as a null adapter until external monetization; operating mode clarified as internal single-tenant first, then Marketing + CRM after the admin-Tasks MVP.

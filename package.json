@@ -1,0 +1,30 @@
+{
+  "name": "opzava",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "seed:roadmap": "pnpm --filter @opzava/workers seed:roadmap",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "format": "turbo run format",
+    "format:check": "turbo run format:check",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@playwright/test": "^1.56.0",
+    "@types/node": "~24.0.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-boundaries": "^5.0.0",
+    "prettier": "^3.6.0",
+    "turbo": "^2.10.2",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^4.0.0"
+  }
+}

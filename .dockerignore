@@ -1,0 +1,12 @@
+.git/
+.next/
+.turbo/
+coverage/
+dist/
+node_modules/
+*.tsbuildinfo
+.env
+.env.*
+secrets/*
+!secrets/*.example
+docker-compose.yml

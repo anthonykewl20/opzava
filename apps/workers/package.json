@@ -1,0 +1,32 @@
+{
+  "name": "@opzava/workers",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "node --watch --enable-source-maps src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "seed:roadmap": "tsx src/seed/roadmap.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@opzava/adapters": "workspace:*",
+    "@opzava/identity-access": "workspace:*",
+    "@opzava/ports": "workspace:*",
+    "@opzava/project-management": "workspace:*",
+    "@opzava/shared-kernel": "workspace:*",
+    "dotenv": "17.4.2"
+  },
+  "devDependencies": {
+    "@opzava/config": "workspace:*",
+    "tsx": "^4.0.0"
+  }
+}
