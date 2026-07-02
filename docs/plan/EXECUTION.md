@@ -30,7 +30,7 @@ Do not let this document become aspirational. If implementation changes the plan
 | --- | --- |
 | Active slice | Slice 2 - Ask Admin Opzava on Tasks |
 | Status | in-progress |
-| Next concrete action | Slice 1 merged (#121) + docs-sync merged (#122); on branch `slice/2-ask-admin-opzava`. Slice 2 design memo in progress (codex-exec) -> `docs/plan/research/slice2-ask-admin-opzava.md`; then implement sub-slices per the memo. Decided 2026-07-02: after Slice 2, thin CRM core (Slice 3) and thin Marketing content pipeline (Slice 4) come BEFORE full P1-P3; re-order the dogfood Tasks board seed to match during Slice 2. |
+| Next concrete action | Slice 2 sub-slices 2a-2f implemented + committed on `slice/2-ask-admin-opzava` (design memo + spark red-team in `docs/plan/research` + `consensus`). 4/5 deliverables done; live real-Gateway proof complete (pairing + validated handshake). Remaining: install ask-admin agent config into the platform Gateway, model-provider credential (user-owned), real-agent acceptance run, then verify-deep + PR. Seed reorder to the decided order (Slice 3 CRM, Slice 4 Marketing before P1-P3) is done. |
 | Blockers | None |
 
 ## Operating Mode
@@ -154,11 +154,11 @@ Goal: Add the first admin assistant loop so Ask Admin Opzava can read, create, a
 
 Deliverables:
 
-- [ ] Provision one platform OpenClaw agent reachable only through the broker.
-- [ ] Add a streaming Ask Admin Opzava chat panel on the admin Tasks board.
-- [ ] Expose task read/create/update operations through admitted server-side tools or application commands.
-- [ ] Persist assistant turns and tool outcomes with tenant/workspace authorization and idempotency.
-- [ ] Show task updates created by the assistant immediately in list and kanban views.
+- [ ] Provision one platform OpenClaw agent reachable only through the broker. (Gateway provisioned + paired + live handshake validated, protocol 4 with exact hot-path scopes; REMAINING: install the ask-admin agent config into the Gateway, model-provider credential, real-agent acceptance run.)
+- [x] Add a streaming Ask Admin Opzava chat panel on the admin Tasks board.
+- [x] Expose task read/create/update operations through admitted server-side tools or application commands.
+- [x] Persist assistant turns and tool outcomes with tenant/workspace authorization and idempotency.
+- [x] Show task updates created by the assistant immediately in list and kanban views.
 
 Skills: `socketio`, `nodejs`, `nextjs`, `openclaw-broker`*
 
@@ -429,6 +429,7 @@ Per slice:
 
 ## Worklog
 
+- 2026-07-03 - Slice 2 sub-slices 2a-2f GREEN + committed; live real-Gateway proof COMPLETE. 2a `@opzava/runtime-control` (turn state machine, outcome-first receipts, 0003 RLS with composite tenant FKs, withTenant role assert) after a spark red-team of the design memo (UNSOUND -> 9 findings resolved). 2b broker operator client + adversarial fake Gateway (found: ws success callback passes null not undefined). 2c internal-token SSE endpoint + OpenClawGatewayPort adapter + chat panel (broker env lazy; stream-state logic pure-TS for vitest). 2d governed task tools through PM services (UUID-shaped taskId rule; forbidden vs not_found split). 2e agent artifacts + provisioning receipts + compose profile `openclaw`; real image pinned 2026.6.11 and brought up healthy. 2f seed reorder (18 tasks, decided order) + protocol alignment to the LIVE gateway (client id/mode enums, sha256-raw device id, v2 signature payload, auth.deviceToken vs auth.token, metadata-bound approvals, implied operator.read) — vendored docs were stale on several of these; every fact verified in the running container and the fake tightened to match. Live loop proven: pairing request -> devices approve -> fresh device token vaulted by ref -> validation handshake protocol 4, scopes exactly write+approvals+read. Test-infra hardenings en route: slice1c suite parks/restores the first_owner_setup singleton; roadmap seed test self-heals leftovers; run-unique identifiers across suites. Remaining for slice-done: agent config install into the Gateway, model-provider credential (user), real-agent acceptance, verify-deep, PR.
 - 2026-07-02 - Execution order DECIDED (user; resolves audit S1-2): Slice 2 stays next (the broker/AI loop is the keystone Marketing and CRM both need), then business value pulls forward — new Slice 3 (CRM core, thin P4 subset) and Slice 4 (Marketing content pipeline, thin P5 subset) inserted before P1-P3; P4/P5 sections now carry the remainders. Follow-up owned by Slice 2: re-order the dogfood Tasks board seed to the new slice order.
 - 2026-07-02 - Docs deep-audit + sync fixes (codex-exec audit -> `docs/plan/audits/2026-07-02-docs-audit.md`, 21 findings, all applied except S1-2 which is a user decision). Fixed: roadmap.md superseded banner + historical P0/P0.5 markers; grilling-decisions.md Q13/Q15 recorded, Drizzle locked (was `Prisma|Drizzle TBD`), stale "Next Q13" queue removed, status now Q1-Q15; ADR-014/PRD-014 billing language recast as deferred null-adapter now / Stripe future design; official-docs.md gained missing registry rows + a "Current locked pins" section; new `docs/plan/consensus/README.md` + `docs/plan/research/README.md` frozen-evidence indexes; HISTORICAL banners on q13/q15 memos; TS 6.0.3 raw pin marked superseded; backlog.md marked planning-input with partial-chain note; CLAUDE.md doc map + this doc's Reference Map now cover backlog/consensus/research/audits/ux-law. Open decision (audit S1-2): operationalize "Marketing + CRM first" vs current Slice 2 -> P1..P8 order.
 - 2026-07-02 - Slice 1f dogfood seed + verify-deep GREEN; **Slice 1 (Admin Tasks MVP) COMPLETE**. `apps/workers` `seed:roadmap` idempotently populates the admin Tasks board with the 16 remaining roadmap items (Slice 2, P1-P8, 7 de-risk follow-ups) via the PM services; smoke test proves idempotency as `opzava_app`. verify-deep across the workspace: typecheck 8/8, build 8/8, lint 9/9, all tests 13/13, seed 16 tasks, e2e loop pass. Fixes: workers `vitest.config` include src-only (the compiled `dist/**/*.test.js` double-ran and raced the `first_owner_setup` singleton), workers `tsconfig.build` excludes tests, `eslint.config.mjs` imports `@opzava/config` by relative path (repo root is not a workspace package), empty interface -> type alias. Note: `pnpm lint` can OOM/segfault at full parallelism on a constrained host; use `turbo run lint --concurrency=1`. Slice 1 = 1a..1f, all green + committed on `slice/1-admin-tasks-mvp`.
