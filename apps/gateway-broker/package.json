@@ -16,6 +16,11 @@
     "format:check": "prettier --check .",
     "test": "vitest run --passWithNoTests"
   },
+  "dependencies": {
+    "@opzava/ports": "workspace:*",
+    "@opzava/shared-kernel": "workspace:*",
+    "ws": "8.20.1"
+  },
   "devDependencies": {
     "@opzava/config": "workspace:*"
   }

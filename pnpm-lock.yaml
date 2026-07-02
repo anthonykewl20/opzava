@@ -40,6 +40,16 @@ importers:
         version: 4.1.9(@types/node@24.0.15)(vite@8.1.2(@types/node@24.0.15)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))
 
   apps/gateway-broker:
+    dependencies:
+      '@opzava/ports':
+        specifier: workspace:*
+        version: link:../../packages/ports
+      '@opzava/shared-kernel':
+        specifier: workspace:*
+        version: link:../../packages/shared-kernel
+      ws:
+        specifier: 8.20.1
+        version: 8.20.1
     devDependencies:
       '@opzava/config':
         specifier: workspace:*
@@ -2566,6 +2576,18 @@ packages:
   wordwrap@1.0.0:
     resolution: {integrity: sha512-gvVzJFlPycKc5dZN4yPkP8w7Dc37BtP1yczEneOb4uq34pXZcvrtRTmWV8W+Ume+XCxKgbjM+nevkyFPMybd4Q==}
 
+  ws@8.20.1:
+    resolution: {integrity: sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   xtend@4.0.2:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
     engines: {node: '>=0.4'}
@@ -4366,6 +4388,8 @@ snapshots:
   word-wrap@1.2.5: {}
 
   wordwrap@1.0.0: {}
+
+  ws@8.20.1: {}
 
   xtend@4.0.2: {}
 
