@@ -20,6 +20,8 @@
     "@opzava/identity-access": "workspace:*",
     "@opzava/ports": "workspace:*",
     "@opzava/project-management": "workspace:*",
+    "@opzava/runtime-control": "workspace:*",
+    "@opzava/shared-kernel": "workspace:*",
     "@radix-ui/react-slot": "^1.2.0",
     "better-auth": "1.6.23",
     "class-variance-authority": "^0.7.1",

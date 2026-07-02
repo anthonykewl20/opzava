@@ -7,6 +7,10 @@ import {
   moveTaskAction,
   updateTaskAction
 } from "@/app/(app)/tasks/actions";
+import {
+  AskAdminPanel,
+  type AskAdminPanelProps
+} from "@/components/tasks/ask-admin-panel";
 import type { TaskDto, TaskPriority, TaskStatus } from "@opzava/project-management";
 
 interface TasksBoardProps {
@@ -16,6 +20,7 @@ interface TasksBoardProps {
     readonly name: string;
   };
   readonly workspaceName: string;
+  readonly askAdmin: Pick<AskAdminPanelProps, "conversationId" | "initialTurns">;
 }
 
 type BoardView = "kanban" | "list";
@@ -496,7 +501,7 @@ function ListView({
   );
 }
 
-export function TasksBoard({ tasks, currentUser, workspaceName }: TasksBoardProps) {
+export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: TasksBoardProps) {
   const [view, setView] = useState<BoardView>("kanban");
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
   const [editingTask, setEditingTask] = useState<TaskDto | undefined>(undefined);
@@ -575,11 +580,21 @@ export function TasksBoard({ tasks, currentUser, workspaceName }: TasksBoardProp
         </div>
       </section>
 
-      {view === "kanban" ? (
-        <KanbanView tasks={tasks} nextPositions={nextPositions} onEdit={openEditForm} />
-      ) : (
-        <ListView tasks={tasks} nextPositions={nextPositions} onEdit={openEditForm} />
-      )}
+      <div className="tasks-workspace">
+        <div className="tasks-board-area">
+          {view === "kanban" ? (
+            <KanbanView tasks={tasks} nextPositions={nextPositions} onEdit={openEditForm} />
+          ) : (
+            <ListView tasks={tasks} nextPositions={nextPositions} onEdit={openEditForm} />
+          )}
+        </div>
+
+        <AskAdminPanel
+          conversationId={askAdmin.conversationId}
+          initialTurns={askAdmin.initialTurns}
+          currentUserName={currentUser.name}
+        />
+      </div>
 
       {formMode === "create" ? (
         <TaskForm mode="create" currentUser={currentUser} onClose={closeForm} />
