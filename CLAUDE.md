@@ -27,6 +27,7 @@ use the `handoff` skill. Do not skip ahead; keep the doc in sync with reality.
 - **Tool-policy-first** security ("SOUL can lie; tool policy cannot"); **RLS denial is a hard 403**, never a silent empty result.
 - **Local docker-compose in parity with live Dokploy** (single compose, Traefik labels); **no routable orphan Gateway**.
 - Scale-ready modular DDD (no MVP-then-rewrite); agnostic ports; sad-path-first; lean VPS ops.
+- **Mockup functional parity:** every visible element on a mockup screen a slice implements must FUNCTION LIVE — real data, real interactions; no dead chrome, no fake data. Descope only explicitly in `EXECUTION.md` (user directive 2026-07-03).
 
 ## Gated workflow (MANDATORY — every issue, slice, and phase)
 Every unit of work follows the same gates, in order — do not skip:
