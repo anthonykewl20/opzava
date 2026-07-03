@@ -103,3 +103,23 @@ concurrent create; duplicate issue rows on multi-link; UTC due-label off-by-one;
 blocked during assistant stream; MCP card-mutation idempotency keys (highest-priority follow-up —
 local-agent at-least-once path). Recommend `/code-review ultra` on PR #124 for the deep cloud
 lanes and a live device-flow smoke against one API-key provider.
+
+## Correctness follow-ups + 2nd iterated re-review (2026-07-03) — CONVERGED CLEAN
+
+After the SHIP verdict, closed the correctness tracked-follow-ups on-branch (they complete the
+slice's at-least-once sad-path contract): MCP card-mutation idempotency keys (createTask/step/
+comment/quality — the MCP tools bypass the assistant path's outcome-first receipts), multi-link
+issue dedup, and the position race. The position "fix" first shipped a UNIQUE(workspace,status,
+position) index that BROKE reorder (moveTask sets absolute positions, no make-room shift → 23505 on
+a move to an occupied slot) — caught by reading moveTask, not the green tests; reverted (0011),
+position accepted as best-effort ordering, guarded by a reorder-to-occupied test.
+
+A 2nd adversarial re-review of the follow-up fixes: 4 PASS (MCP wiring + scope gate, deterministic
+multi-link dedup, position revert + schema alignment, migration hygiene) + 1 [HIGH] — addQualityCheck
+enforced the approved-is-terminal gate before the idempotency path, failing an at-least-once replay of
+an already-recorded check once the review was approved. Fixed: idempotent replay returns the existing
+review unconditionally; new-check gate unchanged. Regression test added.
+
+Findings converged to zero across the iterations (8 → 1 → 1, each on progressively smaller surface).
+Final state: typecheck 0, tests 0 failures, lint 0, build 0 (forced); migrations 0004-0011 applied.
+Merge-ready.
