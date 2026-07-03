@@ -31,8 +31,8 @@ Do not let this document become aspirational. If implementation changes the plan
 | Field | Value |
 | --- | --- |
 | Active slice | Slice 2.5 - Local Claude Code on Tasks via MCP + live Task Card |
-| Status | not-started |
-| Next concrete action | Slice 2 DONE (5/5 deliverables; live acceptance passed; verify-deep + PR pending as the final gates - run them, merge, then begin Slice 2.5 with a codex-exec design memo + mmx red-team consensus per the method). |
+| Status | in-progress |
+| Next concrete action | Slice 2 merged (#123). Slice 2.5 in progress on `slice/2.5-cc-mcp-live-card`: design memo (codex-exec) -> mmx red-team consensus -> sub-slice codegen with self-verification. |
 | Blockers | None |
 
 ## Operating Mode
@@ -177,7 +177,7 @@ Bounded contexts: Runtime-Control, AI Workforce, Project Management, Internal Co
 
 ### Slice 2.5 - Local Claude Code on Tasks via MCP + live Task Card (Q16)
 
-Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
+Status: [ ] not-started | [x] in-progress | [ ] blocked | [ ] done
 
 Goal: The developer's local Claude Code session controls the admin Tasks board through Opzava's own MCP server (Q16 hybrid on-behalf-of authority), and the Task card detail matches `ux-redesign/mockups/essential-card.html` with every card feature working and live. Agent-written cards read like a human wrote them (task-authoring skill). Ask Admin Opzava RELOCATES to its own page (user correction 2026-07-03): the sidebar "Ask Opzava" entry (currently dead - a mockup-parity violation) navigates to a dedicated chat page per `ux-redesign/mockups/orchestrator-chat.html`, every element functional live; the Slice 2 Tasks-panel placement was interim and is removed once the page ships. Canonical mockups for this slice's surfaces: `orchestrator-chat.html` (Ask Admin Opzava), `task-board.html` (Tasks board), `essential-card.html` (card detail), `issues.html` (Issues). `connections.html` (Gateway Connections) stays P8/PRD-013.
 
