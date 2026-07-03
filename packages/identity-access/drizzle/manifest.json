@@ -16,6 +16,10 @@
     {
       "path": "0003_slice2_runtime_control.sql",
       "sha256": "ddd90dc21bfd272cf1afd8406823ae48be9621dc6a425aedc097fd1dc9a48bed"
+    },
+    {
+      "path": "0004_slice25_card.sql",
+      "sha256": "0144991fbeddaf0fedc8a30dc37dedd9552cc4222aa91ab565df071bafa3e8a8"
     }
   ]
 }

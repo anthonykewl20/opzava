@@ -1,8 +1,22 @@
-import { createPostgresPool, db, pool, sql, withTenant } from "@opzava/adapters";
+import { assertCurrentTenant, createPostgresPool, db, pool, sql, withTenant } from "@opzava/adapters";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { createTask, getTask, listTasks, moveTask, updateTask } from "../application/tasks.js";
+import {
+  addComment,
+  createStep,
+  createTask,
+  getCardDetail,
+  getTask,
+  listTasks,
+  markCommentsRead,
+  moveTask,
+  reorderSteps,
+  setDue,
+  setWatchers,
+  toggleStep,
+  updateTask
+} from "../application/tasks.js";
 
 interface TenantFixture {
   readonly organizationId: string;
@@ -87,11 +101,35 @@ function actor(userId: string) {
   return { userId, roleKeys: ["member"] };
 }
 
+async function selectStepsWithoutWithTenant(
+  expectedOrgId: string
+): Promise<ReadonlyArray<Record<string, unknown>>> {
+  await assertCurrentTenant(db, expectedOrgId);
+  const result = await db.execute(sql`select id from public.task_steps`);
+  return rowsFromExecuteResult(result);
+}
+
 async function cleanupCreatedRows(): Promise<void> {
   const organizationIds = [...createdOrganizationIds];
   const userIds = [...createdUserIds];
 
   if (organizationIds.length > 0) {
+    await adminPool.query(
+      "delete from public.task_comment_read_markers where organization_id = any($1::uuid[])",
+      [organizationIds]
+    );
+    await adminPool.query(
+      "delete from public.task_comments where organization_id = any($1::uuid[])",
+      [organizationIds]
+    );
+    await adminPool.query(
+      "delete from public.task_watchers where organization_id = any($1::uuid[])",
+      [organizationIds]
+    );
+    await adminPool.query(
+      "delete from public.task_steps where organization_id = any($1::uuid[])",
+      [organizationIds]
+    );
     await adminPool.query("delete from public.tasks where organization_id = any($1::uuid[])", [
       organizationIds
     ]);
@@ -221,6 +259,185 @@ describe("slice 1e tasks", () => {
     expect(listed).toMatchObject({ ok: true, value: [{ title: "Ship the admin Tasks board" }] });
   });
 
+  it("allocates card numbers with retry-on-conflict inside a workspace", async () => {
+    const tenant = await adminCreateTenant("card-number-retry");
+    const baseCardNumber = 900_000_000_000 + Number.parseInt(testRunId.slice(0, 6), 16);
+    const blockedCardNumber = baseCardNumber + 1;
+
+    await adminPool.query("select setval('public.tasks_card_number_seq', $1, true)", [
+      baseCardNumber
+    ]);
+    await adminPool.query(
+      `insert into public.tasks (
+        organization_id,
+        workspace_id,
+        card_number,
+        title,
+        description,
+        status,
+        priority,
+        labels,
+        position
+      )
+      values ($1, $2, $3, 'Manual blocker', '', 'todo', 'normal', '{}'::text[], 1)`,
+      [tenant.organizationId, tenant.workspaceId, blockedCardNumber]
+    );
+
+    const created = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Create through retry",
+      priority: "normal"
+    });
+
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      throw created.error;
+    }
+
+    expect(created.value.cardNumber).toBe(blockedCardNumber + 1);
+    expect(created.value.provenanceSource).toBe("manual");
+  });
+
+  it("manages live-card detail data through the application seam", async () => {
+    const tenant = await adminCreateTenant("card-detail");
+    const task = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Build the card detail data layer",
+      description: "Add steps, comments, watchers, and due date.",
+      priority: "high",
+      dueAt: "2026-07-10T12:00:00.000Z",
+      provenanceSource: "Claude Code",
+      provenanceExternalRef: "local-dev"
+    });
+    expect(task.ok).toBe(true);
+    if (!task.ok) {
+      throw task.error;
+    }
+
+    const first = await createStep({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      text: "Define card tables"
+    });
+    const second = await createStep({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      text: "Write application services"
+    });
+    const third = await createStep({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      text: "Prove ordering"
+    });
+    expect(first.ok && second.ok && third.ok).toBe(true);
+    if (!first.ok || !second.ok || !third.ok) {
+      throw new Error("Expected all steps to be created.");
+    }
+
+    const reordered = await reorderSteps({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      stepIds: [third.value.id, first.value.id, second.value.id]
+    });
+    expect(reordered.ok).toBe(true);
+    if (!reordered.ok) {
+      throw reordered.error;
+    }
+    expect(reordered.value.map((step) => step.text)).toEqual([
+      "Prove ordering",
+      "Define card tables",
+      "Write application services"
+    ]);
+    expect(reordered.value.map((step) => step.position)).toEqual([1, 2, 3]);
+
+    const toggled = await toggleStep({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      stepId: third.value.id,
+      done: true
+    });
+    expect(toggled).toMatchObject({ ok: true, value: { done: true } });
+
+    const comment = await addComment({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      body: "Card data layer is ready for UI wiring."
+    });
+    expect(comment.ok).toBe(true);
+    if (!comment.ok) {
+      throw comment.error;
+    }
+
+    const readComments = await markCommentsRead({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      commentIds: [comment.value.id]
+    });
+    expect(readComments).toMatchObject({
+      ok: true,
+      value: [{ readByUserIds: [tenant.userId] }]
+    });
+
+    const due = await setDue({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      dueAt: null
+    });
+    expect(due).toMatchObject({ ok: true, value: { dueAt: null } });
+
+    const watchers = await setWatchers({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      userIds: [tenant.userId]
+    });
+    expect(watchers).toMatchObject({ ok: true, value: [{ userId: tenant.userId }] });
+
+    const detail = await getCardDetail({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id
+    });
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) {
+      throw detail.error;
+    }
+    expect(detail.value.task).toMatchObject({
+      cardNumber: task.value.cardNumber,
+      provenanceSource: "Claude Code",
+      provenanceExternalRef: "local-dev"
+    });
+    expect(detail.value.steps.map((step) => `${step.position}:${step.text}:${step.done}`)).toEqual([
+      "1:Prove ordering:true",
+      "2:Define card tables:false",
+      "3:Write application services:false"
+    ]);
+    expect(detail.value.comments).toHaveLength(1);
+    expect(detail.value.watchers).toHaveLength(1);
+  });
+
   it("proves tenant RLS hides and rejects cross-tenant task access as opzava_app", async () => {
     const tenantA = await adminCreateTenant("tenant-a");
     const tenantB = await adminCreateTenant("tenant-b");
@@ -286,5 +503,68 @@ describe("slice 1e tasks", () => {
         `);
       })
     ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("proves card child-table RLS hides, rejects, and fails closed without tenant context", async () => {
+    const tenantA = await adminCreateTenant("card-rls-a");
+    const tenantB = await adminCreateTenant("card-rls-b");
+
+    const task = await createTask({
+      orgId: tenantA.organizationId,
+      workspaceId: tenantA.workspaceId,
+      actor: actor(tenantA.userId),
+      title: "Tenant A card",
+      priority: "normal"
+    });
+    expect(task.ok).toBe(true);
+    if (!task.ok) {
+      throw task.error;
+    }
+
+    const step = await createStep({
+      orgId: tenantA.organizationId,
+      workspaceId: tenantA.workspaceId,
+      actor: actor(tenantA.userId),
+      taskId: task.value.id,
+      text: "Tenant A only"
+    });
+    expect(step.ok).toBe(true);
+    if (!step.ok) {
+      throw step.error;
+    }
+
+    const tenantBRead = await withTenant(tenantB.organizationId, async (tx) =>
+      tx.execute(sql`
+        select id
+        from public.task_steps
+        where id = ${step.value.id}
+      `)
+    );
+    expect(rowsFromExecuteResult(tenantBRead)).toHaveLength(0);
+
+    await expect(
+      withTenant(tenantB.organizationId, async (tx) => {
+        await tx.execute(sql`
+          insert into public.task_steps (
+            task_id,
+            organization_id,
+            workspace_id,
+            text,
+            position
+          )
+          values (
+            ${task.value.id},
+            ${tenantA.organizationId},
+            ${tenantA.workspaceId},
+            'Wrong tenant step',
+            2
+          )
+        `);
+      })
+    ).rejects.toMatchObject({ status: 403 });
+
+    await expect(selectStepsWithoutWithTenant(tenantA.organizationId)).rejects.toMatchObject({
+      status: 403
+    });
   });
 });
