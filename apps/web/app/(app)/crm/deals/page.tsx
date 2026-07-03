@@ -4,13 +4,13 @@ import { ensureDefaultPipeline, listAccounts, listContacts, listDeals } from "@o
 import { forbidden, redirect } from "next/navigation";
 import type { CSSProperties } from "react";
 
-import { CrmPageStyles, CrmPlusIcon } from "@/app/(app)/crm/_components/crm-page-styles";
+import { CrmPageStyles } from "@/app/(app)/crm/_components/crm-page-styles";
 import {
   closeDealAction,
-  createDealAction,
   moveDealStageAction,
   reopenDealAction,
 } from "@/app/(app)/crm/deals/actions";
+import { DealCreateDialog } from "@/app/(app)/crm/deals/_components/deal-create-dialog";
 import {
   crmContextInput,
   dealStatusBadgeClassName,
@@ -112,281 +112,163 @@ export default async function DealsPage() {
                 closed
               </p>
             </div>
-            {accounts.length === 0 ? (
-              <a className="btn btn-primary" href="/crm/accounts">
-                <CrmPlusIcon />
-                Add account
-              </a>
-            ) : (
-              <details className="issues-new-menu crm-new-menu">
-                <summary className="btn btn-primary">
-                  <CrmPlusIcon />
-                  New deal
-                </summary>
-                <form className="issues-new-form crm-new-form" action={createDealAction}>
-                  <input type="hidden" name="idempotencyKey" value={createDealIdempotencyKey} />
-                  <div className="field">
-                    <label className="label" htmlFor="new-deal-title">
-                      Title
-                    </label>
-                    <input
-                      className="input"
-                      id="new-deal-title"
-                      name="title"
-                      type="text"
-                      required
-                      maxLength={240}
-                    />
-                  </div>
-                  <div className="field">
-                    <label className="label" htmlFor="new-deal-account">
-                      Account
-                    </label>
-                    <select className="select" id="new-deal-account" name="accountId" required>
-                      {accounts.map((account) => (
-                        <option value={account.id} key={account.id}>
-                          {account.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label className="label" htmlFor="new-deal-contact">
-                      Primary contact
-                    </label>
-                    <select className="select" id="new-deal-contact" name="primaryContactId">
-                      <option value="">No primary contact</option>
-                      {contacts.map((contact) => (
-                        <option value={contact.id} key={contact.id}>
-                          {contact.displayName}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="crm-form-grid-sm">
-                    <div className="field">
-                      <label className="label" htmlFor="new-deal-value">
-                        Value
-                      </label>
-                      <input
-                        className="input"
-                        id="new-deal-value"
-                        name="value"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                      />
-                    </div>
-                    <div className="field">
-                      <label className="label" htmlFor="new-deal-currency">
-                        Currency
-                      </label>
-                      <input
-                        className="input"
-                        id="new-deal-currency"
-                        name="currency"
-                        type="text"
-                        maxLength={3}
-                        placeholder="USD"
-                      />
-                    </div>
-                  </div>
-                  <div className="crm-form-grid-sm">
-                    <div className="field">
-                      <label className="label" htmlFor="new-deal-close">
-                        Expected close
-                      </label>
-                      <input
-                        className="input"
-                        id="new-deal-close"
-                        name="expectedCloseDate"
-                        type="date"
-                      />
-                    </div>
-                    <div className="field">
-                      <label className="label" htmlFor="new-deal-owner">
-                        Owner
-                      </label>
-                      <select className="select" id="new-deal-owner" name="owner">
-                        <option value="">Unassigned</option>
-                        <option value="me">{context.user.name}</option>
-                      </select>
-                    </div>
-                  </div>
-                  <button className="btn btn-primary" type="submit">
-                    Create deal
-                  </button>
-                </form>
-              </details>
-            )}
+            <DealCreateDialog
+              accounts={accounts}
+              contacts={contacts}
+              currentUserName={context.user.name}
+              idempotencyKey={createDealIdempotencyKey}
+            />
           </div>
 
           <div className="crm-deals-layout">
             <section aria-label="Open deal pipeline">
-              {openDealCount === 0 ? (
-                <div className="card">
-                  <div className="empty">
-                    <p className="empty-title">No open deals</p>
-                    <p className="empty-desc">Create a deal to start tracking pipeline movement.</p>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  className="board-columns crm-deals-board"
-                  role="region"
-                  aria-label="Deal board"
-                >
-                  {stageColumns.map((column) => (
-                    <section
-                      className="board-col"
-                      aria-labelledby={`deal-stage-${column.stage.id}`}
-                      key={column.stage.id}
-                    >
-                      <div className="board-col-header">
-                        <h2 className="board-col-title" id={`deal-stage-${column.stage.id}`}>
-                          {column.stage.name}
-                        </h2>
-                        <span
-                          className={
-                            column.deals.length === 0
-                              ? "count-pill"
-                              : "count-pill count-pill-accent"
-                          }
-                          aria-label={`${column.deals.length} open deals in ${column.stage.name}`}
-                        >
-                          {column.deals.length}
-                        </span>
-                      </div>
-                      <div className="board-col-cards">
-                        {column.deals.length === 0 ? (
-                          <div className="card">
-                            <div className="empty">
-                              <div className="empty-icon" aria-hidden="true">
-                                ✓
-                              </div>
-                              <p className="empty-title">No deals here</p>
-                              <p className="empty-desc">
-                                Deals will appear here when they move into {column.stage.name}.
-                              </p>
+              <div className="board-columns crm-deals-board" role="region" aria-label="Deal board">
+                {stageColumns.map((column) => (
+                  <section
+                    className="board-col"
+                    aria-labelledby={`deal-stage-${column.stage.id}`}
+                    key={column.stage.id}
+                  >
+                    <div className="board-col-header">
+                      <h2 className="board-col-title" id={`deal-stage-${column.stage.id}`}>
+                        {column.stage.name}
+                      </h2>
+                      <span
+                        className={
+                          column.deals.length === 0 ? "count-pill" : "count-pill count-pill-accent"
+                        }
+                        aria-label={`${column.deals.length} open deals in ${column.stage.name}`}
+                      >
+                        {column.deals.length}
+                      </span>
+                    </div>
+                    <div className="board-col-cards">
+                      {column.deals.length === 0 ? (
+                        <div className="card">
+                          <div className="empty">
+                            <div className="empty-icon" aria-hidden="true">
+                              ✓
                             </div>
+                            <p className="empty-title">No deals here</p>
+                            <p className="empty-desc">
+                              Deals will appear here when they move into {column.stage.name}.
+                            </p>
                           </div>
-                        ) : (
-                          column.deals.map((deal) => (
-                            <article
-                              className="ct-card crm-deal-card"
-                              key={deal.id}
-                              style={dealStageCardStyle(column.stage.position)}
-                              aria-label={`Deal: ${deal.title}`}
-                            >
-                              <div className="ct-card-top">
-                                <span className="ct-card-id">Deal</span>
-                                <span className="ct-card-age">
-                                  · {relativeTime(deal.updatedAt)}
-                                </span>
-                                <span className="u-grow" />
-                                <span className="badge badge-accent">
-                                  {formatMoney(deal.valueCents, deal.currency)}
-                                </span>
-                              </div>
-                              <div className="ct-card-labels">
-                                <a className="ct-label" href={`/crm/accounts/${deal.accountId}`}>
-                                  {deal.accountName}
+                        </div>
+                      ) : (
+                        column.deals.map((deal) => (
+                          <article
+                            className="ct-card crm-deal-card"
+                            key={deal.id}
+                            style={dealStageCardStyle(column.stage.position)}
+                            aria-label={`Deal: ${deal.title}`}
+                          >
+                            <div className="ct-card-top">
+                              <span className="ct-card-id">Deal</span>
+                              <span className="ct-card-age">· {relativeTime(deal.updatedAt)}</span>
+                              <span className="u-grow" />
+                              <span className="badge badge-accent">
+                                {formatMoney(deal.valueCents, deal.currency)}
+                              </span>
+                            </div>
+                            <div className="ct-card-labels">
+                              <a className="ct-label" href={`/crm/accounts/${deal.accountId}`}>
+                                {deal.accountName}
+                              </a>
+                              {deal.primaryContactId === null ||
+                              deal.primaryContactName === null ? (
+                                <span className="ct-label">No primary contact</span>
+                              ) : (
+                                <a
+                                  className="ct-label"
+                                  href={`/crm/contacts/${deal.primaryContactId}`}
+                                >
+                                  {deal.primaryContactName}
                                 </a>
-                                {deal.primaryContactId === null ||
-                                deal.primaryContactName === null ? (
-                                  <span className="ct-label">No primary contact</span>
-                                ) : (
-                                  <a
-                                    className="ct-label"
-                                    href={`/crm/contacts/${deal.primaryContactId}`}
-                                  >
-                                    {deal.primaryContactName}
-                                  </a>
-                                )}
-                              </div>
-                              <p className="ct-card-title">{deal.title}</p>
-                              <div className="ct-card-foot">
-                                <span className="task-avatar" aria-hidden="true">
-                                  {ownerLabel(deal.ownerUserId, context).slice(0, 2).toUpperCase()}
+                              )}
+                            </div>
+                            <p className="ct-card-title">{deal.title}</p>
+                            <div className="ct-card-foot">
+                              <span className="task-avatar" aria-hidden="true">
+                                {ownerLabel(deal.ownerUserId, context).slice(0, 2).toUpperCase()}
+                              </span>
+                              <span
+                                className="u-subtle u-truncate"
+                                style={{ fontSize: "var(--text-xs)", flex: 1, minWidth: 0 }}
+                              >
+                                {ownerLabel(deal.ownerUserId, context)}
+                              </span>
+                              {deal.expectedCloseDate === null ? null : (
+                                <span className="ct-mini">
+                                  <span aria-hidden="true">↳</span>
+                                  {deal.expectedCloseDate}
                                 </span>
-                                <span
-                                  className="u-subtle u-truncate"
-                                  style={{ fontSize: "var(--text-xs)", flex: 1, minWidth: 0 }}
-                                >
-                                  {ownerLabel(deal.ownerUserId, context)}
-                                </span>
-                                {deal.expectedCloseDate === null ? null : (
-                                  <span className="ct-mini">
-                                    <span aria-hidden="true">↳</span>
-                                    {deal.expectedCloseDate}
-                                  </span>
-                                )}
-                              </div>
+                              )}
+                            </div>
 
-                              <form action={moveDealStageAction} className="crm-deal-move-form">
-                                <input type="hidden" name="dealId" value={deal.id} />
-                                <label className="u-sr-only" htmlFor={`deal-${deal.id}-stage`}>
-                                  Move {deal.title} to stage
-                                </label>
-                                <select
-                                  className="select"
-                                  id={`deal-${deal.id}-stage`}
-                                  name="stageId"
-                                  defaultValue={deal.stageId}
-                                >
-                                  {pipelineResult.value.stages.map((stage) => (
-                                    <option value={stage.id} key={stage.id}>
-                                      {stage.name}
-                                    </option>
-                                  ))}
-                                </select>
-                                <button className="btn btn-sm" type="submit">
-                                  Move
-                                </button>
-                              </form>
-
-                              <div className="crm-deal-close-actions">
-                                {(["won", "lost"] as const).map((outcome) => (
-                                  <details className="issues-new-menu crm-new-menu" key={outcome}>
-                                    <summary className="btn btn-sm">
-                                      Mark {dealStatusLabel(outcome)}
-                                    </summary>
-                                    <form
-                                      className="issues-new-form crm-new-form"
-                                      action={closeDealAction}
-                                    >
-                                      <input type="hidden" name="dealId" value={deal.id} />
-                                      <input type="hidden" name="outcome" value={outcome} />
-                                      <div className="field">
-                                        <label
-                                          className="label"
-                                          htmlFor={`deal-${deal.id}-${outcome}-reason`}
-                                        >
-                                          Reason
-                                        </label>
-                                        <textarea
-                                          className="textarea"
-                                          id={`deal-${deal.id}-${outcome}-reason`}
-                                          name="closeReason"
-                                          rows={3}
-                                          maxLength={1000}
-                                        />
-                                      </div>
-                                      <button className="btn btn-primary btn-sm" type="submit">
-                                        Mark {dealStatusLabel(outcome)}
-                                      </button>
-                                    </form>
-                                  </details>
+                            <form action={moveDealStageAction} className="crm-deal-move-form">
+                              <input type="hidden" name="dealId" value={deal.id} />
+                              <label className="u-sr-only" htmlFor={`deal-${deal.id}-stage`}>
+                                Move {deal.title} to stage
+                              </label>
+                              <select
+                                className="select"
+                                id={`deal-${deal.id}-stage`}
+                                name="stageId"
+                                defaultValue={deal.stageId}
+                              >
+                                {pipelineResult.value.stages.map((stage) => (
+                                  <option value={stage.id} key={stage.id}>
+                                    {stage.name}
+                                  </option>
                                 ))}
-                              </div>
-                            </article>
-                          ))
-                        )}
-                      </div>
-                    </section>
-                  ))}
-                </div>
-              )}
+                              </select>
+                              <button className="btn btn-sm" type="submit">
+                                Move
+                              </button>
+                            </form>
+
+                            <div className="crm-deal-close-actions">
+                              {(["won", "lost"] as const).map((outcome) => (
+                                <details className="issues-new-menu crm-new-menu" key={outcome}>
+                                  <summary className="btn btn-sm">
+                                    Mark {dealStatusLabel(outcome)}
+                                  </summary>
+                                  <form
+                                    className="issues-new-form crm-new-form"
+                                    action={closeDealAction}
+                                  >
+                                    <input type="hidden" name="dealId" value={deal.id} />
+                                    <input type="hidden" name="outcome" value={outcome} />
+                                    <div className="field">
+                                      <label
+                                        className="label"
+                                        htmlFor={`deal-${deal.id}-${outcome}-reason`}
+                                      >
+                                        Reason
+                                      </label>
+                                      <textarea
+                                        className="textarea"
+                                        id={`deal-${deal.id}-${outcome}-reason`}
+                                        name="closeReason"
+                                        rows={3}
+                                        maxLength={1000}
+                                      />
+                                    </div>
+                                    <button className="btn btn-primary btn-sm" type="submit">
+                                      Mark {dealStatusLabel(outcome)}
+                                    </button>
+                                  </form>
+                                </details>
+                              ))}
+                            </div>
+                          </article>
+                        ))
+                      )}
+                    </div>
+                  </section>
+                ))}
+              </div>
             </section>
 
             <aside className="card" aria-labelledby="closed-deals-heading">

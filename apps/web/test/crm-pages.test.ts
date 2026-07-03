@@ -72,6 +72,7 @@ describe("CRM page state", () => {
       accounts,
       accountDetail,
       deals,
+      dealCreateDialog,
       tickets,
       ticketDetail,
       loading,
@@ -84,6 +85,7 @@ describe("CRM page state", () => {
       readRepoFile("app/(app)/crm/accounts/page.tsx"),
       readRepoFile("app/(app)/crm/accounts/[id]/page.tsx"),
       readRepoFile("app/(app)/crm/deals/page.tsx"),
+      readRepoFile("app/(app)/crm/deals/_components/deal-create-dialog.tsx"),
       readRepoFile("app/(app)/crm/tickets/page.tsx"),
       readRepoFile("app/(app)/crm/tickets/[id]/page.tsx"),
       readRepoFile("app/(app)/crm/loading.tsx"),
@@ -125,6 +127,15 @@ describe("CRM page state", () => {
     expect(deals).toContain('className="board-columns crm-deals-board"');
     expect(deals).toContain('className="board-col"');
     expect(deals).toContain('className="board-col-header"');
+    expect(deals).toContain('className="count-pill"');
+    expect(deals).not.toContain("openDealCount === 0");
+    expect(deals).not.toContain("No open deals");
+    expect(deals).not.toContain("Add account");
+    expect(dealCreateDialog).toContain("New deal");
+    expect(dealCreateDialog).toContain('role="dialog"');
+    expect(dealCreateDialog).toContain('href="/crm/accounts"');
+    expect(dealCreateDialog).toContain("Create an account first");
+    expect(dealCreateDialog).toContain('disabled={selectedAccountId === ""}');
     expect(deals).toContain("moveDealStageAction");
     expect(deals).toContain("closeDealAction");
     expect(deals).toContain("reopenDealAction");
