@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import type { CommandPaletteItem } from "@/lib/shell-state";
 
@@ -49,6 +49,50 @@ export function TopbarCommandSearch() {
       <SearchIcon />
       <span className="u-grow u-subtle">Search agents, tasks, runs…</span>
       <kbd className="kbd">⌘K</kbd>
+    </div>
+  );
+}
+
+export function TopbarRouteSearchOrBreadcrumb() {
+  const pathname = usePathname();
+
+  if (pathname.startsWith("/ask-opzava")) {
+    return (
+      <nav className="sb-breadcrumb" aria-label="Breadcrumb">
+        <a href="/">Opzava</a>
+        <span className="sep">›</span>
+        <span className="current">Ask Admin Opzava</span>
+      </nav>
+    );
+  }
+
+  return <TopbarCommandSearch />;
+}
+
+export function AskOpzavaAgentStatus({
+  gatewayReachable,
+}: {
+  readonly gatewayReachable: boolean | null;
+}) {
+  const pathname = usePathname();
+  if (!pathname.startsWith("/ask-opzava")) {
+    return null;
+  }
+
+  const online = gatewayReachable === true;
+  const label = online ? "online" : "offline";
+
+  return (
+    <div
+      className="u-row"
+      style={{ gap: "var(--space-2)", fontSize: "var(--text-xs)" }}
+      aria-label={`Ask Admin Opzava stream: ${label}`}
+      title={`Ask Admin Opzava stream: ${label}`}
+    >
+      <span className={online ? "dot dot-success live" : "dot dot-warning"} aria-hidden="true" />
+      <span className="u-muted">
+        <span style={{ color: "var(--accent)", fontWeight: "var(--fw-semibold)" }}>✦</span> {label}
+      </span>
     </div>
   );
 }

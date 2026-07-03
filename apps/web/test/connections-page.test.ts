@@ -465,10 +465,26 @@ describe("Connections page state", () => {
     const nav = await readRepoFile("components/shell/admin-nav.tsx");
 
     expect(page).toContain("Model providers");
-    expect(page).toContain("Orchestrator and subagents");
+    expect(page).toContain("Gateway & models");
+    expect(page).toContain("table table-compact table-cards");
+    expect(page).toContain('data-label="Provider"');
+    expect(page).toContain("ProviderActions");
     expect(page).toContain("GitHub");
+    expect(page).toContain("startGitHubDeviceFlowAction");
     expect(actions).toContain("connectModelProviderApiKeyForContext");
     expect(route).toContain("pollConnectionDeviceFlowForContext");
     expect(nav).toContain('href: "/connections"');
+  });
+
+  it("omits unbacked Connections mockup surfaces behind P8 PRD-013 DESCOPE markers", async () => {
+    const page = await readRepoFile("app/(app)/connections/page.tsx");
+
+    expect(page).toContain("DESCOPE(gateway-configuration): P8 PRD-013");
+    expect(page).toContain("DESCOPE(provider-policy-catalogs): P8 PRD-013");
+    expect(page).toContain("DESCOPE(agent-tools-mcp): P8 PRD-013");
+    expect(page).toContain("DESCOPE(channels-services): P8 PRD-013");
+    expect(page).not.toContain("Orchestrator and subagents");
+    expect(page).not.toContain("Agent tools & MCP");
+    expect(page).not.toContain("Channels & services");
   });
 });

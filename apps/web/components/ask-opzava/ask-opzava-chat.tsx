@@ -54,6 +54,7 @@ interface StreamToolReceipt {
 const assistantStackStyle: CSSProperties = { maxWidth: "80%" };
 const assistantAvatarStyle: CSSProperties = { background: "var(--chart-6)", flex: "none" };
 const userAvatarStyle: CSSProperties = { background: "var(--chart-2)", flex: "none" };
+const emptyAssistantReply = "No reply — the turn did not complete.";
 
 const askOpzavaPageStyles = `
     /* Page-specific LAYOUT only — no color, font-size, radius, or shadow overrides */
@@ -316,49 +317,6 @@ const askOpzavaPageStyles = `
     }
     .example-chip:hover { background: var(--surface-3); color: var(--fg); border-color: var(--border-strong); }
 
-    .ops-state-panel {
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      overflow: hidden;
-    }
-    .ops-state-panel summary {
-      display: flex;
-      align-items: center;
-      gap: var(--space-2);
-      padding: var(--space-3) var(--space-4);
-      cursor: pointer;
-      color: var(--fg-muted);
-      font-size: var(--text-sm);
-      font-weight: var(--fw-medium);
-      list-style: none;
-    }
-    .ops-state-panel summary::-webkit-details-marker { display: none; }
-    .ops-state-panel summary:hover { background: var(--surface-3); color: var(--fg); }
-    .ops-state-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: var(--space-3);
-      padding: 0 var(--space-4) var(--space-4);
-    }
-    .ops-state-card {
-      padding: var(--space-3);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--surface);
-    }
-    .ops-state-card strong {
-      display: block;
-      margin-bottom: 4px;
-      font-size: var(--text-sm);
-    }
-    .ops-state-card p {
-      margin: 0;
-      color: var(--fg-muted);
-      font-size: var(--text-xs);
-      line-height: var(--lh-snug);
-    }
-
     .chat-title-strip {
       border-bottom: 1px solid var(--border);
       padding: var(--space-3) var(--space-6);
@@ -464,7 +422,6 @@ const askOpzavaPageStyles = `
       }
       .chat-stack,
       .chat-stack[style] { max-width: 100% !important; }
-      .ops-state-grid { grid-template-columns: 1fr; }
       .composer-wrap {
         position: fixed;
         left: 0;
@@ -527,9 +484,19 @@ function turnTime(value: string): string {
   }).format(date);
 }
 
+function isEmptyAssistantTurn(turn: AskAdminTurnView): boolean {
+  return (
+    turn.role === "assistant" && turn.text.trim() === "" && (turn.errorMessage?.trim() ?? "") === ""
+  );
+}
+
 function messageText(turn: AskAdminTurnView): string {
   if (turn.text.trim() !== "") {
     return turn.text;
+  }
+
+  if (isEmptyAssistantTurn(turn)) {
+    return emptyAssistantReply;
   }
 
   return turn.errorMessage ?? "";
@@ -714,6 +681,7 @@ function AskOpzavaTurn({
   const label = turnLabel(turn, currentUserName);
   const text = messageText(turn);
   const isUser = turn.role === "user";
+  const mutedFallback = isEmptyAssistantTurn(turn);
 
   if (turn.role === "tool") {
     return (
@@ -745,7 +713,9 @@ function AskOpzavaTurn({
           ) : null}
           <span className="chat-time">{turnTime(turn.createdAt)}</span>
         </div>
-        <div className={isUser ? "chat-bubble chat-bubble--user" : "chat-bubble"}>{text}</div>
+        <div className={isUser ? "chat-bubble chat-bubble--user" : "chat-bubble"}>
+          {mutedFallback ? <span className="u-muted">{text}</span> : text}
+        </div>
       </div>
     </article>
   );
@@ -1116,29 +1086,7 @@ export function AskOpzavaChat({
 
           {shouldShowAskOpzavaDraft(draft) ? <AskOpzavaDraftMessage draft={draft} /> : null}
 
-          <details className="ops-state-panel">
-            <summary>
-              <span aria-hidden="true">◔</span>
-              Conversation states and recovery paths
-              <span className="u-subtle" style={{ marginLeft: "auto" }}>
-                Loading · offline · empty
-              </span>
-            </summary>
-            <div className="ops-state-grid">
-              <div className="ops-state-card">
-                <strong>Loading reply</strong>
-                <p>Queued, working, tool-running, and finalizing states render from SSE events.</p>
-              </div>
-              <div className="ops-state-card">
-                <strong>Offline</strong>
-                <p>Gateway failures keep the draft visible and surface a retry-safe error state.</p>
-              </div>
-              <div className="ops-state-card">
-                <strong>Empty chat</strong>
-                <p>Prompt chips prepare live requests for {workspaceName}.</p>
-              </div>
-            </div>
-          </details>
+          {/* DESCOPE(conversation-state-annotation): the mockup's explanatory loading/offline/empty row is not product UI; the real queued, gateway_unavailable, and cold-start states render above from live stream state. */}
         </div>
       </div>
 

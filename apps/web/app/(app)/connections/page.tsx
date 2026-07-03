@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 
 import {
-  applyOrchestratorRolesAction,
   connectModelProviderApiKeyAction,
   disconnectGitHubAction,
   disconnectModelProviderAction,
@@ -10,10 +9,35 @@ import {
   startModelProviderDeviceFlowAction,
 } from "@/app/(app)/connections/actions";
 import { DeviceFlowPoller } from "@/components/connections/device-flow-poller";
-import { loadConnectionsPageData } from "@/lib/connections";
+import { loadConnectionsPageData, type ConnectionsPageData } from "@/lib/connections";
 import { getAppSessionContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
+
+type ProviderRow = ConnectionsPageData["providers"][number];
+
+const connectionsPageStyles = `
+    /* Page-specific layout only — no color, font-size, shadow, or radius overrides */
+    .conn-group { margin-top: var(--space-8); padding-top: var(--space-5); border-top: 1px solid var(--border); }
+    .conn-group-head { margin-bottom: var(--space-4); }
+    .conn-group-eyebrow { text-transform: uppercase; letter-spacing: var(--tracking-caps); font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--accent); }
+    .conn-group-head h2 { font-size: var(--text-lg); margin-top: 2px; }
+    .conn-group-head p { color: var(--fg-muted); font-size: var(--text-sm); margin: 4px 0 0; max-width: 70ch; }
+    .connections-status-cell { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); padding: var(--space-2) 0; }
+    .connections-provider-actions { margin-top: var(--space-1); }
+    .connections-provider-actions .connections-actions { gap: var(--space-2); }
+    .connections-table-card { overflow: visible; }
+    .connections-github-card { border-left: 3px solid var(--accent); }
+    .connections-github-card .card-body { display: flex; flex-direction: column; gap: var(--space-4); }
+    @media (max-width: 640px) {
+      .connections-page { padding: var(--space-4); }
+      .connections-header { display: grid; grid-template-columns: 1fr; }
+    }
+`;
+
+function ConnectionsPageStyles() {
+  return <style>{connectionsPageStyles}</style>;
+}
 
 function errorStatus(error: unknown, depth = 0): number | undefined {
   if (depth > 5 || typeof error !== "object" || error === null) {
@@ -56,6 +80,61 @@ function relativeTime(value: string | null): string {
   }
 
   return `${Math.floor(diffMs / 3_600_000)}h ago`;
+}
+
+function providerAuthLabel(provider: ProviderRow): string {
+  const hasDeviceFlow = provider.deviceFlowChoices.length > 0;
+  const hasApiKey = provider.apiKeyChoices.length > 0;
+
+  if (hasDeviceFlow && hasApiKey) {
+    return "OAuth → API key";
+  }
+
+  if (hasDeviceFlow) {
+    return "OAuth";
+  }
+
+  if (hasApiKey) {
+    return "API key";
+  }
+
+  return "Unavailable";
+}
+
+function githubStatusDotClass(status: ConnectionsPageData["snapshot"]["github"]["status"]): string {
+  if (status === "connected") {
+    return "dot dot-success dot-beat";
+  }
+
+  if (status === "pending" || status === "needs_attention") {
+    return "dot dot-warning";
+  }
+
+  return "dot";
+}
+
+function ProviderBacks({ provider }: { readonly provider: ProviderRow }) {
+  if (provider.roleLabel === "Lead orchestrator") {
+    return (
+      <span className="u-row" style={{ gap: "6px" }}>
+        <span className="u-sr-only">AI lead — </span>
+        <span
+          className="u-accent"
+          aria-hidden="true"
+          style={{ fontSize: "var(--text-base)", lineHeight: 1 }}
+        >
+          ✦
+        </span>
+        Lead orchestrator
+      </span>
+    );
+  }
+
+  return (
+    <span>
+      Subagent <span className="u-subtle">({provider.whenToUse})</span>
+    </span>
+  );
 }
 
 function ProviderActions({
@@ -143,8 +222,13 @@ export default async function ConnectionsPage() {
     (provider) => provider.id !== "openai" && provider.status === "connected",
   );
 
+  const connectedProviderCount = data.providers.filter(
+    (provider) => provider.status === "connected",
+  ).length;
+
   return (
     <div className="page connections-page">
+      <ConnectionsPageStyles />
       <div className="page-stack">
         <div className="page-header connections-header">
           <div>
@@ -156,38 +240,55 @@ export default async function ConnectionsPage() {
           <div className="u-row connections-header-actions">
             <form action={refreshConnectionsAction}>
               <button type="submit" className="btn">
-                <span aria-hidden="true">↻</span>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path
+                    d="M13 8a5 5 0 1 1-1.46-3.54M13 2.5v3h-3"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
                 Run health check
               </button>
             </form>
-            <a href="#model-providers" className="btn btn-primary">
-              <span aria-hidden="true">+</span>
+            <a href="#providers-lbl" className="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path
+                  d="M8 3v10M3 8h10"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
               Add connection
             </a>
           </div>
         </div>
 
         <section aria-label="Connection health summary">
-          <div className="stat-grid connections-health">
+          <div className="stat-grid">
             <div className="stat">
               <div className="stat-label">Connected</div>
-              <div className="u-row connections-stat-row">
+              <div className="u-row" style={{ gap: "var(--space-2)", alignItems: "center" }}>
                 <span className="stat-value u-tnum">{data.health.connected}</span>
-                <span className="dot dot-success dot-beat" aria-hidden="true" />
+                <span className="dot dot-success dot-beat" aria-hidden="true" title="live" />
               </div>
-              <div className="stat-delta u-subtle">of {data.health.total} total</div>
+              <div className="stat-delta u-subtle">live now · of {data.health.total} total</div>
             </div>
+
             <div className="stat">
               <div className="stat-label">Needs attention</div>
-              <div className="u-row connections-stat-row">
+              <div className="u-row" style={{ gap: "var(--space-2)", alignItems: "center" }}>
                 <span className="stat-value u-tnum">{data.health.needsAttention}</span>
                 <span className="dot dot-warning" aria-hidden="true" />
               </div>
               <div className="stat-delta u-subtle">{data.health.pending} pending flows</div>
             </div>
+
             <div className="stat">
               <div className="stat-label">Gateway</div>
-              <div className="u-row connections-stat-row">
+              <div className="u-row" style={{ gap: "var(--space-2)", alignItems: "center" }}>
                 <span className="stat-value">
                   {data.snapshot.gateway.status === "active" ? "Active" : "Unavailable"}
                 </span>
@@ -198,28 +299,53 @@ export default async function ConnectionsPage() {
                       : "dot dot-warning"
                   }
                   aria-hidden="true"
+                  title="heartbeat live"
                 />
               </div>
               <div className="stat-delta u-subtle">
-                {data.snapshot.gateway.region ?? "region unknown"}
+                OpenClaw ·{" "}
+                <span className="u-mono">{data.snapshot.gateway.region ?? "unknown"}</span>
               </div>
             </div>
           </div>
         </section>
 
-        <section aria-labelledby="gateway-heading">
-          <div className="card connections-gateway-card">
+        <div className="conn-group">
+          <div className="conn-group-head">
+            <span className="conn-group-eyebrow">OpenClaw gateway</span>
+            <h2>Gateway & models</h2>
+            <p>
+              The backend LLM substrate the fleet runs on. The <strong>gateway</strong> holds
+              provider credentials server-side (SecretRef / OAuth) and routes agent turns to the{" "}
+              <strong>model providers</strong> below — raw keys never reach the browser.
+            </p>
+          </div>
+        </div>
+
+        <section aria-labelledby="gw-heading">
+          <div
+            className="card connections-gateway-card"
+            style={{ borderLeft: "3px solid var(--accent)" }}
+          >
             <div className="card-header">
-              <h2 className="card-title" id="gateway-heading">
+              <h2 className="card-title" id="gw-heading">
                 OpenClaw gateway
               </h2>
-              <span className="badge badge-accent">provisioning/admin path only</span>
+              <span className="badge badge-accent">24/7 substrate</span>
             </div>
             <div className="card-body">
-              <dl className="connections-dl">
-                <dt>Status</dt>
-                <dd>
-                  <span className="u-row">
+              <dl
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "148px 1fr",
+                  gap: "var(--space-3) var(--space-4)",
+                  alignItems: "baseline",
+                  margin: 0,
+                }}
+              >
+                <dt className="u-muted">Status</dt>
+                <dd style={{ margin: 0 }}>
+                  <span className="u-row" style={{ gap: "var(--space-2)" }}>
                     <span
                       className={
                         data.snapshot.gateway.status === "active"
@@ -231,41 +357,67 @@ export default async function ConnectionsPage() {
                     {data.snapshot.gateway.status === "active" ? "Active" : "Unavailable"}
                   </span>
                 </dd>
-                <dt>Auth</dt>
-                <dd>{data.snapshot.gateway.authLabel}</dd>
-                <dt>Hosts</dt>
-                <dd className="connections-badge-row">
-                  <span className="badge">
-                    <span className="u-accent" aria-hidden="true">
-                      ✦
-                    </span>{" "}
-                    Lead orchestrator
-                  </span>
-                  {connectedSubagentProviders.map((provider) => (
-                    <span className="badge" key={provider.id}>
-                      {provider.label}
+
+                <dt className="u-muted">Auth</dt>
+                <dd style={{ margin: 0 }}>{data.snapshot.gateway.authLabel}</dd>
+
+                <dt className="u-muted">Hosts</dt>
+                <dd style={{ margin: 0 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "var(--space-2)",
+                      alignItems: "center",
+                    }}
+                  >
+                    <span className="badge">
+                      <span className="u-sr-only">AI lead — </span>
+                      <span
+                        className="u-accent"
+                        aria-hidden="true"
+                        style={{ fontSize: "var(--text-sm)" }}
+                      >
+                        ✦
+                      </span>{" "}
+                      Lead orchestrator
                     </span>
-                  ))}
+                    {connectedSubagentProviders.map((provider) => (
+                      <span className="badge" key={provider.id}>
+                        {provider.label}
+                      </span>
+                    ))}
+                  </div>
                 </dd>
-                <dt>Last heartbeat</dt>
-                <dd className="u-mono">{relativeTime(data.snapshot.gateway.lastHeartbeatAt)}</dd>
-                <dt>Message</dt>
-                <dd>{data.snapshot.gateway.message ?? "Gateway reported healthy."}</dd>
+
+                <dt className="u-muted">Last heartbeat</dt>
+                <dd style={{ margin: 0 }}>
+                  <span className="u-mono">
+                    {relativeTime(data.snapshot.gateway.lastHeartbeatAt)}
+                  </span>
+                </dd>
+
+                <dt className="u-muted">Region</dt>
+                <dd style={{ margin: 0 }}>
+                  <span className="u-mono">{data.snapshot.gateway.region ?? "unknown"}</span>
+                </dd>
               </dl>
             </div>
           </div>
         </section>
 
-        <section aria-labelledby="model-providers" id="model-provider-section">
-          <div className="connections-section-head">
-            <div>
-              <span className="conn-group-eyebrow">OpenClaw gateway</span>
-              <h2 id="model-providers">Model providers</h2>
-              <p>
-                Catalog rows come from the provisioning worker's Gateway catalog query. API keys
-                are paste-once; OAuth/device flows show code and poll status.
-              </p>
+        <section aria-labelledby="providers-lbl">
+          <div
+            className="u-between u-wrap"
+            style={{ gap: "var(--space-2)", marginBottom: "var(--space-2)" }}
+          >
+            <div className="section-label" id="providers-lbl" style={{ padding: 0 }}>
+              Model providers
             </div>
+            <span className="u-subtle" style={{ fontSize: "var(--text-xs)" }}>
+              The gateway routes the fleet to these · {connectedProviderCount} linked · auth order
+              OAuth → API key
+            </span>
           </div>
 
           {data.providers.length === 0 ? (
@@ -276,130 +428,93 @@ export default async function ConnectionsPage() {
               </p>
             </div>
           ) : (
-            <div className="connections-provider-grid">
-              {data.providers.map((provider) => (
-                <article className="card connections-provider-card" key={provider.id}>
-                  <div className="card-header">
-                    <div>
-                      <h3 className="card-title">{provider.label}</h3>
-                      <p className="hint">{provider.vendor}</p>
-                    </div>
-                    <span className="badge">{provider.roleLabel}</span>
-                  </div>
-                  <div className="card-body connections-provider-body">
-                    <dl className="connections-dl">
-                      <dt>Auth</dt>
-                      <dd>{provider.authSummary}</dd>
-                      <dt>Model</dt>
-                      <dd className="u-mono">{provider.model}</dd>
-                      <dt>Strength</dt>
-                      <dd>{provider.strength}</dd>
-                      <dt>When to use</dt>
-                      <dd>{provider.whenToUse}</dd>
-                      <dt>Status</dt>
-                      <dd>
-                        <span className="u-row">
-                          <span className={provider.statusClassName} aria-hidden="true" />
-                          {provider.statusLabel}
-                        </span>
-                      </dd>
-                      <dt>Account</dt>
-                      <dd>{provider.accountLabel ?? "not connected"}</dd>
-                      <dt>Usage</dt>
-                      <dd>{provider.usageLabel ?? "unknown until connected"}</dd>
-                    </dl>
-
-                    {provider.pendingFlow === null ? null : (
-                      <DeviceFlowPoller
-                        flowId={provider.pendingFlow.flowId}
-                        verificationUri={provider.pendingFlow.verificationUri}
-                        userCode={provider.pendingFlow.userCode}
-                        intervalSeconds={provider.pendingFlow.intervalSeconds}
-                        expiresAt={provider.pendingFlow.expiresAt}
-                      />
-                    )}
-
-                    <ProviderActions
-                      providerId={provider.id}
-                      apiKeyChoices={provider.apiKeyChoices}
-                      deviceFlowChoices={provider.deviceFlowChoices}
-                      connected={provider.status === "connected"}
-                    />
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section aria-labelledby="roles-heading">
-          <div className="card">
-            <div className="card-header">
-              <div>
-                <h2 className="card-title" id="roles-heading">
-                  Orchestrator and subagents
-                </h2>
-                <p className="hint">
-                  This writes delegation config only; task routing/run traces remain P1.
-                </p>
-              </div>
-              <form action={applyOrchestratorRolesAction}>
-                <button type="submit" className="btn btn-primary btn-sm">
-                  Apply role config
-                </button>
-              </form>
-            </div>
-            <div className="card-body">
-              <dl className="connections-dl connections-dl-wide">
-                <dt>Delegation mode</dt>
-                <dd>{data.orchestratorPlan.receipt.delegationMode}</dd>
-                <dt>Allowed subagents</dt>
-                <dd>
-                  {data.orchestratorPlan.receipt.allowAgents.length === 0
-                    ? "none connected"
-                    : data.orchestratorPlan.receipt.allowAgents.join(", ")}
-                </dd>
-                <dt>Tool policy expansion</dt>
-                <dd>{data.orchestratorPlan.receipt.toolPolicyExpansion.join(", ")}</dd>
-              </dl>
-              <table className="table table-compact table-cards connections-role-table">
+            <div className="card connections-table-card">
+              <table className="table table-compact table-cards">
                 <caption className="u-sr-only">
-                  Connected model provider roles for the Ask Opzava orchestrator.
+                  AI providers backing the fleet — provider, authentication, what each backs, plan
+                  or usage, and live status.
                 </caption>
                 <thead>
                   <tr>
-                    <th scope="col">Role</th>
-                    <th scope="col">Model</th>
-                    <th scope="col">Strength</th>
-                    <th scope="col">When to use</th>
+                    <th scope="col">Provider</th>
+                    <th scope="col">Auth</th>
+                    <th scope="col">Backs</th>
+                    <th scope="col">Plan / usage</th>
+                    <th scope="col">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td data-label="Role">Lead orchestrator</td>
-                    <td data-label="Model" className="u-mono">
-                      {data.orchestratorPlan.agents.list[0]?.model ?? "openai/gpt-5.5"}
-                    </td>
-                    <td data-label="Strength">responsive coordination</td>
-                    <td data-label="When to use">Ask Opzava front-door chat</td>
-                  </tr>
-                  {connectedSubagentProviders.map((provider) => (
+                  {data.providers.map((provider) => (
                     <tr key={provider.id}>
-                      <td data-label="Role">{provider.label} subagent</td>
-                      <td data-label="Model" className="u-mono">
-                        {provider.model}
+                      <td data-label="Provider">
+                        <div
+                          style={{ fontWeight: "var(--fw-medium)", lineHeight: "var(--lh-snug)" }}
+                        >
+                          {provider.label}
+                        </div>
+                        <div
+                          className="u-subtle"
+                          style={{ fontSize: "var(--text-xs)", marginTop: "2px" }}
+                        >
+                          {provider.vendor}
+                        </div>
                       </td>
-                      <td data-label="Strength">{provider.strength}</td>
-                      <td data-label="When to use">{provider.whenToUse}</td>
+                      <td data-label="Auth">
+                        <span className="badge">{providerAuthLabel(provider)}</span>
+                      </td>
+                      <td data-label="Backs">
+                        <ProviderBacks provider={provider} />
+                      </td>
+                      <td data-label="Plan / usage">
+                        {provider.usageLabel === null ? (
+                          <span className="u-muted">
+                            <span className="u-mono">{provider.model}</span> until connected
+                          </span>
+                        ) : (
+                          <span className="u-muted">{provider.usageLabel}</span>
+                        )}
+                      </td>
+                      <td data-label="Status">
+                        <div className="connections-status-cell">
+                          <span className="u-row">
+                            <span className={provider.statusClassName} aria-hidden="true" />
+                            {provider.statusLabel}
+                          </span>
+                          {provider.accountLabel === null ? null : (
+                            <span className="u-subtle">{provider.accountLabel}</span>
+                          )}
+                          {provider.pendingFlow === null ? null : (
+                            <DeviceFlowPoller
+                              flowId={provider.pendingFlow.flowId}
+                              verificationUri={provider.pendingFlow.verificationUri}
+                              userCode={provider.pendingFlow.userCode}
+                              intervalSeconds={provider.pendingFlow.intervalSeconds}
+                              expiresAt={provider.pendingFlow.expiresAt}
+                            />
+                          )}
+                          <div className="connections-provider-actions">
+                            <ProviderActions
+                              providerId={provider.id}
+                              apiKeyChoices={provider.apiKeyChoices}
+                              deviceFlowChoices={provider.deviceFlowChoices}
+                              connected={provider.status === "connected"}
+                            />
+                          </div>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
+          )}
         </section>
 
-        <section aria-labelledby="github-heading">
+        {/* DESCOPE(gateway-configuration): P8 PRD-013 keeps restart-gated gateway settings out of the shipped thin slice until those controls are backed by live data. */}
+        {/* DESCOPE(provider-policy-catalogs): P8 PRD-013 omits catalog policy controls until auth-order editing and model catalog reads are implemented. */}
+        {/* DESCOPE(orchestrator-role-details): P8 PRD-013 omits the standalone role-apply table; provider rows expose the live orchestrator/subagent role labels for this slice. */}
+
+        <section aria-labelledby="github-heading" className="nav-section-gap">
           <div className="card connections-github-card">
             <div className="card-header">
               <div>
@@ -416,13 +531,7 @@ export default async function ConnectionsPage() {
                 <dd>
                   <span className="u-row">
                     <span
-                      className={
-                        data.snapshot.github.status === "connected"
-                          ? "dot dot-success dot-beat"
-                          : data.snapshot.github.status === "pending"
-                            ? "dot dot-warning"
-                            : "dot"
-                      }
+                      className={githubStatusDotClass(data.snapshot.github.status)}
                       aria-hidden="true"
                     />
                     {data.snapshot.github.status}
@@ -467,6 +576,9 @@ export default async function ConnectionsPage() {
             </div>
           </div>
         </section>
+
+        {/* DESCOPE(agent-tools-mcp): P8 PRD-013 omits operator-owned tool and MCP inventory rows until those resources have a live backend seam. */}
+        {/* DESCOPE(channels-services): P8 PRD-013 omits publishing and messaging channel rows until channel connection state is live. */}
 
         <p className="hint">
           Connection actions are provisioning/admin operations. The broker hot path cannot request

@@ -2,7 +2,11 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
 import { AdminNav } from "@/components/shell/admin-nav";
-import { CommandPalette, TopbarCommandSearch } from "@/components/shell/command-palette";
+import {
+  AskOpzavaAgentStatus,
+  CommandPalette,
+  TopbarRouteSearchOrBreadcrumb,
+} from "@/components/shell/command-palette";
 import { NotificationBell } from "@/components/shell/notification-bell";
 import { SidebarToggle } from "@/components/shell/sidebar-toggle";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
@@ -41,9 +45,11 @@ export default async function AppLayout({ children }: { readonly children: React
         <header className="header">
           <SidebarToggle />
 
-          <TopbarCommandSearch />
+          <TopbarRouteSearchOrBreadcrumb />
 
           <div className="u-grow" />
+
+          <AskOpzavaAgentStatus gatewayReachable={shellState.health.gatewayReachable} />
 
           <ThemeToggle />
 

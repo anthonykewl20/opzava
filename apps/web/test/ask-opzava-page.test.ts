@@ -70,10 +70,18 @@ describe("Ask Opzava page state", () => {
 
   it("wires /ask-opzava as a page route and active sidebar item", async () => {
     const page = await readRepoFile("app/(app)/ask-opzava/page.tsx");
+    const layout = await readRepoFile("app/(app)/layout.tsx");
+    const topbar = await readRepoFile("components/shell/command-palette.tsx");
     const nav = await readRepoFile("components/shell/admin-nav.tsx");
 
     expect(page).toContain("AskOpzavaChat");
     expect(page).toContain("getOrCreateAskAdminHistory");
+    expect(layout).toContain("TopbarRouteSearchOrBreadcrumb");
+    expect(layout).toContain("AskOpzavaAgentStatus");
+    expect(topbar).toContain("usePathname");
+    expect(topbar).toContain('pathname.startsWith("/ask-opzava")');
+    expect(topbar).toContain("gatewayReachable === true");
+    expect(topbar).toContain("Ask Admin Opzava");
     expect(nav).toContain('href: "/ask-opzava"');
     expect(nav).toContain("pathname.startsWith(href)");
   });
@@ -89,7 +97,6 @@ describe("Ask Opzava page state", () => {
       ".action-bubble",
       ".composer-wrap",
       ".example-chip",
-      ".ops-state-panel",
       ".chat-title-strip",
     ]) {
       expect(component).toContain(className);
@@ -104,8 +111,13 @@ describe("Ask Opzava page state", () => {
     expect(component).toContain("upsertToolReceipt");
     expect(component).toContain("router.refresh()");
     expect(component).toContain("setDraft(emptyAskAdminDraft())");
+    expect(component).toContain("No reply — the turn did not complete.");
+    expect(component).toContain("u-muted");
+    expect(component).not.toContain("Conversation states and recovery paths");
+    expect(component).not.toContain('className="ops-state-panel"');
     expect(component).toContain("DESCOPE(proactive-digest)");
     expect(component).toContain("DESCOPE(inline-approval-action)");
+    expect(component).toContain("DESCOPE(conversation-state-annotation)");
   });
 
   it("keeps the Tasks page free of the interim Ask Admin panel", async () => {
