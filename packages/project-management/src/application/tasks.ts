@@ -1,5 +1,4 @@
 import {
-  ConflictError,
   mapDatabaseError,
   sql,
   withTenant,
@@ -309,12 +308,72 @@ interface PreparedTaskFields {
 
 type QueryRow = Record<string, unknown>;
 
+class TaskDatabaseAttemptError extends Error {
+  public readonly rawError: unknown;
+
+  public constructor(rawError: unknown) {
+    super("Task database operation failed.");
+    this.name = "TaskDatabaseAttemptError";
+    this.rawError = rawError;
+  }
+}
+
 function taskError(code: string, message: string, cause?: unknown): DomainError {
   return new DomainError({
     code,
     message,
     ...(cause === undefined ? {} : { cause }),
   });
+}
+
+function databaseError(error: unknown): DomainError {
+  return taskError(
+    "projectManagement.databaseError",
+    "Database operation failed.",
+    mapDatabaseError(error),
+  );
+}
+
+function unwrapTaskDatabaseAttemptError(error: unknown): unknown {
+  return error instanceof TaskDatabaseAttemptError ? error.rawError : error;
+}
+
+function errorStringField(error: unknown, field: string, depth = 0): string | null {
+  if (depth > 5 || typeof error !== "object" || error === null) {
+    return null;
+  }
+
+  const value = (error as Record<string, unknown>)[field];
+  if (typeof value === "string" && value.trim() !== "") {
+    return value;
+  }
+
+  return errorStringField((error as { readonly cause?: unknown }).cause, field, depth + 1);
+}
+
+function errorMessageIncludes(error: unknown, needle: string, depth = 0): boolean {
+  if (depth > 5 || typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  if (error instanceof Error && error.message.includes(needle)) {
+    return true;
+  }
+
+  return errorMessageIncludes((error as { readonly cause?: unknown }).cause, needle, depth + 1);
+}
+
+function isWorkspaceCardNumberUniqueViolation(error: unknown): boolean {
+  if (errorStringField(error, "code") !== "23505") {
+    return false;
+  }
+
+  const constraint =
+    errorStringField(error, "constraint") ?? errorStringField(error, "constraint_name");
+  return (
+    constraint === "tasks_workspace_card_number_unique" ||
+    (constraint === null && errorMessageIncludes(error, "tasks_workspace_card_number_unique"))
+  );
 }
 
 function rowsFromExecuteResult(result: unknown): readonly QueryRow[] {
@@ -1051,6 +1110,41 @@ async function selectTaskById(
   return row === undefined ? null : rowToTaskDto(row);
 }
 
+async function selectTaskByIdempotencyKey(
+  tx: TenantTransaction,
+  orgId: string,
+  idempotencyKey: string,
+): Promise<TaskDto | null> {
+  const result = await tx.execute(sql`
+    select
+      t.id,
+      t.organization_id,
+      t.workspace_id,
+      t.title,
+      t.description,
+      t.status,
+      t.priority,
+      t.assignee_user_id,
+      u.name as assignee_name,
+      t.labels,
+      t.position,
+      t.card_number,
+      t.due_at,
+      t.provenance_source,
+      t.provenance_external_ref,
+      t.created_at,
+      t.updated_at
+    from public.tasks t
+    left join public.auth_users u on u.id = t.assignee_user_id
+    where t.organization_id = ${orgId}
+      and t.idempotency_key = ${idempotencyKey}
+    limit 1
+  `);
+
+  const row = rowsFromExecuteResult(result)[0];
+  return row === undefined ? null : rowToTaskDto(row);
+}
+
 async function ensureTaskExists(
   tx: TenantTransaction,
   taskId: string,
@@ -1329,19 +1423,32 @@ export async function createTask(
     return err(authorized.error);
   }
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     const result = await createTaskOnce(input, status.value, fields.value, idempotencyKey.value);
-    if (result.ok || !(result.error.cause instanceof ConflictError)) {
+
+    if (result.ok) {
       return result;
     }
+
+    if (isWorkspaceCardNumberUniqueViolation(result.error.cause)) {
+      if (attempt === 0) {
+        continue;
+      }
+
+      return err(databaseError(result.error.cause));
+    }
+
+    if (
+      result.error.code === "projectManagement.databaseError" &&
+      result.error.cause !== undefined
+    ) {
+      return err(databaseError(result.error.cause));
+    }
+
+    return result;
   }
 
-  return err(
-    taskError(
-      "projectManagement.taskCreateFailed",
-      "Task could not be created after retrying card number allocation.",
-    ),
-  );
+  return err(taskError("projectManagement.taskCreateFailed", "Task could not be created."));
 }
 
 async function createTaskOnce(
@@ -1352,8 +1459,22 @@ async function createTaskOnce(
 ): Promise<Result<TaskDto>> {
   try {
     return await withTenant(input.orgId, async (tx) => {
-      const result = await tx.execute(sql`
-        with next_position as (
+      if (idempotencyKey !== null) {
+        const replay = await selectTaskByIdempotencyKey(tx, input.orgId, idempotencyKey);
+        if (replay !== null) {
+          return ok(replay);
+        }
+      }
+
+      let result: unknown;
+      try {
+        result = await tx.execute(sql`
+        with next_card_number as (
+          select coalesce(max(card_number), 0) + 1 as value
+          from public.tasks
+          where workspace_id = ${input.workspaceId}
+        ),
+        next_position as (
           select coalesce(max(position), 0) + 1 as value
           from public.tasks
           where workspace_id = ${input.workspaceId}
@@ -1362,6 +1483,7 @@ async function createTaskOnce(
         insert into public.tasks (
           organization_id,
           workspace_id,
+          card_number,
           title,
           description,
           status,
@@ -1377,6 +1499,7 @@ async function createTaskOnce(
         select
           ${input.orgId},
           ${input.workspaceId},
+          next_card_number.value,
           ${fields.title},
           ${fields.description},
           ${status}::public.task_status,
@@ -1388,7 +1511,8 @@ async function createTaskOnce(
           ${fields.provenanceSource},
           ${fields.provenanceExternalRef},
           ${idempotencyKey}
-        from next_position
+        from next_card_number
+        cross join next_position
         on conflict (organization_id, idempotency_key)
         do update set idempotency_key = excluded.idempotency_key
         returning
@@ -1410,6 +1534,9 @@ async function createTaskOnce(
           created_at,
           updated_at
       `);
+      } catch (error) {
+        throw new TaskDatabaseAttemptError(error);
+      }
 
       const row = rowsFromExecuteResult(result)[0];
       if (row === undefined) {
@@ -1421,9 +1548,9 @@ async function createTaskOnce(
   } catch (error) {
     return err(
       taskError(
-        "projectManagement.taskCreateFailed",
-        "Task could not be created.",
-        mapDatabaseError(error),
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        unwrapTaskDatabaseAttemptError(error),
       ),
     );
   }

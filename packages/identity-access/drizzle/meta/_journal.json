@@ -92,6 +92,13 @@
       "when": 1782951500000,
       "tag": "0012_slice3_crm_core",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1782951600000,
+      "tag": "0013_slice3_per_workspace_card_numbers",
+      "breakpoints": true
     }
   ]
 }

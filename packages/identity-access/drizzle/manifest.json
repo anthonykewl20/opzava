@@ -52,6 +52,10 @@
     {
       "path": "0012_slice3_crm_core.sql",
       "sha256": "343d1a8c2b65a031005717018e0216c48cba011f44ca628f97f12947cc967e77"
+    },
+    {
+      "path": "0013_slice3_per_workspace_card_numbers.sql",
+      "sha256": "7facbbe26ece52b97ed5edbf559f57dc353ff67e7515e6ee0bf7adb441039b9f"
     }
   ]
 }
