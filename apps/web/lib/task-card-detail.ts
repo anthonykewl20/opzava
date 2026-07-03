@@ -1,14 +1,27 @@
 import type {
+  AddQualityCheckInput,
+  AddTaskEvidenceFileInput,
+  AddTaskEvidenceLinkInput,
+  ApproveQualityReviewInput,
   CardDetailDto,
   EnqueueIssueCloseInput,
+  EnsureTaskQualityReviewInput,
   IssueCloseOutboxDto,
+  TaskEvidenceDto,
+  TaskQualityReviewDto,
   TaskCommentDto,
   TaskDto,
   TaskPriority,
   TaskStepDto,
+  ToggleQualityCheckInput,
 } from "@opzava/project-management";
 import {
   addComment,
+  addQualityCheck,
+  addTaskEvidenceFile,
+  addTaskEvidenceLink,
+  approveQualityReview,
+  ensureTaskQualityReview,
   enqueueIssueCloseForTask,
   getCardDetail,
   issueRefFromTask,
@@ -16,10 +29,13 @@ import {
   markCommentsRead,
   moveTask,
   taskPriorities,
+  toggleQualityCheck,
   toggleStep,
   updateTask,
 } from "@opzava/project-management";
+import type { ErrorCapturePort, ObjectStorePort, ObjectStorePresignedRequest } from "@opzava/ports";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
+import { randomUUID } from "node:crypto";
 
 import {
   askAdminAssistantKey,
@@ -28,6 +44,10 @@ import {
 } from "@/lib/ask-admin-history";
 import { listTaskCardAssistantRuns, type TaskCardAssistantRunView } from "@/lib/task-card-ai-run";
 import { parseCardNumberRouteSegment } from "@/lib/task-card-format";
+import {
+  evidenceProvenanceLabel,
+  validateEvidenceUploadSize,
+} from "@/lib/task-card-evidence-quality";
 import {
   evaluateAssistantMentionGuard,
   parseMentions,
@@ -91,6 +111,45 @@ export interface MarkTaskCommentsReadCommand {
   readonly commentIds?: readonly string[];
 }
 
+export interface PrepareEvidenceUploadCommand {
+  readonly taskId: string;
+  readonly filename: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+}
+
+export interface PrepareEvidenceUploadResult {
+  readonly evidence: TaskEvidenceDto;
+  readonly upload: ObjectStorePresignedRequest;
+}
+
+export interface AddEvidenceLinkCommand {
+  readonly taskId: string;
+  readonly url: string;
+  readonly title?: string;
+}
+
+export interface PresignEvidenceDownloadCommand {
+  readonly taskId: string;
+  readonly evidenceId: string;
+}
+
+export interface AddQualityCheckCommand {
+  readonly taskId: string;
+  readonly label: string;
+}
+
+export interface ToggleQualityCheckCommand {
+  readonly taskId: string;
+  readonly checkId: string;
+  readonly state: "pass" | "fail" | "pending";
+}
+
+export interface ApproveQualityReviewCommand {
+  readonly taskId: string;
+  readonly expectedReviewId?: string;
+}
+
 export interface AssistantMentionDispatch {
   readonly conversationId: string;
   readonly prompt: string;
@@ -120,6 +179,14 @@ export interface TaskCardActionDependencies {
   readonly moveTask: typeof moveTask;
   readonly toggleStep: typeof toggleStep;
   readonly updateTask: typeof updateTask;
+  readonly addTaskEvidenceFile: typeof addTaskEvidenceFile;
+  readonly addTaskEvidenceLink: typeof addTaskEvidenceLink;
+  readonly ensureTaskQualityReview: typeof ensureTaskQualityReview;
+  readonly addQualityCheck: typeof addQualityCheck;
+  readonly toggleQualityCheck: typeof toggleQualityCheck;
+  readonly approveQualityReview: typeof approveQualityReview;
+  readonly objectStorePort?: ObjectStorePort;
+  readonly errorCapture?: ErrorCapturePort;
   readonly enqueueIssueCloseForTask?: typeof enqueueIssueCloseForTask;
   readonly revalidateTaskPaths?: (task: { readonly cardNumber?: number }) => void;
 }
@@ -143,6 +210,12 @@ export const defaultTaskCardActionDependencies: Omit<
   moveTask,
   toggleStep,
   updateTask,
+  addTaskEvidenceFile,
+  addTaskEvidenceLink,
+  ensureTaskQualityReview,
+  addQualityCheck,
+  toggleQualityCheck,
+  approveQualityReview,
   enqueueIssueCloseForTask,
 };
 
@@ -316,6 +389,85 @@ async function requireContext(
     : ok(context);
 }
 
+function requireObjectStore(
+  dependencies: Pick<TaskCardActionDependencies, "objectStorePort">,
+): Result<ObjectStorePort> {
+  return dependencies.objectStorePort === undefined
+    ? err(webTaskCardError("web.objectStoreUnavailable", "Evidence storage is not configured."))
+    : ok(dependencies.objectStorePort);
+}
+
+function captureCardError(
+  dependencies: Pick<TaskCardActionDependencies, "errorCapture">,
+  input: {
+    readonly context: AppSessionContext;
+    readonly operation: string;
+    readonly message: string;
+    readonly code?: string;
+    readonly cause?: unknown;
+  },
+): void {
+  void dependencies.errorCapture?.capture({
+    source: "apps/web",
+    operation: input.operation,
+    severity: "error",
+    message: input.message,
+    ...(input.code === undefined ? {} : { code: input.code }),
+    details: {
+      orgId: input.context.orgId,
+      workspaceId: input.context.workspaceId,
+      userId: input.context.user.id,
+    },
+    ...(input.cause === undefined ? {} : { cause: input.cause }),
+  });
+}
+
+function safeObjectFilename(value: string): string {
+  return (
+    value
+      .trim()
+      .replace(/[^\w.=-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "upload"
+  );
+}
+
+function objectKey(input: {
+  readonly context: AppSessionContext;
+  readonly taskId: string;
+  readonly filename: string;
+}): string {
+  return [
+    input.context.orgId,
+    input.context.workspaceId,
+    "tasks",
+    input.taskId,
+    `${randomUUID()}-${safeObjectFilename(input.filename)}`,
+  ].join("/");
+}
+
+function parseStoredObjectRef(
+  value: string,
+): Result<{ readonly bucket: string; readonly key: string }> {
+  const [bucket, ...keyParts] = value.split("/");
+  const key = keyParts.join("/");
+  if (bucket === undefined || bucket.trim() === "" || key.trim() === "") {
+    return err(
+      webTaskCardError("web.invalidEvidenceObjectRef", "Evidence object reference is invalid."),
+    );
+  }
+
+  return ok({ bucket, key });
+}
+
+function actorContext(context: AppSessionContext, taskId: string) {
+  return {
+    orgId: context.orgId,
+    workspaceId: context.workspaceId,
+    actor: actorFromSessionContext(context),
+    taskId,
+  };
+}
+
 export async function loadTaskCardPageData(
   input: { readonly cardId: string },
   dependencies: TaskCardLoadDependencies,
@@ -462,7 +614,11 @@ export async function markTaskDoneForCard(
   dependencies.revalidateTaskPaths?.({ cardNumber: result.value.cardNumber });
   return ok({
     task: result.value,
-    linkedIssueCloseIntent: await markLinkedIssueForClose(result.value, context.value, dependencies),
+    linkedIssueCloseIntent: await markLinkedIssueForClose(
+      result.value,
+      context.value,
+      dependencies,
+    ),
   });
 }
 
@@ -593,6 +749,234 @@ export async function markTaskCommentsReadForCard(
     ...(input.commentIds === undefined ? {} : { commentIds: input.commentIds }),
   });
   if (!result.ok) {
+    return err(result.error);
+  }
+
+  dependencies.revalidateTaskPaths?.({});
+  return result;
+}
+
+export async function prepareEvidenceUploadForCard(
+  input: PrepareEvidenceUploadCommand,
+  dependencies: TaskCardActionDependencies,
+): Promise<Result<PrepareEvidenceUploadResult>> {
+  const context = await requireContext(dependencies);
+  if (!context.ok) {
+    return err(context.error);
+  }
+
+  const size = validateEvidenceUploadSize(input.sizeBytes);
+  if (!size.ok) {
+    return err(
+      webTaskCardError("web.evidenceUploadTooLarge", size.message ?? "File is too large."),
+    );
+  }
+
+  const store = requireObjectStore(dependencies);
+  if (!store.ok) {
+    captureCardError(dependencies, {
+      context: context.value,
+      operation: "task-card.evidence.presign",
+      message: store.error.message,
+      code: store.error.code,
+    });
+    return err(store.error);
+  }
+
+  const key = objectKey({
+    context: context.value,
+    taskId: input.taskId,
+    filename: input.filename,
+  });
+  const upload = await store.value.presignPutObject({
+    key,
+    contentType: input.contentType,
+    sizeBytes: input.sizeBytes,
+    expiresInSeconds: 10 * 60,
+  });
+  if (!upload.ok) {
+    captureCardError(dependencies, {
+      context: context.value,
+      operation: "task-card.evidence.presign",
+      message: "Evidence upload URL could not be prepared.",
+      code: upload.error.code,
+      cause: upload.error,
+    });
+    return err(upload.error);
+  }
+
+  const evidence = await dependencies.addTaskEvidenceFile({
+    ...actorContext(context.value, input.taskId),
+    objectRef: `${upload.value.ref.bucket}/${upload.value.ref.key}`,
+    filename: input.filename,
+    contentType: input.contentType,
+    sizeBytes: input.sizeBytes,
+    provenance: evidenceProvenanceLabel({ source: "upload" }),
+  } satisfies AddTaskEvidenceFileInput);
+  if (!evidence.ok) {
+    return err(evidence.error);
+  }
+
+  dependencies.revalidateTaskPaths?.({});
+  return ok({
+    evidence: evidence.value,
+    upload: upload.value,
+  });
+}
+
+export async function addEvidenceLinkForCard(
+  input: AddEvidenceLinkCommand,
+  dependencies: TaskCardActionDependencies,
+): Promise<Result<TaskEvidenceDto>> {
+  const context = await requireContext(dependencies);
+  if (!context.ok) {
+    return err(context.error);
+  }
+
+  const result = await dependencies.addTaskEvidenceLink({
+    ...actorContext(context.value, input.taskId),
+    url: input.url,
+    ...(input.title === undefined ? {} : { title: input.title }),
+    provenance: evidenceProvenanceLabel({ source: "link" }),
+  } satisfies AddTaskEvidenceLinkInput);
+  if (!result.ok) {
+    return err(result.error);
+  }
+
+  dependencies.revalidateTaskPaths?.({});
+  return result;
+}
+
+export async function presignEvidenceDownloadForCard(
+  input: PresignEvidenceDownloadCommand,
+  dependencies: TaskCardActionDependencies,
+): Promise<Result<ObjectStorePresignedRequest>> {
+  const context = await requireContext(dependencies);
+  if (!context.ok) {
+    return err(context.error);
+  }
+
+  const card = await dependencies.getCardDetail({
+    ...actorContext(context.value, input.taskId),
+  });
+  if (!card.ok) {
+    return err(card.error);
+  }
+
+  const evidence = card.value.evidence.find((item) => item.id === input.evidenceId);
+  if (evidence === undefined || evidence.kind !== "file" || evidence.objectRef === null) {
+    return err(webTaskCardError("web.evidenceNotFound", "Evidence file was not found."));
+  }
+
+  const ref = parseStoredObjectRef(evidence.objectRef);
+  if (!ref.ok) {
+    return err(ref.error);
+  }
+
+  const store = requireObjectStore(dependencies);
+  if (!store.ok) {
+    captureCardError(dependencies, {
+      context: context.value,
+      operation: "task-card.evidence.download",
+      message: store.error.message,
+      code: store.error.code,
+    });
+    return err(store.error);
+  }
+
+  const signed = await store.value.presignGetObject({
+    ref: ref.value,
+    expiresInSeconds: 5 * 60,
+    filename: evidence.filename,
+  });
+  if (!signed.ok) {
+    captureCardError(dependencies, {
+      context: context.value,
+      operation: "task-card.evidence.download",
+      message: "Evidence download URL could not be prepared.",
+      code: signed.error.code,
+      cause: signed.error,
+    });
+    return err(signed.error);
+  }
+
+  return signed;
+}
+
+export async function addQualityCheckForCard(
+  input: AddQualityCheckCommand,
+  dependencies: TaskCardActionDependencies,
+): Promise<Result<TaskQualityReviewDto>> {
+  const context = await requireContext(dependencies);
+  if (!context.ok) {
+    return err(context.error);
+  }
+
+  const result = await dependencies.addQualityCheck({
+    ...actorContext(context.value, input.taskId),
+    label: input.label,
+    kind: "human",
+    state: "pending",
+    actorLabel: context.value.user.name,
+  } satisfies AddQualityCheckInput);
+  if (!result.ok) {
+    return err(result.error);
+  }
+
+  dependencies.revalidateTaskPaths?.({});
+  return result;
+}
+
+export async function toggleQualityCheckForCard(
+  input: ToggleQualityCheckCommand,
+  dependencies: TaskCardActionDependencies,
+): Promise<Result<TaskQualityReviewDto>> {
+  const context = await requireContext(dependencies);
+  if (!context.ok) {
+    return err(context.error);
+  }
+
+  const result = await dependencies.toggleQualityCheck({
+    ...actorContext(context.value, input.taskId),
+    checkId: input.checkId,
+    state: input.state,
+  } satisfies ToggleQualityCheckInput);
+  if (!result.ok) {
+    return err(result.error);
+  }
+
+  dependencies.revalidateTaskPaths?.({});
+  return result;
+}
+
+export async function approveQualityReviewForCard(
+  input: ApproveQualityReviewCommand,
+  dependencies: TaskCardActionDependencies,
+): Promise<Result<TaskQualityReviewDto>> {
+  const context = await requireContext(dependencies);
+  if (!context.ok) {
+    return err(context.error);
+  }
+
+  const ensured = await dependencies.ensureTaskQualityReview({
+    ...actorContext(context.value, input.taskId),
+  } satisfies EnsureTaskQualityReviewInput);
+  if (!ensured.ok) {
+    return err(ensured.error);
+  }
+
+  const result = await dependencies.approveQualityReview({
+    ...actorContext(context.value, input.taskId),
+    expectedReviewId: input.expectedReviewId ?? ensured.value.id,
+  } satisfies ApproveQualityReviewInput);
+  if (!result.ok) {
+    captureCardError(dependencies, {
+      context: context.value,
+      operation: "task-card.quality.approve",
+      message: result.error.message,
+      code: result.error.code,
+      cause: result.error,
+    });
     return err(result.error);
   }
 

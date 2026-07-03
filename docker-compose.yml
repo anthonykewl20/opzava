@@ -44,9 +44,16 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://web.opzava.localhost:18088}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
       DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://opzava_app:opzava_app_local_only@postgres:5432/opzava}
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-opzava-task-evidence}
+      OBJECT_STORE_REGION: ${OBJECT_STORE_REGION:-us-east-1}
+      OBJECT_STORE_ENDPOINT: ${COMPOSE_OBJECT_STORE_ENDPOINT:-http://minio:9000}
+      OBJECT_STORE_ACCESS_KEY_ID: ${OBJECT_STORE_ACCESS_KEY_ID:-opzava_minio_local}
+      OBJECT_STORE_SECRET_ACCESS_KEY: ${OBJECT_STORE_SECRET_ACCESS_KEY:-opzava_minio_local_only_not_for_shared_envs}
       # DATABASE_MIGRATION_URL is intentionally not passed to runtime services.
     depends_on:
       postgres:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     labels:
       traefik.enable: "true"
@@ -54,6 +61,43 @@ services:
       traefik.http.routers.opzava-web.entrypoints: "web"
       traefik.http.services.opzava-web.loadbalancer.server.port: "3000"
       traefik.docker.network: "dokploy-network"
+    networks:
+      - dokploy-network
+
+  minio:
+    image: quay.io/minio/minio:${MINIO_IMAGE_TAG:-latest}
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-opzava_minio_local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-opzava_minio_local_only_not_for_shared_envs}
+    volumes:
+      - opzava-minio-data:/data
+    ports:
+      - "19000:9000"
+      - "19001:9001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dokploy-network
+
+  minio-bucket-init:
+    image: quay.io/minio/mc:${MINIO_MC_IMAGE_TAG:-latest}
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-opzava_minio_local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-opzava_minio_local_only_not_for_shared_envs}
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-opzava-task-evidence}
+    entrypoint:
+      - "/bin/sh"
+      - "-c"
+      - >
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && mc
+        mb --ignore-existing "local/$${OBJECT_STORE_BUCKET}"
     networks:
       - dokploy-network
 
@@ -94,6 +138,7 @@ networks:
 
 volumes:
   opzava-pgdata:
+  opzava-minio-data:
   openclaw-platform-config:
   openclaw-platform-workspace:
   openclaw-platform-auth-profiles:

@@ -3,7 +3,6 @@ import {
   index,
   integer,
   pgPolicy,
-  pgRole,
   pgTable,
   text,
   timestamp,
@@ -11,8 +10,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const appRole = pgRole("opzava_app").existing();
-export const ownerRole = pgRole("opzava_owner").existing();
+import { appRole, ownerRole } from "./tasks.js";
 
 export const issueProjection = pgTable(
   "issue_projection",
@@ -24,7 +22,10 @@ export const issueProjection = pgTable(
     number: integer("number").notNull(),
     title: text("title").notNull(),
     state: text("state").notNull(),
-    labels: text("labels").array().notNull().default(sql`'{}'::text[]`),
+    labels: text("labels")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     assignee: text("assignee"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
     syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
@@ -36,10 +37,7 @@ export const issueProjection = pgTable(
       table.repository,
       table.number,
     ),
-    uniqueIndex("issue_projection_id_organization_id_unique").on(
-      table.id,
-      table.organizationId,
-    ),
+    uniqueIndex("issue_projection_id_organization_id_unique").on(table.id, table.organizationId),
     index("issue_projection_organization_workspace_state_idx").on(
       table.organizationId,
       table.workspaceId,

@@ -21,12 +21,7 @@ import type { TaskApplicationContext, TaskDto } from "./tasks.js";
 
 export type IssueProjectionState = "open" | "closed";
 export type IssueTriageFilter =
-  | "all"
-  | "needs-triage"
-  | "ready-for-agent"
-  | "ready-for-human"
-  | "in-progress"
-  | "closed";
+  "all" | "needs-triage" | "ready-for-agent" | "ready-for-human" | "in-progress" | "closed";
 
 export interface IssueProjectionDto {
   readonly id: string;
@@ -295,9 +290,10 @@ export function issueRefFromTask(task: TaskDto): {
     };
   }
 
-  const urlRef = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/issues\/([1-9]\d*)$/i.exec(
-    value.trim(),
-  );
+  const urlRef =
+    /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/issues\/([1-9]\d*)$/i.exec(
+      value.trim(),
+    );
   if (urlRef !== null) {
     const repository = urlRef[1];
     const number = urlRef[2];
@@ -504,11 +500,6 @@ export async function syncIssueProjection(
     return err(tracker.error);
   }
 
-  const repository = normalizeRepository(input.repository);
-  if (!repository.ok) {
-    return err(repository.error);
-  }
-
   const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
   const authorized = await authorizeIssue(input, "update", authorizationPort);
   if (!authorized.ok) {
@@ -688,6 +679,11 @@ export async function processIssueCloseOutbox(
     return err(known.error);
   }
 
+  const repository = normalizeRepository(input.repository);
+  if (!repository.ok) {
+    return err(repository.error);
+  }
+
   const tracker = trackerRequired(dependencies);
   if (!tracker.ok) {
     return err(tracker.error);
@@ -752,19 +748,23 @@ export async function processIssueCloseOutbox(
         },
         reason: entry.closeReason,
       });
+      const closeState = closed.ok ? "closed" : "failed";
+      const nextAttemptAt = closed.ok
+        ? sql`now()`
+        : sql`now() + interval '5 minutes' * greatest(attempts + 1, 1)`;
+      const lastError = closed.ok ? null : closed.error.message;
+      const closedAt = closed.ok ? sql`now()` : sql`closed_at`;
 
       const saved = await withTenant(input.orgId, async (tx) => {
         const result = await tx.execute(sql`
           update public.issue_close_outbox
           set
-            state = ${closed.ok ? "closed" : "failed"},
+            state = ${closeState},
             attempts = attempts + 1,
-            next_attempt_at = ${
-              closed.ok ? sql`now()` : sql`now() + interval '5 minutes' * greatest(attempts + 1, 1)`
-            },
-            last_error = ${closed.ok ? null : closed.error.message},
+            next_attempt_at = ${nextAttemptAt},
+            last_error = ${lastError},
             updated_at = now(),
-            closed_at = ${closed.ok ? sql`now()` : sql`closed_at`}
+            closed_at = ${closedAt}
           where id = ${entry.id}
             and workspace_id = ${input.workspaceId}
           returning

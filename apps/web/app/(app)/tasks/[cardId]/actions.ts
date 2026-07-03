@@ -1,20 +1,36 @@
 "use server";
 
-import type { TaskCommentDto, TaskDto, TaskStepDto } from "@opzava/project-management";
+import type {
+  TaskCommentDto,
+  TaskDto,
+  TaskEvidenceDto,
+  TaskQualityReviewDto,
+  TaskStepDto,
+} from "@opzava/project-management";
+import { ok } from "@opzava/shared-kernel";
 import { revalidatePath } from "next/cache";
 
 import {
+  addEvidenceLinkForCard,
+  addQualityCheckForCard,
+  approveQualityReviewForCard,
   defaultTaskCardActionDependencies,
   errorCode,
   markTaskDoneForCard,
   markTaskCommentsReadForCard,
   postTaskCommentForCard,
+  prepareEvidenceUploadForCard,
+  presignEvidenceDownloadForCard,
   toggleTaskStepForCard,
+  toggleQualityCheckForCard,
   updateTaskCardDetails,
   type AssistantMentionDispatch,
   type LinkedIssueCloseIntent,
+  type PrepareEvidenceUploadResult,
 } from "@/lib/task-card-detail";
+import { getObjectStorePort } from "@/lib/object-store";
 import { getAppSessionContext } from "@/lib/session";
+import type { ErrorCapturePort, ObjectStorePresignedRequest } from "@opzava/ports";
 
 export type TaskCardActionResult<T> =
   | {
@@ -65,6 +81,28 @@ function taskCardActionDependencies() {
   };
 }
 
+function taskCardStorageActionDependencies() {
+  const errorCapture: ErrorCapturePort = {
+    async capture() {
+      return ok(undefined);
+    },
+  };
+  let objectStorePort: ReturnType<typeof getObjectStorePort> | undefined;
+  try {
+    objectStorePort = getObjectStorePort();
+  } catch {
+    objectStorePort = undefined;
+  }
+
+  return {
+    ...defaultTaskCardActionDependencies,
+    getSessionContext: getAppSessionContext,
+    ...(objectStorePort === undefined ? {} : { objectStorePort }),
+    errorCapture,
+    revalidateTaskPaths,
+  };
+}
+
 export async function toggleTaskStepAction(input: {
   readonly taskId: string;
   readonly stepId: string;
@@ -106,5 +144,57 @@ export async function markTaskCommentsReadAction(input: {
   readonly commentIds?: readonly string[];
 }): Promise<TaskCardActionResult<readonly TaskCommentDto[]>> {
   const result = await markTaskCommentsReadForCard(input, taskCardActionDependencies());
+  return result.ok ? { ok: true, value: result.value } : taskCardActionFailure(result.error);
+}
+
+export async function prepareTaskEvidenceUploadAction(input: {
+  readonly taskId: string;
+  readonly filename: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+}): Promise<TaskCardActionResult<PrepareEvidenceUploadResult>> {
+  const result = await prepareEvidenceUploadForCard(input, taskCardStorageActionDependencies());
+  return result.ok ? { ok: true, value: result.value } : taskCardActionFailure(result.error);
+}
+
+export async function addTaskEvidenceLinkAction(input: {
+  readonly taskId: string;
+  readonly url: string;
+  readonly title?: string;
+}): Promise<TaskCardActionResult<TaskEvidenceDto>> {
+  const result = await addEvidenceLinkForCard(input, taskCardActionDependencies());
+  return result.ok ? { ok: true, value: result.value } : taskCardActionFailure(result.error);
+}
+
+export async function presignTaskEvidenceDownloadAction(input: {
+  readonly taskId: string;
+  readonly evidenceId: string;
+}): Promise<TaskCardActionResult<ObjectStorePresignedRequest>> {
+  const result = await presignEvidenceDownloadForCard(input, taskCardStorageActionDependencies());
+  return result.ok ? { ok: true, value: result.value } : taskCardActionFailure(result.error);
+}
+
+export async function addTaskQualityCheckAction(input: {
+  readonly taskId: string;
+  readonly label: string;
+}): Promise<TaskCardActionResult<TaskQualityReviewDto>> {
+  const result = await addQualityCheckForCard(input, taskCardActionDependencies());
+  return result.ok ? { ok: true, value: result.value } : taskCardActionFailure(result.error);
+}
+
+export async function toggleTaskQualityCheckAction(input: {
+  readonly taskId: string;
+  readonly checkId: string;
+  readonly state: "pass" | "fail" | "pending";
+}): Promise<TaskCardActionResult<TaskQualityReviewDto>> {
+  const result = await toggleQualityCheckForCard(input, taskCardActionDependencies());
+  return result.ok ? { ok: true, value: result.value } : taskCardActionFailure(result.error);
+}
+
+export async function approveTaskQualityReviewAction(input: {
+  readonly taskId: string;
+  readonly expectedReviewId?: string;
+}): Promise<TaskCardActionResult<TaskQualityReviewDto>> {
+  const result = await approveQualityReviewForCard(input, taskCardActionDependencies());
   return result.ok ? { ok: true, value: result.value } : taskCardActionFailure(result.error);
 }

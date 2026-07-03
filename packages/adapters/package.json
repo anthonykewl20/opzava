@@ -24,6 +24,8 @@
     "db:migrate": "tsx src/postgres/migrate.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1079.0",
+    "@aws-sdk/s3-request-presigner": "3.1079.0",
     "@opzava/config": "workspace:*",
     "@opzava/ports": "workspace:*",
     "@opzava/shared-kernel": "workspace:*",

@@ -50,6 +50,13 @@
       "when": 1782951000000,
       "tag": "0006_slice25_issues",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782951100000,
+      "tag": "0007_slice25_evidence_quality",
+      "breakpoints": true
     }
   ]
 }

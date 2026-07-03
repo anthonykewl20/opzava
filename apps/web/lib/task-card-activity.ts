@@ -4,7 +4,7 @@ import {
   projectTaskCardAiRun,
   type TaskCardAiRunProjection,
   type TaskCardAssistantRunView,
-} from "@/lib/task-card-ai-run";
+} from "@/lib/task-card-ai-run-view";
 import { parseAskAdminSseBuffer } from "@/lib/ask-admin-stream";
 
 export type TaskCardAssistantActivityState =
@@ -156,7 +156,7 @@ export function encodeTaskCardActivitySse(event: TaskCardActivityEvent): Uint8Ar
 export function parseTaskCardActivitySseBuffer(buffer: string): TaskCardActivitySseParseResult {
   const parsed = parseAskAdminSseBuffer(buffer);
   return {
-    events: parsed.events as readonly TaskCardActivityEvent[],
+    events: parsed.events as unknown as readonly TaskCardActivityEvent[],
     remainder: parsed.remainder,
   };
 }

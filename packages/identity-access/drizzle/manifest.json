@@ -28,6 +28,10 @@
     {
       "path": "0006_slice25_issues.sql",
       "sha256": "ecce7312092f51900e26508a0a86428e4434b46d4f862ca7ba1e60548e832f42"
+    },
+    {
+      "path": "0007_slice25_evidence_quality.sql",
+      "sha256": "5f009f0a11a57d3baef2be68a931c56dd5220f1ec5c2d117c4baf5115a6ea071"
     }
   ]
 }

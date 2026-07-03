@@ -6,19 +6,28 @@ import type {
   CardDetailDto,
   TaskCommentDto,
   TaskDto,
+  TaskEvidenceDto,
   TaskPriority,
+  TaskQualityCheckState,
+  TaskQualityReviewDto,
   TaskStepDto,
 } from "@opzava/project-management";
 
 import {
+  addTaskEvidenceLinkAction,
+  addTaskQualityCheckAction,
+  approveTaskQualityReviewAction,
   markTaskDoneAction,
   markTaskCommentsReadAction,
   postTaskCommentAction,
+  prepareTaskEvidenceUploadAction,
+  presignTaskEvidenceDownloadAction,
+  toggleTaskQualityCheckAction,
   toggleTaskStepAction,
   updateTaskCardAction,
 } from "@/app/(app)/tasks/[cardId]/actions";
 import { parseAskAdminSseBuffer } from "@/lib/ask-admin-stream";
-import type { TaskCardAssistantRunView } from "@/lib/task-card-ai-run";
+import type { TaskCardAssistantRunView } from "@/lib/task-card-ai-run-view";
 import {
   assistantActivityState,
   assistantActivityLabel,
@@ -27,6 +36,13 @@ import {
   type TaskCardAssistantActivityState,
 } from "@/lib/task-card-activity";
 import { commentReadState, upsertComment } from "@/lib/task-card-comments";
+import {
+  assistantPrechecksFromRuns,
+  evidenceCountLabel,
+  evidenceSizeLabel,
+  qualityReviewProjection,
+  validateEvidenceUploadSize,
+} from "@/lib/task-card-evidence-quality";
 import {
   applyStepToggle,
   dueDateLabel,
@@ -79,30 +95,14 @@ function cardBorderClassName(task: TaskDto): string {
   return "task-card-detail-card task-card-detail-card-accent";
 }
 
-function deferredPanelCopy(tab: Exclude<TaskCardTab, "overview">): {
+function deferredPanelCopy(): {
   readonly title: string;
   readonly description: string;
 } {
-  if (tab === "ai-run") {
-    return {
-      title: "No assistant runs yet",
-      description:
-        "Mention Ask Admin Opzava in a comment or use task tools to create an auditable run.",
-    };
-  }
-
-  if (tab === "evidence") {
-    return {
-      title: "No evidence or files yet",
-      description:
-        "The Evidence & Files data source lands in 2.5f with ObjectStore-backed uploads. This placeholder is intentionally empty until then.",
-    };
-  }
-
   return {
-    title: "No quality review yet",
+    title: "No assistant runs yet",
     description:
-      "Quality checks and reviewer approval land in 2.5f. This tab is live navigation only and does not show fake review rows.",
+      "Mention Ask Admin Opzava in a comment or use task tools to create an auditable run.",
   };
 }
 
@@ -175,9 +175,8 @@ function githubIssueLink(
     };
   }
 
-  const urlRef = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/issues\/([1-9]\d*)$/i.exec(
-    value,
-  );
+  const urlRef =
+    /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/issues\/([1-9]\d*)$/i.exec(value);
   if (urlRef !== null) {
     const number = urlRef[1];
     return number === undefined ? null : { label: `#${number}`, href: value };
@@ -383,6 +382,10 @@ export function TaskCardDetail({
   const [task, setTask] = useState(card.task);
   const [steps, setSteps] = useState<readonly TaskStepDto[]>(card.steps);
   const [comments, setComments] = useState<readonly TaskCommentDto[]>(card.comments);
+  const [evidence, setEvidence] = useState<readonly TaskEvidenceDto[]>(card.evidence);
+  const [qualityReview, setQualityReview] = useState<TaskQualityReviewDto | null>(
+    card.qualityReview,
+  );
   const [runs, setRuns] = useState<readonly TaskCardAssistantRunView[]>(assistantRuns);
   const [assistantState, setAssistantState] = useState<TaskCardAssistantActivityState>(() =>
     assistantActivityState(assistantRuns),
@@ -396,14 +399,20 @@ export function TaskCardDetail({
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [evidenceMessage, setEvidenceMessage] = useState<string | null>(null);
+  const [qualityMessage, setQualityMessage] = useState<string | null>(null);
   const [isMarkDonePending, startMarkDoneTransition] = useTransition();
   const [isStepPending, startStepTransition] = useTransition();
   const [isCommentPending, startCommentTransition] = useTransition();
+  const [isEvidencePending, startEvidenceTransition] = useTransition();
+  const [isQualityPending, startQualityTransition] = useTransition();
 
   useEffect(() => {
     setTask(card.task);
     setSteps(card.steps);
     setComments(card.comments);
+    setEvidence(card.evidence);
+    setQualityReview(card.qualityReview);
   }, [card]);
 
   useEffect(() => {
@@ -428,6 +437,11 @@ export function TaskCardDetail({
   const progress = stepProgress(steps);
   const watchers = watcherOverflow(card.watchers);
   const aiProjection = taskCardAiRunProjectionFromState({ runs }, tickerNow);
+  const qualityProjection = qualityReviewProjection(qualityReview);
+  const qualityReviewApproved = qualityReview?.status === "approved";
+  const assistantPrechecks = assistantPrechecksFromRuns(runs);
+  const evidenceFiles = evidence.filter((item) => item.kind === "file");
+  const evidenceLinks = evidence.filter((item) => item.kind === "link");
   const assignedName = task.assigneeName ?? "Unassigned";
   const assignedIsAssistant = isAssistantAssignee(task);
   const linkedIssue = githubIssueLink(task.provenanceExternalRef);
@@ -654,6 +668,163 @@ export function TaskCardDetail({
     });
   };
 
+  const handleEvidenceUpload = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const fileInput = form.elements.namedItem("file");
+    const file =
+      fileInput instanceof HTMLInputElement && fileInput.files !== null
+        ? fileInput.files.item(0)
+        : null;
+    if (file === null || isEvidencePending) {
+      return;
+    }
+
+    const size = validateEvidenceUploadSize(file.size);
+    if (!size.ok) {
+      setEvidenceMessage(size.message);
+      return;
+    }
+
+    startEvidenceTransition(async () => {
+      setEvidenceMessage("Preparing upload...");
+      const prepared = await prepareTaskEvidenceUploadAction({
+        taskId: task.id,
+        filename: file.name,
+        contentType: file.type || "application/octet-stream",
+        sizeBytes: file.size,
+      });
+      if (!prepared.ok) {
+        setEvidenceMessage(prepared.error.message);
+        return;
+      }
+
+      try {
+        const upload = await fetch(prepared.value.upload.url, {
+          method: prepared.value.upload.method,
+          headers: prepared.value.upload.headers,
+          body: file,
+        });
+        if (!upload.ok) {
+          setEvidenceMessage("Upload failed. The file row remains for retry or cleanup.");
+          return;
+        }
+
+        setEvidence((current) => [prepared.value.evidence, ...current]);
+        setEvidenceMessage("Upload complete.");
+        form.reset();
+      } catch {
+        setEvidenceMessage("Evidence storage is temporarily unavailable.");
+      }
+    });
+  };
+
+  const handleEvidenceLink = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const url = String(formData.get("url") ?? "");
+    const title = String(formData.get("title") ?? "");
+    if (url.trim() === "" || isEvidencePending) {
+      return;
+    }
+
+    startEvidenceTransition(async () => {
+      const result = await addTaskEvidenceLinkAction({
+        taskId: task.id,
+        url,
+        ...(title.trim() === "" ? {} : { title }),
+      });
+      if (!result.ok) {
+        setEvidenceMessage(result.error.message);
+        return;
+      }
+
+      setEvidence((current) => [result.value, ...current]);
+      setEvidenceMessage("Link added.");
+    });
+  };
+
+  const handleEvidenceDownload = (item: TaskEvidenceDto) => {
+    startEvidenceTransition(async () => {
+      const result = await presignTaskEvidenceDownloadAction({
+        taskId: task.id,
+        evidenceId: item.id,
+      });
+      if (!result.ok) {
+        setEvidenceMessage(result.error.message);
+        return;
+      }
+
+      window.open(result.value.url, "_blank", "noopener,noreferrer");
+    });
+  };
+
+  const handleAddQualityCheck = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const label = String(formData.get("label") ?? "");
+    if (label.trim() === "" || isQualityPending) {
+      return;
+    }
+
+    startQualityTransition(async () => {
+      if (qualityReviewApproved) {
+        setQualityMessage("Approved quality reviews cannot be changed.");
+        return;
+      }
+
+      const result = await addTaskQualityCheckAction({
+        taskId: task.id,
+        label,
+      });
+      if (!result.ok) {
+        setQualityMessage(result.error.message);
+        return;
+      }
+
+      setQualityReview(result.value);
+      setQualityMessage("Quality check added.");
+    });
+  };
+
+  const handleToggleQualityCheck = (checkId: string, state: TaskQualityCheckState) => {
+    startQualityTransition(async () => {
+      if (qualityReviewApproved) {
+        setQualityMessage("Approved quality reviews cannot be changed.");
+        return;
+      }
+
+      const result = await toggleTaskQualityCheckAction({
+        taskId: task.id,
+        checkId,
+        state,
+      });
+      if (!result.ok) {
+        setQualityMessage(result.error.message);
+        return;
+      }
+
+      setQualityReview(result.value);
+      setQualityMessage(null);
+    });
+  };
+
+  const handleApproveQualityReview = () => {
+    startQualityTransition(async () => {
+      const result = await approveTaskQualityReviewAction({
+        taskId: task.id,
+        ...(qualityReview?.id === undefined ? {} : { expectedReviewId: qualityReview.id }),
+      });
+      if (!result.ok) {
+        setQualityMessage(result.error.message);
+        return;
+      }
+
+      setQualityReview(result.value);
+      setQualityMessage("Quality review approved.");
+    });
+  };
+
   const handleSaved = (updatedTask: TaskDto) => {
     setTask(updatedTask);
     setEditOpen(false);
@@ -870,6 +1041,16 @@ export function TaskCardDetail({
                 onClick={() => setActiveTab(tab.id)}
               >
                 {tab.label}
+                {tab.id === "evidence" ? (
+                  <span className="sb-badge sb-badge--secondary task-card-tab-count">
+                    {evidence.length}
+                  </span>
+                ) : null}
+                {tab.id === "quality" && qualityProjection.remainingCount > 0 ? (
+                  <span className="sb-badge sb-badge--warning task-card-tab-count">
+                    {qualityProjection.remainingCount}
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>
@@ -1097,8 +1278,8 @@ export function TaskCardDetail({
           >
             {aiProjection.steps.length === 0 ? (
               <div className="task-card-empty-inline">
-                <p className="empty-title">{deferredPanelCopy("ai-run").title}</p>
-                <p className="empty-desc">{deferredPanelCopy("ai-run").description}</p>
+                <p className="empty-title">{deferredPanelCopy().title}</p>
+                <p className="empty-desc">{deferredPanelCopy().description}</p>
               </div>
             ) : (
               <>
@@ -1130,25 +1311,289 @@ export function TaskCardDetail({
             )}
           </section>
 
-          {(["evidence", "quality"] as const).map((tab) => {
-            const copy = deferredPanelCopy(tab);
+          <section
+            className="task-card-tabpanel"
+            id="task-card-panel-evidence"
+            role="tabpanel"
+            aria-labelledby="task-card-tab-evidence"
+            hidden={activeTab !== "evidence"}
+          >
+            <div className="task-card-section-head">
+              <div>
+                <h2>Evidence & Files</h2>
+                <p className="u-muted">{evidenceCountLabel(evidence)} attached to this card.</p>
+              </div>
+            </div>
 
-            return (
-              <section
-                className="task-card-tabpanel"
-                id={`task-card-panel-${tab}`}
-                role="tabpanel"
-                aria-labelledby={`task-card-tab-${tab}`}
-                hidden={activeTab !== tab}
-                key={tab}
-              >
-                <div className="task-card-empty-inline">
-                  <p className="empty-title">{copy.title}</p>
-                  <p className="empty-desc">{copy.description}</p>
+            {evidenceMessage === null ? null : (
+              <div className="sb-alert task-card-action-alert" role="status">
+                <span className="ico" aria-hidden="true">
+                  i
+                </span>
+                <span className="sb-alert-title">Evidence</span>
+                <span className="sb-alert-desc">{evidenceMessage}</span>
+              </div>
+            )}
+
+            <div className="task-card-evidence-grid">
+              <form className="task-card-evidence-upload" onSubmit={handleEvidenceUpload}>
+                <div className="field">
+                  <label className="label" htmlFor="task-card-evidence-file">
+                    Upload file
+                  </label>
+                  <input className="input" id="task-card-evidence-file" name="file" type="file" />
                 </div>
-              </section>
-            );
-          })}
+                <button className="btn" type="submit" disabled={isEvidencePending}>
+                  {isEvidencePending ? "Working..." : "Upload"}
+                </button>
+              </form>
+
+              <form className="task-card-evidence-upload" onSubmit={handleEvidenceLink}>
+                <div className="field">
+                  <label className="label" htmlFor="task-card-evidence-link">
+                    Add link
+                  </label>
+                  <input
+                    className="input"
+                    id="task-card-evidence-link"
+                    name="url"
+                    type="url"
+                    placeholder="https://..."
+                  />
+                </div>
+                <div className="field">
+                  <label className="label" htmlFor="task-card-evidence-link-title">
+                    Link title
+                  </label>
+                  <input
+                    className="input"
+                    id="task-card-evidence-link-title"
+                    name="title"
+                    type="text"
+                    maxLength={240}
+                  />
+                </div>
+                <button className="btn" type="submit" disabled={isEvidencePending}>
+                  Add link
+                </button>
+              </form>
+            </div>
+
+            {evidence.length === 0 ? (
+              <div className="task-card-empty-inline">
+                <p className="empty-title">No evidence yet</p>
+                <p className="empty-desc">
+                  Upload a file or add a source link. Evidence rows are saved only after an
+                  authorized card action.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="task-card-evidence-section">
+                  <h3>Files</h3>
+                  {evidenceFiles.length === 0 ? (
+                    <p className="u-muted">No files uploaded yet.</p>
+                  ) : (
+                    <div className="task-card-evidence-list">
+                      {evidenceFiles.map((item) => (
+                        <article className="task-card-evidence-row" key={item.id}>
+                          <div>
+                            <strong>{item.filename}</strong>
+                            <p className="u-muted">
+                              {item.provenance} · {evidenceSizeLabel(item.sizeBytes)}
+                            </p>
+                          </div>
+                          <button
+                            className="btn btn-sm"
+                            type="button"
+                            disabled={isEvidencePending}
+                            onClick={() => handleEvidenceDownload(item)}
+                          >
+                            Download
+                          </button>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="task-card-evidence-section">
+                  <h3>Links</h3>
+                  {evidenceLinks.length === 0 ? (
+                    <p className="u-muted">No links added yet.</p>
+                  ) : (
+                    <div className="task-card-evidence-list">
+                      {evidenceLinks.map((item) => (
+                        <article className="task-card-evidence-row" key={item.id}>
+                          <div>
+                            <strong>{item.filename}</strong>
+                            <p className="u-muted">
+                              {item.provenance} · {evidenceSizeLabel(item.sizeBytes)}
+                            </p>
+                          </div>
+                          {item.url === null ? null : (
+                            <a
+                              className="btn btn-sm"
+                              href={item.url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open
+                            </a>
+                          )}
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
+
+          <section
+            className="task-card-tabpanel"
+            id="task-card-panel-quality"
+            role="tabpanel"
+            aria-labelledby="task-card-tab-quality"
+            hidden={activeTab !== "quality"}
+          >
+            <div className="task-card-section-head">
+              <div>
+                <h2>Quality Review</h2>
+                <p className="u-muted">{qualityProjection.itemLeftLabel}</p>
+              </div>
+              <button
+                className="btn"
+                type="button"
+                disabled={!qualityProjection.canApprove || isQualityPending}
+                onClick={handleApproveQualityReview}
+              >
+                {qualityReview?.status === "approved" ? "Approved" : "Approve"}
+              </button>
+            </div>
+
+            {qualityProjection.hasChangesRequested ? (
+              <div className="sb-alert sb-alert--warning task-card-action-alert" role="status">
+                <span className="ico" aria-hidden="true">
+                  !
+                </span>
+                <span className="sb-alert-title">Changes requested</span>
+                <span className="sb-alert-desc">
+                  One or more checks failed. Resolve them before approval.
+                </span>
+              </div>
+            ) : null}
+
+            {qualityMessage === null ? null : (
+              <div className="sb-alert task-card-action-alert" role="status">
+                <span className="ico" aria-hidden="true">
+                  i
+                </span>
+                <span className="sb-alert-title">Quality review</span>
+                <span className="sb-alert-desc">{qualityMessage}</span>
+              </div>
+            )}
+
+            <form className="task-card-quality-form" onSubmit={handleAddQualityCheck}>
+              <label className="u-sr-only" htmlFor="task-card-quality-label">
+                Add quality check
+              </label>
+              <input
+                className="input"
+                id="task-card-quality-label"
+                name="label"
+                type="text"
+                maxLength={240}
+                placeholder="Add a human review check"
+              />
+              <button
+                className="btn"
+                type="submit"
+                disabled={qualityReviewApproved || isQualityPending}
+              >
+                Add check
+              </button>
+            </form>
+
+            {assistantPrechecks.length === 0 && (qualityReview?.checks.length ?? 0) === 0 ? (
+              <div className="task-card-empty-inline">
+                <p className="empty-title">No quality checks yet</p>
+                <p className="empty-desc">
+                  Assistant pre-checks appear from completed tool receipts, and human checks can be
+                  added here.
+                </p>
+              </div>
+            ) : (
+              <div className="task-card-quality-list">
+                {assistantPrechecks.map((check) => (
+                  <article className="task-card-quality-row" key={check.id}>
+                    <span
+                      className={`task-card-quality-state task-card-quality-state-${check.state}`}
+                    >
+                      {check.state === "pass" ? "Pass" : "Fail"}
+                    </span>
+                    <div>
+                      <strong>{check.label}</strong>
+                      <p className="u-muted">{check.actor}</p>
+                    </div>
+                  </article>
+                ))}
+                {(qualityReview?.checks ?? []).map((check) => (
+                  <article className="task-card-quality-row" key={check.id}>
+                    <span
+                      className={`task-card-quality-state task-card-quality-state-${check.state}`}
+                    >
+                      {check.state === "pass"
+                        ? "Pass"
+                        : check.state === "fail"
+                          ? "Fail"
+                          : "Pending"}
+                    </span>
+                    <div className="u-grow">
+                      <strong>{check.label}</strong>
+                      <p className="u-muted">
+                        {check.kind === "ai_precheck" ? "AI pre-check" : check.actor}
+                      </p>
+                    </div>
+                    <div className="u-row">
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        disabled={qualityReviewApproved || isQualityPending}
+                        onClick={() => handleToggleQualityCheck(check.id, "pass")}
+                      >
+                        Pass
+                      </button>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        type="button"
+                        disabled={qualityReviewApproved || isQualityPending}
+                        onClick={() => handleToggleQualityCheck(check.id, "fail")}
+                      >
+                        Request changes
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+
+            <div className="task-card-reviewers">
+              <h3>Reviewers</h3>
+              {qualityReview?.reviewers.length ? (
+                qualityReview.reviewers.map((reviewer) => (
+                  <span className="task-card-reviewer" key={reviewer.id}>
+                    <span className="task-card-mini-avatar" aria-hidden="true">
+                      {initials(reviewer.reviewerName ?? reviewer.reviewerUserId)}
+                    </span>
+                    {reviewer.reviewerName ?? reviewer.reviewerUserId} · {reviewer.state}
+                  </span>
+                ))
+              ) : (
+                <p className="u-muted">No reviewer decisions yet.</p>
+              )}
+            </div>
+          </section>
         </div>
       </article>
 

@@ -1,21 +1,36 @@
-import { assertCurrentTenant, createPostgresPool, db, pool, sql, withTenant } from "@opzava/adapters";
+import {
+  assertCurrentTenant,
+  createPostgresPool,
+  db,
+  mapDatabaseError,
+  pool,
+  sql,
+  withTenant,
+} from "@opzava/adapters";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
   addComment,
+  addQualityCheck,
+  addTaskEvidenceFile,
+  addTaskEvidenceLink,
+  approveQualityReview,
   createStep,
   createTask,
+  ensureTaskQualityReview,
   getCardDetail,
   getTask,
+  listTaskEvidence,
   listTasks,
   markCommentsRead,
   moveTask,
   reorderSteps,
   setDue,
   setWatchers,
+  toggleQualityCheck,
   toggleStep,
-  updateTask
+  updateTask,
 } from "../application/tasks.js";
 
 interface TenantFixture {
@@ -61,22 +76,22 @@ async function adminCreateTenant(label: string): Promise<TenantFixture> {
   await adminPool.query(
     `insert into public.organizations (id, slug, name, lifecycle_state)
      values ($1, $2, $3, 'active')`,
-    [organizationId, slug, `Slice 1e ${label}`]
+    [organizationId, slug, `Slice 1e ${label}`],
   );
   await adminPool.query(
     `insert into public.workspaces (id, organization_id, slug, name)
      values ($1, $2, $3, $4)`,
-    [workspaceId, organizationId, "admin", "Admin"]
+    [workspaceId, organizationId, "admin", "Admin"],
   );
   await adminPool.query(
     `insert into public.auth_users (id, name, email, email_verified)
      values ($1, $2, $3, true)`,
-    [userId, `Member ${label}`, `${label}-${testRunId}@example.test`]
+    [userId, `Member ${label}`, `${label}-${testRunId}@example.test`],
   );
   await adminPool.query(
     `insert into public.memberships (organization_id, user_id, status, membership_version)
      values ($1, $2, 'active', 1)`,
-    [organizationId, userId]
+    [organizationId, userId],
   );
   await adminPool.query(
     `insert into public.role_grants (
@@ -89,7 +104,7 @@ async function adminCreateTenant(label: string): Promise<TenantFixture> {
       granted_by_user_id
     )
     values ($1, 'user', $2, 'member', 'organization', $1, $2)`,
-    [organizationId, userId]
+    [organizationId, userId],
   );
 
   createdOrganizationIds.push(organizationId);
@@ -102,7 +117,7 @@ function actor(userId: string) {
 }
 
 async function selectStepsWithoutWithTenant(
-  expectedOrgId: string
+  expectedOrgId: string,
 ): Promise<ReadonlyArray<Record<string, unknown>>> {
   await assertCurrentTenant(db, expectedOrgId);
   const result = await db.execute(sql`select id from public.task_steps`);
@@ -115,35 +130,52 @@ async function cleanupCreatedRows(): Promise<void> {
 
   if (organizationIds.length > 0) {
     await adminPool.query(
+      "delete from public.task_quality_reviewer where organization_id = any($1::uuid[])",
+      [organizationIds],
+    );
+    await adminPool.query(
+      "delete from public.task_quality_check where organization_id = any($1::uuid[])",
+      [organizationIds],
+    );
+    await adminPool.query(
+      "delete from public.task_quality_review where organization_id = any($1::uuid[])",
+      [organizationIds],
+    );
+    await adminPool.query(
+      "delete from public.task_evidence where organization_id = any($1::uuid[])",
+      [organizationIds],
+    );
+    await adminPool.query(
       "delete from public.task_comment_read_markers where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query(
       "delete from public.task_comments where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query(
       "delete from public.task_watchers where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
+    );
+    await adminPool.query("delete from public.task_steps where organization_id = any($1::uuid[])", [
+      organizationIds,
+    ]);
+    await adminPool.query("delete from public.tasks where organization_id = any($1::uuid[])", [
+      organizationIds,
+    ]);
+    await adminPool.query(
+      "delete from public.role_grants where organization_id = any($1::uuid[])",
+      [organizationIds],
     );
     await adminPool.query(
-      "delete from public.task_steps where organization_id = any($1::uuid[])",
-      [organizationIds]
+      "delete from public.memberships where organization_id = any($1::uuid[])",
+      [organizationIds],
     );
-    await adminPool.query("delete from public.tasks where organization_id = any($1::uuid[])", [
-      organizationIds
-    ]);
-    await adminPool.query("delete from public.role_grants where organization_id = any($1::uuid[])", [
-      organizationIds
-    ]);
-    await adminPool.query("delete from public.memberships where organization_id = any($1::uuid[])", [
-      organizationIds
-    ]);
     await adminPool.query("delete from public.workspaces where organization_id = any($1::uuid[])", [
-      organizationIds
+      organizationIds,
     ]);
     await adminPool.query("delete from public.organizations where id = any($1::uuid[])", [
-      organizationIds
+      organizationIds,
     ]);
   }
 
@@ -168,9 +200,7 @@ beforeAll(async () => {
     row?.["bypass_rls"] === true
   ) {
     throw new Error(
-      `Slice 1e task integration test must run as non-owner opzava_app; got ${JSON.stringify(
-        row
-      )}`
+      `Slice 1e task integration test must run as non-owner opzava_app; got ${JSON.stringify(row)}`,
     );
   }
 });
@@ -196,7 +226,7 @@ describe("slice 1e tasks", () => {
       description: "Dogfood PM in Opzava.",
       priority: "high",
       assigneeUserId: tenant.userId,
-      labels: ["Slice 1e", "Tasks"]
+      labels: ["Slice 1e", "Tasks"],
     });
 
     expect(created.ok).toBe(true);
@@ -218,7 +248,7 @@ describe("slice 1e tasks", () => {
       description: "List, kanban, create, edit, move, reload.",
       priority: "urgent",
       assigneeUserId: null,
-      labels: ["Tasks", "Board"]
+      labels: ["Tasks", "Board"],
     });
 
     expect(updated.ok).toBe(true);
@@ -234,7 +264,7 @@ describe("slice 1e tasks", () => {
       actor: actor(tenant.userId),
       taskId: created.value.id,
       status: "done",
-      position: 1
+      position: 1,
     });
 
     expect(moved.ok).toBe(true);
@@ -247,14 +277,14 @@ describe("slice 1e tasks", () => {
       orgId: tenant.organizationId,
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
-      taskId: created.value.id
+      taskId: created.value.id,
     });
     expect(loaded).toMatchObject({ ok: true, value: { status: "done" } });
 
     const listed = await listTasks({
       orgId: tenant.organizationId,
       workspaceId: tenant.workspaceId,
-      actor: actor(tenant.userId)
+      actor: actor(tenant.userId),
     });
     expect(listed).toMatchObject({ ok: true, value: [{ title: "Ship the admin Tasks board" }] });
   });
@@ -265,7 +295,7 @@ describe("slice 1e tasks", () => {
     const blockedCardNumber = baseCardNumber + 1;
 
     await adminPool.query("select setval('public.tasks_card_number_seq', $1, true)", [
-      baseCardNumber
+      baseCardNumber,
     ]);
     await adminPool.query(
       `insert into public.tasks (
@@ -280,7 +310,7 @@ describe("slice 1e tasks", () => {
         position
       )
       values ($1, $2, $3, 'Manual blocker', '', 'todo', 'normal', '{}'::text[], 1)`,
-      [tenant.organizationId, tenant.workspaceId, blockedCardNumber]
+      [tenant.organizationId, tenant.workspaceId, blockedCardNumber],
     );
 
     const created = await createTask({
@@ -288,7 +318,7 @@ describe("slice 1e tasks", () => {
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
       title: "Create through retry",
-      priority: "normal"
+      priority: "normal",
     });
 
     expect(created.ok).toBe(true);
@@ -311,7 +341,7 @@ describe("slice 1e tasks", () => {
       priority: "high",
       dueAt: "2026-07-10T12:00:00.000Z",
       provenanceSource: "Claude Code",
-      provenanceExternalRef: "local-dev"
+      provenanceExternalRef: "local-dev",
     });
     expect(task.ok).toBe(true);
     if (!task.ok) {
@@ -323,21 +353,21 @@ describe("slice 1e tasks", () => {
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
       taskId: task.value.id,
-      text: "Define card tables"
+      text: "Define card tables",
     });
     const second = await createStep({
       orgId: tenant.organizationId,
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
       taskId: task.value.id,
-      text: "Write application services"
+      text: "Write application services",
     });
     const third = await createStep({
       orgId: tenant.organizationId,
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
       taskId: task.value.id,
-      text: "Prove ordering"
+      text: "Prove ordering",
     });
     expect(first.ok && second.ok && third.ok).toBe(true);
     if (!first.ok || !second.ok || !third.ok) {
@@ -349,7 +379,7 @@ describe("slice 1e tasks", () => {
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
       taskId: task.value.id,
-      stepIds: [third.value.id, first.value.id, second.value.id]
+      stepIds: [third.value.id, first.value.id, second.value.id],
     });
     expect(reordered.ok).toBe(true);
     if (!reordered.ok) {
@@ -358,7 +388,7 @@ describe("slice 1e tasks", () => {
     expect(reordered.value.map((step) => step.text)).toEqual([
       "Prove ordering",
       "Define card tables",
-      "Write application services"
+      "Write application services",
     ]);
     expect(reordered.value.map((step) => step.position)).toEqual([1, 2, 3]);
 
@@ -368,7 +398,7 @@ describe("slice 1e tasks", () => {
       actor: actor(tenant.userId),
       taskId: task.value.id,
       stepId: third.value.id,
-      done: true
+      done: true,
     });
     expect(toggled).toMatchObject({ ok: true, value: { done: true } });
 
@@ -377,7 +407,7 @@ describe("slice 1e tasks", () => {
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
       taskId: task.value.id,
-      body: "Card data layer is ready for UI wiring."
+      body: "Card data layer is ready for UI wiring.",
     });
     expect(comment.ok).toBe(true);
     if (!comment.ok) {
@@ -389,11 +419,11 @@ describe("slice 1e tasks", () => {
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
       taskId: task.value.id,
-      commentIds: [comment.value.id]
+      commentIds: [comment.value.id],
     });
     expect(readComments).toMatchObject({
       ok: true,
-      value: [{ readByUserIds: [tenant.userId] }]
+      value: [{ readByUserIds: [tenant.userId] }],
     });
 
     const due = await setDue({
@@ -401,7 +431,7 @@ describe("slice 1e tasks", () => {
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
       taskId: task.value.id,
-      dueAt: null
+      dueAt: null,
     });
     expect(due).toMatchObject({ ok: true, value: { dueAt: null } });
 
@@ -410,7 +440,7 @@ describe("slice 1e tasks", () => {
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
       taskId: task.value.id,
-      userIds: [tenant.userId]
+      userIds: [tenant.userId],
     });
     expect(watchers).toMatchObject({ ok: true, value: [{ userId: tenant.userId }] });
 
@@ -418,7 +448,7 @@ describe("slice 1e tasks", () => {
       orgId: tenant.organizationId,
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
-      taskId: task.value.id
+      taskId: task.value.id,
     });
     expect(detail.ok).toBe(true);
     if (!detail.ok) {
@@ -427,15 +457,144 @@ describe("slice 1e tasks", () => {
     expect(detail.value.task).toMatchObject({
       cardNumber: task.value.cardNumber,
       provenanceSource: "Claude Code",
-      provenanceExternalRef: "local-dev"
+      provenanceExternalRef: "local-dev",
     });
     expect(detail.value.steps.map((step) => `${step.position}:${step.text}:${step.done}`)).toEqual([
       "1:Prove ordering:true",
       "2:Define card tables:false",
-      "3:Write application services:false"
+      "3:Write application services:false",
     ]);
     expect(detail.value.comments).toHaveLength(1);
     expect(detail.value.watchers).toHaveLength(1);
+  });
+
+  it("manages evidence and quality review data through the application seam", async () => {
+    const tenant = await adminCreateTenant("evidence-quality");
+    const task = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Attach evidence and approve quality",
+      priority: "normal",
+    });
+    expect(task.ok).toBe(true);
+    if (!task.ok) {
+      throw task.error;
+    }
+
+    const file = await addTaskEvidenceFile({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      objectRef: `tasks/${task.value.id}/trace.txt`,
+      filename: "trace.txt",
+      contentType: "text/plain",
+      sizeBytes: 12,
+      provenance: "Attached from upload",
+    });
+    const link = await addTaskEvidenceLink({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      url: "https://example.test/evidence",
+      title: "Evidence link",
+      provenance: "Attached from link",
+    });
+    expect(file).toMatchObject({ ok: true, value: { kind: "file" } });
+    expect(link).toMatchObject({ ok: true, value: { kind: "link" } });
+
+    const evidence = await listTaskEvidence({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+    });
+    expect(evidence.ok).toBe(true);
+    if (!evidence.ok) {
+      throw evidence.error;
+    }
+    expect(evidence.value.map((item) => item.kind).sort()).toEqual(["file", "link"]);
+
+    const ensured = await ensureTaskQualityReview({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+    });
+    expect(ensured).toMatchObject({ ok: true, value: { status: "open" } });
+
+    const addedCheck = await addQualityCheck({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      label: "Verify uploaded evidence",
+      kind: "human",
+      state: "pending",
+    });
+    expect(addedCheck.ok).toBe(true);
+    if (!addedCheck.ok) {
+      throw addedCheck.error;
+    }
+    const check = addedCheck.value.checks[0];
+    if (check === undefined) {
+      throw new Error("expected quality check");
+    }
+
+    const failed = await toggleQualityCheck({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      checkId: check.id,
+      state: "fail",
+    });
+    expect(failed).toMatchObject({ ok: true, value: { status: "changes_requested" } });
+
+    const passed = await toggleQualityCheck({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      checkId: check.id,
+      state: "pass",
+    });
+    expect(passed).toMatchObject({ ok: true, value: { status: "open" } });
+
+    const approved = await approveQualityReview({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      expectedReviewId: addedCheck.value.id,
+    });
+    expect(approved).toMatchObject({
+      ok: true,
+      value: {
+        status: "approved",
+        approvedByUserId: tenant.userId,
+        reviewers: [{ reviewerUserId: tenant.userId, state: "approved" }],
+      },
+    });
+
+    const detail = await getCardDetail({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+    });
+    expect(detail).toMatchObject({
+      ok: true,
+      value: {
+        evidence: expect.arrayContaining([
+          expect.objectContaining({ filename: "trace.txt" }),
+          expect.objectContaining({ filename: "Evidence link" }),
+        ]),
+        qualityReview: expect.objectContaining({ status: "approved" }),
+      },
+    });
   });
 
   it("proves tenant RLS hides and rejects cross-tenant task access as opzava_app", async () => {
@@ -447,7 +606,7 @@ describe("slice 1e tasks", () => {
       workspaceId: tenantA.workspaceId,
       actor: actor(tenantA.userId),
       title: "Tenant A task",
-      priority: "normal"
+      priority: "normal",
     });
     expect(created.ok).toBe(true);
     if (!created.ok) {
@@ -457,14 +616,14 @@ describe("slice 1e tasks", () => {
     const tenantBList = await listTasks({
       orgId: tenantB.organizationId,
       workspaceId: tenantB.workspaceId,
-      actor: actor(tenantB.userId)
+      actor: actor(tenantB.userId),
     });
     expect(tenantBList).toMatchObject({ ok: true, value: [] });
 
     const tenantBCrossWorkspaceList = await listTasks({
       orgId: tenantB.organizationId,
       workspaceId: tenantA.workspaceId,
-      actor: actor(tenantB.userId)
+      actor: actor(tenantB.userId),
     });
     expect(tenantBCrossWorkspaceList).toMatchObject({ ok: true, value: [] });
 
@@ -473,7 +632,7 @@ describe("slice 1e tasks", () => {
         select id
         from public.tasks
         where id = ${created.value.id}
-      `)
+      `),
     );
     expect(rowsFromExecuteResult(rawTenantBRead)).toHaveLength(0);
 
@@ -501,7 +660,7 @@ describe("slice 1e tasks", () => {
             1
           )
         `);
-      })
+      }),
     ).rejects.toMatchObject({ status: 403 });
   });
 
@@ -514,7 +673,7 @@ describe("slice 1e tasks", () => {
       workspaceId: tenantA.workspaceId,
       actor: actor(tenantA.userId),
       title: "Tenant A card",
-      priority: "normal"
+      priority: "normal",
     });
     expect(task.ok).toBe(true);
     if (!task.ok) {
@@ -526,7 +685,7 @@ describe("slice 1e tasks", () => {
       workspaceId: tenantA.workspaceId,
       actor: actor(tenantA.userId),
       taskId: task.value.id,
-      text: "Tenant A only"
+      text: "Tenant A only",
     });
     expect(step.ok).toBe(true);
     if (!step.ok) {
@@ -538,7 +697,7 @@ describe("slice 1e tasks", () => {
         select id
         from public.task_steps
         where id = ${step.value.id}
-      `)
+      `),
     );
     expect(rowsFromExecuteResult(tenantBRead)).toHaveLength(0);
 
@@ -560,11 +719,98 @@ describe("slice 1e tasks", () => {
             2
           )
         `);
-      })
+      }),
     ).rejects.toMatchObject({ status: 403 });
 
     await expect(selectStepsWithoutWithTenant(tenantA.organizationId)).rejects.toMatchObject({
-      status: 403
+      status: 403,
     });
+  });
+
+  it("proves evidence and quality RLS hides, rejects, and fails closed", async () => {
+    const tenantA = await adminCreateTenant("quality-rls-a");
+    const tenantB = await adminCreateTenant("quality-rls-b");
+
+    const task = await createTask({
+      orgId: tenantA.organizationId,
+      workspaceId: tenantA.workspaceId,
+      actor: actor(tenantA.userId),
+      title: "Tenant A evidence",
+      priority: "normal",
+    });
+    expect(task.ok).toBe(true);
+    if (!task.ok) {
+      throw task.error;
+    }
+
+    const evidence = await addTaskEvidenceLink({
+      orgId: tenantA.organizationId,
+      workspaceId: tenantA.workspaceId,
+      actor: actor(tenantA.userId),
+      taskId: task.value.id,
+      url: "https://example.test/tenant-a",
+      title: "Tenant A link",
+    });
+    expect(evidence.ok).toBe(true);
+    if (!evidence.ok) {
+      throw evidence.error;
+    }
+
+    const tenantBRead = await withTenant(tenantB.organizationId, async (tx) =>
+      tx.execute(sql`
+        select id
+        from public.task_evidence
+        where id = ${evidence.value.id}
+      `),
+    );
+    expect(rowsFromExecuteResult(tenantBRead)).toHaveLength(0);
+
+    await expect(
+      withTenant(tenantB.organizationId, async (tx) => {
+        await tx.execute(sql`
+          insert into public.task_evidence (
+            task_id,
+            organization_id,
+            workspace_id,
+            kind,
+            url,
+            filename,
+            provenance
+          )
+          values (
+            ${task.value.id},
+            ${tenantA.organizationId},
+            ${tenantA.workspaceId},
+            'link',
+            'https://example.test/wrong-tenant',
+            'Wrong tenant',
+            'Attached from link'
+          )
+        `);
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+
+    await expect(
+      (async () => {
+        try {
+          await db.execute(sql`
+            insert into public.task_quality_review (
+              task_id,
+              organization_id,
+              workspace_id,
+              status
+            )
+            values (
+              ${task.value.id},
+              ${tenantA.organizationId},
+              ${tenantA.workspaceId},
+              'open'
+            )
+          `);
+        } catch (error) {
+          throw mapDatabaseError(error);
+        }
+      })(),
+    ).rejects.toMatchObject({ status: 403 });
   });
 });

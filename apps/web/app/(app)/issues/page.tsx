@@ -89,7 +89,7 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
   const params = await searchParams;
   const result = await loadIssuesPageData({
     context,
-    filter: params?.filter,
+    ...(params?.filter === undefined ? {} : { filter: params.filter }),
   });
 
   if (!result.ok) {
@@ -224,8 +224,8 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
             ) : (
               <table className="table table-cards issues-table">
                 <caption className="u-sr-only">
-                  Synced GitHub issues: issue number, title with labels, assignee, last updated,
-                  and status.
+                  Synced GitHub issues: issue number, title with labels, assignee, last updated, and
+                  status.
                 </caption>
                 <thead>
                   <tr>

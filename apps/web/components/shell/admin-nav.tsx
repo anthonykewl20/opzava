@@ -15,7 +15,7 @@ const operateItems: readonly NavItem[] = [
   { label: "Tasks", href: "/tasks" },
   { label: "Issues", href: "/issues" },
   { label: "Activity", active: false },
-  { label: "Messages", active: false }
+  { label: "Messages", active: false },
 ] as const;
 
 const observeItems = ["Monitoring", "Logs", "Costs"] as const;
@@ -29,7 +29,7 @@ function RailItem({
   label,
   href,
   active,
-  count
+  count,
 }: {
   readonly label: string;
   readonly href?: string;
@@ -65,7 +65,7 @@ function RailItem({
 function RailSection({
   label,
   items,
-  pathname
+  pathname,
 }: {
   readonly label: string;
   readonly items: readonly (string | NavItem)[];
@@ -81,13 +81,15 @@ function RailSection({
           <RailItem
             key={item.label}
             {...item}
-            active={
-              item.href === undefined
-                ? item.active
-                : item.href === "/"
-                  ? pathname === "/"
-                  : pathname.startsWith(item.href)
-            }
+            {...(() => {
+              const active =
+                item.href === undefined
+                  ? item.active
+                  : item.href === "/"
+                    ? pathname === "/"
+                    : pathname.startsWith(item.href);
+              return active === undefined ? {} : { active };
+            })()}
           />
         ),
       )}
@@ -109,7 +111,7 @@ export function AdminNav() {
             justifyContent: "center",
             background: "var(--accent)",
             color: "var(--accent-fg)",
-            fontWeight: "var(--fw-semibold)"
+            fontWeight: "var(--fw-semibold)",
           }}
           aria-hidden="true"
         >
@@ -157,7 +159,12 @@ export function AdminNav() {
       </nav>
 
       <div className="rail-foot">
-        <button type="button" className="search" style={{ width: "100%", maxWidth: "none" }} disabled>
+        <button
+          type="button"
+          className="search"
+          style={{ width: "100%", maxWidth: "none" }}
+          disabled
+        >
           <span aria-hidden="true">/</span>
           <span className="u-subtle u-grow">Jump to...</span>
           <kbd className="kbd">Ctrl K</kbd>

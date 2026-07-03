@@ -3,7 +3,7 @@ import {
   mapDatabaseError,
   sql,
   withTenant,
-  type TenantTransaction
+  type TenantTransaction,
 } from "@opzava/adapters";
 import type { AuthorizationPort, AuthorizationSubject } from "@opzava/ports";
 import {
@@ -15,7 +15,7 @@ import {
   makeUserId,
   makeWorkspaceId,
   ok,
-  type Result
+  type Result,
 } from "@opzava/shared-kernel";
 
 import { defaultTaskAuthorizationPort } from "./authorization.js";
@@ -26,7 +26,7 @@ import {
   parseTaskPriority,
   parseTaskStatus,
   type TaskPriority,
-  type TaskStatus
+  type TaskStatus,
 } from "../domain/task.js";
 
 export interface TaskActor {
@@ -130,11 +130,76 @@ export interface TaskWatcherDto {
   readonly createdAt: string;
 }
 
+export type TaskEvidenceKind = "file" | "link";
+
+export interface TaskEvidenceDto {
+  readonly id: string;
+  readonly taskId: string;
+  readonly organizationId: string;
+  readonly workspaceId: string;
+  readonly kind: TaskEvidenceKind;
+  readonly objectRef: string | null;
+  readonly url: string | null;
+  readonly filename: string;
+  readonly contentType: string | null;
+  readonly sizeBytes: number | null;
+  readonly provenance: string;
+  readonly createdByUserId: string | null;
+  readonly createdAt: string;
+}
+
+export type TaskQualityReviewStatus = "open" | "approved" | "changes_requested";
+export type TaskQualityCheckKind = "ai_precheck" | "human";
+export type TaskQualityCheckState = "pass" | "fail" | "pending";
+export type TaskQualityReviewerState = "pending" | "approved" | "changes_requested";
+
+export interface TaskQualityCheckDto {
+  readonly id: string;
+  readonly reviewId: string;
+  readonly taskId: string;
+  readonly organizationId: string;
+  readonly workspaceId: string;
+  readonly label: string;
+  readonly kind: TaskQualityCheckKind;
+  readonly state: TaskQualityCheckState;
+  readonly actor: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface TaskQualityReviewerDto {
+  readonly id: string;
+  readonly reviewId: string;
+  readonly taskId: string;
+  readonly organizationId: string;
+  readonly workspaceId: string;
+  readonly reviewerUserId: string;
+  readonly reviewerName: string | null;
+  readonly state: TaskQualityReviewerState;
+  readonly updatedAt: string;
+}
+
+export interface TaskQualityReviewDto {
+  readonly id: string;
+  readonly taskId: string;
+  readonly organizationId: string;
+  readonly workspaceId: string;
+  readonly status: TaskQualityReviewStatus;
+  readonly approvedByUserId: string | null;
+  readonly approvedAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly checks: readonly TaskQualityCheckDto[];
+  readonly reviewers: readonly TaskQualityReviewerDto[];
+}
+
 export interface CardDetailDto {
   readonly task: TaskDto;
   readonly steps: readonly TaskStepDto[];
   readonly comments: readonly TaskCommentDto[];
   readonly watchers: readonly TaskWatcherDto[];
+  readonly evidence: readonly TaskEvidenceDto[];
+  readonly qualityReview: TaskQualityReviewDto | null;
 }
 
 export interface CreateStepInput extends TaskApplicationContext {
@@ -180,6 +245,49 @@ export interface GetCardDetailInput extends TaskApplicationContext {
   readonly taskId: string;
 }
 
+export interface AddTaskEvidenceFileInput extends TaskApplicationContext {
+  readonly taskId: string;
+  readonly objectRef: string;
+  readonly filename: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+  readonly provenance?: string;
+}
+
+export interface AddTaskEvidenceLinkInput extends TaskApplicationContext {
+  readonly taskId: string;
+  readonly url: string;
+  readonly title?: string;
+  readonly provenance?: string;
+}
+
+export interface ListTaskEvidenceInput extends TaskApplicationContext {
+  readonly taskId: string;
+}
+
+export interface EnsureTaskQualityReviewInput extends TaskApplicationContext {
+  readonly taskId: string;
+}
+
+export interface AddQualityCheckInput extends TaskApplicationContext {
+  readonly taskId: string;
+  readonly label: string;
+  readonly kind?: TaskQualityCheckKind;
+  readonly state?: TaskQualityCheckState;
+  readonly actorLabel?: string;
+}
+
+export interface ToggleQualityCheckInput extends TaskApplicationContext {
+  readonly taskId: string;
+  readonly checkId: string;
+  readonly state: TaskQualityCheckState;
+}
+
+export interface ApproveQualityReviewInput extends TaskApplicationContext {
+  readonly taskId: string;
+  readonly expectedReviewId?: string;
+}
+
 export interface TaskApplicationDependencies {
   readonly authorizationPort?: AuthorizationPort;
 }
@@ -201,7 +309,7 @@ function taskError(code: string, message: string, cause?: unknown): DomainError 
   return new DomainError({
     code,
     message,
-    ...(cause === undefined ? {} : { cause })
+    ...(cause === undefined ? {} : { cause }),
   });
 }
 
@@ -229,7 +337,7 @@ function parseDate(value: unknown): string {
 
   throw taskError(
     "projectManagement.invalidTaskRecord",
-    "Task record contains an invalid timestamp."
+    "Task record contains an invalid timestamp.",
   );
 }
 
@@ -280,7 +388,7 @@ function rowToTaskDto(row: QueryRow): TaskDto {
     provenanceSource: String(row["provenance_source"] ?? "manual"),
     provenanceExternalRef: stringOrNull(row["provenance_external_ref"]),
     createdAt: parseDate(row["created_at"]),
-    updatedAt: parseDate(row["updated_at"])
+    updatedAt: parseDate(row["updated_at"]),
   };
 }
 
@@ -295,7 +403,7 @@ function rowToStepDto(row: QueryRow): TaskStepDto {
     done: row["done"] === true,
     position: Number(row["position"]),
     createdAt: parseDate(row["created_at"]),
-    updatedAt: parseDate(row["updated_at"])
+    updatedAt: parseDate(row["updated_at"]),
   };
 }
 
@@ -312,7 +420,7 @@ function rowToCommentDto(row: QueryRow): TaskCommentDto {
     assistantKey: stringOrNull(row["assistant_key"]),
     body: String(row["body"]),
     readByUserIds: stringArray(row["read_by_user_ids"]),
-    createdAt: parseDate(row["created_at"])
+    createdAt: parseDate(row["created_at"]),
   };
 }
 
@@ -323,7 +431,101 @@ function rowToWatcherDto(row: QueryRow): TaskWatcherDto {
     workspaceId: String(row["workspace_id"]),
     userId: String(row["user_id"]),
     name: stringOrNull(row["name"]),
-    createdAt: parseDate(row["created_at"])
+    createdAt: parseDate(row["created_at"]),
+  };
+}
+
+function evidenceKind(value: unknown): TaskEvidenceKind {
+  return value === "link" ? "link" : "file";
+}
+
+function rowToEvidenceDto(row: QueryRow): TaskEvidenceDto {
+  return {
+    id: String(row["id"]),
+    taskId: String(row["task_id"]),
+    organizationId: String(row["organization_id"]),
+    workspaceId: String(row["workspace_id"]),
+    kind: evidenceKind(row["kind"]),
+    objectRef: stringOrNull(row["object_ref"]),
+    url: stringOrNull(row["url"]),
+    filename: String(row["filename"]),
+    contentType: stringOrNull(row["content_type"]),
+    sizeBytes: row["size"] === null || row["size"] === undefined ? null : Number(row["size"]),
+    provenance: String(row["provenance"]),
+    createdByUserId: stringOrNull(row["created_by_user_id"]),
+    createdAt: parseDate(row["created_at"]),
+  };
+}
+
+function qualityReviewStatus(value: unknown): TaskQualityReviewStatus {
+  if (value === "approved" || value === "changes_requested") {
+    return value;
+  }
+
+  return "open";
+}
+
+function qualityCheckKind(value: unknown): TaskQualityCheckKind {
+  return value === "ai_precheck" ? "ai_precheck" : "human";
+}
+
+function qualityCheckState(value: unknown): TaskQualityCheckState {
+  if (value === "pass" || value === "fail") {
+    return value;
+  }
+
+  return "pending";
+}
+
+function qualityReviewerState(value: unknown): TaskQualityReviewerState {
+  if (value === "approved" || value === "changes_requested") {
+    return value;
+  }
+
+  return "pending";
+}
+
+function rowToQualityReviewBase(row: QueryRow): Omit<TaskQualityReviewDto, "checks" | "reviewers"> {
+  return {
+    id: String(row["id"]),
+    taskId: String(row["task_id"]),
+    organizationId: String(row["organization_id"]),
+    workspaceId: String(row["workspace_id"]),
+    status: qualityReviewStatus(row["status"]),
+    approvedByUserId: stringOrNull(row["approved_by_user_id"]),
+    approvedAt: parseNullableDate(row["approved_at"]),
+    createdAt: parseDate(row["created_at"]),
+    updatedAt: parseDate(row["updated_at"]),
+  };
+}
+
+function rowToQualityCheckDto(row: QueryRow): TaskQualityCheckDto {
+  return {
+    id: String(row["id"]),
+    reviewId: String(row["review_id"]),
+    taskId: String(row["task_id"]),
+    organizationId: String(row["organization_id"]),
+    workspaceId: String(row["workspace_id"]),
+    label: String(row["label"]),
+    kind: qualityCheckKind(row["kind"]),
+    state: qualityCheckState(row["state"]),
+    actor: String(row["actor"]),
+    createdAt: parseDate(row["created_at"]),
+    updatedAt: parseDate(row["updated_at"]),
+  };
+}
+
+function rowToQualityReviewerDto(row: QueryRow): TaskQualityReviewerDto {
+  return {
+    id: String(row["id"]),
+    reviewId: String(row["review_id"]),
+    taskId: String(row["task_id"]),
+    organizationId: String(row["organization_id"]),
+    workspaceId: String(row["workspace_id"]),
+    reviewerUserId: String(row["reviewer_user_id"]),
+    reviewerName: stringOrNull(row["reviewer_name"]),
+    state: qualityReviewerState(row["state"]),
+    updatedAt: parseDate(row["updated_at"]),
   };
 }
 
@@ -339,8 +541,8 @@ function assertKnownIds(input: TaskApplicationContext): Result<void> {
       taskError(
         "projectManagement.invalidTaskContext",
         "Task context contains an invalid organization, workspace, or actor id.",
-        error
-      )
+        error,
+      ),
     );
   }
 }
@@ -350,9 +552,7 @@ function assertKnownTaskId(taskId: string): Result<void> {
     makeTaskId(taskId);
     return ok(undefined);
   } catch (error) {
-    return err(
-      taskError("projectManagement.invalidTaskId", "Task id is invalid.", error)
-    );
+    return err(taskError("projectManagement.invalidTaskId", "Task id is invalid.", error));
   }
 }
 
@@ -363,9 +563,7 @@ function assertKnownUuid(value: string, field: string): Result<void> {
     return ok(undefined);
   }
 
-  return err(
-    taskError("projectManagement.invalidTaskCardId", `${field} must be a valid id.`)
-  );
+  return err(taskError("projectManagement.invalidTaskCardId", `${field} must be a valid id.`));
 }
 
 // SECURITY CONTRACT: orgId/workspaceId/actor.roleKeys are IDENTITY dimensions and
@@ -380,20 +578,20 @@ function authorizationSubject(input: TaskApplicationContext): AuthorizationSubje
     tenantId: makeTenantId(input.orgId),
     orgId: makeOrgId(input.orgId),
     workspaceIds: [makeWorkspaceId(input.workspaceId)],
-    roleKeys: input.actor.roleKeys
+    roleKeys: input.actor.roleKeys,
   };
 }
 
 async function authorizeTask(
   input: TaskApplicationContext,
   action: "read" | "create" | "update" | "delete",
-  authorizationPort: AuthorizationPort
+  authorizationPort: AuthorizationPort,
 ): Promise<Result<void>> {
   const decisionResult = await authorizationPort.can(authorizationSubject(input), action, {
     type: "task",
     tenantId: makeTenantId(input.orgId),
     orgId: makeOrgId(input.orgId),
-    workspaceId: makeWorkspaceId(input.workspaceId)
+    workspaceId: makeWorkspaceId(input.workspaceId),
   });
 
   if (!decisionResult.ok) {
@@ -401,9 +599,7 @@ async function authorizeTask(
   }
 
   if (!decisionResult.value.allowed) {
-    return err(
-      taskError("projectManagement.forbidden", "You are not allowed to manage tasks.")
-    );
+    return err(taskError("projectManagement.forbidden", "You are not allowed to manage tasks."));
   }
 
   return ok(undefined);
@@ -411,7 +607,7 @@ async function authorizeTask(
 
 function normalizeAssignee(
   assigneeUserId: string | null | undefined,
-  actorUserId: string
+  actorUserId: string,
 ): Result<string | null> {
   if (assigneeUserId === undefined || assigneeUserId === null || assigneeUserId.trim() === "") {
     return ok(null);
@@ -422,15 +618,18 @@ function normalizeAssignee(
     return err(
       taskError(
         "projectManagement.unsupportedTaskAssignee",
-        "This slice can assign tasks only to the current user or leave them unassigned."
-      )
+        "This slice can assign tasks only to the current user or leave them unassigned.",
+      ),
     );
   }
 
   return ok(normalized);
 }
 
-function normalizeOptionalUserId(value: string | null | undefined, field: string): Result<string | null> {
+function normalizeOptionalUserId(
+  value: string | null | undefined,
+  field: string,
+): Result<string | null> {
   if (value === undefined || value === null || value.trim() === "") {
     return ok(null);
   }
@@ -441,11 +640,7 @@ function normalizeOptionalUserId(value: string | null | undefined, field: string
     return ok(normalized);
   } catch (error) {
     return err(
-      taskError(
-        "projectManagement.invalidUserId",
-        `${field} must be a valid user id.`,
-        error
-      )
+      taskError("projectManagement.invalidUserId", `${field} must be a valid user id.`, error),
     );
   }
 }
@@ -459,14 +654,14 @@ function normalizeUserIds(values: readonly string[]): Result<readonly string[]> 
       makeUserId(value);
     } catch (error) {
       return err(
-        taskError("projectManagement.invalidUserId", "Watcher user ids must be valid.", error)
+        taskError("projectManagement.invalidUserId", "Watcher user ids must be valid.", error),
       );
     }
   }
 
   if (unique.length > 32) {
     return err(
-      taskError("projectManagement.tooManyWatchers", "A task can have at most 32 watchers.")
+      taskError("projectManagement.tooManyWatchers", "A task can have at most 32 watchers."),
     );
   }
 
@@ -480,9 +675,7 @@ function normalizeDueAt(value: string | Date | null | undefined): Result<string 
 
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return err(
-      taskError("projectManagement.invalidDueAt", "Task due date must be a valid date.")
-    );
+    return err(taskError("projectManagement.invalidDueAt", "Task due date must be a valid date."));
   }
 
   return ok(date.toISOString());
@@ -495,8 +688,8 @@ function normalizeProvenanceSource(value: string | undefined): Result<string> {
     return err(
       taskError(
         "projectManagement.invalidTaskProvenance",
-        "Task provenance source must be 1-240 characters."
-      )
+        "Task provenance source must be 1-240 characters.",
+      ),
     );
   }
 
@@ -513,8 +706,8 @@ function normalizeExternalRef(value: string | null | undefined): Result<string |
     return err(
       taskError(
         "projectManagement.invalidTaskProvenance",
-        "Task provenance external ref must be 500 characters or fewer."
-      )
+        "Task provenance external ref must be 500 characters or fewer.",
+      ),
     );
   }
 
@@ -526,7 +719,7 @@ function normalizeStepText(value: string): Result<string> {
 
   if (text.length === 0 || text.length > 500) {
     return err(
-      taskError("projectManagement.invalidTaskStep", "Task step text must be 1-500 characters.")
+      taskError("projectManagement.invalidTaskStep", "Task step text must be 1-500 characters."),
     );
   }
 
@@ -540,8 +733,8 @@ function normalizeCommentBody(value: string): Result<string> {
     return err(
       taskError(
         "projectManagement.invalidTaskComment",
-        "Task comment body must be 1-4000 characters."
-      )
+        "Task comment body must be 1-4000 characters.",
+      ),
     );
   }
 
@@ -558,12 +751,143 @@ function normalizeAssistantKey(value: string | null | undefined): Result<string 
     return err(
       taskError(
         "projectManagement.invalidAssistantKey",
-        "Assistant key must be 3-180 safe characters."
-      )
+        "Assistant key must be 3-180 safe characters.",
+      ),
     );
   }
 
   return ok(normalized);
+}
+
+function normalizeEvidenceFilename(value: string): Result<string> {
+  const filename = value.trim().replace(/[\\/]+/g, "-");
+
+  if (filename.length === 0 || filename.length > 500) {
+    return err(
+      taskError(
+        "projectManagement.invalidEvidenceFilename",
+        "Evidence filename must be 1-500 characters.",
+      ),
+    );
+  }
+
+  return ok(filename);
+}
+
+function normalizeEvidenceContentType(value: string): Result<string> {
+  const contentType = value.trim().toLowerCase();
+  if (
+    contentType.length === 0 ||
+    contentType.length > 200 ||
+    !/^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/i.test(contentType)
+  ) {
+    return err(
+      taskError(
+        "projectManagement.invalidEvidenceContentType",
+        "Evidence content type must be a valid MIME type.",
+      ),
+    );
+  }
+
+  return ok(contentType);
+}
+
+function normalizeEvidenceSize(value: number): Result<number> {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    return err(
+      taskError("projectManagement.invalidEvidenceSize", "Evidence size must be non-negative."),
+    );
+  }
+
+  return ok(value);
+}
+
+function normalizeEvidenceProvenance(value: string | undefined, fallback: string): Result<string> {
+  const provenance = (value ?? fallback).trim().replace(/\s+/g, " ");
+  if (provenance.length === 0 || provenance.length > 500) {
+    return err(
+      taskError(
+        "projectManagement.invalidEvidenceProvenance",
+        "Evidence provenance must be 1-500 characters.",
+      ),
+    );
+  }
+
+  return ok(provenance);
+}
+
+function normalizeObjectRef(value: string): Result<string> {
+  const ref = value.trim();
+  if (ref.length === 0 || ref.length > 1000 || ref.includes("..")) {
+    return err(
+      taskError("projectManagement.invalidEvidenceObjectRef", "Evidence object ref is invalid."),
+    );
+  }
+
+  return ok(ref);
+}
+
+function normalizeEvidenceUrl(value: string): Result<string> {
+  const trimmed = value.trim();
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("unsupported protocol");
+    }
+
+    return ok(url.toString());
+  } catch (error) {
+    return err(
+      taskError(
+        "projectManagement.invalidEvidenceUrl",
+        "Evidence link must be an HTTP URL.",
+        error,
+      ),
+    );
+  }
+}
+
+function normalizeQualityLabel(value: string): Result<string> {
+  const label = value.trim().replace(/\s+/g, " ");
+  if (label.length === 0 || label.length > 240) {
+    return err(
+      taskError(
+        "projectManagement.invalidQualityCheck",
+        "Quality check label must be 1-240 characters.",
+      ),
+    );
+  }
+
+  return ok(label);
+}
+
+function normalizeQualityCheckKind(
+  value: TaskQualityCheckKind | undefined,
+): Result<TaskQualityCheckKind> {
+  if (value === undefined || value === "human" || value === "ai_precheck") {
+    return ok(value ?? "human");
+  }
+
+  return err(taskError("projectManagement.invalidQualityCheck", "Quality check kind is invalid."));
+}
+
+function normalizeQualityCheckState(value: TaskQualityCheckState): Result<TaskQualityCheckState> {
+  if (value === "pass" || value === "fail" || value === "pending") {
+    return ok(value);
+  }
+
+  return err(taskError("projectManagement.invalidQualityCheck", "Quality check state is invalid."));
+}
+
+function actorLabel(input: TaskApplicationContext, explicit: string | undefined): Result<string> {
+  const label = (explicit ?? input.actor.userId).trim().replace(/\s+/g, " ");
+  if (label.length === 0 || label.length > 240) {
+    return err(
+      taskError("projectManagement.invalidQualityCheck", "Quality check actor is invalid."),
+    );
+  }
+
+  return ok(label);
 }
 
 function prepareTaskFields(input: {
@@ -625,11 +949,14 @@ function prepareTaskFields(input: {
     labels: labels.value,
     dueAt: dueAt.value,
     provenanceSource: provenanceSource.value,
-    provenanceExternalRef: provenanceExternalRef.value
+    provenanceExternalRef: provenanceExternalRef.value,
   });
 }
 
-async function selectTaskRows(tx: TenantTransaction, workspaceId: string): Promise<readonly TaskDto[]> {
+async function selectTaskRows(
+  tx: TenantTransaction,
+  workspaceId: string,
+): Promise<readonly TaskDto[]> {
   const result = await tx.execute(sql`
     select
       t.id,
@@ -670,7 +997,7 @@ async function selectTaskRows(tx: TenantTransaction, workspaceId: string): Promi
 async function selectTaskById(
   tx: TenantTransaction,
   taskId: string,
-  workspaceId: string
+  workspaceId: string,
 ): Promise<TaskDto | null> {
   const result = await tx.execute(sql`
     select
@@ -705,7 +1032,7 @@ async function selectTaskById(
 async function ensureTaskExists(
   tx: TenantTransaction,
   taskId: string,
-  workspaceId: string
+  workspaceId: string,
 ): Promise<Result<void>> {
   const task = await selectTaskById(tx, taskId, workspaceId);
   return task === null
@@ -713,10 +1040,7 @@ async function ensureTaskExists(
     : ok(undefined);
 }
 
-async function selectSteps(
-  tx: TenantTransaction,
-  taskId: string
-): Promise<readonly TaskStepDto[]> {
+async function selectSteps(tx: TenantTransaction, taskId: string): Promise<readonly TaskStepDto[]> {
   const result = await tx.execute(sql`
     select
       id,
@@ -739,7 +1063,7 @@ async function selectSteps(
 
 async function selectComments(
   tx: TenantTransaction,
-  taskId: string
+  taskId: string,
 ): Promise<readonly TaskCommentDto[]> {
   const result = await tx.execute(sql`
     select
@@ -768,7 +1092,7 @@ async function selectComments(
 
 async function selectWatchers(
   tx: TenantTransaction,
-  taskId: string
+  taskId: string,
 ): Promise<readonly TaskWatcherDto[]> {
   const result = await tx.execute(sql`
     select
@@ -787,9 +1111,165 @@ async function selectWatchers(
   return rowsFromExecuteResult(result).map(rowToWatcherDto);
 }
 
+async function selectEvidence(
+  tx: TenantTransaction,
+  taskId: string,
+): Promise<readonly TaskEvidenceDto[]> {
+  const result = await tx.execute(sql`
+    select
+      id,
+      task_id,
+      organization_id,
+      workspace_id,
+      kind,
+      object_ref,
+      url,
+      filename,
+      content_type,
+      size,
+      provenance,
+      created_by_user_id,
+      created_at
+    from public.task_evidence
+    where task_id = ${taskId}
+    order by created_at desc, id desc
+  `);
+
+  return rowsFromExecuteResult(result).map(rowToEvidenceDto);
+}
+
+async function ensureQualityReview(
+  tx: TenantTransaction,
+  input: TaskApplicationContext & { readonly taskId: string },
+): Promise<Result<Omit<TaskQualityReviewDto, "checks" | "reviewers">>> {
+  const existingResult = await tx.execute(sql`
+    select
+      id,
+      task_id,
+      organization_id,
+      workspace_id,
+      status,
+      approved_by_user_id,
+      approved_at,
+      created_at,
+      updated_at
+    from public.task_quality_review
+    where task_id = ${input.taskId}
+      and workspace_id = ${input.workspaceId}
+    limit 1
+  `);
+  const existing = rowsFromExecuteResult(existingResult)[0];
+  if (existing !== undefined) {
+    return ok(rowToQualityReviewBase(existing));
+  }
+
+  const createdResult = await tx.execute(sql`
+    insert into public.task_quality_review (
+      task_id,
+      organization_id,
+      workspace_id,
+      status
+    )
+    values (
+      ${input.taskId},
+      ${input.orgId},
+      ${input.workspaceId},
+      'open'::public.task_quality_review_status
+    )
+    on conflict (task_id) do update
+      set updated_at = public.task_quality_review.updated_at
+    returning
+      id,
+      task_id,
+      organization_id,
+      workspace_id,
+      status,
+      approved_by_user_id,
+      approved_at,
+      created_at,
+      updated_at
+  `);
+  const created = rowsFromExecuteResult(createdResult)[0];
+
+  return created === undefined
+    ? err(
+        taskError(
+          "projectManagement.qualityReviewCreateFailed",
+          "Quality review could not be created.",
+        ),
+      )
+    : ok(rowToQualityReviewBase(created));
+}
+
+async function selectQualityReview(
+  tx: TenantTransaction,
+  taskId: string,
+): Promise<TaskQualityReviewDto | null> {
+  const reviewResult = await tx.execute(sql`
+    select
+      id,
+      task_id,
+      organization_id,
+      workspace_id,
+      status,
+      approved_by_user_id,
+      approved_at,
+      created_at,
+      updated_at
+    from public.task_quality_review
+    where task_id = ${taskId}
+    limit 1
+  `);
+  const reviewRow = rowsFromExecuteResult(reviewResult)[0];
+  if (reviewRow === undefined) {
+    return null;
+  }
+
+  const review = rowToQualityReviewBase(reviewRow);
+  const checksResult = await tx.execute(sql`
+    select
+      id,
+      review_id,
+      task_id,
+      organization_id,
+      workspace_id,
+      label,
+      kind,
+      state,
+      actor,
+      created_at,
+      updated_at
+    from public.task_quality_check
+    where review_id = ${review.id}
+    order by created_at asc, id asc
+  `);
+  const reviewersResult = await tx.execute(sql`
+    select
+      r.id,
+      r.review_id,
+      r.task_id,
+      r.organization_id,
+      r.workspace_id,
+      r.reviewer_user_id,
+      u.name as reviewer_name,
+      r.state,
+      r.updated_at
+    from public.task_quality_reviewer r
+    left join public.auth_users u on u.id = r.reviewer_user_id
+    where r.review_id = ${review.id}
+    order by r.updated_at asc, r.reviewer_user_id asc
+  `);
+
+  return {
+    ...review,
+    checks: rowsFromExecuteResult(checksResult).map(rowToQualityCheckDto),
+    reviewers: rowsFromExecuteResult(reviewersResult).map(rowToQualityReviewerDto),
+  };
+}
+
 export async function createTask(
   input: CreateTaskInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<TaskDto>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -810,7 +1290,7 @@ export async function createTask(
     actorUserId: input.actor.userId,
     dueAt: input.dueAt,
     provenanceSource: input.provenanceSource,
-    provenanceExternalRef: input.provenanceExternalRef
+    provenanceExternalRef: input.provenanceExternalRef,
   });
   if (!fields.ok) {
     return err(fields.error);
@@ -832,15 +1312,15 @@ export async function createTask(
   return err(
     taskError(
       "projectManagement.taskCreateFailed",
-      "Task could not be created after retrying card number allocation."
-    )
+      "Task could not be created after retrying card number allocation.",
+    ),
   );
 }
 
 async function createTaskOnce(
   input: CreateTaskInput,
   status: TaskStatus,
-  fields: PreparedTaskFields
+  fields: PreparedTaskFields,
 ): Promise<Result<TaskDto>> {
   try {
     return await withTenant(input.orgId, async (tx) => {
@@ -901,9 +1381,7 @@ async function createTaskOnce(
 
       const row = rowsFromExecuteResult(result)[0];
       if (row === undefined) {
-        return err(
-          taskError("projectManagement.taskCreateFailed", "Task could not be created.")
-        );
+        return err(taskError("projectManagement.taskCreateFailed", "Task could not be created."));
       }
 
       return ok(rowToTaskDto(row));
@@ -913,15 +1391,15 @@ async function createTaskOnce(
       taskError(
         "projectManagement.taskCreateFailed",
         "Task could not be created.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
   }
 }
 
 export async function listTasks(
   input: ListTasksInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<readonly TaskDto[]>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -935,21 +1413,23 @@ export async function listTasks(
   }
 
   try {
-    return await withTenant(input.orgId, async (tx) => ok(await selectTaskRows(tx, input.workspaceId)));
+    return await withTenant(input.orgId, async (tx) =>
+      ok(await selectTaskRows(tx, input.workspaceId)),
+    );
   } catch (error) {
     return err(
       taskError(
         "projectManagement.taskListFailed",
         "Tasks could not be loaded.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
   }
 }
 
 export async function getTask(
   input: GetTaskInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<TaskDto>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -1007,15 +1487,15 @@ export async function getTask(
       taskError(
         "projectManagement.taskLoadFailed",
         "Task could not be loaded.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
   }
 }
 
 export async function updateTask(
   input: UpdateTaskInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<TaskDto>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -1036,7 +1516,7 @@ export async function updateTask(
     actorUserId: input.actor.userId,
     dueAt: undefined,
     provenanceSource: undefined,
-    provenanceExternalRef: undefined
+    provenanceExternalRef: undefined,
   });
   if (!fields.ok) {
     return err(fields.error);
@@ -1093,15 +1573,15 @@ export async function updateTask(
       taskError(
         "projectManagement.taskUpdateFailed",
         "Task could not be updated.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
   }
 }
 
 export async function moveTask(
   input: MoveTaskInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<TaskDto>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -1122,8 +1602,8 @@ export async function moveTask(
     return err(
       taskError(
         "projectManagement.invalidTaskPosition",
-        "Task position must be a non-negative integer."
-      )
+        "Task position must be a non-negative integer.",
+      ),
     );
   }
 
@@ -1175,15 +1655,15 @@ export async function moveTask(
       taskError(
         "projectManagement.taskMoveFailed",
         "Task could not be moved.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
   }
 }
 
 export async function createStep(
   input: CreateStepInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<TaskStepDto>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -1263,15 +1743,15 @@ export async function createStep(
       taskError(
         "projectManagement.stepCreateFailed",
         "Task step could not be created.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
   }
 }
 
 export async function toggleStep(
   input: ToggleStepInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<TaskStepDto>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -1325,15 +1805,15 @@ export async function toggleStep(
       taskError(
         "projectManagement.stepUpdateFailed",
         "Task step could not be updated.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
   }
 }
 
 export async function reorderSteps(
   input: ReorderStepsInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<readonly TaskStepDto[]>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -1349,8 +1829,8 @@ export async function reorderSteps(
     return err(
       taskError(
         "projectManagement.invalidStepOrder",
-        "Step order must include each step id exactly once."
-      )
+        "Step order must include each step id exactly once.",
+      ),
     );
   }
 
@@ -1379,8 +1859,8 @@ export async function reorderSteps(
         return err(
           taskError(
             "projectManagement.invalidStepOrder",
-            "Step order must include every current step exactly once."
-          )
+            "Step order must include every current step exactly once.",
+          ),
         );
       }
 
@@ -1406,15 +1886,15 @@ export async function reorderSteps(
       taskError(
         "projectManagement.stepReorderFailed",
         "Task steps could not be reordered.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
   }
 }
 
 export async function addComment(
   input: AddCommentInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<TaskCommentDto>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -1434,7 +1914,7 @@ export async function addComment(
   const authorKind = input.authorKind ?? "human";
   if (authorKind !== "human" && authorKind !== "assistant") {
     return err(
-      taskError("projectManagement.invalidCommentAuthor", "Comment author kind is invalid.")
+      taskError("projectManagement.invalidCommentAuthor", "Comment author kind is invalid."),
     );
   }
 
@@ -1447,8 +1927,8 @@ export async function addComment(
     return err(
       taskError(
         "projectManagement.invalidCommentAuthor",
-        "Assistant comments require an assistant key."
-      )
+        "Assistant comments require an assistant key.",
+      ),
     );
   }
 
@@ -1500,7 +1980,7 @@ export async function addComment(
       const row = rowsFromExecuteResult(result)[0];
       return row === undefined
         ? err(
-            taskError("projectManagement.commentCreateFailed", "Task comment could not be added.")
+            taskError("projectManagement.commentCreateFailed", "Task comment could not be added."),
           )
         : ok(rowToCommentDto(row));
     });
@@ -1509,15 +1989,15 @@ export async function addComment(
       taskError(
         "projectManagement.commentCreateFailed",
         "Task comment could not be added.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
   }
 }
 
 export async function setDue(
   input: SetDueInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<TaskDto>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -1577,15 +2057,15 @@ export async function setDue(
       taskError(
         "projectManagement.taskDueUpdateFailed",
         "Task due date could not be updated.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
   }
 }
 
 export async function setWatchers(
   input: SetWatchersInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<readonly TaskWatcherDto[]>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -1646,15 +2126,15 @@ export async function setWatchers(
       taskError(
         "projectManagement.watchersUpdateFailed",
         "Task watchers could not be updated.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
   }
 }
 
 export async function markCommentsRead(
   input: MarkCommentsReadInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<readonly TaskCommentDto[]>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -1723,15 +2203,615 @@ export async function markCommentsRead(
       taskError(
         "projectManagement.commentReadFailed",
         "Task comments could not be marked read.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
+  }
+}
+
+export async function addTaskEvidenceFile(
+  input: AddTaskEvidenceFileInput,
+  dependencies: TaskApplicationDependencies = {},
+): Promise<Result<TaskEvidenceDto>> {
+  const knownIds = assertKnownIds(input);
+  if (!knownIds.ok) {
+    return err(knownIds.error);
+  }
+
+  const knownTaskId = assertKnownTaskId(input.taskId);
+  if (!knownTaskId.ok) {
+    return err(knownTaskId.error);
+  }
+
+  const objectRef = normalizeObjectRef(input.objectRef);
+  const filename = normalizeEvidenceFilename(input.filename);
+  const contentType = normalizeEvidenceContentType(input.contentType);
+  const sizeBytes = normalizeEvidenceSize(input.sizeBytes);
+  const provenance = normalizeEvidenceProvenance(input.provenance, "Attached from upload");
+  if (!objectRef.ok) {
+    return err(objectRef.error);
+  }
+  if (!filename.ok) {
+    return err(filename.error);
+  }
+  if (!contentType.ok) {
+    return err(contentType.error);
+  }
+  if (!sizeBytes.ok) {
+    return err(sizeBytes.error);
+  }
+  if (!provenance.ok) {
+    return err(provenance.error);
+  }
+
+  const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
+  const authorized = await authorizeTask(input, "update", authorizationPort);
+  if (!authorized.ok) {
+    return err(authorized.error);
+  }
+
+  try {
+    return await withTenant(input.orgId, async (tx) => {
+      const existing = await ensureTaskExists(tx, input.taskId, input.workspaceId);
+      if (!existing.ok) {
+        return err(existing.error);
+      }
+
+      const result = await tx.execute(sql`
+        insert into public.task_evidence (
+          task_id,
+          organization_id,
+          workspace_id,
+          kind,
+          object_ref,
+          filename,
+          content_type,
+          size,
+          provenance,
+          created_by_user_id
+        )
+        values (
+          ${input.taskId},
+          ${input.orgId},
+          ${input.workspaceId},
+          'file'::public.task_evidence_kind,
+          ${objectRef.value},
+          ${filename.value},
+          ${contentType.value},
+          ${sizeBytes.value},
+          ${provenance.value},
+          ${input.actor.userId}
+        )
+        returning
+          id,
+          task_id,
+          organization_id,
+          workspace_id,
+          kind,
+          object_ref,
+          url,
+          filename,
+          content_type,
+          size,
+          provenance,
+          created_by_user_id,
+          created_at
+      `);
+
+      const row = rowsFromExecuteResult(result)[0];
+      return row === undefined
+        ? err(taskError("projectManagement.evidenceCreateFailed", "Evidence could not be added."))
+        : ok(rowToEvidenceDto(row));
+    });
+  } catch (error) {
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+  }
+}
+
+export async function addTaskEvidenceLink(
+  input: AddTaskEvidenceLinkInput,
+  dependencies: TaskApplicationDependencies = {},
+): Promise<Result<TaskEvidenceDto>> {
+  const knownIds = assertKnownIds(input);
+  if (!knownIds.ok) {
+    return err(knownIds.error);
+  }
+
+  const knownTaskId = assertKnownTaskId(input.taskId);
+  if (!knownTaskId.ok) {
+    return err(knownTaskId.error);
+  }
+
+  const url = normalizeEvidenceUrl(input.url);
+  const filename = normalizeEvidenceFilename(input.title ?? input.url);
+  const provenance = normalizeEvidenceProvenance(input.provenance, "Attached from link");
+  if (!url.ok) {
+    return err(url.error);
+  }
+  if (!filename.ok) {
+    return err(filename.error);
+  }
+  if (!provenance.ok) {
+    return err(provenance.error);
+  }
+
+  const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
+  const authorized = await authorizeTask(input, "update", authorizationPort);
+  if (!authorized.ok) {
+    return err(authorized.error);
+  }
+
+  try {
+    return await withTenant(input.orgId, async (tx) => {
+      const existing = await ensureTaskExists(tx, input.taskId, input.workspaceId);
+      if (!existing.ok) {
+        return err(existing.error);
+      }
+
+      const result = await tx.execute(sql`
+        insert into public.task_evidence (
+          task_id,
+          organization_id,
+          workspace_id,
+          kind,
+          url,
+          filename,
+          provenance,
+          created_by_user_id
+        )
+        values (
+          ${input.taskId},
+          ${input.orgId},
+          ${input.workspaceId},
+          'link'::public.task_evidence_kind,
+          ${url.value},
+          ${filename.value},
+          ${provenance.value},
+          ${input.actor.userId}
+        )
+        returning
+          id,
+          task_id,
+          organization_id,
+          workspace_id,
+          kind,
+          object_ref,
+          url,
+          filename,
+          content_type,
+          size,
+          provenance,
+          created_by_user_id,
+          created_at
+      `);
+
+      const row = rowsFromExecuteResult(result)[0];
+      return row === undefined
+        ? err(
+            taskError(
+              "projectManagement.evidenceCreateFailed",
+              "Evidence link could not be added.",
+            ),
+          )
+        : ok(rowToEvidenceDto(row));
+    });
+  } catch (error) {
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+  }
+}
+
+export async function listTaskEvidence(
+  input: ListTaskEvidenceInput,
+  dependencies: TaskApplicationDependencies = {},
+): Promise<Result<readonly TaskEvidenceDto[]>> {
+  const knownIds = assertKnownIds(input);
+  if (!knownIds.ok) {
+    return err(knownIds.error);
+  }
+
+  const knownTaskId = assertKnownTaskId(input.taskId);
+  if (!knownTaskId.ok) {
+    return err(knownTaskId.error);
+  }
+
+  const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
+  const authorized = await authorizeTask(input, "read", authorizationPort);
+  if (!authorized.ok) {
+    return err(authorized.error);
+  }
+
+  try {
+    return await withTenant(input.orgId, async (tx) => {
+      const existing = await ensureTaskExists(tx, input.taskId, input.workspaceId);
+      if (!existing.ok) {
+        return err(existing.error);
+      }
+
+      return ok(await selectEvidence(tx, input.taskId));
+    });
+  } catch (error) {
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+  }
+}
+
+export async function ensureTaskQualityReview(
+  input: EnsureTaskQualityReviewInput,
+  dependencies: TaskApplicationDependencies = {},
+): Promise<Result<TaskQualityReviewDto>> {
+  const knownIds = assertKnownIds(input);
+  if (!knownIds.ok) {
+    return err(knownIds.error);
+  }
+
+  const knownTaskId = assertKnownTaskId(input.taskId);
+  if (!knownTaskId.ok) {
+    return err(knownTaskId.error);
+  }
+
+  const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
+  const authorized = await authorizeTask(input, "read", authorizationPort);
+  if (!authorized.ok) {
+    return err(authorized.error);
+  }
+
+  try {
+    return await withTenant(input.orgId, async (tx) => {
+      const existingTask = await ensureTaskExists(tx, input.taskId, input.workspaceId);
+      if (!existingTask.ok) {
+        return err(existingTask.error);
+      }
+
+      const ensured = await ensureQualityReview(tx, input);
+      if (!ensured.ok) {
+        return err(ensured.error);
+      }
+
+      const review = await selectQualityReview(tx, input.taskId);
+      return review === null
+        ? err(
+            taskError(
+              "projectManagement.qualityReviewCreateFailed",
+              "Quality review could not be created.",
+            ),
+          )
+        : ok(review);
+    });
+  } catch (error) {
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+  }
+}
+
+export async function addQualityCheck(
+  input: AddQualityCheckInput,
+  dependencies: TaskApplicationDependencies = {},
+): Promise<Result<TaskQualityReviewDto>> {
+  const knownIds = assertKnownIds(input);
+  if (!knownIds.ok) {
+    return err(knownIds.error);
+  }
+
+  const knownTaskId = assertKnownTaskId(input.taskId);
+  if (!knownTaskId.ok) {
+    return err(knownTaskId.error);
+  }
+
+  const label = normalizeQualityLabel(input.label);
+  const kind = normalizeQualityCheckKind(input.kind);
+  const state = normalizeQualityCheckState(input.state ?? "pending");
+  const actor = actorLabel(input, input.actorLabel);
+  if (!label.ok) {
+    return err(label.error);
+  }
+  if (!kind.ok) {
+    return err(kind.error);
+  }
+  if (!state.ok) {
+    return err(state.error);
+  }
+  if (!actor.ok) {
+    return err(actor.error);
+  }
+
+  const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
+  const authorized = await authorizeTask(input, "update", authorizationPort);
+  if (!authorized.ok) {
+    return err(authorized.error);
+  }
+
+  try {
+    return await withTenant(input.orgId, async (tx) => {
+      const existingTask = await ensureTaskExists(tx, input.taskId, input.workspaceId);
+      if (!existingTask.ok) {
+        return err(existingTask.error);
+      }
+
+      const review = await ensureQualityReview(tx, input);
+      if (!review.ok) {
+        return err(review.error);
+      }
+      if (review.value.status === "approved") {
+        return err(
+          taskError(
+            "projectManagement.qualityReviewConflict",
+            "Approved quality reviews cannot be changed.",
+          ),
+        );
+      }
+
+      await tx.execute(sql`
+        insert into public.task_quality_check (
+          review_id,
+          organization_id,
+          workspace_id,
+          task_id,
+          label,
+          kind,
+          state,
+          actor
+        )
+        values (
+          ${review.value.id},
+          ${input.orgId},
+          ${input.workspaceId},
+          ${input.taskId},
+          ${label.value},
+          ${kind.value}::public.task_quality_check_kind,
+          ${state.value}::public.task_quality_check_state,
+          ${actor.value}
+        )
+      `);
+
+      const loaded = await selectQualityReview(tx, input.taskId);
+      return loaded === null
+        ? err(
+            taskError(
+              "projectManagement.qualityReviewLoadFailed",
+              "Quality review could not be loaded.",
+            ),
+          )
+        : ok(loaded);
+    });
+  } catch (error) {
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+  }
+}
+
+export async function toggleQualityCheck(
+  input: ToggleQualityCheckInput,
+  dependencies: TaskApplicationDependencies = {},
+): Promise<Result<TaskQualityReviewDto>> {
+  const knownIds = assertKnownIds(input);
+  if (!knownIds.ok) {
+    return err(knownIds.error);
+  }
+
+  const knownTaskId = assertKnownTaskId(input.taskId);
+  if (!knownTaskId.ok) {
+    return err(knownTaskId.error);
+  }
+
+  const knownCheckId = assertKnownUuid(input.checkId, "Quality check id");
+  if (!knownCheckId.ok) {
+    return err(knownCheckId.error);
+  }
+
+  const state = normalizeQualityCheckState(input.state);
+  if (!state.ok) {
+    return err(state.error);
+  }
+
+  const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
+  const authorized = await authorizeTask(input, "update", authorizationPort);
+  if (!authorized.ok) {
+    return err(authorized.error);
+  }
+
+  try {
+    return await withTenant(input.orgId, async (tx) => {
+      const currentCheckResult = await tx.execute(sql`
+        select
+          c.review_id,
+          r.status
+        from public.task_quality_check c
+        join public.task_quality_review r
+          on r.id = c.review_id
+          and r.organization_id = c.organization_id
+        where c.id = ${input.checkId}
+          and c.task_id = ${input.taskId}
+          and c.workspace_id = ${input.workspaceId}
+        limit 1
+      `);
+      const currentCheck = rowsFromExecuteResult(currentCheckResult)[0];
+      if (currentCheck === undefined) {
+        return err(
+          taskError("projectManagement.qualityCheckNotFound", "Quality check was not found."),
+        );
+      }
+      if (currentCheck["status"] === "approved") {
+        return err(
+          taskError(
+            "projectManagement.qualityReviewConflict",
+            "Approved quality reviews cannot be changed.",
+          ),
+        );
+      }
+
+      const result = await tx.execute(sql`
+        update public.task_quality_check
+        set state = ${state.value}::public.task_quality_check_state,
+            updated_at = now()
+        where id = ${input.checkId}
+          and task_id = ${input.taskId}
+          and workspace_id = ${input.workspaceId}
+        returning review_id
+      `);
+      if (rowsFromExecuteResult(result)[0] === undefined) {
+        return err(
+          taskError("projectManagement.qualityCheckNotFound", "Quality check was not found."),
+        );
+      }
+
+      await tx.execute(sql`
+        update public.task_quality_review
+        set status = case
+            when exists (
+              select 1
+              from public.task_quality_check c
+              where c.task_id = ${input.taskId}
+                and c.state = 'fail'::public.task_quality_check_state
+            ) then 'changes_requested'::public.task_quality_review_status
+            else 'open'::public.task_quality_review_status
+          end,
+          approved_by_user_id = null,
+          approved_at = null,
+          updated_at = now()
+        where task_id = ${input.taskId}
+          and status <> 'approved'::public.task_quality_review_status
+      `);
+
+      const loaded = await selectQualityReview(tx, input.taskId);
+      return loaded === null
+        ? err(
+            taskError(
+              "projectManagement.qualityReviewLoadFailed",
+              "Quality review could not be loaded.",
+            ),
+          )
+        : ok(loaded);
+    });
+  } catch (error) {
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+  }
+}
+
+export async function approveQualityReview(
+  input: ApproveQualityReviewInput,
+  dependencies: TaskApplicationDependencies = {},
+): Promise<Result<TaskQualityReviewDto>> {
+  const knownIds = assertKnownIds(input);
+  if (!knownIds.ok) {
+    return err(knownIds.error);
+  }
+
+  const knownTaskId = assertKnownTaskId(input.taskId);
+  if (!knownTaskId.ok) {
+    return err(knownTaskId.error);
+  }
+
+  const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
+  const authorized = await authorizeTask(input, "update", authorizationPort);
+  if (!authorized.ok) {
+    return err(authorized.error);
+  }
+
+  try {
+    return await withTenant(input.orgId, async (tx) => {
+      const existingTask = await ensureTaskExists(tx, input.taskId, input.workspaceId);
+      if (!existingTask.ok) {
+        return err(existingTask.error);
+      }
+
+      const review = await ensureQualityReview(tx, input);
+      if (!review.ok) {
+        return err(review.error);
+      }
+
+      if (input.expectedReviewId !== undefined && input.expectedReviewId !== review.value.id) {
+        return err(
+          taskError(
+            "projectManagement.qualityReviewConflict",
+            "Quality review changed before approval.",
+          ),
+        );
+      }
+
+      const loadedBefore = await selectQualityReview(tx, input.taskId);
+      if (loadedBefore === null) {
+        return err(
+          taskError(
+            "projectManagement.qualityReviewLoadFailed",
+            "Quality review could not be loaded.",
+          ),
+        );
+      }
+
+      const remaining = loadedBefore.checks.filter((check) => check.state !== "pass");
+      if (remaining.length > 0) {
+        return err(
+          taskError(
+            "projectManagement.qualityReviewIncomplete",
+            "All quality checks must pass before approval.",
+          ),
+        );
+      }
+
+      if (loadedBefore.status !== "approved") {
+        const approved = await tx.execute(sql`
+          update public.task_quality_review
+          set status = 'approved'::public.task_quality_review_status,
+              approved_by_user_id = ${input.actor.userId},
+              approved_at = now(),
+              updated_at = now()
+          where id = ${review.value.id}
+            and task_id = ${input.taskId}
+            and workspace_id = ${input.workspaceId}
+            and status <> 'approved'::public.task_quality_review_status
+          returning id
+        `);
+        if (rowsFromExecuteResult(approved)[0] === undefined) {
+          const current = await selectQualityReview(tx, input.taskId);
+          return current === null
+            ? err(
+                taskError(
+                  "projectManagement.qualityReviewLoadFailed",
+                  "Quality review could not be loaded.",
+                ),
+              )
+            : ok(current);
+        }
+      }
+
+      await tx.execute(sql`
+        insert into public.task_quality_reviewer (
+          review_id,
+          organization_id,
+          workspace_id,
+          task_id,
+          reviewer_user_id,
+          state,
+          updated_at
+        )
+        values (
+          ${review.value.id},
+          ${input.orgId},
+          ${input.workspaceId},
+          ${input.taskId},
+          ${input.actor.userId},
+          'approved'::public.task_quality_reviewer_state,
+          now()
+        )
+        on conflict (review_id, reviewer_user_id)
+        do update set state = excluded.state, updated_at = excluded.updated_at
+      `);
+
+      const loaded = await selectQualityReview(tx, input.taskId);
+      return loaded === null
+        ? err(
+            taskError(
+              "projectManagement.qualityReviewLoadFailed",
+              "Quality review could not be loaded.",
+            ),
+          )
+        : ok(loaded);
+    });
+  } catch (error) {
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
   }
 }
 
 export async function getCardDetail(
   input: GetCardDetailInput,
-  dependencies: TaskApplicationDependencies = {}
+  dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<CardDetailDto>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
@@ -1759,16 +2839,18 @@ export async function getCardDetail(
       const steps = await selectSteps(tx, input.taskId);
       const comments = await selectComments(tx, input.taskId);
       const watchers = await selectWatchers(tx, input.taskId);
+      const evidence = await selectEvidence(tx, input.taskId);
+      const qualityReview = await selectQualityReview(tx, input.taskId);
 
-      return ok({ task, steps, comments, watchers });
+      return ok({ task, steps, comments, watchers, evidence, qualityReview });
     });
   } catch (error) {
     return err(
       taskError(
         "projectManagement.cardDetailLoadFailed",
         "Task card detail could not be loaded.",
-        mapDatabaseError(error)
-      )
+        mapDatabaseError(error),
+      ),
     );
   }
 }

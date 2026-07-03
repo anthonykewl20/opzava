@@ -23,12 +23,12 @@ export type TaskCardTab = "overview" | "ai-run" | "evidence" | "quality";
 export const taskCardTabs: readonly {
   readonly id: TaskCardTab;
   readonly label: string;
-  readonly deferredTo: "2.5c-2" | "2.5f" | null;
+  readonly deferredTo: null;
 }[] = [
   { id: "overview", label: "Overview", deferredTo: null },
-  { id: "ai-run", label: "AI Run", deferredTo: "2.5c-2" },
-  { id: "evidence", label: "Evidence & Files", deferredTo: "2.5f" },
-  { id: "quality", label: "Quality Review", deferredTo: "2.5f" },
+  { id: "ai-run", label: "AI Run", deferredTo: null },
+  { id: "evidence", label: "Evidence & Files", deferredTo: null },
+  { id: "quality", label: "Quality Review", deferredTo: null },
 ];
 
 const statusLabels: Readonly<Record<TaskDto["status"], string>> = {

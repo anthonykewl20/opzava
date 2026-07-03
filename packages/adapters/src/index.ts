@@ -4,6 +4,14 @@ export {
   type GitHubIssueTrackerAdapterOptions,
 } from "./github/issues.js";
 export {
+  InMemoryObjectStore,
+  type InMemoryObjectStoreOptions,
+} from "./object-store/in-memory-object-store.js";
+export {
+  S3ObjectStoreAdapter,
+  type S3ObjectStoreAdapterOptions,
+} from "./object-store/s3-object-store.js";
+export {
   assertCurrentUser,
   withAuthenticatedIdentity,
   type AuthenticatedIdentity,
