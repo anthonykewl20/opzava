@@ -171,7 +171,7 @@ describe("Issues page state", () => {
     });
   });
 
-  it("wires /issues page, actions, and sidebar route without JSX imports", async () => {
+  it("wires /issues page, actions, sidebar route, and mockup contract", async () => {
     const page = await readRepoFile("app/(app)/issues/page.tsx");
     const actions = await readRepoFile("app/(app)/issues/actions.ts");
     const nav = await readRepoFile("components/shell/admin-nav.tsx");
@@ -180,6 +180,15 @@ describe("Issues page state", () => {
     expect(page).toContain("New issue");
     expect(page).toContain('name="idempotencyKey"');
     expect(page).toContain("Triage pipeline");
+    expect(page).toContain(
+      "Page-specific layout only — no color, font-size, shadow, or radius overrides",
+    );
+    expect(page).toContain('className="tabs"');
+    expect(page).toContain('className="table table-compact table-cards"');
+    expect(page).toContain("issueDivergenceLabel");
+    expect(page).toContain("<time dateTime={value}>");
+    expect(page).not.toContain("issues-page-header");
+    expect(page).not.toContain("issues-table");
     expect(actions).toContain("syncIssuesForContext");
     expect(actions).toContain("createIssueForContext");
     expect(nav).toContain('href: "/issues"');
