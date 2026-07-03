@@ -17,6 +17,7 @@
   "dependencies": {
     "@opzava/adapters": "workspace:*",
     "@opzava/config": "workspace:*",
+    "@opzava/crm": "workspace:*",
     "@opzava/identity-access": "workspace:*",
     "@opzava/ports": "workspace:*",
     "@opzava/project-management": "workspace:*",

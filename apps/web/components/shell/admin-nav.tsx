@@ -19,6 +19,12 @@ const operateItems: readonly NavItem[] = [
 ] as const;
 
 const observeItems = ["Monitoring", "Logs", "Costs"] as const;
+const crmItems: readonly NavItem[] = [
+  { label: "Contacts", href: "/crm/contacts" },
+  { label: "Accounts", href: "/crm/accounts" },
+  { label: "Deals", href: "/crm/deals" },
+  { label: "Tickets", href: "/crm/tickets" },
+] as const;
 const automateItems: readonly NavItem[] = [
   { label: "Connections", href: "/connections" },
   { label: "Automation", active: false },
@@ -154,6 +160,7 @@ export function AdminNav() {
         </span>
 
         <RailSection label="Observe" items={observeItems} pathname={pathname} />
+        <RailSection label="CRM" items={crmItems} pathname={pathname} />
         <RailSection label="Automate" items={automateItems} pathname={pathname} />
         <RailSection label="Govern" items={governItems} pathname={pathname} />
       </nav>
