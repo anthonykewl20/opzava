@@ -83,3 +83,23 @@ idempotency keys on the mutating card MCP tools + UI creates (createTask/step/co
 blind inserts; a retried at-least-once MCP call duplicates rows). Low-impact in the internal
 single-user phase (RLS-safe, recoverable), but the MCP path deserves idempotency keys as scale-ready
 hardening.
+
+## Iterated re-review of the fixes (2026-07-03) — CLEAN
+
+Ran an adversarial re-review of the 8 must-fix commits (slice2.5-fixes-review.spark.md,
+verdict SOUND-WITH-FIXES). 7 of 8 confirmed correct on re-read (M1 preserves via session
+context; M2 bounded + expiry-aware; M3 gates every mutation from session roleKeys; new-issue
+race-safe via DB unique ON CONFLICT; 0008 RLS parity; no regressions). It caught ONE [high]
+introduced BY the outbox hardening itself — a fencing race where a stale finalizer could
+overwrite a newer `closed`. Fixed with a claim-token (uuid) fence (0009); a first claimed_at-
+timestamp fence was rejected for microsecond round-trip fragility (caught by the reclaim test),
+which is exactly why the fix diff was itself re-verified. All gates green after the fence.
+
+## Final verdict: 🟢 SHIP (merge-ready)
+4 adversarial lanes + an iterated fix re-review. Security/integrity core independently confirmed
+across all passes; 8 verify-deep must-fixes + 1 fix-introduced fencing race all resolved and
+regression-tested. Tracked follow-ups (non-blocking, recorded): duplicate board position on
+concurrent create; duplicate issue rows on multi-link; UTC due-label off-by-one; comment button
+blocked during assistant stream; MCP card-mutation idempotency keys (highest-priority follow-up —
+local-agent at-least-once path). Recommend `/code-review ultra` on PR #124 for the deep cloud
+lanes and a live device-flow smoke against one API-key provider.
