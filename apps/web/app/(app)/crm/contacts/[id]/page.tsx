@@ -1,6 +1,7 @@
 import { getContact, listAccounts, listContactTimeline, listDeals, listTickets } from "@opzava/crm";
 import { forbidden, notFound, redirect } from "next/navigation";
 
+import { CrmPageStyles } from "@/app/(app)/crm/_components/crm-page-styles";
 import { addContactActivityAction, updateContactAction } from "@/app/(app)/crm/contacts/actions";
 import {
   activityKindIcon,
@@ -103,360 +104,325 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
   );
 
   return (
-    <div className="page">
-      <div className="page-stack">
-        <div className="page-header">
-          <div>
-            <p className="page-sub">
-              <a href="/crm/contacts">Contacts</a>
-              {" / "}
-              <span>{contact.displayName}</span>
-            </p>
-            <h1>{contact.displayName}</h1>
+    <>
+      <CrmPageStyles />
+      <div className="page crm-page">
+        <div className="crm-page-stack page-stack">
+          <div className="page-header">
+            <div>
+              <p className="page-sub">
+                <a href="/crm/contacts">Contacts</a>
+                {" / "}
+                <span>{contact.displayName}</span>
+              </p>
+              <h1>{contact.displayName}</h1>
+            </div>
+            <span className={lifecycleBadgeClassName(contact.lifecycleStage)}>
+              {lifecycleLabel(contact.lifecycleStage)}
+            </span>
           </div>
-          <span className={lifecycleBadgeClassName(contact.lifecycleStage)}>
-            {lifecycleLabel(contact.lifecycleStage)}
-          </span>
-        </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
-            gap: "var(--space-4)",
-          }}
-        >
-          <div className="page-stack">
-            <section aria-labelledby="contact-profile-heading">
-              <div className="card">
-                <div className="card-header">
-                  <h2 className="card-title" id="contact-profile-heading">
-                    Profile
-                  </h2>
-                  <span className="badge">{ownerLabel(contact.ownerUserId, context)}</span>
-                </div>
-                <div className="card-body">
-                  <dl
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-                      gap: "var(--space-3)",
-                    }}
-                  >
-                    <dt className="u-subtle">Title</dt>
-                    <dd>{contact.title ?? "None"}</dd>
-                    <dt className="u-subtle">Account</dt>
-                    <dd>
-                      {contact.accountId === null || contact.accountName === null ? (
-                        "No account"
-                      ) : (
-                        <a href={`/crm/accounts/${contact.accountId}`}>{contact.accountName}</a>
-                      )}
-                    </dd>
-                    <dt className="u-subtle">Email</dt>
-                    <dd>
-                      {contact.email === null ? (
-                        "None"
-                      ) : (
-                        <a href={`mailto:${contact.email}`}>{contact.email}</a>
-                      )}
-                    </dd>
-                    <dt className="u-subtle">Phone</dt>
-                    <dd>{contact.phone ?? "None"}</dd>
-                    <dt className="u-subtle">Notes</dt>
-                    <dd>{contact.notes === "" ? "None" : contact.notes}</dd>
-                  </dl>
+          {/* DESCOPE(crm-consent-erasure): PRD-010 consent, channel identity, and erasure workflow surfaces arrive with the P4 CRM remainder; this thin slice renders only live CRM core records. */}
+          <div className="crm-detail-grid">
+            <div className="crm-detail-main page-stack">
+              <section aria-labelledby="contact-profile-heading">
+                <div className="card">
+                  <div className="card-header">
+                    <h2 className="card-title" id="contact-profile-heading">
+                      Profile
+                    </h2>
+                    <span className="badge">{ownerLabel(contact.ownerUserId, context)}</span>
+                  </div>
+                  <div className="card-body">
+                    <dl className="crm-profile-list">
+                      <dt className="u-subtle">Title</dt>
+                      <dd>{contact.title ?? "None"}</dd>
+                      <dt className="u-subtle">Account</dt>
+                      <dd>
+                        {contact.accountId === null || contact.accountName === null ? (
+                          "No account"
+                        ) : (
+                          <a href={`/crm/accounts/${contact.accountId}`}>{contact.accountName}</a>
+                        )}
+                      </dd>
+                      <dt className="u-subtle">Email</dt>
+                      <dd>
+                        {contact.email === null ? (
+                          "None"
+                        ) : (
+                          <a href={`mailto:${contact.email}`}>{contact.email}</a>
+                        )}
+                      </dd>
+                      <dt className="u-subtle">Phone</dt>
+                      <dd>{contact.phone ?? "None"}</dd>
+                      <dt className="u-subtle">Notes</dt>
+                      <dd>{contact.notes === "" ? "None" : contact.notes}</dd>
+                    </dl>
 
-                  <details style={{ marginTop: "var(--space-5)" }}>
-                    <summary className="btn">Edit profile</summary>
-                    <form
-                      action={updateContactAction}
-                      style={{
-                        display: "grid",
-                        gap: "var(--space-3)",
-                        marginTop: "var(--space-4)",
-                      }}
-                    >
-                      <input type="hidden" name="contactId" value={contact.id} />
-                      <div className="field">
-                        <label className="label" htmlFor="contact-display-name">
-                          Display name
-                        </label>
-                        <input
-                          className="input"
-                          id="contact-display-name"
-                          name="displayName"
-                          type="text"
-                          required
-                          maxLength={240}
-                          defaultValue={contact.displayName}
-                        />
-                      </div>
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                          gap: "var(--space-3)",
-                        }}
-                      >
+                    <details style={{ marginTop: "var(--space-5)" }}>
+                      <summary className="btn">Edit profile</summary>
+                      <form action={updateContactAction} className="crm-panel-form">
+                        <input type="hidden" name="contactId" value={contact.id} />
                         <div className="field">
-                          <label className="label" htmlFor="contact-email">
-                            Email
+                          <label className="label" htmlFor="contact-display-name">
+                            Display name
                           </label>
                           <input
                             className="input"
-                            id="contact-email"
-                            name="email"
-                            type="email"
-                            maxLength={320}
-                            defaultValue={contact.email ?? ""}
+                            id="contact-display-name"
+                            name="displayName"
+                            type="text"
+                            required
+                            maxLength={240}
+                            defaultValue={contact.displayName}
                           />
                         </div>
-                        <div className="field">
-                          <label className="label" htmlFor="contact-phone">
-                            Phone
-                          </label>
-                          <input
-                            className="input"
-                            id="contact-phone"
-                            name="phone"
-                            type="tel"
-                            maxLength={80}
-                            defaultValue={contact.phone ?? ""}
-                          />
-                        </div>
-                      </div>
-                      <div className="field">
-                        <label className="label" htmlFor="contact-title">
-                          Title
-                        </label>
-                        <input
-                          className="input"
-                          id="contact-title"
-                          name="title"
-                          type="text"
-                          maxLength={240}
-                          defaultValue={contact.title ?? ""}
-                        />
-                      </div>
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                          gap: "var(--space-3)",
-                        }}
-                      >
-                        <div className="field">
-                          <label className="label" htmlFor="contact-lifecycle">
-                            Lifecycle
-                          </label>
-                          <select
-                            className="select"
-                            id="contact-lifecycle"
-                            name="lifecycleStage"
-                            defaultValue={contact.lifecycleStage}
-                          >
-                            <option value="lead">Lead</option>
-                            <option value="qualified">Qualified</option>
-                            <option value="customer">Customer</option>
-                            <option value="former">Former</option>
-                          </select>
-                        </div>
-                        <div className="field">
-                          <label className="label" htmlFor="contact-owner">
-                            Owner
-                          </label>
-                          <select
-                            className="select"
-                            id="contact-owner"
-                            name="owner"
-                            defaultValue={
-                              contact.ownerUserId === null
-                                ? ""
-                                : contact.ownerUserId === context.user.id
-                                  ? "me"
-                                  : "keep"
-                            }
-                          >
-                            <option value="">Unassigned</option>
-                            <option value="me">{context.user.name}</option>
-                            {contact.ownerUserId !== null &&
-                            contact.ownerUserId !== context.user.id ? (
-                              <option value="keep">{contact.ownerUserId}</option>
-                            ) : null}
-                          </select>
-                        </div>
-                      </div>
-                      <div className="field">
-                        <label className="label" htmlFor="contact-account">
-                          Account
-                        </label>
-                        <select
-                          className="select"
-                          id="contact-account"
-                          name="accountId"
-                          defaultValue={contact.accountId ?? ""}
-                        >
-                          <option value="">No account</option>
-                          {accounts.map((account) => (
-                            <option value={account.id} key={account.id}>
-                              {account.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="field">
-                        <label className="label" htmlFor="contact-notes">
-                          Notes
-                        </label>
-                        <textarea
-                          className="textarea"
-                          id="contact-notes"
-                          name="notes"
-                          rows={5}
-                          maxLength={4000}
-                          defaultValue={contact.notes}
-                        />
-                      </div>
-                      <button className="btn btn-primary" type="submit">
-                        Save contact
-                      </button>
-                    </form>
-                  </details>
-                </div>
-              </div>
-            </section>
-
-            <section aria-labelledby="contact-timeline-heading">
-              <div className="card">
-                <div className="card-header">
-                  <h2 className="card-title" id="contact-timeline-heading">
-                    Timeline
-                  </h2>
-                  <span className="badge">{timeline.length}</span>
-                </div>
-                <div className="card-body">
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "var(--space-2)",
-                      marginBottom: "var(--space-4)",
-                    }}
-                  >
-                    {(["note", "call"] as const).map((kind) => (
-                      <details className="issues-new-menu" key={kind}>
-                        <summary className="btn btn-sm">
-                          {kind === "note" ? "Add note" : "Log call"}
-                        </summary>
-                        <form className="issues-new-form" action={addContactActivityAction}>
-                          <input type="hidden" name="contactId" value={contact.id} />
-                          <input type="hidden" name="kind" value={kind} />
+                        <div className="crm-form-grid">
                           <div className="field">
-                            <label className="label" htmlFor={`contact-${kind}-body`}>
-                              {kind === "note" ? "Note" : "Call summary"}
+                            <label className="label" htmlFor="contact-email">
+                              Email
                             </label>
-                            <textarea
-                              className="textarea"
-                              id={`contact-${kind}-body`}
-                              name="body"
-                              rows={5}
-                              required
-                              maxLength={4000}
+                            <input
+                              className="input"
+                              id="contact-email"
+                              name="email"
+                              type="email"
+                              maxLength={320}
+                              defaultValue={contact.email ?? ""}
                             />
                           </div>
-                          <button className="btn btn-primary btn-sm" type="submit">
-                            {kind === "note" ? "Add note" : "Log call"}
-                          </button>
-                        </form>
-                      </details>
-                    ))}
-                  </div>
-
-                  {timeline.length === 0 ? (
-                    <div className="empty">
-                      <p className="empty-title">No timeline activity yet</p>
-                      <p className="empty-desc">Add a note or log a call to start the history.</p>
-                    </div>
-                  ) : (
-                    <div style={{ display: "grid", gap: "var(--space-3)" }}>
-                      {timeline.map((activity) => (
-                        <article
-                          key={activity.id}
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "32px 1fr",
-                            gap: "var(--space-3)",
-                          }}
-                        >
-                          <span className="task-avatar" aria-hidden="true">
-                            {activityKindIcon(activity.kind)}
-                          </span>
-                          <div>
-                            <div className="u-row" style={{ justifyContent: "space-between" }}>
-                              <strong>{activityKindLabel(activity.kind)}</strong>
-                              <span className="u-subtle">{relativeTime(activity.occurredAt)}</span>
-                            </div>
-                            <p>{activity.body}</p>
-                            <p className="u-subtle">{actorLabel(activity, context)}</p>
+                          <div className="field">
+                            <label className="label" htmlFor="contact-phone">
+                              Phone
+                            </label>
+                            <input
+                              className="input"
+                              id="contact-phone"
+                              name="phone"
+                              type="tel"
+                              maxLength={80}
+                              defaultValue={contact.phone ?? ""}
+                            />
                           </div>
-                        </article>
+                        </div>
+                        <div className="field">
+                          <label className="label" htmlFor="contact-title">
+                            Title
+                          </label>
+                          <input
+                            className="input"
+                            id="contact-title"
+                            name="title"
+                            type="text"
+                            maxLength={240}
+                            defaultValue={contact.title ?? ""}
+                          />
+                        </div>
+                        <div className="crm-form-grid">
+                          <div className="field">
+                            <label className="label" htmlFor="contact-lifecycle">
+                              Lifecycle
+                            </label>
+                            <select
+                              className="select"
+                              id="contact-lifecycle"
+                              name="lifecycleStage"
+                              defaultValue={contact.lifecycleStage}
+                            >
+                              <option value="lead">Lead</option>
+                              <option value="qualified">Qualified</option>
+                              <option value="customer">Customer</option>
+                              <option value="former">Former</option>
+                            </select>
+                          </div>
+                          <div className="field">
+                            <label className="label" htmlFor="contact-owner">
+                              Owner
+                            </label>
+                            <select
+                              className="select"
+                              id="contact-owner"
+                              name="owner"
+                              defaultValue={
+                                contact.ownerUserId === null
+                                  ? ""
+                                  : contact.ownerUserId === context.user.id
+                                    ? "me"
+                                    : "keep"
+                              }
+                            >
+                              <option value="">Unassigned</option>
+                              <option value="me">{context.user.name}</option>
+                              {contact.ownerUserId !== null &&
+                              contact.ownerUserId !== context.user.id ? (
+                                <option value="keep">{contact.ownerUserId}</option>
+                              ) : null}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="field">
+                          <label className="label" htmlFor="contact-account">
+                            Account
+                          </label>
+                          <select
+                            className="select"
+                            id="contact-account"
+                            name="accountId"
+                            defaultValue={contact.accountId ?? ""}
+                          >
+                            <option value="">No account</option>
+                            {accounts.map((account) => (
+                              <option value={account.id} key={account.id}>
+                                {account.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="field">
+                          <label className="label" htmlFor="contact-notes">
+                            Notes
+                          </label>
+                          <textarea
+                            className="textarea"
+                            id="contact-notes"
+                            name="notes"
+                            rows={5}
+                            maxLength={4000}
+                            defaultValue={contact.notes}
+                          />
+                        </div>
+                        <button className="btn btn-primary" type="submit">
+                          Save contact
+                        </button>
+                      </form>
+                    </details>
+                  </div>
+                </div>
+              </section>
+
+              <section aria-labelledby="contact-timeline-heading">
+                <div className="card">
+                  <div className="card-header">
+                    <h2 className="card-title" id="contact-timeline-heading">
+                      Timeline
+                    </h2>
+                    <span className="badge">{timeline.length}</span>
+                  </div>
+                  <div className="card-body">
+                    <div className="crm-section-actions">
+                      {(["note", "call"] as const).map((kind) => (
+                        <details className="issues-new-menu crm-new-menu" key={kind}>
+                          <summary className="btn btn-sm">
+                            {kind === "note" ? "Add note" : "Log call"}
+                          </summary>
+                          <form
+                            className="issues-new-form crm-new-form"
+                            action={addContactActivityAction}
+                          >
+                            <input type="hidden" name="contactId" value={contact.id} />
+                            <input type="hidden" name="kind" value={kind} />
+                            <div className="field">
+                              <label className="label" htmlFor={`contact-${kind}-body`}>
+                                {kind === "note" ? "Note" : "Call summary"}
+                              </label>
+                              <textarea
+                                className="textarea"
+                                id={`contact-${kind}-body`}
+                                name="body"
+                                rows={5}
+                                required
+                                maxLength={4000}
+                              />
+                            </div>
+                            <button className="btn btn-primary btn-sm" type="submit">
+                              {kind === "note" ? "Add note" : "Log call"}
+                            </button>
+                          </form>
+                        </details>
+                      ))}
+                    </div>
+
+                    {timeline.length === 0 ? (
+                      <div className="empty">
+                        <p className="empty-title">No timeline activity yet</p>
+                        <p className="empty-desc">Add a note or log a call to start the history.</p>
+                      </div>
+                    ) : (
+                      <div className="crm-timeline">
+                        {timeline.map((activity) => (
+                          <article className="crm-timeline-item" key={activity.id}>
+                            <span className="task-avatar" aria-hidden="true">
+                              {activityKindIcon(activity.kind)}
+                            </span>
+                            <div className="crm-timeline-body">
+                              <div className="crm-timeline-head">
+                                <strong>{activityKindLabel(activity.kind)}</strong>
+                                <span className="u-subtle">
+                                  {relativeTime(activity.occurredAt)}
+                                </span>
+                              </div>
+                              <p className="crm-timeline-copy">{activity.body}</p>
+                              <p className="u-subtle">{actorLabel(activity, context)}</p>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <aside className="crm-detail-side page-stack" aria-label="Linked CRM work">
+              <div className="card">
+                <div className="card-header">
+                  <h2 className="card-title">Open deals</h2>
+                  <span className="count-pill">{openDeals.length}</span>
+                </div>
+                <div className="card-body">
+                  {openDeals.length === 0 ? (
+                    <p className="u-subtle">No open deals linked to this contact.</p>
+                  ) : (
+                    <div className="crm-list-stack">
+                      {openDeals.map((deal) => (
+                        <div className="crm-linked-item" key={deal.id}>
+                          <strong>{deal.title}</strong>
+                          <p className="u-subtle">
+                            {deal.stageName} · {formatMoney(deal.valueCents, deal.currency)}
+                          </p>
+                        </div>
                       ))}
                     </div>
                   )}
                 </div>
               </div>
-            </section>
+
+              <div className="card">
+                <div className="card-header">
+                  <h2 className="card-title">Open tickets</h2>
+                  <span className="count-pill">{openTickets.length}</span>
+                </div>
+                <div className="card-body">
+                  {openTickets.length === 0 ? (
+                    <p className="u-subtle">No open tickets linked to this contact.</p>
+                  ) : (
+                    <div className="crm-list-stack">
+                      {openTickets.map((ticket) => (
+                        <div className="crm-linked-item" key={ticket.id}>
+                          <strong>{ticket.subject}</strong>
+                          <p className="u-subtle">
+                            {ticket.status} · {ticket.priority} · {ticket.queue}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </aside>
           </div>
-
-          <aside className="page-stack" aria-label="Linked CRM work">
-            <div className="card">
-              <div className="card-header">
-                <h2 className="card-title">Open deals</h2>
-                <span className="badge">{openDeals.length}</span>
-              </div>
-              <div className="card-body">
-                {openDeals.length === 0 ? (
-                  <p className="u-subtle">No open deals linked to this contact.</p>
-                ) : (
-                  <div style={{ display: "grid", gap: "var(--space-3)" }}>
-                    {openDeals.map((deal) => (
-                      <div key={deal.id}>
-                        <strong>{deal.title}</strong>
-                        <p className="u-subtle">
-                          {deal.stageName} · {formatMoney(deal.valueCents, deal.currency)}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">
-                <h2 className="card-title">Open tickets</h2>
-                <span className="badge">{openTickets.length}</span>
-              </div>
-              <div className="card-body">
-                {openTickets.length === 0 ? (
-                  <p className="u-subtle">No open tickets linked to this contact.</p>
-                ) : (
-                  <div style={{ display: "grid", gap: "var(--space-3)" }}>
-                    {openTickets.map((ticket) => (
-                      <div key={ticket.id}>
-                        <strong>{ticket.subject}</strong>
-                        <p className="u-subtle">
-                          {ticket.status} · {ticket.priority} · {ticket.queue}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </aside>
         </div>
       </div>
-    </div>
+    </>
   );
 }
