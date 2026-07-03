@@ -31,8 +31,8 @@ Do not let this document become aspirational. If implementation changes the plan
 | Field | Value |
 | --- | --- |
 | Active slice | Slice 3 - CRM core (thin) |
-| Status | not-started |
-| Next concrete action | Slice 2.5 build COMPLETE on `slice/2.5-cc-mcp-live-card` (MCP+link tokens, live card all tabs, Ask Admin page, GitHub issues+active-close, multi-provider+GitHub Connections, MinIO evidence). Run final verify-deep, open PR to development, then begin Slice 3 (thin CRM core). |
+| Status | in-progress |
+| Next concrete action | On `slice/3-crm-core-thin`: build the CRM data layer (`packages/crm`: Contact/Account/Deal+versioned Pipeline/Stage/Ticket/append-only Activity aggregates, `withTenant` RLS, migration 0012, integration tests), then admin surfaces (Contacts/Accounts list+detail, Deal board, Ticket queue, Contact timeline skeleton) and assistant read tools. |
 | Blockers | None |
 
 ## Operating Mode
@@ -211,7 +211,7 @@ Deferred: presence/read-receipt TRANSPORT upgrade (Redis + WS hub; UI contract s
 
 ### Slice 3 - CRM core (thin, pulled forward from P4)
 
-Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
+Status: [ ] not-started | [x] in-progress | [ ] blocked | [ ] done
 
 Goal: Own customer truth in Postgres with manually managed CRM records so Opzava can track real prospects while promoting itself. No channel ingest yet.
 
@@ -467,6 +467,8 @@ Per slice:
 - [ ] Changes are committed with `commit-style`.
 
 ## Worklog
+
+- 2026-07-03 - Slice 2.5 DONE + MERGED (PR #124 -> development). Iterated verify-deep converged to zero: 4 adversarial lanes (8 must-fixes incl. assignee data-loss + live-trace fragility) -> re-review caught a fencing race in the outbox fix (claim-token fence, 0009) -> correctness follow-ups caught a reorder-breaking position unique index (reverted 0011) and an idempotency-vs-approved-gate ordering [HIGH] in addQualityCheck (fixed + regression test). Migrations 0004-0011 applied; TC/TEST/LINT/BUILD all green forced. Evidence: `docs/plan/consensus/slice2.5-verify.codex.md`. Slice 3 (thin CRM core) STARTED on `slice/3-crm-core-thin`: spec surface validated (PRD-010 thin subset + ADR-011); thin shape locked - Contact/Account/Deal aggregates + VERSIONED Pipeline/Stage reference data (historical stage meaning stable from day one), append-only Activity (deal stage changes append in-transaction), manual-only Ticket queue; ChannelIdentity/SenderSeen/UnknownContact/consent/merge/erasure all stay P4. CRM screens are net-new design (no mockup binds them; PRD-010 confirms) - built with existing visual language + style-guide tokens, so the mockup-parity directive is satisfied by construction.
 
 - 2026-07-03 - Slice 2.5 BUILD COMPLETE (2.5a-2.5g) on `slice/2.5-cc-mcp-live-card`; codegen files-only + Claude full-chain verification (typecheck/test/lint/build forced) each sub-slice. Delivered: @opzava/runtime-control card data layer + 0004; @opzava/mcp-server stdio + scoped link tokens (0005); live Task card (0004+0007) - Overview/comments/AI-Run/Evidence(MinIO ObjectStorePort)/Quality all functional per essential-card.html; Ask Admin relocated to its own /ask-opzava page (dead sidebar entry fixed, Tasks-panel removed); GitHub issues page + IssueTrackerPort + active-close outbox (0006); Connections surface - catalog-driven multi-provider connect (device-flow + API-key, orchestrator/subagent roles per Q16) + GitHub connect, all through the provisioning/admin path. Verify-loop caught real defects generation missed: server/client pg-in-bundle leak, inconsistent RLS error mapping, Traefik router-name collision, broker dev-script NodeNext crash. Method note: codex self-verification tripped the background-task timeout (kills during test/build) - switched to codex-writes-files-only + Claude-verifies, which is stable. mmx removed (quota+fabrication); consensus now codex profile diversity + Claude adjudication. REMAINING for slice-done: final verify-deep + PR; provider device-flow browser polling is implemented + fake-lane tested but not yet runtime-proven against every real provider (GPT-Pro/Codex proven live in Slice 2).
 
