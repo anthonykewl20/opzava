@@ -31,3 +31,12 @@ Scope: branch `slice/2-ask-admin-opzava`, diff base `development...HEAD`. This r
 2. FIXED - Idle-disconnect scheduling now treats active streams as non-idle and only schedules after active stream count drains to zero.
 
 The roadmap seed concurrency issue is documented as a single-process rerunnable seed contract.
+
+## Final synthesis (Claude, 2026-07-03)
+
+**🟢 SHIP.**
+- L1 Runtime: web boots; /tasks -> 307 -> login (screenshot inspected). Two real regressions found and FIXED: broker dev-script NodeNext crash (tsx), Traefik router-name collision with a sibling project (namespaced opzava-web — genuine Dokploy parity bug). Full stack serves live at web.opzava.localhost:18088.
+- L2 Tests/checks: typecheck 0 / tests 0 failures / lint 0 / build 0, forced, re-verified after every fix round (codex self-run + Claude spot-check).
+- L3/S1/S3 (consolidated codex review): 1 CONFIRMED blocker + 1 CONFIRMED major -> both FIXED with fake-lane regression tests (sessionBusy, runId correlation, stream-aware idle). S3 SOUND; idempotency/finalization/RLS non-findings confirmed.
+- Live acceptance: real streamed gpt-5.5 turn through the full broker path; "SOUL can lie" probe recorded.
+- Couldn't-fully-verify (honest): the dedicated L4/L5/L6 + S2/S4 sub-agent lanes were truncated by a session usage limit. Partial mitigation: sad-path states verified in code + fake-lane tests (L4), docs continuously audited this session (L5), agent-install security consensus reviewed earlier + RLS confirmed (L6), idle/scale lifecycle fixed (S2). A full re-run of these lanes is recommended on the PR (ultrareview) or next session.
