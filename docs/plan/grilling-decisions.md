@@ -395,6 +395,19 @@ Consensus trail: `docs/plan/consensus/q15-mvp-roadmap.mmx.md`.
 - → **Slice 2.5** (after Slice 2, before Slice 3 CRM): Opzava MCP server + link tokens + Claude Code connect recipe +
   audit attribution. Acceptance: a local Claude Code session lists/creates/moves a Task and it appears live on the admin
   board; a revoked token fails with a clean auth error; task activity shows actor-via-claude-code.
+- **Orchestrator + subagents (clarified 2026-07-03):** GPT-Pro/Codex (`openai/gpt-5.5`) is the MAIN ORCHESTRATOR
+  (the ask-admin-opzava/Ask Opzava coordinator agent). The other connected providers (z.ai/GLM, OpenCode, Kimi/Moonshot,
+  Alibaba/Qwen, OpenRouter, ...) are SUBAGENT specialist models the orchestrator DELEGATES to by strength, to offload work
+  and save orchestrator tokens. This is DELEGATION, not `auth.order` failover (a separate, secondary mechanism: same task,
+  cheaper/next provider only when the primary is unavailable). Harnessed via OpenClaw NATIVE capability (verified in the live
+  config schema + `docs/openclaw/gateway/config-tools.md`): `agents.list[].subagents.delegationMode: "prefer"` (docs:
+  "coordinator agents that should stay responsive and push non-trivial work into spawned sub-agents"), `subagents.allowAgents`,
+  per-subagent `model`, and the `sessions_spawn` / `group:sessions` tools. IMPLICATION: the orchestrator's tool policy must
+  ALLOW `sessions_spawn`/`subagents` (the current minimal profile denies them) - a deliberate, audited expansion beyond the
+  Slice 2 lock-down, gated by the same tool-policy-first posture. The full delegation ENGINE (routing by strength, the AI
+  task board, run-trace evidence) is P1 AI Workforce (ADR-008); Slice 2.5 only wires the orchestrator `delegationMode` +
+  connects the subagent models + assigns roles in the Connections GUI. Parity: `docs/openclaw/concepts/model-providers.md`,
+  `docs/openclaw/gateway/config-tools.md` (subagents/sessions), `docs/openclaw/providers/*`.
 - OpenClaw parity citations: `docs/openclaw/providers/openai.md` (subscription OAuth explicitly supported; `auth.order`
   fallback), `auth-credential-semantics.md` (OAuth non-portability, SecretRef guard), `concepts/agent-runtimes.md`
   (embedded runtimes), `tools/acp-agents.md` (ACP = gateway-hosted harness), `cli/mcp.md` (MCP surfaces).
