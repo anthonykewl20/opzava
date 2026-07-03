@@ -20,6 +20,10 @@
     {
       "path": "0004_slice25_card.sql",
       "sha256": "0144991fbeddaf0fedc8a30dc37dedd9552cc4222aa91ab565df071bafa3e8a8"
+    },
+    {
+      "path": "0005_slice25_link_tokens.sql",
+      "sha256": "503371e34b03fafe1daf03e3b8c6643d3d38c7d2bb82da636d446906f765933f"
     }
   ]
 }

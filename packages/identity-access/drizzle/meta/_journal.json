@@ -36,6 +36,13 @@
       "when": 1782950800000,
       "tag": "0004_slice25_card",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782950900000,
+      "tag": "0005_slice25_link_tokens",
+      "breakpoints": true
     }
   ]
 }
