@@ -50,9 +50,9 @@ services:
         condition: service_healthy
     labels:
       traefik.enable: "true"
-      traefik.http.routers.web.rule: "Host(`web.opzava.localhost`)"
-      traefik.http.routers.web.entrypoints: "web"
-      traefik.http.services.web.loadbalancer.server.port: "3000"
+      traefik.http.routers.opzava-web.rule: "Host(`web.opzava.localhost`)"
+      traefik.http.routers.opzava-web.entrypoints: "web"
+      traefik.http.services.opzava-web.loadbalancer.server.port: "3000"
       traefik.docker.network: "dokploy-network"
     networks:
       - dokploy-network
