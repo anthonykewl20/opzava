@@ -1,14 +1,17 @@
 "use server";
 
-import type { TaskDto, TaskStepDto } from "@opzava/project-management";
+import type { TaskCommentDto, TaskDto, TaskStepDto } from "@opzava/project-management";
 import { revalidatePath } from "next/cache";
 
 import {
   defaultTaskCardActionDependencies,
   errorCode,
   markTaskDoneForCard,
+  markTaskCommentsReadForCard,
+  postTaskCommentForCard,
   toggleTaskStepForCard,
   updateTaskCardDetails,
+  type AssistantMentionDispatch,
   type LinkedIssueCloseIntent,
 } from "@/lib/task-card-detail";
 import { getAppSessionContext } from "@/lib/session";
@@ -29,6 +32,11 @@ export type TaskCardActionResult<T> =
 export interface MarkDoneActionValue {
   readonly task: TaskDto;
   readonly linkedIssueCloseIntent: LinkedIssueCloseIntent;
+}
+
+export interface PostCommentActionValue {
+  readonly comment: TaskCommentDto;
+  readonly assistantDispatch: AssistantMentionDispatch | null;
 }
 
 function revalidateTaskPaths(input: { readonly cardNumber?: number }): void {
@@ -81,5 +89,22 @@ export async function updateTaskCardAction(input: {
   readonly labels: string;
 }): Promise<TaskCardActionResult<TaskDto>> {
   const result = await updateTaskCardDetails(input, taskCardActionDependencies());
+  return result.ok ? { ok: true, value: result.value } : taskCardActionFailure(result.error);
+}
+
+export async function postTaskCommentAction(input: {
+  readonly taskId: string;
+  readonly body: string;
+  readonly mentionChainDepth?: number;
+}): Promise<TaskCardActionResult<PostCommentActionValue>> {
+  const result = await postTaskCommentForCard(input, taskCardActionDependencies());
+  return result.ok ? { ok: true, value: result.value } : taskCardActionFailure(result.error);
+}
+
+export async function markTaskCommentsReadAction(input: {
+  readonly taskId: string;
+  readonly commentIds?: readonly string[];
+}): Promise<TaskCardActionResult<readonly TaskCommentDto[]>> {
+  const result = await markTaskCommentsReadForCard(input, taskCardActionDependencies());
   return result.ok ? { ok: true, value: result.value } : taskCardActionFailure(result.error);
 }

@@ -1,10 +1,26 @@
-import type { CardDetailDto, TaskDto, TaskStepDto } from "@opzava/project-management";
+import type {
+  CardDetailDto,
+  TaskCommentDto,
+  TaskDto,
+  TaskStepDto,
+} from "@opzava/project-management";
 import { DomainError, ok } from "@opzava/shared-kernel";
 import { describe, expect, it } from "vitest";
 
+import { createTaskCardActivityGetHandler } from "../app/api/tasks/[cardId]/activity/route";
+import { projectTaskCardAiRun, type TaskCardAssistantRunView } from "../lib/task-card-ai-run";
+import {
+  applyTaskCardActivityEvent,
+  assistantActivityState,
+  parseTaskCardActivitySseBuffer,
+  type TaskCardActivityEvent,
+} from "../lib/task-card-activity";
+import { commentReadState } from "../lib/task-card-comments";
 import {
   loadTaskCardPageData,
+  markTaskCommentsReadForCard,
   markTaskDoneForCard,
+  postTaskCommentForCard,
   toggleTaskStepForCard,
   type TaskCardActionDependencies,
   type TaskCardLoadDependencies,
@@ -17,6 +33,11 @@ import {
   stepProgress,
   watcherOverflow,
 } from "../lib/task-card-format";
+import {
+  evaluateAssistantMentionGuard,
+  stableMentionMessageHash,
+  type MentionTarget,
+} from "../lib/task-card-mentions";
 import type { AppSessionContext } from "../lib/session";
 
 const context: AppSessionContext = {
@@ -73,6 +94,22 @@ function step(overrides: Partial<TaskStepDto> = {}): TaskStepDto {
   };
 }
 
+function comment(overrides: Partial<TaskCommentDto> = {}): TaskCommentDto {
+  return {
+    id: "44444444-4444-4444-8444-444444444444",
+    taskId: "11111111-1111-4111-8111-111111111111",
+    organizationId: "org-1",
+    workspaceId: "workspace-1",
+    authorKind: "human",
+    authorUserId: "user-1",
+    assistantKey: null,
+    body: "Please ask @ask-admin-opzava to check this.",
+    readByUserIds: [],
+    createdAt: "2026-07-03T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
 function cardDetail(overrides: Partial<CardDetailDto> = {}): CardDetailDto {
   return {
     task: task(),
@@ -90,6 +127,7 @@ function loadDependencies(
     getSessionContext: async () => context,
     listTasks: async () => ok([task()]),
     getCardDetail: async () => ok(cardDetail()),
+    listTaskCardAssistantRuns: async () => [],
     ...overrides,
   };
 }
@@ -98,12 +136,20 @@ function actionDependencies(
   overrides: Partial<TaskCardActionDependencies> = {},
 ): TaskCardActionDependencies {
   return {
+    addComment: async () => ok(comment()),
     getSessionContext: async () => context,
+    getCardDetail: async () => ok(cardDetail()),
+    getOrCreateAskAdminHistory: async () =>
+      ok({
+        conversationId: "conversation-1",
+        turns: [],
+      }),
     listTasks: async () =>
       ok([
         task({ id: "11111111-1111-4111-8111-111111111111", status: "in_progress", position: 2 }),
         task({ id: "33333333-3333-4333-8333-333333333333", status: "done", position: 7 }),
       ]),
+    markCommentsRead: async () => ok([comment({ readByUserIds: ["user-1"] })]),
     moveTask: async () => ok(task({ status: "done", position: 8 })),
     toggleStep: async () => ok(step({ done: true })),
     updateTask: async () => ok(task()),
@@ -181,6 +227,135 @@ describe("Task card pure state", () => {
     expect(overflow.overflowCount).toBe(1);
     expect(overflow.label).toBe("Watchers: Amy, Ben, Cam, Dee");
   });
+
+  it("maps comment read markers and bounded assistant mentions", () => {
+    expect(
+      commentReadState(comment({ readByUserIds: ["user-2"] }), {
+        currentUserId: "user-1",
+        userNamesById: { "user-2": "Maria" },
+      }),
+    ).toEqual({
+      readers: [{ userId: "user-2", name: "Maria" }],
+      label: "Read by Maria",
+      unread: false,
+    });
+    expect(
+      commentReadState(comment(), {
+        currentUserId: "user-1",
+        userNamesById: {},
+      }).label,
+    ).toBe("Sent · not read yet");
+
+    const targets: readonly MentionTarget[] = [
+      { key: "maria", label: "Maria", kind: "human", userId: "user-2" },
+      {
+        key: "ask-admin-opzava",
+        label: "Ask Admin Opzava",
+        kind: "assistant",
+        assistantKey: "ask-admin-opzava",
+      },
+    ];
+    const dispatch = evaluateAssistantMentionGuard({
+      body: "Please check this @ask-admin-opzava",
+      cardTaskId: "task-1",
+      authorKind: "human",
+      targets,
+      chainDepth: 0,
+      previousAssistantMentionCount: 0,
+      previousDispatches: [],
+    });
+
+    expect(dispatch.action).toBe("dispatch");
+    if (dispatch.action !== "dispatch") {
+      throw new Error("expected dispatch");
+    }
+
+    expect(
+      evaluateAssistantMentionGuard({
+        body: "Loop @ask-admin-opzava",
+        cardTaskId: "task-1",
+        authorKind: "assistant",
+        authorAssistantKey: "ask-admin-opzava",
+        targets,
+        chainDepth: 0,
+        previousAssistantMentionCount: 0,
+        previousDispatches: [],
+      }),
+    ).toMatchObject({ action: "blocked", code: "assistant_self_mention" });
+    expect(
+      evaluateAssistantMentionGuard({
+        body: "Depth @ask-admin-opzava",
+        cardTaskId: "task-1",
+        authorKind: "human",
+        targets,
+        chainDepth: 1,
+        previousAssistantMentionCount: 0,
+        previousDispatches: [],
+      }),
+    ).toMatchObject({ action: "blocked", code: "mention_depth_exceeded" });
+    expect(
+      evaluateAssistantMentionGuard({
+        body: "Again @ask-admin-opzava",
+        cardTaskId: "task-1",
+        authorKind: "human",
+        targets,
+        chainDepth: 0,
+        previousAssistantMentionCount: 0,
+        previousDispatches: [
+          {
+            messageHash: stableMentionMessageHash({
+              cardTaskId: "task-1",
+              body: "Again @ask-admin-opzava",
+            }),
+          },
+        ],
+      }),
+    ).toMatchObject({ action: "blocked", code: "mention_duplicate" });
+  });
+
+  it("projects AI run steps and applies activity SSE events", () => {
+    const runs: readonly TaskCardAssistantRunView[] = [
+      {
+        turnId: "turn-1",
+        status: "streaming",
+        text: "Working",
+        createdAt: "2026-07-03T00:00:00.000Z",
+        updatedAt: "2026-07-03T00:00:05.000Z",
+        finalizedAt: null,
+        outcomes: [
+          {
+            id: "outcome-1",
+            toolName: "opzava_tasks_update",
+            toolCallId: "tool-1",
+            status: "started",
+            requestSummary: {},
+            resultSummary: {},
+            targetRef: "11111111-1111-4111-8111-111111111111",
+            createdAt: "2026-07-03T00:00:06.000Z",
+            updatedAt: "2026-07-03T00:00:06.000Z",
+            completedAt: null,
+          },
+        ],
+      },
+    ];
+
+    expect(assistantActivityState(runs)).toBe("assistant_working");
+    expect(projectTaskCardAiRun(runs, new Date("2026-07-03T00:01:05.000Z"))).toMatchObject({
+      live: true,
+      elapsedLabel: "1m 05s",
+    });
+
+    const state = applyTaskCardActivityEvent(
+      {
+        comments: [],
+        steps: [step({ done: false })],
+        assistantState: "idle",
+        runs: [],
+      },
+      { type: "step-toggled", step: step({ done: true }) },
+    );
+    expect(state.steps[0]?.done).toBe(true);
+  });
 });
 
 describe("Task card load and actions", () => {
@@ -193,6 +368,7 @@ describe("Task card load and actions", () => {
     }
     expect(result.value.card.task.cardNumber).toBe(1042);
     expect(result.value.context.workspaceId).toBe("workspace-1");
+    expect(result.value.assistantRuns).toEqual([]);
   });
 
   it("returns not found when the card number is absent from the session workspace", async () => {
@@ -292,5 +468,88 @@ describe("Task card load and actions", () => {
       throw new Error("expected forbidden");
     }
     expect(result.error.code).toBe("projectManagement.forbidden");
+  });
+
+  it("posts a comment and returns an assistant dispatch when Ask Admin is mentioned", async () => {
+    let capturedCommentInput: Parameters<TaskCardActionDependencies["addComment"]>[0] | null = null;
+    const result = await postTaskCommentForCard(
+      {
+        taskId: "11111111-1111-4111-8111-111111111111",
+        body: "Can @ask-admin-opzava summarize the next step?",
+      },
+      actionDependencies({
+        getCardDetail: async () => ok(cardDetail({ comments: [] })),
+        addComment: async (input) => {
+          capturedCommentInput = input;
+          return ok(comment({ body: input.body }));
+        },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw result.error;
+    }
+    expect(capturedCommentInput).toMatchObject({
+      orgId: "org-1",
+      workspaceId: "workspace-1",
+      actor: { userId: "user-1", roleKeys: ["admin"] },
+      authorKind: "human",
+    });
+    expect(result.value.assistantDispatch).toMatchObject({
+      conversationId: "conversation-1",
+      idempotencyKey: expect.stringContaining("card-11111111-1111-4111-8111-111111111111-"),
+    });
+  });
+
+  it("marks visible comments read under the session principal", async () => {
+    let capturedInput: Parameters<TaskCardActionDependencies["markCommentsRead"]>[0] | null = null;
+    const result = await markTaskCommentsReadForCard(
+      {
+        taskId: "11111111-1111-4111-8111-111111111111",
+        commentIds: ["44444444-4444-4444-8444-444444444444"],
+      },
+      actionDependencies({
+        markCommentsRead: async (input) => {
+          capturedInput = input;
+          return ok([comment({ readByUserIds: [input.actor.userId] })]);
+        },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(capturedInput).toMatchObject({
+      orgId: "org-1",
+      workspaceId: "workspace-1",
+      actor: { userId: "user-1", roleKeys: ["admin"] },
+      commentIds: ["44444444-4444-4444-8444-444444444444"],
+    });
+  });
+
+  it("streams card activity SSE event shapes", async () => {
+    async function* events(): AsyncIterable<TaskCardActivityEvent> {
+      yield {
+        type: "comment-added",
+        comment: comment({ id: "55555555-5555-4555-8555-555555555555" }),
+      };
+      yield { type: "step-toggled", step: step({ done: true }) };
+      yield { type: "assistant-state", state: "assistant_replying", runs: [] };
+    }
+
+    const handler = createTaskCardActivityGetHandler({
+      getSessionContext: async () => context,
+      createActivityEventStream: () => events(),
+    });
+    const response = await handler(new Request("http://web.test/api/tasks/1042/activity"), {
+      params: Promise.resolve({ cardId: "1042" }),
+    });
+    const parsed = parseTaskCardActivitySseBuffer(await response.text());
+
+    expect(response.status).toBe(200);
+    expect(parsed.events.map((event) => event.type)).toEqual([
+      "comment-added",
+      "step-toggled",
+      "assistant-state",
+    ]);
   });
 });

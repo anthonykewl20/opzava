@@ -1,13 +1,32 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
-import type { CardDetailDto, TaskDto, TaskPriority, TaskStepDto } from "@opzava/project-management";
+import { useRouter } from "next/navigation";
+import type {
+  CardDetailDto,
+  TaskCommentDto,
+  TaskDto,
+  TaskPriority,
+  TaskStepDto,
+} from "@opzava/project-management";
 
 import {
   markTaskDoneAction,
+  markTaskCommentsReadAction,
+  postTaskCommentAction,
   toggleTaskStepAction,
   updateTaskCardAction,
 } from "@/app/(app)/tasks/[cardId]/actions";
+import { parseAskAdminSseBuffer } from "@/lib/ask-admin-stream";
+import type { TaskCardAssistantRunView } from "@/lib/task-card-ai-run";
+import {
+  assistantActivityState,
+  assistantActivityLabel,
+  parseTaskCardActivitySseBuffer,
+  taskCardAiRunProjectionFromState,
+  type TaskCardAssistantActivityState,
+} from "@/lib/task-card-activity";
+import { commentReadState, upsertComment } from "@/lib/task-card-comments";
 import {
   applyStepToggle,
   dueDateLabel,
@@ -23,9 +42,11 @@ import {
   watcherOverflow,
   type TaskCardTab,
 } from "@/lib/task-card-format";
+import { targetMentionKey, type MentionTarget } from "@/lib/task-card-mentions";
 
 interface TaskCardDetailProps {
   readonly card: CardDetailDto;
+  readonly assistantRuns: readonly TaskCardAssistantRunView[];
   readonly currentUser: {
     readonly id: string;
     readonly name: string;
@@ -46,13 +67,6 @@ function actionMessage(
   return result.ok ? null : result.error.message;
 }
 
-function splitLabels(value: string): readonly string[] {
-  return value
-    .split(",")
-    .map((label) => label.trim())
-    .filter(Boolean);
-}
-
 function cardBorderClassName(task: TaskDto): string {
   if (task.status === "blocked") {
     return "task-card-detail-card task-card-detail-card-warning";
@@ -71,9 +85,9 @@ function deferredPanelCopy(tab: Exclude<TaskCardTab, "overview">): {
 } {
   if (tab === "ai-run") {
     return {
-      title: "AI Run arrives in 2.5c-2",
+      title: "No assistant runs yet",
       description:
-        "This panel will read runtime-control assistant turns and tool outcomes for this card. There is no run trace to show in this shell slice.",
+        "Mention Ask Admin Opzava in a comment or use task tools to create an auditable run.",
     };
   }
 
@@ -110,6 +124,80 @@ function StepAssignee({
       {initials(name)}
     </span>
   );
+}
+
+function commentAuthorName(
+  comment: TaskCommentDto,
+  input: {
+    readonly currentUser: TaskCardDetailProps["currentUser"];
+    readonly userNamesById: Readonly<Record<string, string>>;
+  },
+): string {
+  if (comment.authorKind === "assistant") {
+    return comment.assistantKey ?? "Ask Admin Opzava";
+  }
+
+  if (comment.authorUserId === input.currentUser.id) {
+    return input.currentUser.name;
+  }
+
+  return comment.authorUserId === null
+    ? "Unknown"
+    : (input.userNamesById[comment.authorUserId] ?? comment.authorUserId);
+}
+
+function commentRelativeTime(value: string): string {
+  return relativeTimeLabel(value);
+}
+
+function textFromActivityState(state: TaskCardAssistantActivityState): string | null {
+  return state === "idle" ? null : assistantActivityLabel(state);
+}
+
+function mentionTargets(
+  currentUser: TaskCardDetailProps["currentUser"],
+  watchers: CardDetailDto["watchers"],
+): readonly MentionTarget[] {
+  const targets = new Map<string, MentionTarget>();
+  targets.set(currentUser.id, {
+    key: targetMentionKey({ key: currentUser.id, label: currentUser.name }),
+    label: currentUser.name,
+    kind: "human",
+    userId: currentUser.id,
+  });
+
+  for (const watcher of watchers) {
+    const label = watcher.name ?? watcher.userId;
+    targets.set(watcher.userId, {
+      key: targetMentionKey({ key: watcher.userId, label }),
+      label,
+      kind: "human",
+      userId: watcher.userId,
+    });
+  }
+
+  return [
+    ...targets.values(),
+    {
+      key: "ask-admin-opzava",
+      label: "Ask Admin Opzava",
+      kind: "assistant",
+      assistantKey: "ask-admin-opzava",
+    },
+  ];
+}
+
+function shouldShowMentionPopover(body: string): boolean {
+  return /(^|\s)@[a-z0-9-]*$/i.test(body);
+}
+
+function insertMention(body: string, target: MentionTarget): string {
+  const token = `@${target.key}`;
+  if (/(^|\s)@[a-z0-9-]*$/i.test(body)) {
+    return body.replace(/(^|\s)@[a-z0-9-]*$/i, (match, prefix: string) => `${prefix}${token} `);
+  }
+
+  return `${body}${body.endsWith(" ") || body === "" ? "" : " "}${token} `;
 }
 
 function EditTaskModal({
@@ -253,9 +341,23 @@ function EditTaskModal({
   );
 }
 
-export function TaskCardDetail({ card, currentUser, workspaceName }: TaskCardDetailProps) {
+export function TaskCardDetail({
+  card,
+  assistantRuns,
+  currentUser,
+  workspaceName,
+}: TaskCardDetailProps) {
+  const router = useRouter();
   const [task, setTask] = useState(card.task);
   const [steps, setSteps] = useState<readonly TaskStepDto[]>(card.steps);
+  const [comments, setComments] = useState<readonly TaskCommentDto[]>(card.comments);
+  const [runs, setRuns] = useState<readonly TaskCardAssistantRunView[]>(assistantRuns);
+  const [assistantState, setAssistantState] = useState<TaskCardAssistantActivityState>(() =>
+    assistantActivityState(assistantRuns),
+  );
+  const [commentBody, setCommentBody] = useState("");
+  const [mentionPopoverOpen, setMentionPopoverOpen] = useState(false);
+  const [tickerNow, setTickerNow] = useState(() => new Date());
   const [activeTab, setActiveTab] = useState<TaskCardTab>("overview");
   const [copied, setCopied] = useState<"id" | "link" | null>(null);
   const [idPopoverOpen, setIdPopoverOpen] = useState(false);
@@ -264,21 +366,122 @@ export function TaskCardDetail({ card, currentUser, workspaceName }: TaskCardDet
   const [actionError, setActionError] = useState<string | null>(null);
   const [isMarkDonePending, startMarkDoneTransition] = useTransition();
   const [isStepPending, startStepTransition] = useTransition();
+  const [isCommentPending, startCommentTransition] = useTransition();
 
   useEffect(() => {
     setTask(card.task);
     setSteps(card.steps);
+    setComments(card.comments);
   }, [card]);
+
+  useEffect(() => {
+    setRuns(assistantRuns);
+    setAssistantState(assistantActivityState(assistantRuns));
+  }, [assistantRuns]);
 
   const cardId = useMemo(
     () => formatCardId(workspaceName, task.cardNumber),
     [workspaceName, task.cardNumber],
   );
+  const memberNamesById = useMemo(() => {
+    return Object.fromEntries([
+      [currentUser.id, currentUser.name],
+      ...card.watchers.map((watcher) => [watcher.userId, watcher.name ?? watcher.userId] as const),
+    ]);
+  }, [card.watchers, currentUser.id, currentUser.name]);
+  const targets = useMemo(
+    () => mentionTargets(currentUser, card.watchers),
+    [card.watchers, currentUser],
+  );
   const progress = stepProgress(steps);
   const watchers = watcherOverflow(card.watchers);
+  const aiProjection = taskCardAiRunProjectionFromState({ runs }, tickerNow);
   const assignedName = task.assigneeName ?? "Unassigned";
   const assignedIsAssistant = isAssistantAssignee(task);
   const provenance = `${relativeTimeLabel(task.createdAt)} from ${task.provenanceSource}`;
+  const assistantActivityText = textFromActivityState(assistantState);
+
+  useEffect(() => {
+    if (!aiProjection.live) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setTickerNow(new Date());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [aiProjection.live]);
+
+  useEffect(() => {
+    const unreadCommentIds = comments
+      .filter((comment) => !comment.readByUserIds.includes(currentUser.id))
+      .map((comment) => comment.id);
+    if (unreadCommentIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void markTaskCommentsReadAction({
+      taskId: task.id,
+      commentIds: unreadCommentIds,
+    }).then((result) => {
+      if (!cancelled && result.ok) {
+        setComments(result.value);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [comments, currentUser.id, task.id]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch(`/api/tasks/${cardId.routeSegment}/activity`, {
+          headers: { accept: "text/event-stream" },
+          signal: controller.signal,
+        });
+        if (!response.ok || response.body === null) {
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (!controller.signal.aborted) {
+          const chunk = await reader.read();
+          if (chunk.done) {
+            break;
+          }
+
+          buffer += decoder.decode(chunk.value, { stream: true });
+          const parsed = parseTaskCardActivitySseBuffer(buffer);
+          buffer = parsed.remainder;
+          for (const event of parsed.events) {
+            if (event.type === "comment-added") {
+              setComments((current) => upsertComment(current, event.comment));
+            } else if (event.type === "step-toggled") {
+              setSteps((current) =>
+                current.map((step) => (step.id === event.step.id ? event.step : step)),
+              );
+            } else {
+              setAssistantState(event.state);
+              setRuns(event.runs);
+            }
+          }
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setAssistantState("failed");
+        }
+      }
+    })();
+
+    return () => controller.abort();
+  }, [cardId.routeSegment]);
 
   const copyText = async (text: string, kind: "id" | "link") => {
     if (typeof navigator !== "undefined" && navigator.clipboard !== undefined) {
@@ -332,6 +535,88 @@ export function TaskCardDetail({ card, currentUser, workspaceName }: TaskCardDet
         );
       } else {
         setSteps(previousSteps);
+      }
+    });
+  };
+
+  const dispatchAssistantMention = async (dispatch: {
+    readonly conversationId: string;
+    readonly prompt: string;
+    readonly idempotencyKey: string;
+  }) => {
+    setAssistantState("assistant_replying");
+    try {
+      const response = await fetch("/api/tasks/ask-admin/turn", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: dispatch.conversationId,
+          prompt: dispatch.prompt,
+          idempotencyKey: dispatch.idempotencyKey,
+        }),
+      });
+
+      if (!response.ok || response.body === null) {
+        setAssistantState("failed");
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          break;
+        }
+
+        buffer += decoder.decode(chunk.value, { stream: true });
+        const parsed = parseAskAdminSseBuffer(buffer);
+        buffer = parsed.remainder;
+        for (const event of parsed.events) {
+          if (event.type === "tool.started" || event.type === "tool.succeeded") {
+            setAssistantState("assistant_working");
+          } else if (event.type === "finalizing") {
+            setAssistantState("assistant_finalizing");
+          } else if (event.type === "assistant.final") {
+            setAssistantState("idle");
+            router.refresh();
+          } else if (event.type === "failed") {
+            setAssistantState("failed");
+          } else if (event.type === "delta" || event.type === "queued") {
+            setAssistantState("assistant_replying");
+          }
+        }
+      }
+    } catch {
+      setAssistantState("failed");
+    }
+  };
+
+  const handlePostComment = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const body = commentBody.trim();
+    if (body === "" || isCommentPending) {
+      return;
+    }
+
+    startCommentTransition(async () => {
+      const result = await postTaskCommentAction({
+        taskId: task.id,
+        body,
+        mentionChainDepth: 0,
+      });
+      const message = actionMessage(result);
+      setActionError(message);
+
+      if (result.ok) {
+        setComments((current) => upsertComment(current, result.value.comment));
+        setCommentBody("");
+        setMentionPopoverOpen(false);
+        if (result.value.assistantDispatch !== null) {
+          await dispatchAssistantMention(result.value.assistantDispatch);
+        }
       }
     });
   };
@@ -589,9 +874,214 @@ export function TaskCardDetail({ card, currentUser, workspaceName }: TaskCardDet
               Added {relativeTimeLabel(task.createdAt)} from {task.provenanceSource}
               {task.provenanceExternalRef === null ? "." : ` (${task.provenanceExternalRef}).`}
             </p>
+
+            <div className="task-card-section-head">
+              <h2>Comments</h2>
+              <span className="u-subtle">{comments.length} total</span>
+            </div>
+
+            <div className="task-card-comments" role="log" aria-label="Task card comments">
+              {comments.length === 0 ? (
+                <div className="task-card-empty-inline">
+                  <p className="empty-title">No comments yet</p>
+                  <p className="empty-desc">Post the first comment for this card.</p>
+                </div>
+              ) : (
+                comments.map((comment) => {
+                  const authorName = commentAuthorName(comment, {
+                    currentUser,
+                    userNamesById: memberNamesById,
+                  });
+                  const readState = commentReadState(comment, {
+                    currentUserId: currentUser.id,
+                    userNamesById: memberNamesById,
+                  });
+
+                  return (
+                    <article
+                      className={
+                        comment.authorKind === "assistant"
+                          ? "task-card-comment task-card-comment-ai"
+                          : "task-card-comment"
+                      }
+                      key={comment.id}
+                    >
+                      <span
+                        className={
+                          comment.authorKind === "assistant"
+                            ? "task-avatar task-avatar-ai"
+                            : "task-avatar"
+                        }
+                        aria-hidden="true"
+                      >
+                        {initials(authorName)}
+                      </span>
+                      <div className="u-grow">
+                        <div className="task-card-comment-meta">
+                          <strong>{authorName}</strong>
+                          {comment.authorKind === "assistant" ? (
+                            <span className="sb-badge sb-badge--accent">AI</span>
+                          ) : comment.authorUserId === currentUser.id ? (
+                            <span className="sb-badge sb-badge--secondary">You</span>
+                          ) : null}
+                          <span className="u-subtle">{commentRelativeTime(comment.createdAt)}</span>
+                        </div>
+                        <p className="task-card-comment-body">{comment.body}</p>
+                        <span
+                          className={
+                            readState.unread
+                              ? "task-card-read-state task-card-read-state-unread"
+                              : "task-card-read-state"
+                          }
+                        >
+                          <span className="task-card-read-dots" aria-hidden="true">
+                            {readState.readers.slice(0, 2).map((reader) => (
+                              <span className="task-card-reader-avatar" key={reader.userId}>
+                                {initials(reader.name)}
+                              </span>
+                            ))}
+                            {readState.readers.length === 0 ? <span className="dot" /> : null}
+                          </span>
+                          {readState.label}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })
+              )}
+
+              {assistantActivityText === null ? null : (
+                <div className="task-card-typing" role="status" aria-live="polite">
+                  <span className="task-avatar task-avatar-ai" aria-hidden="true">
+                    A
+                  </span>
+                  <span className="u-muted">
+                    <strong>Ask Admin Opzava</strong> {assistantActivityText}
+                  </span>
+                  <span className="task-card-dots" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </div>
+              )}
+
+              {commentBody.trim() === "" ? null : (
+                <div className="task-card-typing task-card-typing-human" role="status">
+                  <span className="u-subtle">You're typing</span>
+                  <span className="task-card-dots task-card-dots-human" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <form className="task-card-comment-form" onSubmit={handlePostComment}>
+              <span className="task-avatar" aria-hidden="true">
+                {initials(currentUser.name)}
+              </span>
+              <div className="u-grow task-card-comment-compose">
+                <label className="u-sr-only" htmlFor="task-card-comment">
+                  Add a comment
+                </label>
+                <textarea
+                  className="textarea"
+                  id="task-card-comment"
+                  rows={2}
+                  placeholder="Write a comment... type @ to mention Ask Admin Opzava"
+                  value={commentBody}
+                  onChange={(event) => {
+                    setCommentBody(event.currentTarget.value);
+                    setMentionPopoverOpen(shouldShowMentionPopover(event.currentTarget.value));
+                  }}
+                  onFocus={() => setMentionPopoverOpen(shouldShowMentionPopover(commentBody))}
+                />
+                {mentionPopoverOpen ? (
+                  <div className="mention-pop" role="listbox" aria-label="Mention someone">
+                    <div className="mention-hd">Mention</div>
+                    {targets.map((target) => (
+                      <button
+                        className="mention-item"
+                        role="option"
+                        type="button"
+                        key={`${target.kind}:${target.key}`}
+                        onClick={() => {
+                          setCommentBody((current) => insertMention(current, target));
+                          setMentionPopoverOpen(false);
+                        }}
+                      >
+                        <span
+                          className={
+                            target.kind === "assistant"
+                              ? "task-avatar task-avatar-ai"
+                              : "task-avatar"
+                          }
+                          aria-hidden="true"
+                        >
+                          {initials(target.label)}
+                        </span>
+                        <span className="mention-nm">{target.label}</span>
+                        <span className="mention-sub">
+                          {target.kind === "assistant" ? "AI assistant" : "workspace member"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <div>
+                  <button className="btn" type="submit" disabled={isCommentPending}>
+                    {isCommentPending ? "Posting..." : "Post comment"}
+                  </button>
+                </div>
+              </div>
+            </form>
           </section>
 
-          {(["ai-run", "evidence", "quality"] as const).map((tab) => {
+          <section
+            className="task-card-tabpanel"
+            id="task-card-panel-ai-run"
+            role="tabpanel"
+            aria-labelledby="task-card-tab-ai-run"
+            hidden={activeTab !== "ai-run"}
+          >
+            {aiProjection.steps.length === 0 ? (
+              <div className="task-card-empty-inline">
+                <p className="empty-title">{deferredPanelCopy("ai-run").title}</p>
+                <p className="empty-desc">{deferredPanelCopy("ai-run").description}</p>
+              </div>
+            ) : (
+              <>
+                <div className="u-between task-card-ai-run-head">
+                  <p className="u-muted">
+                    Plain-language trace of assistant turns and tool outcomes linked to this card.
+                  </p>
+                  {aiProjection.elapsedLabel === null ? null : (
+                    <span className="u-row u-subtle">
+                      <span className="sb-spinner sb-spinner--sm" aria-hidden="true" />
+                      live · {aiProjection.elapsedLabel}
+                    </span>
+                  )}
+                </div>
+                <ol className="task-card-run-steps" aria-label="Assistant run steps">
+                  {aiProjection.steps.map((step) => (
+                    <li
+                      className={`task-card-run-step task-card-run-step-${step.state}`}
+                      key={step.id}
+                    >
+                      <span className="task-card-run-glyph" aria-hidden="true">
+                        {step.state === "failed" ? "!" : step.state === "working" ? "..." : "✓"}
+                      </span>
+                      <span>{step.text}</span>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            )}
+          </section>
+
+          {(["evidence", "quality"] as const).map((tab) => {
             const copy = deferredPanelCopy(tab);
 
             return (

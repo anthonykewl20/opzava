@@ -1,7 +1,15 @@
-import type { CardDetailDto, TaskDto, TaskPriority, TaskStepDto } from "@opzava/project-management";
+import type {
+  CardDetailDto,
+  TaskCommentDto,
+  TaskDto,
+  TaskPriority,
+  TaskStepDto,
+} from "@opzava/project-management";
 import {
+  addComment,
   getCardDetail,
   listTasks,
+  markCommentsRead,
   moveTask,
   taskPriorities,
   toggleStep,
@@ -9,12 +17,26 @@ import {
 } from "@opzava/project-management";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
+import {
+  askAdminAssistantKey,
+  getOrCreateAskAdminHistory,
+  type AskAdminConversationHistory,
+} from "@/lib/ask-admin-history";
+import { listTaskCardAssistantRuns, type TaskCardAssistantRunView } from "@/lib/task-card-ai-run";
 import { parseCardNumberRouteSegment } from "@/lib/task-card-format";
+import {
+  evaluateAssistantMentionGuard,
+  parseMentions,
+  stableMentionMessageHash,
+  targetMentionKey,
+  type MentionTarget,
+} from "@/lib/task-card-mentions";
 import type { AppSessionContext } from "@/lib/session";
 
 export interface TaskCardPageData {
   readonly context: AppSessionContext;
   readonly card: CardDetailDto;
+  readonly assistantRuns: readonly TaskCardAssistantRunView[];
 }
 
 export type LinkedIssueCloseIntent =
@@ -53,15 +75,43 @@ export interface UpdateTaskCardCommand {
   readonly labels: string;
 }
 
+export interface PostTaskCommentCommand {
+  readonly taskId: string;
+  readonly body: string;
+  readonly mentionChainDepth?: number;
+}
+
+export interface MarkTaskCommentsReadCommand {
+  readonly taskId: string;
+  readonly commentIds?: readonly string[];
+}
+
+export interface AssistantMentionDispatch {
+  readonly conversationId: string;
+  readonly prompt: string;
+  readonly idempotencyKey: string;
+  readonly messageHash: string;
+}
+
+export interface PostTaskCommentResult {
+  readonly comment: TaskCommentDto;
+  readonly assistantDispatch: AssistantMentionDispatch | null;
+}
+
 export interface TaskCardLoadDependencies {
   readonly getSessionContext: () => Promise<AppSessionContext | null>;
   readonly listTasks: typeof listTasks;
   readonly getCardDetail: typeof getCardDetail;
+  readonly listTaskCardAssistantRuns: typeof listTaskCardAssistantRuns;
 }
 
 export interface TaskCardActionDependencies {
   readonly getSessionContext: () => Promise<AppSessionContext | null>;
+  readonly addComment: typeof addComment;
+  readonly getCardDetail: typeof getCardDetail;
+  readonly getOrCreateAskAdminHistory: typeof getOrCreateAskAdminHistory;
   readonly listTasks: typeof listTasks;
+  readonly markCommentsRead: typeof markCommentsRead;
   readonly moveTask: typeof moveTask;
   readonly toggleStep: typeof toggleStep;
   readonly updateTask: typeof updateTask;
@@ -72,13 +122,18 @@ export const defaultTaskCardLoadDependencies: Omit<TaskCardLoadDependencies, "ge
   {
     listTasks,
     getCardDetail,
+    listTaskCardAssistantRuns,
   };
 
 export const defaultTaskCardActionDependencies: Omit<
   TaskCardActionDependencies,
   "getSessionContext"
 > = {
+  addComment,
+  getCardDetail,
+  getOrCreateAskAdminHistory,
   listTasks,
+  markCommentsRead,
   moveTask,
   toggleStep,
   updateTask,
@@ -155,6 +210,96 @@ function normalizeUpdateCommand(input: UpdateTaskCardCommand): Result<{
   });
 }
 
+function commentBody(input: PostTaskCommentCommand): Result<string> {
+  const body = input.body.trim();
+  if (body.length === 0 || body.length > 4000) {
+    return err(
+      webTaskCardError("web.taskCardInvalidComment", "Comment body must be 1-4000 characters."),
+    );
+  }
+
+  return ok(body);
+}
+
+function mentionTargetsForCard(
+  context: AppSessionContext,
+  card: CardDetailDto,
+): readonly MentionTarget[] {
+  const humanTargets = new Map<string, MentionTarget>();
+  humanTargets.set(context.user.id, {
+    key: targetMentionKey({ key: context.user.id, label: context.user.name }),
+    label: context.user.name,
+    kind: "human",
+    userId: context.user.id,
+  });
+
+  for (const watcher of card.watchers) {
+    const label = watcher.name ?? watcher.userId;
+    humanTargets.set(watcher.userId, {
+      key: targetMentionKey({ key: watcher.userId, label }),
+      label,
+      kind: "human",
+      userId: watcher.userId,
+    });
+  }
+
+  return [
+    ...humanTargets.values(),
+    {
+      key: "ask-admin-opzava",
+      label: "Ask Admin Opzava",
+      kind: "assistant",
+      assistantKey: askAdminAssistantKey,
+    },
+  ];
+}
+
+function assistantMentionDispatchPrompt(input: {
+  readonly card: CardDetailDto;
+  readonly cardNumber: number;
+  readonly body: string;
+}): string {
+  return [
+    `Task card ${input.cardNumber} (${input.card.task.id}) was mentioned from its comment thread.`,
+    `Title: ${input.card.task.title}`,
+    `Current status: ${input.card.task.status}`,
+    `Comment: ${input.body}`,
+    "Reply on the card and use Opzava task tools only when a task change is required.",
+  ].join("\n");
+}
+
+function previousAssistantMentionRecords(card: CardDetailDto): {
+  readonly count: number;
+  readonly hashes: readonly { readonly messageHash: string }[];
+} {
+  const targets = mentionTargetsForCard(
+    {
+      sessionId: "",
+      user: { id: "", email: "", name: "" },
+      orgId: card.task.organizationId,
+      organizationName: "",
+      organizationLifecycleState: "",
+      workspaceId: card.task.workspaceId,
+      workspaceName: "",
+      roleKeys: [],
+    },
+    card,
+  );
+  const assistantMentionComments = card.comments.filter((comment) =>
+    parseMentions(comment.body, targets).some((mention) => mention.kind === "assistant"),
+  );
+
+  return {
+    count: assistantMentionComments.length,
+    hashes: assistantMentionComments.map((comment) => ({
+      messageHash: stableMentionMessageHash({
+        cardTaskId: card.task.id,
+        body: comment.body,
+      }),
+    })),
+  };
+}
+
 async function requireContext(
   dependencies: Pick<TaskCardLoadDependencies | TaskCardActionDependencies, "getSessionContext">,
 ): Promise<Result<AppSessionContext>> {
@@ -203,9 +348,12 @@ export async function loadTaskCardPageData(
     return err(card.error);
   }
 
+  const assistantRuns = await dependencies.listTaskCardAssistantRuns(context.value, task.id);
+
   return ok({
     context: context.value,
     card: card.value,
+    assistantRuns,
   });
 }
 
@@ -326,5 +474,107 @@ export async function updateTaskCardDetails(
   }
 
   dependencies.revalidateTaskPaths?.({ cardNumber: result.value.cardNumber });
+  return result;
+}
+
+export async function postTaskCommentForCard(
+  input: PostTaskCommentCommand,
+  dependencies: TaskCardActionDependencies,
+): Promise<Result<PostTaskCommentResult>> {
+  const context = await requireContext(dependencies);
+  if (!context.ok) {
+    return err(context.error);
+  }
+
+  const body = commentBody(input);
+  if (!body.ok) {
+    return err(body.error);
+  }
+
+  const actor = actorFromSessionContext(context.value);
+  const card = await dependencies.getCardDetail({
+    orgId: context.value.orgId,
+    workspaceId: context.value.workspaceId,
+    actor,
+    taskId: input.taskId,
+  });
+  if (!card.ok) {
+    return err(card.error);
+  }
+
+  const previousMentions = previousAssistantMentionRecords(card.value);
+  const mentionGuard = evaluateAssistantMentionGuard({
+    body: body.value,
+    cardTaskId: card.value.task.id,
+    authorKind: "human",
+    targets: mentionTargetsForCard(context.value, card.value),
+    chainDepth: input.mentionChainDepth ?? 0,
+    previousAssistantMentionCount: previousMentions.count,
+    previousDispatches: previousMentions.hashes,
+  });
+  if (mentionGuard.action === "blocked") {
+    return err(webTaskCardError(`web.${mentionGuard.code}`, mentionGuard.message));
+  }
+
+  const added = await dependencies.addComment({
+    orgId: context.value.orgId,
+    workspaceId: context.value.workspaceId,
+    actor,
+    taskId: input.taskId,
+    authorKind: "human",
+    body: body.value,
+  });
+  if (!added.ok) {
+    return err(added.error);
+  }
+
+  let assistantDispatch: AssistantMentionDispatch | null = null;
+  if (mentionGuard.action === "dispatch") {
+    const history: Result<AskAdminConversationHistory> =
+      await dependencies.getOrCreateAskAdminHistory(context.value);
+    if (!history.ok) {
+      return err(history.error);
+    }
+
+    assistantDispatch = {
+      conversationId: history.value.conversationId,
+      prompt: assistantMentionDispatchPrompt({
+        card: card.value,
+        cardNumber: card.value.task.cardNumber,
+        body: body.value,
+      }),
+      idempotencyKey: `card-${card.value.task.id}-${mentionGuard.messageHash}`,
+      messageHash: mentionGuard.messageHash,
+    };
+  }
+
+  dependencies.revalidateTaskPaths?.({ cardNumber: card.value.task.cardNumber });
+  return ok({
+    comment: added.value,
+    assistantDispatch,
+  });
+}
+
+export async function markTaskCommentsReadForCard(
+  input: MarkTaskCommentsReadCommand,
+  dependencies: TaskCardActionDependencies,
+): Promise<Result<readonly TaskCommentDto[]>> {
+  const context = await requireContext(dependencies);
+  if (!context.ok) {
+    return err(context.error);
+  }
+
+  const result = await dependencies.markCommentsRead({
+    orgId: context.value.orgId,
+    workspaceId: context.value.workspaceId,
+    actor: actorFromSessionContext(context.value),
+    taskId: input.taskId,
+    ...(input.commentIds === undefined ? {} : { commentIds: input.commentIds }),
+  });
+  if (!result.ok) {
+    return err(result.error);
+  }
+
+  dependencies.revalidateTaskPaths?.({});
   return result;
 }
