@@ -8,15 +8,9 @@ import type {
   OpenClawToolCallId,
   StartAssistantStreamInput,
   StartAssistantStreamReceipt,
-  ToolInventorySnapshot
+  ToolInventorySnapshot,
 } from "@opzava/ports";
-import {
-  DomainError,
-  err,
-  makeOpaqueExternalRef,
-  ok,
-  type Result
-} from "@opzava/shared-kernel";
+import { DomainError, err, makeOpaqueExternalRef, ok, type Result } from "@opzava/shared-kernel";
 
 interface BrokerGatewayConfig {
   readonly baseUrl: string;
@@ -81,13 +75,13 @@ function gatewayError(
   code: string,
   message: string,
   details?: Readonly<Record<string, unknown>>,
-  cause?: unknown
+  cause?: unknown,
 ): DomainError {
   return new DomainError({
     code,
     message,
     ...(details === undefined ? {} : { details }),
-    ...(cause === undefined ? {} : { cause })
+    ...(cause === undefined ? {} : { cause }),
   });
 }
 
@@ -95,11 +89,17 @@ function streamEndpoint(baseUrl: string): string {
   return new URL("/internal/assistant/stream", baseUrl).toString();
 }
 
+function healthEndpoint(baseUrl: string, routeId: OpenClawGatewayRouteId): string {
+  const url = new URL("/internal/gateway/health", baseUrl);
+  url.searchParams.set("routeId", routeId);
+  return url.toString();
+}
+
 function sessionRef(value: string): OpenClawSessionRef {
   return makeOpaqueExternalRef({
     system: "openclaw",
     kind: "session",
-    value
+    value,
   }) as OpenClawSessionRef;
 }
 
@@ -119,6 +119,41 @@ function parseEventBlock(block: string): BrokerInternalStreamEvent | null {
   }
 }
 
+function parseHealthSnapshot(payload: unknown): OpenClawGatewayHealthSnapshot | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return null;
+  }
+
+  const record = payload as Readonly<Record<string, unknown>>;
+  const routeId = record["routeId"];
+  const reachable = record["reachable"];
+  const circuitOpen = record["circuitOpen"];
+  const checkedAt = record["checkedAt"];
+  const degradedReason = record["degradedReason"];
+
+  if (
+    typeof routeId !== "string" ||
+    typeof reachable !== "boolean" ||
+    typeof circuitOpen !== "boolean" ||
+    (typeof checkedAt !== "string" && !(checkedAt instanceof Date))
+  ) {
+    return null;
+  }
+
+  const checkedAtDate = checkedAt instanceof Date ? checkedAt : new Date(checkedAt);
+  if (Number.isNaN(checkedAtDate.getTime())) {
+    return null;
+  }
+
+  return {
+    routeId: routeId as OpenClawGatewayRouteId,
+    reachable,
+    circuitOpen,
+    checkedAt: checkedAtDate,
+    ...(typeof degradedReason === "string" ? { degradedReason } : {}),
+  };
+}
+
 function toPortEvent(event: BrokerInternalStreamEvent): OpenClawStreamEvent {
   if (event.type === "tool.succeeded") {
     return {
@@ -126,7 +161,7 @@ function toPortEvent(event: BrokerInternalStreamEvent): OpenClawStreamEvent {
       turnId: event.turnId,
       toolCallId: event.toolCallId as OpenClawToolCallId,
       toolName: event.toolName,
-      output: event.output
+      output: event.output,
     };
   }
 
@@ -136,7 +171,7 @@ function toPortEvent(event: BrokerInternalStreamEvent): OpenClawStreamEvent {
       turnId: event.turnId,
       content: event.content,
       ...(event.sessionRef === undefined ? {} : { sessionRef: event.sessionRef }),
-      ...(event.runRef === undefined ? {} : { runRef: event.runRef })
+      ...(event.runRef === undefined ? {} : { runRef: event.runRef }),
     };
   }
 
@@ -145,7 +180,7 @@ function toPortEvent(event: BrokerInternalStreamEvent): OpenClawStreamEvent {
       type: "failed",
       turnId: event.turnId,
       code: event.code,
-      message: event.message
+      message: event.message,
     };
   }
 
@@ -154,7 +189,7 @@ function toPortEvent(event: BrokerInternalStreamEvent): OpenClawStreamEvent {
       type: "failed",
       turnId: event.turnId ?? "unknown",
       code: event.code,
-      message: event.message
+      message: event.message,
     };
   }
 
@@ -164,7 +199,7 @@ function toPortEvent(event: BrokerInternalStreamEvent): OpenClawStreamEvent {
       turnId: event.turnId,
       toolCallId: event.toolCallId as OpenClawToolCallId,
       toolName: event.toolName,
-      args: event.args
+      args: event.args,
     };
   }
 
@@ -173,13 +208,13 @@ function toPortEvent(event: BrokerInternalStreamEvent): OpenClawStreamEvent {
         type: "tool.started",
         turnId: event.turnId,
         toolCallId: event.toolCallId as OpenClawToolCallId,
-        toolName: event.toolName
+        toolName: event.toolName,
       }
     : event;
 }
 
 async function* brokerEventStream(
-  body: ReadableStream<Uint8Array>
+  body: ReadableStream<Uint8Array>,
 ): AsyncIterable<OpenClawStreamEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -212,23 +247,21 @@ async function* brokerEventStream(
   }
 }
 
-export function createBrokerOpenClawGatewayPort(
-  config: BrokerGatewayConfig
-): OpenClawGatewayPort {
+export function createBrokerOpenClawGatewayPort(config: BrokerGatewayConfig): OpenClawGatewayPort {
   const fetchImpl = config.fetchImpl ?? fetch;
 
   return {
     async startAssistantStream(
-      input: StartAssistantStreamInput
+      input: StartAssistantStreamInput,
     ): Promise<Result<StartAssistantStreamReceipt>> {
       let response: Response;
       try {
         response = await fetchImpl(streamEndpoint(config.baseUrl), {
           method: "POST",
           headers: {
-            "accept": "text/event-stream",
-            "authorization": `Bearer ${config.internalToken}`,
-            "content-type": "application/json"
+            accept: "text/event-stream",
+            authorization: `Bearer ${config.internalToken}`,
+            "content-type": "application/json",
           },
           body: JSON.stringify({
             routeId: input.routeId,
@@ -243,10 +276,10 @@ export function createBrokerOpenClawGatewayPort(
               orgId: input.actingPrincipal.orgId,
               workspaceId: input.actingPrincipal.workspaceId,
               userId: input.actingPrincipal.userId,
-              roleKeys: input.actingPrincipal.roleKeys
+              roleKeys: input.actingPrincipal.roleKeys,
             },
-            ...(input.sessionRef === undefined ? {} : { sessionRef: input.sessionRef })
-          })
+            ...(input.sessionRef === undefined ? {} : { sessionRef: input.sessionRef }),
+          }),
         });
       } catch (error) {
         return err(
@@ -254,8 +287,8 @@ export function createBrokerOpenClawGatewayPort(
             "webGateway.gatewayUnavailable",
             "Gateway broker internal stream endpoint is unreachable.",
             undefined,
-            error
-          )
+            error,
+          ),
         );
       }
 
@@ -266,8 +299,8 @@ export function createBrokerOpenClawGatewayPort(
               ? "webGateway.internalUnauthorized"
               : "webGateway.requestFailed",
             "Gateway broker internal stream request failed.",
-            { status: response.status }
-          )
+            { status: response.status },
+          ),
         );
       }
 
@@ -275,14 +308,14 @@ export function createBrokerOpenClawGatewayPort(
         return err(
           gatewayError(
             "webGateway.emptyStream",
-            "Gateway broker returned an empty stream response."
-          )
+            "Gateway broker returned an empty stream response.",
+          ),
         );
       }
 
       return ok({
         sessionRef: input.sessionRef ?? sessionRef(input.conversationId),
-        events: brokerEventStream(response.body)
+        events: brokerEventStream(response.body),
       });
     },
 
@@ -290,20 +323,57 @@ export function createBrokerOpenClawGatewayPort(
       return err(
         gatewayError(
           "webGateway.unsupported",
-          "The web Gateway adapter only supports assistant streaming."
-        )
+          "The web Gateway adapter only supports assistant streaming.",
+        ),
       );
     },
 
     async getHealth(
-      routeId: OpenClawGatewayRouteId
+      routeId: OpenClawGatewayRouteId,
     ): Promise<Result<OpenClawGatewayHealthSnapshot>> {
-      return ok({
-        routeId,
-        reachable: true,
-        circuitOpen: false,
-        checkedAt: new Date()
-      });
-    }
+      let response: Response;
+      try {
+        response = await fetchImpl(healthEndpoint(config.baseUrl, routeId), {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+            authorization: `Bearer ${config.internalToken}`,
+          },
+        });
+      } catch (error) {
+        return err(
+          gatewayError(
+            "webGateway.gatewayUnavailable",
+            "Gateway broker internal health endpoint is unreachable.",
+            undefined,
+            error,
+          ),
+        );
+      }
+
+      if (!response.ok) {
+        return err(
+          gatewayError(
+            response.status === 401
+              ? "webGateway.internalUnauthorized"
+              : "webGateway.requestFailed",
+            "Gateway broker internal health request failed.",
+            { status: response.status },
+          ),
+        );
+      }
+
+      const snapshot = parseHealthSnapshot(await response.json());
+      if (snapshot === null) {
+        return err(
+          gatewayError(
+            "webGateway.invalidHealth",
+            "Gateway broker returned an invalid health response.",
+          ),
+        );
+      }
+
+      return ok(snapshot);
+    },
   };
 }

@@ -65,6 +65,9 @@ export default async function TasksPage() {
   }
 
   const renderedAt = new Date();
+  const workspaces = context.workspaces ?? [
+    { id: context.workspaceId, name: context.workspaceName },
+  ];
 
   return (
     <TasksBoard
@@ -72,6 +75,7 @@ export default async function TasksPage() {
       currentUser={{ id: context.user.id, name: context.user.name }}
       workspaceId={context.workspaceId}
       workspaceName={context.workspaceName}
+      workspaces={workspaces}
       renderedAtIso={renderedAt.toISOString()}
       todayLabel={todayLabel(renderedAt)}
     />

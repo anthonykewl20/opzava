@@ -8,7 +8,7 @@ import type {
   OpenClawSessionRef,
   OpenClawStreamEvent,
   OpenClawToolCallId,
-  StartAssistantStreamInput
+  StartAssistantStreamInput,
 } from "@opzava/ports";
 import type { OrgId, TenantId, UserId, WorkspaceId } from "@opzava/shared-kernel";
 
@@ -126,10 +126,7 @@ function authenticated(request: IncomingMessage, internalToken: string): boolean
   return token !== null && sameToken(internalToken, token);
 }
 
-async function readJsonBody(
-  request: IncomingMessage,
-  maxBodyBytes: number
-): Promise<unknown> {
+async function readJsonBody(request: IncomingMessage, maxBodyBytes: number): Promise<unknown> {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
 
@@ -174,7 +171,7 @@ function parseVerifiedPrincipal(value: unknown): VerifiedPrincipalBlock | null {
     orgId: orgId as OrgId,
     workspaceId: workspaceId as WorkspaceId,
     userId: userId as UserId,
-    roleKeys
+    roleKeys,
   };
 }
 
@@ -228,7 +225,7 @@ function parseInternalRequest(value: unknown): InternalAssistantStreamRequest | 
     prompt,
     idempotencyKey,
     principal,
-    ...(sessionRef === undefined ? {} : { sessionRef })
+    ...(sessionRef === undefined ? {} : { sessionRef }),
   };
 }
 
@@ -245,9 +242,9 @@ function toGatewayInput(input: InternalAssistantStreamRequest): StartAssistantSt
       orgId: input.principal.orgId,
       workspaceId: input.principal.workspaceId,
       userId: input.principal.userId,
-      roleKeys: input.principal.roleKeys
+      roleKeys: input.principal.roleKeys,
     },
-    ...(input.sessionRef === undefined ? {} : { sessionRef: input.sessionRef })
+    ...(input.sessionRef === undefined ? {} : { sessionRef: input.sessionRef }),
   };
 }
 
@@ -267,7 +264,7 @@ function normalizeEvent(event: OpenClawStreamEvent): InternalAssistantStreamEven
       turnId: event.turnId,
       toolCallId: event.toolCallId,
       toolName: event.toolName,
-      output: event.output
+      output: event.output,
     };
   }
 
@@ -277,7 +274,7 @@ function normalizeEvent(event: OpenClawStreamEvent): InternalAssistantStreamEven
       turnId: event.turnId,
       content: event.content,
       ...(event.sessionRef === undefined ? {} : { sessionRef: event.sessionRef }),
-      ...(event.runRef === undefined ? {} : { runRef: event.runRef })
+      ...(event.runRef === undefined ? {} : { runRef: event.runRef }),
     };
   }
 
@@ -286,7 +283,7 @@ function normalizeEvent(event: OpenClawStreamEvent): InternalAssistantStreamEven
       type: "failed",
       turnId: event.turnId,
       code: event.code,
-      message: event.message
+      message: event.message,
     };
   }
 
@@ -316,7 +313,7 @@ function sanitizedError(error: unknown): { readonly code: string; readonly messa
       message:
         typeof message === "string" && message.trim() !== ""
           ? message
-          : "Gateway broker request failed."
+          : "Gateway broker request failed.",
     };
   }
 
@@ -326,7 +323,7 @@ function sanitizedError(error: unknown): { readonly code: string; readonly messa
 async function handleAssistantStream(
   request: IncomingMessage,
   response: ServerResponse,
-  options: BrokerInternalHttpServerOptions
+  options: BrokerInternalHttpServerOptions,
 ): Promise<void> {
   if (!authenticated(request, options.internalToken)) {
     writeJson(response, 401, { error: "unauthorized" });
@@ -352,9 +349,9 @@ async function handleAssistantStream(
   // internal token, then treats the principal as the only tenant authority.
   response.writeHead(200, {
     "cache-control": "no-store, no-transform",
-    "connection": "keep-alive",
+    connection: "keep-alive",
     "content-type": "text/event-stream; charset=utf-8",
-    "x-accel-buffering": "no"
+    "x-accel-buffering": "no",
   });
 
   const receipt = await options.gatewayPort.startAssistantStream(toGatewayInput(parsed));
@@ -362,7 +359,7 @@ async function handleAssistantStream(
     writeSse(response, {
       type: "failed",
       turnId: parsed.turnId,
-      ...sanitizedError(receipt.error)
+      ...sanitizedError(receipt.error),
     });
     response.end();
     return;
@@ -379,17 +376,61 @@ async function handleAssistantStream(
     writeSse(response, {
       type: "failed",
       turnId: parsed.turnId,
-      ...sanitizedError(error)
+      ...sanitizedError(error),
     });
   } finally {
     response.end();
   }
 }
 
+async function handleGatewayHealth(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: BrokerInternalHttpServerOptions,
+): Promise<void> {
+  if (!authenticated(request, options.internalToken)) {
+    writeJson(response, 401, { error: "unauthorized" });
+    return;
+  }
+
+  let routeId: string | null = null;
+  try {
+    const url = new URL(request.url ?? "", "http://gateway-broker.internal");
+    routeId = stringValue(url.searchParams.get("routeId"));
+  } catch {
+    routeId = null;
+  }
+
+  if (routeId === null) {
+    writeJson(response, 400, { error: "invalid_request" });
+    return;
+  }
+
+  const health = await options.gatewayPort.getHealth(routeId as OpenClawGatewayRouteId);
+  if (!health.ok) {
+    writeJson(response, 503, sanitizedError(health.error));
+    return;
+  }
+
+  writeJson(response, 200, health.value);
+}
+
 export function createBrokerInternalHttpServer(
-  options: BrokerInternalHttpServerOptions
+  options: BrokerInternalHttpServerOptions,
 ): http.Server {
   return http.createServer((request, response) => {
+    if (request.method === "GET" && request.url?.startsWith("/internal/gateway/health")) {
+      void handleGatewayHealth(request, response, options).catch((error) => {
+        if (!response.headersSent) {
+          writeJson(response, 500, sanitizedError(error));
+          return;
+        }
+
+        response.end();
+      });
+      return;
+    }
+
     if (request.method !== "POST" || request.url !== "/internal/assistant/stream") {
       writeJson(response, 404, { error: "not_found" });
       return;
@@ -403,7 +444,7 @@ export function createBrokerInternalHttpServer(
 
       writeSse(response, {
         type: "failed",
-        ...sanitizedError(error)
+        ...sanitizedError(error),
       });
       response.end();
     });

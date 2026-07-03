@@ -17,7 +17,6 @@ export default async function LoginPage() {
 
   return (
     <main className="auth">
-      <p className="auth-cap">The sign-in screen</p>
       <section className="auth-card" aria-label="Sign in to Opzava">
         <div className="auth-logo" aria-hidden="true">
           ◆
@@ -25,11 +24,24 @@ export default async function LoginPage() {
         <h1>Welcome back</h1>
         <p className="auth-lead">Sign in to your workspace.</p>
 
+        {/* DESCOPE(social-login): OAuth providers arrive with P8 SSO work. */}
         <div className="auth-oauth" aria-label="Provider sign in">
-          <button className="btn" type="button" disabled>
+          <button
+            className="btn"
+            type="button"
+            disabled
+            aria-disabled="true"
+            title="Not configured in this environment"
+          >
             Continue with Google
           </button>
-          <button className="btn" type="button" disabled>
+          <button
+            className="btn"
+            type="button"
+            disabled
+            aria-disabled="true"
+            title="Not configured in this environment"
+          >
             Continue with GitHub
           </button>
         </div>

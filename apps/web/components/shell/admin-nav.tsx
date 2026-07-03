@@ -3,6 +3,15 @@
 import { usePathname } from "next/navigation";
 import type { CSSProperties } from "react";
 
+import { RailCommandSearch } from "@/components/shell/command-palette";
+
+interface AdminNavState {
+  readonly openTasksCount: number | null;
+  readonly openIssuesCount: number | null;
+  readonly askOpzavaActive: boolean;
+  readonly connectionsConnected: boolean;
+}
+
 interface NavItem {
   readonly label: string;
   readonly href: string;
@@ -26,8 +35,8 @@ type IconName =
 
 const operateItems: readonly NavItem[] = [
   { label: "Overview", href: "/", icon: "overview" },
-  { label: "Tasks", href: "/tasks", icon: "tasks", count: "3" },
-  { label: "Issues", href: "/issues", icon: "issues", count: "12" },
+  { label: "Tasks", href: "/tasks", icon: "tasks" },
+  { label: "Issues", href: "/issues", icon: "issues" },
 ] as const;
 
 const crmItems: readonly NavItem[] = [
@@ -42,10 +51,12 @@ const automateItems: readonly NavItem[] = [
     label: "Connections",
     href: "/connections",
     icon: "connections",
-    status: "success",
-    statusLabel: "all tools connected",
   },
 ] as const;
+
+function countBadge(count: number | null): string | undefined {
+  return count !== null && count > 0 ? String(count) : undefined;
+}
 
 function isActive(pathname: string, href: string): boolean {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -76,15 +87,7 @@ function NavIcon({ icon }: { readonly icon: IconName }) {
         <rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9" />
         <rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5" />
         <rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5" />
-        <rect
-          x="10"
-          y="10"
-          width="6"
-          height="6"
-          rx="1.5"
-          fill="currentColor"
-          opacity=".5"
-        />
+        <rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5" />
       </svg>
     );
   }
@@ -130,7 +133,12 @@ function NavIcon({ icon }: { readonly icon: IconName }) {
     return (
       <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
         <rect x="3" y="4" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M6 7h6M6 10h6M6 13h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <path
+          d="M6 7h6M6 10h6M6 13h3"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
       </svg>
     );
   }
@@ -195,8 +203,42 @@ function RailSection({
   );
 }
 
-export function AdminNav() {
+export function AdminNav({ state }: { readonly state: AdminNavState }) {
   const pathname = usePathname();
+  const liveOperateItems = operateItems.map((item) => {
+    if (item.href === "/tasks") {
+      const count = countBadge(state.openTasksCount);
+      return count === undefined ? item : { ...item, count };
+    }
+
+    if (item.href === "/issues") {
+      const count = countBadge(state.openIssuesCount);
+      return count === undefined ? item : { ...item, count };
+    }
+
+    return item;
+  });
+  const liveAutomateItems = automateItems.map((item) =>
+    item.href === "/connections" && state.connectionsConnected
+      ? {
+          ...item,
+          status: "success" as const,
+          statusLabel: "Connected provider or GitHub account available",
+        }
+      : item,
+  );
+  const askOpzavaItem: NavItem = {
+    label: "Ask Opzava",
+    href: "/ask-opzava",
+    icon: "ask",
+    ...(state.askOpzavaActive
+      ? {
+          status: "warning" as const,
+          statusLabel: "Assistant turn in progress",
+        }
+      : {}),
+    itemStyle: { marginBottom: 4 },
+  };
 
   return (
     <aside className="rail" aria-label="Main navigation">
@@ -227,48 +269,19 @@ export function AdminNav() {
       </div>
 
       <nav className="rail-nav" aria-label="Application sections">
-        <RailItem
-          item={{
-            label: "Ask Opzava",
-            href: "/ask-opzava",
-            icon: "ask",
-            status: "warning",
-            statusLabel: "1 project needs you",
-            itemStyle: { marginBottom: 4 },
-          }}
-          pathname={pathname}
-        />
+        <RailItem item={askOpzavaItem} pathname={pathname} />
 
         <div className="section-label">Operate</div>
-        {operateItems.map((item) => (
+        {liveOperateItems.map((item) => (
           <RailItem key={item.href} item={item} pathname={pathname} />
         ))}
 
         <RailSection label="CRM" items={crmItems} pathname={pathname} />
-        <RailSection label="Automate" items={automateItems} pathname={pathname} />
+        <RailSection label="Automate" items={liveAutomateItems} pathname={pathname} />
       </nav>
 
       <div className="rail-foot">
-        <button
-          type="button"
-          className="search"
-          style={{ width: "100%", maxWidth: "none", cursor: "pointer" }}
-          aria-label="Open command palette (⌘K)"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 16 16"
-            fill="none"
-            aria-hidden="true"
-            style={{ flex: "none", color: "var(--fg-subtle)" }}
-          >
-            <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-          <span className="u-subtle u-grow">Jump to…</span>
-          <kbd className="kbd">⌘K</kbd>
-        </button>
+        <RailCommandSearch />
       </div>
     </aside>
   );

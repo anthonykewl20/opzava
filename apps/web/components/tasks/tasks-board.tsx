@@ -16,9 +16,13 @@ import {
   taskCardTimingLabel,
   taskStatusChip,
   type BoardTaskFilters,
-  type BoardView,
 } from "@/lib/tasks-board-view";
 import type { TaskDto, TaskStatus } from "@opzava/project-management";
+
+interface WorkspaceOption {
+  readonly id: string;
+  readonly name: string;
+}
 
 interface TasksBoardProps {
   readonly tasks: readonly TaskDto[];
@@ -28,6 +32,7 @@ interface TasksBoardProps {
   };
   readonly workspaceId: string;
   readonly workspaceName: string;
+  readonly workspaces: readonly WorkspaceOption[];
   readonly renderedAtIso: string;
   readonly todayLabel: string;
 }
@@ -189,12 +194,6 @@ const taskBoardPageStyles = `
     }
     .task-search-input::placeholder {
       color: var(--fg-subtle);
-    }
-    .board-filter-row .sb-tabs {
-      flex: none;
-    }
-    .task-board-list {
-      margin-top: var(--space-4);
     }
 `;
 
@@ -371,33 +370,6 @@ function TaskForm({
   );
 }
 
-function MoveTaskButton({
-  task,
-  targetStatus,
-  targetTitle,
-  position,
-}: {
-  readonly task: TaskDto;
-  readonly targetStatus: TaskStatus;
-  readonly targetTitle: string;
-  readonly position: number;
-}) {
-  return (
-    <form action={moveTaskAction}>
-      <input type="hidden" name="taskId" value={task.id} />
-      <input type="hidden" name="status" value={targetStatus} />
-      <input type="hidden" name="position" value={position} />
-      <button
-        className="btn btn-ghost btn-sm"
-        type="submit"
-        aria-label={`Move ${task.title} to ${targetTitle}`}
-      >
-        To {targetTitle}
-      </button>
-    </form>
-  );
-}
-
 function TaskStatusChip({
   task,
   nextPositions,
@@ -434,17 +406,18 @@ function TaskStatusChip({
 
 function TaskCard({
   task,
-  workspaceName,
+  workspaceNameById,
   renderedAt,
   nextPositions,
 }: {
   readonly task: TaskDto;
-  readonly workspaceName: string;
+  readonly workspaceNameById: ReadonlyMap<string, string>;
   readonly renderedAt: Date;
   readonly nextPositions: Readonly<Record<TaskStatus, number>>;
 }) {
   const router = useRouter();
   const assigneeName = task.assigneeName ?? "Unassigned";
+  const workspaceName = workspaceNameById.get(task.workspaceId) ?? "Workspace";
   const cardId = formatCardId(workspaceName, task.cardNumber);
   const href = `/tasks/${cardId.routeSegment}`;
 
@@ -539,12 +512,12 @@ function EmptyColumnState({ title }: { readonly title: string }) {
 
 function KanbanView({
   tasks,
-  workspaceName,
+  workspaceNameById,
   renderedAt,
   nextPositions,
 }: {
   readonly tasks: readonly TaskDto[];
-  readonly workspaceName: string;
+  readonly workspaceNameById: ReadonlyMap<string, string>;
   readonly renderedAt: Date;
   readonly nextPositions: Readonly<Record<TaskStatus, number>>;
 }) {
@@ -573,7 +546,7 @@ function KanbanView({
                   <TaskCard
                     key={task.id}
                     task={task}
-                    workspaceName={workspaceName}
+                    workspaceNameById={workspaceNameById}
                     renderedAt={renderedAt}
                     nextPositions={nextPositions}
                   />
@@ -587,119 +560,17 @@ function KanbanView({
   );
 }
 
-function ListView({
-  tasks,
-  workspaceName,
-  nextPositions,
-  onEdit,
-}: {
-  readonly tasks: readonly TaskDto[];
-  readonly workspaceName: string;
-  readonly nextPositions: Readonly<Record<TaskStatus, number>>;
-  readonly onEdit: (task: TaskDto) => void;
-}) {
-  if (tasks.length === 0) {
-    return (
-      <section className="card empty task-board-list" aria-label="No tasks">
-        <p className="empty-title">No tasks here</p>
-        <p className="empty-desc">Change filters or create the first task for this workspace.</p>
-      </section>
-    );
-  }
-
-  return (
-    <div className="card task-list-card task-board-list">
-      <table className="table table-cards">
-        <thead>
-          <tr>
-            <th>Task</th>
-            <th>Status</th>
-            <th>Priority</th>
-            <th>Assignee</th>
-            <th>Labels</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tasks.map((task) => (
-            <tr key={task.id}>
-              <td data-label="Task">
-                <div>
-                  <a href={`/tasks/${formatCardId(workspaceName, task.cardNumber).routeSegment}`}>
-                    <strong>{task.title}</strong>
-                  </a>
-                  <p className="u-subtle">{formatCardId(workspaceName, task.cardNumber).cardId}</p>
-                  {task.description.trim() === "" ? null : (
-                    <p className="u-muted">{task.description}</p>
-                  )}
-                </div>
-              </td>
-              <td data-label="Status">{statusLabel(task.status)}</td>
-              <td data-label="Priority">
-                <span className={priorityBadgeClassName(task.priority)}>
-                  {priorityLabels[task.priority]}
-                </span>
-              </td>
-              <td data-label="Assignee">{task.assigneeName ?? "Unassigned"}</td>
-              <td data-label="Labels">
-                <div className="task-labels">
-                  {task.labels.length === 0 ? (
-                    <span className="u-subtle">None</span>
-                  ) : (
-                    task.labels.map((label) => (
-                      <span className="badge" key={label}>
-                        {label}
-                      </span>
-                    ))
-                  )}
-                </div>
-              </td>
-              <td data-label="Actions">
-                <div className="task-row-actions">
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    type="button"
-                    onClick={() => onEdit(task)}
-                    aria-label={`Edit ${task.title}`}
-                  >
-                    Edit
-                  </button>
-                  {statusColumns
-                    .filter((column) => column.status !== task.status)
-                    .map((column) => (
-                      <MoveTaskButton
-                        key={column.status}
-                        task={task}
-                        targetStatus={column.status}
-                        targetTitle={column.title}
-                        position={nextPositions[column.status]}
-                      />
-                    ))}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function BoardFilterRow({
   filters,
-  view,
-  workspaceId,
-  workspaceName,
+  workspaces,
   onFiltersChange,
-  onViewChange,
 }: {
   readonly filters: BoardTaskFilters;
-  readonly view: BoardView;
-  readonly workspaceId: string;
-  readonly workspaceName: string;
+  readonly workspaces: readonly WorkspaceOption[];
   readonly onFiltersChange: (filters: BoardTaskFilters) => void;
-  readonly onViewChange: (view: BoardView) => void;
 }) {
+  const showAllProjects = workspaces.length > 1;
+
   return (
     <div
       className="board-filter-row"
@@ -744,76 +615,13 @@ function BoardFilterRow({
           onFiltersChange({ ...filters, workspaceId: event.currentTarget.value })
         }
       >
-        <option value="all">All projects</option>
-        <option value={workspaceId}>{workspaceName}</option>
-      </select>
-
-      <label htmlFor="status-filter" className="u-sr-only">
-        Filter by status
-      </label>
-      <select
-        id="status-filter"
-        className="select"
-        style={{ width: "auto", flex: "none" }}
-        value={filters.status}
-        onChange={(event) =>
-          onFiltersChange({
-            ...filters,
-            status: event.currentTarget.value as BoardTaskFilters["status"],
-          })
-        }
-      >
-        <option value="all">All statuses</option>
-        {statusColumns.map((column) => (
-          <option key={column.status} value={column.status}>
-            {column.title}
+        {showAllProjects ? <option value="all">All projects</option> : null}
+        {workspaces.map((workspace) => (
+          <option key={workspace.id} value={workspace.id}>
+            {workspace.name}
           </option>
         ))}
       </select>
-
-      <label htmlFor="priority-filter" className="u-sr-only">
-        Filter by priority
-      </label>
-      <select
-        id="priority-filter"
-        className="select"
-        style={{ width: "auto", flex: "none" }}
-        value={filters.priority}
-        onChange={(event) =>
-          onFiltersChange({
-            ...filters,
-            priority: event.currentTarget.value as BoardTaskFilters["priority"],
-          })
-        }
-      >
-        <option value="all">All priorities</option>
-        {Object.entries(priorityLabels).map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </select>
-
-      <div className="sb-tabs" role="tablist" aria-label="Task views">
-        <button
-          className="sb-tab"
-          type="button"
-          role="tab"
-          aria-selected={view === "kanban"}
-          onClick={() => onViewChange("kanban")}
-        >
-          Kanban
-        </button>
-        <button
-          className="sb-tab"
-          type="button"
-          role="tab"
-          aria-selected={view === "list"}
-          onClick={() => onViewChange("list")}
-        >
-          List
-        </button>
-      </div>
     </div>
   );
 }
@@ -823,14 +631,14 @@ export function TasksBoard({
   currentUser,
   workspaceId,
   workspaceName,
+  workspaces,
   renderedAtIso,
   todayLabel,
 }: TasksBoardProps) {
   const [boardTasks, setBoardTasks] = useState<readonly TaskDto[]>(tasks);
-  const [view, setView] = useState<BoardView>("kanban");
   const [filters, setFilters] = useState<BoardTaskFilters>({
     search: "",
-    workspaceId: "all",
+    workspaceId: workspaces.length > 1 ? "all" : workspaceId,
     status: "all",
     priority: "all",
   });
@@ -842,6 +650,10 @@ export function TasksBoard({
   }, [tasks]);
 
   const renderedAt = useMemo(() => new Date(renderedAtIso), [renderedAtIso]);
+  const workspaceNameById = useMemo(
+    () => new Map(workspaces.map((workspace) => [workspace.id, workspace.name])),
+    [workspaces],
+  );
   const visibleTasks = useMemo(() => filterBoardTasks(boardTasks, filters), [boardTasks, filters]);
 
   const nextPositions = useMemo(() => {
@@ -860,11 +672,6 @@ export function TasksBoard({
   const openCreateForm = () => {
     setEditingTask(undefined);
     setFormMode("create");
-  };
-
-  const openEditForm = (task: TaskDto) => {
-    setEditingTask(task);
-    setFormMode("edit");
   };
 
   const closeForm = () => {
@@ -890,30 +697,14 @@ export function TasksBoard({
         </button>
       </div>
 
-      <BoardFilterRow
-        filters={filters}
-        view={view}
-        workspaceId={workspaceId}
-        workspaceName={workspaceName}
-        onFiltersChange={setFilters}
-        onViewChange={setView}
-      />
+      <BoardFilterRow filters={filters} workspaces={workspaces} onFiltersChange={setFilters} />
 
-      {view === "kanban" ? (
-        <KanbanView
-          tasks={visibleTasks}
-          workspaceName={workspaceName}
-          renderedAt={renderedAt}
-          nextPositions={nextPositions}
-        />
-      ) : (
-        <ListView
-          tasks={visibleTasks}
-          workspaceName={workspaceName}
-          nextPositions={nextPositions}
-          onEdit={openEditForm}
-        />
-      )}
+      <KanbanView
+        tasks={visibleTasks}
+        workspaceNameById={workspaceNameById}
+        renderedAt={renderedAt}
+        nextPositions={nextPositions}
+      />
 
       <div aria-label="Loading tasks" style={{ display: "none" }} aria-hidden="true">
         <div className="board-columns">

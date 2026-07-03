@@ -139,7 +139,9 @@ export function projectProviderConnections(
   return snapshot.providerCatalog.map((provider) => {
     const state = snapshot.providerConnections.find((item) => item.providerId === provider.id);
     const apiKeyChoices = provider.authChoices.filter((choice) => choice.mode === "api-key");
-    const deviceFlowChoices = provider.authChoices.filter((choice) => choice.mode === "device-flow");
+    const deviceFlowChoices = provider.authChoices.filter(
+      (choice) => choice.mode === "device-flow",
+    );
     const pendingFlow =
       snapshot.pendingDeviceFlows.find(
         (flow) => flow.kind === "model_provider" && flow.providerId === provider.id,
@@ -173,6 +175,15 @@ export function connectedProviderIds(snapshot: ConnectionsSnapshot): readonly st
   return snapshot.providerConnections
     .filter((connection) => connection.status === "connected")
     .map((connection) => connection.providerId);
+}
+
+export function hasConnectedProviderOrGitHub(
+  snapshot: Pick<ConnectionsSnapshot, "providerConnections" | "github">,
+): boolean {
+  return (
+    snapshot.github.status === "connected" ||
+    snapshot.providerConnections.some((connection) => connection.status === "connected")
+  );
 }
 
 export function buildOrchestratorConfigPlan(input: {
@@ -247,10 +258,7 @@ export function isTerminalDeviceFlowStatus(
   status: DeviceFlowUiState["status"] | DeviceFlowPollState["status"] | "error",
 ): boolean {
   return (
-    status === "connected" ||
-    status === "expired" ||
-    status === "failed" ||
-    status === "error"
+    status === "connected" || status === "expired" || status === "failed" || status === "error"
   );
 }
 
