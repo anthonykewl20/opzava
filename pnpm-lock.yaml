@@ -310,6 +310,9 @@ importers:
       "@opzava/adapters":
         specifier: workspace:*
         version: link:../adapters
+      "@opzava/crm":
+        specifier: workspace:*
+        version: link:../crm
       "@opzava/ports":
         specifier: workspace:*
         version: link:../ports
