@@ -43,12 +43,24 @@ export const tasks = pgTable(
     dueAt: timestamp("due_at", { withTimezone: true }),
     provenanceSource: text("provenance_source").notNull().default("manual"),
     provenanceExternalRef: text("provenance_external_ref"),
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     uniqueIndex("tasks_id_organization_id_unique").on(table.id, table.organizationId),
     uniqueIndex("tasks_workspace_card_number_unique").on(table.workspaceId, table.cardNumber),
+    uniqueIndex("tasks_organization_idempotency_key_unique").on(
+      table.organizationId,
+      table.idempotencyKey
+    ),
+    // NOTE: position is best-effort display order — intentionally NOT unique.
+    // A rare concurrent same-(workspace,status) create can momentarily assign a
+    // duplicate position (nondeterministic tie-break only, no data loss,
+    // resolved on the next reorder). A unique (workspace,status,position) index
+    // was tried and REVERTED because reorder does absolute-position moves that a
+    // non-deferrable unique index breaks (23505) without a make-room-shift
+    // redesign — out of scope for this follow-up.
     index("tasks_organization_workspace_status_position_idx").on(
       table.organizationId,
       table.workspaceId,
@@ -88,11 +100,16 @@ export const taskSteps = pgTable(
     assigneeUserId: text("assignee_user_id"),
     done: boolean("done").notNull().default(false),
     position: integer("position").notNull(),
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     uniqueIndex("task_steps_id_organization_id_unique").on(table.id, table.organizationId),
+    uniqueIndex("task_steps_organization_idempotency_key_unique").on(
+      table.organizationId,
+      table.idempotencyKey
+    ),
     index("task_steps_organization_task_position_idx").on(
       table.organizationId,
       table.taskId,
@@ -165,10 +182,15 @@ export const taskComments = pgTable(
     authorUserId: text("author_user_id"),
     assistantKey: text("assistant_key"),
     body: text("body").notNull(),
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     uniqueIndex("task_comments_id_organization_id_unique").on(table.id, table.organizationId),
+    uniqueIndex("task_comments_organization_idempotency_key_unique").on(
+      table.organizationId,
+      table.idempotencyKey
+    ),
     index("task_comments_organization_task_created_idx").on(
       table.organizationId,
       table.taskId,

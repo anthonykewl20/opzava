@@ -127,11 +127,16 @@ export const taskQualityCheck = pgTable(
     kind: taskQualityCheckKind("kind").notNull(),
     state: taskQualityCheckState("state").notNull().default("pending"),
     actor: text("actor").notNull(),
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex("task_quality_check_id_organization_id_unique").on(table.id, table.organizationId),
+    uniqueIndex("task_quality_check_organization_idempotency_key_unique").on(
+      table.organizationId,
+      table.idempotencyKey,
+    ),
     index("task_quality_check_organization_review_idx").on(table.organizationId, table.reviewId),
     pgPolicy("task_quality_check_tenant_isolation", {
       for: "all",

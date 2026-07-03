@@ -134,6 +134,7 @@ export async function postTaskCommentAction(input: {
   readonly taskId: string;
   readonly body: string;
   readonly mentionChainDepth?: number;
+  readonly idempotencyKey?: string;
 }): Promise<TaskCardActionResult<PostCommentActionValue>> {
   const result = await postTaskCommentForCard(input, taskCardActionDependencies());
   return result.ok ? { ok: true, value: result.value } : taskCardActionFailure(result.error);
@@ -177,6 +178,7 @@ export async function presignTaskEvidenceDownloadAction(input: {
 export async function addTaskQualityCheckAction(input: {
   readonly taskId: string;
   readonly label: string;
+  readonly idempotencyKey?: string;
 }): Promise<TaskCardActionResult<TaskQualityReviewDto>> {
   const result = await addQualityCheckForCard(input, taskCardActionDependencies());
   return result.ok ? { ok: true, value: result.value } : taskCardActionFailure(result.error);

@@ -9,6 +9,8 @@ import { DomainError } from "@opzava/shared-kernel";
 import {
   addCommentSchema,
   addCommentToolHandler,
+  addQualityCheckSchema,
+  addQualityCheckToolHandler,
   createStepSchema,
   createStepToolHandler,
   createTaskSchema,
@@ -179,6 +181,16 @@ export async function createOpzavaMcpServer(
         annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
       },
       markCommentsReadToolHandler(principal, taskServices),
+    );
+    server.registerTool(
+      "opzava_tasks_quality_checks_add",
+      {
+        title: "Add Opzava Task Quality Check",
+        description: descriptionForTool("opzava_tasks_quality_checks_add"),
+        inputSchema: addQualityCheckSchema,
+        annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      },
+      addQualityCheckToolHandler(principal, taskServices),
     );
     server.registerTool(
       "opzava_tasks_due_set",

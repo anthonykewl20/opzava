@@ -1,5 +1,6 @@
 import {
   addComment,
+  addQualityCheck,
   createStep,
   createTask,
   getCardDetail,
@@ -32,6 +33,7 @@ export const writeToolNames = [
   "opzava_tasks_steps_reorder",
   "opzava_tasks_comments_add",
   "opzava_tasks_comments_mark_read",
+  "opzava_tasks_quality_checks_add",
   "opzava_tasks_due_set",
   "opzava_tasks_watchers_set",
 ] as const;
@@ -40,6 +42,7 @@ export type OpzavaMcpToolName = (typeof readToolNames)[number] | (typeof writeTo
 
 export interface OpzavaMcpTaskServices {
   readonly addComment: typeof addComment;
+  readonly addQualityCheck: typeof addQualityCheck;
   readonly createStep: typeof createStep;
   readonly createTask: typeof createTask;
   readonly getCardDetail: typeof getCardDetail;
@@ -68,6 +71,7 @@ export interface ToolErrorPayload {
 
 export const defaultTaskServices: OpzavaMcpTaskServices = {
   addComment,
+  addQualityCheck,
   createStep,
   createTask,
   getCardDetail,
@@ -84,6 +88,9 @@ export const defaultTaskServices: OpzavaMcpTaskServices = {
 
 const skillGuidance =
   "Follow the opzava-task-authoring skill: write human-readable task cards, use imperative or symptom-first titles under 72 characters, keep descriptions concise with context/impact/evidence, make steps verifiable, never invent assignees/watchers/due dates/evidence, and never treat tenant/user/workspace ids from tool arguments as authority.";
+
+const createIdempotencyGuidance =
+  " For at-least-once safety, pass a stable idempotencyKey for each logical create and reuse it on retries.";
 
 const optionalAuthorityFields = {
   tenantId: z.string().optional(),
@@ -123,6 +130,7 @@ export const createTaskSchema = z
     dueAt: z.string().datetime().nullable().optional(),
     provenanceSource: z.string().min(1).max(240).optional(),
     provenanceExternalRef: z.string().max(500).nullable().optional(),
+    idempotencyKey: z.string().min(1).max(160).optional(),
     ...optionalAuthorityFields,
   })
   .strict();
@@ -144,6 +152,7 @@ export const createStepSchema = z
     taskId: uuidSchema,
     text: z.string().min(1).max(500),
     assigneeUserId: z.string().nullable().optional(),
+    idempotencyKey: z.string().min(1).max(160).optional(),
     ...optionalAuthorityFields,
   })
   .strict();
@@ -169,6 +178,19 @@ export const addCommentSchema = z
   .object({
     taskId: uuidSchema,
     body: z.string().min(1).max(4000),
+    idempotencyKey: z.string().min(1).max(160).optional(),
+    ...optionalAuthorityFields,
+  })
+  .strict();
+
+export const addQualityCheckSchema = z
+  .object({
+    taskId: uuidSchema,
+    label: z.string().min(1).max(240),
+    kind: z.enum(["human", "ai_precheck"]).optional(),
+    state: z.enum(["pass", "fail", "pending"]).optional(),
+    actorLabel: z.string().min(1).max(240).optional(),
+    idempotencyKey: z.string().min(1).max(160).optional(),
     ...optionalAuthorityFields,
   })
   .strict();
@@ -296,6 +318,10 @@ function watchersResult(watchers: unknown): Record<string, unknown> {
   return { watchers };
 }
 
+function qualityReviewResult(review: unknown): Record<string, unknown> {
+  return { qualityReview: review };
+}
+
 export function descriptionForTool(name: OpzavaMcpToolName): string {
   const descriptions: Record<OpzavaMcpToolName, string> = {
     opzava_tasks_list:
@@ -303,19 +329,21 @@ export function descriptionForTool(name: OpzavaMcpToolName): string {
     opzava_tasks_get:
       "Load one Opzava live card with task, steps, comments, and watchers. Authority comes from the link token. ",
     opzava_tasks_create:
-      "Create an Opzava task card in the linked workspace. Authority comes from the link token. ",
+      `Create an Opzava task card in the linked workspace. Authority comes from the link token.${createIdempotencyGuidance} `,
     opzava_tasks_update:
       "Update task title, description, priority, labels, or status in the linked workspace. Authority comes from the link token. ",
     opzava_tasks_steps_create:
-      "Create one verifiable step on a task card in the linked workspace. Authority comes from the link token. ",
+      `Create one verifiable step on a task card in the linked workspace. Authority comes from the link token.${createIdempotencyGuidance} `,
     opzava_tasks_steps_toggle:
       "Set one task step done/not-done in the linked workspace. Authority comes from the link token. ",
     opzava_tasks_steps_reorder:
       "Reorder every current step on a task card in the linked workspace. Authority comes from the link token. ",
     opzava_tasks_comments_add:
-      "Add a human-attributed task comment on behalf of the linked user. Authority comes from the link token. ",
+      `Add a human-attributed task comment on behalf of the linked user. Authority comes from the link token.${createIdempotencyGuidance} `,
     opzava_tasks_comments_mark_read:
       "Mark task comments read on behalf of the linked user. Authority comes from the link token. ",
+    opzava_tasks_quality_checks_add:
+      `Add a human quality check to a task card in the linked workspace. Authority comes from the link token.${createIdempotencyGuidance} `,
     opzava_tasks_due_set:
       "Set or clear a task due date in the linked workspace. Authority comes from the link token. ",
     opzava_tasks_watchers_set:
@@ -373,6 +401,7 @@ export function createToolHandler(
       ...(args.provenanceExternalRef === undefined
         ? {}
         : { provenanceExternalRef: args.provenanceExternalRef }),
+      ...(args.idempotencyKey === undefined ? {} : { idempotencyKey: args.idempotencyKey }),
     });
 
     return resultResponse(result, taskDtoResult);
@@ -430,6 +459,7 @@ export function createStepToolHandler(
         taskId: args.taskId,
         text: args.text,
         ...(args.assigneeUserId === undefined ? {} : { assigneeUserId: args.assigneeUserId }),
+        ...(args.idempotencyKey === undefined ? {} : { idempotencyKey: args.idempotencyKey }),
       }),
       stepResult,
     );
@@ -476,8 +506,28 @@ export function addCommentToolHandler(
         ...taskContext(principal),
         taskId: args.taskId,
         body: args.body,
+        ...(args.idempotencyKey === undefined ? {} : { idempotencyKey: args.idempotencyKey }),
       }),
       commentResult,
+    );
+}
+
+export function addQualityCheckToolHandler(
+  principal: LinkTokenPrincipal,
+  services: OpzavaMcpTaskServices = defaultTaskServices,
+) {
+  return async (args: z.infer<typeof addQualityCheckSchema>): Promise<ToolResponse> =>
+    resultResponse(
+      await services.addQualityCheck({
+        ...taskContext(principal),
+        taskId: args.taskId,
+        label: args.label,
+        ...(args.kind === undefined ? {} : { kind: args.kind }),
+        ...(args.state === undefined ? {} : { state: args.state }),
+        ...(args.actorLabel === undefined ? {} : { actorLabel: args.actorLabel }),
+        ...(args.idempotencyKey === undefined ? {} : { idempotencyKey: args.idempotencyKey }),
+      }),
+      qualityReviewResult,
     );
 }
 

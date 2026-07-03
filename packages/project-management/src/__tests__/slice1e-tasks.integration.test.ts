@@ -330,6 +330,179 @@ describe("slice 1e tasks", () => {
     expect(created.value.provenanceSource).toBe("manual");
   });
 
+  it("idempotently returns existing create rows when a stable key is retried", async () => {
+    const tenant = await adminCreateTenant("idempotent-creators");
+
+    const firstTask = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Create task with a stable key",
+      priority: "normal",
+      idempotencyKey: "task:create:same",
+    });
+    const retriedTask = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Create task retry must not duplicate",
+      priority: "urgent",
+      idempotencyKey: "task:create:same",
+    });
+    const differentTask = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Create task with a different key",
+      priority: "normal",
+      idempotencyKey: "task:create:different",
+    });
+    expect(firstTask.ok && retriedTask.ok && differentTask.ok).toBe(true);
+    if (!firstTask.ok || !retriedTask.ok || !differentTask.ok) {
+      throw new Error("expected task creator idempotency success");
+    }
+    expect(retriedTask.value.id).toBe(firstTask.value.id);
+    expect(differentTask.value.id).not.toBe(firstTask.value.id);
+
+    const firstStep = await createStep({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: firstTask.value.id,
+      text: "Create step with a stable key",
+      idempotencyKey: "step:create:same",
+    });
+    const retriedStep = await createStep({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: firstTask.value.id,
+      text: "Create step retry must not duplicate",
+      idempotencyKey: "step:create:same",
+    });
+    const differentStep = await createStep({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: firstTask.value.id,
+      text: "Create step with a different key",
+      idempotencyKey: "step:create:different",
+    });
+    expect(firstStep.ok && retriedStep.ok && differentStep.ok).toBe(true);
+    if (!firstStep.ok || !retriedStep.ok || !differentStep.ok) {
+      throw new Error("expected step creator idempotency success");
+    }
+    expect(retriedStep.value.id).toBe(firstStep.value.id);
+    expect(differentStep.value.id).not.toBe(firstStep.value.id);
+
+    const firstComment = await addComment({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: firstTask.value.id,
+      body: "Create comment with a stable key.",
+      idempotencyKey: "comment:create:same",
+    });
+    const retriedComment = await addComment({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: firstTask.value.id,
+      body: "Create comment retry must not duplicate.",
+      idempotencyKey: "comment:create:same",
+    });
+    const differentComment = await addComment({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: firstTask.value.id,
+      body: "Create comment with a different key.",
+      idempotencyKey: "comment:create:different",
+    });
+    expect(firstComment.ok && retriedComment.ok && differentComment.ok).toBe(true);
+    if (!firstComment.ok || !retriedComment.ok || !differentComment.ok) {
+      throw new Error("expected comment creator idempotency success");
+    }
+    expect(retriedComment.value.id).toBe(firstComment.value.id);
+    expect(differentComment.value.id).not.toBe(firstComment.value.id);
+
+    const firstCheck = await addQualityCheck({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: firstTask.value.id,
+      label: "Create check with a stable key",
+      idempotencyKey: "quality:create:same",
+    });
+    const retriedCheck = await addQualityCheck({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: firstTask.value.id,
+      label: "Create check retry must not duplicate",
+      idempotencyKey: "quality:create:same",
+    });
+    const differentCheck = await addQualityCheck({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: firstTask.value.id,
+      label: "Create check with a different key",
+      idempotencyKey: "quality:create:different",
+    });
+    expect(firstCheck.ok && retriedCheck.ok && differentCheck.ok).toBe(true);
+    if (!firstCheck.ok || !retriedCheck.ok || !differentCheck.ok) {
+      throw new Error("expected quality check creator idempotency success");
+    }
+    expect(retriedCheck.value.checks).toHaveLength(1);
+    expect(differentCheck.value.checks).toHaveLength(2);
+    expect(retriedCheck.value.checks[0]?.id).toBe(firstCheck.value.checks[0]?.id);
+  });
+
+  it("allows moving a task to an already-occupied board position (reorder is not blocked)", async () => {
+    // Guards against re-introducing a UNIQUE(workspace,status,position) index:
+    // moveTask sets an absolute position with no make-room shift, so a unique
+    // index would raise 23505 on any move to an occupied slot. Position is a
+    // best-effort display order, intentionally non-unique.
+    const tenant = await adminCreateTenant("position-reorder");
+
+    const first = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Board card A",
+      status: "todo",
+      priority: "normal",
+    });
+    const second = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Board card B",
+      status: "todo",
+      priority: "normal",
+    });
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) {
+      throw new Error("expected both creates to succeed");
+    }
+
+    // Move A onto B's occupied position — must succeed, not raise a unique violation.
+    const moved = await moveTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: first.value.id,
+      status: "todo",
+      position: second.value.position,
+    });
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) {
+      throw moved.error;
+    }
+    expect(moved.value.position).toBe(second.value.position);
+  });
+
   it("manages live-card detail data through the application seam", async () => {
     const tenant = await adminCreateTenant("card-detail");
     const task = await createTask({

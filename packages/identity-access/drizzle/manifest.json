@@ -40,6 +40,14 @@
     {
       "path": "0009_slice25_outbox_claim_token.sql",
       "sha256": "09bad549354a16bf6eeb041f5ca073c68e2f9942b9da341e0ce5c974e55d078f"
+    },
+    {
+      "path": "0010_slice25_mutation_idempotency.sql",
+      "sha256": "57ddf11abd8121d1e7ec41d81870f5e9cbfe9c01ada11bb4b6a109b3bc6a430a"
+    },
+    {
+      "path": "0011_slice25_drop_position_unique.sql",
+      "sha256": "426a3d84e630d1fc57eebc5994ff2b8b9e63d5867a41a292c6fe1eda592f29c7"
     }
   ]
 }

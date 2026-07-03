@@ -172,6 +172,18 @@ async function cleanupCreatedRows(): Promise<void> {
 
   if (organizationIds.length > 0) {
     await adminPool.query(
+      "delete from public.task_quality_reviewer where organization_id = any($1::uuid[])",
+      [organizationIds],
+    );
+    await adminPool.query(
+      "delete from public.task_quality_check where organization_id = any($1::uuid[])",
+      [organizationIds],
+    );
+    await adminPool.query(
+      "delete from public.task_quality_review where organization_id = any($1::uuid[])",
+      [organizationIds],
+    );
+    await adminPool.query(
       "delete from public.task_comment_read_markers where organization_id = any($1::uuid[])",
       [organizationIds],
     );
@@ -289,6 +301,7 @@ describe("slice 2.5b Opzava MCP server", () => {
           description: "This card proves local Claude Code writes through Opzava authority.",
           priority: "high",
           labels: ["mcp"],
+          idempotencyKey: "mcp:create:card",
         },
       });
       const payload = parseToolPayload(result);
@@ -309,6 +322,17 @@ describe("slice 2.5b Opzava MCP server", () => {
       });
 
       const taskId = (payload["result"] as { task: { id: string } }).task.id;
+      const retried = await connection.client.callTool({
+        name: "opzava_tasks_create",
+        arguments: {
+          title: "Create card through MCP retry",
+          priority: "normal",
+          idempotencyKey: "mcp:create:card",
+        },
+      });
+      const retriedPayload = parseToolPayload(retried);
+      expect((retriedPayload["result"] as { task: { id: string } }).task.id).toBe(taskId);
+
       const rows = await withTenant(tenant.organizationId, async (tx) =>
         tx.execute(sql`
           select id, title
@@ -320,6 +344,82 @@ describe("slice 2.5b Opzava MCP server", () => {
       expect(rowsFromExecuteResult(rows)).toEqual([
         { id: taskId, title: "Create card through MCP" },
       ]);
+
+      const firstStep = parseToolPayload(
+        await connection.client.callTool({
+          name: "opzava_tasks_steps_create",
+          arguments: {
+            taskId,
+            text: "Add an idempotent MCP step",
+            idempotencyKey: "mcp:create:step",
+          },
+        }),
+      );
+      const retriedStep = parseToolPayload(
+        await connection.client.callTool({
+          name: "opzava_tasks_steps_create",
+          arguments: {
+            taskId,
+            text: "Duplicate MCP step retry",
+            idempotencyKey: "mcp:create:step",
+          },
+        }),
+      );
+      expect((retriedStep["result"] as { step: { id: string } }).step.id).toBe(
+        (firstStep["result"] as { step: { id: string } }).step.id,
+      );
+
+      const firstComment = parseToolPayload(
+        await connection.client.callTool({
+          name: "opzava_tasks_comments_add",
+          arguments: {
+            taskId,
+            body: "Add an idempotent MCP comment.",
+            idempotencyKey: "mcp:create:comment",
+          },
+        }),
+      );
+      const retriedComment = parseToolPayload(
+        await connection.client.callTool({
+          name: "opzava_tasks_comments_add",
+          arguments: {
+            taskId,
+            body: "Duplicate MCP comment retry.",
+            idempotencyKey: "mcp:create:comment",
+          },
+        }),
+      );
+      expect((retriedComment["result"] as { comment: { id: string } }).comment.id).toBe(
+        (firstComment["result"] as { comment: { id: string } }).comment.id,
+      );
+
+      const firstQuality = parseToolPayload(
+        await connection.client.callTool({
+          name: "opzava_tasks_quality_checks_add",
+          arguments: {
+            taskId,
+            label: "Add an idempotent MCP quality check",
+            idempotencyKey: "mcp:create:quality",
+          },
+        }),
+      );
+      const retriedQuality = parseToolPayload(
+        await connection.client.callTool({
+          name: "opzava_tasks_quality_checks_add",
+          arguments: {
+            taskId,
+            label: "Duplicate MCP quality retry",
+            idempotencyKey: "mcp:create:quality",
+          },
+        }),
+      );
+      expect(
+        (retriedQuality["result"] as { qualityReview: { checks: { id: string }[] } })
+          .qualityReview.checks[0]?.id,
+      ).toBe(
+        (firstQuality["result"] as { qualityReview: { checks: { id: string }[] } })
+          .qualityReview.checks[0]?.id,
+      );
     } finally {
       await connection.close();
     }

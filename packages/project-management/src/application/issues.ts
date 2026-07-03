@@ -615,13 +615,20 @@ export async function listIssueProjections(
           t.id::text as linked_task_id,
           t.status::text as linked_task_status
         from public.issue_projection i
-        left join public.tasks t
-          on t.organization_id = i.organization_id
-         and t.workspace_id = i.workspace_id
-         and t.provenance_external_ref in (
-           'github:' || i.repository || '#' || i.number::text,
-           i.url
-         )
+        left join lateral (
+          select
+            linked.id,
+            linked.status
+          from public.tasks linked
+          where linked.organization_id = i.organization_id
+            and linked.workspace_id = i.workspace_id
+            and linked.provenance_external_ref in (
+              'github:' || i.repository || '#' || i.number::text,
+              i.url
+            )
+          order by linked.updated_at desc, linked.id asc
+          limit 1
+        ) t on true
         where i.workspace_id = ${input.workspaceId}
           and i.repository = ${repository.value}
         order by i.updated_at desc, i.number desc

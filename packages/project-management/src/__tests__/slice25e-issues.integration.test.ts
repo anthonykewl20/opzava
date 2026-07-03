@@ -13,6 +13,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   createTrackedIssue,
   enqueueIssueCloseForTask,
+  listIssueProjections,
   processIssueCloseOutbox,
 } from "../application/issues.js";
 import type { TaskDto } from "../application/tasks.js";
@@ -148,13 +149,14 @@ async function adminInsertTask(input: {
       provenance_source,
       provenance_external_ref
     )
-    values ($1, $2, $3, $4, $5, '', 'done', 'normal', '{}'::text[], 1, 'github', $6)`,
+    values ($1, $2, $3, $4, $5, '', 'done', 'normal', '{}'::text[], $6, 'github', $7)`,
     [
       input.taskId,
       input.tenant.organizationId,
       input.tenant.workspaceId,
       input.cardNumber,
       `Linked issue ${input.issueNumber}`,
+      input.cardNumber,
       `github:anthonykewl20/opzava#${input.issueNumber}`,
     ],
   );
@@ -499,6 +501,64 @@ describe("slice 2.5e issue RLS", () => {
     }
     expect(createCalls).toBe(1);
     expect(second.value.number).toBe(first.value.number);
+  });
+
+  it("lists one issue projection row when multiple tasks link the same issue", async () => {
+    const tenant = await adminCreateTenant("multi-link");
+    const olderTaskId = randomUUID();
+    const newerTaskId = randomUUID();
+    await adminInsertTask({ tenant, taskId: olderTaskId, cardNumber: 7301, issueNumber: 89 });
+    await adminInsertTask({ tenant, taskId: newerTaskId, cardNumber: 7302, issueNumber: 89 });
+    await adminPool.query(
+      `update public.tasks
+       set updated_at = now() + interval '1 minute'
+       where id = $1`,
+      [newerTaskId],
+    );
+    await withTenant(tenant.organizationId, async (tx) =>
+      tx.execute(sql`
+        insert into public.issue_projection (
+          organization_id,
+          workspace_id,
+          repository,
+          number,
+          title,
+          state,
+          labels,
+          assignee,
+          updated_at,
+          synced_at,
+          url
+        )
+        values (
+          ${tenant.organizationId},
+          ${tenant.workspaceId},
+          'anthonykewl20/opzava',
+          89,
+          'Multi-linked issue',
+          'open',
+          '{}'::text[],
+          null,
+          now(),
+          now(),
+          'https://github.com/anthonykewl20/opzava/issues/89'
+        )
+      `),
+    );
+
+    const listed = await listIssueProjections({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: { userId: tenant.userId, roleKeys: ["admin"] },
+      repository: "anthonykewl20/opzava",
+    });
+
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) {
+      throw listed.error;
+    }
+    expect(listed.value.map((issue) => issue.number)).toEqual([89]);
+    expect(listed.value[0]?.linkedTaskId).toBe(newerTaskId);
   });
 
   it("claims active-close rows with skip-locked concurrency semantics", async () => {

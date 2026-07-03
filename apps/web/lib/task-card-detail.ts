@@ -104,6 +104,7 @@ export interface PostTaskCommentCommand {
   readonly taskId: string;
   readonly body: string;
   readonly mentionChainDepth?: number;
+  readonly idempotencyKey?: string;
 }
 
 export interface MarkTaskCommentsReadCommand {
@@ -137,6 +138,7 @@ export interface PresignEvidenceDownloadCommand {
 export interface AddQualityCheckCommand {
   readonly taskId: string;
   readonly label: string;
+  readonly idempotencyKey?: string;
 }
 
 export interface ToggleQualityCheckCommand {
@@ -712,6 +714,7 @@ export async function postTaskCommentForCard(
     taskId: input.taskId,
     authorKind: "human",
     body: body.value,
+    ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
   });
   if (!added.ok) {
     return err(added.error);
@@ -930,6 +933,7 @@ export async function addQualityCheckForCard(
     kind: "human",
     state: "pending",
     actorLabel: context.value.user.name,
+    ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
   } satisfies AddQualityCheckInput);
   if (!result.ok) {
     return err(result.error);

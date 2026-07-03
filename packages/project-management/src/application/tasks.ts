@@ -70,6 +70,7 @@ export interface CreateTaskInput extends TaskApplicationContext {
   readonly dueAt?: string | Date | null;
   readonly provenanceSource?: string;
   readonly provenanceExternalRef?: string | null;
+  readonly idempotencyKey?: string;
 }
 
 export interface UpdateTaskInput extends TaskApplicationContext {
@@ -206,6 +207,7 @@ export interface CreateStepInput extends TaskApplicationContext {
   readonly taskId: string;
   readonly text: string;
   readonly assigneeUserId?: string | null;
+  readonly idempotencyKey?: string;
 }
 
 export interface ToggleStepInput extends TaskApplicationContext {
@@ -224,6 +226,7 @@ export interface AddCommentInput extends TaskApplicationContext {
   readonly authorKind?: TaskCommentAuthorKind;
   readonly assistantKey?: string | null;
   readonly body: string;
+  readonly idempotencyKey?: string;
 }
 
 export interface SetDueInput extends TaskApplicationContext {
@@ -275,6 +278,7 @@ export interface AddQualityCheckInput extends TaskApplicationContext {
   readonly kind?: TaskQualityCheckKind;
   readonly state?: TaskQualityCheckState;
   readonly actorLabel?: string;
+  readonly idempotencyKey?: string;
 }
 
 export interface ToggleQualityCheckInput extends TaskApplicationContext {
@@ -707,6 +711,24 @@ function normalizeExternalRef(value: string | null | undefined): Result<string |
       taskError(
         "projectManagement.invalidTaskProvenance",
         "Task provenance external ref must be 500 characters or fewer.",
+      ),
+    );
+  }
+
+  return ok(normalized);
+}
+
+function normalizeIdempotencyKey(value: string | undefined): Result<string | null> {
+  if (value === undefined || value.trim() === "") {
+    return ok(null);
+  }
+
+  const normalized = value.trim();
+  if (normalized.length > 160) {
+    return err(
+      taskError(
+        "projectManagement.invalidIdempotencyKey",
+        "Idempotency key must be 160 characters or fewer.",
       ),
     );
   }
@@ -1296,6 +1318,11 @@ export async function createTask(
     return err(fields.error);
   }
 
+  const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
+  if (!idempotencyKey.ok) {
+    return err(idempotencyKey.error);
+  }
+
   const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
   const authorized = await authorizeTask(input, "create", authorizationPort);
   if (!authorized.ok) {
@@ -1303,7 +1330,7 @@ export async function createTask(
   }
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const result = await createTaskOnce(input, status.value, fields.value);
+    const result = await createTaskOnce(input, status.value, fields.value, idempotencyKey.value);
     if (result.ok || !(result.error.cause instanceof ConflictError)) {
       return result;
     }
@@ -1321,6 +1348,7 @@ async function createTaskOnce(
   input: CreateTaskInput,
   status: TaskStatus,
   fields: PreparedTaskFields,
+  idempotencyKey: string | null,
 ): Promise<Result<TaskDto>> {
   try {
     return await withTenant(input.orgId, async (tx) => {
@@ -1343,7 +1371,8 @@ async function createTaskOnce(
           position,
           due_at,
           provenance_source,
-          provenance_external_ref
+          provenance_external_ref,
+          idempotency_key
         )
         select
           ${input.orgId},
@@ -1357,8 +1386,11 @@ async function createTaskOnce(
           next_position.value,
           ${fields.dueAt},
           ${fields.provenanceSource},
-          ${fields.provenanceExternalRef}
+          ${fields.provenanceExternalRef},
+          ${idempotencyKey}
         from next_position
+        on conflict (organization_id, idempotency_key)
+        do update set idempotency_key = excluded.idempotency_key
         returning
           id,
           organization_id,
@@ -1685,6 +1717,11 @@ export async function createStep(
     return err(assigneeUserId.error);
   }
 
+  const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
+  if (!idempotencyKey.ok) {
+    return err(idempotencyKey.error);
+  }
+
   const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
   const authorized = await authorizeTask(input, "update", authorizationPort);
   if (!authorized.ok) {
@@ -1710,7 +1747,8 @@ export async function createStep(
           workspace_id,
           text,
           assignee_user_id,
-          position
+          position,
+          idempotency_key
         )
         select
           ${input.taskId},
@@ -1718,8 +1756,11 @@ export async function createStep(
           ${input.workspaceId},
           ${text.value},
           ${assigneeUserId.value},
-          next_position.value
+          next_position.value,
+          ${idempotencyKey.value}
         from next_position
+        on conflict (organization_id, idempotency_key)
+        do update set idempotency_key = excluded.idempotency_key
         returning
           id,
           task_id,
@@ -1932,6 +1973,11 @@ export async function addComment(
     );
   }
 
+  const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
+  if (!idempotencyKey.ok) {
+    return err(idempotencyKey.error);
+  }
+
   const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
   const authorized = await authorizeTask(input, "update", authorizationPort);
   if (!authorized.ok) {
@@ -1953,7 +1999,8 @@ export async function addComment(
           author_kind,
           author_user_id,
           assistant_key,
-          body
+          body,
+          idempotency_key
         )
         values (
           ${input.taskId},
@@ -1962,8 +2009,11 @@ export async function addComment(
           ${authorKind}::public.task_comment_author_kind,
           ${authorKind === "human" ? input.actor.userId : null},
           ${authorKind === "assistant" ? assistantKey.value : null},
-          ${body.value}
+          ${body.value},
+          ${idempotencyKey.value}
         )
+        on conflict (organization_id, idempotency_key)
+        do update set idempotency_key = excluded.idempotency_key
         returning
           id,
           task_id,
@@ -2512,6 +2562,11 @@ export async function addQualityCheck(
     return err(actor.error);
   }
 
+  const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
+  if (!idempotencyKey.ok) {
+    return err(idempotencyKey.error);
+  }
+
   const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
   const authorized = await authorizeTask(input, "update", authorizationPort);
   if (!authorized.ok) {
@@ -2538,7 +2593,7 @@ export async function addQualityCheck(
         );
       }
 
-      await tx.execute(sql`
+      const inserted = await tx.execute(sql`
         insert into public.task_quality_check (
           review_id,
           organization_id,
@@ -2547,7 +2602,8 @@ export async function addQualityCheck(
           label,
           kind,
           state,
-          actor
+          actor,
+          idempotency_key
         )
         values (
           ${review.value.id},
@@ -2557,11 +2613,18 @@ export async function addQualityCheck(
           ${label.value},
           ${kind.value}::public.task_quality_check_kind,
           ${state.value}::public.task_quality_check_state,
-          ${actor.value}
+          ${actor.value},
+          ${idempotencyKey.value}
         )
+        on conflict (organization_id, idempotency_key)
+        do update set idempotency_key = excluded.idempotency_key
+        returning task_id
       `);
 
-      const loaded = await selectQualityReview(tx, input.taskId);
+      const insertedRow = rowsFromExecuteResult(inserted)[0];
+      const reviewTaskId =
+        insertedRow === undefined ? input.taskId : String(insertedRow["task_id"]);
+      const loaded = await selectQualityReview(tx, reviewTaskId);
       return loaded === null
         ? err(
             taskError(

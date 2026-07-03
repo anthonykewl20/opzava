@@ -71,6 +71,20 @@
       "when": 1782951300000,
       "tag": "0009_slice25_outbox_claim_token",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782951400000,
+      "tag": "0010_slice25_mutation_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782951400001,
+      "tag": "0011_slice25_drop_position_unique",
+      "breakpoints": true
     }
   ]
 }
