@@ -4,6 +4,8 @@ export type IssueTrackerProvider = "github";
 export type IssueTrackerIssueState = "open" | "closed";
 export type IssueTrackerCloseReason = "completed" | "not_planned";
 
+export const GITHUB_ISSUES_TOKEN_SECRET_LABEL = "github-issues-token";
+
 export interface IssueTrackerRef {
   readonly provider: IssueTrackerProvider;
   readonly repository: string;

@@ -2,12 +2,14 @@
 
 import { usePathname } from "next/navigation";
 
-const operateItems: readonly {
+interface NavItem {
   readonly label: string;
   readonly href?: string;
   readonly active?: boolean;
   readonly count?: string;
-}[] = [
+}
+
+const operateItems: readonly NavItem[] = [
   { label: "Overview", href: "/" },
   { label: "Agents", active: false, count: "0" },
   { label: "Tasks", href: "/tasks" },
@@ -17,7 +19,10 @@ const operateItems: readonly {
 ] as const;
 
 const observeItems = ["Monitoring", "Logs", "Costs"] as const;
-const automateItems = ["Connections", "Automation"] as const;
+const automateItems: readonly NavItem[] = [
+  { label: "Connections", href: "/connections" },
+  { label: "Automation", active: false },
+] as const;
 const governItems = ["Security & Audit", "Memory & Skills", "Alerts", "Settings"] as const;
 
 function RailItem({
@@ -59,17 +64,33 @@ function RailItem({
 
 function RailSection({
   label,
-  items
+  items,
+  pathname
 }: {
   readonly label: string;
-  readonly items: readonly string[];
+  readonly items: readonly (string | NavItem)[];
+  readonly pathname: string;
 }) {
   return (
     <>
       <div className="section-label">{label}</div>
-      {items.map((item) => (
-        <RailItem key={item} label={item} />
-      ))}
+      {items.map((item) =>
+        typeof item === "string" ? (
+          <RailItem key={item} label={item} />
+        ) : (
+          <RailItem
+            key={item.label}
+            {...item}
+            active={
+              item.href === undefined
+                ? item.active
+                : item.href === "/"
+                  ? pathname === "/"
+                  : pathname.startsWith(item.href)
+            }
+          />
+        ),
+      )}
     </>
   );
 }
@@ -130,9 +151,9 @@ export function AdminNav() {
           Admin workspace
         </span>
 
-        <RailSection label="Observe" items={observeItems} />
-        <RailSection label="Automate" items={automateItems} />
-        <RailSection label="Govern" items={governItems} />
+        <RailSection label="Observe" items={observeItems} pathname={pathname} />
+        <RailSection label="Automate" items={automateItems} pathname={pathname} />
+        <RailSection label="Govern" items={governItems} pathname={pathname} />
       </nav>
 
       <div className="rail-foot">

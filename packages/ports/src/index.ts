@@ -1,5 +1,6 @@
 export * from "./auth.js";
 export * from "./authorization.js";
+export * from "./connections-provisioning.js";
 export * from "./error-capture.js";
 export * from "./event-bus.js";
 export * from "./issue-tracker.js";
