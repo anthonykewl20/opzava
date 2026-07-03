@@ -7,10 +7,17 @@ import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import { ASK_ADMIN_AGENT_ID, ASK_ADMIN_AGENT_MODEL } from "./ask-admin-agent.js";
 
-export interface GatewayOnboardInvocation {
-  readonly executable: "node";
-  readonly args: readonly string[];
-  readonly secretArgumentIndex: number;
+export interface GatewayConfigPatchInvocation {
+  readonly method: "config.patch";
+  readonly params: {
+    readonly patch: {
+      readonly auth: {
+        readonly profiles: Record<string, unknown>;
+        readonly order: Record<string, readonly string[]>;
+      };
+    };
+  };
+  readonly secretPath: readonly ["patch", "auth", "profiles", string, "key"];
 }
 
 export interface DelegationProvisioningReceipt {
@@ -34,48 +41,67 @@ function provisioningError(code: string, message: string): DomainError {
   return new DomainError({ code, message });
 }
 
-export function gatewayApiKeyOnboardInvocation(input: {
+export function gatewayApiKeyConfigPatchInvocation(input: {
   readonly authChoice: ModelProviderAuthChoice;
   readonly apiKey: string;
-}): Result<GatewayOnboardInvocation> {
+}): Result<GatewayConfigPatchInvocation> {
   if (input.authChoice.mode !== "api-key") {
     return err(
       provisioningError(
         "provisioning.connections.invalidAuthMode",
-        "Only API-key auth choices can use non-interactive key onboarding.",
+        "Only API-key auth choices can be provisioned through config.patch.",
       ),
     );
   }
 
-  const keyFlag = input.authChoice.keyFlag ?? input.authChoice.id;
   if (input.apiKey.trim() === "") {
     return err(
       provisioningError("provisioning.connections.emptyKey", "Provider API key is required."),
     );
   }
 
+  const profileId = `${input.authChoice.providerId}-${input.authChoice.id}`
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
   return ok({
-    executable: "node",
-    args: [
-      "openclaw.mjs",
-      "onboard",
-      "--non-interactive",
-      "--auth-choice",
-      input.authChoice.id,
-      `--${keyFlag}`,
-      input.apiKey,
-    ],
-    secretArgumentIndex: 6,
+    method: "config.patch",
+    params: {
+      patch: {
+        auth: {
+          profiles: {
+            [profileId]: {
+              id: profileId,
+              providerId: input.authChoice.providerId,
+              authChoiceId: input.authChoice.id,
+              type: "api-key",
+              key: input.apiKey,
+            },
+          },
+          order: {
+            [input.authChoice.providerId]: [profileId],
+          },
+        },
+      },
+    },
+    secretPath: ["patch", "auth", "profiles", profileId, "key"],
   });
 }
 
-export function redactedGatewayOnboardCommand(invocation: GatewayOnboardInvocation): string {
-  return [
-    invocation.executable,
-    ...invocation.args.map((arg, index) =>
-      index === invocation.secretArgumentIndex ? "<redacted>" : arg,
-    ),
-  ].join(" ");
+export function redactedGatewayConfigPatchInvocation(
+  invocation: GatewayConfigPatchInvocation,
+): string {
+  const redacted = JSON.parse(JSON.stringify(invocation.params)) as Record<string, unknown>;
+  const profileId = invocation.secretPath[3];
+  const auth = redacted["patch"] as Record<string, unknown>;
+  const authBlock = auth["auth"] as Record<string, unknown>;
+  const profiles = authBlock["profiles"] as Record<string, unknown>;
+  const profile = profiles[profileId] as Record<string, unknown>;
+  profile["key"] = "<redacted>";
+
+  return `${invocation.method} ${JSON.stringify(redacted)}`;
 }
 
 export function buildDelegationProvisioningReceipt(input: {

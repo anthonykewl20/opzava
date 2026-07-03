@@ -36,6 +36,8 @@ export interface PutLocalFileSecretInput {
   readonly version?: string;
 }
 
+export type DeleteLocalFileSecretInput = GetSecretRefInput;
+
 export interface LocalFileSecretsVaultOptions {
   readonly filePath: string;
   readonly now?: () => Date;
@@ -209,6 +211,22 @@ export class LocalFileSecretsVault implements SecretsVaultPort {
     }
 
     return ok(ref);
+  }
+
+  public async deleteSecret(input: DeleteLocalFileSecretInput): Promise<Result<void>> {
+    const loaded = await this.readVault();
+    if (!loaded.ok) {
+      return loaded;
+    }
+
+    const ref = expectedLocalFileSecretReference(input);
+    const nextSecrets = { ...loaded.value.secrets };
+    delete nextSecrets[ref.id];
+
+    return this.writeVault({
+      version: 1,
+      secrets: nextSecrets,
+    });
   }
 
   private async readVault(): Promise<Result<StoredVaultFile>> {

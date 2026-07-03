@@ -1,13 +1,12 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 
-import type {
-  ConnectionsProvisioningPort,
-  ConnectionProvisioningPrincipal,
-} from "@opzava/ports";
+import type { ConnectionsProvisioningPort, ConnectionProvisioningPrincipal } from "@opzava/ports";
+
+import { createDefaultConnectionsProvisioningPort } from "./gateway-admin-connections.js";
 
 export interface ConnectionsInternalHttpServerOptions {
-  readonly provisioningPort: ConnectionsProvisioningPort;
+  readonly provisioningPort?: ConnectionsProvisioningPort;
   readonly internalToken: string;
   readonly maxBodyBytes?: number;
 }
@@ -115,7 +114,7 @@ function errorPayload(error: unknown): { readonly code: string; readonly message
 async function handleConnectionsRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  options: ConnectionsInternalHttpServerOptions,
+  options: Required<ConnectionsInternalHttpServerOptions>,
 ): Promise<void> {
   if (!authenticated(request, options.internalToken)) {
     writeJson(response, 401, { error: "unauthorized" });
@@ -139,7 +138,11 @@ async function handleConnectionsRequest(
   const route = request.url;
   if (route === "/internal/connections/snapshot") {
     const result = await options.provisioningPort.getConnectionsSnapshot(principal);
-    writeJson(response, result.ok ? 200 : 502, result.ok ? result.value : errorPayload(result.error));
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
     return;
   }
 
@@ -163,7 +166,11 @@ async function handleConnectionsRequest(
       authChoiceId,
       apiKey,
     });
-    writeJson(response, result.ok ? 200 : 502, result.ok ? result.value : errorPayload(result.error));
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
     return;
   }
 
@@ -185,7 +192,11 @@ async function handleConnectionsRequest(
       providerId,
       authChoiceId,
     });
-    writeJson(response, result.ok ? 200 : 502, result.ok ? result.value : errorPayload(result.error));
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
     return;
   }
 
@@ -202,7 +213,11 @@ async function handleConnectionsRequest(
     }
 
     const result = await options.provisioningPort.pollDeviceFlow({ ...principal, flowId });
-    writeJson(response, result.ok ? 200 : 502, result.ok ? result.value : errorPayload(result.error));
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
     return;
   }
 
@@ -222,7 +237,11 @@ async function handleConnectionsRequest(
       ...principal,
       providerId,
     });
-    writeJson(response, result.ok ? 200 : 502, result.ok ? result.value : errorPayload(result.error));
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
     return;
   }
 
@@ -242,19 +261,31 @@ async function handleConnectionsRequest(
       ...principal,
       connectedProviderIds,
     });
-    writeJson(response, result.ok ? 200 : 502, result.ok ? result.value : errorPayload(result.error));
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
     return;
   }
 
   if (route === "/internal/connections/github/device-flow") {
     const result = await options.provisioningPort.startGitHubDeviceFlow(principal);
-    writeJson(response, result.ok ? 200 : 502, result.ok ? result.value : errorPayload(result.error));
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
     return;
   }
 
   if (route === "/internal/connections/github/disconnect") {
     const result = await options.provisioningPort.disconnectGitHub(principal);
-    writeJson(response, result.ok ? 200 : 502, result.ok ? result.value : errorPayload(result.error));
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
     return;
   }
 
@@ -264,13 +295,19 @@ async function handleConnectionsRequest(
 export function createConnectionsInternalHttpServer(
   options: ConnectionsInternalHttpServerOptions,
 ): http.Server {
+  const resolvedOptions: Required<ConnectionsInternalHttpServerOptions> = {
+    provisioningPort: options.provisioningPort ?? createDefaultConnectionsProvisioningPort(),
+    internalToken: options.internalToken,
+    maxBodyBytes: options.maxBodyBytes ?? defaultMaxBodyBytes,
+  };
+
   return http.createServer((request, response) => {
     if (request.method !== "POST") {
       writeJson(response, 404, { error: "not_found" });
       return;
     }
 
-    void handleConnectionsRequest(request, response, options).catch((error) => {
+    void handleConnectionsRequest(request, response, resolvedOptions).catch((error) => {
       writeJson(response, 500, errorPayload(error));
     });
   });
