@@ -20,6 +20,13 @@ export interface WatcherOverflow {
 
 export type TaskCardTab = "overview" | "ai-run" | "evidence" | "quality";
 
+const taskCardTabDomIds: Readonly<Record<TaskCardTab, string>> = {
+  overview: "overview",
+  "ai-run": "airun",
+  evidence: "evidence",
+  quality: "quality",
+};
+
 export const taskCardTabs: readonly {
   readonly id: TaskCardTab;
   readonly label: string;
@@ -30,6 +37,10 @@ export const taskCardTabs: readonly {
   { id: "evidence", label: "Evidence & Files", deferredTo: null },
   { id: "quality", label: "Quality Review", deferredTo: null },
 ];
+
+export function taskCardTabDomId(tab: TaskCardTab): string {
+  return taskCardTabDomIds[tab];
+}
 
 const statusLabels: Readonly<Record<TaskDto["status"], string>> = {
   todo: "Backlog",
