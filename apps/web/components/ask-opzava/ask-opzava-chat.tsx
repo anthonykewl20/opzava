@@ -244,6 +244,12 @@ export function AskOpzavaChat({
     ) {
       router.refresh();
     }
+    if (event.type === "assistant.final") {
+      // The finalized turn is now persisted and reloaded via router.refresh();
+      // clear the draft to idle so it stops rendering a duplicate of the same
+      // final message below the persisted turn.
+      setDraft(emptyAskAdminDraft());
+    }
   };
 
   const sendPrompt = async (rawPrompt: string) => {

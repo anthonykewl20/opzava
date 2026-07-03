@@ -141,7 +141,11 @@ export async function* pollTaskCardActivityEvents(
 
     const next = await loadTaskCardActivitySnapshot(context, cardId, dependencies);
     if (!next.ok) {
-      throw next.error;
+      // A transient snapshot error (momentary DB blip, brief authz race) must
+      // NOT terminate the live stream — that would wipe the already-loaded
+      // AI-Run trace and latch a false "assistant run failed". Skip this tick
+      // and keep the last-known state; the next poll self-heals on recovery.
+      continue;
     }
 
     for (const event of diffTaskCardActivitySnapshots(previous, next.value)) {

@@ -137,10 +137,7 @@ export function issueAssigneeView(
     return { label: "Unassigned", kind: "unassigned" };
   }
 
-  if (
-    assignee.toLowerCase() === currentUserName.toLowerCase() ||
-    assignee.toLowerCase() === "anthony"
-  ) {
+  if (assignee.toLowerCase() === currentUserName.toLowerCase()) {
     return { label: "You", kind: "current-user" };
   }
 
