@@ -1,5 +1,7 @@
 import type {
   CardDetailDto,
+  EnqueueIssueCloseInput,
+  IssueCloseOutboxDto,
   TaskCommentDto,
   TaskDto,
   TaskPriority,
@@ -7,7 +9,9 @@ import type {
 } from "@opzava/project-management";
 import {
   addComment,
+  enqueueIssueCloseForTask,
   getCardDetail,
+  issueRefFromTask,
   listTasks,
   markCommentsRead,
   moveTask,
@@ -50,6 +54,7 @@ export type LinkedIssueCloseIntent =
       readonly taskId: string;
       readonly cardNumber: number;
       readonly targetRef: string;
+      readonly outbox: IssueCloseOutboxDto | null;
     };
 
 export interface MarkDoneResult {
@@ -115,6 +120,7 @@ export interface TaskCardActionDependencies {
   readonly moveTask: typeof moveTask;
   readonly toggleStep: typeof toggleStep;
   readonly updateTask: typeof updateTask;
+  readonly enqueueIssueCloseForTask?: typeof enqueueIssueCloseForTask;
   readonly revalidateTaskPaths?: (task: { readonly cardNumber?: number }) => void;
 }
 
@@ -137,6 +143,7 @@ export const defaultTaskCardActionDependencies: Omit<
   moveTask,
   toggleStep,
   updateTask,
+  enqueueIssueCloseForTask,
 };
 
 const taskPrioritySet = new Set<string>(taskPriorities);
@@ -357,10 +364,15 @@ export async function loadTaskCardPageData(
   });
 }
 
-export function markLinkedIssueForClose(task: TaskDto): LinkedIssueCloseIntent {
+export async function markLinkedIssueForClose(
+  task: TaskDto,
+  context: AppSessionContext,
+  dependencies: Pick<TaskCardActionDependencies, "enqueueIssueCloseForTask">,
+): Promise<LinkedIssueCloseIntent> {
   const targetRef = task.provenanceExternalRef;
+  const issueRef = issueRefFromTask(task);
 
-  if (targetRef === null || !/^github:/i.test(targetRef)) {
+  if (targetRef === null || issueRef === null) {
     return {
       kind: "no_linked_issue",
       taskId: task.id,
@@ -368,11 +380,20 @@ export function markLinkedIssueForClose(task: TaskDto): LinkedIssueCloseIntent {
     };
   }
 
+  const enqueue = dependencies.enqueueIssueCloseForTask ?? enqueueIssueCloseForTask;
+  const queued = await enqueue({
+    orgId: context.orgId,
+    workspaceId: context.workspaceId,
+    actor: actorFromSessionContext(context),
+    task,
+  } satisfies EnqueueIssueCloseInput);
+
   return {
     kind: "deferred_to_slice_2_5e",
     taskId: task.id,
     cardNumber: task.cardNumber,
     targetRef,
+    outbox: queued.ok ? queued.value : null,
   };
 }
 
@@ -441,7 +462,7 @@ export async function markTaskDoneForCard(
   dependencies.revalidateTaskPaths?.({ cardNumber: result.value.cardNumber });
   return ok({
     task: result.value,
-    linkedIssueCloseIntent: markLinkedIssueForClose(result.value),
+    linkedIssueCloseIntent: await markLinkedIssueForClose(result.value, context.value, dependencies),
   });
 }
 

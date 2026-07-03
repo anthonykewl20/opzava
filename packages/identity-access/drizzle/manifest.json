@@ -24,6 +24,10 @@
     {
       "path": "0005_slice25_link_tokens.sql",
       "sha256": "503371e34b03fafe1daf03e3b8c6643d3d38c7d2bb82da636d446906f765933f"
+    },
+    {
+      "path": "0006_slice25_issues.sql",
+      "sha256": "ecce7312092f51900e26508a0a86428e4434b46d4f862ca7ba1e60548e832f42"
     }
   ]
 }

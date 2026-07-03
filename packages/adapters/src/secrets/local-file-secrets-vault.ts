@@ -151,6 +151,25 @@ export class LocalFileSecretsVault implements SecretsVaultPort {
     });
   }
 
+  public async resolveSecretValue(input: ResolveSecretInput): Promise<Result<string>> {
+    const loaded = await this.readVault();
+    if (!loaded.ok) {
+      return loaded;
+    }
+
+    const secret = loaded.value.secrets[input.ref.id];
+    if (secret === undefined || secret.tenantId !== input.ref.tenantId) {
+      return err(
+        vaultError(
+          "adapters.localSecrets.notFound",
+          "Local dev secrets vault reference was not found.",
+        ),
+      );
+    }
+
+    return ok(secret.value);
+  }
+
   public async putSecret(input: PutLocalFileSecretInput): Promise<Result<SecretReference>> {
     if (input.value.length === 0) {
       return err(

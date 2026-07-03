@@ -2114,6 +2114,165 @@ hr {
   border-top: 3px solid var(--success);
 }
 
+.issues-page {
+  max-width: 1240px;
+}
+
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.u-wrap {
+  flex-wrap: wrap;
+}
+
+.issues-page-header {
+  align-items: center;
+  margin-bottom: 0;
+}
+
+.issues-header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.issues-section-label {
+  padding-left: 0;
+}
+
+.issues-pipeline {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+  overflow-x: auto;
+}
+
+.issues-pipeline-stage {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 150px;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.issues-pipeline-stage .stat {
+  flex: 1;
+}
+
+.issues-stat-attention {
+  border-left: 3px solid var(--accent);
+}
+
+.issues-stat-desc {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+}
+
+.issues-pipeline-arrow {
+  flex: none;
+  align-self: center;
+  font-size: var(--text-base);
+}
+
+.issues-card {
+  overflow: hidden;
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  overflow-x: auto;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.tab[aria-selected="true"] {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.issues-table td {
+  height: auto;
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-3);
+}
+
+.issues-title-link {
+  color: var(--fg);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
+  text-decoration: none;
+}
+
+.issues-title-link:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.issues-labels {
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.issue-assignee {
+  gap: 6px;
+}
+
+.issues-new-menu {
+  position: relative;
+}
+
+.issues-new-menu summary {
+  list-style: none;
+}
+
+.issues-new-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.issues-new-form {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  right: 0;
+  display: flex;
+  width: min(420px, 86vw);
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.card-footer {
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
 .task-card-detail-body {
   padding: var(--space-6);
 }

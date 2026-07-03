@@ -11,6 +11,7 @@ const operateItems: readonly {
   { label: "Overview", href: "/" },
   { label: "Agents", active: false, count: "0" },
   { label: "Tasks", href: "/tasks" },
+  { label: "Issues", href: "/issues" },
   { label: "Activity", active: false },
   { label: "Messages", active: false }
 ] as const;

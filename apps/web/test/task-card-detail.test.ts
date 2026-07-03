@@ -144,6 +144,7 @@ function actionDependencies(
         conversationId: "conversation-1",
         turns: [],
       }),
+    enqueueIssueCloseForTask: async () => ok(null),
     listTasks: async () =>
       ok([
         task({ id: "11111111-1111-4111-8111-111111111111", status: "in_progress", position: 2 }),
@@ -442,6 +443,7 @@ describe("Task card load and actions", () => {
       taskId: "11111111-1111-4111-8111-111111111111",
       cardNumber: 1042,
       targetRef: "github:opzava/opzava#42",
+      outbox: null,
     });
   });
 

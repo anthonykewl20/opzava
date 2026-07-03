@@ -1,5 +1,9 @@
 export { createPostgresDatabase, createPostgresPool, db, pool } from "./postgres/client.js";
 export {
+  GitHubIssueTrackerAdapter,
+  type GitHubIssueTrackerAdapterOptions,
+} from "./github/issues.js";
+export {
   assertCurrentUser,
   withAuthenticatedIdentity,
   type AuthenticatedIdentity,

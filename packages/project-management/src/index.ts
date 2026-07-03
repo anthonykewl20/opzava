@@ -36,6 +36,27 @@ export {
   toggleStep,
   updateTask
 } from "./application/index.js";
+export type {
+  CreateTrackedIssueInput,
+  EnqueueIssueCloseInput,
+  IssueApplicationDependencies,
+  IssueCloseOutboxDto,
+  IssueProjectionDto,
+  IssueProjectionState,
+  IssueTriageFilter,
+  ListIssueProjectionsInput,
+  ProcessIssueCloseOutboxInput,
+  SyncIssueProjectionInput,
+} from "./application/index.js";
+export {
+  createTrackedIssue,
+  enqueueIssueCloseForTask,
+  issueFilterFromLabels,
+  issueRefFromTask,
+  listIssueProjections,
+  processIssueCloseOutbox,
+  syncIssueProjection,
+} from "./application/index.js";
 export type { TaskPriority, TaskStatus } from "./domain/index.js";
 export { taskPriorities, taskStatuses } from "./domain/index.js";
 export type {

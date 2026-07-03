@@ -37,3 +37,24 @@ export {
   updateTask
 } from "./tasks.js";
 export { RoleKeyTaskAuthorizationPort, defaultTaskAuthorizationPort } from "./authorization.js";
+export type {
+  CreateTrackedIssueInput,
+  EnqueueIssueCloseInput,
+  IssueApplicationDependencies,
+  IssueCloseOutboxDto,
+  IssueProjectionDto,
+  IssueProjectionState,
+  IssueTriageFilter,
+  ListIssueProjectionsInput,
+  ProcessIssueCloseOutboxInput,
+  SyncIssueProjectionInput,
+} from "./issues.js";
+export {
+  createTrackedIssue,
+  enqueueIssueCloseForTask,
+  issueFilterFromLabels,
+  issueRefFromTask,
+  listIssueProjections,
+  processIssueCloseOutbox,
+  syncIssueProjection,
+} from "./issues.js";

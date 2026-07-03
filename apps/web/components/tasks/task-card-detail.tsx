@@ -154,6 +154,38 @@ function textFromActivityState(state: TaskCardAssistantActivityState): string | 
   return state === "idle" ? null : assistantActivityLabel(state);
 }
 
+function githubIssueLink(
+  value: string | null,
+): { readonly label: string; readonly href: string } | null {
+  if (value === null) {
+    return null;
+  }
+
+  const shortRef = /^github:([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#([1-9]\d*)$/i.exec(value);
+  if (shortRef !== null) {
+    const repository = shortRef[1];
+    const number = shortRef[2];
+    if (repository === undefined || number === undefined) {
+      return null;
+    }
+
+    return {
+      label: `#${number}`,
+      href: `https://github.com/${repository}/issues/${number}`,
+    };
+  }
+
+  const urlRef = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/issues\/([1-9]\d*)$/i.exec(
+    value,
+  );
+  if (urlRef !== null) {
+    const number = urlRef[1];
+    return number === undefined ? null : { label: `#${number}`, href: value };
+  }
+
+  return null;
+}
+
 function mentionTargets(
   currentUser: TaskCardDetailProps["currentUser"],
   watchers: CardDetailDto["watchers"],
@@ -398,6 +430,7 @@ export function TaskCardDetail({
   const aiProjection = taskCardAiRunProjectionFromState({ runs }, tickerNow);
   const assignedName = task.assigneeName ?? "Unassigned";
   const assignedIsAssistant = isAssistantAssignee(task);
+  const linkedIssue = githubIssueLink(task.provenanceExternalRef);
   const provenance = `${relativeTimeLabel(task.createdAt)} from ${task.provenanceSource}`;
   const assistantActivityText = textFromActivityState(assistantState);
 
@@ -793,6 +826,22 @@ export function TaskCardDetail({
                     <span className="task-card-mini-avatar">+{watchers.overflowCount}</span>
                   )}
                 </span>
+              )}
+            </div>
+
+            <div className="task-card-meta">
+              <b>Issue</b>
+              {linkedIssue === null ? (
+                <span className="u-subtle">No GitHub issue</span>
+              ) : (
+                <a
+                  className="sb-badge sb-badge--outline"
+                  href={linkedIssue.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {linkedIssue.label}
+                </a>
               )}
             </div>
           </div>
