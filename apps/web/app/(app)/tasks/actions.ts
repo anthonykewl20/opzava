@@ -24,7 +24,8 @@ const createTaskSchema = z.object({
   status: taskStatusSchema.default("todo"),
   priority: taskPrioritySchema.default("normal"),
   assignee: z.string().optional(),
-  labels: z.string().optional()
+  labels: z.string().optional(),
+  idempotencyKey: z.string().trim().min(1).max(160).optional()
 });
 
 const updateTaskSchema = z.object({
@@ -122,7 +123,8 @@ export async function createTaskAction(formData: FormData): Promise<void> {
     status: stringFromForm(formData, "status"),
     priority: stringFromForm(formData, "priority"),
     assignee: stringFromForm(formData, "assignee"),
-    labels: stringFromForm(formData, "labels")
+    labels: stringFromForm(formData, "labels"),
+    idempotencyKey: stringFromForm(formData, "idempotencyKey") || undefined
   });
 
   if (!parsed.success) {
@@ -138,7 +140,10 @@ export async function createTaskAction(formData: FormData): Promise<void> {
     status: parsed.data.status as TaskStatus,
     priority: parsed.data.priority as TaskPriority,
     assigneeUserId: assigneeFromForm(parsed.data.assignee, context),
-    labels: labelsFromForm(parsed.data.labels)
+    labels: labelsFromForm(parsed.data.labels),
+    ...(parsed.data.idempotencyKey === undefined
+      ? {}
+      : { idempotencyKey: parsed.data.idempotencyKey })
   });
 
   if (!result.ok) {

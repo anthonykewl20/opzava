@@ -16,6 +16,38 @@
     {
       "path": "0003_slice2_runtime_control.sql",
       "sha256": "ddd90dc21bfd272cf1afd8406823ae48be9621dc6a425aedc097fd1dc9a48bed"
+    },
+    {
+      "path": "0004_slice25_card.sql",
+      "sha256": "0144991fbeddaf0fedc8a30dc37dedd9552cc4222aa91ab565df071bafa3e8a8"
+    },
+    {
+      "path": "0005_slice25_link_tokens.sql",
+      "sha256": "503371e34b03fafe1daf03e3b8c6643d3d38c7d2bb82da636d446906f765933f"
+    },
+    {
+      "path": "0006_slice25_issues.sql",
+      "sha256": "ecce7312092f51900e26508a0a86428e4434b46d4f862ca7ba1e60548e832f42"
+    },
+    {
+      "path": "0007_slice25_evidence_quality.sql",
+      "sha256": "5f009f0a11a57d3baef2be68a931c56dd5220f1ec5c2d117c4baf5115a6ea071"
+    },
+    {
+      "path": "0008_slice25_issue_outbox_hardening.sql",
+      "sha256": "3f984b22c04ef3a30f43dad91f9c29c8ccdf9a2fd754e33d09b796fa66ac94b5"
+    },
+    {
+      "path": "0009_slice25_outbox_claim_token.sql",
+      "sha256": "09bad549354a16bf6eeb041f5ca073c68e2f9942b9da341e0ce5c974e55d078f"
+    },
+    {
+      "path": "0010_slice25_mutation_idempotency.sql",
+      "sha256": "57ddf11abd8121d1e7ec41d81870f5e9cbfe9c01ada11bb4b6a109b3bc6a430a"
+    },
+    {
+      "path": "0011_slice25_drop_position_unique.sql",
+      "sha256": "426a3d84e630d1fc57eebc5994ff2b8b9e63d5867a41a292c6fe1eda592f29c7"
     }
   ]
 }

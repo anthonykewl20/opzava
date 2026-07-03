@@ -36,6 +36,8 @@ export interface PutLocalFileSecretInput {
   readonly version?: string;
 }
 
+export type DeleteLocalFileSecretInput = GetSecretRefInput;
+
 export interface LocalFileSecretsVaultOptions {
   readonly filePath: string;
   readonly now?: () => Date;
@@ -151,6 +153,25 @@ export class LocalFileSecretsVault implements SecretsVaultPort {
     });
   }
 
+  public async resolveSecretValue(input: ResolveSecretInput): Promise<Result<string>> {
+    const loaded = await this.readVault();
+    if (!loaded.ok) {
+      return loaded;
+    }
+
+    const secret = loaded.value.secrets[input.ref.id];
+    if (secret === undefined || secret.tenantId !== input.ref.tenantId) {
+      return err(
+        vaultError(
+          "adapters.localSecrets.notFound",
+          "Local dev secrets vault reference was not found.",
+        ),
+      );
+    }
+
+    return ok(secret.value);
+  }
+
   public async putSecret(input: PutLocalFileSecretInput): Promise<Result<SecretReference>> {
     if (input.value.length === 0) {
       return err(
@@ -190,6 +211,22 @@ export class LocalFileSecretsVault implements SecretsVaultPort {
     }
 
     return ok(ref);
+  }
+
+  public async deleteSecret(input: DeleteLocalFileSecretInput): Promise<Result<void>> {
+    const loaded = await this.readVault();
+    if (!loaded.ok) {
+      return loaded;
+    }
+
+    const ref = expectedLocalFileSecretReference(input);
+    const nextSecrets = { ...loaded.value.secrets };
+    delete nextSecrets[ref.id];
+
+    return this.writeVault({
+      version: 1,
+      secrets: nextSecrets,
+    });
   }
 
   private async readVault(): Promise<Result<StoredVaultFile>> {

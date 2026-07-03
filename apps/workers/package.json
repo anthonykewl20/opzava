@@ -11,6 +11,8 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "bootstrap:platform-gateway": "tsx src/provisioning/bootstrap-platform-gateway.ts",
+    "issue:mcp-link-token": "tsx src/link-tokens/issue-mcp-link-token.ts",
+    "issue:close-outbox": "tsx src/issues/process-close-outbox.ts",
     "seed:roadmap": "tsx src/seed/roadmap.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",

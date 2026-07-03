@@ -1,5 +1,17 @@
 export { createPostgresDatabase, createPostgresPool, db, pool } from "./postgres/client.js";
 export {
+  GitHubIssueTrackerAdapter,
+  type GitHubIssueTrackerAdapterOptions,
+} from "./github/issues.js";
+export {
+  InMemoryObjectStore,
+  type InMemoryObjectStoreOptions,
+} from "./object-store/in-memory-object-store.js";
+export {
+  S3ObjectStoreAdapter,
+  type S3ObjectStoreAdapterOptions,
+} from "./object-store/s3-object-store.js";
+export {
   assertCurrentUser,
   withAuthenticatedIdentity,
   type AuthenticatedIdentity,
@@ -32,6 +44,7 @@ export { sql } from "drizzle-orm";
 export {
   expectedLocalFileSecretReference,
   LocalFileSecretsVault,
+  type DeleteLocalFileSecretInput,
   type LocalFileSecretsVaultOptions,
   type PutLocalFileSecretInput,
 } from "./secrets/local-file-secrets-vault.js";

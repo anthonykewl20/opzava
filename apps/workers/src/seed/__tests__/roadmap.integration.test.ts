@@ -1,10 +1,12 @@
 import { createPostgresPool, db, pool, sql } from "@opzava/adapters";
 import { listTasks } from "@opzava/project-management";
+import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { roadmapTaskTitles, seedRoadmapTasks, type SeedRoadmapTasksReceipt } from "../roadmap.js";
 
 const adminPool = createPostgresPool(readMigrationDatabaseUrlForTest());
+const testRunId = randomUUID();
 
 let lastReceipt: SeedRoadmapTasksReceipt | undefined;
 let cleanupFirstOwner = false;
@@ -37,6 +39,18 @@ async function adminCountFirstOwnerSetups(): Promise<number> {
     "select count(*)::int as count from public.first_owner_setup",
   );
   return Number(result.rows[0]?.["count"] ?? 0);
+}
+
+function seedEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    SEED_OWNER_NAME: "Roadmap Seed Owner",
+    SEED_OWNER_EMAIL: `roadmap-seed-${testRunId}@example.test`,
+    SEED_OWNER_PASSWORD: "Correct-Horse-Battery-Staple-1",
+    SEED_ORG_NAME: `Roadmap Seed ${testRunId}`,
+    SEED_WORKSPACE_NAME: "Admin",
+    SEED_TIMEZONE: "Asia/Manila",
+  };
 }
 
 async function cleanupCreatedRows(receipt: SeedRoadmapTasksReceipt): Promise<void> {
@@ -74,6 +88,10 @@ async function cleanupCreatedRows(receipt: SeedRoadmapTasksReceipt): Promise<voi
 }
 
 beforeAll(async () => {
+  await adminPool.query(
+    "select pg_advisory_lock(hashtext('opzava:first-owner-setup:test-fixture'))",
+  );
+
   const result = await db.execute(sql`
     select current_user as session_role, rolsuper as is_super, rolbypassrls as bypass_rls
     from pg_roles
@@ -101,6 +119,9 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
+  await adminPool.query(
+    "select pg_advisory_unlock(hashtext('opzava:first-owner-setup:test-fixture'))",
+  );
   await pool.end();
   await adminPool.end();
 });
@@ -124,7 +145,8 @@ describe("roadmap task seed", () => {
       );
     }
 
-    const first = await seedRoadmapTasks({ logger: null });
+    const env = seedEnv();
+    const first = await seedRoadmapTasks({ env, logger: null });
     lastReceipt = first;
 
     expect(first.roadmapTitles).toEqual([
@@ -151,7 +173,7 @@ describe("roadmap task seed", () => {
     expect(first.createdCount).toBe(first.totalCount);
     expect(first.skippedCount).toBe(0);
 
-    const second = await seedRoadmapTasks({ logger: null });
+    const second = await seedRoadmapTasks({ env, logger: null });
     expect(second.organizationId).toBe(first.organizationId);
     expect(second.workspaceId).toBe(first.workspaceId);
     expect(second.ownerUserId).toBe(first.ownerUserId);

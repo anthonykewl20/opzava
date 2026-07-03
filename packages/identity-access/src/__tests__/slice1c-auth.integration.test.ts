@@ -3,7 +3,7 @@ import {
   db,
   mapDatabaseError,
   pool,
-  withAuthenticatedIdentity
+  withAuthenticatedIdentity,
 } from "@opzava/adapters";
 import { makeOrgId } from "@opzava/shared-kernel";
 import { sql } from "drizzle-orm";
@@ -69,12 +69,12 @@ const setupEmails = [ownerEmail, secondSetupEmail];
 const setupAttemptIds = [
   failedSetupIdempotencyKey,
   createdSetupIdempotencyKey,
-  secondSetupIdempotencyKey
+  secondSetupIdempotencyKey,
 ];
 const setupOrganizationSlugs = [
   setupOrganizationSlug("Opzava Internal", failedSetupIdempotencyKey),
   setupOrganizationSlug("Opzava Internal", createdSetupIdempotencyKey),
-  setupOrganizationSlug("Second Org", secondSetupIdempotencyKey)
+  setupOrganizationSlug("Second Org", secondSetupIdempotencyKey),
 ];
 
 async function adminCount(table: string): Promise<number> {
@@ -86,7 +86,7 @@ async function adminCount(table: string): Promise<number> {
     "workspaces",
     "memberships",
     "role_grants",
-    "first_owner_setup"
+    "first_owner_setup",
   ]);
 
   if (!allowedTables.has(table)) {
@@ -96,53 +96,53 @@ async function adminCount(table: string): Promise<number> {
   const countQueries: Record<string, { readonly text: string; readonly values: unknown[] }> = {
     auth_users: {
       text: "select count(*)::int as count from public.auth_users where email = any($1::text[])",
-      values: [setupEmails]
+      values: [setupEmails],
     },
     auth_accounts: {
       text: `select count(*)::int as count
              from public.auth_accounts a
              join public.auth_users u on u.id = a.user_id
              where u.email = any($1::text[])`,
-      values: [setupEmails]
+      values: [setupEmails],
     },
     auth_sessions: {
       text: `select count(*)::int as count
              from public.auth_sessions s
              join public.auth_users u on u.id = s.user_id
              where u.email = any($1::text[])`,
-      values: [setupEmails]
+      values: [setupEmails],
     },
     organizations: {
       text: "select count(*)::int as count from public.organizations where slug = any($1::text[])",
-      values: [setupOrganizationSlugs]
+      values: [setupOrganizationSlugs],
     },
     workspaces: {
       text: `select count(*)::int as count
              from public.workspaces w
              join public.organizations o on o.id = w.organization_id
              where o.slug = any($1::text[])`,
-      values: [setupOrganizationSlugs]
+      values: [setupOrganizationSlugs],
     },
     memberships: {
       text: `select count(*)::int as count
              from public.memberships m
              join public.organizations o on o.id = m.organization_id
              where o.slug = any($1::text[])`,
-      values: [setupOrganizationSlugs]
+      values: [setupOrganizationSlugs],
     },
     role_grants: {
       text: `select count(*)::int as count
              from public.role_grants r
              join public.organizations o on o.id = r.organization_id
              where o.slug = any($1::text[])`,
-      values: [setupOrganizationSlugs]
+      values: [setupOrganizationSlugs],
     },
     first_owner_setup: {
       text: `select count(*)::int as count
              from public.first_owner_setup
              where setup_attempt_id = any($1::text[])`,
-      values: [setupAttemptIds]
-    }
+      values: [setupAttemptIds],
+    },
   };
 
   const query = countQueries[table];
@@ -164,17 +164,17 @@ async function adminCreateOtherOrganizationMember(): Promise<{
   await adminPool.query(
     `insert into public.organizations (id, slug, name, lifecycle_state)
      values ($1, $2, $3, 'active')`,
-    [organizationId, `slice1c-other-${testRunId}`, "Slice 1c Other"]
+    [organizationId, `slice1c-other-${testRunId}`, "Slice 1c Other"],
   );
   await adminPool.query(
     `insert into public.auth_users (id, name, email, email_verified)
      values ($1, 'Other User', $2, true)`,
-    [userId, otherEmail]
+    [userId, otherEmail],
   );
   await adminPool.query(
     `insert into public.memberships (organization_id, user_id, status, membership_version)
      values ($1, $2, 'active', 1)`,
-    [organizationId, userId]
+    [organizationId, userId],
   );
 
   createdOrganizationIds.push(organizationId);
@@ -189,30 +189,30 @@ async function cleanupCreatedRows(): Promise<void> {
   if (organizationIds.length > 0) {
     await adminPool.query(
       "delete from public.first_owner_setup where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query(
       "delete from public.role_grants where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query(
       "delete from public.memberships where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query("delete from public.workspaces where organization_id = any($1::uuid[])", [
-      organizationIds
+      organizationIds,
     ]);
     await adminPool.query("delete from public.organizations where id = any($1::uuid[])", [
-      organizationIds
+      organizationIds,
     ]);
   }
 
   if (userIds.length > 0) {
     await adminPool.query("delete from public.auth_sessions where user_id = any($1::text[])", [
-      userIds
+      userIds,
     ]);
     await adminPool.query("delete from public.auth_accounts where user_id = any($1::text[])", [
-      userIds
+      userIds,
     ]);
     await adminPool.query("delete from public.auth_users where id = any($1::text[])", [userIds]);
   }
@@ -228,6 +228,10 @@ async function cleanupCreatedRows(): Promise<void> {
 let parkedFirstOwnerSetup: Record<string, unknown> | null = null;
 
 beforeAll(async () => {
+  await adminPool.query(
+    "select pg_advisory_lock(hashtext('opzava:first-owner-setup:test-fixture'))",
+  );
+
   const result = await db.execute(sql`
     select current_user as session_role, rolsuper as is_super, rolbypassrls as bypass_rls
     from pg_roles
@@ -240,14 +244,12 @@ beforeAll(async () => {
     row?.["bypass_rls"] === true
   ) {
     throw new Error(
-      `Slice 1c auth integration test must run as non-owner opzava_app; got ${JSON.stringify(
-        row
-      )}`
+      `Slice 1c auth integration test must run as non-owner opzava_app; got ${JSON.stringify(row)}`,
     );
   }
 
   const existing = await adminPool.query(
-    "select setup_attempt_id, organization_id, owner_user_id, completed_at from public.first_owner_setup"
+    "select setup_attempt_id, organization_id, owner_user_id, completed_at from public.first_owner_setup",
   );
   parkedFirstOwnerSetup = (existing.rows[0] as Record<string, unknown> | undefined) ?? null;
   await adminPool.query("delete from public.first_owner_setup");
@@ -268,10 +270,13 @@ afterAll(async () => {
         parkedFirstOwnerSetup["setup_attempt_id"],
         parkedFirstOwnerSetup["organization_id"],
         parkedFirstOwnerSetup["owner_user_id"],
-        parkedFirstOwnerSetup["completed_at"]
-      ]
+        parkedFirstOwnerSetup["completed_at"],
+      ],
     );
   }
+  await adminPool.query(
+    "select pg_advisory_unlock(hashtext('opzava:first-owner-setup:test-fixture'))",
+  );
   await pool.end();
   await adminPool.end();
 });
@@ -287,7 +292,7 @@ describe("slice 1c auth acceptance", () => {
         if (point === "after-auth-user-insert") {
           throw new Error("forced setup rollback");
         }
-      }
+      },
     });
 
     const failed = await failingSetup.setup({
@@ -297,7 +302,7 @@ describe("slice 1c auth acceptance", () => {
       organizationName: "Opzava Internal",
       workspaceName: "Admin",
       timezone: "Asia/Manila",
-      idempotencyKey: failedSetupIdempotencyKey
+      idempotencyKey: failedSetupIdempotencyKey,
     });
 
     expect(failed.ok).toBe(false);
@@ -317,7 +322,7 @@ describe("slice 1c auth acceptance", () => {
       organizationName: "Opzava Internal",
       workspaceName: "Admin",
       timezone: "Asia/Manila",
-      idempotencyKey: createdSetupIdempotencyKey
+      idempotencyKey: createdSetupIdempotencyKey,
     });
 
     expect(created.ok).toBe(true);
@@ -348,7 +353,7 @@ describe("slice 1c auth acceptance", () => {
       organizationName: "Second Org",
       workspaceName: "Second Workspace",
       timezone: "Asia/Manila",
-      idempotencyKey: secondSetupIdempotencyKey
+      idempotencyKey: secondSetupIdempotencyKey,
     });
 
     expect(second).toMatchObject({ ok: true, value: { status: "already-set-up" } });
@@ -381,7 +386,7 @@ describe("slice 1c auth acceptance", () => {
 
     const other = await adminCreateOtherOrganizationMember();
     await expect(
-      withTenantForSession(resolved.value, makeOrgId(other.organizationId), async () => undefined)
+      withTenantForSession(resolved.value, makeOrgId(other.organizationId), async () => undefined),
     ).rejects.toMatchObject({ status: 403 });
 
     await expect(
@@ -394,7 +399,7 @@ describe("slice 1c auth acceptance", () => {
         } catch (error) {
           throw mapDatabaseError(error);
         }
-      })()
+      })(),
     ).rejects.toMatchObject({ status: 403 });
 
     const noIdentityOrganizations = await db.execute(sql`
@@ -415,7 +420,7 @@ describe("slice 1c auth acceptance", () => {
           order by o.id
         `);
         return rowsFromExecuteResult(result).map((row) => String(row["id"]));
-      }
+      },
     );
     expect(identityOrganizations).toEqual([activeOrgId]);
 
@@ -428,7 +433,7 @@ describe("slice 1c auth acceptance", () => {
 
     const revoked = await authPort.revokeSession({
       actorUserId: session.identity.userId,
-      sessionToken: session.sessionToken
+      sessionToken: session.sessionToken,
     });
     expect(revoked.ok).toBe(true);
     const revokedSession = await authPort.getSession({ sessionToken: session.sessionToken });
@@ -436,7 +441,7 @@ describe("slice 1c auth acceptance", () => {
 
     const signedInAgain = await authPort.signIn({
       email: ownerEmail,
-      password: ownerPassword
+      password: ownerPassword,
     });
     expect(signedInAgain.ok).toBe(true);
     if (!signedInAgain.ok || "challengeId" in signedInAgain.value) {
@@ -444,11 +449,11 @@ describe("slice 1c auth acceptance", () => {
     }
 
     const loggedOut = await authPort.logoutAll({
-      userId: signedInAgain.value.identity.userId
+      userId: signedInAgain.value.identity.userId,
     });
     expect(loggedOut.ok).toBe(true);
     const afterLogoutAll = await authPort.getSession({
-      sessionToken: signedInAgain.value.sessionToken
+      sessionToken: signedInAgain.value.sessionToken,
     });
     expect(afterLogoutAll).toMatchObject({ ok: true, value: null });
   });

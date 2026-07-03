@@ -2,16 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import {
-  createTaskAction,
-  moveTaskAction,
-  updateTaskAction
-} from "@/app/(app)/tasks/actions";
-import {
-  AskAdminPanel,
-  type AskAdminPanelProps
-} from "@/components/tasks/ask-admin-panel";
-import type { AskAdminClientStreamEvent } from "@/lib/ask-admin-stream";
+import { createTaskAction, moveTaskAction, updateTaskAction } from "@/app/(app)/tasks/actions";
+import { formatCardId } from "@/lib/task-card-format";
 import type { TaskDto, TaskPriority, TaskStatus } from "@opzava/project-management";
 
 interface TasksBoardProps {
@@ -21,7 +13,6 @@ interface TasksBoardProps {
     readonly name: string;
   };
   readonly workspaceName: string;
-  readonly askAdmin: Pick<AskAdminPanelProps, "conversationId" | "initialTurns">;
 }
 
 type BoardView = "kanban" | "list";
@@ -37,29 +28,29 @@ const statusColumns: readonly {
     status: "in_progress",
     title: "In progress",
     shortTitle: "Progress",
-    badgeClassName: "badge-accent"
+    badgeClassName: "badge-accent",
   },
   {
     status: "blocked",
     title: "Blocked",
     shortTitle: "Blocked",
-    badgeClassName: "badge-warning"
+    badgeClassName: "badge-warning",
   },
-  { status: "done", title: "Done", shortTitle: "Done", badgeClassName: "badge-success" }
+  { status: "done", title: "Done", shortTitle: "Done", badgeClassName: "badge-success" },
 ];
 
 const priorityLabels: Record<TaskPriority, string> = {
   low: "Low",
   normal: "Normal",
   high: "High",
-  urgent: "Urgent"
+  urgent: "Urgent",
 };
 
 const statusLabels: Record<TaskStatus, string> = {
   todo: "Backlog",
   in_progress: "In progress",
   blocked: "Blocked",
-  done: "Done"
+  done: "Done",
 };
 
 function initials(name: string | null): string {
@@ -87,7 +78,7 @@ function formatUpdatedAt(value: string): string {
     month: "short",
     day: "numeric",
     hour: "numeric",
-    minute: "2-digit"
+    minute: "2-digit",
   }).format(date);
 }
 
@@ -107,32 +98,11 @@ function priorityBadgeClassName(priority: TaskPriority): string {
   return "badge badge-accent";
 }
 
-function isTaskDto(value: unknown): value is TaskDto {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { readonly id?: unknown }).id === "string" &&
-    typeof (value as { readonly title?: unknown }).title === "string" &&
-    typeof (value as { readonly status?: unknown }).status === "string" &&
-    typeof (value as { readonly priority?: unknown }).priority === "string" &&
-    typeof (value as { readonly position?: unknown }).position === "number"
-  );
-}
-
-function upsertTask(tasks: readonly TaskDto[], task: TaskDto): readonly TaskDto[] {
-  const existingIndex = tasks.findIndex((current) => current.id === task.id);
-  if (existingIndex === -1) {
-    return [...tasks, task];
-  }
-
-  return tasks.map((current) => (current.id === task.id ? task : current));
-}
-
 function TaskForm({
   mode,
   task,
   currentUser,
-  onClose
+  onClose,
 }: {
   readonly mode: "create" | "edit";
   readonly task?: TaskDto;
@@ -286,7 +256,7 @@ function MoveTaskButton({
   task,
   targetStatus,
   targetTitle,
-  position
+  position,
 }: {
   readonly task: TaskDto;
   readonly targetStatus: TaskStatus;
@@ -311,19 +281,24 @@ function MoveTaskButton({
 
 function TaskCard({
   task,
+  workspaceName,
   nextPositions,
-  onEdit
+  onEdit,
 }: {
   readonly task: TaskDto;
+  readonly workspaceName: string;
   readonly nextPositions: Readonly<Record<TaskStatus, number>>;
   readonly onEdit: (task: TaskDto) => void;
 }) {
   const assigneeName = task.assigneeName ?? "Unassigned";
+  const cardId = formatCardId(workspaceName, task.cardNumber);
 
   return (
     <article className="card task-card" aria-label={`Task: ${task.title}`}>
       <div className="task-card-main">
-        <p className="task-card-title">{task.title}</p>
+        <a className="task-card-title task-card-title-link" href={`/tasks/${cardId.routeSegment}`}>
+          {task.title}
+        </a>
         {task.description.trim() === "" ? null : (
           <p className="task-card-desc">{task.description}</p>
         )}
@@ -334,7 +309,9 @@ function TaskCard({
           {initials(assigneeName)}
         </span>
         <span className="u-subtle task-assignee">{assigneeName}</span>
-        <span className={priorityBadgeClassName(task.priority)}>{priorityLabels[task.priority]}</span>
+        <span className={priorityBadgeClassName(task.priority)}>
+          {priorityLabels[task.priority]}
+        </span>
       </div>
 
       {task.labels.length === 0 ? null : (
@@ -348,7 +325,9 @@ function TaskCard({
       )}
 
       <div className="task-card-footer">
-        <span className="u-subtle">Updated {formatUpdatedAt(task.updatedAt)}</span>
+        <span className="u-subtle">
+          {cardId.cardId} · Updated {formatUpdatedAt(task.updatedAt)}
+        </span>
         <button
           className="btn btn-ghost btn-sm"
           type="button"
@@ -378,10 +357,12 @@ function TaskCard({
 
 function KanbanView({
   tasks,
+  workspaceName,
   nextPositions,
-  onEdit
+  onEdit,
 }: {
   readonly tasks: readonly TaskDto[];
+  readonly workspaceName: string;
   readonly nextPositions: Readonly<Record<TaskStatus, number>>;
   readonly onEdit: (task: TaskDto) => void;
 }) {
@@ -413,13 +394,16 @@ function KanbanView({
               {columnTasks.length === 0 ? (
                 <div className="task-empty">
                   <p className="empty-title">No tasks here</p>
-                  <p className="empty-desc">Move or create a task in {column.title.toLowerCase()}.</p>
+                  <p className="empty-desc">
+                    Move or create a task in {column.title.toLowerCase()}.
+                  </p>
                 </div>
               ) : (
                 columnTasks.map((task) => (
                   <TaskCard
                     key={task.id}
                     task={task}
+                    workspaceName={workspaceName}
                     nextPositions={nextPositions}
                     onEdit={onEdit}
                   />
@@ -435,10 +419,12 @@ function KanbanView({
 
 function ListView({
   tasks,
+  workspaceName,
   nextPositions,
-  onEdit
+  onEdit,
 }: {
   readonly tasks: readonly TaskDto[];
+  readonly workspaceName: string;
   readonly nextPositions: Readonly<Record<TaskStatus, number>>;
   readonly onEdit: (task: TaskDto) => void;
 }) {
@@ -469,7 +455,10 @@ function ListView({
             <tr key={task.id}>
               <td data-label="Task">
                 <div>
-                  <strong>{task.title}</strong>
+                  <a href={`/tasks/${formatCardId(workspaceName, task.cardNumber).routeSegment}`}>
+                    <strong>{task.title}</strong>
+                  </a>
+                  <p className="u-subtle">{formatCardId(workspaceName, task.cardNumber).cardId}</p>
                   {task.description.trim() === "" ? null : (
                     <p className="u-muted">{task.description}</p>
                   )}
@@ -523,7 +512,7 @@ function ListView({
   );
 }
 
-export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: TasksBoardProps) {
+export function TasksBoard({ tasks, currentUser, workspaceName }: TasksBoardProps) {
   const [boardTasks, setBoardTasks] = useState<readonly TaskDto[]>(tasks);
   const [view, setView] = useState<BoardView>("kanban");
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
@@ -542,7 +531,7 @@ export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: Task
         accumulator[column.status] = currentMax + 1;
         return accumulator;
       },
-      { todo: 1, in_progress: 1, blocked: 1, done: 1 }
+      { todo: 1, in_progress: 1, blocked: 1, done: 1 },
     );
   }, [boardTasks]);
 
@@ -559,19 +548,6 @@ export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: Task
   const closeForm = () => {
     setFormMode(null);
     setEditingTask(undefined);
-  };
-
-  const applyTaskToolSucceeded = (
-    event: Extract<AskAdminClientStreamEvent, { readonly type: "tool.succeeded" }>
-  ) => {
-    const outputKind = event.output["kind"];
-    const outputTask = event.output["task"];
-    if (
-      (outputKind === "tasks.create" || outputKind === "tasks.update") &&
-      isTaskDto(outputTask)
-    ) {
-      setBoardTasks((current) => upsertTask(current, outputTask));
-    }
   };
 
   return (
@@ -620,21 +596,22 @@ export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: Task
         </div>
       </section>
 
-      <div className="tasks-workspace">
-        <div className="tasks-board-area">
-          {view === "kanban" ? (
-            <KanbanView tasks={boardTasks} nextPositions={nextPositions} onEdit={openEditForm} />
-          ) : (
-            <ListView tasks={boardTasks} nextPositions={nextPositions} onEdit={openEditForm} />
-          )}
-        </div>
-
-        <AskAdminPanel
-          conversationId={askAdmin.conversationId}
-          initialTurns={askAdmin.initialTurns}
-          currentUserName={currentUser.name}
-          onToolSucceeded={applyTaskToolSucceeded}
-        />
+      <div className="tasks-board-area">
+        {view === "kanban" ? (
+          <KanbanView
+            tasks={boardTasks}
+            workspaceName={workspaceName}
+            nextPositions={nextPositions}
+            onEdit={openEditForm}
+          />
+        ) : (
+          <ListView
+            tasks={boardTasks}
+            workspaceName={workspaceName}
+            nextPositions={nextPositions}
+            onEdit={openEditForm}
+          />
+        )}
       </div>
 
       {formMode === "create" ? (

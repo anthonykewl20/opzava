@@ -2,28 +2,34 @@
 
 import { usePathname } from "next/navigation";
 
-const operateItems: readonly {
+interface NavItem {
   readonly label: string;
   readonly href?: string;
   readonly active?: boolean;
   readonly count?: string;
-}[] = [
+}
+
+const operateItems: readonly NavItem[] = [
   { label: "Overview", href: "/" },
   { label: "Agents", active: false, count: "0" },
   { label: "Tasks", href: "/tasks" },
+  { label: "Issues", href: "/issues" },
   { label: "Activity", active: false },
-  { label: "Messages", active: false }
+  { label: "Messages", active: false },
 ] as const;
 
 const observeItems = ["Monitoring", "Logs", "Costs"] as const;
-const automateItems = ["Connections", "Automation"] as const;
+const automateItems: readonly NavItem[] = [
+  { label: "Connections", href: "/connections" },
+  { label: "Automation", active: false },
+] as const;
 const governItems = ["Security & Audit", "Memory & Skills", "Alerts", "Settings"] as const;
 
 function RailItem({
   label,
   href,
   active,
-  count
+  count,
 }: {
   readonly label: string;
   readonly href?: string;
@@ -58,17 +64,35 @@ function RailItem({
 
 function RailSection({
   label,
-  items
+  items,
+  pathname,
 }: {
   readonly label: string;
-  readonly items: readonly string[];
+  readonly items: readonly (string | NavItem)[];
+  readonly pathname: string;
 }) {
   return (
     <>
       <div className="section-label">{label}</div>
-      {items.map((item) => (
-        <RailItem key={item} label={item} />
-      ))}
+      {items.map((item) =>
+        typeof item === "string" ? (
+          <RailItem key={item} label={item} />
+        ) : (
+          <RailItem
+            key={item.label}
+            {...item}
+            {...(() => {
+              const active =
+                item.href === undefined
+                  ? item.active
+                  : item.href === "/"
+                    ? pathname === "/"
+                    : pathname.startsWith(item.href);
+              return active === undefined ? {} : { active };
+            })()}
+          />
+        ),
+      )}
     </>
   );
 }
@@ -87,7 +111,7 @@ export function AdminNav() {
             justifyContent: "center",
             background: "var(--accent)",
             color: "var(--accent-fg)",
-            fontWeight: "var(--fw-semibold)"
+            fontWeight: "var(--fw-semibold)",
           }}
           aria-hidden="true"
         >
@@ -102,13 +126,11 @@ export function AdminNav() {
       </div>
 
       <nav className="rail-nav" aria-label="Application sections">
-        <span className="rail-item" aria-disabled="true" style={{ marginBottom: 4 }}>
-          <span className="ico u-accent" aria-hidden="true">
-            ◆
-          </span>
-          Ask Opzava
-          <span className="dot dot-warning" style={{ marginLeft: "auto" }} aria-label="No active tasks yet" />
-        </span>
+        <RailItem
+          label="Ask Opzava"
+          href="/ask-opzava"
+          active={pathname.startsWith("/ask-opzava")}
+        />
 
         <div className="section-label">Operate</div>
         {operateItems.map((item) => (
@@ -131,13 +153,18 @@ export function AdminNav() {
           Admin workspace
         </span>
 
-        <RailSection label="Observe" items={observeItems} />
-        <RailSection label="Automate" items={automateItems} />
-        <RailSection label="Govern" items={governItems} />
+        <RailSection label="Observe" items={observeItems} pathname={pathname} />
+        <RailSection label="Automate" items={automateItems} pathname={pathname} />
+        <RailSection label="Govern" items={governItems} pathname={pathname} />
       </nav>
 
       <div className="rail-foot">
-        <button type="button" className="search" style={{ width: "100%", maxWidth: "none" }} disabled>
+        <button
+          type="button"
+          className="search"
+          style={{ width: "100%", maxWidth: "none" }}
+          disabled
+        >
           <span aria-hidden="true">/</span>
           <span className="u-subtle u-grow">Jump to...</span>
           <kbd className="kbd">Ctrl K</kbd>

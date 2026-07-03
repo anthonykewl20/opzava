@@ -29,6 +29,62 @@
       "when": 1782950700000,
       "tag": "0003_slice2_runtime_control",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782950800000,
+      "tag": "0004_slice25_card",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782950900000,
+      "tag": "0005_slice25_link_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782951000000,
+      "tag": "0006_slice25_issues",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782951100000,
+      "tag": "0007_slice25_evidence_quality",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782951200000,
+      "tag": "0008_slice25_issue_outbox_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782951300000,
+      "tag": "0009_slice25_outbox_claim_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782951400000,
+      "tag": "0010_slice25_mutation_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782951400001,
+      "tag": "0011_slice25_drop_position_unique",
+      "breakpoints": true
     }
   ]
 }

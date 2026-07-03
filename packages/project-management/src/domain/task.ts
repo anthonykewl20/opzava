@@ -11,6 +11,7 @@ export interface Task {
   readonly id: TaskId;
   readonly organizationId: OrgId;
   readonly workspaceId: WorkspaceId;
+  readonly cardNumber: number;
   readonly title: string;
   readonly description: string;
   readonly status: TaskStatus;
@@ -18,6 +19,9 @@ export interface Task {
   readonly assigneeUserId: UserId | null;
   readonly labels: readonly string[];
   readonly position: number;
+  readonly dueAt: Date | null;
+  readonly provenanceSource: string;
+  readonly provenanceExternalRef: string | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 }
