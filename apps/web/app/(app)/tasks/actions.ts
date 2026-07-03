@@ -105,14 +105,6 @@ function errorCode(error: unknown, depth = 0): string | undefined {
     : errorCode((error as { readonly cause?: unknown }).cause, depth + 1);
 }
 
-function throwTaskActionError(error: unknown): never {
-  if (errorCode(error) === "projectManagement.forbidden" || errorStatus(error) === 403) {
-    forbidden();
-  }
-
-  throw error instanceof Error ? error : new Error("Task action failed.");
-}
-
 function taskActionErrorState(error: unknown, fallback: string): FormActionState {
   if (errorCode(error) === "projectManagement.forbidden" || errorStatus(error) === 403) {
     forbidden();
@@ -197,7 +189,10 @@ export async function updateTaskAction(
   redirectAfterMutation();
 }
 
-export async function moveTaskAction(formData: FormData): Promise<void> {
+export async function moveTaskAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireTaskContext();
   const parsed = moveTaskSchema.safeParse({
     taskId: stringFromForm(formData, "taskId"),
@@ -206,7 +201,7 @@ export async function moveTaskAction(formData: FormData): Promise<void> {
   });
 
   if (!parsed.success) {
-    throw new Error("Task move is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const result = await moveTask({
@@ -219,7 +214,7 @@ export async function moveTaskAction(formData: FormData): Promise<void> {
   });
 
   if (!result.ok) {
-    throwTaskActionError(result.error);
+    return taskActionErrorState(result.error, "Task could not be moved.");
   }
 
   redirectAfterMutation();

@@ -326,6 +326,14 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
                   </tbody>
                 </table>
               )}
+              <div className="card-footer">
+                <p className="hint">
+                  Showing {tickets.length} of {ticketsResult.value.totalCount}
+                  {ticketsResult.value.hasMore
+                    ? " \u00b7 first page only \u2014 load-more arrives with P4"
+                    : ""}
+                </p>
+              </div>
             </div>
           </section>
         </div>

@@ -9,6 +9,8 @@ import { ActionStateForm } from "@/components/forms/action-state-form";
 interface DealCreateDialogProps {
   readonly accounts: readonly CrmAccountDto[];
   readonly contacts: readonly CrmContactDto[];
+  readonly accountsTruncated?: boolean;
+  readonly contactsTruncated?: boolean;
   readonly currentUserName: string;
   readonly idempotencyKey: string;
 }
@@ -26,6 +28,8 @@ export function DealCreateDialog({
   contacts,
   currentUserName,
   idempotencyKey,
+  accountsTruncated = false,
+  contactsTruncated = false,
 }: DealCreateDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id ?? "");
@@ -114,6 +118,9 @@ export function DealCreateDialog({
                     <option value="">No accounts available</option>
                   )}
                 </select>
+                {accountsTruncated ? (
+                  <p className="hint">First page of accounts shown — search arrives with P4.</p>
+                ) : null}
                 {hasAccounts ? null : (
                   <p className="hint" id="new-deal-account-hint">
                     <a href="/crm/accounts">Create an account first</a> — deals belong to an account
@@ -133,6 +140,9 @@ export function DealCreateDialog({
                     </option>
                   ))}
                 </select>
+                  {contactsTruncated ? (
+                    <p className="hint">First page of contacts shown — search arrives with P4.</p>
+                  ) : null}
               </div>
 
               <div className="crm-form-grid-sm">

@@ -241,6 +241,14 @@ export default async function AccountsPage() {
                   </tbody>
                 </table>
               )}
+              <div className="card-footer">
+                <p className="hint">
+                  Showing {accounts.length} of {accountsResult.value.totalCount}
+                  {accountsResult.value.hasMore
+                    ? " \u00b7 first page only \u2014 load-more arrives with P4"
+                    : ""}
+                </p>
+              </div>
             </div>
           </section>
         </div>

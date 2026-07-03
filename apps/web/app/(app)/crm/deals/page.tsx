@@ -111,11 +111,16 @@ export default async function DealsPage() {
               <p className="page-sub">
                 {pipelineResult.value.pipeline.name} · {openDealCount} open · {closedDeals.length}{" "}
                 closed
+                {dealsResult.value.hasMore
+                  ? ` · first ${openDealCount + closedDeals.length} of ${dealsResult.value.totalCount} deals shown`
+                  : ""}
               </p>
             </div>
             <DealCreateDialog
               accounts={accounts}
               contacts={contacts}
+              accountsTruncated={accountsResult.value.hasMore}
+              contactsTruncated={contactsResult.value.hasMore}
               currentUserName={context.user.name}
               idempotencyKey={createDealIdempotencyKey}
             />

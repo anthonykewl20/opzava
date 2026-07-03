@@ -248,6 +248,14 @@ export default async function ContactsPage() {
                   </tbody>
                 </table>
               )}
+              <div className="card-footer">
+                <p className="hint">
+                  Showing {contacts.length} of {contactsResult.value.totalCount}
+                  {contactsResult.value.hasMore
+                    ? " \u00b7 first page only \u2014 load-more arrives with P4"
+                    : ""}
+                </p>
+              </div>
             </div>
           </section>
         </div>

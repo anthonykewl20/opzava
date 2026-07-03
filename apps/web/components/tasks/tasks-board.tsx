@@ -402,24 +402,22 @@ function TaskStatusChip({
   const targetTitle = targetColumn?.title ?? statusLabel(targetStatus);
 
   return (
-    <form
-      action={moveTaskAction}
-      className="task-status-chip-form"
-      onClick={(event) => event.stopPropagation()}
-    >
-      <input type="hidden" name="taskId" value={task.id} />
-      <input type="hidden" name="status" value={targetStatus} />
-      <input type="hidden" name="position" value={nextPositions[targetStatus]} />
-      <button
-        className={chip.className}
-        type="submit"
-        aria-label={`Move ${task.title} to ${targetTitle}`}
-        title={`Move to ${targetTitle}`}
-      >
-        {chip.dotClassName === null ? null : <span className={chip.dotClassName} aria-hidden />}
-        {chip.label}
-      </button>
-    </form>
+    <div className="task-status-chip-form" onClick={(event) => event.stopPropagation()}>
+      <ActionStateForm action={moveTaskAction} errorTitle="Move failed">
+        <input type="hidden" name="taskId" value={task.id} />
+        <input type="hidden" name="status" value={targetStatus} />
+        <input type="hidden" name="position" value={nextPositions[targetStatus]} />
+        <button
+          className={chip.className}
+          type="submit"
+          aria-label={`Move ${task.title} to ${targetTitle}`}
+          title={`Move to ${targetTitle}`}
+        >
+          {chip.dotClassName === null ? null : <span className={chip.dotClassName} aria-hidden />}
+          {chip.label}
+        </button>
+      </ActionStateForm>
+    </div>
   );
 }
 

@@ -92,6 +92,12 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
     .flatMap((column) => column.deals)
     .filter((deal) => deal.accountId === account.id);
   const tickets = ticketsResult.value.rows.filter((ticket) => ticket.accountId === account.id);
+  // DESCOPE(load-more): P4 — relationship lists read the first service page only.
+  const relationshipsTruncated =
+    accountsResult.value.hasMore ||
+    contactsResult.value.hasMore ||
+    dealsResult.value.hasMore ||
+    ticketsResult.value.hasMore;
   const websiteHref = accountWebsiteHref(account.website);
 
   return (
@@ -282,6 +288,11 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
                 </div>
               </section>
 
+              {relationshipsTruncated ? (
+                <p className="hint">
+                  Related records show the first page only — counts may be partial.
+                </p>
+              ) : null}
               <section aria-labelledby="account-contacts-heading">
                 <div className="card">
                   <div className="card-header">
