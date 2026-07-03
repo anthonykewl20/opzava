@@ -2584,6 +2584,32 @@ export async function addQualityCheck(
       if (!review.ok) {
         return err(review.error);
       }
+
+      // Idempotent replay: if this key already recorded a check, return the
+      // existing review UNCONDITIONALLY — a retry (at-least-once) must not fail
+      // just because the review was approved after the original check landed.
+      // The approved-is-terminal gate below applies only to genuinely new checks.
+      if (idempotencyKey.value !== null) {
+        const replay = await tx.execute(sql`
+          select 1
+          from public.task_quality_check
+          where organization_id = ${input.orgId}
+            and idempotency_key = ${idempotencyKey.value}
+          limit 1
+        `);
+        if (rowsFromExecuteResult(replay)[0] !== undefined) {
+          const loaded = await selectQualityReview(tx, input.taskId);
+          return loaded === null
+            ? err(
+                taskError(
+                  "projectManagement.qualityReviewLoadFailed",
+                  "Quality review could not be loaded.",
+                ),
+              )
+            : ok(loaded);
+        }
+      }
+
       if (review.value.status === "approved") {
         return err(
           taskError(

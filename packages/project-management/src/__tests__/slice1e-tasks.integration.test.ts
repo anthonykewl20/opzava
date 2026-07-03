@@ -459,6 +459,67 @@ describe("slice 1e tasks", () => {
     expect(retriedCheck.value.checks[0]?.id).toBe(firstCheck.value.checks[0]?.id);
   });
 
+  it("replays an idempotent quality check even after the review is approved", async () => {
+    // A retry (at-least-once) of a check that already landed must return the
+    // existing review, NOT fail with qualityReviewConflict just because the
+    // review was approved after the original check. The approved-is-terminal
+    // gate applies only to genuinely new checks.
+    const tenant = await adminCreateTenant("quality-approved-replay");
+    const task = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Quality approved replay",
+      priority: "normal",
+    });
+    expect(task.ok).toBe(true);
+    if (!task.ok) {
+      throw task.error;
+    }
+
+    const check = await addQualityCheck({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      label: "Reply reviewed and approved",
+      state: "pass",
+      idempotencyKey: "quality:approved:replay",
+    });
+    expect(check.ok).toBe(true);
+    if (!check.ok) {
+      throw check.error;
+    }
+
+    const approved = await approveQualityReview({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+    });
+    expect(approved.ok).toBe(true);
+    if (!approved.ok) {
+      throw approved.error;
+    }
+
+    // Same key after approval -> idempotent replay returns the existing review.
+    const replay = await addQualityCheck({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      label: "Reply reviewed and approved",
+      state: "pass",
+      idempotencyKey: "quality:approved:replay",
+    });
+    expect(replay.ok).toBe(true);
+    if (!replay.ok) {
+      throw replay.error;
+    }
+    expect(replay.value.status).toBe("approved");
+    expect(replay.value.checks).toHaveLength(1);
+  });
+
   it("allows moving a task to an already-occupied board position (reorder is not blocked)", async () => {
     // Guards against re-introducing a UNIQUE(workspace,status,position) index:
     // moveTask sets an absolute position with no make-room shift, so a unique
