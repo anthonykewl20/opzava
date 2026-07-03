@@ -6,6 +6,15 @@ import { getAppSessionContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
+function todayLabel(date: Date): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
 function errorStatus(error: unknown, depth = 0): number | undefined {
   if (depth > 5 || typeof error !== "object" || error === null) {
     return undefined;
@@ -40,8 +49,8 @@ export default async function TasksPage() {
     workspaceId: context.workspaceId,
     actor: {
       userId: context.user.id,
-      roleKeys: context.roleKeys
-    }
+      roleKeys: context.roleKeys,
+    },
   });
 
   if (!result.ok) {
@@ -55,11 +64,16 @@ export default async function TasksPage() {
     throw result.error;
   }
 
+  const renderedAt = new Date();
+
   return (
     <TasksBoard
       tasks={result.value}
       currentUser={{ id: context.user.id, name: context.user.name }}
+      workspaceId={context.workspaceId}
       workspaceName={context.workspaceName}
+      renderedAtIso={renderedAt.toISOString()}
+      todayLabel={todayLabel(renderedAt)}
     />
   );
 }
