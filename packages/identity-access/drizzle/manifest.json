@@ -32,6 +32,10 @@
     {
       "path": "0007_slice25_evidence_quality.sql",
       "sha256": "5f009f0a11a57d3baef2be68a931c56dd5220f1ec5c2d117c4baf5115a6ea071"
+    },
+    {
+      "path": "0008_slice25_issue_outbox_hardening.sql",
+      "sha256": "3f984b22c04ef3a30f43dad91f9c29c8ccdf9a2fd754e33d09b796fa66ac94b5"
     }
   ]
 }

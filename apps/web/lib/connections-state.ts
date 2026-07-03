@@ -42,6 +42,12 @@ export interface DeviceFlowUiState {
   readonly message: string;
 }
 
+export interface DeviceFlowPollSchedule {
+  readonly stop: boolean;
+  readonly nextDelayMs: number;
+  readonly expired: boolean;
+}
+
 export interface OrchestratorConfigPlan {
   readonly agents: {
     readonly list: readonly {
@@ -234,6 +240,62 @@ export function deviceFlowReducer(
   return {
     status: "pending",
     message: event.message ?? current.message,
+  };
+}
+
+export function isTerminalDeviceFlowStatus(
+  status: DeviceFlowUiState["status"] | DeviceFlowPollState["status"] | "error",
+): boolean {
+  return (
+    status === "connected" ||
+    status === "expired" ||
+    status === "failed" ||
+    status === "error"
+  );
+}
+
+export function nextDeviceFlowPollDelayMs(input: {
+  readonly baseIntervalSeconds: number;
+  readonly previousDelayMs: number;
+  readonly event?: DeviceFlowPollState;
+}): number {
+  const hintedSeconds = input.event?.intervalSeconds;
+  if (typeof hintedSeconds === "number" && Number.isFinite(hintedSeconds) && hintedSeconds > 0) {
+    return Math.min(Math.max(Math.ceil(hintedSeconds) * 1000, 2_000), 60_000);
+  }
+
+  return Math.min(
+    Math.max(input.previousDelayMs * 2, Math.max(input.baseIntervalSeconds, 2) * 1000),
+    60_000,
+  );
+}
+
+export function deviceFlowPollSchedule(input: {
+  readonly status: DeviceFlowUiState["status"] | DeviceFlowPollState["status"] | "error";
+  readonly expiresAt: string;
+  readonly nowMs: number;
+  readonly baseIntervalSeconds: number;
+  readonly previousDelayMs: number;
+  readonly event?: DeviceFlowPollState;
+}): DeviceFlowPollSchedule {
+  const expiresAtMs = Date.parse(input.expiresAt);
+  const expired = Number.isFinite(expiresAtMs) && input.nowMs >= expiresAtMs;
+  if (expired || isTerminalDeviceFlowStatus(input.status)) {
+    return {
+      stop: true,
+      expired,
+      nextDelayMs: 0,
+    };
+  }
+
+  return {
+    stop: false,
+    expired: false,
+    nextDelayMs: nextDeviceFlowPollDelayMs({
+      baseIntervalSeconds: input.baseIntervalSeconds,
+      previousDelayMs: input.previousDelayMs,
+      ...(input.event === undefined ? {} : { event: input.event }),
+    }),
   };
 }
 

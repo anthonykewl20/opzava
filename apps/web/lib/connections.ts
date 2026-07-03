@@ -67,6 +67,19 @@ function principalFromContext(context: AppSessionContext): ConnectionProvisionin
   };
 }
 
+export function requireConnectionMutationRole(context: AppSessionContext): Result<void> {
+  if (context.roleKeys.includes("owner") || context.roleKeys.includes("admin")) {
+    return ok(undefined);
+  }
+
+  return err(
+    connectionsError(
+      "web.connectionsForbidden",
+      "Only workspace owners and admins can manage provider connections.",
+    ),
+  );
+}
+
 function readGitHubIssuesRepository(source: NodeJS.ProcessEnv = process.env): string {
   const value = source["GITHUB_ISSUES_REPOSITORY"] ?? "anthonykewl20/opzava";
   const normalized = value.trim();
@@ -375,6 +388,11 @@ export async function connectModelProviderApiKeyForContext(
   },
   dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
 ): Promise<Result<ProviderConnectionState>> {
+  const allowed = requireConnectionMutationRole(input.context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
   const apiKey = input.apiKey.trim();
   if (apiKey.length === 0) {
     return err(connectionsError("web.connectionsApiKeyRequired", "API key is required."));
@@ -396,6 +414,11 @@ export async function startModelProviderDeviceFlowForContext(
   },
   dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
 ): Promise<Result<DeviceFlowChallenge>> {
+  const allowed = requireConnectionMutationRole(input.context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
   return dependencies.provisioningPort.startModelProviderDeviceFlow({
     ...principalFromContext(input.context),
     providerId: input.providerId,
@@ -407,6 +430,11 @@ export async function pollConnectionDeviceFlowForContext(
   input: { readonly context: AppSessionContext; readonly flowId: string },
   dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
 ): Promise<Result<DeviceFlowPollState>> {
+  const allowed = requireConnectionMutationRole(input.context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
   return dependencies.provisioningPort.pollDeviceFlow({
     ...principalFromContext(input.context),
     flowId: input.flowId,
@@ -417,6 +445,11 @@ export async function disconnectModelProviderForContext(
   input: { readonly context: AppSessionContext; readonly providerId: string },
   dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
 ): Promise<Result<ProviderConnectionState>> {
+  const allowed = requireConnectionMutationRole(input.context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
   return dependencies.provisioningPort.disconnectModelProvider({
     ...principalFromContext(input.context),
     providerId: input.providerId,
@@ -427,6 +460,11 @@ export async function applyOrchestratorRolesForContext(
   context: AppSessionContext,
   dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
 ): Promise<Result<OrchestratorDelegationState>> {
+  const allowed = requireConnectionMutationRole(context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
   const snapshot = await dependencies.provisioningPort.getConnectionsSnapshot(
     principalFromContext(context),
   );
@@ -444,6 +482,11 @@ export async function startGitHubDeviceFlowForContext(
   context: AppSessionContext,
   dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
 ): Promise<Result<DeviceFlowChallenge>> {
+  const allowed = requireConnectionMutationRole(context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
   return dependencies.provisioningPort.startGitHubDeviceFlow(principalFromContext(context));
 }
 
@@ -451,5 +494,10 @@ export async function disconnectGitHubForContext(
   context: AppSessionContext,
   dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
 ): Promise<Result<GitHubConnectionState>> {
+  const allowed = requireConnectionMutationRole(context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
   return dependencies.provisioningPort.disconnectGitHub(principalFromContext(context));
 }

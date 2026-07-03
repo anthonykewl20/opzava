@@ -62,6 +62,7 @@ export async function processGitHubIssueCloseOutboxFromEnv(): Promise<void> {
       processed: result.value.length,
       closed: result.value.filter((entry) => entry.state === "closed").length,
       retrying: result.value.filter((entry) => entry.state === "failed").length,
+      dead: result.value.filter((entry) => entry.state === "dead").length,
     }),
   );
 }

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { redirect } from "next/navigation";
 
 import { createIssueAction, syncIssuesAction } from "@/app/(app)/issues/actions";
@@ -81,6 +83,7 @@ function Assignee({
 }
 
 export default async function IssuesPage({ searchParams }: IssuesPageProps) {
+  const createIssueIdempotencyKey = `web.issue.create:${randomUUID()}`;
   const context = await getAppSessionContext();
   if (context === null) {
     redirect("/login");
@@ -134,6 +137,7 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
                 New issue
               </summary>
               <form className="issues-new-form" action={createIssueAction}>
+                <input type="hidden" name="idempotencyKey" value={createIssueIdempotencyKey} />
                 <div className="field">
                   <label className="label" htmlFor="new-issue-title">
                     Title

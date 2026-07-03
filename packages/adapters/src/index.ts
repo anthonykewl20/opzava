@@ -44,6 +44,7 @@ export { sql } from "drizzle-orm";
 export {
   expectedLocalFileSecretReference,
   LocalFileSecretsVault,
+  type DeleteLocalFileSecretInput,
   type LocalFileSecretsVaultOptions,
   type PutLocalFileSecretInput,
 } from "./secrets/local-file-secrets-vault.js";

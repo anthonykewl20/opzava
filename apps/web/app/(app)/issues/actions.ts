@@ -1,5 +1,7 @@
 "use server";
 
+import { createHash } from "node:crypto";
+
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -27,6 +29,22 @@ function labelsFromForm(value: string): readonly string[] {
     .filter((label) => label !== "");
 }
 
+function idempotencyKeyFromForm(
+  formData: FormData,
+  title: string,
+  body: string,
+  labels: readonly string[],
+): string {
+  const explicit = stringFromForm(formData, "idempotencyKey").trim();
+  if (explicit !== "") {
+    return explicit;
+  }
+
+  return createHash("sha256")
+    .update(JSON.stringify({ title: title.trim(), body: body.trim(), labels }))
+    .digest("hex");
+}
+
 function throwIssueActionError(error: unknown): never {
   throw error instanceof Error ? error : new Error("GitHub issue action failed.");
 }
@@ -46,11 +64,13 @@ export async function createIssueAction(formData: FormData): Promise<void> {
   const title = stringFromForm(formData, "title");
   const body = stringFromForm(formData, "body");
   const labels = labelsFromForm(stringFromForm(formData, "labels"));
+  const idempotencyKey = idempotencyKeyFromForm(formData, title, body, labels);
   const result = await createIssueForContext({
     context,
     title,
     ...(body.trim() === "" ? {} : { body }),
     ...(labels.length === 0 ? {} : { labels }),
+    idempotencyKey,
   });
 
   if (!result.ok) {

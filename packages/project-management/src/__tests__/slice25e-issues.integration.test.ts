@@ -5,10 +5,16 @@ import {
   sql,
   withTenant,
 } from "@opzava/adapters";
+import type { IssueTrackerPort } from "@opzava/ports";
+import { DomainError, err, ok } from "@opzava/shared-kernel";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { enqueueIssueCloseForTask } from "../application/issues.js";
+import {
+  createTrackedIssue,
+  enqueueIssueCloseForTask,
+  processIssueCloseOutbox,
+} from "../application/issues.js";
 import type { TaskDto } from "../application/tasks.js";
 
 interface TenantFixture {
@@ -42,6 +48,38 @@ function rowsFromExecuteResult(result: unknown): ReadonlyArray<Record<string, un
 
   const rows = (result as { readonly rows?: unknown }).rows;
   return Array.isArray(rows) ? (rows as ReadonlyArray<Record<string, unknown>>) : [];
+}
+
+function fakeIssueTracker(input: {
+  readonly closedNumbers: number[];
+  readonly fail?: boolean;
+  readonly delayMs?: number;
+}): IssueTrackerPort {
+  return {
+    listIssues: async () => ok([]),
+    getIssue: async () =>
+      err(new DomainError({ code: "fake.notFound", message: "not found" })),
+    createIssue: async () =>
+      err(new DomainError({ code: "fake.createUnsupported", message: "not used" })),
+    closeIssue: async (request) => {
+      input.closedNumbers.push(request.ref.number);
+      if (input.delayMs !== undefined) {
+        await new Promise((resolve) => setTimeout(resolve, input.delayMs));
+      }
+      if (input.fail === true) {
+        return err(new DomainError({ code: "fake.rateLimited", message: "retry later" }));
+      }
+
+      return ok({
+        ref: request.ref,
+        title: `Issue ${request.ref.number}`,
+        state: "closed",
+        labels: [],
+        assignee: null,
+        updatedAt: new Date().toISOString(),
+      });
+    },
+  };
 }
 
 async function adminCreateTenant(label: string): Promise<TenantFixture> {
@@ -89,6 +127,76 @@ async function adminCreateTenant(label: string): Promise<TenantFixture> {
   return { organizationId, workspaceId, userId };
 }
 
+async function adminInsertTask(input: {
+  readonly tenant: TenantFixture;
+  readonly taskId: string;
+  readonly cardNumber: number;
+  readonly issueNumber: number;
+}): Promise<void> {
+  await adminPool.query(
+    `insert into public.tasks (
+      id,
+      organization_id,
+      workspace_id,
+      card_number,
+      title,
+      description,
+      status,
+      priority,
+      labels,
+      position,
+      provenance_source,
+      provenance_external_ref
+    )
+    values ($1, $2, $3, $4, $5, '', 'done', 'normal', '{}'::text[], 1, 'github', $6)`,
+    [
+      input.taskId,
+      input.tenant.organizationId,
+      input.tenant.workspaceId,
+      input.cardNumber,
+      `Linked issue ${input.issueNumber}`,
+      `github:anthonykewl20/opzava#${input.issueNumber}`,
+    ],
+  );
+}
+
+async function adminInsertCloseOutbox(input: {
+  readonly tenant: TenantFixture;
+  readonly taskId: string;
+  readonly issueNumber: number;
+  readonly state?: "pending" | "processing" | "failed";
+  readonly attempts?: number;
+  readonly claimedAt?: string | null;
+}): Promise<void> {
+  await adminPool.query(
+    `insert into public.issue_close_outbox (
+      organization_id,
+      workspace_id,
+      task_id,
+      repository,
+      issue_number,
+      issue_url,
+      dedupe_key,
+      state,
+      attempts,
+      next_attempt_at,
+      claimed_at
+    )
+    values ($1, $2, $3, 'anthonykewl20/opzava', $4, $5, $6, $7, $8, now(), $9)`,
+    [
+      input.tenant.organizationId,
+      input.tenant.workspaceId,
+      input.taskId,
+      input.issueNumber,
+      `https://github.com/anthonykewl20/opzava/issues/${input.issueNumber}`,
+      `${input.tenant.organizationId}:${input.taskId}:${input.issueNumber}:close`,
+      input.state ?? "pending",
+      input.attempts ?? 0,
+      input.claimedAt ?? null,
+    ],
+  );
+}
+
 async function cleanupCreatedRows(): Promise<void> {
   const organizationIds = [...createdOrganizationIds];
   const userIds = [...createdUserIds];
@@ -96,6 +204,10 @@ async function cleanupCreatedRows(): Promise<void> {
   if (organizationIds.length > 0) {
     await adminPool.query(
       "delete from public.issue_close_outbox where organization_id = any($1::uuid[])",
+      [organizationIds],
+    );
+    await adminPool.query(
+      "delete from public.issue_create_intent where organization_id = any($1::uuid[])",
       [organizationIds],
     );
     await adminPool.query(
@@ -339,5 +451,153 @@ describe("slice 2.5e issue RLS", () => {
       `),
     );
     expect(rowsFromExecuteResult(count)[0]?.["count"]).toBe(1);
+  });
+
+  it("deduplicates issue creation by workspace idempotency key", async () => {
+    const tenant = await adminCreateTenant("create-idempotent");
+    let createCalls = 0;
+    const tracker: IssueTrackerPort = {
+      listIssues: async () => ok([]),
+      getIssue: async () =>
+        err(new DomainError({ code: "fake.notFound", message: "not found" })),
+      createIssue: async () => {
+        createCalls += 1;
+        return ok({
+          ref: {
+            provider: "github",
+            repository: "anthonykewl20/opzava",
+            number: 88,
+            url: "https://github.com/anthonykewl20/opzava/issues/88",
+          },
+          title: "Idempotent issue",
+          state: "open",
+          labels: ["ready-for-agent"],
+          assignee: null,
+          updatedAt: "2026-07-03T00:00:00.000Z",
+        });
+      },
+      closeIssue: async () =>
+        err(new DomainError({ code: "fake.closeUnsupported", message: "not used" })),
+    };
+    const input = {
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: { userId: tenant.userId, roleKeys: ["admin"] },
+      repository: "anthonykewl20/opzava",
+      title: "Idempotent issue",
+      labels: ["ready-for-agent"],
+      idempotencyKey: "web.issue.create:test-key",
+    } as const;
+
+    const first = await createTrackedIssue(input, { issueTrackerPort: tracker });
+    const second = await createTrackedIssue(input, { issueTrackerPort: tracker });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) {
+      throw new Error("expected idempotent create success");
+    }
+    expect(createCalls).toBe(1);
+    expect(second.value.number).toBe(first.value.number);
+  });
+
+  it("claims active-close rows with skip-locked concurrency semantics", async () => {
+    const tenant = await adminCreateTenant("outbox-concurrent");
+    const taskA = randomUUID();
+    const taskB = randomUUID();
+    await adminInsertTask({ tenant, taskId: taskA, cardNumber: 7101, issueNumber: 81 });
+    await adminInsertTask({ tenant, taskId: taskB, cardNumber: 7102, issueNumber: 82 });
+    await adminInsertCloseOutbox({ tenant, taskId: taskA, issueNumber: 81 });
+    await adminInsertCloseOutbox({ tenant, taskId: taskB, issueNumber: 82 });
+
+    const closedNumbers: number[] = [];
+    const tracker = fakeIssueTracker({ closedNumbers, delayMs: 25 });
+    const input = {
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: { userId: tenant.userId, roleKeys: ["admin"] },
+      repository: "anthonykewl20/opzava",
+      limit: 1,
+    } as const;
+
+    const [first, second] = await Promise.all([
+      processIssueCloseOutbox(input, { issueTrackerPort: tracker }),
+      processIssueCloseOutbox(input, { issueTrackerPort: tracker }),
+    ]);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(new Set(closedNumbers).size).toBe(2);
+    expect(closedNumbers.sort()).toEqual([81, 82]);
+  });
+
+  it("reclaims stale processing rows for active-close", async () => {
+    const tenant = await adminCreateTenant("outbox-stale");
+    const taskId = randomUUID();
+    await adminInsertTask({ tenant, taskId, cardNumber: 7201, issueNumber: 83 });
+    await adminInsertCloseOutbox({
+      tenant,
+      taskId,
+      issueNumber: 83,
+      state: "processing",
+      claimedAt: "2026-07-03T00:00:00.000Z",
+    });
+
+    const closedNumbers: number[] = [];
+    const result = await processIssueCloseOutbox(
+      {
+        orgId: tenant.organizationId,
+        workspaceId: tenant.workspaceId,
+        actor: { userId: tenant.userId, roleKeys: ["admin"] },
+        repository: "anthonykewl20/opzava",
+        limit: 1,
+        processingTimeoutMs: 1,
+      },
+      { issueTrackerPort: fakeIssueTracker({ closedNumbers }) },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(closedNumbers).toEqual([83]);
+    if (!result.ok) {
+      throw new Error("expected stale row reclaim");
+    }
+    expect(result.value[0]?.state).toBe("closed");
+  });
+
+  it("dead-letters active-close rows that exceed max attempts", async () => {
+    const tenant = await adminCreateTenant("outbox-dead");
+    const taskId = randomUUID();
+    await adminInsertTask({ tenant, taskId, cardNumber: 7301, issueNumber: 84 });
+    await adminInsertCloseOutbox({
+      tenant,
+      taskId,
+      issueNumber: 84,
+      state: "failed",
+      attempts: 8,
+    });
+
+    const closedNumbers: number[] = [];
+    const result = await processIssueCloseOutbox(
+      {
+        orgId: tenant.organizationId,
+        workspaceId: tenant.workspaceId,
+        actor: { userId: tenant.userId, roleKeys: ["admin"] },
+        repository: "anthonykewl20/opzava",
+        maxAttempts: 8,
+      },
+      { issueTrackerPort: fakeIssueTracker({ closedNumbers }) },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(closedNumbers).toEqual([]);
+
+    const row = await withTenant(tenant.organizationId, async (tx) =>
+      tx.execute(sql`
+        select state
+        from public.issue_close_outbox
+        where task_id = ${taskId}
+      `),
+    );
+    expect(rowsFromExecuteResult(row)[0]?.["state"]).toBe("dead");
   });
 });

@@ -23,12 +23,14 @@ import {
 import {
   authBranchForChoice,
   buildOrchestratorConfigPlan,
+  deviceFlowPollSchedule,
   deviceFlowReducer,
+  isTerminalDeviceFlowStatus,
   projectProviderConnections,
 } from "../lib/connections-state";
 import type { AppSessionContext } from "../lib/session";
 
-function context(): AppSessionContext {
+function context(overrides: Partial<AppSessionContext> = {}): AppSessionContext {
   return {
     sessionId: "session-1",
     user: { id: "user-1", email: "anthony@example.test", name: "Anthony" },
@@ -38,6 +40,7 @@ function context(): AppSessionContext {
     workspaceId: "workspace-1",
     workspaceName: "Admin",
     roleKeys: ["admin"],
+    ...overrides,
   };
 }
 
@@ -352,6 +355,51 @@ describe("Connections page state", () => {
     });
   });
 
+  it("stops device-flow polling on terminal states and expiry", () => {
+    expect(isTerminalDeviceFlowStatus("expired")).toBe(true);
+    expect(isTerminalDeviceFlowStatus("failed")).toBe(true);
+    expect(
+      deviceFlowPollSchedule({
+        status: "pending",
+        expiresAt: "2026-07-03T00:00:00.000Z",
+        nowMs: new Date("2026-07-03T00:00:01.000Z").getTime(),
+        baseIntervalSeconds: 2,
+        previousDelayMs: 2_000,
+      }),
+    ).toEqual({ stop: true, expired: true, nextDelayMs: 0 });
+    expect(
+      deviceFlowPollSchedule({
+        status: "failed",
+        expiresAt: "2026-07-03T00:10:00.000Z",
+        nowMs: new Date("2026-07-03T00:00:01.000Z").getTime(),
+        baseIntervalSeconds: 2,
+        previousDelayMs: 2_000,
+      }),
+    ).toEqual({ stop: true, expired: false, nextDelayMs: 0 });
+  });
+
+  it("honors device-flow slow-down hints before bounded backoff", () => {
+    expect(
+      deviceFlowPollSchedule({
+        status: "pending",
+        expiresAt: "2026-07-03T00:10:00.000Z",
+        nowMs: new Date("2026-07-03T00:00:01.000Z").getTime(),
+        baseIntervalSeconds: 2,
+        previousDelayMs: 2_000,
+        event: { status: "pending", message: "Slow down.", intervalSeconds: 7 },
+      }),
+    ).toEqual({ stop: false, expired: false, nextDelayMs: 7_000 });
+    expect(
+      deviceFlowPollSchedule({
+        status: "pending",
+        expiresAt: "2026-07-03T00:10:00.000Z",
+        nowMs: new Date("2026-07-03T00:00:01.000Z").getTime(),
+        baseIntervalSeconds: 2,
+        previousDelayMs: 2_000,
+      }),
+    ).toEqual({ stop: false, expired: false, nextDelayMs: 4_000 });
+  });
+
   it("routes web connection actions through a fake provisioning port", async () => {
     const loaded = await loadConnectionsPageData(context(), dependencies());
     const apiKey = await connectModelProviderApiKeyForContext(
@@ -378,6 +426,36 @@ describe("Connections page state", () => {
     expect(device).toMatchObject({ ok: true, value: { authChoiceId: "openai-device-code" } });
     expect(poll).toMatchObject({ ok: true, value: { status: "connected" } });
     expect(github).toMatchObject({ ok: true, value: { kind: "github" } });
+  });
+
+  it("rejects connection mutations for non-admin members before provisioning", async () => {
+    let calls = 0;
+    const dependenciesWithGuardProbe: ConnectionsDependencies = {
+      provisioningPort: {
+        ...fakePort(),
+        connectModelProviderApiKey: async (input) => {
+          calls += 1;
+          return ok(providerState({ providerId: input.providerId }));
+        },
+      },
+    };
+
+    const result = await connectModelProviderApiKeyForContext(
+      {
+        context: context({ roleKeys: ["member"] }),
+        providerId: "zai",
+        authChoiceId: "zai-api-key",
+        apiKey: "runtime-secret",
+      },
+      dependenciesWithGuardProbe,
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected forbidden");
+    }
+    expect(result.error.code).toBe("web.connectionsForbidden");
+    expect(calls).toBe(0);
   });
 
   it("wires /connections page, actions, API poll route, and sidebar without JSX imports", async () => {

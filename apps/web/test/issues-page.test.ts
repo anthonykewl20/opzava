@@ -147,7 +147,12 @@ describe("Issues page state", () => {
 
     const synced = await syncIssuesForContext(context(), dependencies);
     const created = await createIssueForContext(
-      { context: context(), title: "  New issue  ", labels: ["ready-for-agent"] },
+      {
+        context: context(),
+        title: "  New issue  ",
+        labels: ["ready-for-agent"],
+        idempotencyKey: "web.issue.create:test-key",
+      },
       dependencies,
     );
 
@@ -162,6 +167,7 @@ describe("Issues page state", () => {
     expect(createInput).toMatchObject({
       title: "New issue",
       labels: ["ready-for-agent"],
+      idempotencyKey: "web.issue.create:test-key",
     });
   });
 
@@ -172,6 +178,7 @@ describe("Issues page state", () => {
 
     expect(page).toContain("Sync now");
     expect(page).toContain("New issue");
+    expect(page).toContain('name="idempotencyKey"');
     expect(page).toContain("Triage pipeline");
     expect(actions).toContain("syncIssuesForContext");
     expect(actions).toContain("createIssueForContext");

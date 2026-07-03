@@ -44,3 +44,42 @@ server/client pg-in-bundle leak · inconsistent RLS error mapping · Traefik rou
 No CONFIRMED blocker. Recommend `/code-review ultra` on the PR for the deep cloud lanes that
 couldn't run locally, and a live device-flow smoke against one API-key provider (e.g. OpenRouter)
 before relying on multi-provider in anger.
+
+## Heavy verify-deep — 4 parallel adversarial lanes (2026-07-03)
+
+Ran L6-security, S3-idempotency, S1-races, L3-correctness as parallel subagents against the full
+diff. They CONVERGE (independent lanes flagging the same defect = high confidence) and the
+security/integrity core is confirmed HELD by all four: MCP authority is strictly token-principal
+(read tokens can't register mutation tools), link-token forgery infeasible (hash-lookup + re-checked
+claims + RLS backstop), close-never-blocks-completion, provider keys never reach the browser / web
+never holds operator.admin (constant-time internal bearer), RLS forced+WITH-CHECK on all 11 new
+tables, no server/client leak, no unguarded Result narrowing.
+
+### Must-fix before merge (adjudicated)
+- H1 [high] transient card activity-poll error wipes the AI-Run trace + latches false "assistant run
+  failed" with no reconnect (task-card-activity-source.ts:142 / activity/route.ts:67 /
+  task-card-detail.tsx:517).
+- M1 [med, DATA LOSS] card-detail edit omits assigneeUserId -> updateTask clears the assignee
+  (task-card-detail.ts:639 + tasks.ts:1510). Board action + MCP handler preserve it — the card path
+  regressed.
+- M2 [med] device-flow poller never clearInterval on expired/failed -> unbounded provider polling
+  (device-flow-poller.tsx:60).
+- M3 [med] connection mutations authenticated but not role-gated (any org member can provision)
+  (connections/actions.ts:17).
+- M4 [med] Ask Opzava double-renders the final assistant message (draft not reset to idle)
+  (ask-opzava-chat.tsx:238 / ask-opzava-page-state.ts:137).
+- M5 [med] issue "You" hardcodes "anthony" (issues-state.ts:140).
+- Outbox robustness (S1+S3+M6/L1 converge): add FOR UPDATE SKIP LOCKED to the claim, a processing-
+  timeout reclaim/reaper for crash-orphaned rows, and a max-attempts/dead-letter cap
+  (issues.ts:704-790).
+- "New issue" double-submit creates two real GitHub issues — add an in-flight/idempotency guard
+  (issues/actions.ts:44 / issues.ts:565).
+
+### Tracked follow-up (contained / single-worker-tolerable / recoverable)
+duplicate board `position` on concurrent create (S1-1b); duplicate issue projection rows on
+multi-link (L3-L3); UTC off-by-one due-label (L5); comment button blocked during assistant stream
+(L6); MCP update fails on other-user assignee (L2, latent); and — the broad one — client
+idempotency keys on the mutating card MCP tools + UI creates (createTask/step/comment/check are
+blind inserts; a retried at-least-once MCP call duplicates rows). Low-impact in the internal
+single-user phase (RLS-safe, recoverable), but the MCP path deserves idempotency keys as scale-ready
+hardening.

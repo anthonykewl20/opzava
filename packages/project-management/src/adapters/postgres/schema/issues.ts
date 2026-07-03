@@ -82,6 +82,7 @@ export const issueCloseOutbox = pgTable(
     attempts: integer("attempts").notNull().default(0),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
     lastError: text("last_error"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -108,6 +109,59 @@ export const issueCloseOutbox = pgTable(
       withCheck: sql`app.current_org_id() is not null`,
     }),
     pgPolicy("issue_close_outbox_owner_admin", {
+      for: "all",
+      to: ownerRole,
+      using: sql`true`,
+      withCheck: sql`true`,
+    }),
+  ],
+).enableRLS();
+
+export const issueCreateIntent = pgTable(
+  "issue_create_intent",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id").notNull(),
+    workspaceId: uuid("workspace_id").notNull(),
+    actorUserId: text("actor_user_id").notNull(),
+    repository: text("repository").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    state: text("state").notNull().default("processing"),
+    issueProjectionId: uuid("issue_projection_id"),
+    issueNumber: integer("issue_number"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("issue_create_intent_workspace_key_unique").on(
+      table.workspaceId,
+      table.idempotencyKey,
+    ),
+    uniqueIndex("issue_create_intent_id_organization_id_unique").on(
+      table.id,
+      table.organizationId,
+    ),
+    index("issue_create_intent_workspace_state_idx").on(
+      table.organizationId,
+      table.workspaceId,
+      table.state,
+      table.updatedAt,
+    ),
+    pgPolicy("issue_create_intent_tenant_isolation", {
+      for: "all",
+      to: appRole,
+      using: sql`${table.organizationId} = app.current_org_id()`,
+      withCheck: sql`${table.organizationId} = app.current_org_id()`,
+    }),
+    pgPolicy("issue_create_intent_tenant_context_required", {
+      as: "restrictive",
+      for: "all",
+      to: appRole,
+      using: sql`app.current_org_id() is not null`,
+      withCheck: sql`app.current_org_id() is not null`,
+    }),
+    pgPolicy("issue_create_intent_owner_admin", {
       for: "all",
       to: ownerRole,
       using: sql`true`,

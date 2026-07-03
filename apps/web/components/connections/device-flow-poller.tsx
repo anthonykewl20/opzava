@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { deviceFlowReducer, type DeviceFlowUiState } from "@/lib/connections-state";
+import {
+  deviceFlowPollSchedule,
+  deviceFlowReducer,
+  type DeviceFlowUiState,
+} from "@/lib/connections-state";
 
 interface DeviceFlowPollerProps {
   readonly flowId: string;
@@ -28,7 +32,49 @@ export function DeviceFlowPoller({
 
   useEffect(() => {
     let cancelled = false;
-    const poll = async () => {
+    let timeout: number | null = null;
+    let delayMs = Math.max(intervalSeconds, 2) * 1000;
+    const clearPollTimeout = () => {
+      if (timeout !== null) {
+        window.clearTimeout(timeout);
+        timeout = null;
+      }
+    };
+    const stop = () => {
+      cancelled = true;
+      clearPollTimeout();
+    };
+    const expireIfNeeded = () => {
+      const schedule = deviceFlowPollSchedule({
+        status: "pending",
+        expiresAt,
+        nowMs: Date.now(),
+        baseIntervalSeconds: intervalSeconds,
+        previousDelayMs: delayMs,
+      });
+      if (schedule.expired) {
+        setState({ status: "expired", message: "Device code expired." });
+        stop();
+        return true;
+      }
+
+      return false;
+    };
+    function scheduleNext(nextDelayMs: number) {
+      if (cancelled) {
+        return;
+      }
+
+      clearPollTimeout();
+      timeout = window.setTimeout(() => {
+        void poll();
+      }, nextDelayMs);
+    }
+    async function poll() {
+      if (expireIfNeeded()) {
+        return;
+      }
+
       let response: Response;
       try {
         response = await fetch("/api/connections/device-flow", {
@@ -37,12 +83,18 @@ export function DeviceFlowPoller({
           body: JSON.stringify({ flowId }),
         });
       } catch {
-        setState({ status: "failed", message: "Device authorization polling failed." });
+        if (!cancelled) {
+          setState({ status: "failed", message: "Device authorization polling failed." });
+        }
+        stop();
         return;
       }
 
       if (!response.ok) {
-        setState({ status: "failed", message: "Device authorization polling failed." });
+        if (!cancelled) {
+          setState({ status: "failed", message: "Device authorization polling failed." });
+        }
+        stop();
         return;
       }
 
@@ -55,21 +107,32 @@ export function DeviceFlowPoller({
       if (payload.status === "connected") {
         router.refresh();
       }
-    };
+      const schedule = deviceFlowPollSchedule({
+        status: payload.status,
+        expiresAt,
+        nowMs: Date.now(),
+        baseIntervalSeconds: intervalSeconds,
+        previousDelayMs: delayMs,
+        event: payload,
+      });
+      if (schedule.expired) {
+        setState({ status: "expired", message: "Device code expired." });
+      }
+      if (schedule.stop) {
+        stop();
+        return;
+      }
 
-    const interval = window.setInterval(
-      () => {
-        void poll();
-      },
-      Math.max(intervalSeconds, 2) * 1000,
-    );
+      delayMs = schedule.nextDelayMs;
+      scheduleNext(delayMs);
+    }
+
     void poll();
 
     return () => {
-      cancelled = true;
-      window.clearInterval(interval);
+      stop();
     };
-  }, [flowId, intervalSeconds, router]);
+  }, [expiresAt, flowId, intervalSeconds, router]);
 
   return (
     <div className="connections-device-flow" aria-live="polite">

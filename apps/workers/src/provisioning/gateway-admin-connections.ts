@@ -979,11 +979,21 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
 
     const errorCode = stringValue(payload["error"]);
     if (errorCode === "authorization_pending") {
-      return ok({ status: "pending", message: "Waiting for GitHub device approval." });
+      return ok({
+        status: "pending",
+        message: "Waiting for GitHub device approval.",
+        intervalSeconds: flow.intervalSeconds,
+      });
     }
 
     if (errorCode === "slow_down") {
-      return ok({ status: "pending", message: "GitHub asked us to slow polling." });
+      const slowedFlow = { ...flow, intervalSeconds: Math.min(flow.intervalSeconds + 5, 60) };
+      this.githubFlows.set(flow.flowId, slowedFlow);
+      return ok({
+        status: "pending",
+        message: "GitHub asked us to slow polling.",
+        intervalSeconds: slowedFlow.intervalSeconds,
+      });
     }
 
     if (errorCode === "expired_token") {

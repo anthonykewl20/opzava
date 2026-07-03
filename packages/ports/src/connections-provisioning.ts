@@ -73,6 +73,7 @@ export interface DeviceFlowChallenge {
 export interface DeviceFlowPollState {
   readonly status: "pending" | "connected" | "expired" | "failed";
   readonly message: string | null;
+  readonly intervalSeconds?: number;
   readonly connection?: ProviderConnectionState | GitHubConnectionState;
 }
 

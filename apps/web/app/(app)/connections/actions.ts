@@ -9,6 +9,7 @@ import {
   disconnectGitHubForContext,
   disconnectModelProviderForContext,
   loadConnectionsPageData,
+  requireConnectionMutationRole,
   startGitHubDeviceFlowForContext,
   startModelProviderDeviceFlowForContext,
 } from "@/lib/connections";
@@ -23,17 +24,27 @@ async function requireConnectionsContext() {
   return context;
 }
 
+function throwConnectionActionError(error: unknown): never {
+  throw error instanceof Error ? error : new Error("Connection provisioning action failed.");
+}
+
+async function requireConnectionsMutationContext() {
+  const context = await requireConnectionsContext();
+  const allowed = requireConnectionMutationRole(context);
+  if (!allowed.ok) {
+    throwConnectionActionError(allowed.error);
+  }
+
+  return context;
+}
+
 function stringFromForm(formData: FormData, key: string): string {
   const value = formData.get(key);
   return typeof value === "string" ? value : "";
 }
 
-function throwConnectionActionError(error: unknown): never {
-  throw error instanceof Error ? error : new Error("Connection provisioning action failed.");
-}
-
 export async function connectModelProviderApiKeyAction(formData: FormData): Promise<void> {
-  const context = await requireConnectionsContext();
+  const context = await requireConnectionsMutationContext();
   const result = await connectModelProviderApiKeyForContext({
     context,
     providerId: stringFromForm(formData, "providerId"),
@@ -48,7 +59,7 @@ export async function connectModelProviderApiKeyAction(formData: FormData): Prom
 }
 
 export async function startModelProviderDeviceFlowAction(formData: FormData): Promise<void> {
-  const context = await requireConnectionsContext();
+  const context = await requireConnectionsMutationContext();
   const result = await startModelProviderDeviceFlowForContext({
     context,
     providerId: stringFromForm(formData, "providerId"),
@@ -62,7 +73,7 @@ export async function startModelProviderDeviceFlowAction(formData: FormData): Pr
 }
 
 export async function disconnectModelProviderAction(formData: FormData): Promise<void> {
-  const context = await requireConnectionsContext();
+  const context = await requireConnectionsMutationContext();
   const result = await disconnectModelProviderForContext({
     context,
     providerId: stringFromForm(formData, "providerId"),
@@ -75,7 +86,7 @@ export async function disconnectModelProviderAction(formData: FormData): Promise
 }
 
 export async function applyOrchestratorRolesAction(): Promise<void> {
-  const context = await requireConnectionsContext();
+  const context = await requireConnectionsMutationContext();
   const result = await applyOrchestratorRolesForContext(context);
   if (!result.ok) {
     throwConnectionActionError(result.error);
@@ -85,7 +96,7 @@ export async function applyOrchestratorRolesAction(): Promise<void> {
 }
 
 export async function startGitHubDeviceFlowAction(): Promise<void> {
-  const context = await requireConnectionsContext();
+  const context = await requireConnectionsMutationContext();
   const result = await startGitHubDeviceFlowForContext(context);
   if (!result.ok) {
     throwConnectionActionError(result.error);
@@ -95,7 +106,7 @@ export async function startGitHubDeviceFlowAction(): Promise<void> {
 }
 
 export async function disconnectGitHubAction(): Promise<void> {
-  const context = await requireConnectionsContext();
+  const context = await requireConnectionsMutationContext();
   const result = await disconnectGitHubForContext(context);
   if (!result.ok) {
     throwConnectionActionError(result.error);

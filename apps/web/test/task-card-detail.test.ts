@@ -35,6 +35,7 @@ import {
   prepareEvidenceUploadForCard,
   toggleTaskStepForCard,
   toggleQualityCheckForCard,
+  updateTaskCardDetails,
   type TaskCardActionDependencies,
   type TaskCardLoadDependencies,
 } from "../lib/task-card-detail";
@@ -640,6 +641,34 @@ describe("Task card load and actions", () => {
       cardNumber: 1042,
       targetRef: "github:opzava/opzava#42",
       outbox: null,
+    });
+  });
+
+  it("preserves the current assignee when editing card details", async () => {
+    let capturedInput: Parameters<TaskCardActionDependencies["updateTask"]>[0] | null = null;
+    const result = await updateTaskCardDetails(
+      {
+        taskId: "11111111-1111-4111-8111-111111111111",
+        title: "Edited title",
+        description: "Edited description",
+        priority: "high",
+        labels: "edited",
+      },
+      actionDependencies({
+        getCardDetail: async () =>
+          ok(cardDetail({ task: task({ assigneeUserId: "assignee-1", assigneeName: "Ada" }) })),
+        updateTask: async (input) => {
+          capturedInput = input;
+          return ok(task({ assigneeUserId: input.assigneeUserId ?? null }));
+        },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(capturedInput).toMatchObject({
+      assigneeUserId: "assignee-1",
+      title: "Edited title",
+      description: "Edited description",
     });
   });
 

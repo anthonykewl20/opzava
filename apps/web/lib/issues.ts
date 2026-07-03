@@ -150,6 +150,7 @@ export async function createIssueForContext(
     readonly title: string;
     readonly body?: string;
     readonly labels?: readonly string[];
+    readonly idempotencyKey?: string;
   },
   dependencies: IssuesActionDependencies = {
     ...defaultIssuesActionDependencies,
@@ -171,6 +172,7 @@ export async function createIssueForContext(
       title,
       ...(input.body === undefined ? {} : { body: input.body }),
       ...(input.labels === undefined ? {} : { labels: input.labels }),
+      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
     },
     { issueTrackerPort: dependencies.issueTrackerPort },
   );

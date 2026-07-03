@@ -49,11 +49,12 @@ export interface IssueCloseOutboxDto {
   readonly issueNumber: number;
   readonly issueUrl: string;
   readonly dedupeKey: string;
-  readonly state: "pending" | "processing" | "closed" | "failed";
+  readonly state: "pending" | "processing" | "closed" | "failed" | "dead";
   readonly closeReason: "completed" | "not_planned";
   readonly attempts: number;
   readonly nextAttemptAt: string;
   readonly lastError: string | null;
+  readonly claimedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly closedAt: string | null;
@@ -73,6 +74,7 @@ export interface CreateTrackedIssueInput extends TaskApplicationContext {
   readonly title: string;
   readonly body?: string;
   readonly labels?: readonly string[];
+  readonly idempotencyKey?: string;
 }
 
 export interface EnqueueIssueCloseInput extends TaskApplicationContext {
@@ -82,6 +84,8 @@ export interface EnqueueIssueCloseInput extends TaskApplicationContext {
 export interface ProcessIssueCloseOutboxInput extends TaskApplicationContext {
   readonly repository: string;
   readonly limit?: number;
+  readonly processingTimeoutMs?: number;
+  readonly maxAttempts?: number;
 }
 
 export interface IssueApplicationDependencies {
@@ -161,7 +165,10 @@ function rowToIssueProjection(row: QueryRow): IssueProjectionDto {
 
 function rowToIssueCloseOutbox(row: QueryRow): IssueCloseOutboxDto {
   const state =
-    row["state"] === "processing" || row["state"] === "closed" || row["state"] === "failed"
+    row["state"] === "processing" ||
+    row["state"] === "closed" ||
+    row["state"] === "failed" ||
+    row["state"] === "dead"
       ? row["state"]
       : "pending";
   const closeReason = row["close_reason"] === "not_planned" ? "not_planned" : "completed";
@@ -180,6 +187,10 @@ function rowToIssueCloseOutbox(row: QueryRow): IssueCloseOutboxDto {
     attempts: Number(row["attempts"]),
     nextAttemptAt: parseDate(row["next_attempt_at"]),
     lastError: stringOrNull(row["last_error"]),
+    claimedAt:
+      row["claimed_at"] === null || row["claimed_at"] === undefined
+        ? null
+        : parseDate(row["claimed_at"]),
     createdAt: parseDate(row["created_at"]),
     updatedAt: parseDate(row["updated_at"]),
     closedAt:
@@ -259,6 +270,24 @@ function normalizeTitle(title: string): Result<string> {
   if (normalized.length === 0 || normalized.length > 256) {
     return err(
       issueError("projectManagement.invalidIssueTitle", "Issue title must be 1-256 characters."),
+    );
+  }
+
+  return ok(normalized);
+}
+
+function normalizeIdempotencyKey(key: string | undefined): Result<string | null> {
+  if (key === undefined || key.trim() === "") {
+    return ok(null);
+  }
+
+  const normalized = key.trim();
+  if (normalized.length > 160 || !/^[A-Za-z0-9:._/-]+$/.test(normalized)) {
+    return err(
+      issueError(
+        "projectManagement.invalidIssueCreateIdempotencyKey",
+        "Issue create idempotency key must be 1-160 safe characters.",
+      ),
     );
   }
 
@@ -416,6 +445,135 @@ async function upsertIssueProjection(
   return rowToIssueProjection(row);
 }
 
+type IssueCreateIntentClaim =
+  | { readonly kind: "none" }
+  | { readonly kind: "claimed"; readonly id: string }
+  | { readonly kind: "succeeded"; readonly projection: IssueProjectionDto }
+  | { readonly kind: "conflict"; readonly message: string };
+
+async function claimIssueCreateIntent(
+  tx: TenantTransaction,
+  input: TaskApplicationContext,
+  repository: string,
+  idempotencyKey: string | null,
+): Promise<IssueCreateIntentClaim> {
+  if (idempotencyKey === null) {
+    return { kind: "none" };
+  }
+
+  const inserted = await tx.execute(sql`
+    insert into public.issue_create_intent (
+      organization_id,
+      workspace_id,
+      actor_user_id,
+      repository,
+      idempotency_key,
+      state
+    )
+    values (
+      ${input.orgId},
+      ${input.workspaceId},
+      ${input.actor.userId},
+      ${repository},
+      ${idempotencyKey},
+      'processing'
+    )
+    on conflict (workspace_id, idempotency_key) do nothing
+    returning id
+  `);
+  const insertedRow = rowsFromExecuteResult(inserted)[0];
+  if (insertedRow !== undefined) {
+    return { kind: "claimed", id: String(insertedRow["id"]) };
+  }
+
+  const existing = await tx.execute(sql`
+    select
+      i.id,
+      i.state,
+      i.last_error,
+      p.id as projection_id,
+      p.organization_id,
+      p.workspace_id,
+      p.repository,
+      p.number,
+      p.title,
+      p.state as projection_state,
+      p.labels,
+      p.assignee,
+      p.updated_at,
+      p.synced_at,
+      p.url,
+      null::text as linked_task_id,
+      null::text as linked_task_status
+    from public.issue_create_intent i
+    left join public.issue_projection p
+      on p.id = i.issue_projection_id
+     and p.organization_id = i.organization_id
+    where i.workspace_id = ${input.workspaceId}
+      and i.idempotency_key = ${idempotencyKey}
+    limit 1
+  `);
+  const row = rowsFromExecuteResult(existing)[0];
+  if (row === undefined) {
+    return { kind: "conflict", message: "Issue create idempotency key is already in use." };
+  }
+
+  if (row["state"] === "succeeded" && row["projection_id"] !== null) {
+    return {
+      kind: "succeeded",
+      projection: rowToIssueProjection({
+        id: row["projection_id"],
+        organization_id: row["organization_id"],
+        workspace_id: row["workspace_id"],
+        repository: row["repository"],
+        number: row["number"],
+        title: row["title"],
+        state: row["projection_state"],
+        labels: row["labels"],
+        assignee: row["assignee"],
+        updated_at: row["updated_at"],
+        synced_at: row["synced_at"],
+        url: row["url"],
+        linked_task_id: row["linked_task_id"],
+        linked_task_status: row["linked_task_status"],
+      }),
+    };
+  }
+
+  return {
+    kind: "conflict",
+    message:
+      row["state"] === "failed"
+        ? "Issue create idempotency key is bound to a failed attempt."
+        : "Issue create is already in progress for this idempotency key.",
+  };
+}
+
+async function markIssueCreateIntentFailed(
+  input: TaskApplicationContext,
+  intent: IssueCreateIntentClaim,
+  message: string,
+): Promise<void> {
+  if (intent.kind !== "claimed") {
+    return;
+  }
+
+  try {
+    await withTenant(input.orgId, async (tx) => {
+      await tx.execute(sql`
+        update public.issue_create_intent
+        set state = 'failed',
+            last_error = ${message},
+            updated_at = now()
+        where id = ${intent.id}
+          and workspace_id = ${input.workspaceId}
+      `);
+    });
+  } catch {
+    // The original tracker/projection failure is the caller-visible error.
+  }
+}
+
 export async function listIssueProjections(
   input: ListIssueProjectionsInput,
   dependencies: IssueApplicationDependencies = {},
@@ -551,6 +709,11 @@ export async function createTrackedIssue(
     return err(title.error);
   }
 
+  const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
+  if (!idempotencyKey.ok) {
+    return err(idempotencyKey.error);
+  }
+
   const tracker = trackerRequired(dependencies);
   if (!tracker.ok) {
     return err(tracker.error);
@@ -562,6 +725,29 @@ export async function createTrackedIssue(
     return err(authorized.error);
   }
 
+  let intent: IssueCreateIntentClaim = { kind: "none" };
+  if (idempotencyKey.value !== null) {
+    try {
+      intent = await withTenant(input.orgId, async (tx) =>
+        claimIssueCreateIntent(tx, input, repository.value, idempotencyKey.value),
+      );
+    } catch (error) {
+      return err(
+        issueError(
+          "projectManagement.issueCreateIntentFailed",
+          "Issue create idempotency guard could not be recorded.",
+          mapDatabaseError(error),
+        ),
+      );
+    }
+  }
+  if (intent.kind === "succeeded") {
+    return ok(intent.projection);
+  }
+  if (intent.kind === "conflict") {
+    return err(issueError("projectManagement.issueCreateIdempotencyConflict", intent.message));
+  }
+
   const created = await tracker.value.createIssue({
     repository: repository.value,
     title: title.value,
@@ -569,15 +755,31 @@ export async function createTrackedIssue(
     ...(input.labels === undefined ? {} : { labels: input.labels }),
   });
   if (!created.ok) {
+    await markIssueCreateIntentFailed(input, intent, created.error.message);
     return err(created.error);
   }
 
   try {
     const syncedAt = dependencies.now?.() ?? new Date();
-    return await withTenant(input.orgId, async (tx) =>
-      ok(await upsertIssueProjection(tx, input, created.value, syncedAt)),
-    );
+    return await withTenant(input.orgId, async (tx) => {
+      const projection = await upsertIssueProjection(tx, input, created.value, syncedAt);
+      if (intent.kind === "claimed") {
+        await tx.execute(sql`
+          update public.issue_create_intent
+          set state = 'succeeded',
+              issue_projection_id = ${projection.id},
+              issue_number = ${projection.number},
+              last_error = null,
+              updated_at = now()
+          where id = ${intent.id}
+            and workspace_id = ${input.workspaceId}
+        `);
+      }
+
+      return ok(projection);
+    });
   } catch (error) {
+    await markIssueCreateIntentFailed(input, intent, String(error));
     return err(
       issueError(
         "projectManagement.issueCreateProjectionFailed",
@@ -651,6 +853,7 @@ export async function enqueueIssueCloseForTask(
           attempts,
           next_attempt_at,
           last_error,
+          claimed_at,
           created_at,
           updated_at,
           closed_at
@@ -699,22 +902,66 @@ export async function processIssueCloseOutbox(
   if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
     return err(issueError("projectManagement.invalidOutboxLimit", "Outbox limit must be 1-50."));
   }
+  const processingTimeoutMs = input.processingTimeoutMs ?? 15 * 60 * 1000;
+  if (
+    !Number.isInteger(processingTimeoutMs) ||
+    processingTimeoutMs < 1 ||
+    processingTimeoutMs > 24 * 60 * 60 * 1000
+  ) {
+    return err(
+      issueError(
+        "projectManagement.invalidOutboxProcessingTimeout",
+        "Outbox processing timeout must be 1 millisecond to 24 hours.",
+      ),
+    );
+  }
+  const maxAttempts = input.maxAttempts ?? 8;
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 100) {
+    return err(
+      issueError("projectManagement.invalidOutboxMaxAttempts", "Outbox max attempts must be 1-100."),
+    );
+  }
 
   try {
     const claimed = await withTenant(input.orgId, async (tx) => {
+      await tx.execute(sql`
+        update public.issue_close_outbox
+        set state = 'dead',
+            claimed_at = null,
+            last_error = coalesce(last_error, 'Issue close retry limit exceeded.'),
+            updated_at = now()
+        where workspace_id = ${input.workspaceId}
+          and repository = ${repository.value}
+          and state in ('pending', 'failed', 'processing')
+          and attempts >= ${maxAttempts}
+      `);
       const result = await tx.execute(sql`
-        update public.issue_close_outbox o
-        set state = 'processing', updated_at = now()
-        where o.id in (
+        with candidates as (
           select id
           from public.issue_close_outbox
           where workspace_id = ${input.workspaceId}
             and repository = ${repository.value}
-            and state in ('pending', 'failed')
-            and next_attempt_at <= now()
+            and attempts < ${maxAttempts}
+            and (
+              (
+                state in ('pending', 'failed')
+                and next_attempt_at <= now()
+              )
+              or (
+                state = 'processing'
+                and claimed_at is not null
+                and claimed_at <= now() - (${processingTimeoutMs} * interval '1 millisecond')
+              )
+            )
           order by next_attempt_at asc, created_at asc
+          for update skip locked
           limit ${limit}
         )
+        update public.issue_close_outbox o
+        set state = 'processing',
+            claimed_at = now(),
+            updated_at = now()
+        where o.id in (select id from candidates)
         returning
           id,
           organization_id,
@@ -729,6 +976,7 @@ export async function processIssueCloseOutbox(
           attempts,
           next_attempt_at,
           last_error,
+          claimed_at,
           created_at,
           updated_at,
           closed_at
@@ -749,6 +997,7 @@ export async function processIssueCloseOutbox(
         reason: entry.closeReason,
       });
       const closeState = closed.ok ? "closed" : "failed";
+      const savedState = !closed.ok && entry.attempts + 1 >= maxAttempts ? "dead" : closeState;
       const nextAttemptAt = closed.ok
         ? sql`now()`
         : sql`now() + interval '5 minutes' * greatest(attempts + 1, 1)`;
@@ -759,10 +1008,11 @@ export async function processIssueCloseOutbox(
         const result = await tx.execute(sql`
           update public.issue_close_outbox
           set
-            state = ${closeState},
+            state = ${savedState},
             attempts = attempts + 1,
             next_attempt_at = ${nextAttemptAt},
             last_error = ${lastError},
+            claimed_at = null,
             updated_at = now(),
             closed_at = ${closedAt}
           where id = ${entry.id}
@@ -781,6 +1031,7 @@ export async function processIssueCloseOutbox(
             attempts,
             next_attempt_at,
             last_error,
+            claimed_at,
             created_at,
             updated_at,
             closed_at

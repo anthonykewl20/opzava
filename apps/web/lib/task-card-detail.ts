@@ -636,13 +636,25 @@ export async function updateTaskCardDetails(
     return err(normalized.error);
   }
 
+  const actor = actorFromSessionContext(context.value);
+  const current = await dependencies.getCardDetail({
+    orgId: context.value.orgId,
+    workspaceId: context.value.workspaceId,
+    actor,
+    taskId: input.taskId,
+  });
+  if (!current.ok) {
+    return err(current.error);
+  }
+
   const result = await dependencies.updateTask({
     orgId: context.value.orgId,
     workspaceId: context.value.workspaceId,
-    actor: actorFromSessionContext(context.value),
+    actor,
     taskId: input.taskId,
     title: input.title,
     description: input.description,
+    assigneeUserId: current.value.task.assigneeUserId,
     priority: normalized.value.priority,
     labels: normalized.value.labels,
   });

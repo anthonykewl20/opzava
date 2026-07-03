@@ -57,6 +57,13 @@
       "when": 1782951100000,
       "tag": "0007_slice25_evidence_quality",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782951200000,
+      "tag": "0008_slice25_issue_outbox_hardening",
+      "breakpoints": true
     }
   ]
 }
