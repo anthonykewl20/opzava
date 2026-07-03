@@ -8,6 +8,7 @@ import {
   crmError,
   databaseError,
   insertCrmActivity,
+  normalizeLimit,
   normalizeIdempotencyKey,
   normalizeLongText,
   normalizeOptionalText,
@@ -19,6 +20,7 @@ import {
   type CrmAccountDto,
   type CrmApplicationContext,
   type CrmApplicationDependencies,
+  type CrmListPageDto,
 } from "./shared.js";
 
 export interface CreateAccountInput extends CrmApplicationContext {
@@ -47,7 +49,9 @@ export interface GetAccountInput extends CrmApplicationContext {
   readonly accountId: string;
 }
 
-export type ListAccountsInput = CrmApplicationContext;
+export interface ListAccountsInput extends CrmApplicationContext {
+  readonly limit?: number;
+}
 
 interface PreparedAccountFields {
   readonly name: string;
@@ -376,9 +380,7 @@ export async function updateAccount(
   }
 
   const name =
-    input.name === undefined
-      ? undefined
-      : normalizeRequiredText(input.name, "Account name", 240);
+    input.name === undefined ? undefined : normalizeRequiredText(input.name, "Account name", 240);
   const domain =
     input.domain === undefined
       ? undefined
@@ -431,8 +433,7 @@ export async function updateAccount(
   const websiteValue = website === undefined ? undefined : website.value;
   const descriptionValue = description === undefined ? undefined : description.value;
   const ownerUserIdValue = ownerUserId === undefined ? undefined : ownerUserId.value;
-  const parentAccountIdValue =
-    parentAccountId === undefined ? undefined : parentAccountId.value;
+  const parentAccountIdValue = parentAccountId === undefined ? undefined : parentAccountId.value;
 
   const authorized = await authorizeCrm(input, "update", dependencies.authorizationPort);
   if (!authorized.ok) {
@@ -530,10 +531,15 @@ export async function getAccount(
 export async function listAccounts(
   input: ListAccountsInput,
   dependencies: CrmApplicationDependencies = {},
-): Promise<Result<readonly CrmAccountDto[]>> {
+): Promise<Result<CrmListPageDto<CrmAccountDto>>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
     return err(knownIds.error);
+  }
+
+  const limit = normalizeLimit(input.limit, 50, 200);
+  if (!limit.ok) {
+    return err(limit.error);
   }
 
   const authorized = await authorizeCrm(input, "read", dependencies.authorizationPort);
@@ -543,6 +549,13 @@ export async function listAccounts(
 
   try {
     return await withTenant(input.orgId, async (tx) => {
+      const totalResult = await tx.execute(sql`
+        select count(*)::integer as total_count
+        from public.crm_accounts
+        where workspace_id = ${input.workspaceId}
+      `);
+      const totalCount = Number(rowsFromExecuteResult(totalResult)[0]?.["total_count"] ?? 0);
+
       const result = await tx.execute(sql`
         select
           a.id,
@@ -581,9 +594,15 @@ export async function listAccounts(
         from public.crm_accounts a
         where a.workspace_id = ${input.workspaceId}
         order by lower(a.name) asc, a.created_at asc, a.id asc
+        limit ${limit.value + 1}
       `);
 
-      return ok(rowsFromExecuteResult(result).map(rowToAccountDto));
+      const rows = rowsFromExecuteResult(result);
+      return ok({
+        rows: rows.slice(0, limit.value).map(rowToAccountDto),
+        hasMore: rows.length > limit.value,
+        totalCount,
+      });
     });
   } catch (error) {
     return err(databaseError(error));

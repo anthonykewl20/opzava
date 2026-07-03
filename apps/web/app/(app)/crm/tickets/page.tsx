@@ -50,9 +50,13 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
   const crmContext = crmContextInput(context);
   const createTicketIdempotencyKey = `web.crm.ticket.create:${randomUUID()}`;
   const [ticketsResult, accountsResult, contactsResult] = await Promise.all([
-    listTickets({ ...crmContext, ...(filter === undefined ? {} : { status: filter }) }),
-    listAccounts(crmContext),
-    listContacts(crmContext),
+    listTickets({
+      ...crmContext,
+      ...(filter === undefined ? {} : { status: filter }),
+      limit: 200,
+    }),
+    listAccounts({ ...crmContext, limit: 200 }),
+    listContacts({ ...crmContext, limit: 200 }),
   ]);
 
   if (!ticketsResult.ok) {
@@ -79,9 +83,9 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
     throw contactsResult.error;
   }
 
-  const tickets = ticketsResult.value;
-  const accounts = accountsResult.value;
-  const contacts = contactsResult.value;
+  const tickets = ticketsResult.value.rows;
+  const accounts = accountsResult.value.rows;
+  const contacts = contactsResult.value.rows;
 
   return (
     <>

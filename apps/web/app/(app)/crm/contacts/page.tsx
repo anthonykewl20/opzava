@@ -24,9 +24,10 @@ export default async function ContactsPage() {
   }
 
   const createContactIdempotencyKey = `web.crm.contact.create:${randomUUID()}`;
+  const crmContext = crmContextInput(context);
   const [contactsResult, accountsResult] = await Promise.all([
-    listContacts(crmContextInput(context)),
-    listAccounts(crmContextInput(context)),
+    listContacts({ ...crmContext, limit: 200 }),
+    listAccounts({ ...crmContext, limit: 200 }),
   ]);
 
   if (!contactsResult.ok) {
@@ -45,8 +46,8 @@ export default async function ContactsPage() {
     throw accountsResult.error;
   }
 
-  const contacts = contactsResult.value;
-  const accounts = accountsResult.value;
+  const contacts = contactsResult.value.rows;
+  const accounts = accountsResult.value.rows;
 
   return (
     <>

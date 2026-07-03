@@ -130,7 +130,14 @@ export interface CrmDealDto {
 
 export interface CrmDealStageColumnDto {
   readonly stage: CrmPipelineStageDto;
+  readonly dealCount: number;
   readonly deals: readonly CrmDealDto[];
+}
+
+export interface CrmListPageDto<T> {
+  readonly rows: readonly T[];
+  readonly hasMore: boolean;
+  readonly totalCount: number;
 }
 
 export interface CrmTicketDto {
@@ -169,8 +176,7 @@ export interface CrmActivityDto {
 
 export type QueryRow = Record<string, unknown>;
 
-const uuidPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function crmError(code: string, message: string, cause?: unknown): DomainError {
   return new DomainError({
@@ -572,10 +578,14 @@ export function normalizeDate(value: string | Date | null | undefined): Result<s
   return ok(date.toISOString());
 }
 
-export function normalizeLimit(value: number | undefined, fallback = 50): Result<number> {
+export function normalizeLimit(
+  value: number | undefined,
+  fallback = 50,
+  max = 100,
+): Result<number> {
   const limit = value ?? fallback;
-  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-    return err(crmError("crm.validation", "Limit must be between 1 and 100."));
+  if (!Number.isInteger(limit) || limit < 1 || limit > max) {
+    return err(crmError("crm.validation", `Limit must be between 1 and ${max}.`));
   }
 
   return ok(limit);

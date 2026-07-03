@@ -24,6 +24,7 @@ import {
   type CrmApplicationContext,
   type CrmApplicationDependencies,
   type CrmContactDto,
+  type CrmListPageDto,
 } from "./shared.js";
 import { parseCrmContactLifecycle, type CrmContactLifecycle } from "../domain/index.js";
 
@@ -55,7 +56,9 @@ export interface GetContactInput extends CrmApplicationContext {
   readonly contactId: string;
 }
 
-export type ListContactsInput = CrmApplicationContext;
+export interface ListContactsInput extends CrmApplicationContext {
+  readonly limit?: number;
+}
 
 export interface ListContactTimelineInput extends CrmApplicationContext {
   readonly contactId: string;
@@ -230,9 +233,7 @@ async function validateAccount(
   }
 
   const account = await accountInternal.selectAccountById(tx, accountId, input.workspaceId);
-  return account === null
-    ? err(crmError("crm.notFound", "Account was not found."))
-    : ok(undefined);
+  return account === null ? err(crmError("crm.notFound", "Account was not found.")) : ok(undefined);
 }
 
 export async function createContact(
@@ -399,8 +400,7 @@ export async function updateContact(
   const emailValue = email === undefined ? undefined : email.value;
   const phoneValue = phone === undefined ? undefined : phone.value;
   const titleValue = title === undefined ? undefined : title.value;
-  const lifecycleStageValue =
-    lifecycleStage === undefined ? undefined : lifecycleStage.value;
+  const lifecycleStageValue = lifecycleStage === undefined ? undefined : lifecycleStage.value;
   const accountIdValue = accountId === undefined ? undefined : accountId.value;
   const ownerUserIdValue = ownerUserId === undefined ? undefined : ownerUserId.value;
   const notesValue = notes === undefined ? undefined : notes.value;
@@ -494,10 +494,15 @@ export async function getContact(
 export async function listContacts(
   input: ListContactsInput,
   dependencies: CrmApplicationDependencies = {},
-): Promise<Result<readonly CrmContactDto[]>> {
+): Promise<Result<CrmListPageDto<CrmContactDto>>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
     return err(knownIds.error);
+  }
+
+  const limit = normalizeLimit(input.limit, 50, 200);
+  if (!limit.ok) {
+    return err(limit.error);
   }
 
   const authorized = await authorizeCrm(input, "read", dependencies.authorizationPort);
@@ -507,6 +512,13 @@ export async function listContacts(
 
   try {
     return await withTenant(input.orgId, async (tx) => {
+      const totalResult = await tx.execute(sql`
+        select count(*)::integer as total_count
+        from public.crm_contacts
+        where workspace_id = ${input.workspaceId}
+      `);
+      const totalCount = Number(rowsFromExecuteResult(totalResult)[0]?.["total_count"] ?? 0);
+
       const result = await tx.execute(sql`
         select
           c.id,
@@ -548,9 +560,15 @@ export async function listContacts(
           and a.organization_id = c.organization_id
         where c.workspace_id = ${input.workspaceId}
         order by lower(c.display_name) asc, c.created_at asc, c.id asc
+        limit ${limit.value + 1}
       `);
 
-      return ok(rowsFromExecuteResult(result).map(rowToContactDto));
+      const rows = rowsFromExecuteResult(result);
+      return ok({
+        rows: rows.slice(0, limit.value).map(rowToContactDto),
+        hasMore: rows.length > limit.value,
+        totalCount,
+      });
     });
   } catch (error) {
     return err(databaseError(error));

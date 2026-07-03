@@ -1,9 +1,4 @@
-import {
-  createPostgresPool,
-  db,
-  pool,
-  sql,
-} from "@opzava/adapters";
+import { createPostgresPool, db, pool, sql } from "@opzava/adapters";
 import type { Result } from "@opzava/shared-kernel";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -20,8 +15,10 @@ import {
   getContact,
   getTicket,
   listAccounts,
+  listContacts,
   listContactTimeline,
   listDeals,
+  listTickets,
   moveDealStage,
   reopenDeal,
   updateAccount,
@@ -440,6 +437,71 @@ describe("slice 3 CRM core", () => {
     expect(differentTicket.id).not.toBe(firstTicket.id);
   });
 
+  it("returns list pages with SQL-backed limits and counts", async () => {
+    const tenant = await adminCreateTenant("list-pages");
+    const accounts = await Promise.all(
+      ["Apex", "Beacon", "Core"].map((name) =>
+        createAccount({
+          ...context(tenant),
+          name: `${name} account`,
+        }),
+      ),
+    );
+    const accountDtos = accounts.map(unwrap);
+    const contacts = await Promise.all(
+      accountDtos.map((account, index) =>
+        createContact({
+          ...context(tenant),
+          displayName: `Paged contact ${index}`,
+          accountId: account.id,
+        }),
+      ),
+    );
+    const contactDtos = contacts.map(unwrap);
+
+    await Promise.all(
+      contactDtos.map((contact, index) =>
+        createDeal({
+          ...context(tenant),
+          title: `Paged deal ${index}`,
+          accountId: accountDtos[0]?.id ?? "",
+          primaryContactId: contact.id,
+        }),
+      ),
+    );
+    await Promise.all(
+      contactDtos.map((contact, index) =>
+        createTicket({
+          ...context(tenant),
+          subject: `Paged ticket ${index}`,
+          contactId: contact.id,
+          accountId: contact.accountId,
+        }),
+      ),
+    );
+
+    const accountPage = unwrap(await listAccounts({ ...context(tenant), limit: 2 }));
+    expect(accountPage.rows).toHaveLength(2);
+    expect(accountPage.totalCount).toBe(3);
+    expect(accountPage.hasMore).toBe(true);
+
+    const contactPage = unwrap(await listContacts({ ...context(tenant), limit: 2 }));
+    expect(contactPage.rows).toHaveLength(2);
+    expect(contactPage.totalCount).toBe(3);
+    expect(contactPage.hasMore).toBe(true);
+
+    const dealPage = unwrap(await listDeals({ ...context(tenant), limit: 2 }));
+    expect(flattenDeals(dealPage.rows)).toHaveLength(2);
+    expect(dealPage.totalCount).toBe(3);
+    expect(dealPage.hasMore).toBe(true);
+    expect(dealPage.rows.reduce((total, column) => total + column.dealCount, 0)).toBe(3);
+
+    const ticketPage = unwrap(await listTickets({ ...context(tenant), limit: 2 }));
+    expect(ticketPage.rows).toHaveLength(2);
+    expect(ticketPage.totalCount).toBe(3);
+    expect(ticketPage.hasMore).toBe(true);
+  });
+
   it("manages the default pipeline and validates deal stage movement", async () => {
     const tenant = await adminCreateTenant("pipeline-a");
 
@@ -546,7 +608,7 @@ describe("slice 3 CRM core", () => {
     ).toHaveLength(1);
 
     const board = unwrap(await listDeals(context(tenant)));
-    const unchanged = flattenDeals(board).find((candidate) => candidate.id === deal.id);
+    const unchanged = flattenDeals(board.rows).find((candidate) => candidate.id === deal.id);
     expect(unchanged?.stageId).toBe(firstPipeline.stages[2]?.id);
   });
 
@@ -667,9 +729,9 @@ describe("slice 3 CRM core", () => {
         contactId: contact.id,
       }),
     );
-    expect(
-      timeline.filter((activity) => activity.kind === "ticket_status_changed"),
-    ).toHaveLength(1);
+    expect(timeline.filter((activity) => activity.kind === "ticket_status_changed")).toHaveLength(
+      1,
+    );
   });
 
   it("returns contact timeline newest-first and rejects invalid account parents", async () => {

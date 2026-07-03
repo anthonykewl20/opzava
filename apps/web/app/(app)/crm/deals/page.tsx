@@ -49,9 +49,9 @@ export default async function DealsPage() {
   const createDealIdempotencyKey = `web.crm.deal.create:${randomUUID()}`;
   const [pipelineResult, dealsResult, accountsResult, contactsResult] = await Promise.all([
     ensureDefaultPipeline(crmContext),
-    listDeals(crmContext),
-    listAccounts(crmContext),
-    listContacts(crmContext),
+    listDeals({ ...crmContext, limit: 200 }),
+    listAccounts({ ...crmContext, limit: 200 }),
+    listContacts({ ...crmContext, limit: 200 }),
   ]);
 
   if (!pipelineResult.ok) {
@@ -86,16 +86,16 @@ export default async function DealsPage() {
     throw contactsResult.error;
   }
 
-  const accounts = accountsResult.value;
-  const contacts = contactsResult.value;
+  const accounts = accountsResult.value.rows;
+  const contacts = contactsResult.value.rows;
   const stageColumns = pipelineResult.value.stages.map((stage) => ({
     stage,
     deals:
-      dealsResult.value
+      dealsResult.value.rows
         .find((column) => column.stage.id === stage.id)
         ?.deals.filter((deal) => deal.status === "open") ?? [],
   }));
-  const closedDeals = dealsResult.value
+  const closedDeals = dealsResult.value.rows
     .flatMap((column) => column.deals)
     .filter((deal) => deal.status !== "open");
   const openDealCount = stageColumns.reduce((total, column) => total + column.deals.length, 0);

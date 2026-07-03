@@ -39,10 +39,10 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
   const [contactResult, accountsResult, timelineResult, dealsResult, ticketsResult] =
     await Promise.all([
       getContact({ ...crmContext, contactId: id }),
-      listAccounts(crmContext),
+      listAccounts({ ...crmContext, limit: 200 }),
       listContactTimeline({ ...crmContext, contactId: id, limit: 50 }),
-      listDeals(crmContext),
-      listTickets(crmContext),
+      listDeals({ ...crmContext, limit: 200 }),
+      listTickets({ ...crmContext, limit: 200 }),
     ]);
 
   if (!contactResult.ok) {
@@ -94,12 +94,12 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
   }
 
   const contact = contactResult.value;
-  const accounts = accountsResult.value;
+  const accounts = accountsResult.value.rows;
   const timeline = timelineResult.value;
-  const openDeals = openDealsFromColumns(dealsResult.value).filter(
+  const openDeals = openDealsFromColumns(dealsResult.value.rows).filter(
     (deal) => deal.primaryContactId === contact.id,
   );
-  const openTickets = ticketsResult.value.filter(
+  const openTickets = ticketsResult.value.rows.filter(
     (ticket) =>
       ticket.contactId === contact.id && ticket.status !== "resolved" && ticket.status !== "closed",
   );

@@ -11,6 +11,7 @@ import {
   databaseError,
   insertCrmActivity,
   normalizeIdempotencyKey,
+  normalizeLimit,
   normalizeLongText,
   normalizeOptionalUserId,
   normalizeRequiredText,
@@ -19,6 +20,7 @@ import {
   stringOrNull,
   type CrmApplicationContext,
   type CrmApplicationDependencies,
+  type CrmListPageDto,
   type CrmTicketDto,
 } from "./shared.js";
 import {
@@ -56,6 +58,7 @@ export interface UpdateTicketInput extends CrmApplicationContext {
 
 export interface ListTicketsInput extends CrmApplicationContext {
   readonly status?: CrmTicketStatus;
+  readonly limit?: number;
 }
 
 export interface GetTicketInput extends CrmApplicationContext {
@@ -475,9 +478,7 @@ export async function updateTicket(
   const priority =
     input.priority === undefined ? undefined : parseCrmTicketPriority(input.priority);
   const queue =
-    input.queue === undefined
-      ? undefined
-      : normalizeRequiredText(input.queue, "Ticket queue", 120);
+    input.queue === undefined ? undefined : normalizeRequiredText(input.queue, "Ticket queue", 120);
   const assigneeUserId =
     input.assigneeUserId === undefined
       ? undefined
@@ -502,8 +503,7 @@ export async function updateTicket(
   const bodyValue = body === undefined ? undefined : body.value;
   const priorityValue = priority === undefined ? undefined : priority.value;
   const queueValue = queue === undefined ? undefined : queue.value;
-  const assigneeUserIdValue =
-    assigneeUserId === undefined ? undefined : assigneeUserId.value;
+  const assigneeUserIdValue = assigneeUserId === undefined ? undefined : assigneeUserId.value;
 
   const authorized = await authorizeCrm(input, "update", dependencies.authorizationPort);
   if (!authorized.ok) {
@@ -547,10 +547,15 @@ export async function updateTicket(
 export async function listTickets(
   input: ListTicketsInput,
   dependencies: CrmApplicationDependencies = {},
-): Promise<Result<readonly CrmTicketDto[]>> {
+): Promise<Result<CrmListPageDto<CrmTicketDto>>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
     return err(knownIds.error);
+  }
+
+  const limit = normalizeLimit(input.limit, 50, 200);
+  if (!limit.ok) {
+    return err(limit.error);
   }
 
   const status = input.status === undefined ? undefined : parseCrmTicketStatus(input.status);
@@ -565,6 +570,18 @@ export async function listTickets(
 
   try {
     return await withTenant(input.orgId, async (tx) => {
+      const totalResult = await tx.execute(sql`
+        select count(*)::integer as total_count
+        from public.crm_tickets t
+        where t.workspace_id = ${input.workspaceId}
+          ${
+            status === undefined
+              ? sql``
+              : sql`and t.status = ${status.value}::public.crm_ticket_status`
+          }
+      `);
+      const totalCount = Number(rowsFromExecuteResult(totalResult)[0]?.["total_count"] ?? 0);
+
       const result = await tx.execute(sql`
         select
           t.id,
@@ -605,9 +622,15 @@ export async function listTickets(
           end desc,
           t.created_at asc,
           t.id asc
+        limit ${limit.value + 1}
       `);
 
-      return ok(rowsFromExecuteResult(result).map(rowToTicketDto));
+      const rows = rowsFromExecuteResult(result);
+      return ok({
+        rows: rows.slice(0, limit.value).map(rowToTicketDto),
+        hasMore: rows.length > limit.value,
+        totalCount,
+      });
     });
   } catch (error) {
     return err(databaseError(error));
@@ -636,9 +659,7 @@ export async function getTicket(
   try {
     return await withTenant(input.orgId, async (tx) => {
       const ticket = await selectTicketById(tx, input.ticketId, input.workspaceId);
-      return ticket === null
-        ? err(crmError("crm.notFound", "Ticket was not found."))
-        : ok(ticket);
+      return ticket === null ? err(crmError("crm.notFound", "Ticket was not found.")) : ok(ticket);
     });
   } catch (error) {
     return err(databaseError(error));

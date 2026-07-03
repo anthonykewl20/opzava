@@ -4,7 +4,7 @@ import {
   db,
   pool,
   sql,
-  withTenant
+  withTenant,
 } from "@opzava/adapters";
 import {
   addNote,
@@ -12,7 +12,7 @@ import {
   createContact,
   createDeal,
   createTicket,
-  defaultCrmAuthorizationPort
+  defaultCrmAuthorizationPort,
 } from "@opzava/crm";
 import type { AuthorizationPort } from "@opzava/ports";
 import { ok, type Result } from "@opzava/shared-kernel";
@@ -29,7 +29,7 @@ import {
   recordToolOutcome,
   type ToolExecutionContext,
   startAssistantTurn,
-  toolExecutionContextFromSessionPrincipal
+  toolExecutionContextFromSessionPrincipal,
 } from "../application/index.js";
 
 interface TenantFixture {
@@ -87,22 +87,22 @@ async function adminCreateTenant(label: string): Promise<TenantFixture> {
   await adminPool.query(
     `insert into public.organizations (id, slug, name, lifecycle_state)
      values ($1, $2, $3, 'active')`,
-    [organizationId, slug, `Slice 2a ${label}`]
+    [organizationId, slug, `Slice 2a ${label}`],
   );
   await adminPool.query(
     `insert into public.workspaces (id, organization_id, slug, name)
      values ($1, $2, $3, $4)`,
-    [workspaceId, organizationId, "admin", "Admin"]
+    [workspaceId, organizationId, "admin", "Admin"],
   );
   await adminPool.query(
     `insert into public.auth_users (id, name, email, email_verified)
      values ($1, $2, $3, true)`,
-    [userId, `Member ${label}`, userEmail]
+    [userId, `Member ${label}`, userEmail],
   );
   await adminPool.query(
     `insert into public.memberships (organization_id, user_id, status, membership_version)
      values ($1, $2, 'active', 1)`,
-    [organizationId, userId]
+    [organizationId, userId],
   );
   await adminPool.query(
     `insert into public.role_grants (
@@ -115,7 +115,7 @@ async function adminCreateTenant(label: string): Promise<TenantFixture> {
       granted_by_user_id
     )
     values ($1, 'user', $2, 'member', 'organization', $1, $2)`,
-    [organizationId, userId]
+    [organizationId, userId],
   );
 
   createdOrganizationIds.push(organizationId);
@@ -129,8 +129,8 @@ function context(tenant: TenantFixture) {
     workspaceId: tenant.workspaceId,
     actor: {
       userId: tenant.userId,
-      roleKeys: ["member"]
-    }
+      roleKeys: ["member"],
+    },
   };
 }
 
@@ -145,13 +145,13 @@ function unwrap<T>(result: Result<T>): T {
 
 async function assistantToolContext(
   tenant: TenantFixture,
-  label: string
+  label: string,
 ): Promise<ToolExecutionContext> {
   const appContext = context(tenant);
   const conversation = await createConversation({
     ...appContext,
     surface: "tasks.ask_admin",
-    assistantKey: "ask-admin-opzava"
+    assistantKey: "ask-admin-opzava",
   });
   expect(conversation.ok).toBe(true);
   if (!conversation.ok) {
@@ -162,7 +162,7 @@ async function assistantToolContext(
     ...appContext,
     conversationId: conversation.value.id,
     idempotencyKey: `assistant-${label}`,
-    assistantKey: "ask-admin-opzava"
+    assistantKey: "ask-admin-opzava",
   });
   expect(assistantTurn.ok).toBe(true);
   if (!assistantTurn.ok) {
@@ -172,11 +172,11 @@ async function assistantToolContext(
   const toolContext = toolExecutionContextFromSessionPrincipal({
     principal: {
       ...appContext,
-      sessionId: `session-${label}`
+      sessionId: `session-${label}`,
     },
     conversationId: conversation.value.id,
     assistantTurnId: assistantTurn.value.id,
-    commandIdempotencyKey: `command-${label}`
+    commandIdempotencyKey: `command-${label}`,
   });
   expect(toolContext.ok).toBe(true);
   if (!toolContext.ok) {
@@ -189,13 +189,13 @@ async function assistantToolContext(
 async function assistantToolContextForActor(
   tenant: TenantFixture,
   label: string,
-  actor: TestActor
+  actor: TestActor,
 ): Promise<ToolExecutionContext> {
   const appContext = context(tenant);
   const conversation = await createConversation({
     ...appContext,
     surface: "tasks.ask_admin",
-    assistantKey: "ask-admin-opzava"
+    assistantKey: "ask-admin-opzava",
   });
   expect(conversation.ok).toBe(true);
   if (!conversation.ok) {
@@ -206,7 +206,7 @@ async function assistantToolContextForActor(
     ...appContext,
     conversationId: conversation.value.id,
     idempotencyKey: `assistant-${label}`,
-    assistantKey: "ask-admin-opzava"
+    assistantKey: "ask-admin-opzava",
   });
   expect(assistantTurn.ok).toBe(true);
   if (!assistantTurn.ok) {
@@ -217,11 +217,11 @@ async function assistantToolContextForActor(
     principal: {
       ...appContext,
       actor,
-      sessionId: `session-${label}`
+      sessionId: `session-${label}`,
     },
     conversationId: conversation.value.id,
     assistantTurnId: assistantTurn.value.id,
-    commandIdempotencyKey: `command-${label}`
+    commandIdempotencyKey: `command-${label}`,
   });
   expect(toolContext.ok).toBe(true);
   if (!toolContext.ok) {
@@ -240,7 +240,7 @@ const denyingAuthorizationPort: AuthorizationPort = {
   },
   async hasProjectGrant() {
     return ok({ allowed: false, reason: "test-denied" });
-  }
+  },
 };
 
 const allowingAuthorizationPort: AuthorizationPort = {
@@ -252,8 +252,34 @@ const allowingAuthorizationPort: AuthorizationPort = {
   },
   async hasProjectGrant() {
     return ok({ allowed: true });
-  }
+  },
 };
+
+const crmReadOnlyCountTables = [
+  "crm_pipelines",
+  "crm_pipeline_stages",
+  "crm_accounts",
+  "crm_contacts",
+  "crm_deals",
+  "crm_tickets",
+  "crm_activities",
+] as const;
+
+async function crmTableCounts(
+  tenant: TenantFixture,
+): Promise<Readonly<Record<(typeof crmReadOnlyCountTables)[number], number>>> {
+  const counts = {} as Record<(typeof crmReadOnlyCountTables)[number], number>;
+
+  for (const table of crmReadOnlyCountTables) {
+    const result = await adminPool.query<{ count: number }>(
+      `select count(*)::integer as count from public.${table} where organization_id = $1`,
+      [tenant.organizationId],
+    );
+    counts[table] = Number(result.rows[0]?.count ?? 0);
+  }
+
+  return counts;
+}
 
 async function cleanupCreatedRows(): Promise<void> {
   const organizationResult = await adminPool.query<{ id: string }>(
@@ -261,87 +287,86 @@ async function cleanupCreatedRows(): Promise<void> {
      from public.organizations
      where slug like $1
         or id = any($2::uuid[])`,
-    [`${testSlugPrefix}%`, createdOrganizationIds]
+    [`${testSlugPrefix}%`, createdOrganizationIds],
   );
   const userResult = await adminPool.query<{ id: string }>(
     `select id
      from public.auth_users
      where email like $1
         or id = any($2::text[])`,
-    [`%${testEmailSuffix}`, createdUserIds]
+    [`%${testEmailSuffix}`, createdUserIds],
   );
 
   const organizationIds = [
-    ...new Set([...createdOrganizationIds, ...organizationResult.rows.map((row) => row.id)])
+    ...new Set([...createdOrganizationIds, ...organizationResult.rows.map((row) => row.id)]),
   ];
   const userIds = [...new Set([...createdUserIds, ...userResult.rows.map((row) => row.id)])];
 
   if (organizationIds.length > 0) {
     await adminPool.query(
       "delete from public.crm_activities where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query(
       "delete from public.crm_tickets where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query("delete from public.crm_deals where organization_id = any($1::uuid[])", [
-      organizationIds
+      organizationIds,
     ]);
     await adminPool.query(
       "delete from public.crm_pipeline_stages where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query(
       "delete from public.crm_pipelines where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query(
       "delete from public.crm_contacts where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query(
       "delete from public.crm_accounts where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
-    await adminPool.query(
-      "delete from public.tasks where organization_id = any($1::uuid[])",
-      [organizationIds]
-    );
+    await adminPool.query("delete from public.tasks where organization_id = any($1::uuid[])", [
+      organizationIds,
+    ]);
     await adminPool.query(
       "delete from public.assistant_tool_outcomes where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query(
       "delete from public.assistant_turns where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query(
       "delete from public.assistant_conversations where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query(
       "delete from public.role_grants where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query(
       "delete from public.memberships where organization_id = any($1::uuid[])",
-      [organizationIds]
+      [organizationIds],
     );
     await adminPool.query("delete from public.workspaces where organization_id = any($1::uuid[])", [
-      organizationIds
+      organizationIds,
     ]);
     await adminPool.query("delete from public.organizations where id = any($1::uuid[])", [
-      organizationIds
+      organizationIds,
     ]);
   }
 
   if (userIds.length > 0) {
     await adminPool.query("delete from public.auth_sessions where user_id = any($1::text[])", [
-      userIds
+      userIds,
     ]);
     await adminPool.query("delete from public.auth_accounts where user_id = any($1::text[])", [
-      userIds
+      userIds,
     ]);
     await adminPool.query("delete from public.auth_users where id = any($1::text[])", [userIds]);
   }
@@ -351,7 +376,7 @@ async function cleanupCreatedRows(): Promise<void> {
 }
 
 async function selectConversationsWithoutWithTenant(
-  expectedOrgId: string
+  expectedOrgId: string,
 ): Promise<ReadonlyArray<Record<string, unknown>>> {
   await assertCurrentTenant(db, expectedOrgId);
   const result = await db.execute(sql`select id from public.assistant_conversations`);
@@ -372,8 +397,8 @@ beforeAll(async () => {
   ) {
     throw new Error(
       `Runtime-Control integration test must run as non-owner opzava_app; got ${JSON.stringify(
-        row
-      )}`
+        row,
+      )}`,
     );
   }
 });
@@ -396,7 +421,7 @@ describe("slice 2a Runtime-Control", () => {
     const conversation = await createConversation({
       ...appContext,
       surface: "tasks.ask_admin",
-      assistantKey: "ask-admin-opzava"
+      assistantKey: "ask-admin-opzava",
     });
     expect(conversation.ok).toBe(true);
     if (!conversation.ok) {
@@ -407,44 +432,44 @@ describe("slice 2a Runtime-Control", () => {
       ...appContext,
       conversationId: conversation.value.id,
       idempotencyKey: "user-turn-1",
-      content: { text: "Add a Slice 2 hardening task." }
+      content: { text: "Add a Slice 2 hardening task." },
     });
     expect(userTurn).toMatchObject({
       ok: true,
-      value: { role: "user", status: "final" }
+      value: { role: "user", status: "final" },
     });
 
     const duplicateUserTurn = await appendUserTurn({
       ...appContext,
       conversationId: conversation.value.id,
       idempotencyKey: "user-turn-1",
-      content: { text: "Add a Slice 2 hardening task." }
+      content: { text: "Add a Slice 2 hardening task." },
     });
     expect(duplicateUserTurn).toMatchObject({
       ok: true,
-      value: { id: userTurn.ok ? userTurn.value.id : "" }
+      value: { id: userTurn.ok ? userTurn.value.id : "" },
     });
 
     const conflictingUserTurn = await appendUserTurn({
       ...appContext,
       conversationId: conversation.value.id,
       idempotencyKey: "user-turn-1",
-      content: { text: "Different text under the same key." }
+      content: { text: "Different text under the same key." },
     });
     expect(conflictingUserTurn).toMatchObject({
       ok: false,
-      error: { code: "runtimeControl.idempotencyConflict" }
+      error: { code: "runtimeControl.idempotencyConflict" },
     });
 
     const assistantTurn = await startAssistantTurn({
       ...appContext,
       conversationId: conversation.value.id,
       idempotencyKey: "assistant-turn-1",
-      assistantKey: "ask-admin-opzava"
+      assistantKey: "ask-admin-opzava",
     });
     expect(assistantTurn).toMatchObject({
       ok: true,
-      value: { role: "assistant", status: "queued" }
+      value: { role: "assistant", status: "queued" },
     });
     if (!assistantTurn.ok) {
       throw assistantTurn.error;
@@ -453,31 +478,35 @@ describe("slice 2a Runtime-Control", () => {
     const streamed = await appendAssistantDelta({
       ...appContext,
       turnId: assistantTurn.value.id,
-      deltaText: "Created "
+      deltaText: "Created ",
     });
     expect(streamed).toMatchObject({
       ok: true,
-      value: { status: "streaming", content: { text: "Created " } }
+      value: { status: "streaming", content: { text: "Created " } },
     });
 
     const finalized = await finalizeAssistantTurn({
       ...appContext,
       turnId: assistantTurn.value.id,
-      content: { text: "Created the task." }
+      content: { text: "Created the task." },
     });
     expect(finalized).toMatchObject({
       ok: true,
-      value: { status: "final", content: { text: "Created the task." } }
+      value: { status: "final", content: { text: "Created the task." } },
     });
 
     const duplicateFinalize = await finalizeAssistantTurn({
       ...appContext,
       turnId: assistantTurn.value.id,
-      content: { text: "A duplicate finalize should be a no-op." }
+      content: { text: "A duplicate finalize should be a no-op." },
     });
     expect(duplicateFinalize).toMatchObject({
       ok: true,
-      value: { id: assistantTurn.value.id, status: "final", content: { text: "Created the task." } }
+      value: {
+        id: assistantTurn.value.id,
+        status: "final",
+        content: { text: "Created the task." },
+      },
     });
   });
 
@@ -487,7 +516,7 @@ describe("slice 2a Runtime-Control", () => {
     const conversation = await createConversation({
       ...appContext,
       surface: "tasks.ask_admin",
-      assistantKey: "ask-admin-opzava"
+      assistantKey: "ask-admin-opzava",
     });
     expect(conversation.ok).toBe(true);
     if (!conversation.ok) {
@@ -498,7 +527,7 @@ describe("slice 2a Runtime-Control", () => {
       ...appContext,
       conversationId: conversation.value.id,
       idempotencyKey: "assistant-tool-turn",
-      assistantKey: "ask-admin-opzava"
+      assistantKey: "ask-admin-opzava",
     });
     expect(assistantTurn.ok).toBe(true);
     if (!assistantTurn.ok) {
@@ -513,11 +542,11 @@ describe("slice 2a Runtime-Control", () => {
       idempotencyKey: "tool-idem-1",
       status: "started",
       requestSummary: { title: "Add task" },
-      targetRef: "task:new"
+      targetRef: "task:new",
     });
     expect(receipt).toMatchObject({
       ok: true,
-      value: { status: "started", toolCallId: "tool-call-1" }
+      value: { status: "started", toolCallId: "tool-call-1" },
     });
 
     const completed = await recordToolOutcome({
@@ -529,11 +558,11 @@ describe("slice 2a Runtime-Control", () => {
       status: "succeeded",
       requestSummary: { title: "Add task" },
       resultSummary: { taskId: "task_123" },
-      targetRef: "task:new"
+      targetRef: "task:new",
     });
     expect(completed).toMatchObject({
       ok: true,
-      value: { status: "succeeded", resultSummary: { taskId: "task_123" } }
+      value: { status: "succeeded", resultSummary: { taskId: "task_123" } },
     });
 
     const replay = await recordToolOutcome({
@@ -545,11 +574,11 @@ describe("slice 2a Runtime-Control", () => {
       status: "succeeded",
       requestSummary: { title: "Add task" },
       resultSummary: { taskId: "task_123" },
-      targetRef: "task:new"
+      targetRef: "task:new",
     });
     expect(replay).toMatchObject({
       ok: true,
-      value: { id: completed.ok ? completed.value.id : "", status: "succeeded" }
+      value: { id: completed.ok ? completed.value.id : "", status: "succeeded" },
     });
 
     const conflictingReplay = await recordToolOutcome({
@@ -560,11 +589,11 @@ describe("slice 2a Runtime-Control", () => {
       idempotencyKey: "tool-idem-1",
       status: "started",
       requestSummary: { title: "Different task" },
-      targetRef: "task:new"
+      targetRef: "task:new",
     });
     expect(conflictingReplay).toMatchObject({
       ok: false,
-      error: { code: "runtimeControl.toolOutcomeConflict" }
+      error: { code: "runtimeControl.toolOutcomeConflict" },
     });
 
     const missingReceipt = await recordToolOutcome({
@@ -575,18 +604,18 @@ describe("slice 2a Runtime-Control", () => {
       idempotencyKey: "tool-idem-missing",
       status: "succeeded",
       requestSummary: { taskId: "task_123" },
-      resultSummary: { taskId: "task_123" }
+      resultSummary: { taskId: "task_123" },
     });
     expect(missingReceipt).toMatchObject({
       ok: false,
-      error: { code: "runtimeControl.toolOutcomeReceiptMissing" }
+      error: { code: "runtimeControl.toolOutcomeReceiptMissing" },
     });
 
     const userTurn = await appendUserTurn({
       ...appContext,
       conversationId: conversation.value.id,
       idempotencyKey: "user-tool-turn",
-      content: { text: "A user turn cannot own tool receipts." }
+      content: { text: "A user turn cannot own tool receipts." },
     });
     expect(userTurn.ok).toBe(true);
     if (!userTurn.ok) {
@@ -600,11 +629,11 @@ describe("slice 2a Runtime-Control", () => {
       toolCallId: "tool-call-user-turn",
       idempotencyKey: "tool-idem-user-turn",
       status: "started",
-      requestSummary: { title: "Invalid owner" }
+      requestSummary: { title: "Invalid owner" },
     });
     expect(boundToUserTurn).toMatchObject({
       ok: false,
-      error: { code: "runtimeControl.invalidToolOutcomeTurn" }
+      error: { code: "runtimeControl.invalidToolOutcomeTurn" },
     });
   });
 
@@ -621,8 +650,8 @@ describe("slice 2a Runtime-Control", () => {
         description: "Write through the Project Management service.",
         status: "todo",
         priority: "high",
-        labels: ["Ask Admin"]
-      }
+        labels: ["Ask Admin"],
+      },
     });
     expect(created).toMatchObject({
       ok: true,
@@ -634,10 +663,10 @@ describe("slice 2a Runtime-Control", () => {
             title: "Create through Runtime-Control tool",
             status: "todo",
             priority: "high",
-            labels: ["ask admin"]
-          }
-        }
-      }
+            labels: ["ask admin"],
+          },
+        },
+      },
     });
     if (
       !created.ok ||
@@ -657,8 +686,8 @@ describe("slice 2a Runtime-Control", () => {
         description: "Write through the Project Management service.",
         status: "todo",
         priority: "high",
-        labels: ["Ask Admin"]
-      }
+        labels: ["Ask Admin"],
+      },
     });
     expect(replay).toMatchObject({
       ok: true,
@@ -666,9 +695,9 @@ describe("slice 2a Runtime-Control", () => {
         status: "succeeded",
         output: {
           kind: "tasks.create",
-          task: { id: createdTask.id }
-        }
-      }
+          task: { id: createdTask.id },
+        },
+      },
     });
 
     const conflictingReplay = await executeRuntimeControlTaskTool({
@@ -676,19 +705,19 @@ describe("slice 2a Runtime-Control", () => {
       toolName: "opzava_tasks_create",
       toolCallId: "tool-call-create",
       args: {
-        title: "Different title under the same tool call id"
-      }
+        title: "Different title under the same tool call id",
+      },
     });
     expect(conflictingReplay).toMatchObject({
       ok: false,
-      error: { code: "runtimeControl.toolOutcomeConflict" }
+      error: { code: "runtimeControl.toolOutcomeConflict" },
     });
 
     const listed = await executeRuntimeControlTaskTool({
       context: toolContext,
       toolName: "opzava_tasks_list",
       toolCallId: "tool-call-list",
-      args: { status: "todo", limit: 10 }
+      args: { status: "todo", limit: 10 },
     });
     expect(listed).toMatchObject({
       ok: true,
@@ -696,9 +725,9 @@ describe("slice 2a Runtime-Control", () => {
         status: "succeeded",
         output: {
           kind: "tasks.list",
-          tasks: [{ id: createdTask.id }]
-        }
-      }
+          tasks: [{ id: createdTask.id }],
+        },
+      },
     });
 
     const updated = await executeRuntimeControlTaskTool({
@@ -710,8 +739,8 @@ describe("slice 2a Runtime-Control", () => {
         title: "Updated through Runtime-Control tool",
         status: "done",
         priority: "urgent",
-        labels: ["Done"]
-      }
+        labels: ["Done"],
+      },
     });
     expect(updated).toMatchObject({
       ok: true,
@@ -724,25 +753,25 @@ describe("slice 2a Runtime-Control", () => {
             title: "Updated through Runtime-Control tool",
             status: "done",
             priority: "urgent",
-            labels: ["done"]
-          }
-        }
-      }
+            labels: ["done"],
+          },
+        },
+      },
     });
 
     const afterReplayList = await executeRuntimeControlTaskTool({
       context: toolContext,
       toolName: "opzava_tasks_list",
       toolCallId: "tool-call-list-after-update",
-      args: { limit: 10 }
+      args: { limit: 10 },
     });
     expect(afterReplayList).toMatchObject({
       ok: true,
       value: {
         output: {
-          tasks: [{ id: createdTask.id }]
-        }
-      }
+          tasks: [{ id: createdTask.id }],
+        },
+      },
     });
     if (
       !afterReplayList.ok ||
@@ -752,7 +781,7 @@ describe("slice 2a Runtime-Control", () => {
       throw new Error("Task tool list must succeed for count assertions.");
     }
     expect(
-      afterReplayList.value.output.tasks.filter((task) => task.id === createdTask.id)
+      afterReplayList.value.output.tasks.filter((task) => task.id === createdTask.id),
     ).toHaveLength(1);
   });
 
@@ -764,14 +793,14 @@ describe("slice 2a Runtime-Control", () => {
       context: toolContext,
       toolName: "opzava_tasks_create",
       toolCallId: "tool-call-malformed",
-      args: { description: "title is required" }
+      args: { description: "title is required" },
     });
     expect(malformed).toMatchObject({
       ok: true,
       value: {
         status: "failed",
-        code: "malformed_args"
-      }
+        code: "malformed_args",
+      },
     });
 
     const denied = await executeRuntimeControlTaskTool(
@@ -779,16 +808,16 @@ describe("slice 2a Runtime-Control", () => {
         context: toolContext,
         toolName: "opzava_tasks_create",
         toolCallId: "tool-call-denied",
-        args: { title: "Denied task" }
+        args: { title: "Denied task" },
       },
-      { taskAuthorizationPort: denyingAuthorizationPort }
+      { taskAuthorizationPort: denyingAuthorizationPort },
     );
     expect(denied).toMatchObject({
       ok: true,
       value: {
         status: "failed",
-        code: "forbidden"
-      }
+        code: "forbidden",
+      },
     });
 
     const malformedId = await executeRuntimeControlTaskTool({
@@ -797,15 +826,15 @@ describe("slice 2a Runtime-Control", () => {
       toolCallId: "tool-call-malformed-id",
       args: {
         taskId: "missing-task",
-        title: "Still missing"
-      }
+        title: "Still missing",
+      },
     });
     expect(malformedId).toMatchObject({
       ok: true,
       value: {
         status: "failed",
-        code: "malformed_args"
-      }
+        code: "malformed_args",
+      },
     });
 
     const missing = await executeRuntimeControlTaskTool({
@@ -814,15 +843,15 @@ describe("slice 2a Runtime-Control", () => {
       toolCallId: "tool-call-missing",
       args: {
         taskId: randomUUID(),
-        title: "Still missing"
-      }
+        title: "Still missing",
+      },
     });
     expect(missing).toMatchObject({
       ok: true,
       value: {
         status: "failed",
-        code: "not_found"
-      }
+        code: "not_found",
+      },
     });
   });
 
@@ -835,8 +864,8 @@ describe("slice 2a Runtime-Control", () => {
         name: "Acme Runtime",
         domain: "acme.example",
         industry: "Industrial automation",
-        website: "https://acme.example"
-      })
+        website: "https://acme.example",
+      }),
     );
     const contact = unwrap(
       await createContact({
@@ -845,8 +874,8 @@ describe("slice 2a Runtime-Control", () => {
         email: "ada.admin@example.test",
         title: "Operations Lead",
         lifecycleStage: "qualified",
-        accountId: account.id
-      })
+        accountId: account.id,
+      }),
     );
     unwrap(
       await createDeal({
@@ -855,8 +884,8 @@ describe("slice 2a Runtime-Control", () => {
         accountId: account.id,
         primaryContactId: contact.id,
         valueCents: 123456,
-        currency: "USD"
-      })
+        currency: "USD",
+      }),
     );
     unwrap(
       await createTicket({
@@ -866,15 +895,23 @@ describe("slice 2a Runtime-Control", () => {
         accountId: account.id,
         status: "open",
         priority: "high",
-        queue: "support"
-      })
+        queue: "support",
+      }),
     );
     unwrap(
       await addNote({
         ...appContext,
         contactId: contact.id,
-        body: "Discussed renewal timeline."
-      })
+        body: "Discussed renewal timeline.",
+      }),
+    );
+    const longTimelineBody = "A".repeat(320);
+    unwrap(
+      await addNote({
+        ...appContext,
+        contactId: contact.id,
+        body: longTimelineBody,
+      }),
     );
 
     const toolContext = await assistantToolContext(tenant, "crm-tools");
@@ -883,7 +920,7 @@ describe("slice 2a Runtime-Control", () => {
       context: toolContext,
       toolName: "opzava_crm_list_accounts",
       toolCallId: "tool-call-crm-accounts",
-      args: { limit: 10 }
+      args: { limit: 10 },
     });
     expect(accounts).toMatchObject({
       ok: true,
@@ -898,18 +935,18 @@ describe("slice 2a Runtime-Control", () => {
               domain: "acme.example",
               contactCount: 1,
               dealCount: 1,
-              ticketCount: 1
-            }
-          ]
-        }
-      }
+              ticketCount: 1,
+            },
+          ],
+        },
+      },
     });
 
     const contacts = await executeRuntimeControlCrmTool({
       context: toolContext,
       toolName: "opzava_crm_list_contacts",
       toolCallId: "tool-call-crm-contacts",
-      args: { limit: 10 }
+      args: { limit: 10 },
     });
     expect(contacts).toMatchObject({
       ok: true,
@@ -922,18 +959,18 @@ describe("slice 2a Runtime-Control", () => {
               accountName: "Acme Runtime",
               lifecycleLabel: "Qualified",
               openDealCount: 1,
-              openTicketCount: 1
-            }
-          ]
-        }
-      }
+              openTicketCount: 1,
+            },
+          ],
+        },
+      },
     });
 
     const deals = await executeRuntimeControlCrmTool({
       context: toolContext,
       toolName: "opzava_crm_list_deals",
       toolCallId: "tool-call-crm-deals",
-      args: { limit: 10 }
+      args: { limit: 10 },
     });
     expect(deals).toMatchObject({
       ok: true,
@@ -947,18 +984,18 @@ describe("slice 2a Runtime-Control", () => {
               accountName: "Acme Runtime",
               primaryContactName: "Ada Admin",
               statusLabel: "Open",
-              value: "$1,234.56"
-            }
-          ]
-        }
-      }
+              value: "$1,234.56",
+            },
+          ],
+        },
+      },
     });
 
     const tickets = await executeRuntimeControlCrmTool({
       context: toolContext,
       toolName: "opzava_crm_list_tickets",
       toolCallId: "tool-call-crm-tickets",
-      args: { status: "open", limit: 10 }
+      args: { status: "open", limit: 10 },
     });
     expect(tickets).toMatchObject({
       ok: true,
@@ -972,27 +1009,27 @@ describe("slice 2a Runtime-Control", () => {
               contactName: "Ada Admin",
               accountName: "Acme Runtime",
               statusLabel: "Open",
-              priorityLabel: "High"
-            }
-          ]
-        }
-      }
+              priorityLabel: "High",
+            },
+          ],
+        },
+      },
     });
 
     const timeline = await executeRuntimeControlCrmTool({
       context: toolContext,
       toolName: "opzava_crm_get_contact_timeline",
       toolCallId: "tool-call-crm-timeline",
-      args: { contactId: contact.id, limit: 5 }
+      args: { contactId: contact.id, limit: 5 },
     });
     expect(timeline).toMatchObject({
       ok: true,
       value: {
         output: {
           kind: "crm.contact_timeline.get",
-          contactId: contact.id
-        }
-      }
+          contactId: contact.id,
+        },
+      },
     });
     if (
       !timeline.ok ||
@@ -1006,38 +1043,109 @@ describe("slice 2a Runtime-Control", () => {
         expect.objectContaining({
           kind: "note",
           kindLabel: "Note",
-          summary: "Discussed renewal timeline."
-        })
-      ])
+          summary: "Discussed renewal timeline.",
+        }),
+        expect.objectContaining({
+          kind: "note",
+          kindLabel: "Note",
+          summary: longTimelineBody.slice(0, 280),
+          truncated: true,
+          originalLength: longTimelineBody.length,
+        }),
+      ]),
     );
+  });
+
+  it("keeps admitted CRM read tools from changing CRM table counts", async () => {
+    const tenant = await adminCreateTenant("crm-tools-read-only");
+    const appContext = context(tenant);
+    const account = unwrap(
+      await createAccount({
+        ...appContext,
+        name: "Read-only account",
+      }),
+    );
+    const contact = unwrap(
+      await createContact({
+        ...appContext,
+        displayName: "Read-only contact",
+        accountId: account.id,
+      }),
+    );
+
+    const toolContext = await assistantToolContext(tenant, "crm-tools-read-only");
+    const baselineCounts = await crmTableCounts(tenant);
+
+    const toolCalls = [
+      {
+        toolName: "opzava_crm_list_accounts",
+        toolCallId: "tool-call-crm-read-only-accounts",
+        args: { limit: 10 },
+      },
+      {
+        toolName: "opzava_crm_list_contacts",
+        toolCallId: "tool-call-crm-read-only-contacts",
+        args: { limit: 10 },
+      },
+      {
+        toolName: "opzava_crm_list_deals",
+        toolCallId: "tool-call-crm-read-only-deals",
+        args: { limit: 10 },
+      },
+      {
+        toolName: "opzava_crm_list_tickets",
+        toolCallId: "tool-call-crm-read-only-tickets",
+        args: { limit: 10 },
+      },
+      {
+        toolName: "opzava_crm_get_contact_timeline",
+        toolCallId: "tool-call-crm-read-only-timeline",
+        args: { contactId: contact.id, limit: 10 },
+      },
+    ] as const;
+
+    for (const toolCall of toolCalls) {
+      const result = await executeRuntimeControlCrmTool({
+        context: toolContext,
+        toolName: toolCall.toolName,
+        toolCallId: toolCall.toolCallId,
+        args: toolCall.args,
+      });
+      expect(result).toMatchObject({
+        ok: true,
+        value: {
+          status: "succeeded",
+        },
+      });
+      expect(await crmTableCounts(tenant)).toEqual(baselineCounts);
+    }
   });
 
   it("fails CRM tool execution closed for non-member actors", async () => {
     const tenant = await adminCreateTenant("crm-tool-forbidden");
-    const toolContext = await assistantToolContextForActor(
-      tenant,
-      "crm-tool-forbidden",
-      { userId: randomUUID(), roleKeys: [] }
-    );
+    const toolContext = await assistantToolContextForActor(tenant, "crm-tool-forbidden", {
+      userId: randomUUID(),
+      roleKeys: [],
+    });
 
     const denied = await executeRuntimeControlCrmTool(
       {
         context: toolContext,
         toolName: "opzava_crm_list_accounts",
         toolCallId: "tool-call-crm-denied",
-        args: { limit: 10 }
+        args: { limit: 10 },
       },
       {
         authorizationPort: allowingAuthorizationPort,
-        crmAuthorizationPort: defaultCrmAuthorizationPort
-      }
+        crmAuthorizationPort: defaultCrmAuthorizationPort,
+      },
     );
     expect(denied).toMatchObject({
       ok: true,
       value: {
         status: "failed",
-        code: "forbidden"
-      }
+        code: "forbidden",
+      },
     });
   });
 
@@ -1047,15 +1155,15 @@ describe("slice 2a Runtime-Control", () => {
     const account = unwrap(
       await createAccount({
         ...context(tenantA),
-        name: "Tenant A CRM Account"
-      })
+        name: "Tenant A CRM Account",
+      }),
     );
     const contact = unwrap(
       await createContact({
         ...context(tenantA),
         displayName: "Tenant A CRM Contact",
-        accountId: account.id
-      })
+        accountId: account.id,
+      }),
     );
     const toolContext = await assistantToolContext(tenantB, "crm-tenant-b");
 
@@ -1063,7 +1171,7 @@ describe("slice 2a Runtime-Control", () => {
       context: toolContext,
       toolName: "opzava_crm_list_contacts",
       toolCallId: "tool-call-crm-cross-list",
-      args: { limit: 10 }
+      args: { limit: 10 },
     });
     expect(listed).toMatchObject({
       ok: true,
@@ -1072,23 +1180,23 @@ describe("slice 2a Runtime-Control", () => {
         output: {
           kind: "crm.contacts.list",
           totalCount: 0,
-          contacts: []
-        }
-      }
+          contacts: [],
+        },
+      },
     });
 
     const timeline = await executeRuntimeControlCrmTool({
       context: toolContext,
       toolName: "opzava_crm_get_contact_timeline",
       toolCallId: "tool-call-crm-cross-timeline",
-      args: { contactId: contact.id, limit: 10 }
+      args: { contactId: contact.id, limit: 10 },
     });
     expect(timeline).toMatchObject({
       ok: true,
       value: {
         status: "failed",
-        code: "not_found"
-      }
+        code: "not_found",
+      },
     });
   });
 
@@ -1096,14 +1204,14 @@ describe("slice 2a Runtime-Control", () => {
     const tenant = await adminCreateTenant("context");
     const principal = {
       ...context(tenant),
-      sessionId: "session_123"
+      sessionId: "session_123",
     };
 
     const toolContext = toolExecutionContextFromSessionPrincipal({
       principal,
       conversationId: "conversation_123",
       assistantTurnId: "turn_123",
-      commandIdempotencyKey: "command_123"
+      commandIdempotencyKey: "command_123",
     });
 
     expect(toolContext).toMatchObject({
@@ -1114,8 +1222,8 @@ describe("slice 2a Runtime-Control", () => {
         sessionId: "session_123",
         conversationId: "conversation_123",
         assistantTurnId: "turn_123",
-        commandIdempotencyKey: "command_123"
-      }
+        commandIdempotencyKey: "command_123",
+      },
     });
   });
 
@@ -1125,7 +1233,7 @@ describe("slice 2a Runtime-Control", () => {
     const conversation = await createConversation({
       ...context(tenantA),
       surface: "tasks.ask_admin",
-      assistantKey: "ask-admin-opzava"
+      assistantKey: "ask-admin-opzava",
     });
     expect(conversation.ok).toBe(true);
     if (!conversation.ok) {
@@ -1137,7 +1245,7 @@ describe("slice 2a Runtime-Control", () => {
         select id
         from public.assistant_conversations
         where id = ${conversation.value.id}
-      `)
+      `),
     );
     expect(rowsFromExecuteResult(tenantBRead)).toHaveLength(0);
 
@@ -1161,7 +1269,7 @@ describe("slice 2a Runtime-Control", () => {
             ${tenantA.userId}
           )
         `);
-      })
+      }),
     ).rejects.toMatchObject({ status: 403 });
 
     await expect(
@@ -1188,11 +1296,11 @@ describe("slice 2a Runtime-Control", () => {
             1
           )
         `);
-      })
+      }),
     ).rejects.toMatchObject({ status: 403 });
 
     await expect(
-      selectConversationsWithoutWithTenant(tenantA.organizationId)
+      selectConversationsWithoutWithTenant(tenantA.organizationId),
     ).rejects.toMatchObject({ status: 403 });
   });
 });

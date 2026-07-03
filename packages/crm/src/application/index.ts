@@ -7,6 +7,7 @@ export type {
   CrmContactDto,
   CrmDealDto,
   CrmDealStageColumnDto,
+  CrmListPageDto,
   CrmPipelineDto,
   CrmPipelineStageDto,
   CrmPipelineWithStagesDto,

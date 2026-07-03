@@ -11,7 +11,7 @@ import {
   type CrmDealDto,
   type CrmDealStageColumnDto,
   type CrmTicketDto,
-  type CrmTicketStatus
+  type CrmTicketStatus,
 } from "@opzava/crm";
 import type { AuthorizationPort } from "@opzava/ports";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
@@ -21,7 +21,7 @@ import {
   recordToolOutcome,
   type RuntimeControlDependencies,
   type StartedToolOutcomeReceipt,
-  type ToolExecutionContext
+  type ToolExecutionContext,
 } from "./assistant-conversations.js";
 import type { AssistantToolOutcome } from "../domain/assistant.js";
 
@@ -30,7 +30,7 @@ export const runtimeControlCrmToolNames = [
   "opzava_crm_list_contacts",
   "opzava_crm_list_deals",
   "opzava_crm_list_tickets",
-  "opzava_crm_get_contact_timeline"
+  "opzava_crm_get_contact_timeline",
 ] as const;
 
 export type RuntimeControlCrmToolName = (typeof runtimeControlCrmToolNames)[number];
@@ -38,30 +38,32 @@ export type RuntimeControlCrmToolName = (typeof runtimeControlCrmToolNames)[numb
 export interface RuntimeControlCrmToolDefinition {
   readonly name: RuntimeControlCrmToolName;
   readonly inputShape: string;
+  readonly description?: string;
 }
 
 export const runtimeControlCrmToolRegistry: readonly RuntimeControlCrmToolDefinition[] = [
   {
     name: "opzava_crm_list_accounts",
-    inputShape: "{ limit?: 1..50 }"
+    inputShape: "{ limit?: 1..50 }",
   },
   {
     name: "opzava_crm_list_contacts",
-    inputShape: "{ limit?: 1..50 }"
+    inputShape: "{ limit?: 1..50 }",
   },
   {
     name: "opzava_crm_list_deals",
-    inputShape: "{ limit?: 1..50 }"
+    inputShape: "{ limit?: 1..50 }",
   },
   {
     name: "opzava_crm_list_tickets",
-    inputShape:
-      "{ status?: new|triage|open|waiting_on_customer|resolved|closed, limit?: 1..50 }"
+    inputShape: "{ status?: new|triage|open|waiting_on_customer|resolved|closed, limit?: 1..50 }",
   },
   {
     name: "opzava_crm_get_contact_timeline",
-    inputShape: "{ contactId, limit?: 1..50, offset?: 0..1000 }"
-  }
+    inputShape: "{ contactId, limit?: 1..50, offset?: 0..1000 }",
+    description:
+      "Read CRM contact timeline activity summaries. Each summary is capped; use narrower queries with smaller limit/offset windows for more detail.",
+  },
 ];
 
 export interface RuntimeControlCrmAccountSummary {
@@ -128,6 +130,8 @@ export interface RuntimeControlCrmActivitySummary {
   readonly kind: string;
   readonly kindLabel: string;
   readonly summary: string;
+  readonly truncated?: true;
+  readonly originalLength?: number;
   readonly actor: string;
   readonly occurredAt: string;
 }
@@ -137,18 +141,21 @@ export type RuntimeControlCrmToolOutput =
       readonly kind: "crm.accounts.list";
       readonly totalCount: number;
       readonly returnedCount: number;
+      readonly hasMore: boolean;
       readonly accounts: readonly RuntimeControlCrmAccountSummary[];
     }
   | {
       readonly kind: "crm.contacts.list";
       readonly totalCount: number;
       readonly returnedCount: number;
+      readonly hasMore: boolean;
       readonly contacts: readonly RuntimeControlCrmContactSummary[];
     }
   | {
       readonly kind: "crm.deals.list";
       readonly totalCount: number;
       readonly returnedCount: number;
+      readonly hasMore: boolean;
       readonly stages: readonly RuntimeControlCrmDealStageSummary[];
       readonly deals: readonly RuntimeControlCrmDealSummary[];
     }
@@ -156,6 +163,7 @@ export type RuntimeControlCrmToolOutput =
       readonly kind: "crm.tickets.list";
       readonly totalCount: number;
       readonly returnedCount: number;
+      readonly hasMore: boolean;
       readonly tickets: readonly RuntimeControlCrmTicketSummary[];
     }
   | {
@@ -253,14 +261,14 @@ const crmServices: RuntimeControlCrmServices = {
   listContacts,
   listDeals,
   listTickets,
-  listContactTimeline
+  listContactTimeline,
 };
 
 function toolError(code: string, message: string, cause?: unknown): DomainError {
   return new DomainError({
     code,
     message,
-    ...(cause === undefined ? {} : { cause })
+    ...(cause === undefined ? {} : { cause }),
   });
 }
 
@@ -270,7 +278,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function rejectUnknownKeys(
   value: Record<string, unknown>,
-  allowedKeys: readonly string[]
+  allowedKeys: readonly string[],
 ): Result<void> {
   const allowed = new Set(allowedKeys);
   const unknownKey = Object.keys(value).find((key) => !allowed.has(key));
@@ -279,19 +287,15 @@ function rejectUnknownKeys(
     : err(
         toolError(
           "runtimeControl.toolMalformedArgs",
-          `Tool argument "${unknownKey}" is not allowed.`
-        )
+          `Tool argument "${unknownKey}" is not allowed.`,
+        ),
       );
 }
 
-function requiredString(
-  value: unknown,
-  field: string,
-  maxLength: number
-): Result<string> {
+function requiredString(value: unknown, field: string, maxLength: number): Result<string> {
   if (typeof value !== "string") {
     return err(
-      toolError("runtimeControl.toolMalformedArgs", `Tool argument "${field}" must be a string.`)
+      toolError("runtimeControl.toolMalformedArgs", `Tool argument "${field}" must be a string.`),
     );
   }
 
@@ -300,8 +304,8 @@ function requiredString(
     return err(
       toolError(
         "runtimeControl.toolMalformedArgs",
-        `Tool argument "${field}" must be 1-${maxLength} characters.`
-      )
+        `Tool argument "${field}" must be 1-${maxLength} characters.`,
+      ),
     );
   }
 
@@ -320,8 +324,8 @@ function requiredContactId(value: unknown): Result<string> {
     return err(
       toolError(
         "runtimeControl.toolMalformedArgs",
-        'Tool argument "contactId" must be a contact id.'
-      )
+        'Tool argument "contactId" must be a contact id.',
+      ),
     );
   }
 
@@ -340,8 +344,8 @@ function optionalTicketStatus(value: unknown): Result<CrmTicketStatus | undefine
   return err(
     toolError(
       "runtimeControl.toolMalformedArgs",
-      'Tool argument "status" must be new, triage, open, waiting_on_customer, resolved, or closed.'
-    )
+      'Tool argument "status" must be new, triage, open, waiting_on_customer, resolved, or closed.',
+    ),
   );
 }
 
@@ -354,8 +358,8 @@ function optionalLimit(value: unknown): Result<number> {
     return err(
       toolError(
         "runtimeControl.toolMalformedArgs",
-        'Tool argument "limit" must be an integer from 1 to 50.'
-      )
+        'Tool argument "limit" must be an integer from 1 to 50.',
+      ),
     );
   }
 
@@ -371,8 +375,8 @@ function optionalOffset(value: unknown): Result<number> {
     return err(
       toolError(
         "runtimeControl.toolMalformedArgs",
-        'Tool argument "offset" must be an integer from 0 to 1000.'
-      )
+        'Tool argument "offset" must be an integer from 0 to 1000.',
+      ),
     );
   }
 
@@ -387,14 +391,11 @@ function parseToolName(value: string): Result<RuntimeControlCrmToolName> {
 
 function parseLimitOnlyArgs(
   value: unknown,
-  toolName:
-    | "opzava_crm_list_accounts"
-    | "opzava_crm_list_contacts"
-    | "opzava_crm_list_deals"
+  toolName: "opzava_crm_list_accounts" | "opzava_crm_list_contacts" | "opzava_crm_list_deals",
 ): Result<ParsedToolArgs> {
   if (!isRecord(value)) {
     return err(
-      toolError("runtimeControl.toolMalformedArgs", "CRM list tool arguments must be an object.")
+      toolError("runtimeControl.toolMalformedArgs", "CRM list tool arguments must be an object."),
     );
   }
 
@@ -412,7 +413,7 @@ function parseLimitOnlyArgs(
   return ok({
     toolName,
     args,
-    requestSummary: { toolName, args }
+    requestSummary: { toolName, args },
   } as ParsedToolArgs);
 }
 
@@ -421,8 +422,8 @@ function parseListTicketsArgs(value: unknown): Result<ParsedToolArgs> {
     return err(
       toolError(
         "runtimeControl.toolMalformedArgs",
-        "CRM ticket list tool arguments must be an object."
-      )
+        "CRM ticket list tool arguments must be an object.",
+      ),
     );
   }
 
@@ -447,7 +448,7 @@ function parseListTicketsArgs(value: unknown): Result<ParsedToolArgs> {
   return ok({
     toolName: "opzava_crm_list_tickets",
     args,
-    requestSummary: { toolName: "opzava_crm_list_tickets", args }
+    requestSummary: { toolName: "opzava_crm_list_tickets", args },
   });
 }
 
@@ -456,8 +457,8 @@ function parseContactTimelineArgs(value: unknown): Result<ParsedToolArgs> {
     return err(
       toolError(
         "runtimeControl.toolMalformedArgs",
-        "CRM contact timeline tool arguments must be an object."
-      )
+        "CRM contact timeline tool arguments must be an object.",
+      ),
     );
   }
 
@@ -482,19 +483,16 @@ function parseContactTimelineArgs(value: unknown): Result<ParsedToolArgs> {
   const args = {
     contactId: contactId.value,
     limit: limit.value,
-    offset: offset.value
+    offset: offset.value,
   };
   return ok({
     toolName: "opzava_crm_get_contact_timeline",
     args,
-    requestSummary: { toolName: "opzava_crm_get_contact_timeline", args }
+    requestSummary: { toolName: "opzava_crm_get_contact_timeline", args },
   });
 }
 
-function parseArgs(
-  toolName: RuntimeControlCrmToolName,
-  value: unknown
-): Result<ParsedToolArgs> {
+function parseArgs(toolName: RuntimeControlCrmToolName, value: unknown): Result<ParsedToolArgs> {
   if (toolName === "opzava_crm_list_accounts") {
     return parseLimitOnlyArgs(value, toolName);
   }
@@ -548,12 +546,12 @@ function sanitizeValue(value: unknown, depth = 0): unknown {
 function malformedRequestSummary(
   toolName: RuntimeControlCrmToolName,
   args: unknown,
-  error: DomainError
+  error: DomainError,
 ): Readonly<Record<string, unknown>> {
   return {
     toolName,
     malformedArgs: sanitizeValue(args),
-    errorCode: error.code
+    errorCode: error.code,
   };
 }
 
@@ -572,34 +570,34 @@ function failureFromError(error: DomainError): ToolFailure {
   if (error.code === "crm.notFound") {
     return {
       code: "not_found",
-      message: "CRM record was not found."
+      message: "CRM record was not found.",
     };
   }
 
   if (error.code === "crm.forbidden" || errorStatus(error) === 403) {
     return {
       code: "forbidden",
-      message: "CRM tool execution is not allowed."
+      message: "CRM tool execution is not allowed.",
     };
   }
 
   if (error.code === "crm.validation" || error.code.startsWith("crm.invalid")) {
     return {
       code: "malformed_args",
-      message: error.message
+      message: error.message,
     };
   }
 
   return {
     code: "failed",
-    message: error.message
+    message: error.message,
   };
 }
 
 function failureFromMalformedArgs(error: DomainError): ToolFailure {
   return {
     code: "malformed_args",
-    message: error.message
+    message: error.message,
   };
 }
 
@@ -607,7 +605,7 @@ function crmContext(context: ToolExecutionContext) {
   return {
     orgId: context.orgId,
     workspaceId: context.workspaceId,
-    actor: context.actor
+    actor: context.actor,
   };
 }
 
@@ -632,7 +630,7 @@ function formatMoney(valueCents: number | null, currency: string): string | null
   try {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency
+      currency,
     }).format(valueCents / 100);
   } catch {
     return `${currency} ${(valueCents / 100).toFixed(2)}`;
@@ -649,7 +647,7 @@ function accountSummary(account: CrmAccountDto): RuntimeControlCrmAccountSummary
     contactCount: account.contactCount,
     dealCount: account.dealCount,
     ticketCount: account.ticketCount,
-    updatedAt: account.updatedAt
+    updatedAt: account.updatedAt,
   };
 }
 
@@ -665,7 +663,7 @@ function contactSummary(contact: CrmContactDto): RuntimeControlCrmContactSummary
     accountName: contact.accountName,
     openDealCount: contact.openDealCount,
     openTicketCount: contact.openTicketCount,
-    updatedAt: contact.updatedAt
+    updatedAt: contact.updatedAt,
   };
 }
 
@@ -682,14 +680,14 @@ function dealSummary(deal: CrmDealDto): RuntimeControlCrmDealSummary {
     valueCents: deal.valueCents,
     currency: deal.currency,
     expectedCloseDate: deal.expectedCloseDate,
-    updatedAt: deal.updatedAt
+    updatedAt: deal.updatedAt,
   };
 }
 
 function dealStageSummary(column: CrmDealStageColumnDto): RuntimeControlCrmDealStageSummary {
   return {
     name: column.stage.name,
-    count: column.deals.length
+    count: column.dealCount,
   };
 }
 
@@ -704,19 +702,24 @@ function ticketSummary(ticket: CrmTicketDto): RuntimeControlCrmTicketSummary {
     priority: ticket.priority,
     priorityLabel: humanize(ticket.priority),
     queue: ticket.queue,
-    updatedAt: ticket.updatedAt
+    updatedAt: ticket.updatedAt,
   };
 }
 
+const activitySummaryMaxLength = 280;
+
 function activitySummary(activity: CrmActivityDto): RuntimeControlCrmActivitySummary {
   const body = activity.body.trim();
+  const fullSummary = body.length === 0 ? humanize(activity.kind) : body;
+  const truncated = fullSummary.length > activitySummaryMaxLength;
   return {
     id: activity.id,
     kind: activity.kind,
     kindLabel: humanize(activity.kind),
-    summary: body.length === 0 ? humanize(activity.kind) : body,
+    summary: truncated ? fullSummary.slice(0, activitySummaryMaxLength) : fullSummary,
+    ...(truncated ? { truncated: true, originalLength: fullSummary.length } : {}),
     actor: activity.actorKind === "assistant" ? "Assistant" : "Human",
-    occurredAt: activity.occurredAt
+    occurredAt: activity.occurredAt,
   };
 }
 
@@ -736,27 +739,35 @@ function numberField(value: unknown): number {
   return typeof value === "number" ? value : 0;
 }
 
+function booleanField(value: unknown): boolean {
+  return typeof value === "boolean" ? value : false;
+}
+
 function outputFromOutcome(outcome: AssistantToolOutcome): RuntimeControlCrmToolOutput | null {
   const kind = outcome.resultSummary["kind"];
   if (kind === "crm.accounts.list" && Array.isArray(outcome.resultSummary["accounts"])) {
-    const accounts =
-      outcome.resultSummary["accounts"] as readonly RuntimeControlCrmAccountSummary[];
+    const accounts = outcome.resultSummary[
+      "accounts"
+    ] as readonly RuntimeControlCrmAccountSummary[];
     return {
       kind,
       totalCount: numberField(outcome.resultSummary["totalCount"]),
       returnedCount: numberField(outcome.resultSummary["returnedCount"]),
-      accounts
+      hasMore: booleanField(outcome.resultSummary["hasMore"]),
+      accounts,
     };
   }
 
   if (kind === "crm.contacts.list" && Array.isArray(outcome.resultSummary["contacts"])) {
-    const contacts =
-      outcome.resultSummary["contacts"] as readonly RuntimeControlCrmContactSummary[];
+    const contacts = outcome.resultSummary[
+      "contacts"
+    ] as readonly RuntimeControlCrmContactSummary[];
     return {
       kind,
       totalCount: numberField(outcome.resultSummary["totalCount"]),
       returnedCount: numberField(outcome.resultSummary["returnedCount"]),
-      contacts
+      hasMore: booleanField(outcome.resultSummary["hasMore"]),
+      contacts,
     };
   }
 
@@ -765,26 +776,26 @@ function outputFromOutcome(outcome: AssistantToolOutcome): RuntimeControlCrmTool
     Array.isArray(outcome.resultSummary["stages"]) &&
     Array.isArray(outcome.resultSummary["deals"])
   ) {
-    const stages =
-      outcome.resultSummary["stages"] as readonly RuntimeControlCrmDealStageSummary[];
+    const stages = outcome.resultSummary["stages"] as readonly RuntimeControlCrmDealStageSummary[];
     const deals = outcome.resultSummary["deals"] as readonly RuntimeControlCrmDealSummary[];
     return {
       kind,
       totalCount: numberField(outcome.resultSummary["totalCount"]),
       returnedCount: numberField(outcome.resultSummary["returnedCount"]),
+      hasMore: booleanField(outcome.resultSummary["hasMore"]),
       stages,
-      deals
+      deals,
     };
   }
 
   if (kind === "crm.tickets.list" && Array.isArray(outcome.resultSummary["tickets"])) {
-    const tickets =
-      outcome.resultSummary["tickets"] as readonly RuntimeControlCrmTicketSummary[];
+    const tickets = outcome.resultSummary["tickets"] as readonly RuntimeControlCrmTicketSummary[];
     return {
       kind,
       totalCount: numberField(outcome.resultSummary["totalCount"]),
       returnedCount: numberField(outcome.resultSummary["returnedCount"]),
-      tickets
+      hasMore: booleanField(outcome.resultSummary["hasMore"]),
+      tickets,
     };
   }
 
@@ -794,13 +805,14 @@ function outputFromOutcome(outcome: AssistantToolOutcome): RuntimeControlCrmTool
     typeof contactId === "string" &&
     Array.isArray(outcome.resultSummary["activities"])
   ) {
-    const activities =
-      outcome.resultSummary["activities"] as readonly RuntimeControlCrmActivitySummary[];
+    const activities = outcome.resultSummary[
+      "activities"
+    ] as readonly RuntimeControlCrmActivitySummary[];
     return {
       kind,
       contactId,
       returnedCount: numberField(outcome.resultSummary["returnedCount"]),
-      activities
+      activities,
     };
   }
 
@@ -812,21 +824,21 @@ function failureFromOutcome(outcome: AssistantToolOutcome): ToolFailure {
   const message = outcome.resultSummary["message"];
   return {
     code: typeof code === "string" ? code : "failed",
-    message: typeof message === "string" ? message : "CRM tool execution failed."
+    message: typeof message === "string" ? message : "CRM tool execution failed.",
   };
 }
 
 function completedExecutionFromOutcome(
   toolName: RuntimeControlCrmToolName,
   toolCallId: string,
-  receipt: StartedToolOutcomeReceipt
+  receipt: StartedToolOutcomeReceipt,
 ): Result<RuntimeControlCrmToolExecution> {
   if (receipt.outcome.status === "started") {
     return err(
       toolError(
         "runtimeControl.toolOutcomeInProgress",
-        "Tool call is already in progress for this assistant turn."
-      )
+        "Tool call is already in progress for this assistant turn.",
+      ),
     );
   }
 
@@ -838,7 +850,7 @@ function completedExecutionFromOutcome(
       toolCallId,
       code: failure.code,
       message: failure.message,
-      outcome: receipt.outcome
+      outcome: receipt.outcome,
     });
   }
 
@@ -847,8 +859,8 @@ function completedExecutionFromOutcome(
     return err(
       toolError(
         "runtimeControl.toolOutcomeInvalidReplay",
-        "Recorded CRM tool outcome cannot be replayed."
-      )
+        "Recorded CRM tool outcome cannot be replayed.",
+      ),
     );
   }
 
@@ -857,7 +869,7 @@ function completedExecutionFromOutcome(
     toolName,
     toolCallId,
     output,
-    outcome: receipt.outcome
+    outcome: receipt.outcome,
   });
 }
 
@@ -869,7 +881,7 @@ async function finishFailure(
     readonly requestSummary: Readonly<Record<string, unknown>>;
     readonly failure: ToolFailure;
   },
-  dependencies: RuntimeControlCrmToolDependencies
+  dependencies: RuntimeControlCrmToolDependencies,
 ): Promise<Result<RuntimeControlCrmToolExecution>> {
   const outcome = await recordToolOutcome(
     {
@@ -880,9 +892,9 @@ async function finishFailure(
       idempotencyKey: input.context.commandIdempotencyKey,
       status: "failed",
       requestSummary: input.requestSummary,
-      resultSummary: failureSummary(input.failure)
+      resultSummary: failureSummary(input.failure),
     },
-    dependencies
+    dependencies,
   );
   if (!outcome.ok) {
     return err(outcome.error);
@@ -894,81 +906,87 @@ async function finishFailure(
     toolCallId: input.toolCallId,
     code: input.failure.code,
     message: input.failure.message,
-    outcome: outcome.value
+    outcome: outcome.value,
   });
 }
 
 async function performTool(
   parsed: ParsedToolArgs,
   context: ToolExecutionContext,
-  dependencies: RuntimeControlCrmToolDependencies
+  dependencies: RuntimeControlCrmToolDependencies,
 ): Promise<Result<RuntimeControlCrmToolOutput>> {
   const services = dependencies.crmServices ?? crmServices;
   const appContext = crmContext(context);
   const deps = crmDependencies(dependencies);
 
   if (parsed.toolName === "opzava_crm_list_accounts") {
-    const result = await services.listAccounts(appContext, deps);
+    const result = await services.listAccounts({ ...appContext, limit: parsed.args.limit }, deps);
     if (!result.ok) {
       return err(result.error);
     }
 
-    const accounts = result.value.map(accountSummary).slice(0, parsed.args.limit);
+    const accounts = result.value.rows.map(accountSummary);
     return ok({
       kind: "crm.accounts.list",
-      totalCount: result.value.length,
+      totalCount: result.value.totalCount,
       returnedCount: accounts.length,
-      accounts
+      hasMore: result.value.hasMore,
+      accounts,
     });
   }
 
   if (parsed.toolName === "opzava_crm_list_contacts") {
-    const result = await services.listContacts(appContext, deps);
+    const result = await services.listContacts({ ...appContext, limit: parsed.args.limit }, deps);
     if (!result.ok) {
       return err(result.error);
     }
 
-    const contacts = result.value.map(contactSummary).slice(0, parsed.args.limit);
+    const contacts = result.value.rows.map(contactSummary);
     return ok({
       kind: "crm.contacts.list",
-      totalCount: result.value.length,
+      totalCount: result.value.totalCount,
       returnedCount: contacts.length,
-      contacts
+      hasMore: result.value.hasMore,
+      contacts,
     });
   }
 
   if (parsed.toolName === "opzava_crm_list_deals") {
-    const result = await services.listDeals(appContext, deps);
+    const result = await services.listDeals({ ...appContext, limit: parsed.args.limit }, deps);
     if (!result.ok) {
       return err(result.error);
     }
 
-    const deals = result.value.flatMap((column) => column.deals.map(dealSummary));
-    const limitedDeals = deals.slice(0, parsed.args.limit);
+    const deals = result.value.rows.flatMap((column) => column.deals.map(dealSummary));
     return ok({
       kind: "crm.deals.list",
-      totalCount: deals.length,
-      returnedCount: limitedDeals.length,
-      stages: result.value.map(dealStageSummary),
-      deals: limitedDeals
+      totalCount: result.value.totalCount,
+      returnedCount: deals.length,
+      hasMore: result.value.hasMore,
+      stages: result.value.rows.map(dealStageSummary),
+      deals,
     });
   }
 
   if (parsed.toolName === "opzava_crm_list_tickets") {
     const result =
       parsed.args.status === undefined
-        ? await services.listTickets(appContext, deps)
-        : await services.listTickets({ ...appContext, status: parsed.args.status }, deps);
+        ? await services.listTickets({ ...appContext, limit: parsed.args.limit }, deps)
+        : await services.listTickets(
+            { ...appContext, status: parsed.args.status, limit: parsed.args.limit },
+            deps,
+          );
     if (!result.ok) {
       return err(result.error);
     }
 
-    const tickets = result.value.map(ticketSummary).slice(0, parsed.args.limit);
+    const tickets = result.value.rows.map(ticketSummary);
     return ok({
       kind: "crm.tickets.list",
-      totalCount: result.value.length,
+      totalCount: result.value.totalCount,
       returnedCount: tickets.length,
-      tickets
+      hasMore: result.value.hasMore,
+      tickets,
     });
   }
 
@@ -977,9 +995,9 @@ async function performTool(
       ...appContext,
       contactId: parsed.args.contactId,
       limit: parsed.args.limit,
-      offset: parsed.args.offset
+      offset: parsed.args.offset,
     },
-    deps
+    deps,
   );
   if (!result.ok) {
     return err(result.error);
@@ -989,13 +1007,13 @@ async function performTool(
     kind: "crm.contact_timeline.get",
     contactId: parsed.args.contactId,
     returnedCount: result.value.length,
-    activities: result.value.map(activitySummary)
+    activities: result.value.map(activitySummary),
   });
 }
 
 export async function executeRuntimeControlCrmTool(
   input: ExecuteRuntimeControlCrmToolInput,
-  dependencies: RuntimeControlCrmToolDependencies = {}
+  dependencies: RuntimeControlCrmToolDependencies = {},
 ): Promise<Result<RuntimeControlCrmToolExecution>> {
   const toolName = parseToolName(input.toolName);
   if (!toolName.ok) {
@@ -1007,9 +1025,7 @@ export async function executeRuntimeControlCrmTool(
       ? input.toolCallId.trim()
       : null;
   if (toolCallId === null) {
-    return err(
-      toolError("runtimeControl.invalidToolCallId", "Tool call id is required.")
-    );
+    return err(toolError("runtimeControl.invalidToolCallId", "Tool call id is required."));
   }
 
   const parsed = parseArgs(toolName.value, input.args);
@@ -1025,9 +1041,9 @@ export async function executeRuntimeControlCrmTool(
       toolCallId,
       idempotencyKey: input.context.commandIdempotencyKey,
       status: "started",
-      requestSummary
+      requestSummary,
     },
-    dependencies
+    dependencies,
   );
   if (!started.ok) {
     return err(started.error);
@@ -1044,9 +1060,9 @@ export async function executeRuntimeControlCrmTool(
         toolName: toolName.value,
         toolCallId,
         requestSummary,
-        failure: failureFromMalformedArgs(parsed.error)
+        failure: failureFromMalformedArgs(parsed.error),
       },
-      dependencies
+      dependencies,
     );
   }
 
@@ -1058,9 +1074,9 @@ export async function executeRuntimeControlCrmTool(
         toolName: toolName.value,
         toolCallId,
         requestSummary,
-        failure: failureFromError(performed.error)
+        failure: failureFromError(performed.error),
       },
-      dependencies
+      dependencies,
     );
   }
 
@@ -1075,9 +1091,9 @@ export async function executeRuntimeControlCrmTool(
       status: "succeeded",
       requestSummary,
       resultSummary: resultSummary(output),
-      targetRef: targetRef(output)
+      targetRef: targetRef(output),
     },
-    dependencies
+    dependencies,
   );
   if (!outcome.ok) {
     return err(outcome.error);
@@ -1088,6 +1104,6 @@ export async function executeRuntimeControlCrmTool(
     toolName: toolName.value,
     toolCallId,
     output,
-    outcome: outcome.value
+    outcome: outcome.value,
   });
 }

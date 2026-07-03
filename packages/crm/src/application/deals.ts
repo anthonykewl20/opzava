@@ -13,6 +13,7 @@ import {
   normalizeCurrency,
   normalizeDate,
   normalizeIdempotencyKey,
+  normalizeLimit,
   normalizeLongText,
   normalizeOptionalUserId,
   normalizeRequiredText,
@@ -26,6 +27,7 @@ import {
   type CrmApplicationDependencies,
   type CrmDealDto,
   type CrmDealStageColumnDto,
+  type CrmListPageDto,
   type CrmPipelineStageDto,
   type CrmPipelineWithStagesDto,
 } from "./shared.js";
@@ -69,7 +71,9 @@ export interface UpdateDealInput extends CrmApplicationContext {
   readonly primaryContactId?: string | null;
 }
 
-export type ListDealsInput = CrmApplicationContext;
+export interface ListDealsInput extends CrmApplicationContext {
+  readonly limit?: number;
+}
 
 interface PreparedDealFields {
   readonly title: string;
@@ -293,6 +297,55 @@ async function validatePrimaryContact(
     : ok(undefined);
 }
 
+async function selectDefaultPipelineInTx(
+  tx: TenantTransaction,
+  workspaceId: string,
+): Promise<Result<CrmPipelineWithStagesDto | null>> {
+  const pipelineResult = await tx.execute(sql`
+    select
+      id,
+      organization_id,
+      workspace_id,
+      key,
+      version,
+      name,
+      created_at,
+      updated_at
+    from public.crm_pipelines
+    where workspace_id = ${workspaceId}
+      and key = 'default'
+      and version = 1
+    limit 1
+  `);
+  const pipelineRow = rowsFromExecuteResult(pipelineResult)[0];
+  if (pipelineRow === undefined) {
+    return ok(null);
+  }
+
+  const pipeline = rowToPipelineDto(pipelineRow);
+  const stagesResult = await tx.execute(sql`
+    select
+      id,
+      pipeline_id,
+      organization_id,
+      workspace_id,
+      name,
+      position,
+      created_at
+    from public.crm_pipeline_stages
+    where pipeline_id = ${pipeline.id}
+      and workspace_id = ${workspaceId}
+    order by position asc, created_at asc, id asc
+  `);
+  const stages = rowsFromExecuteResult(stagesResult).map(rowToPipelineStageDto);
+
+  if (stages.length !== defaultStageNames.length) {
+    return err(crmError("crm.databaseError", "Default CRM pipeline stages are incomplete."));
+  }
+
+  return ok({ pipeline, stages });
+}
+
 export async function ensureDefaultPipelineInTx(
   tx: TenantTransaction,
   orgId: string,
@@ -341,49 +394,16 @@ export async function ensureDefaultPipelineInTx(
     `);
   }
 
-  const pipelineResult = await tx.execute(sql`
-    select
-      id,
-      organization_id,
-      workspace_id,
-      key,
-      version,
-      name,
-      created_at,
-      updated_at
-    from public.crm_pipelines
-    where workspace_id = ${workspaceId}
-      and key = 'default'
-      and version = 1
-    limit 1
-  `);
-  const pipelineRow = rowsFromExecuteResult(pipelineResult)[0];
-  if (pipelineRow === undefined) {
+  const selected = await selectDefaultPipelineInTx(tx, workspaceId);
+  if (!selected.ok) {
+    return err(selected.error);
+  }
+
+  if (selected.value === null) {
     return err(crmError("crm.databaseError", "Default CRM pipeline could not be loaded."));
   }
 
-  const pipeline = rowToPipelineDto(pipelineRow);
-  const stagesResult = await tx.execute(sql`
-    select
-      id,
-      pipeline_id,
-      organization_id,
-      workspace_id,
-      name,
-      position,
-      created_at
-    from public.crm_pipeline_stages
-    where pipeline_id = ${pipeline.id}
-      and workspace_id = ${workspaceId}
-    order by position asc, created_at asc, id asc
-  `);
-  const stages = rowsFromExecuteResult(stagesResult).map(rowToPipelineStageDto);
-
-  if (stages.length !== defaultStageNames.length) {
-    return err(crmError("crm.databaseError", "Default CRM pipeline stages are incomplete."));
-  }
-
-  return ok({ pipeline, stages });
+  return ok(selected.value);
 }
 
 export async function ensureDefaultPipeline(
@@ -471,9 +491,7 @@ export async function createDeal(
               input.workspaceId,
             );
       if (selectedStage === undefined || selectedStage === null) {
-        return err(
-          crmError("crm.validation", "Deal stage must belong to the selected pipeline."),
-        );
+        return err(crmError("crm.validation", "Deal stage must belong to the selected pipeline."));
       }
 
       const inserted = await tx.execute(sql`
@@ -968,8 +986,7 @@ export async function updateDeal(
   const ownerUserIdValue = ownerUserId === undefined ? undefined : ownerUserId.value;
   const expectedCloseDateValue =
     expectedCloseDate === undefined ? undefined : expectedCloseDate.value;
-  const primaryContactIdValue =
-    primaryContactId === undefined ? undefined : primaryContactId.value;
+  const primaryContactIdValue = primaryContactId === undefined ? undefined : primaryContactId.value;
 
   const authorized = await authorizeCrm(input, "update", dependencies.authorizationPort);
   if (!authorized.ok) {
@@ -994,9 +1011,7 @@ export async function updateDeal(
         update public.crm_deals
         set
           title = ${titleValue === undefined ? existing.title : titleValue},
-          value_cents = ${
-            valueCentsValue === undefined ? existing.valueCents : valueCentsValue
-          },
+          value_cents = ${valueCentsValue === undefined ? existing.valueCents : valueCentsValue},
           currency = ${currencyValue === undefined ? existing.currency : currencyValue},
           owner_user_id = ${
             ownerUserIdValue === undefined ? existing.ownerUserId : ownerUserIdValue
@@ -1023,10 +1038,15 @@ export async function updateDeal(
 export async function listDeals(
   input: ListDealsInput,
   dependencies: CrmApplicationDependencies = {},
-): Promise<Result<readonly CrmDealStageColumnDto[]>> {
+): Promise<Result<CrmListPageDto<CrmDealStageColumnDto>>> {
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
     return err(knownIds.error);
+  }
+
+  const limit = normalizeLimit(input.limit, 50, 200);
+  if (!limit.ok) {
+    return err(limit.error);
   }
 
   const authorized = await authorizeCrm(input, "read", dependencies.authorizationPort);
@@ -1036,10 +1056,40 @@ export async function listDeals(
 
   try {
     return await withTenant(input.orgId, async (tx) => {
-      const pipeline = await ensureDefaultPipelineInTx(tx, input.orgId, input.workspaceId);
+      const pipeline = await selectDefaultPipelineInTx(tx, input.workspaceId);
       if (!pipeline.ok) {
         return err(pipeline.error);
       }
+
+      if (pipeline.value === null) {
+        return ok({
+          rows: [],
+          hasMore: false,
+          totalCount: 0,
+        });
+      }
+
+      const totalResult = await tx.execute(sql`
+        select count(*)::integer as total_count
+        from public.crm_deals
+        where workspace_id = ${input.workspaceId}
+          and pipeline_id = ${pipeline.value.pipeline.id}
+      `);
+      const totalCount = Number(rowsFromExecuteResult(totalResult)[0]?.["total_count"] ?? 0);
+
+      const stageCountsResult = await tx.execute(sql`
+        select stage_id, count(*)::integer as deal_count
+        from public.crm_deals
+        where workspace_id = ${input.workspaceId}
+          and pipeline_id = ${pipeline.value.pipeline.id}
+        group by stage_id
+      `);
+      const stageCounts = new Map(
+        rowsFromExecuteResult(stageCountsResult).map((row) => [
+          String(row["stage_id"]),
+          Number(row["deal_count"] ?? 0),
+        ]),
+      );
 
       const result = await tx.execute(sql`
         select
@@ -1077,15 +1127,20 @@ export async function listDeals(
         where d.workspace_id = ${input.workspaceId}
           and d.pipeline_id = ${pipeline.value.pipeline.id}
         order by s.position asc, d.position asc, d.created_at asc, d.id asc
+        limit ${limit.value + 1}
       `);
 
-      const deals = rowsFromExecuteResult(result).map(rowToDealDto);
-      return ok(
-        pipeline.value.stages.map((stage) => ({
+      const dealRows = rowsFromExecuteResult(result);
+      const deals = dealRows.slice(0, limit.value).map(rowToDealDto);
+      return ok({
+        rows: pipeline.value.stages.map((stage) => ({
           stage,
+          dealCount: stageCounts.get(stage.id) ?? 0,
           deals: deals.filter((deal) => deal.stageId === stage.id),
         })),
-      );
+        hasMore: dealRows.length > limit.value,
+        totalCount,
+      });
     });
   } catch (error) {
     return err(databaseError(error));

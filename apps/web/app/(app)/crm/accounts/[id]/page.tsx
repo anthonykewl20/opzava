@@ -33,10 +33,10 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
   const [accountResult, accountsResult, contactsResult, dealsResult, ticketsResult] =
     await Promise.all([
       getAccount({ ...crmContext, accountId: id }),
-      listAccounts(crmContext),
-      listContacts(crmContext),
-      listDeals(crmContext),
-      listTickets(crmContext),
+      listAccounts({ ...crmContext, limit: 200 }),
+      listContacts({ ...crmContext, limit: 200 }),
+      listDeals({ ...crmContext, limit: 200 }),
+      listTickets({ ...crmContext, limit: 200 }),
     ]);
 
   if (!accountResult.ok) {
@@ -84,14 +84,14 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
   }
 
   const account = accountResult.value;
-  const accounts = accountsResult.value;
+  const accounts = accountsResult.value.rows;
   const parentAccount = accounts.find((item) => item.id === account.parentAccountId) ?? null;
   const childAccounts = accounts.filter((item) => item.parentAccountId === account.id);
-  const contacts = contactsResult.value.filter((contact) => contact.accountId === account.id);
-  const deals = dealsResult.value
+  const contacts = contactsResult.value.rows.filter((contact) => contact.accountId === account.id);
+  const deals = dealsResult.value.rows
     .flatMap((column) => column.deals)
     .filter((deal) => deal.accountId === account.id);
-  const tickets = ticketsResult.value.filter((ticket) => ticket.accountId === account.id);
+  const tickets = ticketsResult.value.rows.filter((ticket) => ticket.accountId === account.id);
   const websiteHref = accountWebsiteHref(account.website);
 
   return (

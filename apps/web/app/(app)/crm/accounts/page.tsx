@@ -27,9 +27,9 @@ export default async function AccountsPage() {
   const createAccountIdempotencyKey = `web.crm.account.create:${randomUUID()}`;
   const crmContext = crmContextInput(context);
   const [accountsResult, dealsResult, ticketsResult] = await Promise.all([
-    listAccounts(crmContext),
-    listDeals(crmContext),
-    listTickets(crmContext),
+    listAccounts({ ...crmContext, limit: 200 }),
+    listDeals({ ...crmContext, limit: 200 }),
+    listTickets({ ...crmContext, limit: 200 }),
   ]);
 
   if (!accountsResult.ok) {
@@ -56,9 +56,9 @@ export default async function AccountsPage() {
     throw ticketsResult.error;
   }
 
-  const accounts = accountsResult.value;
-  const openDeals = openDealsFromColumns(dealsResult.value);
-  const tickets = ticketsResult.value;
+  const accounts = accountsResult.value.rows;
+  const openDeals = openDealsFromColumns(dealsResult.value.rows);
+  const tickets = ticketsResult.value.rows;
 
   return (
     <>
