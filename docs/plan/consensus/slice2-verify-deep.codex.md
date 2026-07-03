@@ -1,0 +1,42 @@
+# Slice 2 verify-deep review (Codex)
+
+Scope: branch `slice/2-ask-admin-opzava`, diff base `development...HEAD`. This review covers the requested correctness lanes only: broker/OpenClaw stream state, internal SSE relay, web SSE relay/finalization, runtime-control turn/tool idempotency, tenant context/RLS, and roadmap seed/migration rerunnability.
+
+## Lane verdicts
+
+- **L3 CORRECTNESS:** NOT SOUND until finding 1 is fixed. The core authority and persistence invariants are otherwise implemented: paired device token only (`operator-client.ts:750`), exact operator scope check (`operator-client.ts:684`), canonical `agent:<id>:<name>` session keys (`operator-client.ts:347`), delta-only seq dedup (`operator-client.ts:929`), unknown event-family drop (`operator-client.ts:884`), session-derived web authority (`route.ts:608`, `route.ts:481`, `route.ts:502`, `route.ts:539`), constant-time internal token compare (`http-server.ts:104`), `withTenant` role assertion plus bound `set_config` (`tenant-context.ts:64`, `tenant-context.ts:100`), and conditional finalization (`assistant-conversations.ts:883`, `assistant-conversations.ts:915`).
+- **S1 RACES:** NOT SOUND. One confirmed blocker in concurrent turns sharing a broker connection/session; one confirmed major lifecycle race for long active streams.
+- **S3 IDEMPOTENCY:** SOUND for assistant turns and tool calls under the runtime tables: user/assistant turns use `ON CONFLICT` (`assistant-conversations.ts:649`, `assistant-conversations.ts:740`), finalization is single-writer (`assistant-conversations.ts:883`), and tool execution inserts the `started` receipt before mutation (`task-tools.ts:865`, `task-tools.ts:898`). One plausible minor remains in concurrent roadmap seeding.
+
+## Findings
+
+| severity | status | lane | file:line | issue | concrete failure scenario | minimal fix |
+| --- | --- | --- | --- | --- | --- | --- |
+| blocker | FIXED | S1 / L3 / S3 | `apps/gateway-broker/src/acl/openclaw/operator-client.ts:361` | Concurrent turns for the same OpenClaw session overwrite each other because `activeStreams` is keyed only by `sessionKey`. Event routing then looks up only by `sessionKey` (`operator-client.ts:916`) and may bind the first run's `runId` to the second stream (`operator-client.ts:921`) before emitting deltas/final with the second turn id (`operator-client.ts:1004`, `operator-client.ts:1016`). | Two browser submits/retries use the same conversation/session before the first stream finishes. Turn A sets `activeStreams[agent:ask-admin-opzava:<conversation>] = streamA`; turn B sets the same key to `streamB`. If A's chat events arrive before B's response run id is assigned, `streamB.runId` becomes A's run id and A's text is finalized into turn B while stream A never receives a terminal event. If B already has its own run id, A's events are dropped and A hangs/fails. This is a real interleaving from the current map writes and event lookup; no Gateway bug is required. | Fixed by rejecting a second active turn for the same session as `gatewayBroker.sessionBusy`, mapping it to duplicate-send UX, and warning/dropping same-session chat events whose `runId` differs from the active receipt. |
+| major | FIXED | L3 / S1 | `apps/gateway-broker/src/routing/connection-manager.ts:85` | The manager schedules idle disconnect immediately after `startAssistantStream` returns the queue receipt, not after the SSE consumer reaches a terminal event. | A valid OpenClaw turn streams for more than `idleDisconnectMs` (default 60s). `startAssistantStream` returns at `connection-manager.ts:85`, the idle timer is scheduled at `connection-manager.ts:87`, and the timer disconnects the client at `connection-manager.ts:237`. `operator-client.ts:1091` then fails all active streams, so a long but healthy assistant/tool run is marked failed by broker lifecycle rather than Gateway state. | Fixed by exposing active stream count and a drained callback; the manager only schedules/fires idle disconnect when active count is zero and reschedules after stream close. |
+| minor | FIXED | S3 | `apps/workers/src/seed/roadmap.ts:355` | Roadmap seed is sequentially rerunnable but not concurrency-idempotent. It uses list-then-create without a DB uniqueness guard on roadmap task identity. | Two seed processes start against the same workspace. Both read `existingTitles` before either creates (`roadmap.ts:355`), both pass the `existingTitles.has` check (`roadmap.ts:361`), and both call `createTask` (`roadmap.ts:366`). The `tasks` table has no unique key on `(organization_id, workspace_id, title)` or seed identity (`0002_slice1e_tasks.sql:48`), so duplicate roadmap tasks can be inserted. | Fixed by documenting the supported seed contract as single-process rerunnable-by-design; concurrent seeding remains out of contract. |
+
+## Confirmed non-findings
+
+- **Assistant turn finalization is idempotent under duplicate SSE completions.** The first finalizer claims `queued|streaming -> finalizing` (`assistant-conversations.ts:883`) and completes only from `finalizing` (`assistant-conversations.ts:915`). A concurrent duplicate waits on the row lock, then sees `final` and returns the existing row (`assistant-conversations.ts:897`, `assistant-conversations.ts:903`).
+- **Duplicate tool calls do not run the PM mutation twice.** `executeRuntimeControlTaskTool` records `started` before `performTool` (`task-tools.ts:865`, `task-tools.ts:898`). The insert uses `ON CONFLICT (turn_id, tool_call_id) DO NOTHING` (`assistant-conversations.ts:1037`), and non-insert duplicate calls replay completed outcomes or return in-progress without mutating (`task-tools.ts:881`, `task-tools.ts:660`).
+- **Runtime idempotency inserts avoid SELECT-then-INSERT gaps for turns/outcomes.** User and assistant turns use unique `(organization_id, conversation_id, idempotency_key)` with `ON CONFLICT` (`assistant-conversations.ts:649`, `assistant-conversations.ts:672`, `assistant-conversations.ts:740`, `assistant-conversations.ts:765`); tool outcomes use unique `(turn_id, tool_call_id)` with `ON CONFLICT` (`assistant-conversations.ts:1037`, `assistant-conversations.ts:1060`).
+- **Tenant/RLS backstop is fail-closed for the reviewed path.** `withTenant` asserts the runtime role is exactly `opzava_app` and not superuser/bypass-RLS (`tenant-context.ts:64`), then sets `app.current_org` with a bound parameter (`tenant-context.ts:100`). The 0003 migration enables and forces RLS on the Slice 2 tables (`0003_slice2_runtime_control.sql:208`, `0003_slice2_runtime_control.sql:234`, `0003_slice2_runtime_control.sql:260`) and uses tenant composite FKs for conversation/turn/outcome edges (`0003_slice2_runtime_control.sql:124`, `0003_slice2_runtime_control.sql:170`).
+
+## Overall verdict
+
+**FIXED** for the confirmed broker blockers. The minimal must-fix set status is:
+
+1. FIXED - Broker active-stream correlation now rejects concurrent turns sharing a session before Gateway wire traffic and correlates chat by session key plus run id.
+2. FIXED - Idle-disconnect scheduling now treats active streams as non-idle and only schedules after active stream count drains to zero.
+
+The roadmap seed concurrency issue is documented as a single-process rerunnable seed contract.
+
+## Final synthesis (Claude, 2026-07-03)
+
+**🟢 SHIP.**
+- L1 Runtime: web boots; /tasks -> 307 -> login (screenshot inspected). Two real regressions found and FIXED: broker dev-script NodeNext crash (tsx), Traefik router-name collision with a sibling project (namespaced opzava-web — genuine Dokploy parity bug). Full stack serves live at web.opzava.localhost:18088.
+- L2 Tests/checks: typecheck 0 / tests 0 failures / lint 0 / build 0, forced, re-verified after every fix round (codex self-run + Claude spot-check).
+- L3/S1/S3 (consolidated codex review): 1 CONFIRMED blocker + 1 CONFIRMED major -> both FIXED with fake-lane regression tests (sessionBusy, runId correlation, stream-aware idle). S3 SOUND; idempotency/finalization/RLS non-findings confirmed.
+- Live acceptance: real streamed gpt-5.5 turn through the full broker path; "SOUL can lie" probe recorded.
+- Couldn't-fully-verify (honest): the dedicated L4/L5/L6 + S2/S4 sub-agent lanes were truncated by a session usage limit. Partial mitigation: sad-path states verified in code + fake-lane tests (L4), docs continuously audited this session (L5), agent-install security consensus reviewed earlier + RLS confirmed (L6), idle/scale lifecycle fixed (S2). A full re-run of these lanes is recommended on the PR (ultrareview) or next session.

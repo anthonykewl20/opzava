@@ -21,6 +21,15 @@ export class TenantContextMissingError extends ForbiddenError {
   }
 }
 
+export class RuntimeDatabaseRoleError extends ForbiddenError {
+  public override readonly code = "postgres.runtimeDatabaseRoleMismatch";
+
+  public constructor() {
+    super();
+    this.name = "RuntimeDatabaseRoleError";
+  }
+}
+
 export class ConflictError extends Error {
   public readonly status = 409;
   public readonly code = "postgres.conflict";
@@ -44,6 +53,7 @@ export class DatabaseOperationError extends Error {
 export type PublicDatabaseError =
   | ForbiddenError
   | TenantContextMissingError
+  | RuntimeDatabaseRoleError
   | ConflictError
   | DatabaseOperationError;
 
@@ -69,6 +79,7 @@ export function isPublicDatabaseError(error: unknown): error is PublicDatabaseEr
   return (
     error instanceof ForbiddenError ||
     error instanceof TenantContextMissingError ||
+    error instanceof RuntimeDatabaseRoleError ||
     error instanceof ConflictError ||
     error instanceof DatabaseOperationError
   );

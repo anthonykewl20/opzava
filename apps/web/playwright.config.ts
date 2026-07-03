@@ -21,6 +21,10 @@ export default defineConfig({
       BETTER_AUTH_URL: baseURL,
       BETTER_AUTH_SECRET:
         process.env["BETTER_AUTH_SECRET"] ?? "local-test-better-auth-secret-32-chars",
+      BROKER_INTERNAL_URL:
+        process.env["BROKER_INTERNAL_URL"] ?? "http://gateway-broker.opzava.localhost:19088",
+      BROKER_INTERNAL_TOKEN:
+        process.env["BROKER_INTERNAL_TOKEN"] ?? "local-test-broker-internal-token-32",
       DATABASE_URL:
         process.env["DATABASE_URL"] ??
         "postgresql://opzava_app:opzava_app_local_only@localhost:15432/opzava"

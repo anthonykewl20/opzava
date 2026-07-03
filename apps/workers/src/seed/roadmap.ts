@@ -7,11 +7,15 @@ import {
   listTasks,
   type TaskApplicationContext,
   type TaskDto,
-  type TaskPriority
+  type TaskPriority,
 } from "@opzava/project-management";
 import { DomainError, type Result } from "@opzava/shared-kernel";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
+// Roadmap seeding is single-process rerunnable-by-design: it list-then-creates
+// by title without a DB unique title constraint. Concurrent seed processes are
+// intentionally out of contract.
 
 interface RoadmapTaskDefinition {
   readonly title: string;
@@ -51,16 +55,12 @@ const localDevDefaults = {
   ownerName: "Opzava Owner",
   organizationName: "Opzava Internal",
   workspaceName: "Admin",
-  timezone: "Asia/Manila"
+  timezone: "Asia/Manila",
 } as const;
 
 // These defaults are for an ephemeral local-dev bootstrap only. Shared and live
 // environments must set SEED_* values, especially SEED_OWNER_PASSWORD.
-function readSeedValue(
-  env: NodeJS.ProcessEnv,
-  name: string,
-  fallback: string
-): string {
+function readSeedValue(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
   const value = env[name];
   return value === undefined || value.trim() === "" ? fallback : value.trim();
 }
@@ -71,120 +71,134 @@ const roadmapTasks = [
     description:
       "Add the first admin assistant loop so Ask Admin Opzava can read, create, and update Tasks through streaming chat.",
     priority: "high",
-    labels: ["roadmap", "phase"]
+    labels: ["roadmap", "phase"],
+  },
+  {
+    title: "Slice 3 - CRM core (thin)",
+    description:
+      "Own customer truth in Postgres with manually managed CRM records so Opzava can track real prospects while promoting itself. No channel ingest yet.",
+    priority: "high",
+    labels: ["roadmap", "phase"],
+  },
+  {
+    title: "Slice 4 - Marketing content pipeline (thin)",
+    description:
+      "Run Opzava's own marketing inside Opzava: campaigns and a content pipeline with the exact-version approval invariant, using the Slice 2 agent for drafting. Manual publish; no workflow engine yet.",
+    priority: "high",
+    labels: ["roadmap", "phase"],
   },
   {
     title: "P1 - AI Workforce",
     description:
       "Turn Ask Opzava into an operable AI workforce with departments, assignments, policy, automation entry points, and run evidence.",
     priority: "high",
-    labels: ["roadmap", "phase"]
+    labels: ["roadmap", "phase"],
   },
   {
     title: "P2 - Realtime + PWA",
     description:
       "Make collaboration durable and live, then installable, while keeping push and Redis outside auth and durability boundaries.",
     priority: "normal",
-    labels: ["roadmap", "phase"]
+    labels: ["roadmap", "phase"],
   },
   {
     title: "P3 - Knowledge",
     description:
       "Give people and AI employees governed project and organization knowledge with derived OpenClaw indexes.",
     priority: "normal",
-    labels: ["roadmap", "phase"]
+    labels: ["roadmap", "phase"],
   },
   {
     title: "P4 - CRM",
     description:
-      "Own customer truth in Opzava while projecting external channel observations through the Gateway ACL.",
+      "(remainder) Channel ingest, sender projections, governed replies, Contact merge, and GDPR erasure after Slice 3 owns CRM records and admin surfaces.",
     priority: "normal",
-    labels: ["roadmap", "phase"]
+    labels: ["roadmap", "phase"],
   },
   {
     title: "P5 - Dept-Workflows + Marketing",
     description:
-      "Define department work in Opzava while OpenClaw executes standing orders, cron, TaskFlow, sessions, and channels.",
+      "(remainder) Workflow engine, cron/TaskFlow runs, Automation page, external channels, and reports after Slice 4 owns the marketing content pipeline.",
     priority: "normal",
-    labels: ["roadmap", "phase"]
+    labels: ["roadmap", "phase"],
   },
   {
     title: "P6 - Finance + Billing",
     description:
       "Add money visibility, money-risk approvals, usage metering, plan limits, and dunning behind ports.",
     priority: "normal",
-    labels: ["roadmap", "phase"]
+    labels: ["roadmap", "phase"],
   },
   {
     title: "P7 - Notifications + Admin + Error Pipeline",
     description:
       "Make operational truth visible and repairable with redaction, one-tenant blast radius, and governed remediation.",
     priority: "normal",
-    labels: ["roadmap", "phase"]
+    labels: ["roadmap", "phase"],
   },
   {
     title: "P8 - External Channels + Guest + Polish",
     description:
       "Finish customer-facing and integration edges: channels, guest portal, tool links, and production polish.",
     priority: "normal",
-    labels: ["roadmap", "phase"]
+    labels: ["roadmap", "phase"],
   },
   {
     title: "Real OpenClaw operator WS handshake",
     description:
       "Implement connect.challenge nonce signing, device-token pairing, protocol v4, and operator.write/operator.approvals scopes.",
     priority: "high",
-    labels: ["roadmap", "de-risk"]
+    labels: ["roadmap", "de-risk"],
   },
   {
     title: "Wildcard TLS issuance and DNS lifecycle",
     description:
       "Handle wildcard TLS issuance and renewal plus *.localhost and *.opzava.app DNS/SNI lifecycle.",
     priority: "high",
-    labels: ["roadmap", "de-risk"]
+    labels: ["roadmap", "de-risk"],
   },
   {
     title: "Readiness and reconnect hardening",
     description:
       "Add readiness/health gating plus reconnect, backoff, and circuit-breaker behavior for sustained load and idle WS death.",
     priority: "high",
-    labels: ["roadmap", "de-risk"]
+    labels: ["roadmap", "de-risk"],
   },
   {
     title: "Gateway reaper leases and fencing",
     description:
       "Harden reaper concurrency with leases and fencing to avoid double-kill and orphan Gateway containers.",
     priority: "high",
-    labels: ["roadmap", "de-risk"]
+    labels: ["roadmap", "de-risk"],
   },
   {
     title: "Lazy-start and idle-stop cost model",
     description:
       "Measure lazy-start/idle-stop cold-start latency against idle Gateway cost before choosing the runtime policy.",
     priority: "normal",
-    labels: ["roadmap", "de-risk"]
+    labels: ["roadmap", "de-risk"],
   },
   {
     title: "Secrets lifecycle for Gateway credentials",
     description:
       "Define lifecycle, rotation, and per-tenant scoping for device tokens, TLS certs, Gateway keys, and related secrets.",
     priority: "high",
-    labels: ["roadmap", "de-risk"]
+    labels: ["roadmap", "de-risk"],
   },
   {
     title: "Dokploy Compose deployer mapping",
     description:
       "Map dynamic Gateway containers onto Dokploy's Compose deployer while attaching to Dokploy's existing Traefik.",
     priority: "normal",
-    labels: ["roadmap", "de-risk"]
-  }
+    labels: ["roadmap", "de-risk"],
+  },
 ] as const satisfies readonly RoadmapTaskDefinition[];
 
 function seedError(code: string, message: string, cause?: unknown): DomainError {
   return new DomainError({
     code,
     message,
-    ...(cause === undefined ? {} : { cause })
+    ...(cause === undefined ? {} : { cause }),
   });
 }
 
@@ -219,8 +233,8 @@ function readFirstOwnerSetupInput(env: NodeJS.ProcessEnv): FirstOwnerSetupInput 
     timezone: readSeedValue(
       env,
       "SEED_TIMEZONE",
-      readSeedValue(env, "TZ", localDevDefaults.timezone)
-    )
+      readSeedValue(env, "TZ", localDevDefaults.timezone),
+    ),
   };
 }
 
@@ -244,7 +258,7 @@ async function resolveRoadmapOwnerContext(): Promise<RoadmapOwnerContext> {
   if (setupRow === undefined) {
     throw seedError(
       "workers.roadmapSeedOwnerMissing",
-      "First-owner setup did not produce an owner context."
+      "First-owner setup did not produce an owner context.",
     );
   }
 
@@ -270,7 +284,7 @@ async function resolveRoadmapOwnerContext(): Promise<RoadmapOwnerContext> {
     if (workspaceRow === undefined) {
       throw seedError(
         "workers.roadmapSeedWorkspaceMissing",
-        "First-owner setup did not produce an admin workspace."
+        "First-owner setup did not produce an admin workspace.",
       );
     }
 
@@ -300,7 +314,7 @@ async function resolveRoadmapOwnerContext(): Promise<RoadmapOwnerContext> {
     if (ownerRoleKeys.length === 0) {
       throw seedError(
         "workers.roadmapSeedOwnerRolesMissing",
-        "First owner does not have any active role grants."
+        "First owner does not have any active role grants.",
       );
     }
 
@@ -308,7 +322,7 @@ async function resolveRoadmapOwnerContext(): Promise<RoadmapOwnerContext> {
       organizationId,
       workspaceId: String(workspaceRow["id"]),
       ownerUserId,
-      ownerRoleKeys
+      ownerRoleKeys,
     };
   });
 }
@@ -319,8 +333,8 @@ function taskContext(owner: RoadmapOwnerContext): TaskApplicationContext {
     workspaceId: owner.workspaceId,
     actor: {
       userId: owner.ownerUserId,
-      roleKeys: owner.ownerRoleKeys
-    }
+      roleKeys: owner.ownerRoleKeys,
+    },
   };
 }
 
@@ -328,12 +342,14 @@ async function listExistingRoadmapTasks(owner: RoadmapOwnerContext): Promise<rea
   return unwrapResult(await listTasks(taskContext(owner)));
 }
 
+export const roadmapTaskTitles: readonly string[] = roadmapTasks.map((task) => task.title);
+
 function roadmapTitleSet(tasks: readonly TaskDto[]): Set<string> {
   return new Set(tasks.map((task) => task.title));
 }
 
 export async function seedRoadmapTasks(
-  options: SeedRoadmapTasksOptions = {}
+  options: SeedRoadmapTasksOptions = {},
 ): Promise<SeedRoadmapTasksReceipt> {
   const env = options.env ?? process.env;
   const logger = options.logger === undefined ? console : options.logger;
@@ -357,8 +373,8 @@ export async function seedRoadmapTasks(
         title: task.title,
         description: task.description,
         priority: task.priority,
-        labels: task.labels
-      })
+        labels: task.labels,
+      }),
     );
 
     existingTitles.add(created.title);
@@ -372,11 +388,11 @@ export async function seedRoadmapTasks(
     skippedCount: skippedTitles.length,
     createdTitles,
     skippedTitles,
-    roadmapTitles: roadmapTasks.map((task) => task.title)
+    roadmapTitles: roadmapTasks.map((task) => task.title),
   };
 
   logger?.log(
-    `Roadmap task seed complete: created=${receipt.createdCount} skipped=${receipt.skippedCount} total=${receipt.totalCount} workspace=${receipt.workspaceId}`
+    `Roadmap task seed complete: created=${receipt.createdCount} skipped=${receipt.skippedCount} total=${receipt.totalCount} workspace=${receipt.workspaceId}`,
   );
 
   return receipt;

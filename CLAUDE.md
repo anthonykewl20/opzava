@@ -8,14 +8,15 @@ use the `handoff` skill. Do not skip ahead; keep the doc in sync with reality.
 ## Doc map (reference — `EXECUTION.md` is the control surface)
 - `ARCHITECTURE.md` — the whole system in ~5 minutes (bounded contexts, ports, invariants, deployment, ADR index).
 - `docs/plan/roadmap.md` — the phased product roadmap (P1–P8) after the MVP.
-- `docs/plan/grilling-decisions.md` — the canonical design record (Q1–Q15, every invariant).
+- `docs/plan/grilling-decisions.md` — the canonical design record (Q1–Q16, every invariant).
 - `docs/plan/official-docs.md` — official documentation registry; validate every API against it before coding.
 - `docs/adr/` — 15 ADRs (architecture decisions). `docs/prd/` — 18 PRDs (product specs).
 - `docs/plan/capability-parity.md` — every screen: OpenClaw-native vs Opzava-owned vs hybrid.
 - `docs/plan/backlog.md` — initial ADR/PRD dependency backlog (planning input; `EXECUTION.md` controls order).
 - `docs/plan/consensus/` + `docs/plan/research/` — frozen evidence memos behind the decisions (see each dir's README; never current truth).
-- `docs/plan/audits/` — dated docs-audit reports.
+- `docs/plan/audits/` — dated docs-audit reports. `docs/runbooks/` — ops runbooks (gateway, pairing, model auth).
 - `docs/ux-law/` — curated UX reference library; use for frontend/design work (PRD-017).
+- `ux-redesign/mockups/` — the canonical screen mockups every PRD/UI slice designs to (tokens from `style-guide.html`; PRD-017 is the contract).
 - `docs/openclaw/` — vendored OpenClaw docs. **Design to these; harness, don't reinvent.**
 
 ## Non-negotiables (full detail in `ARCHITECTURE.md` + the ADRs)
@@ -26,6 +27,7 @@ use the `handoff` skill. Do not skip ahead; keep the doc in sync with reality.
 - **Tool-policy-first** security ("SOUL can lie; tool policy cannot"); **RLS denial is a hard 403**, never a silent empty result.
 - **Local docker-compose in parity with live Dokploy** (single compose, Traefik labels); **no routable orphan Gateway**.
 - Scale-ready modular DDD (no MVP-then-rewrite); agnostic ports; sad-path-first; lean VPS ops.
+- **Mockup functional parity:** every visible element on a mockup screen a slice implements must FUNCTION LIVE — real data, real interactions; no dead chrome, no fake data. Descope only explicitly in `EXECUTION.md` (user directive 2026-07-03).
 
 ## Gated workflow (MANDATORY — every issue, slice, and phase)
 Every unit of work follows the same gates, in order — do not skip:

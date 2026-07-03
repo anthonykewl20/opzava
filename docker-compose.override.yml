@@ -19,3 +19,10 @@ services:
   postgres:
     ports:
       - "15432:5432"
+
+  # Local-only host access for the dev broker/bootstrap scripts; live keeps the
+  # Gateway unreachable from outside the compose network (expose-only).
+  # Host port 18799: 18789 is taken by the developer's own local OpenClaw.
+  openclaw-platform-gateway:
+    ports:
+      - "18799:18789"

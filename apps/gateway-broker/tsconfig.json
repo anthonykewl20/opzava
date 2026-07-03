@@ -1,5 +1,5 @@
 {
-  "extends": "@opzava/config/tsconfig/node-lib.json",
+  "extends": "../../packages/config/tsconfig/node-lib.json",
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",

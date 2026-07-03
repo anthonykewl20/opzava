@@ -7,9 +7,10 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "dev": "node --watch --enable-source-maps src/index.ts",
+    "dev": "tsx watch --enable-source-maps src/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
+    "bootstrap:platform-gateway": "tsx src/provisioning/bootstrap-platform-gateway.ts",
     "seed:roadmap": "tsx src/seed/roadmap.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",

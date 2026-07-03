@@ -2,6 +2,7 @@ import { listTasks } from "@opzava/project-management";
 import { redirect } from "next/navigation";
 
 import { TasksBoard } from "@/components/tasks/tasks-board";
+import { getOrCreateAskAdminHistory } from "@/lib/ask-admin-history";
 import { getAppSessionContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -55,11 +56,27 @@ export default async function TasksPage() {
     throw result.error;
   }
 
+  const askAdminHistory = await getOrCreateAskAdminHistory(context);
+  if (!askAdminHistory.ok) {
+    if (
+      errorCode(askAdminHistory.error) === "runtimeControl.forbidden" ||
+      errorStatus(askAdminHistory.error) === 403
+    ) {
+      redirect("/");
+    }
+
+    throw askAdminHistory.error;
+  }
+
   return (
     <TasksBoard
       tasks={result.value}
       currentUser={{ id: context.user.id, name: context.user.name }}
       workspaceName={context.workspaceName}
+      askAdmin={{
+        conversationId: askAdminHistory.value.conversationId,
+        initialTurns: askAdminHistory.value.turns
+      }}
     />
   );
 }

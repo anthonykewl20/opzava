@@ -24,6 +24,9 @@ function pool() {
 }
 
 async function resetIdentityData(): Promise<void> {
+  await pool().query("delete from public.assistant_tool_outcomes");
+  await pool().query("delete from public.assistant_turns");
+  await pool().query("delete from public.assistant_conversations");
   await pool().query("delete from public.tasks");
   await pool().query("delete from public.first_owner_setup");
   await pool().query("delete from public.role_grants");

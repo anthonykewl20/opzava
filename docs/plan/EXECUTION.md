@@ -24,13 +24,15 @@ This doc supersedes the generic walking-skeleton MVP in `docs/plan/roadmap.md`. 
 
 Do not let this document become aspirational. If implementation changes the plan, update this document in the same slice.
 
+**Mockup functional parity (user directive, 2026-07-03):** every visible element on a mockup screen a slice implements MUST function live - real data, real interactions; no dead buttons, no decorative chrome, no fake/placeholder data. If an element's backing capability is not yet built, the slice either builds it or the element is explicitly descoped IN THIS DOC with its arrival phase. Silent non-functionality is a bug.
+
 ## Current State
 
 | Field | Value |
 | --- | --- |
-| Active slice | Slice 2 - Ask Admin Opzava on Tasks |
+| Active slice | Slice 2.5 - Local Claude Code on Tasks via MCP + live Task Card |
 | Status | not-started |
-| Next concrete action | Slice 1 (Admin Tasks MVP, 1a-1f) is COMPLETE + verify-deep green on branch `slice/1-admin-tasks-mvp` @ `50de556` (PR #121 open to `development`). Begin Slice 2: provision one platform OpenClaw agent reachable only through the broker and add a streaming Ask Admin Opzava chat panel on the Tasks board. Decided 2026-07-02: after Slice 2, thin CRM core (Slice 3) and thin Marketing content pipeline (Slice 4) come BEFORE full P1-P3; re-order the dogfood Tasks board seed to match during Slice 2. |
+| Next concrete action | Slice 2 DONE (5/5 deliverables; live acceptance passed; verify-deep + PR pending as the final gates - run them, merge, then begin Slice 2.5 with a codex-exec design memo + mmx red-team consensus per the method). |
 | Blockers | None |
 
 ## Operating Mode
@@ -43,7 +45,7 @@ Opzava runs single-tenant internally first to market and promote Opzava itself. 
 | --- | --- |
 | `ARCHITECTURE.md` | System overview: bounded contexts, ports, invariants, deployment topology, ADR index. |
 | `docs/plan/roadmap.md` | Phase detail after the admin Tasks MVP; this doc controls execution order. |
-| `docs/plan/grilling-decisions.md` | Locked design record and sad-path invariants from Q1-Q15. |
+| `docs/plan/grilling-decisions.md` | Locked design record and sad-path invariants from Q1-Q16. |
 | `docs/plan/official-docs.md` | Official documentation registry; validate every API against it before coding. |
 | `docs/adr/` | Accepted architecture decisions ADR-001 through ADR-015. |
 | `docs/prd/` | Product contracts PRD-001 through PRD-018. |
@@ -53,7 +55,9 @@ Opzava runs single-tenant internally first to market and promote Opzava itself. 
 | `docs/plan/consensus/` | Frozen consensus memos (evidence trail; see its README — never current truth). |
 | `docs/plan/research/` | Frozen research memos incl. locked version pins (see its README). |
 | `docs/plan/audits/` | Dated docs-audit reports. |
+| `docs/runbooks/` | Operational runbooks (platform Gateway bring-up, pairing, model auth). |
 | `docs/ux-law/` | Curated UX reference library for frontend/design work (PRD-017). |
+| `ux-redesign/mockups/` | Canonical screen mockups; UI slices design to these with tokens from `style-guide.html` (PRD-017 contract). |
 
 ## Skills
 
@@ -78,12 +82,13 @@ Author each skill with `writing-great-skills` before the first slice that needs 
 | `openclaw-gateway-provisioning` | Captures docker-socket-proxy usage, `GatewayRuntimePort`, dynamic Gateway containers, Traefik labels, leases, and reaper constraints. | Slice 0 | [x] created — `.claude/skills/openclaw-gateway-provisioning/` |
 | `better-auth` | Captures Better Auth behind `AuthPort`, revocable DB sessions, TOTP/passkeys, disabled cookie cache, and in-transaction invitation re-validation. | Slice 1 | [x] created — `.claude/skills/better-auth/` |
 | `opzava-conventions` | Project skill for `withTenant` RLS wrapper, two-token split, projections-are-cache, tool-policy-first, and other local invariants. | Slice 1 | [x] created — `.claude/skills/opzava-conventions/` |
+| `opzava-task-authoring` | How agents (Ask Admin, local Claude Code via MCP) write task cards humans understand: imperative titles, context/impact/evidence descriptions, verifiable steps with owners, status-forward comments, label/priority semantics. | Slice 2.5 | [x] created — `.claude/skills/opzava-task-authoring/` |
 
 ## The Build
 
 Execute slices in order. Slice 1 is the dogfood MVP. From Slice 1 onward, all phase work is tracked inside the admin Tasks board.
 
-Decided order (2026-07-02, operationalizes the Operating Mode): Slice 0 -> Slice 1 -> Slice 2 -> Slice 3 (CRM core, thin) -> Slice 4 (Marketing content pipeline, thin) -> P1..P8 remainders. Slice 2 stays first because the broker/AI loop is the keystone both Marketing (agent-drafted content) and CRM (assistant/support drafts) depend on.
+Decided order (2026-07-02, operationalizes the Operating Mode; Slice 2.5 added 2026-07-03 per Q16): Slice 0 -> Slice 1 -> Slice 2 -> Slice 2.5 (local Claude Code on Tasks via MCP) -> Slice 3 (CRM core, thin) -> Slice 4 (Marketing content pipeline, thin) -> P1..P8 remainders. Slice 2 stays first because the broker/AI loop is the keystone both Marketing (agent-drafted content) and CRM (assistant/support drafts) depend on.
 
 ### Slice 0 - De-risk spike (throwaway)
 
@@ -148,17 +153,17 @@ Bounded contexts: Identity & Access, Project Management, Tenant Provisioning, Pl
 
 ### Slice 2 - Ask Admin Opzava on Tasks
 
-Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
+Status: [ ] not-started | [ ] in-progress | [ ] blocked | [x] done
 
 Goal: Add the first admin assistant loop so Ask Admin Opzava can read, create, and update admin Tasks through streaming chat.
 
 Deliverables:
 
-- [ ] Provision one platform OpenClaw agent reachable only through the broker.
-- [ ] Add a streaming Ask Admin Opzava chat panel on the admin Tasks board.
-- [ ] Expose task read/create/update operations through admitted server-side tools or application commands.
-- [ ] Persist assistant turns and tool outcomes with tenant/workspace authorization and idempotency.
-- [ ] Show task updates created by the assistant immediately in list and kanban views.
+- [x] Provision one platform OpenClaw agent reachable only through the broker. (Live-proven 2026-07-03: agent installed with Q16 model config, Codex subscription OAuth signed in, Control UI disabled, and a full broker-path streamed turn - paired device token -> sessions.create/send -> deltas -> final - returned a real gpt-5.5 reply. Real-agent TASK-tool acceptance completes with the Slice 2.5 MCP projection; fake lane proves that loop today, and the live tool-claim honesty probe is recorded in the memo.)
+- [x] Add a streaming Ask Admin Opzava chat panel on the admin Tasks board.
+- [x] Expose task read/create/update operations through admitted server-side tools or application commands.
+- [x] Persist assistant turns and tool outcomes with tenant/workspace authorization and idempotency.
+- [x] Show task updates created by the assistant immediately in list and kanban views.
 
 Skills: `socketio`, `nodejs`, `nextjs`, `openclaw-broker`*
 
@@ -169,6 +174,38 @@ ADR refs: ADR-003, ADR-008, ADR-009, ADR-013
 PRD refs: PRD-005, PRD-018
 
 Bounded contexts: Runtime-Control, AI Workforce, Project Management, Internal Collaboration, Notifications/Admin-Observability
+
+### Slice 2.5 - Local Claude Code on Tasks via MCP + live Task Card (Q16)
+
+Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
+
+Goal: The developer's local Claude Code session controls the admin Tasks board through Opzava's own MCP server (Q16 hybrid on-behalf-of authority), and the Task card detail matches `ux-redesign/mockups/essential-card.html` with every card feature working and live. Agent-written cards read like a human wrote them (task-authoring skill). Ask Admin Opzava RELOCATES to its own page (user correction 2026-07-03): the sidebar "Ask Opzava" entry (currently dead - a mockup-parity violation) navigates to a dedicated chat page per `ux-redesign/mockups/orchestrator-chat.html`, every element functional live; the Slice 2 Tasks-panel placement was interim and is removed once the page ships. Canonical mockups for this slice's surfaces: `orchestrator-chat.html` (Ask Admin Opzava), `task-board.html` (Tasks board), `essential-card.html` (card detail), `issues.html` (Issues). `connections.html` (Gateway Connections) stays P8/PRD-013.
+
+Deliverables:
+
+- [ ] Task model extension: human-readable card id (per-workspace sequence + copy chip), due date, provenance ("added ... from ..."), watchers, Steps checklist (per-step assignee, done state, counter), Comments (human + AI-attributed, timestamps).
+- [ ] Card detail page per the mockup - EVERY element functional live: id chip + copy + "What's this ID?" popover, title, status/label/due chips, assigned-to with AI badge, watching avatars, Mark done, overflow menu actions, Overview tab. AI Run tab: live plain-language run steps from assistant turns/tool receipts (target refs) incl. the live elapsed ticker while streaming. Evidence & Files tab: REAL attachments - upload/list/open via a new `ObjectStorePort` (MinIO added to compose parity stack), files with provenance ("Drafted by <assistant>" / "Attached from ..."), links section, live count badge. Quality Review tab: REAL review mechanism - check items (assistant pre-checks recorded from tool outcomes + human checks), reviewer states (pre-check passed / changes requested), approve action, all audited.
+- [ ] AI liveness WITHOUT the P2 hub (derived from runtime-control stream/receipt state over the 2c SSE pattern): "assistant working..." on a step, "assistant is replying..." in comments, "Read by <assistant>" when the agent session consumed a comment; task-activity SSE feed (outbox/task events) so board + card update live on MCP/assistant mutations.
+- [ ] Human read receipts + typing indicators, interim-live (per mockup functional parity): comment read markers (per-user read rows -> "Read by X" / "Sent - not read yet") and a lightweight per-card typing hint over the existing SSE feed (in-memory TTL, single web instance). P2 replaces the TRANSPORT with the WS hub + Redis presence; the UI contract ships now and works live across two sessions.
+- [ ] @-mention popover in the comment composer; mentioning the assistant creates an assistant reply turn through the existing Slice 2 loop.
+- [ ] Opzava-hosted MCP server exposing the governed task tool registry EXTENDED to the card surface (steps/comments/due/watchers CRUD alongside list/create/update) - same validation, outcome-first receipts, forbidden vs not_found; consumer-agnostic so P1 gateway `mcp.servers` registration is pure config.
+- [ ] Scoped revocable link token (admin-UI issuance, shown once, hashed, `tasks:read`/`tasks:write`, expiry, dies with membership/session-version) + on-behalf-of `ToolExecutionContext` from the credential (client ids never authority) + `.mcp.json` connect recipe.
+- [ ] GitHub issue linkage behind an agnostic `IssueTrackerPort` (GitHub adapter; credential via vault ref, never committed): a Task can link to a repo issue (opaque external ref on the card with the `#NN` chip). Issues admin page per `ux-redesign/mockups/issues.html` - EVERY element functional live against the real repo: "Synced with GitHub" header + repo link + real last-sync timestamp, "Sync now" (manual idempotent sync), "New issue" (creates a real GitHub issue through the port), triage-pipeline summary strip with REAL counts (Needs triage -> Ready for agent -> Ready for human -> In progress -> Done this week), working filter tabs (All/Needs triage/Ready for agent/Ready for human/In progress/Closed), issue table with number, title + real triage/area labels, assignee (incl. AI-agent mapping, "You", Unassigned), relative updated time, status, and the "Showing N of M open" footer. Issue rows are a REBUILDABLE PROJECTION - GitHub is the source of truth for issues; divergence (issue closed vs task open) is SHOWN, never auto-mutated. Internal phase: this repo's issues.
+- [ ] `opzava-task-authoring` skill (authored via `writing-great-skills`): how agents write cards humans understand - imperative titles, context/impact/evidence descriptions, verifiable steps with owners, status-forward comments, label/priority semantics. Referenced by the Ask Admin AGENTS.md, the MCP tool descriptions, and local Claude Code.
+- [ ] Ask Admin Opzava page per `orchestrator-chat.html`: sidebar "Ask Opzava" entry wired and clickable, dedicated chat page hosting the Slice 2 loop (streaming, history, tool events), every visible mockup element functional live; remove the interim Tasks-board panel.
+- [ ] Task activity/audit shows actor-via-client attribution in the admin UI.
+
+Skills: `nodejs`, `nextjs`, `senior-frontend`, `domain-modeling`, `better-auth`*, `opzava-conventions`*, `tdd`, `opzava-task-authoring`* (to build)
+
+Acceptance / usable-signal: From a local Claude Code session: create a task with steps via MCP - the card appears live on the board and reads like a human wrote it; open the card and EVERY visible element on `essential-card.html` works (steps tick with strikethrough + counter + working indicator, comments post with read receipts and typing hints across two sessions, mention the assistant and watch it reply live, attach/open evidence files with provenance, complete a quality-review check + approve, due/labels/watchers edit, Mark done, id copy + popover, menu actions); on `issues.html` every element works against the real repo (sync now, new issue, triage counts, filters, table, footer); revoke the link token and the next MCP call fails clean; activity shows actor-via-claude-code.
+
+ADR refs: ADR-004, ADR-005 (on-behalf-of), ADR-007, ADR-009 (degraded one-way path); Q16
+
+PRD refs: PRD-003 (tasks/card), PRD-005 (assistant in threads), PRD-012 (issues page), PRD-013 (local tool link + connections, anticipated), PRD-017 (empty states)
+
+Bounded contexts: Runtime-Control, Project Management, Identity & Access, Internal Collaboration (comments only)
+
+Deferred: presence/read-receipt TRANSPORT upgrade (Redis + WS hub; UI contract ships live in this slice) -> P2; OpenClaw Workboard/AgentDispatch run-trace projections + gateway `mcp.servers` registration + autonomous-agent principal -> P1 (ADR-008). Nothing visible on the two mockup screens is deferred.
 
 ### Slice 3 - CRM core (thin, pulled forward from P4)
 
@@ -429,6 +466,10 @@ Per slice:
 
 ## Worklog
 
+- 2026-07-03 - Slice 2 LIVE ACCEPTANCE PASSED; slice DONE (pending verify-deep + PR). Full broker-path streamed turn against the real Gateway: paired device token -> sessions.create -> sessions.send -> chat deltas -> final ("I'm Codex, and I help administer the ask-admin-opzava board"). Wire contract aligned to the LIVE binary (docs were stale/incomplete): sessions.send param `key` vs tools.effective `sessionKey` (real inconsistency, preserved); create-before-send with bounded retry; canonical `agent:<id>:<name>` session keys carry event correlation; terminal chat event reuses the last delta's seq (dedup deltas only); unknown event families dropped fail-closed instead of killing connections (live gateway interleaves agent/tick/health). Fake gateway mirrors all of it (29/29). SAD-PATH EVIDENCE: with an empty effective toolset the agent claimed task creation with zero tool calls - "SOUL can lie" observed live, contained by architecture (no receipt -> no write-through). Real-agent task-tool acceptance = Slice 2.5 MCP projection. Codex OAuth signed in (per-env, runbook); Control UI disabled; plugins.allow pinned.
+- 2026-07-03 - Ask Admin agent INSTALLED on the live platform Gateway with dual-model consensus validation. Applied agents.list[ask-admin-opzava]: model `openai/gpt-5.5`, per-agent tools (profile minimal + opzava_tasks_* allow + runtime/fs deny), persona files hash-verified against the provisioning receipt, `contextInjection: continuation-skip`. Consensus: mmx red-team (31 findings) adjudicated against vendored docs + the LIVE config schema - tool-family and config-knob findings REFUTED (minimal = session_status only; on_session_start/maxTurns/dailyBudgetUSD do not exist), 3 evidence-backed items ACTIONED (continuation-skip applied; tools.effective fail-close covers unregistered-name risk; OAuth colocation posture documented) - `slice2-agent-install-redteam.mmx.md` + codex grounded sibling review `slice2e-agent-config-review.codex.md` (SOUND-WITH-FIXES). Provisioning source re-aligned to the applied shape; rendered artifact == live config verified byte-equal. New `docs/runbooks/platform-gateway.md` (bring-up, pairing, model auth, sad-path table). REMAINING: operator's interactive Codex device-code sign-in, real-agent acceptance, verify-deep, PR.
+- 2026-07-03 - Q16 GRILLED + LOCKED (orchestrator runtime + local coding harness): ChatGPT/Codex subscription OAuth drives `openai/gpt-5.5` via OpenClaw's native Codex runtime on the platform Gateway (shared personal GPT Pro accepted for the internal phase; `auth.order.openai` API-key fallback + auth-monitoring; tripwire to dedicated account before external users/P5 automation); per-environment interactive sign-in (OAuth non-portable); broker streaming verified runtime-agnostic; local Claude Code connects via an Opzava-hosted MCP server exposing the 2d task-tool registry (NOT ACP - that spawns the harness on the gateway host; ACP revisited in P1); hybrid on-behalf-of authority (human's RBAC/RLS + client attribution); scoped revocable link token now, device-authorization flow at the multi-user tripwire. New Slice 2.5 inserted before Slice 3. Slice 2's remaining credential step is now the Codex OAuth sign-in, not an API key.
+- 2026-07-03 - Slice 2 sub-slices 2a-2f GREEN + committed; live real-Gateway proof COMPLETE. 2a `@opzava/runtime-control` (turn state machine, outcome-first receipts, 0003 RLS with composite tenant FKs, withTenant role assert) after a spark red-team of the design memo (UNSOUND -> 9 findings resolved). 2b broker operator client + adversarial fake Gateway (found: ws success callback passes null not undefined). 2c internal-token SSE endpoint + OpenClawGatewayPort adapter + chat panel (broker env lazy; stream-state logic pure-TS for vitest). 2d governed task tools through PM services (UUID-shaped taskId rule; forbidden vs not_found split). 2e agent artifacts + provisioning receipts + compose profile `openclaw`; real image pinned 2026.6.11 and brought up healthy. 2f seed reorder (18 tasks, decided order) + protocol alignment to the LIVE gateway (client id/mode enums, sha256-raw device id, v2 signature payload, auth.deviceToken vs auth.token, metadata-bound approvals, implied operator.read) — vendored docs were stale on several of these; every fact verified in the running container and the fake tightened to match. Live loop proven: pairing request -> devices approve -> fresh device token vaulted by ref -> validation handshake protocol 4, scopes exactly write+approvals+read. Test-infra hardenings en route: slice1c suite parks/restores the first_owner_setup singleton; roadmap seed test self-heals leftovers; run-unique identifiers across suites. Remaining for slice-done: agent config install into the Gateway, model-provider credential (user), real-agent acceptance, verify-deep, PR.
 - 2026-07-02 - Execution order DECIDED (user; resolves audit S1-2): Slice 2 stays next (the broker/AI loop is the keystone Marketing and CRM both need), then business value pulls forward — new Slice 3 (CRM core, thin P4 subset) and Slice 4 (Marketing content pipeline, thin P5 subset) inserted before P1-P3; P4/P5 sections now carry the remainders. Follow-up owned by Slice 2: re-order the dogfood Tasks board seed to the new slice order.
 - 2026-07-02 - Docs deep-audit + sync fixes (codex-exec audit -> `docs/plan/audits/2026-07-02-docs-audit.md`, 21 findings, all applied except S1-2 which is a user decision). Fixed: roadmap.md superseded banner + historical P0/P0.5 markers; grilling-decisions.md Q13/Q15 recorded, Drizzle locked (was `Prisma|Drizzle TBD`), stale "Next Q13" queue removed, status now Q1-Q15; ADR-014/PRD-014 billing language recast as deferred null-adapter now / Stripe future design; official-docs.md gained missing registry rows + a "Current locked pins" section; new `docs/plan/consensus/README.md` + `docs/plan/research/README.md` frozen-evidence indexes; HISTORICAL banners on q13/q15 memos; TS 6.0.3 raw pin marked superseded; backlog.md marked planning-input with partial-chain note; CLAUDE.md doc map + this doc's Reference Map now cover backlog/consensus/research/audits/ux-law. Open decision (audit S1-2): operationalize "Marketing + CRM first" vs current Slice 2 -> P1..P8 order.
 - 2026-07-02 - Slice 1f dogfood seed + verify-deep GREEN; **Slice 1 (Admin Tasks MVP) COMPLETE**. `apps/workers` `seed:roadmap` idempotently populates the admin Tasks board with the 16 remaining roadmap items (Slice 2, P1-P8, 7 de-risk follow-ups) via the PM services; smoke test proves idempotency as `opzava_app`. verify-deep across the workspace: typecheck 8/8, build 8/8, lint 9/9, all tests 13/13, seed 16 tasks, e2e loop pass. Fixes: workers `vitest.config` include src-only (the compiled `dist/**/*.test.js` double-ran and raced the `first_owner_setup` singleton), workers `tsconfig.build` excludes tests, `eslint.config.mjs` imports `@opzava/config` by relative path (repo root is not a workspace package), empty interface -> type alias. Note: `pnpm lint` can OOM/segfault at full parallelism on a constrained host; use `turbo run lint --concurrency=1`. Slice 1 = 1a..1f, all green + committed on `slice/1-admin-tasks-mvp`.

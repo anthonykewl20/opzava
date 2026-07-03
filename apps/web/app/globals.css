@@ -1306,6 +1306,17 @@ hr {
   font-size: var(--text-sm);
 }
 
+.tasks-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.tasks-board-area {
+  min-width: 0;
+}
+
 .board-columns {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1494,6 +1505,91 @@ hr {
   background: var(--surface-2);
 }
 
+.ask-admin-panel {
+  position: sticky;
+  top: var(--space-5);
+  display: flex;
+  min-height: 560px;
+  max-height: calc(100vh - var(--header-h) - var(--space-10));
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ask-admin-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.ask-admin-title {
+  font-size: var(--text-base);
+}
+
+.ask-admin-messages {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.ask-admin-empty {
+  min-height: 160px;
+}
+
+.ask-admin-message {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.ask-admin-message-user {
+  background: var(--accent-soft);
+}
+
+.ask-admin-message-assistant {
+  background: var(--surface);
+}
+
+.ask-admin-message p {
+  color: var(--fg);
+  font-size: var(--text-sm);
+  line-height: var(--lh-normal);
+  overflow-wrap: anywhere;
+}
+
+.ask-admin-message-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.ask-admin-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.ask-admin-input {
+  min-height: 42px;
+  max-height: 120px;
+}
+
 @media (max-width: 860px) {
   .app {
     grid-template-columns: 1fr;
@@ -1523,6 +1619,16 @@ hr {
 
   .board-columns {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tasks-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .ask-admin-panel {
+    position: static;
+    min-height: 420px;
+    max-height: none;
   }
 }
 
@@ -1559,7 +1665,8 @@ hr {
   }
 
   .board-columns,
-  .task-form-grid {
+  .task-form-grid,
+  .ask-admin-form {
     grid-template-columns: 1fr;
   }
 
