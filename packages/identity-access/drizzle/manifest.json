@@ -48,6 +48,10 @@
     {
       "path": "0011_slice25_drop_position_unique.sql",
       "sha256": "426a3d84e630d1fc57eebc5994ff2b8b9e63d5867a41a292c6fe1eda592f29c7"
+    },
+    {
+      "path": "0012_slice3_crm_core.sql",
+      "sha256": "343d1a8c2b65a031005717018e0216c48cba011f44ca628f97f12947cc967e77"
     }
   ]
 }
