@@ -30,7 +30,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps ./apps
 COPY --from=deps /app/packages ./packages
 COPY . .
-RUN pnpm --filter @opzava/web build
+# Build workspace dependency packages (tsc -> dist) before next build; the
+# package exports point at ./dist, which does not exist in a clean context.
+RUN pnpm exec turbo run build --filter=@opzava/web
 
 FROM node:24.18.0-bookworm-slim AS runner
 ENV NODE_ENV=production
