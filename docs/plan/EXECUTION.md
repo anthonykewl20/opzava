@@ -32,9 +32,9 @@ Do not let this document become aspirational. If implementation changes the plan
 
 | Field | Value |
 | --- | --- |
-| Active slice | Slice 3 - CRM core (thin) |
-| Status | in-progress |
-| Next concrete action | On `slice/3-crm-core-thin`: build the CRM data layer (`packages/crm`: Contact/Account/Deal+versioned Pipeline/Stage/Ticket/append-only Activity aggregates, `withTenant` RLS, migration 0012, integration tests), then admin surfaces (Contacts/Accounts list+detail, Deal board, Ticket queue, Contact timeline skeleton) and assistant read tools. |
+| Active slice | Slice 4 - Marketing content pipeline (thin) |
+| Status | not-started |
+| Next concrete action | Slice 3 COMPLETE on `slice/3-crm-core-thin` (verify-deep + 3-lane adversarial review converged 15->2->0; live UI acceptance run). Merge the Slice 3 PR into development, then begin Slice 4 (Campaign/ContentItem aggregates, exact-version approval invariant, assistant drafting via the Slice 2 loop). |
 | Blockers | None |
 
 ## Operating Mode
@@ -213,17 +213,17 @@ Deferred: presence/read-receipt TRANSPORT upgrade (Redis + WS hub; UI contract s
 
 ### Slice 3 - CRM core (thin, pulled forward from P4)
 
-Status: [ ] not-started | [x] in-progress | [ ] blocked | [ ] done
+Status: [ ] not-started | [ ] in-progress | [ ] blocked | [x] done
 
 Goal: Own customer truth in Postgres with manually managed CRM records so Opzava can track real prospects while promoting itself. No channel ingest yet.
 
 Deliverables:
 
-- [ ] Contact, Account, Deal (pipeline/stage), and Ticket aggregates with tenant/workspace RLS through `withTenant` (same pattern as the Task aggregate).
-- [ ] Contacts and Accounts list + detail admin surfaces with manual create/edit.
-- [ ] Deal pipeline board and a simple ticket queue (manual creation only; no `SenderSeen`/UnknownContact projection yet).
-- [ ] Contact timeline skeleton fed by Opzava-owned activities only.
-- [ ] Assistant read access via the Slice 2 loop: list/summarize CRM records through admitted server-side tools.
+- [x] Contact, Account, Deal (pipeline/stage), and Ticket aggregates with tenant/workspace RLS through `withTenant` (same pattern as the Task aggregate). (Versioned Pipeline/Stage reference data; append-only Activity; migrations 0012-0014.)
+- [x] Contacts and Accounts list + detail admin surfaces with manual create/edit.
+- [x] Deal pipeline board and a simple ticket queue (manual creation only; no `SenderSeen`/UnknownContact projection yet).
+- [x] Contact timeline skeleton fed by Opzava-owned activities only.
+- [x] Assistant read access via the Slice 2 loop: list/summarize CRM records through admitted server-side tools (STRICTLY read-only — proven by row-count-invariance tests; SQL-paginated; MCP exposure deferred until a crm scope is grilled).
 
 Skills: `postgres`, `domain-modeling`, `senior-frontend`, `tdd`, `opzava-conventions`*
 
@@ -469,6 +469,8 @@ Per slice:
 - [ ] Changes are committed with `commit-style`.
 
 ## Worklog
+
+- 2026-07-04 - Slice 3 (thin CRM core) COMPLETE on `slice/3-crm-core-thin`. Data layer `@opzava/crm` (Contact/Account/Deal + VERSIONED Pipeline/Stage/Ticket/append-only Activity; migrations 0012-0014; RLS trio + FORCE verified in pg_catalog), admin surfaces in the canonical design system, per-workspace human-readable card numbers (0013 - fixed the global-sequence deviation from the 2.5 deliverable), strictly read-only assistant CRM tools admitted end-to-end (registry/web dispatch/provisioning allowlist/fake gateway). PROVE: verify-deep + 3-lane adversarial codex review (data/web+security/tools+docker) found 15 findings (3 HIGH: transition lost-updates, moveDealStage TOCTOU + missing DB coherence FK, read-tool-that-writes ensureDefaultPipeline) -> all fixed -> convergence re-review 14 PASS + 2 MEDIUM -> fixed -> 0. Clean checks held throughout: authority session-derived, no server-only leakage into client bundles, XSS-safe rendering, docker image secret-free + self-contained. ACCEPTANCE (live UI, DB ground-truth verified): Account -> Contact -> Deal -> stage moves (activities 'Lead in -> Qualified -> Proposal' appended in-tx) -> Ticket -> reload persists under RLS. Full chain TC/TEST/LINT/BUILD 0 forced. Evidence: docs/plan/consensus/slice3-review-{data,web,tools}.codex.md + slice3-rereview.codex.md.
 
 - 2026-07-04 - MOCKUP VISUAL PARITY remediation (user directive: 100% parity with the HTML mockups; recorded as a non-negotiable in CLAUDE.md + this doc). Root-cause: 2.5 screens implemented mockup ELEMENTS live but styled with Tailwind approximations. Remediation on `slice/3-crm-core-thin`: ported `ux-redesign/mockups/{tokens,app,shadcn}.css` VERBATIM as the canonical app stylesheet layer; screen-by-screen DOM ports keeping all live wiring - shell/nav+topbar (admin-nav.js contract: theme toggle, health pill, account menu, sidebar collapse), tasks board (task-board.html), task card (essential-card.html), Ask Opzava (orchestrator-chat.html), issues (issues.html), connections thin slice (connections.html), CRM pages as design-system siblings (essential-card-table idioms; net-new per PRD-010). Screenshot-audit fix pack: hardcoded mockup badge counts (fake data) -> real counts; extra filter chrome not in mockup -> removed; health pill -> real DB+gateway checks (new broker internal health endpoint); Cmd+K search/jump -> working command palette; login page purged of mockup annotation caption, social buttons explicitly descoped (DESCOPE(social-login) -> P8 SSO); ask page: annotation block removed, breadcrumb + real online pill, empty-turn honest fallback. Verification lane: authenticated side-by-side headless screenshots (live vs mockup file; session minted via direct auth_sessions insert - custom cookie `opzava.session_token` holds the raw token) + E2E driver for real flows. NOTE: nav label follows task-board.html ("Ask Opzava") where mockups disagree (orchestrator-chat.html says "Ask Admin Opzava"). ALSO FIXED (real-world stack): web Docker image was silently broken since 2.5 (missing crm/mcp-server package.json COPYs; image only ever built via host-artifact leakage - now builds dep graph in-image via turbo and .dockerignore **/-globs prevent leakage; local stack at web.opzava.localhost:18088 now serves current builds).
 
