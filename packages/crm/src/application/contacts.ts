@@ -244,11 +244,6 @@ export async function createContact(
     return err(knownIds.error);
   }
 
-  const fields = prepareCreateContactFields(input);
-  if (!fields.ok) {
-    return err(fields.error);
-  }
-
   const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
   if (!idempotencyKey.ok) {
     return err(idempotencyKey.error);
@@ -266,6 +261,11 @@ export async function createContact(
         if (replay !== null) {
           return ok(replay);
         }
+      }
+
+      const fields = prepareCreateContactFields(input);
+      if (!fields.ok) {
+        return err(fields.error);
       }
 
       const validAccount = await validateAccount(tx, input, fields.value.accountId);

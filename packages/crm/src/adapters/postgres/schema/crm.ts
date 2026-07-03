@@ -1,3 +1,5 @@
+// Hand-written migrations 0012+ are the authoritative DDL contract for crm_*.
+// This Drizzle schema exists for query typing; do not schema-diff these tables.
 import { sql } from "drizzle-orm";
 import {
   bigint,
@@ -214,6 +216,11 @@ export const crmPipelineStages = pgTable(
       table.id,
       table.organizationId,
     ),
+    uniqueIndex("crm_pipeline_stages_id_pipeline_organization_unique").on(
+      table.id,
+      table.pipelineId,
+      table.organizationId,
+    ),
     uniqueIndex("crm_pipeline_stages_pipeline_position_unique").on(
       table.pipelineId,
       table.position,
@@ -307,6 +314,15 @@ export const crmDeals = pgTable(
       columns: [table.stageId, table.organizationId],
       foreignColumns: [crmPipelineStages.id, crmPipelineStages.organizationId],
       name: "crm_deals_stage_organization_fk",
+    }),
+    foreignKey({
+      columns: [table.stageId, table.pipelineId, table.organizationId],
+      foreignColumns: [
+        crmPipelineStages.id,
+        crmPipelineStages.pipelineId,
+        crmPipelineStages.organizationId,
+      ],
+      name: "crm_deals_stage_pipeline_organization_fk",
     }),
     check("crm_deals_title_nonempty_check", sql`char_length(btrim(${table.title})) > 0`),
     check("crm_deals_currency_check", sql`${table.currency} ~ '^[A-Z]{3}$'`),

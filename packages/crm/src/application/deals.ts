@@ -418,11 +418,6 @@ export async function createDeal(
     return err(knownIds.error);
   }
 
-  const fields = prepareCreateDealFields(input);
-  if (!fields.ok) {
-    return err(fields.error);
-  }
-
   const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
   if (!idempotencyKey.ok) {
     return err(idempotencyKey.error);
@@ -440,6 +435,11 @@ export async function createDeal(
         if (replay !== null) {
           return ok(replay);
         }
+      }
+
+      const fields = prepareCreateDealFields(input);
+      if (!fields.ok) {
+        return err(fields.error);
       }
 
       const account = await accountInternal.selectAccountById(
@@ -574,47 +574,99 @@ export async function moveDealStage(
 
   try {
     return await withTenant(input.orgId, async (tx) => {
-      const deal = await selectDealById(tx, input.dealId, input.workspaceId);
-      if (deal === null) {
-        return err(crmError("crm.notFound", "Deal was not found."));
-      }
-
-      const targetStage = await selectStageForPipeline(
-        tx,
-        input.stageId,
-        deal.pipelineId,
-        input.workspaceId,
-      );
-      if (targetStage === null) {
-        return err(crmError("crm.validation", "Deal stage must belong to the deal pipeline."));
-      }
-
-      if (deal.stageId === targetStage.id) {
-        return ok(deal);
-      }
-
       const updated = await tx.execute(sql`
-        update public.crm_deals
-        set stage_id = ${targetStage.id},
-            updated_at = now()
-        where id = ${input.dealId}
-          and workspace_id = ${input.workspaceId}
-        returning id
+        with updated as (
+          update public.crm_deals d
+          set stage_id = s.id,
+              updated_at = now()
+          from public.crm_pipeline_stages s,
+               public.crm_pipeline_stages previous_stage
+          where d.id = ${input.dealId}
+            and d.organization_id = ${input.orgId}
+            and d.workspace_id = ${input.workspaceId}
+            and s.id = ${input.stageId}
+            and s.pipeline_id = d.pipeline_id
+            and s.workspace_id = d.workspace_id
+            and s.organization_id = d.organization_id
+            and previous_stage.id = d.stage_id
+            and previous_stage.organization_id = d.organization_id
+            and d.stage_id <> s.id
+          returning
+            d.id,
+            d.organization_id,
+            d.workspace_id,
+            d.title,
+            d.account_id,
+            d.primary_contact_id,
+            d.pipeline_id,
+            d.stage_id,
+            s.name as stage_name,
+            previous_stage.name as old_stage_name,
+            d.status,
+            d.value_cents,
+            d.currency,
+            d.owner_user_id,
+            d.expected_close_date,
+            d.closed_at,
+            d.close_reason,
+            d.position,
+            d.created_at,
+            d.updated_at
+        )
+        select
+          u.id,
+          u.organization_id,
+          u.workspace_id,
+          u.title,
+          u.account_id,
+          a.name as account_name,
+          u.primary_contact_id,
+          c.display_name as primary_contact_name,
+          u.pipeline_id,
+          u.stage_id,
+          u.stage_name,
+          u.old_stage_name,
+          u.status,
+          u.value_cents,
+          u.currency,
+          u.owner_user_id,
+          u.expected_close_date,
+          u.closed_at,
+          u.close_reason,
+          u.position,
+          u.created_at,
+          u.updated_at
+        from updated u
+        join public.crm_accounts a
+          on a.id = u.account_id
+          and a.organization_id = u.organization_id
+        left join public.crm_contacts c
+          on c.id = u.primary_contact_id
+          and c.organization_id = u.organization_id
       `);
-      if (rowsFromExecuteResult(updated)[0] === undefined) {
-        return err(crmError("crm.notFound", "Deal was not found."));
+      const row = rowsFromExecuteResult(updated)[0];
+      if (row === undefined) {
+        const deal = await selectDealById(tx, input.dealId, input.workspaceId);
+        if (deal === null) {
+          return err(crmError("crm.notFound", "Deal was not found."));
+        }
+
+        return deal.stageId === input.stageId
+          ? ok(deal)
+          : err(crmError("crm.validation", "Deal stage must belong to the deal pipeline."));
       }
 
+      const moved = rowToDealDto(row);
+      const oldStageName = String(row["old_stage_name"] ?? "");
       await insertCrmActivity(tx, input, {
         kind: "deal_stage_changed",
-        body: `Stage: ${deal.stageName} -> ${targetStage.name}`,
-        contactId: deal.primaryContactId,
-        accountId: deal.accountId,
-        dealId: deal.id,
+        body: `Stage: ${oldStageName} -> ${moved.stageName}`,
+        contactId: moved.primaryContactId,
+        accountId: moved.accountId,
+        dealId: moved.id,
       });
 
-      const moved = await selectDealById(tx, input.dealId, input.workspaceId);
-      return moved === null ? err(crmError("crm.notFound", "Deal was not found.")) : ok(moved);
+      return ok(moved);
     });
   } catch (error) {
     return err(databaseError(error));
@@ -651,35 +703,88 @@ export async function closeDeal(
 
   try {
     return await withTenant(input.orgId, async (tx) => {
-      const deal = await selectDealById(tx, input.dealId, input.workspaceId);
-      if (deal === null) {
-        return err(crmError("crm.notFound", "Deal was not found."));
-      }
-
-      if (deal.status !== "open") {
-        return err(crmError("crm.conflict", "Only open deals can be closed."));
-      }
-
-      await tx.execute(sql`
-        update public.crm_deals
-        set status = ${input.outcome}::public.crm_deal_status,
-            closed_at = now(),
-            close_reason = ${closeReason.value === "" ? null : closeReason.value},
-            updated_at = now()
-        where id = ${input.dealId}
-          and workspace_id = ${input.workspaceId}
+      const updated = await tx.execute(sql`
+        with updated as (
+          update public.crm_deals d
+          set status = ${input.outcome}::public.crm_deal_status,
+              closed_at = now(),
+              close_reason = ${closeReason.value === "" ? null : closeReason.value},
+              updated_at = now()
+          where d.id = ${input.dealId}
+            and d.organization_id = ${input.orgId}
+            and d.workspace_id = ${input.workspaceId}
+            and d.status = 'open'::public.crm_deal_status
+          returning
+            d.id,
+            d.organization_id,
+            d.workspace_id,
+            d.title,
+            d.account_id,
+            d.primary_contact_id,
+            d.pipeline_id,
+            d.stage_id,
+            d.status,
+            d.value_cents,
+            d.currency,
+            d.owner_user_id,
+            d.expected_close_date,
+            d.closed_at,
+            d.close_reason,
+            d.position,
+            d.created_at,
+            d.updated_at
+        )
+        select
+          u.id,
+          u.organization_id,
+          u.workspace_id,
+          u.title,
+          u.account_id,
+          a.name as account_name,
+          u.primary_contact_id,
+          c.display_name as primary_contact_name,
+          u.pipeline_id,
+          u.stage_id,
+          s.name as stage_name,
+          u.status,
+          u.value_cents,
+          u.currency,
+          u.owner_user_id,
+          u.expected_close_date,
+          u.closed_at,
+          u.close_reason,
+          u.position,
+          u.created_at,
+          u.updated_at
+        from updated u
+        join public.crm_accounts a
+          on a.id = u.account_id
+          and a.organization_id = u.organization_id
+        left join public.crm_contacts c
+          on c.id = u.primary_contact_id
+          and c.organization_id = u.organization_id
+        join public.crm_pipeline_stages s
+          on s.id = u.stage_id
+          and s.organization_id = u.organization_id
       `);
+      const row = rowsFromExecuteResult(updated)[0];
+      if (row === undefined) {
+        const deal = await selectDealById(tx, input.dealId, input.workspaceId);
+        return deal === null
+          ? err(crmError("crm.notFound", "Deal was not found."))
+          : err(crmError("crm.conflict", "Only open deals can be closed."));
+      }
 
+      const closed = rowToDealDto(row);
       await insertCrmActivity(tx, input, {
         kind: "deal_status_changed",
         body: `Status: open -> ${input.outcome}`,
-        contactId: deal.primaryContactId,
-        accountId: deal.accountId,
-        dealId: deal.id,
+        contactId: closed.primaryContactId,
+        accountId: closed.accountId,
+        dealId: closed.id,
       });
 
-      const closed = await selectDealById(tx, input.dealId, input.workspaceId);
-      return closed === null ? err(crmError("crm.notFound", "Deal was not found.")) : ok(closed);
+      return ok(closed);
     });
   } catch (error) {
     return err(databaseError(error));
@@ -707,37 +812,102 @@ export async function reopenDeal(
 
   try {
     return await withTenant(input.orgId, async (tx) => {
-      const deal = await selectDealById(tx, input.dealId, input.workspaceId);
-      if (deal === null) {
-        return err(crmError("crm.notFound", "Deal was not found."));
-      }
-
-      if (deal.status === "open") {
-        return err(crmError("crm.conflict", "Only closed deals can be reopened."));
-      }
-
-      await tx.execute(sql`
-        update public.crm_deals
-        set status = 'open'::public.crm_deal_status,
-            closed_at = null,
-            close_reason = null,
-            updated_at = now()
-        where id = ${input.dealId}
-          and workspace_id = ${input.workspaceId}
+      const updated = await tx.execute(sql`
+        with candidate as (
+          select d.id, d.status as old_status
+          from public.crm_deals d
+          where d.id = ${input.dealId}
+            and d.organization_id = ${input.orgId}
+            and d.workspace_id = ${input.workspaceId}
+            and d.status <> 'open'::public.crm_deal_status
+          for update
+        ),
+        updated as (
+          update public.crm_deals d
+          set status = 'open'::public.crm_deal_status,
+              closed_at = null,
+              close_reason = null,
+              updated_at = now()
+          from candidate
+          where d.id = candidate.id
+            and d.organization_id = ${input.orgId}
+            and d.workspace_id = ${input.workspaceId}
+            and d.status = candidate.old_status
+            and d.status <> 'open'::public.crm_deal_status
+          returning
+            d.id,
+            d.organization_id,
+            d.workspace_id,
+            d.title,
+            d.account_id,
+            d.primary_contact_id,
+            d.pipeline_id,
+            d.stage_id,
+            d.status,
+            candidate.old_status,
+            d.value_cents,
+            d.currency,
+            d.owner_user_id,
+            d.expected_close_date,
+            d.closed_at,
+            d.close_reason,
+            d.position,
+            d.created_at,
+            d.updated_at
+        )
+        select
+          u.id,
+          u.organization_id,
+          u.workspace_id,
+          u.title,
+          u.account_id,
+          a.name as account_name,
+          u.primary_contact_id,
+          c.display_name as primary_contact_name,
+          u.pipeline_id,
+          u.stage_id,
+          s.name as stage_name,
+          u.status,
+          u.old_status,
+          u.value_cents,
+          u.currency,
+          u.owner_user_id,
+          u.expected_close_date,
+          u.closed_at,
+          u.close_reason,
+          u.position,
+          u.created_at,
+          u.updated_at
+        from updated u
+        join public.crm_accounts a
+          on a.id = u.account_id
+          and a.organization_id = u.organization_id
+        left join public.crm_contacts c
+          on c.id = u.primary_contact_id
+          and c.organization_id = u.organization_id
+        join public.crm_pipeline_stages s
+          on s.id = u.stage_id
+          and s.organization_id = u.organization_id
       `);
+      const row = rowsFromExecuteResult(updated)[0];
+      if (row === undefined) {
+        const deal = await selectDealById(tx, input.dealId, input.workspaceId);
+        return deal === null
+          ? err(crmError("crm.notFound", "Deal was not found."))
+          : err(crmError("crm.conflict", "Only closed deals can be reopened."));
+      }
 
+      const reopened = rowToDealDto(row);
+      const oldStatus = String(row["old_status"] ?? "");
       await insertCrmActivity(tx, input, {
         kind: "deal_status_changed",
-        body: `Status: ${deal.status} -> open`,
-        contactId: deal.primaryContactId,
-        accountId: deal.accountId,
-        dealId: deal.id,
+        body: `Status: ${oldStatus} -> open`,
+        contactId: reopened.primaryContactId,
+        accountId: reopened.accountId,
+        dealId: reopened.id,
       });
 
-      const reopened = await selectDealById(tx, input.dealId, input.workspaceId);
-      return reopened === null
-        ? err(crmError("crm.notFound", "Deal was not found."))
-        : ok(reopened);
+      return ok(reopened);
     });
   } catch (error) {
     return err(databaseError(error));

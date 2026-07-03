@@ -1466,6 +1466,10 @@ async function createTaskOnce(
         }
       }
 
+      await tx.execute(sql`
+        select pg_advisory_xact_lock(hashtext('task_card:' || ${input.workspaceId}))
+      `);
+
       let result: unknown;
       try {
         result = await tx.execute(sql`

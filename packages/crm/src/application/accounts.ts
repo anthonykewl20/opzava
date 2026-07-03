@@ -271,11 +271,6 @@ export async function createAccount(
     return err(knownIds.error);
   }
 
-  const fields = prepareCreateAccountFields(input);
-  if (!fields.ok) {
-    return err(fields.error);
-  }
-
   const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
   if (!idempotencyKey.ok) {
     return err(idempotencyKey.error);
@@ -293,6 +288,11 @@ export async function createAccount(
         if (replay !== null) {
           return ok(replay);
         }
+      }
+
+      const fields = prepareCreateAccountFields(input);
+      if (!fields.ok) {
+        return err(fields.error);
       }
 
       const validParent = await validateParentAccount(
@@ -448,14 +448,20 @@ export async function updateAccount(
 
       const nextParentAccountId =
         parentAccountIdValue === undefined ? existing.parentAccountId : parentAccountIdValue;
-      const validParent = await validateParentAccount(
-        tx,
-        input,
-        input.accountId,
-        nextParentAccountId,
-      );
-      if (!validParent.ok) {
-        return err(validParent.error);
+      if (parentAccountIdValue !== undefined) {
+        await tx.execute(sql`
+          select pg_advisory_xact_lock(hashtext('crm_account_graph:' || ${input.orgId}))
+        `);
+
+        const validParent = await validateParentAccount(
+          tx,
+          input,
+          input.accountId,
+          nextParentAccountId,
+        );
+        if (!validParent.ok) {
+          return err(validParent.error);
+        }
       }
 
       const updated = await tx.execute(sql`

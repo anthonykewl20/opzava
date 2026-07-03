@@ -328,17 +328,37 @@ describe("slice 1e tasks", () => {
       title: "Other workspace first card",
       priority: "normal",
     });
+    const burst = await Promise.all(
+      [1, 2, 3].map((index) =>
+        createTask({
+          orgId: tenant.organizationId,
+          workspaceId: tenant.workspaceId,
+          actor: actor(tenant.userId),
+          title: `Concurrent workspace card ${index}`,
+          priority: "normal",
+        }),
+      ),
+    );
 
     expect(first.ok && replay.ok && second.ok && otherWorkspaceTask.ok).toBe(true);
     if (!first.ok || !replay.ok || !second.ok || !otherWorkspaceTask.ok) {
       throw new Error("expected per-workspace card number allocation success");
     }
+    const burstCardNumbers = burst.map((result) => {
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        throw result.error;
+      }
+
+      return result.value.cardNumber;
+    });
 
     expect(first.value.cardNumber).toBe(1);
     expect(replay.value.id).toBe(first.value.id);
     expect(replay.value.cardNumber).toBe(1);
     expect(second.value.cardNumber).toBe(2);
     expect(otherWorkspaceTask.value.cardNumber).toBe(1);
+    expect(new Set(burstCardNumbers).size).toBe(3);
   });
 
   it("idempotently returns existing create rows when a stable key is retried", async () => {

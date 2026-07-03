@@ -99,6 +99,13 @@
       "when": 1782951600000,
       "tag": "0013_slice3_per_workspace_card_numbers",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782951700000,
+      "tag": "0014_slice3_deal_stage_coherence",
+      "breakpoints": true
     }
   ]
 }

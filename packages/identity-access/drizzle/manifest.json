@@ -56,6 +56,10 @@
     {
       "path": "0013_slice3_per_workspace_card_numbers.sql",
       "sha256": "7facbbe26ece52b97ed5edbf559f57dc353ff67e7515e6ee0bf7adb441039b9f"
+    },
+    {
+      "path": "0014_slice3_deal_stage_coherence.sql",
+      "sha256": "0ffc43614b0be6aab46d3c99d5c458436115d287431c07f91a4caf34db50ef28"
     }
   ]
 }

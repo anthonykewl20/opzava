@@ -393,8 +393,8 @@ describe("slice 3 CRM core", () => {
     const retriedDeal = unwrap(
       await createDeal({
         ...context(tenant),
-        title: "Changed deal must not duplicate",
-        accountId: randomUUID(),
+        title: "   ",
+        accountId: "not-a-valid-account-id",
         idempotencyKey: "crm:deal:same",
       }),
     );
@@ -442,14 +442,32 @@ describe("slice 3 CRM core", () => {
 
   it("manages the default pipeline and validates deal stage movement", async () => {
     const tenant = await adminCreateTenant("pipeline-a");
-    const otherTenant = await adminCreateTenant("pipeline-b");
 
     const firstPipeline = unwrap(await ensureDefaultPipeline(context(tenant)));
     const secondPipeline = unwrap(await ensureDefaultPipeline(context(tenant)));
     expect(secondPipeline.pipeline.id).toBe(firstPipeline.pipeline.id);
     expect(secondPipeline.stages).toHaveLength(4);
 
-    const otherPipeline = unwrap(await ensureDefaultPipeline(context(otherTenant)));
+    const alternatePipelineId = randomUUID();
+    const alternateStageId = randomUUID();
+    await adminPool.query(
+      `insert into public.crm_pipelines (id, organization_id, workspace_id, key, version, name)
+       values ($1, $2, $3, 'alternate', 1, 'Alternate pipeline')`,
+      [alternatePipelineId, tenant.organizationId, tenant.workspaceId],
+    );
+    await adminPool.query(
+      `insert into public.crm_pipeline_stages (
+        id,
+        pipeline_id,
+        organization_id,
+        workspace_id,
+        name,
+        position
+      )
+      values ($1, $2, $3, $4, 'Alternate lead', 0)`,
+      [alternateStageId, alternatePipelineId, tenant.organizationId, tenant.workspaceId],
+    );
+
     const account = unwrap(
       await createAccount({
         ...context(tenant),
@@ -513,10 +531,20 @@ describe("slice 3 CRM core", () => {
       await moveDealStage({
         ...context(tenant),
         dealId: deal.id,
-        stageId: otherPipeline.stages[1]?.id ?? "",
+        stageId: alternateStageId,
       }),
       "crm.validation",
     );
+    const afterInvalidTimeline = unwrap(
+      await listContactTimeline({
+        ...context(tenant),
+        contactId: contact.id,
+      }),
+    );
+    expect(
+      afterInvalidTimeline.filter((activity) => activity.kind === "deal_stage_changed"),
+    ).toHaveLength(1);
+
     const board = unwrap(await listDeals(context(tenant)));
     const unchanged = flattenDeals(board).find((candidate) => candidate.id === deal.id);
     expect(unchanged?.stageId).toBe(firstPipeline.stages[2]?.id);

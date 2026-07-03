@@ -242,11 +242,6 @@ export async function createTicket(
     return err(knownIds.error);
   }
 
-  const fields = prepareCreateTicketFields(input);
-  if (!fields.ok) {
-    return err(fields.error);
-  }
-
   const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
   if (!idempotencyKey.ok) {
     return err(idempotencyKey.error);
@@ -264,6 +259,11 @@ export async function createTicket(
         if (replay !== null) {
           return ok(replay);
         }
+      }
+
+      const fields = prepareCreateTicketFields(input);
+      if (!fields.ok) {
+        return err(fields.error);
       }
 
       const validRefs = await validateTicketRefs(
@@ -362,35 +362,90 @@ export async function updateTicketStatus(
 
   try {
     return await withTenant(input.orgId, async (tx) => {
-      const ticket = await selectTicketById(tx, input.ticketId, input.workspaceId);
-      if (ticket === null) {
-        return err(crmError("crm.notFound", "Ticket was not found."));
-      }
-
-      if (ticket.status === status.value) {
-        return ok(ticket);
-      }
-
-      await tx.execute(sql`
-        update public.crm_tickets
-        set status = ${status.value}::public.crm_ticket_status,
-            updated_at = now()
-        where id = ${input.ticketId}
-          and workspace_id = ${input.workspaceId}
+      const changed = await tx.execute(sql`
+        with candidate as (
+          select t.id, t.status as old_status
+          from public.crm_tickets t
+          where t.id = ${input.ticketId}
+            and t.organization_id = ${input.orgId}
+            and t.workspace_id = ${input.workspaceId}
+            and t.status <> ${status.value}::public.crm_ticket_status
+          for update
+        ),
+        updated as (
+          update public.crm_tickets t
+          set status = ${status.value}::public.crm_ticket_status,
+              updated_at = now()
+          from candidate
+          where t.id = candidate.id
+            and t.organization_id = ${input.orgId}
+            and t.workspace_id = ${input.workspaceId}
+            and t.status = candidate.old_status
+            and t.status <> ${status.value}::public.crm_ticket_status
+          returning
+            t.id,
+            t.organization_id,
+            t.workspace_id,
+            t.subject,
+            t.body,
+            t.contact_id,
+            t.account_id,
+            t.status,
+            candidate.old_status,
+            t.priority,
+            t.queue,
+            t.assignee_user_id,
+            t.created_at,
+            t.updated_at
+        )
+        select
+          u.id,
+          u.organization_id,
+          u.workspace_id,
+          u.subject,
+          u.body,
+          u.contact_id,
+          c.display_name as contact_name,
+          u.account_id,
+          a.name as account_name,
+          u.status,
+          u.old_status,
+          u.priority,
+          u.queue,
+          u.assignee_user_id,
+          u.created_at,
+          u.updated_at
+        from updated u
+        join public.crm_contacts c
+          on c.id = u.contact_id
+          and c.organization_id = u.organization_id
+        left join public.crm_accounts a
+          on a.id = u.account_id
+          and a.organization_id = u.organization_id
       `);
+      const row = rowsFromExecuteResult(changed)[0];
+      if (row === undefined) {
+        const ticket = await selectTicketById(tx, input.ticketId, input.workspaceId);
+        if (ticket === null) {
+          return err(crmError("crm.notFound", "Ticket was not found."));
+        }
 
+        return ticket.status === status.value
+          ? ok(ticket)
+          : err(crmError("crm.conflict", "Ticket status changed before update."));
+      }
+
+      const ticket = rowToTicketDto(row);
+      const oldStatus = String(row["old_status"] ?? "");
       await insertCrmActivity(tx, input, {
         kind: "ticket_status_changed",
-        body: `Status: ${ticket.status} -> ${status.value}`,
+        body: `Status: ${oldStatus} -> ${status.value}`,
         contactId: ticket.contactId,
         accountId: ticket.accountId,
         ticketId: ticket.id,
       });
 
-      const updated = await selectTicketById(tx, input.ticketId, input.workspaceId);
-      return updated === null
-        ? err(crmError("crm.notFound", "Ticket was not found."))
-        : ok(updated);
+      return ok(ticket);
     });
   } catch (error) {
     return err(databaseError(error));
