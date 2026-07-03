@@ -2,6 +2,9 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
 import { AdminNav } from "@/components/shell/admin-nav";
+import { NotificationBell } from "@/components/shell/notification-bell";
+import { SidebarToggle } from "@/components/shell/sidebar-toggle";
+import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { UserMenu } from "@/components/shell/user-menu";
 import { getAppSessionContext, isFirstOwnerSetupComplete } from "@/lib/session";
 
@@ -18,36 +21,38 @@ export default async function AppLayout({ children }: { readonly children: React
   }
 
   return (
-    <div className="app" data-theme="dark">
+    <div className="app">
       <AdminNav />
       <div className="main-col">
         <header className="header">
-          <button type="button" className="btn btn-ghost btn-icon" aria-label="Collapse sidebar" disabled>
-            <span aria-hidden="true">=</span>
-          </button>
+          <SidebarToggle />
 
-          <div className="search" role="search" aria-label="Global search">
-            <span aria-hidden="true">/</span>
-            <span className="u-subtle u-grow">Search admin work...</span>
-            <kbd className="kbd">Ctrl K</kbd>
+          <div className="search" role="search">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+              style={{ flex: "none" }}
+            >
+              <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <span className="u-grow u-subtle">Search agents, tasks, runs…</span>
+            <kbd className="kbd">⌘K</kbd>
           </div>
 
           <div className="u-grow" />
 
-          <div className="health-pill" aria-label="Active organization and workspace">
+          <ThemeToggle />
+
+          <div className="health-pill" aria-label="System health: All systems healthy">
             <span className="dot dot-success" aria-hidden="true" />
-            <span>{context.organizationName}</span>
-            <span className="u-subtle" aria-hidden="true">
-              /
-            </span>
-            <span>{context.workspaceName}</span>
+            All systems healthy
           </div>
 
-          <div className="health-pill" aria-label={`Tenant state: ${context.organizationLifecycleState}`}>
-            <span className="dot dot-accent live" aria-hidden="true" />
-            <span>{context.organizationLifecycleState}</span>
-          </div>
-
+          <NotificationBell />
           <UserMenu context={context} />
         </header>
 

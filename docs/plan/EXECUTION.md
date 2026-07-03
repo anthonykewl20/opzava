@@ -26,6 +26,8 @@ Do not let this document become aspirational. If implementation changes the plan
 
 **Mockup functional parity (user directive, 2026-07-03):** every visible element on a mockup screen a slice implements MUST function live - real data, real interactions; no dead buttons, no decorative chrome, no fake/placeholder data. If an element's backing capability is not yet built, the slice either builds it or the element is explicitly descoped IN THIS DOC with its arrival phase. Silent non-functionality is a bug.
 
+**Mockup VISUAL parity (user directive, 2026-07-03, later same day):** the rendered design must be **100% parity with the HTML mockup** - the mockup IS the design. Screens replicate the mockup DOM structure and classes driven by live data, styled by the ported mockup stylesheets (`ux-redesign/mockups/{tokens,app,shadcn}.css`), and are verified by side-by-side screenshots (mockup file vs live page). Tailwind-approximation of a mockup is a bug even when functional. Remediation of already-built screens is tracked in Slice 3 (see worklog).
+
 ## Current State
 
 | Field | Value |

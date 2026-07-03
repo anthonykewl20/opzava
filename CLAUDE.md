@@ -28,6 +28,7 @@ use the `handoff` skill. Do not skip ahead; keep the doc in sync with reality.
 - **Local docker-compose in parity with live Dokploy** (single compose, Traefik labels); **no routable orphan Gateway**.
 - Scale-ready modular DDD (no MVP-then-rewrite); agnostic ports; sad-path-first; lean VPS ops.
 - **Mockup functional parity:** every visible element on a mockup screen a slice implements must FUNCTION LIVE — real data, real interactions; no dead chrome, no fake data. Descope only explicitly in `EXECUTION.md` (user directive 2026-07-03).
+- **Mockup VISUAL parity:** the rendered design must be **100% parity with the HTML mockup** (user directive 2026-07-03) — the mockup IS the design: same DOM structure/classes driven by live data, styled by the mockup stylesheets (`tokens.css`/`app.css`/`shadcn.css`), verified by side-by-side screenshots. "Looks close" is a bug.
 
 ## Gated workflow (MANDATORY — every issue, slice, and phase)
 Every unit of work follows the same gates, in order — do not skip:

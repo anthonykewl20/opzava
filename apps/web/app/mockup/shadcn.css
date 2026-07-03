@@ -1,0 +1,253 @@
+/* ============================================================================
+ * shadcn.css — shadcn/ui (new-york) component layer mapped onto Opzava tokens.
+ * Gives the Essential mockups a refined, distinctive look (our own — not a
+ * Basecamp clone). Classes are prefixed `sb-` to sit alongside app.css.
+ * Surfaces use --surface (bg-popover), --surface-2 (accent/hover), --border,
+ * --fg/--fg-muted, --accent, --danger, --radius-*, --shadow-*.
+ * ========================================================================== */
+@layer components {
+  /* ── Badge (default / secondary / destructive / outline / state) ─────────── */
+  .sb-badge { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border: 1px solid transparent; border-radius: var(--radius-md); font-size: var(--text-xs); font-weight: var(--fw-semibold); line-height: 1; white-space: nowrap; }
+  .sb-badge--default { background: var(--accent); color: var(--accent-fg); }
+  .sb-badge--secondary { background: var(--surface-3); color: var(--fg); }
+  .sb-badge--destructive { background: var(--danger); color: #fff; }
+  .sb-badge--outline { background: transparent; color: var(--fg); border-color: var(--border-strong); }
+  .sb-badge--success { background: var(--success-soft); color: var(--success); }
+  .sb-badge--warning { background: var(--warning-soft); color: var(--warning); }
+  .sb-badge--accent { background: var(--accent-soft); color: var(--accent); }
+
+  /* ── Avatar (human = circle, AI = rounded-square w/ spark) ───────────────── */
+  .sb-avatar { position: relative; width: 36px; height: 36px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; overflow: hidden; background: var(--surface-3); color: var(--fg-muted); font-size: var(--text-xs); font-weight: var(--fw-semibold); }
+  /* Initials on a coloured (chart) avatar must stay white for contrast in BOTH
+     themes — the muted default is unreadable on colour, esp. in dark mode. */
+  .sb-avatar[style*="background"] { color: #fff; }
+  .sb-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .sb-avatar--sm { width: 26px; height: 26px; }
+  .sb-avatar--lg { width: 44px; height: 44px; font-size: var(--text-sm); }
+  .sb-avatar--ai { border-radius: var(--radius-md); color: #fff; overflow: visible; }
+  .sb-avatar--ai::after { content: '✦'; position: absolute; right: -4px; bottom: -4px; width: 15px; height: 15px; border-radius: 50%; background: var(--accent); color: var(--accent-fg); font-size: 9px; display: flex; align-items: center; justify-content: center; border: 1.5px solid var(--surface); }
+  .sb-avatar-group { display: inline-flex; }
+  .sb-avatar-group .sb-avatar { margin-left: -8px; box-shadow: 0 0 0 2px var(--surface); }
+  .sb-avatar-group .sb-avatar:first-child { margin-left: 0; }
+
+  /* ── Breadcrumb ──────────────────────────────────────────────────────────── */
+  .sb-breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: var(--text-sm); color: var(--fg-muted); }
+  .sb-breadcrumb a { color: var(--fg-muted); text-decoration: none; }
+  .sb-breadcrumb a:hover { color: var(--fg); }
+  .sb-breadcrumb .sep { color: var(--fg-subtle); }
+  .sb-breadcrumb .current { color: var(--fg); font-weight: var(--fw-medium); }
+
+  /* ── Alert (default / destructive / warning / success) ───────────────────── */
+  .sb-alert { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+  .sb-alert > .ico { grid-row: span 2; font-size: 17px; line-height: 1.4; }
+  .sb-alert-title { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+  .sb-alert-desc { font-size: var(--text-sm); color: var(--fg-muted); line-height: var(--lh-normal); }
+  .sb-alert--destructive { border-color: var(--danger-soft); background: var(--danger-soft); }
+  .sb-alert--destructive .sb-alert-title, .sb-alert--destructive > .ico { color: var(--danger); }
+  .sb-alert--warning { border-color: var(--warning-soft); background: var(--warning-soft); }
+  .sb-alert--warning .sb-alert-title, .sb-alert--warning > .ico { color: var(--warning); }
+  .sb-alert--success { border-color: var(--success-soft); background: var(--success-soft); }
+  .sb-alert--success .sb-alert-title, .sb-alert--success > .ico { color: var(--success); }
+
+  /* ── Checkbox (for AI-agent to-dos / steps) ──────────────────────────────── */
+  .sb-check { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; flex: none; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; display: inline-grid; place-content: center; }
+  .sb-check:hover { border-color: var(--accent); }
+  .sb-check:checked { background: var(--accent); border-color: var(--accent); }
+  .sb-check:checked::after { content: '✓'; color: var(--accent-fg); font-size: 12px; line-height: 1; }
+  .sb-check:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sb-check:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ── Spinner ─────────────────────────────────────────────────────────────── */
+  .sb-spinner { display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: var(--accent); animation: sb-spin .7s linear infinite; }
+  .sb-spinner--sm { width: 13px; height: 13px; border-width: 2px; }
+  @keyframes sb-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .sb-spinner { animation-duration: 2.4s; } }
+
+  /* ── Popover / Hover-card / Context-menu surfaces ────────────────────────── */
+  .sb-popover { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-md); padding: var(--space-4); font-size: var(--text-sm); color: var(--fg); }
+  .sb-hovercard { position: absolute; z-index: var(--z-dropdown); width: 280px; }
+  .sb-menu { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-md); padding: 4px; min-width: 210px; }
+  .sb-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border: 0; background: none; color: var(--fg); font: inherit; font-size: var(--text-sm); border-radius: var(--radius-sm); cursor: pointer; text-align: left; }
+  .sb-menu-item:hover { background: var(--surface-2); }
+  .sb-menu-item--danger { color: var(--danger); }
+  .sb-menu-item--danger:hover { background: var(--danger-soft); }
+  .sb-menu-sep { height: 1px; background: var(--border); margin: 4px -4px; }
+  .sb-menu-label { padding: 6px 8px; font-size: var(--text-xs); color: var(--fg-subtle); font-weight: var(--fw-semibold); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
+  .sb-shortcut { margin-left: auto; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-subtle); }
+
+  /* Hover-card trigger pattern (CSS-only reveal) */
+  .sb-hc { position: relative; display: inline-flex; }
+  .sb-hc > .sb-hovercard { display: none; top: calc(100% + 8px); left: 0; }
+  .sb-hc:hover > .sb-hovercard, .sb-hc:focus-within > .sb-hovercard { display: block; }
+
+  /* ── Tabs (new-york segmented) ───────────────────────────────────────────── */
+  .sb-tabs { display: inline-flex; gap: 4px; padding: 4px; background: var(--surface-2); border-radius: var(--radius-lg); }
+  .sb-tab { appearance: none; border: 0; background: none; padding: 7px 14px; border-radius: var(--radius-md); font: inherit; font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg-muted); cursor: pointer; }
+  .sb-tab:hover { color: var(--fg); }
+  .sb-tab[aria-selected="true"] { background: var(--surface); color: var(--fg); box-shadow: var(--shadow-sm); }
+
+  /* ── Responsive table cards (opt-in) ────────────────────────────────────── */
+  @media (max-width: 640px) {
+    .table.table-cards {
+      display: block;
+      border-collapse: separate;
+    }
+
+    .table.table-cards thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .table.table-cards tbody,
+    .table.table-cards tr,
+    .table.table-cards td {
+      display: block;
+    }
+
+    .table.table-cards tbody tr {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      margin-bottom: var(--space-3);
+      padding: var(--space-2) var(--space-4);
+    }
+
+    .table.table-cards tbody tr:last-child {
+      margin-bottom: 0;
+    }
+
+    .table.table-cards td {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-4);
+      height: auto;
+      min-width: 0;
+      padding: var(--space-2) 0;
+      border-bottom: 1px solid var(--border);
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+
+    .table.table-cards td:last-child {
+      border-bottom: 0;
+    }
+
+    .table.table-cards td::before {
+      content: attr(data-label);
+      flex: 0 0 auto;
+      max-width: 48%;
+      margin-right: auto;
+      color: var(--fg-muted);
+      font-weight: var(--fw-medium);
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+
+    .table.table-cards td > * {
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+
+    .table.table-cards td > .u-row,
+    .table.table-cards td > .u-row-3 {
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .table.table-cards td a,
+    .table.table-cards td button,
+    .table.table-cards td .btn {
+      min-height: 44px;
+    }
+
+    .table.table-cards td a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .table.table-cards td .switch {
+      width: 44px;
+      min-width: 44px;
+      height: 44px;
+      min-height: 44px;
+      background: transparent;
+      border-color: transparent;
+    }
+
+    .table.table-cards td .switch::before {
+      content: '';
+      position: absolute;
+      top: calc(50% - 11px);
+      left: 3px;
+      width: 38px;
+      height: 22px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-full);
+      background: var(--surface-3);
+    }
+
+    .table.table-cards td .switch.on::before {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .table.table-cards td .switch::after {
+      top: calc(50% - 8px);
+      left: 6px;
+    }
+  }
+
+  /* ── Alert-dialog ────────────────────────────────────────────────────────── */
+  .sb-overlay { position: fixed; inset: 0; z-index: var(--z-modal); display: none; align-items: center; justify-content: center; padding: var(--space-4); background: hsl(240 30% 8% / .5); }
+  .sb-overlay.open { display: flex; }
+  .sb-dialog { width: 440px; max-width: 100%; padding: var(--space-6); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+  .sb-dialog-title { font-size: var(--text-md); font-weight: var(--fw-semibold); }
+  .sb-dialog-desc { margin-top: 6px; font-size: var(--text-sm); color: var(--fg-muted); line-height: var(--lh-normal); }
+  .sb-dialog-footer { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-6); }
+
+  /* ── Terminal trace (AI Run) — stays dark in every theme ─────────────────── */
+  .sb-term { background: hsl(240 28% 8%); color: hsl(220 14% 80%); border: 1px solid hsl(240 20% 18%); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.75; overflow-x: auto; }
+  .sb-term .ln { display: flex; gap: 10px; white-space: pre-wrap; }
+  .sb-term .tag { flex: none; font-weight: 600; }
+  .t-cmd { color: hsl(0 0% 96%); } .t-think { color: hsl(265 70% 76%); } .t-search { color: hsl(190 72% 66%); }
+  .t-tool { color: hsl(150 55% 64%); } .t-out { color: hsl(220 14% 66%); } .t-ok { color: hsl(142 62% 62%); } .t-warn { color: hsl(38 92% 68%); }
+
+  /* ── Status atom: glyph + label + meta (linked-tools health, doc 12) ──────── */
+  /* Status is a GLYPH + LABEL, never colour-only. Glyph is quiet by default;
+     --accent appears only on the one tool that needs you. No traffic light. */
+  .sb-statusline { display: inline-flex; align-items: baseline; gap: 6px; font-size: var(--text-sm); }
+  .sb-statusline .sl-glyph { flex: none; color: var(--fg-subtle); line-height: 1; position: relative; top: 1px; }
+  .sb-statusline .sl-label { font-weight: var(--fw-medium); color: var(--fg); }
+  .sb-statusline .sl-meta { color: var(--fg-subtle); font-size: var(--text-xs); font-family: var(--font-mono); }
+  .sb-statusline--accent .sl-glyph, .sb-statusline--accent .sl-label { color: var(--accent); }
+
+  /* NOTE: the bottom-bar status signal moved off a behind-the-glyph dot to a
+   * BRIGHT-coloured GLYPH with per-status motion (doc 12 §12.6) — that CSS lives
+   * in the injected tools-bar.js style (#tools-bar .gl-ok/--warn/--off/--link).
+   * The old .sb-hdot dot was removed: it was occluded by the glyph and read grey. */
+
+  /* ── Wizard step rail ────────────────────────────────────────────────────── */
+  .sb-steps { display: flex; align-items: center; gap: var(--space-2); }
+  .sb-step { display: inline-flex; align-items: center; gap: 7px; color: var(--fg-subtle); font-size: var(--text-xs); white-space: nowrap; }
+  .sb-step .sb-step-dot { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid var(--border-strong); font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--fg-subtle); flex: none; }
+  .sb-step[data-state="current"] { color: var(--fg); }
+  .sb-step[data-state="current"] .sb-step-dot { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .sb-step[data-state="done"] .sb-step-dot { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); }
+  .sb-step-bar { flex: 1 1 auto; height: 1.5px; min-width: 12px; background: var(--border); }
+  .sb-step-bar[data-done="true"] { background: var(--accent); }
+
+  /* ── Copy-command block: mono command on the dark .sb-term + pinned copy ──── */
+  .sb-copy { position: relative; }
+  .sb-copy .sb-term { padding-right: 86px; }
+  .sb-copy-btn { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border: 1px solid hsl(240 16% 28%); border-radius: var(--radius-md); background: hsl(240 22% 15%); color: hsl(220 14% 84%); font-size: var(--text-xs); font-weight: var(--fw-medium); cursor: pointer; }
+  .sb-copy-btn:hover { background: hsl(240 22% 20%); color: #fff; }
+  .sb-copy-btn[data-copied="true"] { color: hsl(142 62% 70%); border-color: hsl(142 40% 38%); }
+}
