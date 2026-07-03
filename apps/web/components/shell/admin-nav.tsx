@@ -102,13 +102,11 @@ export function AdminNav() {
       </div>
 
       <nav className="rail-nav" aria-label="Application sections">
-        <span className="rail-item" aria-disabled="true" style={{ marginBottom: 4 }}>
-          <span className="ico u-accent" aria-hidden="true">
-            ◆
-          </span>
-          Ask Opzava
-          <span className="dot dot-warning" style={{ marginLeft: "auto" }} aria-label="No active tasks yet" />
-        </span>
+        <RailItem
+          label="Ask Opzava"
+          href="/ask-opzava"
+          active={pathname.startsWith("/ask-opzava")}
+        />
 
         <div className="section-label">Operate</div>
         {operateItems.map((item) => (

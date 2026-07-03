@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { createTaskAction, moveTaskAction, updateTaskAction } from "@/app/(app)/tasks/actions";
-import { AskAdminPanel, type AskAdminPanelProps } from "@/components/tasks/ask-admin-panel";
-import type { AskAdminClientStreamEvent } from "@/lib/ask-admin-stream";
 import { formatCardId } from "@/lib/task-card-format";
 import type { TaskDto, TaskPriority, TaskStatus } from "@opzava/project-management";
 
@@ -15,7 +13,6 @@ interface TasksBoardProps {
     readonly name: string;
   };
   readonly workspaceName: string;
-  readonly askAdmin: Pick<AskAdminPanelProps, "conversationId" | "initialTurns">;
 }
 
 type BoardView = "kanban" | "list";
@@ -99,27 +96,6 @@ function priorityBadgeClassName(priority: TaskPriority): string {
   }
 
   return "badge badge-accent";
-}
-
-function isTaskDto(value: unknown): value is TaskDto {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { readonly id?: unknown }).id === "string" &&
-    typeof (value as { readonly title?: unknown }).title === "string" &&
-    typeof (value as { readonly status?: unknown }).status === "string" &&
-    typeof (value as { readonly priority?: unknown }).priority === "string" &&
-    typeof (value as { readonly position?: unknown }).position === "number"
-  );
-}
-
-function upsertTask(tasks: readonly TaskDto[], task: TaskDto): readonly TaskDto[] {
-  const existingIndex = tasks.findIndex((current) => current.id === task.id);
-  if (existingIndex === -1) {
-    return [...tasks, task];
-  }
-
-  return tasks.map((current) => (current.id === task.id ? task : current));
 }
 
 function TaskForm({
@@ -536,7 +512,7 @@ function ListView({
   );
 }
 
-export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: TasksBoardProps) {
+export function TasksBoard({ tasks, currentUser, workspaceName }: TasksBoardProps) {
   const [boardTasks, setBoardTasks] = useState<readonly TaskDto[]>(tasks);
   const [view, setView] = useState<BoardView>("kanban");
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
@@ -572,16 +548,6 @@ export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: Task
   const closeForm = () => {
     setFormMode(null);
     setEditingTask(undefined);
-  };
-
-  const applyTaskToolSucceeded = (
-    event: Extract<AskAdminClientStreamEvent, { readonly type: "tool.succeeded" }>,
-  ) => {
-    const outputKind = event.output["kind"];
-    const outputTask = event.output["task"];
-    if ((outputKind === "tasks.create" || outputKind === "tasks.update") && isTaskDto(outputTask)) {
-      setBoardTasks((current) => upsertTask(current, outputTask));
-    }
   };
 
   return (
@@ -630,31 +596,22 @@ export function TasksBoard({ tasks, currentUser, workspaceName, askAdmin }: Task
         </div>
       </section>
 
-      <div className="tasks-workspace">
-        <div className="tasks-board-area">
-          {view === "kanban" ? (
-            <KanbanView
-              tasks={boardTasks}
-              workspaceName={workspaceName}
-              nextPositions={nextPositions}
-              onEdit={openEditForm}
-            />
-          ) : (
-            <ListView
-              tasks={boardTasks}
-              workspaceName={workspaceName}
-              nextPositions={nextPositions}
-              onEdit={openEditForm}
-            />
-          )}
-        </div>
-
-        <AskAdminPanel
-          conversationId={askAdmin.conversationId}
-          initialTurns={askAdmin.initialTurns}
-          currentUserName={currentUser.name}
-          onToolSucceeded={applyTaskToolSucceeded}
-        />
+      <div className="tasks-board-area">
+        {view === "kanban" ? (
+          <KanbanView
+            tasks={boardTasks}
+            workspaceName={workspaceName}
+            nextPositions={nextPositions}
+            onEdit={openEditForm}
+          />
+        ) : (
+          <ListView
+            tasks={boardTasks}
+            workspaceName={workspaceName}
+            nextPositions={nextPositions}
+            onEdit={openEditForm}
+          />
+        )}
       </div>
 
       {formMode === "create" ? (

@@ -1,7 +1,7 @@
-import { listTasks } from "@opzava/project-management";
 import { redirect } from "next/navigation";
 
-import { TasksBoard } from "@/components/tasks/tasks-board";
+import { AskOpzavaChat } from "@/components/ask-opzava/ask-opzava-chat";
+import { getOrCreateAskAdminHistory } from "@/lib/ask-admin-history";
 import { getAppSessionContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -28,37 +28,31 @@ function errorCode(error: unknown, depth = 0): string | undefined {
     : errorCode((error as { readonly cause?: unknown }).cause, depth + 1);
 }
 
-export default async function TasksPage() {
+export default async function AskOpzavaPage() {
   const context = await getAppSessionContext();
 
   if (context === null) {
     redirect("/login");
   }
 
-  const result = await listTasks({
-    orgId: context.orgId,
-    workspaceId: context.workspaceId,
-    actor: {
-      userId: context.user.id,
-      roleKeys: context.roleKeys
-    }
-  });
-
-  if (!result.ok) {
+  const history = await getOrCreateAskAdminHistory(context);
+  if (!history.ok) {
     if (
-      errorCode(result.error) === "projectManagement.forbidden" ||
-      errorStatus(result.error) === 403
+      errorCode(history.error) === "runtimeControl.forbidden" ||
+      errorStatus(history.error) === 403
     ) {
       redirect("/");
     }
 
-    throw result.error;
+    throw history.error;
   }
 
   return (
-    <TasksBoard
-      tasks={result.value}
-      currentUser={{ id: context.user.id, name: context.user.name }}
+    <AskOpzavaChat
+      conversationId={history.value.conversationId}
+      initialTurns={history.value.turns}
+      currentUserName={context.user.name}
+      organizationName={context.organizationName}
       workspaceName={context.workspaceName}
     />
   );
