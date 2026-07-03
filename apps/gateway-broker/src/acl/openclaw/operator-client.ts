@@ -68,6 +68,7 @@ interface ActiveStream {
   readonly turnId: string;
   readonly queue: AsyncQueue<OpenClawStreamEvent>;
   readonly seenChatSeqs: Set<number>;
+  readonly pendingStreamEvents: Array<SessionMessageEventPayload & ChatEventPayload>;
   text: string;
   runId?: string;
 }
@@ -81,6 +82,7 @@ export interface OpenClawOperatorClientOptions {
   readonly logger?: BrokerLogger;
   readonly now?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
+  readonly onActiveStreamDrained?: () => void;
 }
 
 interface HelloPolicy {
@@ -232,6 +234,7 @@ export class OpenClawOperatorClient {
   private readonly logger: BrokerLogger;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly onActiveStreamDrained: () => void;
   private readonly pending = new Map<string, PendingRequest>();
   private readonly respondedIds = new Set<string>();
   private readonly activeStreams = new Map<string, ActiveStream>();
@@ -251,10 +254,15 @@ export class OpenClawOperatorClient {
     this.logger = options.logger ?? silentBrokerLogger;
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? defaultSleep;
+    this.onActiveStreamDrained = options.onActiveStreamDrained ?? (() => {});
   }
 
   public get routeId(): OpenClawGatewayRouteId {
     return this.route.routeId;
+  }
+
+  public get activeStreamCount(): number {
+    return this.activeStreams.size;
   }
 
   public disconnect(): void {
@@ -263,7 +271,9 @@ export class OpenClawOperatorClient {
     this.rejectPending(
       gatewayBrokerError("gatewayBroker.connectionClosed", "OpenClaw connection closed."),
     );
-    this.failActiveStreams("gatewayBroker.connectionClosed", "OpenClaw connection closed.");
+    this.failActiveStreams("gatewayBroker.connectionClosed", "OpenClaw connection closed.", {
+      notifyDrained: false,
+    });
     this.socket?.close();
     this.socket = undefined;
   }
@@ -339,11 +349,6 @@ export class OpenClawOperatorClient {
       );
     }
 
-    const connected = await this.ensureConnected();
-    if (!connected.ok) {
-      return err(connected.error);
-    }
-
     // The live Gateway canonicalizes session keys to `agent:<agentId>:<name>` and
     // publishes chat events under the CANONICAL key; derive it ourselves so
     // create/send/subscribe and event correlation all agree.
@@ -351,20 +356,37 @@ export class OpenClawOperatorClient {
     const sessionKey = rawSessionKey.startsWith("agent:")
       ? rawSessionKey
       : `agent:${input.assistantKey}:${rawSessionKey}`;
+    if (this.activeStreams.has(sessionKey)) {
+      return err(
+        gatewayBrokerError(
+          "gatewayBroker.sessionBusy",
+          `OpenClaw session ${sessionKey} already has an active assistant turn.`,
+          { sessionKey },
+        ),
+      );
+    }
+
     const stream: ActiveStream = {
       sessionKey,
       turnId: input.turnId,
       queue: new AsyncQueue<OpenClawStreamEvent>(),
       seenChatSeqs: new Set<number>(),
+      pendingStreamEvents: [],
       text: "",
     };
     this.activeStreams.set(sessionKey, stream);
+
+    const connected = await this.ensureConnected();
+    if (!connected.ok) {
+      this.closeActiveStream(sessionKey, stream);
+      return err(connected.error);
+    }
+
     stream.queue.push({ type: "queued", turnId: input.turnId });
 
     const created = await this.ensureSessionCreated(sessionKey, input.assistantKey);
     if (!created.ok) {
-      this.activeStreams.delete(sessionKey);
-      stream.queue.close();
+      this.closeActiveStream(sessionKey, stream);
       return err(created.error);
     }
 
@@ -382,8 +404,7 @@ export class OpenClawOperatorClient {
     }
 
     if (!response.ok) {
-      this.activeStreams.delete(sessionKey);
-      stream.queue.close();
+      this.closeActiveStream(sessionKey, stream);
       return err(response.error);
     }
 
@@ -397,6 +418,7 @@ export class OpenClawOperatorClient {
       this.activeStreams.delete(sessionKey);
       this.activeStreams.set(responseSessionKey, stream);
     }
+    this.flushPendingStreamEvents(responseSessionKey, stream);
 
     void this.request(
       "sessions.messages.subscribe",
@@ -429,7 +451,6 @@ export class OpenClawOperatorClient {
       return err(connected.error);
     }
 
-    // Live sessions.create rejects idempotencyKey; duplicate-key failures are normalized below.
     const response = await this.request(
       "tools.effective",
       { sessionKey: input.sessionRef.value },
@@ -483,6 +504,7 @@ export class OpenClawOperatorClient {
       return ok(undefined);
     }
 
+    // Live sessions.create rejects idempotencyKey; duplicate-key failures are normalized below.
     const response = await this.request(
       "sessions.create",
       { key: sessionKey, agentId },
@@ -920,10 +942,23 @@ export class OpenClawOperatorClient {
 
     const runId = stringValue(record.runId);
     if (runId !== null) {
-      if (stream.runId !== undefined && runId !== stream.runId) {
+      if (stream.runId === undefined) {
+        stream.pendingStreamEvents.push(record);
         return;
       }
-      stream.runId = runId;
+
+      if (stream.runId !== undefined && runId !== stream.runId) {
+        this.logger.warn(
+          {
+            routeId: this.route.routeId,
+            sessionKey,
+            expectedRunId: stream.runId,
+            actualRunId: runId,
+          },
+          "OpenClaw chat event ignored because runId did not match the active turn.",
+        );
+        return;
+      }
     }
 
     if (typeof record.state === "string") {
@@ -948,8 +983,7 @@ export class OpenClawOperatorClient {
         code: record.error.code ?? "openclaw.streamFailed",
         message: record.error.message ?? "OpenClaw stream failed.",
       });
-      stream.queue.close();
-      this.activeStreams.delete(sessionKey);
+      this.closeActiveStream(sessionKey, stream);
       return;
     }
 
@@ -987,8 +1021,7 @@ export class OpenClawOperatorClient {
         sessionRef: externalSessionRef(sessionKey),
         ...(stream.runId === undefined ? {} : { runRef: externalRunRef(stream.runId) }),
       });
-      stream.queue.close();
-      this.activeStreams.delete(sessionKey);
+      this.closeActiveStream(sessionKey, stream);
     }
   }
 
@@ -1018,8 +1051,7 @@ export class OpenClawOperatorClient {
         sessionRef: externalSessionRef(sessionKey),
         ...(stream.runId === undefined ? {} : { runRef: externalRunRef(stream.runId) }),
       });
-      stream.queue.close();
-      this.activeStreams.delete(sessionKey);
+      this.closeActiveStream(sessionKey, stream);
       return;
     }
 
@@ -1030,8 +1062,7 @@ export class OpenClawOperatorClient {
         code: "aborted",
         message: textFromMessage(record.message) ?? "OpenClaw stream aborted.",
       });
-      stream.queue.close();
-      this.activeStreams.delete(sessionKey);
+      this.closeActiveStream(sessionKey, stream);
       return;
     }
 
@@ -1045,8 +1076,7 @@ export class OpenClawOperatorClient {
           textFromMessage(record.message) ??
           "OpenClaw stream failed.",
       });
-      stream.queue.close();
-      this.activeStreams.delete(sessionKey);
+      this.closeActiveStream(sessionKey, stream);
       return;
     }
 
@@ -1056,8 +1086,7 @@ export class OpenClawOperatorClient {
       code: "openclaw_unknown_chat_state",
       message: "OpenClaw emitted an unknown chat stream state.",
     });
-    stream.queue.close();
-    this.activeStreams.delete(sessionKey);
+    this.closeActiveStream(sessionKey, stream);
   }
 
   private handleApprovalEvent(payload: unknown): void {
@@ -1086,6 +1115,12 @@ export class OpenClawOperatorClient {
       }),
       summary: stringValue(payload["summary"]) ?? "OpenClaw requested approval.",
     });
+  }
+
+  private flushPendingStreamEvents(sessionKey: string, stream: ActiveStream): void {
+    for (const record of stream.pendingStreamEvents.splice(0)) {
+      this.handleStreamEvent({ ...record, sessionKey });
+    }
   }
 
   private handleSocketClosed(): void {
@@ -1119,7 +1154,23 @@ export class OpenClawOperatorClient {
     this.pending.clear();
   }
 
-  private failActiveStreams(code: string, message: string): void {
+  private closeActiveStream(sessionKey: string, stream: ActiveStream): void {
+    stream.queue.close();
+    if (this.activeStreams.get(sessionKey) === stream) {
+      this.activeStreams.delete(sessionKey);
+    }
+
+    if (this.activeStreams.size === 0) {
+      this.onActiveStreamDrained();
+    }
+  }
+
+  private failActiveStreams(
+    code: string,
+    message: string,
+    options: { readonly notifyDrained?: boolean } = {},
+  ): void {
+    const hadActiveStreams = this.activeStreams.size > 0;
     for (const stream of this.activeStreams.values()) {
       stream.queue.push({
         type: "failed",
@@ -1130,5 +1181,8 @@ export class OpenClawOperatorClient {
       stream.queue.close();
     }
     this.activeStreams.clear();
+    if (hadActiveStreams && options.notifyDrained !== false) {
+      this.onActiveStreamDrained();
+    }
   }
 }

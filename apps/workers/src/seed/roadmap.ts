@@ -13,6 +13,10 @@ import { DomainError, type Result } from "@opzava/shared-kernel";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+// Roadmap seeding is single-process rerunnable-by-design: it list-then-creates
+// by title without a DB unique title constraint. Concurrent seed processes are
+// intentionally out of contract.
+
 interface RoadmapTaskDefinition {
   readonly title: string;
   readonly description: string;

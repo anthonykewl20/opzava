@@ -27,8 +27,10 @@ export type FakeGatewayMode =
   | "auth-scope-mismatch"
   | "chat-aborted"
   | "chat-error"
+  | "deferred-final"
   | "duplicate-response"
   | "mid-stream-close"
+  | "mismatched-run-event"
   | "protocol-mismatch"
   | "session-pruned-always-before-send"
   | "session-pruned-once-before-send"
@@ -50,6 +52,11 @@ export interface FakeGatewaySessionRecord {
   readonly idempotencyKey: string;
 }
 
+interface DeferredStream {
+  readonly socket: WebSocket;
+  readonly record: FakeGatewaySessionRecord;
+}
+
 export class FakeOpenClawGateway {
   private readonly server = new WebSocketServer({
     port: 0,
@@ -63,6 +70,7 @@ export class FakeOpenClawGateway {
   private readonly createdSessionKeys = new Set<string>();
   private readonly prunedSessionKeys = new Set<string>();
   private readonly sessionsByIdempotencyKey = new Map<string, FakeGatewaySessionRecord>();
+  private readonly deferredStreams: DeferredStream[] = [];
   private readonly issuedDeviceTokens = new Set<string>();
   public readonly ready: Promise<void>;
   private startupUnavailableSent = false;
@@ -114,6 +122,14 @@ export class FakeOpenClawGateway {
 
   public get lastSessionSendParams(): Readonly<Record<string, unknown>> | undefined {
     return this.lastSessionSendParamsValue;
+  }
+
+  public finishDeferredStreams(): void {
+    for (const stream of this.deferredStreams.splice(0)) {
+      if (stream.socket.readyState === 1) {
+        this.emitStreamTail(stream.socket, stream.record);
+      }
+    }
   }
 
   public async close(): Promise<void> {
@@ -473,6 +489,23 @@ export class FakeOpenClawGateway {
   }
 
   private emitStream(socket: WebSocket, record: FakeGatewaySessionRecord): void {
+    if (this.mode === "mismatched-run-event") {
+      socket.send(
+        serializeOpenClawFrame({
+          type: "event",
+          event: "chat",
+          payload: {
+            runId: `${record.runId}:wrong`,
+            sessionKey: record.sessionKey,
+            agentId: "ask-admin-opzava",
+            seq: 0,
+            state: "delta",
+            deltaText: "Wrong run text.",
+          },
+        }),
+      );
+    }
+
     socket.send(
       serializeOpenClawFrame({
         type: "event",
@@ -488,6 +521,15 @@ export class FakeOpenClawGateway {
       }),
     );
 
+    if (this.mode === "deferred-final") {
+      this.deferredStreams.push({ socket, record });
+      return;
+    }
+
+    this.emitStreamTail(socket, record);
+  }
+
+  private emitStreamTail(socket: WebSocket, record: FakeGatewaySessionRecord): void {
     if (this.mode === "mid-stream-close") {
       socket.close();
       return;

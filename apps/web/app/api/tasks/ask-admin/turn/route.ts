@@ -131,7 +131,7 @@ function failureState(
   code: string | undefined,
   status: number | undefined,
 ): "gateway_unavailable" | "policy_denied" | "duplicate_send" | "failed" {
-  if (code === "runtimeControl.idempotencyConflict") {
+  if (code === "runtimeControl.idempotencyConflict" || code === "gatewayBroker.sessionBusy") {
     return "duplicate_send";
   }
 

@@ -67,6 +67,7 @@ async function createBrokerFixture(
     readonly mode?: FakeGatewayMode;
     readonly authMode?: GatewayAuthMode;
     readonly deviceKeypair?: HmacDeviceKeypair;
+    readonly idleDisconnectMs?: number;
   } = {},
 ): Promise<BrokerFixture> {
   const deviceKeypair = input.deviceKeypair ?? createDeviceKeypair();
@@ -79,7 +80,7 @@ async function createBrokerFixture(
   gateways.push(gateway);
 
   const broker = new GatewayConnectionManager({
-    idleDisconnectMs: 10_000,
+    idleDisconnectMs: input.idleDisconnectMs ?? 10_000,
     maxFailuresBeforeOpen: 2,
     routingTable: new StaticGatewayRoutingTable([
       {
@@ -101,6 +102,10 @@ async function createBrokerFixture(
   managers.push(broker);
 
   return { gateway, broker };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function startInput(idempotencyKey = `idem-${randomUUID()}`): StartAssistantStreamInput {
@@ -570,6 +575,94 @@ describe("[fake-gateway] broker operator client", () => {
     expect(driftedTools).toMatchObject({
       ok: false,
       error: { code: "gatewayBroker.toolInventoryMismatch" },
+    });
+  });
+
+  it("rejects a concurrent active turn for the same session while the first completes", async () => {
+    const { broker, gateway } = await createBrokerFixture({ mode: "deferred-final" });
+    const first = await broker.startAssistantStream(startInput("first-active-turn"));
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+      throw first.error;
+    }
+
+    const second = await broker.startAssistantStream({
+      ...startInput("second-active-turn"),
+      turnId: "turn-2",
+    });
+    expect(second).toMatchObject({
+      ok: false,
+      error: {
+        code: "gatewayBroker.sessionBusy",
+        details: { sessionKey: "agent:ask-admin-opzava:conversation-1" },
+      },
+    });
+    expect(gateway.sessionCreateCount).toBe(1);
+    expect(gateway.sessionRequestCount).toBe(1);
+
+    gateway.finishDeferredStreams();
+    const events = await collectUntilTerminal(first.value.events);
+    expect(events.at(-1)).toEqual({
+      type: "final",
+      turnId: "turn-1",
+      content: { text: "Created the task." },
+      sessionRef: { system: "openclaw", kind: "session", value: "agent:ask-admin-opzava:conversation-1" },
+      runRef: { system: "openclaw", kind: "run", value: "run:first-active-turn" },
+    });
+  });
+
+  it("ignores chat events whose runId does not match the active session run", async () => {
+    const { broker } = await createBrokerFixture({ mode: "mismatched-run-event" });
+    const result = await broker.startAssistantStream(startInput("run-id-correlation"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw result.error;
+    }
+
+    const events = await collectUntilTerminal(result.value.events);
+    expect(events).toEqual([
+      { type: "queued", turnId: "turn-1" },
+      { type: "delta", turnId: "turn-1", deltaText: "Created " },
+      { type: "delta", turnId: "turn-1", deltaText: "the task." },
+      {
+        type: "final",
+        turnId: "turn-1",
+        content: { text: "Created the task." },
+        sessionRef: { system: "openclaw", kind: "session", value: "agent:ask-admin-opzava:conversation-1" },
+        runRef: { system: "openclaw", kind: "run", value: "run:run-id-correlation" },
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("Wrong run text");
+  });
+
+  it("does not idle-disconnect an active stream and idles out after it finishes", async () => {
+    const { broker, gateway } = await createBrokerFixture({
+      mode: "deferred-final",
+      idleDisconnectMs: 20,
+    });
+    const result = await broker.startAssistantStream(startInput("slow-active-turn"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw result.error;
+    }
+
+    await sleep(60);
+    const activeHealth = await broker.getHealth(routeId);
+    expect(activeHealth).toMatchObject({
+      ok: true,
+      value: { reachable: true },
+    });
+    expect(gateway.connectionCount).toBe(1);
+
+    gateway.finishDeferredStreams();
+    const events = await collectUntilTerminal(result.value.events);
+    expect(events.at(-1)).toMatchObject({ type: "final" });
+
+    await sleep(60);
+    const idleHealth = await broker.getHealth(routeId);
+    expect(idleHealth).toMatchObject({
+      ok: true,
+      value: { reachable: false },
     });
   });
 

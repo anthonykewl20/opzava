@@ -84,7 +84,9 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
     this.clearIdleTimer(client.value);
     const result = await client.value.client.startAssistantStream(input);
     this.recordResult(client.value.client, result);
-    this.scheduleIdleDisconnect(client.value);
+    if (client.value.client.activeStreamCount === 0) {
+      this.scheduleIdleDisconnect(client.value);
+    }
     return result;
   }
 
@@ -173,14 +175,21 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
       return ok(existing);
     }
 
+    const client = new OpenClawOperatorClient({
+      ...this.clientOptions,
+      route,
+      logger: this.logger,
+      now: this.now,
+      onActiveStreamDrained: () => {
+        const current = this.clients.get(key);
+        if (current !== undefined) {
+          this.scheduleIdleDisconnect(current);
+        }
+      }
+    });
     const managed: ManagedClient = {
       idleTimer: undefined,
-      client: new OpenClawOperatorClient({
-        ...this.clientOptions,
-        route,
-        logger: this.logger,
-        now: this.now
-      })
+      client
     };
     this.clients.set(key, managed);
     return ok(managed);
@@ -190,6 +199,10 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
     const tenantId = this.routeTenant(client);
     if (result.ok) {
       this.circuits.delete(tenantId);
+      return;
+    }
+
+    if (result.error.code === "gatewayBroker.sessionBusy") {
       return;
     }
 
@@ -233,8 +246,17 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
   }
 
   private scheduleIdleDisconnect(managed: ManagedClient): void {
+    if (managed.client.activeStreamCount > 0) {
+      return;
+    }
+
     this.clearIdleTimer(managed);
     managed.idleTimer = setTimeout(() => {
+      managed.idleTimer = undefined;
+      if (managed.client.activeStreamCount > 0) {
+        return;
+      }
+
       managed.client.disconnect();
       this.clients.delete(String(this.routeTenant(managed.client)));
     }, this.idleDisconnectMs);

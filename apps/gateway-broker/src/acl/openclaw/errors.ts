@@ -15,6 +15,7 @@ export type GatewayBrokerErrorCode =
   | "gatewayBroker.requestFailed"
   | "gatewayBroker.requestTimeout"
   | "gatewayBroker.scopeMismatch"
+  | "gatewayBroker.sessionBusy"
   | "gatewayBroker.tenantMismatch"
   | "gatewayBroker.toolInventoryMismatch"
   | "gatewayBroker.unknownEventFamily"
