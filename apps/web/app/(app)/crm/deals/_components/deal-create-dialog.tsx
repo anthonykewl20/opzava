@@ -4,6 +4,7 @@ import type { CrmAccountDto, CrmContactDto } from "@opzava/crm";
 import { useState } from "react";
 
 import { createDealAction } from "@/app/(app)/crm/deals/actions";
+import { ActionStateForm } from "@/components/forms/action-state-form";
 
 interface DealCreateDialogProps {
   readonly accounts: readonly CrmAccountDto[];
@@ -68,7 +69,11 @@ export function DealCreateDialog({
               </button>
             </div>
 
-            <form className="task-form" action={createDealAction}>
+            <ActionStateForm
+              action={createDealAction}
+              className="task-form"
+              errorTitle="Could not create deal"
+            >
               <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
               <div className="field">
                 <label className="label" htmlFor="new-deal-title-input">
@@ -194,7 +199,7 @@ export function DealCreateDialog({
                   Create deal
                 </button>
               </div>
-            </form>
+            </ActionStateForm>
           </section>
         </div>
       ) : null}

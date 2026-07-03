@@ -12,6 +12,7 @@ import { forbidden, redirect } from "next/navigation";
 
 import { CrmPageStyles, CrmPlusIcon } from "@/app/(app)/crm/_components/crm-page-styles";
 import { createTicketAction, updateTicketStatusAction } from "@/app/(app)/crm/tickets/actions";
+import { ActionStateForm } from "@/components/forms/action-state-form";
 import {
   crmContextInput,
   isCrmForbidden,
@@ -103,7 +104,11 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
                   <CrmPlusIcon />
                   New ticket
                 </summary>
-                <form className="issues-new-form crm-new-form" action={createTicketAction}>
+                <ActionStateForm
+                  action={createTicketAction}
+                  className="issues-new-form crm-new-form"
+                  errorTitle="Could not create ticket"
+                >
                   <input type="hidden" name="idempotencyKey" value={createTicketIdempotencyKey} />
                   <div className="field">
                     <label className="label" htmlFor="new-ticket-subject">
@@ -196,7 +201,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
                   <button className="btn btn-primary" type="submit">
                     Create ticket
                   </button>
-                </form>
+                </ActionStateForm>
               </details>
             )}
           </div>
@@ -275,9 +280,10 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
                           )}
                         </td>
                         <td data-label="Status">
-                          <form
+                          <ActionStateForm
                             action={updateTicketStatusAction}
                             className="crm-ticket-status-form"
+                            errorTitle="Could not save status"
                           >
                             <input type="hidden" name="ticketId" value={ticket.id} />
                             <input type="hidden" name="filter" value={activeFilter} />
@@ -299,7 +305,7 @@ export default async function TicketsPage({ searchParams }: TicketsPageProps) {
                             <button className="btn btn-sm" type="submit">
                               Save
                             </button>
-                          </form>
+                          </ActionStateForm>
                         </td>
                         <td data-label="Priority">
                           <span className={ticketPriorityBadgeClassName(ticket.priority)}>

@@ -3,6 +3,7 @@ import { forbidden, notFound, redirect } from "next/navigation";
 
 import { CrmPageStyles } from "@/app/(app)/crm/_components/crm-page-styles";
 import { addContactActivityAction, updateContactAction } from "@/app/(app)/crm/contacts/actions";
+import { ActionStateForm } from "@/components/forms/action-state-form";
 import {
   activityKindIcon,
   activityKindLabel,
@@ -161,7 +162,11 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
 
                     <details style={{ marginTop: "var(--space-5)" }}>
                       <summary className="btn">Edit profile</summary>
-                      <form action={updateContactAction} className="crm-panel-form">
+                      <ActionStateForm
+                        action={updateContactAction}
+                        className="crm-panel-form"
+                        errorTitle="Could not save contact"
+                      >
                         <input type="hidden" name="contactId" value={contact.id} />
                         <div className="field">
                           <label className="label" htmlFor="contact-display-name">
@@ -294,7 +299,7 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
                         <button className="btn btn-primary" type="submit">
                           Save contact
                         </button>
-                      </form>
+                      </ActionStateForm>
                     </details>
                   </div>
                 </div>
@@ -315,9 +320,12 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
                           <summary className="btn btn-sm">
                             {kind === "note" ? "Add note" : "Log call"}
                           </summary>
-                          <form
-                            className="issues-new-form crm-new-form"
+                          <ActionStateForm
                             action={addContactActivityAction}
+                            className="issues-new-form crm-new-form"
+                            errorTitle={
+                              kind === "note" ? "Could not add note" : "Could not log call"
+                            }
                           >
                             <input type="hidden" name="contactId" value={contact.id} />
                             <input type="hidden" name="kind" value={kind} />
@@ -337,7 +345,7 @@ export default async function ContactDetailPage({ params }: ContactDetailPagePro
                             <button className="btn btn-primary btn-sm" type="submit">
                               {kind === "note" ? "Add note" : "Log call"}
                             </button>
-                          </form>
+                          </ActionStateForm>
                         </details>
                       ))}
                     </div>

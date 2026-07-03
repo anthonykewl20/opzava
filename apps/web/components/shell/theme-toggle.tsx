@@ -3,13 +3,36 @@
 import { useEffect, useState } from "react";
 
 const THEME_KEY = "opzava-mock-theme";
+export const THEME_CHANGE_EVENT = "opzava-theme-change";
 
-function isDarkTheme(theme: string) {
+export function isDarkTheme(theme: string) {
   return theme === "dark" || theme === "hc";
 }
 
-function currentTheme() {
+export function currentTheme() {
   return document.documentElement.getAttribute("data-theme") || "dark";
+}
+
+export function setThemePreference(nextTheme: "light" | "dark"): string {
+  const root = document.documentElement;
+  const pageDefault = root.getAttribute("data-theme") || "dark";
+  const lightVariant =
+    root.getAttribute("data-light") || (pageDefault === "calm" ? "calm" : "light");
+  const appliedTheme = nextTheme === "dark" ? "dark" : lightVariant;
+
+  root.setAttribute("data-theme", appliedTheme);
+  try {
+    localStorage.setItem(THEME_KEY, appliedTheme);
+  } catch {
+    /* localStorage can be unavailable in private or embedded contexts. */
+  }
+
+  window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
+  return appliedTheme;
+}
+
+export function toggleThemePreference(): string {
+  return setThemePreference(isDarkTheme(currentTheme()) ? "light" : "dark");
 }
 
 export function ThemeToggle() {
@@ -17,21 +40,18 @@ export function ThemeToggle() {
 
   useEffect(() => {
     setThemeState(currentTheme());
+    function syncTheme() {
+      setThemeState(currentTheme());
+    }
+
+    window.addEventListener(THEME_CHANGE_EVENT, syncTheme);
+    return () => {
+      window.removeEventListener(THEME_CHANGE_EVENT, syncTheme);
+    };
   }, []);
 
   function setTheme(nextTheme: "light" | "dark") {
-    const root = document.documentElement;
-    const pageDefault = root.getAttribute("data-theme") || "dark";
-    const lightVariant = root.getAttribute("data-light") || (pageDefault === "calm" ? "calm" : "light");
-    const appliedTheme = nextTheme === "dark" ? "dark" : lightVariant;
-
-    root.setAttribute("data-theme", appliedTheme);
-    try {
-      localStorage.setItem(THEME_KEY, appliedTheme);
-    } catch {
-      /* localStorage can be unavailable in private or embedded contexts. */
-    }
-    setThemeState(appliedTheme);
+    setThemeState(setThemePreference(nextTheme));
   }
 
   const segments = [
@@ -64,8 +84,7 @@ export function ThemeToggle() {
         }}
       >
         {segments.map((segment) => {
-          const active =
-            segment.mode === "dark" ? isDarkTheme(theme) : !isDarkTheme(theme);
+          const active = segment.mode === "dark" ? isDarkTheme(theme) : !isDarkTheme(theme);
 
           return (
             <button

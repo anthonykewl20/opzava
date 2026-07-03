@@ -5,6 +5,7 @@ import { forbidden, redirect } from "next/navigation";
 
 import { CrmPageStyles, CrmPlusIcon } from "@/app/(app)/crm/_components/crm-page-styles";
 import { createAccountAction } from "@/app/(app)/crm/accounts/actions";
+import { ActionStateForm } from "@/components/forms/action-state-form";
 import {
   accountOpenDealCount,
   accountOpenTicketCount,
@@ -74,7 +75,11 @@ export default async function AccountsPage() {
                 <CrmPlusIcon />
                 New account
               </summary>
-              <form className="issues-new-form crm-new-form" action={createAccountAction}>
+              <ActionStateForm
+                action={createAccountAction}
+                className="issues-new-form crm-new-form"
+                errorTitle="Could not create account"
+              >
                 <input type="hidden" name="idempotencyKey" value={createAccountIdempotencyKey} />
                 <div className="field">
                   <label className="label" htmlFor="new-account-name">
@@ -166,7 +171,7 @@ export default async function AccountsPage() {
                 <button className="btn btn-primary" type="submit">
                   Create account
                 </button>
-              </form>
+              </ActionStateForm>
             </details>
           </div>
 

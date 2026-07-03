@@ -12,6 +12,7 @@ import {
   ownerUserIdFromForm,
   stringFromForm,
 } from "@/lib/crm-pages";
+import { formFailureState, formValidationState, type FormActionState } from "@/lib/action-state";
 import { getAppSessionContext, type AppSessionContext } from "@/lib/session";
 
 const dealOutcomeSchema = z.enum(["won", "lost"]);
@@ -51,25 +52,29 @@ async function requireCrmContext(): Promise<AppSessionContext> {
   return context;
 }
 
-function throwDealActionError(error: unknown): never {
+function dealActionErrorState(error: unknown, fallback: string): FormActionState {
   if (isCrmForbidden(error)) {
     forbidden();
   }
 
-  throw error instanceof Error ? error : new Error("CRM deal action failed.");
+  return formFailureState(error instanceof Error ? error.message : fallback);
 }
 
-function valueCentsFromForm(value: string | null): number | null {
+function valueCentsFromForm(
+  value: string | null,
+):
+  | { readonly ok: true; readonly value: number | null }
+  | { readonly ok: false; readonly message: string } {
   if (value === null || value === "") {
-    return null;
+    return { ok: true, value: null };
   }
 
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
-    throw new Error("Deal value is invalid.");
+    return { ok: false, message: "Deal value must be a valid number." };
   }
 
-  return Math.round(parsed * 100);
+  return { ok: true, value: Math.round(parsed * 100) };
 }
 
 function redirectToDeals(): never {
@@ -77,7 +82,10 @@ function redirectToDeals(): never {
   redirect("/crm/deals");
 }
 
-export async function createDealAction(formData: FormData): Promise<void> {
+export async function createDealAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireCrmContext();
   const parsed = createDealSchema.safeParse({
     title: stringFromForm(formData, "title"),
@@ -91,7 +99,12 @@ export async function createDealAction(formData: FormData): Promise<void> {
   });
 
   if (!parsed.success) {
-    throw new Error("Deal form is invalid.");
+    return formValidationState(parsed.error.issues);
+  }
+
+  const valueCents = valueCentsFromForm(parsed.data.value);
+  if (!valueCents.ok) {
+    return formFailureState(valueCents.message);
   }
 
   const result = await createDeal({
@@ -99,7 +112,7 @@ export async function createDealAction(formData: FormData): Promise<void> {
     title: parsed.data.title,
     accountId: parsed.data.accountId,
     primaryContactId: parsed.data.primaryContactId,
-    valueCents: valueCentsFromForm(parsed.data.value),
+    valueCents: valueCents.value,
     ...(typeof parsed.data.currency === "string" && parsed.data.currency.length > 0
       ? { currency: parsed.data.currency }
       : {}),
@@ -109,13 +122,16 @@ export async function createDealAction(formData: FormData): Promise<void> {
   });
 
   if (!result.ok) {
-    throwDealActionError(result.error);
+    return dealActionErrorState(result.error, "Deal could not be created.");
   }
 
   redirectToDeals();
 }
 
-export async function moveDealStageAction(formData: FormData): Promise<void> {
+export async function moveDealStageAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireCrmContext();
   const parsed = moveDealStageSchema.safeParse({
     dealId: stringFromForm(formData, "dealId"),
@@ -123,7 +139,7 @@ export async function moveDealStageAction(formData: FormData): Promise<void> {
   });
 
   if (!parsed.success) {
-    throw new Error("Deal move is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const result = await moveDealStage({
@@ -133,13 +149,16 @@ export async function moveDealStageAction(formData: FormData): Promise<void> {
   });
 
   if (!result.ok) {
-    throwDealActionError(result.error);
+    return dealActionErrorState(result.error, "Deal could not be moved.");
   }
 
   redirectToDeals();
 }
 
-export async function closeDealAction(formData: FormData): Promise<void> {
+export async function closeDealAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireCrmContext();
   const parsed = closeDealSchema.safeParse({
     dealId: stringFromForm(formData, "dealId"),
@@ -148,7 +167,7 @@ export async function closeDealAction(formData: FormData): Promise<void> {
   });
 
   if (!parsed.success) {
-    throw new Error("Deal close form is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const result = await closeDeal({
@@ -159,20 +178,23 @@ export async function closeDealAction(formData: FormData): Promise<void> {
   });
 
   if (!result.ok) {
-    throwDealActionError(result.error);
+    return dealActionErrorState(result.error, "Deal could not be closed.");
   }
 
   redirectToDeals();
 }
 
-export async function reopenDealAction(formData: FormData): Promise<void> {
+export async function reopenDealAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireCrmContext();
   const parsed = reopenDealSchema.safeParse({
     dealId: stringFromForm(formData, "dealId"),
   });
 
   if (!parsed.success) {
-    throw new Error("Deal reopen form is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const result = await reopenDeal({
@@ -181,7 +203,7 @@ export async function reopenDealAction(formData: FormData): Promise<void> {
   });
 
   if (!result.ok) {
-    throwDealActionError(result.error);
+    return dealActionErrorState(result.error, "Deal could not be reopened.");
   }
 
   redirectToDeals();

@@ -70,6 +70,43 @@ export function crmContextInput(context: AppSessionContext) {
   };
 }
 
+export type WebsiteNormalizationResult =
+  | { readonly ok: true; readonly value: string | null }
+  | { readonly ok: false; readonly message: string };
+
+const websiteSchemePattern = /^[A-Za-z][A-Za-z0-9+.-]*:/;
+
+export function normalizeCrmWebsiteForStorage(value: string | null): WebsiteNormalizationResult {
+  if (value === null) {
+    return { ok: true, value: null };
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return { ok: true, value: null };
+  }
+
+  const candidate = websiteSchemePattern.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let url: URL;
+
+  try {
+    url = new URL(candidate);
+  } catch {
+    return { ok: false, message: "Website must be a valid URL." };
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { ok: false, message: "Website must use http:// or https://." };
+  }
+
+  return { ok: true, value: url.toString() };
+}
+
+export function accountWebsiteHref(value: string | null): string | null {
+  const normalized = normalizeCrmWebsiteForStorage(value);
+  return normalized.ok ? normalized.value : null;
+}
+
 export function lifecycleLabel(value: CrmContactDto["lifecycleStage"]): string {
   if (value === "lead") {
     return "Lead";

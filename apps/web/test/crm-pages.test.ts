@@ -4,6 +4,7 @@ import type { CrmAccountDto, CrmDealDto, CrmTicketDto } from "@opzava/crm";
 import { describe, expect, it } from "vitest";
 
 import {
+  accountWebsiteHref,
   accountOpenDealCount,
   accountOpenTicketCount,
   dealStatusBadgeClassName,
@@ -11,6 +12,7 @@ import {
   formatMoney,
   lifecycleBadgeClassName,
   lifecycleLabel,
+  normalizeCrmWebsiteForStorage,
   ownerLabel,
   ticketPriorityBadgeClassName,
   ticketPriorityLabel,
@@ -64,6 +66,23 @@ describe("CRM page state", () => {
     expect(accountOpenTicketCount(account, [openTicket, resolvedTicket, otherTicket])).toBe(1);
   });
 
+  it("normalizes account websites and rejects non-http schemes", () => {
+    expect(normalizeCrmWebsiteForStorage(null)).toEqual({ ok: true, value: null });
+    expect(normalizeCrmWebsiteForStorage("example.com")).toEqual({
+      ok: true,
+      value: "https://example.com/",
+    });
+    expect(normalizeCrmWebsiteForStorage("http://example.com/path")).toEqual({
+      ok: true,
+      value: "http://example.com/path",
+    });
+    expect(normalizeCrmWebsiteForStorage("data:text/html,hi")).toEqual({
+      ok: false,
+      message: "Website must use http:// or https://.",
+    });
+    expect(accountWebsiteHref("data:text/html,hi")).toBeNull();
+  });
+
   it("wires CRM pages to the remediated mockup class contract and live actions", async () => {
     const [
       styles,
@@ -71,6 +90,8 @@ describe("CRM page state", () => {
       contactDetail,
       accounts,
       accountDetail,
+      accountActions,
+      actionStateForm,
       deals,
       dealCreateDialog,
       tickets,
@@ -84,6 +105,8 @@ describe("CRM page state", () => {
       readRepoFile("app/(app)/crm/contacts/[id]/page.tsx"),
       readRepoFile("app/(app)/crm/accounts/page.tsx"),
       readRepoFile("app/(app)/crm/accounts/[id]/page.tsx"),
+      readRepoFile("app/(app)/crm/accounts/actions.ts"),
+      readRepoFile("components/forms/action-state-form.tsx"),
       readRepoFile("app/(app)/crm/deals/page.tsx"),
       readRepoFile("app/(app)/crm/deals/_components/deal-create-dialog.tsx"),
       readRepoFile("app/(app)/crm/tickets/page.tsx"),
@@ -123,6 +146,11 @@ describe("CRM page state", () => {
     expect(accounts).toContain('className="table table-compact table-cards crm-table"');
     expect(accounts).toContain("createAccountAction");
     expect(accounts).toContain("web.crm.account.create");
+    expect(accounts).toContain("ActionStateForm");
+    expect(accountActions).toContain("normalizeCrmWebsiteForStorage");
+    expect(accountDetail).toContain("accountWebsiteHref(account.website)");
+    expect(actionStateForm).toContain("sb-alert sb-alert--destructive");
+    expect(actionStateForm).toContain("useActionState");
 
     expect(deals).toContain('className="board-columns crm-deals-board"');
     expect(deals).toContain('className="board-col"');

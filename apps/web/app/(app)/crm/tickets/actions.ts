@@ -20,6 +20,7 @@ import {
   ownerUserIdFromForm,
   stringFromForm,
 } from "@/lib/crm-pages";
+import { formFailureState, formValidationState, type FormActionState } from "@/lib/action-state";
 import { getAppSessionContext, type AppSessionContext } from "@/lib/session";
 
 const ticketStatusSchema = z.enum(crmTicketStatuses);
@@ -61,19 +62,22 @@ async function requireCrmContext(): Promise<AppSessionContext> {
   return context;
 }
 
-function throwTicketActionError(error: unknown): never {
+function ticketActionErrorState(error: unknown, fallback: string): FormActionState {
   if (isCrmForbidden(error)) {
     forbidden();
   }
 
-  throw error instanceof Error ? error : new Error("CRM ticket action failed.");
+  return formFailureState(error instanceof Error ? error.message : fallback);
 }
 
 function ticketListPath(filter: string): string {
   return filter === "all" ? "/crm/tickets" : `/crm/tickets?status=${filter}`;
 }
 
-export async function createTicketAction(formData: FormData): Promise<void> {
+export async function createTicketAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireCrmContext();
   const parsed = createTicketSchema.safeParse({
     subject: stringFromForm(formData, "subject"),
@@ -87,7 +91,7 @@ export async function createTicketAction(formData: FormData): Promise<void> {
   });
 
   if (!parsed.success) {
-    throw new Error("Ticket form is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const result = await createTicket({
@@ -103,14 +107,17 @@ export async function createTicketAction(formData: FormData): Promise<void> {
   });
 
   if (!result.ok) {
-    throwTicketActionError(result.error);
+    return ticketActionErrorState(result.error, "Ticket could not be created.");
   }
 
   revalidatePath("/crm/tickets");
   redirect(`/crm/tickets/${result.value.id}`);
 }
 
-export async function updateTicketStatusAction(formData: FormData): Promise<void> {
+export async function updateTicketStatusAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireCrmContext();
   const parsed = updateTicketStatusSchema.safeParse({
     ticketId: stringFromForm(formData, "ticketId"),
@@ -119,7 +126,7 @@ export async function updateTicketStatusAction(formData: FormData): Promise<void
   });
 
   if (!parsed.success) {
-    throw new Error("Ticket status form is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const result = await updateTicketStatus({
@@ -129,7 +136,7 @@ export async function updateTicketStatusAction(formData: FormData): Promise<void
   });
 
   if (!result.ok) {
-    throwTicketActionError(result.error);
+    return ticketActionErrorState(result.error, "Ticket status could not be updated.");
   }
 
   revalidatePath("/crm/tickets");
@@ -137,7 +144,10 @@ export async function updateTicketStatusAction(formData: FormData): Promise<void
   redirect(ticketListPath(parsed.data.filter));
 }
 
-export async function updateTicketAction(formData: FormData): Promise<void> {
+export async function updateTicketAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireCrmContext();
   const parsed = updateTicketSchema.safeParse({
     ticketId: stringFromForm(formData, "ticketId"),
@@ -149,7 +159,7 @@ export async function updateTicketAction(formData: FormData): Promise<void> {
   });
 
   if (!parsed.success) {
-    throw new Error("Ticket form is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const assigneeUserId =
@@ -167,7 +177,7 @@ export async function updateTicketAction(formData: FormData): Promise<void> {
   });
 
   if (!result.ok) {
-    throwTicketActionError(result.error);
+    return ticketActionErrorState(result.error, "Ticket could not be updated.");
   }
 
   revalidatePath("/crm/tickets");

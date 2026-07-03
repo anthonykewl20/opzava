@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import type { TaskDto } from "@opzava/project-management";
 import { describe, expect, it } from "vitest";
 
@@ -9,6 +11,10 @@ import {
   taskSearchText,
   taskStatusChip,
 } from "../lib/tasks-board-view";
+
+async function readRepoFile(path: string): Promise<string> {
+  return readFile(new URL(`../${path}`, import.meta.url), "utf8");
+}
 
 function task(overrides: Partial<TaskDto> = {}): TaskDto {
   return {
@@ -62,7 +68,6 @@ describe("Tasks board view model", () => {
     expect(
       filterBoardTasks(tasks, {
         search: "atlas review",
-        workspaceId: "all",
         status: "all",
         priority: "all",
       }).map((current) => current.id),
@@ -70,7 +75,6 @@ describe("Tasks board view model", () => {
     expect(
       filterBoardTasks(tasks, {
         search: "",
-        workspaceId: "workspace-1",
         status: "todo",
         priority: "high",
       }).map((current) => current.id),
@@ -101,5 +105,24 @@ describe("Tasks board view model", () => {
         new Date("2026-07-03T10:00:00.000Z"),
       ),
     ).toBe("Due Sunday");
+  });
+
+  it("wires the task create form with a per-open replay-safe idempotency key", async () => {
+    const [board, actions, page] = await Promise.all([
+      readRepoFile("components/tasks/tasks-board.tsx"),
+      readRepoFile("app/(app)/tasks/actions.ts"),
+      readRepoFile("app/(app)/tasks/page.tsx"),
+    ]);
+
+    expect(board).toContain("createTaskIdempotencyKey");
+    expect(board).toContain("web.task.create");
+    expect(board).toContain('name="idempotencyKey"');
+    expect(actions).toContain("idempotencyKey: z.string().trim().min(1).max(160)");
+    expect(actions).toContain("idempotencyKey: parsed.data.idempotencyKey");
+
+    expect(page).toContain("DESCOPE(project-filter)");
+    expect(page).toContain("id: context.workspaceId");
+    expect(board).not.toContain("All projects");
+    expect(board).not.toContain('workspaceId: "all"');
   });
 });

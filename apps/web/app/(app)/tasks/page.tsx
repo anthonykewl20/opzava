@@ -65,9 +65,8 @@ export default async function TasksPage() {
   }
 
   const renderedAt = new Date();
-  const workspaces = context.workspaces ?? [
-    { id: context.workspaceId, name: context.workspaceName },
-  ];
+  // DESCOPE(project-filter): multi-workspace data seam arrives with workspace switching.
+  const workspaces = [{ id: context.workspaceId, name: context.workspaceName }];
 
   return (
     <TasksBoard

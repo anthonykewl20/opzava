@@ -8,10 +8,12 @@ import { z } from "zod";
 import {
   crmContextInput,
   isCrmForbidden,
+  normalizeCrmWebsiteForStorage,
   optionalStringFromForm,
   ownerUserIdFromForm,
   stringFromForm,
 } from "@/lib/crm-pages";
+import { formFailureState, formValidationState, type FormActionState } from "@/lib/action-state";
 import { getAppSessionContext, type AppSessionContext } from "@/lib/session";
 
 const createAccountSchema = z.object({
@@ -45,15 +47,18 @@ async function requireCrmContext(): Promise<AppSessionContext> {
   return context;
 }
 
-function throwAccountActionError(error: unknown): never {
+function accountActionErrorState(error: unknown, fallback: string): FormActionState {
   if (isCrmForbidden(error)) {
     forbidden();
   }
 
-  throw error instanceof Error ? error : new Error("CRM account action failed.");
+  return formFailureState(error instanceof Error ? error.message : fallback);
 }
 
-export async function createAccountAction(formData: FormData): Promise<void> {
+export async function createAccountAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireCrmContext();
   const parsed = createAccountSchema.safeParse({
     name: stringFromForm(formData, "name"),
@@ -67,7 +72,12 @@ export async function createAccountAction(formData: FormData): Promise<void> {
   });
 
   if (!parsed.success) {
-    throw new Error("Account form is invalid.");
+    return formValidationState(parsed.error.issues);
+  }
+
+  const website = normalizeCrmWebsiteForStorage(parsed.data.website);
+  if (!website.ok) {
+    return formFailureState(website.message);
   }
 
   const result = await createAccount({
@@ -75,7 +85,7 @@ export async function createAccountAction(formData: FormData): Promise<void> {
     name: parsed.data.name,
     domain: parsed.data.domain,
     industry: parsed.data.industry,
-    website: parsed.data.website,
+    website: website.value,
     description: parsed.data.description,
     ownerUserId: ownerUserIdFromForm(parsed.data.owner, context),
     parentAccountId: parsed.data.parentAccountId,
@@ -83,14 +93,17 @@ export async function createAccountAction(formData: FormData): Promise<void> {
   });
 
   if (!result.ok) {
-    throwAccountActionError(result.error);
+    return accountActionErrorState(result.error, "Account could not be created.");
   }
 
   revalidatePath("/crm/accounts");
   redirect(`/crm/accounts/${result.value.id}`);
 }
 
-export async function updateAccountAction(formData: FormData): Promise<void> {
+export async function updateAccountAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireCrmContext();
   const parsed = updateAccountSchema.safeParse({
     accountId: stringFromForm(formData, "accountId"),
@@ -104,7 +117,12 @@ export async function updateAccountAction(formData: FormData): Promise<void> {
   });
 
   if (!parsed.success) {
-    throw new Error("Account form is invalid.");
+    return formValidationState(parsed.error.issues);
+  }
+
+  const website = normalizeCrmWebsiteForStorage(parsed.data.website);
+  if (!website.ok) {
+    return formFailureState(website.message);
   }
 
   const ownerUserId =
@@ -115,14 +133,14 @@ export async function updateAccountAction(formData: FormData): Promise<void> {
     name: parsed.data.name,
     domain: parsed.data.domain,
     industry: parsed.data.industry,
-    website: parsed.data.website,
+    website: website.value,
     description: parsed.data.description,
     parentAccountId: parsed.data.parentAccountId,
     ...(ownerUserId === undefined ? {} : { ownerUserId }),
   });
 
   if (!result.ok) {
-    throwAccountActionError(result.error);
+    return accountActionErrorState(result.error, "Account could not be updated.");
   }
 
   revalidatePath("/crm/accounts");

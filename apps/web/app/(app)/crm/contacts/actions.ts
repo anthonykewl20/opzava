@@ -18,6 +18,7 @@ import {
   ownerUserIdFromForm,
   stringFromForm,
 } from "@/lib/crm-pages";
+import { formFailureState, formValidationState, type FormActionState } from "@/lib/action-state";
 import { getAppSessionContext, type AppSessionContext } from "@/lib/session";
 
 const contactLifecycleSchema = z.enum(crmContactLifecycles);
@@ -62,15 +63,18 @@ async function requireCrmContext(): Promise<AppSessionContext> {
   return context;
 }
 
-function throwContactActionError(error: unknown): never {
+function contactActionErrorState(error: unknown, fallback: string): FormActionState {
   if (isCrmForbidden(error)) {
     forbidden();
   }
 
-  throw error instanceof Error ? error : new Error("CRM contact action failed.");
+  return formFailureState(error instanceof Error ? error.message : fallback);
 }
 
-export async function createContactAction(formData: FormData): Promise<void> {
+export async function createContactAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireCrmContext();
   const parsed = createContactSchema.safeParse({
     displayName: stringFromForm(formData, "displayName"),
@@ -85,7 +89,7 @@ export async function createContactAction(formData: FormData): Promise<void> {
   });
 
   if (!parsed.success) {
-    throw new Error("Contact form is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const result = await createContact({
@@ -102,14 +106,17 @@ export async function createContactAction(formData: FormData): Promise<void> {
   });
 
   if (!result.ok) {
-    throwContactActionError(result.error);
+    return contactActionErrorState(result.error, "Contact could not be created.");
   }
 
   revalidatePath("/crm/contacts");
   redirect(`/crm/contacts/${result.value.id}`);
 }
 
-export async function updateContactAction(formData: FormData): Promise<void> {
+export async function updateContactAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireCrmContext();
   const parsed = updateContactSchema.safeParse({
     contactId: stringFromForm(formData, "contactId"),
@@ -124,7 +131,7 @@ export async function updateContactAction(formData: FormData): Promise<void> {
   });
 
   if (!parsed.success) {
-    throw new Error("Contact form is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const ownerUserId =
@@ -143,7 +150,7 @@ export async function updateContactAction(formData: FormData): Promise<void> {
   });
 
   if (!result.ok) {
-    throwContactActionError(result.error);
+    return contactActionErrorState(result.error, "Contact could not be updated.");
   }
 
   revalidatePath("/crm/contacts");
@@ -151,7 +158,10 @@ export async function updateContactAction(formData: FormData): Promise<void> {
   redirect(`/crm/contacts/${result.value.id}`);
 }
 
-export async function addContactActivityAction(formData: FormData): Promise<void> {
+export async function addContactActivityAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireCrmContext();
   const parsed = addContactActivitySchema.safeParse({
     contactId: stringFromForm(formData, "contactId"),
@@ -160,7 +170,7 @@ export async function addContactActivityAction(formData: FormData): Promise<void
   });
 
   if (!parsed.success) {
-    throw new Error("Contact activity form is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const result = await addNote({
@@ -171,7 +181,7 @@ export async function addContactActivityAction(formData: FormData): Promise<void
   });
 
   if (!result.ok) {
-    throwContactActionError(result.error);
+    return contactActionErrorState(result.error, "Contact activity could not be saved.");
   }
 
   revalidatePath(`/crm/contacts/${parsed.data.contactId}`);

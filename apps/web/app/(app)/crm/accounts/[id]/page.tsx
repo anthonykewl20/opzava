@@ -3,7 +3,9 @@ import { forbidden, notFound, redirect } from "next/navigation";
 
 import { CrmPageStyles } from "@/app/(app)/crm/_components/crm-page-styles";
 import { updateAccountAction } from "@/app/(app)/crm/accounts/actions";
+import { ActionStateForm } from "@/components/forms/action-state-form";
 import {
+  accountWebsiteHref,
   crmContextInput,
   formatMoney,
   isCrmForbidden,
@@ -90,6 +92,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
     .flatMap((column) => column.deals)
     .filter((deal) => deal.accountId === account.id);
   const tickets = ticketsResult.value.filter((ticket) => ticket.accountId === account.id);
+  const websiteHref = accountWebsiteHref(account.website);
 
   return (
     <>
@@ -128,8 +131,10 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
                       <dd>
                         {account.website === null ? (
                           "None"
+                        ) : websiteHref === null ? (
+                          account.website
                         ) : (
-                          <a href={account.website} target="_blank" rel="noopener noreferrer">
+                          <a href={websiteHref} target="_blank" rel="noopener noreferrer">
                             {account.website}
                           </a>
                         )}
@@ -148,7 +153,11 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
 
                     <details style={{ marginTop: "var(--space-5)" }}>
                       <summary className="btn">Edit profile</summary>
-                      <form action={updateAccountAction} className="crm-panel-form">
+                      <ActionStateForm
+                        action={updateAccountAction}
+                        className="crm-panel-form"
+                        errorTitle="Could not save account"
+                      >
                         <input type="hidden" name="accountId" value={account.id} />
                         <div className="field">
                           <label className="label" htmlFor="account-name">
@@ -267,7 +276,7 @@ export default async function AccountDetailPage({ params }: AccountDetailPagePro
                         <button className="btn btn-primary" type="submit">
                           Save account
                         </button>
-                      </form>
+                      </ActionStateForm>
                     </details>
                   </div>
                 </div>

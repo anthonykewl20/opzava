@@ -8,7 +8,6 @@ export type TaskFilterValue<T extends string> = "all" | T;
 
 export interface BoardTaskFilters {
   readonly search: string;
-  readonly workspaceId: TaskFilterValue<string>;
   readonly status: TaskFilterValue<TaskStatus>;
   readonly priority: TaskFilterValue<TaskPriority>;
 }
@@ -167,10 +166,6 @@ export function filterBoardTasks(
   const terms = filters.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
 
   return tasks.filter((task) => {
-    if (filters.workspaceId !== "all" && task.workspaceId !== filters.workspaceId) {
-      return false;
-    }
-
     if (filters.status !== "all" && task.status !== filters.status) {
       return false;
     }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } fro
 import { useRouter } from "next/navigation";
 
 import { createTaskAction, moveTaskAction, updateTaskAction } from "@/app/(app)/tasks/actions";
+import { ActionStateForm } from "@/components/forms/action-state-form";
 import { formatCardId } from "@/lib/task-card-format";
 import {
   filterBoardTasks,
@@ -216,6 +217,14 @@ function TaskBoardPageStyles() {
   return <style>{taskBoardPageStyles}</style>;
 }
 
+function createTaskIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `web.task.create:${crypto.randomUUID()}`;
+  }
+
+  return `web.task.create:${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 function TaskForm({
   mode,
   task,
@@ -231,6 +240,9 @@ function TaskForm({
   const title = mode === "create" ? "New task" : "Edit task";
   const submitLabel = mode === "create" ? "Create task" : "Save task";
   const assigneeValue = task?.assigneeUserId === currentUser.id ? "me" : "";
+  const [createTaskIdempotencyKeyValue] = useState(() =>
+    mode === "create" ? createTaskIdempotencyKey() : "",
+  );
 
   return (
     <div className="task-modal-backdrop" role="presentation">
@@ -254,7 +266,14 @@ function TaskForm({
           </button>
         </div>
 
-        <form action={action} className="task-form">
+        <ActionStateForm
+          action={action}
+          className="task-form"
+          errorTitle={mode === "create" ? "Could not create task" : "Could not save task"}
+        >
+          {mode === "create" ? (
+            <input type="hidden" name="idempotencyKey" value={createTaskIdempotencyKeyValue} />
+          ) : null}
           {task === undefined ? null : <input type="hidden" name="taskId" value={task.id} />}
 
           <div className="field">
@@ -364,7 +383,7 @@ function TaskForm({
               {submitLabel}
             </button>
           </div>
-        </form>
+        </ActionStateForm>
       </section>
     </div>
   );
@@ -569,8 +588,6 @@ function BoardFilterRow({
   readonly workspaces: readonly WorkspaceOption[];
   readonly onFiltersChange: (filters: BoardTaskFilters) => void;
 }) {
-  const showAllProjects = workspaces.length > 1;
-
   return (
     <div
       className="board-filter-row"
@@ -610,12 +627,9 @@ function BoardFilterRow({
         id="project-filter"
         className="select"
         style={{ width: "auto", flex: "none" }}
-        value={filters.workspaceId}
-        onChange={(event) =>
-          onFiltersChange({ ...filters, workspaceId: event.currentTarget.value })
-        }
+        value={workspaces[0]?.id ?? ""}
+        disabled
       >
-        {showAllProjects ? <option value="all">All projects</option> : null}
         {workspaces.map((workspace) => (
           <option key={workspace.id} value={workspace.id}>
             {workspace.name}
@@ -631,14 +645,12 @@ export function TasksBoard({
   currentUser,
   workspaceId,
   workspaceName,
-  workspaces,
   renderedAtIso,
   todayLabel,
 }: TasksBoardProps) {
   const [boardTasks, setBoardTasks] = useState<readonly TaskDto[]>(tasks);
   const [filters, setFilters] = useState<BoardTaskFilters>({
     search: "",
-    workspaceId: workspaces.length > 1 ? "all" : workspaceId,
     status: "all",
     priority: "all",
   });
@@ -650,9 +662,13 @@ export function TasksBoard({
   }, [tasks]);
 
   const renderedAt = useMemo(() => new Date(renderedAtIso), [renderedAtIso]);
+  const currentWorkspaceOptions = useMemo(
+    () => [{ id: workspaceId, name: workspaceName }],
+    [workspaceId, workspaceName],
+  );
   const workspaceNameById = useMemo(
-    () => new Map(workspaces.map((workspace) => [workspace.id, workspace.name])),
-    [workspaces],
+    () => new Map(currentWorkspaceOptions.map((workspace) => [workspace.id, workspace.name])),
+    [currentWorkspaceOptions],
   );
   const visibleTasks = useMemo(() => filterBoardTasks(boardTasks, filters), [boardTasks, filters]);
 
@@ -697,7 +713,11 @@ export function TasksBoard({
         </button>
       </div>
 
-      <BoardFilterRow filters={filters} workspaces={workspaces} onFiltersChange={setFilters} />
+      <BoardFilterRow
+        filters={filters}
+        workspaces={currentWorkspaceOptions}
+        onFiltersChange={setFilters}
+      />
 
       <KanbanView
         tasks={visibleTasks}

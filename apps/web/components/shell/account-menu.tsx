@@ -2,6 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import {
+  THEME_CHANGE_EVENT,
+  currentTheme,
+  isDarkTheme,
+  toggleThemePreference,
+} from "@/components/shell/theme-toggle";
+
 interface AccountMenuUser {
   readonly name: string;
   readonly email: string;
@@ -69,6 +76,7 @@ export function AccountMenu({
   const triggerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const userInitials = initials(user.name);
+  const [theme, setTheme] = useState("dark");
 
   useEffect(() => {
     if (document.getElementById("acct-menu-style")) return;
@@ -77,6 +85,18 @@ export function AccountMenu({
     style.id = "acct-menu-style";
     style.textContent = accountMenuCss;
     document.head.appendChild(style);
+  }, []);
+
+  useEffect(() => {
+    setTheme(currentTheme());
+    function syncTheme() {
+      setTheme(currentTheme());
+    }
+
+    window.addEventListener(THEME_CHANGE_EVENT, syncTheme);
+    return () => {
+      window.removeEventListener(THEME_CHANGE_EVENT, syncTheme);
+    };
   }, []);
 
   useEffect(() => {
@@ -126,6 +146,11 @@ export function AccountMenu({
 
   function toggleMenu() {
     setOpen((current) => !current);
+  }
+
+  function toggleAppearance() {
+    setTheme(toggleThemePreference());
+    setOpen(false);
   }
 
   return (
@@ -178,37 +203,14 @@ export function AccountMenu({
             <div className="am-em">{user.email}</div>
           </div>
         </div>
-        <a className="am-item" role="menuitem" href="/crm/contacts">
-          <span className="am-g" aria-hidden="true">
-            👤
-          </span>
-          View profile
-        </a>
-        <a className="am-item" role="menuitem" href="/connections">
-          <span className="am-g" aria-hidden="true">
-            🔗
-          </span>
-          Your tools
-          <span className="am-note">5 / 7</span>
-        </a>
-        <a className="am-item" role="menuitem" href="/crm/accounts">
-          <span className="am-g" aria-hidden="true">
-            ⚙
-          </span>
-          Settings
-        </a>
-        <button className="am-item" role="menuitem" type="button" onClick={() => setOpen(false)}>
+        {/* DESCOPE(profile-settings): P8 profile, settings, tool-summary, and help entries need backed routes and live counts before returning to this menu. */}
+        <button className="am-item" role="menuitem" type="button" onClick={toggleAppearance}>
           <span className="am-g" aria-hidden="true">
             ◐
           </span>
           Appearance
+          <span className="am-note">{isDarkTheme(theme) ? "Dark" : "Light"}</span>
         </button>
-        <a className="am-item" role="menuitem" href="/ask-opzava">
-          <span className="am-g" aria-hidden="true">
-            ❔
-          </span>
-          Help & support
-        </a>
         <div className="am-sep" role="separator" />
         <form action={signOutAction} className="am-form">
           <button className="am-item" role="menuitem" type="submit">

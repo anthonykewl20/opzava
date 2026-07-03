@@ -3,6 +3,7 @@ import { forbidden, notFound, redirect } from "next/navigation";
 
 import { CrmPageStyles } from "@/app/(app)/crm/_components/crm-page-styles";
 import { updateTicketAction } from "@/app/(app)/crm/tickets/actions";
+import { ActionStateForm } from "@/components/forms/action-state-form";
 import {
   crmContextInput,
   isCrmForbidden,
@@ -106,7 +107,11 @@ export default async function TicketDetailPage({ params }: TicketDetailPageProps
                   </h2>
                 </div>
                 <div className="card-body">
-                  <form action={updateTicketAction} className="crm-panel-form">
+                  <ActionStateForm
+                    action={updateTicketAction}
+                    className="crm-panel-form"
+                    errorTitle="Could not save ticket"
+                  >
                     <input type="hidden" name="ticketId" value={ticket.id} />
                     <div className="field">
                       <label className="label" htmlFor="ticket-subject">
@@ -195,7 +200,7 @@ export default async function TicketDetailPage({ params }: TicketDetailPageProps
                     <button className="btn btn-primary" type="submit">
                       Save ticket
                     </button>
-                  </form>
+                  </ActionStateForm>
                 </div>
               </div>
             </section>

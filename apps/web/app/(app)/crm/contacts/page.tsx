@@ -5,6 +5,7 @@ import { forbidden, redirect } from "next/navigation";
 
 import { CrmPageStyles, CrmPlusIcon } from "@/app/(app)/crm/_components/crm-page-styles";
 import { createContactAction } from "@/app/(app)/crm/contacts/actions";
+import { ActionStateForm } from "@/components/forms/action-state-form";
 import {
   crmContextInput,
   isCrmForbidden,
@@ -62,7 +63,11 @@ export default async function ContactsPage() {
                 <CrmPlusIcon />
                 New contact
               </summary>
-              <form className="issues-new-form crm-new-form" action={createContactAction}>
+              <ActionStateForm
+                action={createContactAction}
+                className="issues-new-form crm-new-form"
+                errorTitle="Could not create contact"
+              >
                 <input type="hidden" name="idempotencyKey" value={createContactIdempotencyKey} />
                 <div className="field">
                   <label className="label" htmlFor="new-contact-name">
@@ -165,7 +170,7 @@ export default async function ContactsPage() {
                 <button className="btn btn-primary" type="submit">
                   Create contact
                 </button>
-              </form>
+              </ActionStateForm>
             </details>
           </div>
 

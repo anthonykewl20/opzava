@@ -11,6 +11,7 @@ import {
   reopenDealAction,
 } from "@/app/(app)/crm/deals/actions";
 import { DealCreateDialog } from "@/app/(app)/crm/deals/_components/deal-create-dialog";
+import { ActionStateForm } from "@/components/forms/action-state-form";
 import {
   crmContextInput,
   dealStatusBadgeClassName,
@@ -206,7 +207,11 @@ export default async function DealsPage() {
                               )}
                             </div>
 
-                            <form action={moveDealStageAction} className="crm-deal-move-form">
+                            <ActionStateForm
+                              action={moveDealStageAction}
+                              className="crm-deal-move-form"
+                              errorTitle="Could not move deal"
+                            >
                               <input type="hidden" name="dealId" value={deal.id} />
                               <label className="u-sr-only" htmlFor={`deal-${deal.id}-stage`}>
                                 Move {deal.title} to stage
@@ -226,7 +231,7 @@ export default async function DealsPage() {
                               <button className="btn btn-sm" type="submit">
                                 Move
                               </button>
-                            </form>
+                            </ActionStateForm>
 
                             <div className="crm-deal-close-actions">
                               {(["won", "lost"] as const).map((outcome) => (
@@ -234,9 +239,10 @@ export default async function DealsPage() {
                                   <summary className="btn btn-sm">
                                     Mark {dealStatusLabel(outcome)}
                                   </summary>
-                                  <form
-                                    className="issues-new-form crm-new-form"
+                                  <ActionStateForm
                                     action={closeDealAction}
+                                    className="issues-new-form crm-new-form"
+                                    errorTitle={`Could not mark deal ${dealStatusLabel(outcome).toLowerCase()}`}
                                   >
                                     <input type="hidden" name="dealId" value={deal.id} />
                                     <input type="hidden" name="outcome" value={outcome} />
@@ -258,7 +264,7 @@ export default async function DealsPage() {
                                     <button className="btn btn-primary btn-sm" type="submit">
                                       Mark {dealStatusLabel(outcome)}
                                     </button>
-                                  </form>
+                                  </ActionStateForm>
                                 </details>
                               ))}
                             </div>
@@ -297,12 +303,16 @@ export default async function DealsPage() {
                         {deal.closeReason === null ? null : (
                           <p className="u-subtle">{deal.closeReason}</p>
                         )}
-                        <form action={reopenDealAction} style={{ marginTop: "var(--space-2)" }}>
+                        <ActionStateForm
+                          action={reopenDealAction}
+                          errorTitle="Could not reopen deal"
+                          style={{ marginTop: "var(--space-2)" }}
+                        >
                           <input type="hidden" name="dealId" value={deal.id} />
                           <button className="btn btn-sm" type="submit">
                             Reopen
                           </button>
-                        </form>
+                        </ActionStateForm>
                       </article>
                     ))}
                   </div>

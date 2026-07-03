@@ -4,6 +4,7 @@ import { Fragment } from "react";
 import { redirect } from "next/navigation";
 
 import { createIssueAction, syncIssuesAction } from "@/app/(app)/issues/actions";
+import { ActionStateForm } from "@/components/forms/action-state-form";
 import {
   issueAssigneeView,
   issueDivergenceLabel,
@@ -399,7 +400,11 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
                   </svg>
                   New issue
                 </summary>
-                <form className="issues-new-form" action={createIssueAction}>
+                <ActionStateForm
+                  action={createIssueAction}
+                  className="issues-new-form"
+                  errorTitle="Could not create issue"
+                >
                   <input type="hidden" name="idempotencyKey" value={createIssueIdempotencyKey} />
                   <div className="field">
                     <label className="label" htmlFor="new-issue-title">
@@ -436,7 +441,7 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
                   <button className="btn btn-primary" type="submit">
                     Create issue
                   </button>
-                </form>
+                </ActionStateForm>
               </details>
             </div>
           </div>
