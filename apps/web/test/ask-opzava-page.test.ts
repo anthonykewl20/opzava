@@ -74,8 +74,38 @@ describe("Ask Opzava page state", () => {
 
     expect(page).toContain("AskOpzavaChat");
     expect(page).toContain("getOrCreateAskAdminHistory");
-    expect(nav).toContain('href="/ask-opzava"');
-    expect(nav).toContain('pathname.startsWith("/ask-opzava")');
+    expect(nav).toContain('href: "/ask-opzava"');
+    expect(nav).toContain("pathname.startsWith(href)");
+  });
+
+  it("keeps the Ask Opzava chat on the orchestrator mockup class contract and live SSE loop", async () => {
+    const component = await readRepoFile("components/ask-opzava/ask-opzava-chat.tsx");
+
+    for (const className of [
+      ".chat-canvas",
+      ".chat-log-inner",
+      ".chat-tool-card",
+      ".chat-status-pill",
+      ".action-bubble",
+      ".composer-wrap",
+      ".example-chip",
+      ".ops-state-panel",
+      ".chat-title-strip",
+    ]) {
+      expect(component).toContain(className);
+    }
+
+    expect(component).toContain("chat-row chat-row--user");
+    expect(component).toContain('className="composer"');
+    expect(component).toContain('id="composerForm"');
+    expect(component).toContain('id="msgInput"');
+    expect(component).toContain('fetch("/api/tasks/ask-admin/turn"');
+    expect(component).toContain("parseAskAdminSseBuffer");
+    expect(component).toContain("upsertToolReceipt");
+    expect(component).toContain("router.refresh()");
+    expect(component).toContain("setDraft(emptyAskAdminDraft())");
+    expect(component).toContain("DESCOPE(proactive-digest)");
+    expect(component).toContain("DESCOPE(inline-approval-action)");
   });
 
   it("keeps the Tasks page free of the interim Ask Admin panel", async () => {
