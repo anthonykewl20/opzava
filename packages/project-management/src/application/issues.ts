@@ -55,6 +55,7 @@ export interface IssueCloseOutboxDto {
   readonly nextAttemptAt: string;
   readonly lastError: string | null;
   readonly claimedAt: string | null;
+  readonly claimToken: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly closedAt: string | null;
@@ -191,6 +192,7 @@ function rowToIssueCloseOutbox(row: QueryRow): IssueCloseOutboxDto {
       row["claimed_at"] === null || row["claimed_at"] === undefined
         ? null
         : parseDate(row["claimed_at"]),
+    claimToken: stringOrNull(row["claim_token"]),
     createdAt: parseDate(row["created_at"]),
     updatedAt: parseDate(row["updated_at"]),
     closedAt:
@@ -854,6 +856,7 @@ export async function enqueueIssueCloseForTask(
           next_attempt_at,
           last_error,
           claimed_at,
+          claim_token,
           created_at,
           updated_at,
           closed_at
@@ -928,6 +931,7 @@ export async function processIssueCloseOutbox(
         update public.issue_close_outbox
         set state = 'dead',
             claimed_at = null,
+            claim_token = null,
             last_error = coalesce(last_error, 'Issue close retry limit exceeded.'),
             updated_at = now()
         where workspace_id = ${input.workspaceId}
@@ -960,6 +964,7 @@ export async function processIssueCloseOutbox(
         update public.issue_close_outbox o
         set state = 'processing',
             claimed_at = now(),
+            claim_token = gen_random_uuid(),
             updated_at = now()
         where o.id in (select id from candidates)
         returning
@@ -977,6 +982,7 @@ export async function processIssueCloseOutbox(
           next_attempt_at,
           last_error,
           claimed_at,
+          claim_token,
           created_at,
           updated_at,
           closed_at
@@ -1013,10 +1019,12 @@ export async function processIssueCloseOutbox(
             next_attempt_at = ${nextAttemptAt},
             last_error = ${lastError},
             claimed_at = null,
+            claim_token = null,
             updated_at = now(),
             closed_at = ${closedAt}
           where id = ${entry.id}
             and workspace_id = ${input.workspaceId}
+            and claim_token = ${entry.claimToken}::uuid
           returning
             id,
             organization_id,
@@ -1032,6 +1040,7 @@ export async function processIssueCloseOutbox(
             next_attempt_at,
             last_error,
             claimed_at,
+            claim_token,
             created_at,
             updated_at,
             closed_at

@@ -564,6 +564,81 @@ describe("slice 2.5e issue RLS", () => {
     expect(result.value[0]?.state).toBe("closed");
   });
 
+  it("rejects stale active-close finalizers after a row is reclaimed", async () => {
+    const tenant = await adminCreateTenant("outbox-claim-token");
+    const taskId = randomUUID();
+    await adminInsertTask({ tenant, taskId, cardNumber: 7251, issueNumber: 85 });
+    await adminInsertCloseOutbox({ tenant, taskId, issueNumber: 85 });
+
+    let workerAClaimToken: string | null = null;
+    let workerBClaimToken: string | null = null;
+    const tracker: IssueTrackerPort = {
+      listIssues: async () => ok([]),
+      getIssue: async () =>
+        err(new DomainError({ code: "fake.notFound", message: "not found" })),
+      createIssue: async () =>
+        err(new DomainError({ code: "fake.createUnsupported", message: "not used" })),
+      closeIssue: async () => {
+        const claimed = await adminPool.query(
+          `select claim_token
+           from public.issue_close_outbox
+           where task_id = $1`,
+          [taskId],
+        );
+        workerAClaimToken = String(claimed.rows[0]?.["claim_token"] ?? "");
+
+        const reclaimed = await adminPool.query(
+          `update public.issue_close_outbox
+           set state = 'closed',
+               claim_token = gen_random_uuid(),
+               claimed_at = now(),
+               closed_at = now(),
+               last_error = null,
+               updated_at = now()
+           where task_id = $1
+           returning claim_token`,
+          [taskId],
+        );
+        workerBClaimToken = String(reclaimed.rows[0]?.["claim_token"] ?? "");
+
+        return err(new DomainError({ code: "fake.rateLimited", message: "stale worker failed" }));
+      },
+    };
+
+    const result = await processIssueCloseOutbox(
+      {
+        orgId: tenant.organizationId,
+        workspaceId: tenant.workspaceId,
+        actor: { userId: tenant.userId, roleKeys: ["admin"] },
+        repository: "anthonykewl20/opzava",
+        limit: 1,
+      },
+      { issueTrackerPort: tracker },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected stale finalizer to be dropped");
+    }
+    expect(result.value).toEqual([]);
+    expect(workerAClaimToken).toMatch(/^[0-9a-f-]{36}$/);
+    expect(workerBClaimToken).toMatch(/^[0-9a-f-]{36}$/);
+    expect(workerBClaimToken).not.toBe(workerAClaimToken);
+
+    const row = await withTenant(tenant.organizationId, async (tx) =>
+      tx.execute(sql`
+        select state, last_error, claim_token::text as claim_token
+        from public.issue_close_outbox
+        where task_id = ${taskId}
+      `),
+    );
+    expect(rowsFromExecuteResult(row)[0]).toMatchObject({
+      state: "closed",
+      last_error: null,
+      claim_token: workerBClaimToken,
+    });
+  });
+
   it("dead-letters active-close rows that exceed max attempts", async () => {
     const tenant = await adminCreateTenant("outbox-dead");
     const taskId = randomUUID();

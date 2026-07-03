@@ -64,6 +64,13 @@
       "when": 1782951200000,
       "tag": "0008_slice25_issue_outbox_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782951300000,
+      "tag": "0009_slice25_outbox_claim_token",
+      "breakpoints": true
     }
   ]
 }
