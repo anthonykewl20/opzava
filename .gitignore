@@ -17,3 +17,7 @@ secrets/*
 test-results/
 playwright-report/
 .dev-secrets/
+
+# Q18 guard: temporary landing zone for the upstream OpenClaw clone (1.9GB incl. upstream .git).
+# The mainframe-move slice squash-imports its WORKING TREE to mainframe/ and deletes this dir.
+/docs/openclaw/clone/

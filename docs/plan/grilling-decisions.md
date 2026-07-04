@@ -477,13 +477,89 @@ Canonical slice contract: `docs/plan/consensus/tasks-ai-workforce-design.md`.
 
 ---
 
-## Grilling status — COMPLETE ✅ (Q1–Q17)
+## Q18 — Own OpenClaw as a tracked fork (`mainframe/`) + VPS Dokploy production home + Control-UI port contract — LOCKED (2026-07-04)
+
+**Decision (user-grilled interactively 2026-07-04, no paired consensus):** Opzava **OWNS OpenClaw as a tracked fork, not a
+hard fork**. The clone at `docs/openclaw/clone` (upstream `github.com/openclaw/openclaw`, v2026.6.11, commit `bd2740fedc`,
+MIT) moves to **`mainframe/`** by **squash import**: working tree only, the 1.6GB upstream `.git` is dropped, and the pin is
+recorded in `mainframe/UPSTREAM.md`. Vocabulary: **Mainframe** = the fork source we own; **Platform Gateway** = the running
+container — which becomes `build: ./mainframe` instead of `image: ghcr.io/openclaw/openclaw` (same version + same named
+volumes = seamless swap; no separate "install OpenClaw" exists anymore). `docs/openclaw/clone` is deleted after the move;
+curated `docs/openclaw/` stays the canonical reference. `mainframe/` is EXCLUDED from the Opzava pnpm workspace (it is its
+own pnpm workspace; nesting would merge two dependency universes) — the ONLY integration point is the Docker image
+boundary. No GitHub fork repo until we actually upstream patches. Upstream bumps are a deliberate operation: scratch-clone
+upstream, diff old..new tag, apply, re-review `PATCHES.md`.
+**Customization ladder (heavy customization WITHOUT fork rot):** every change lands on the lowest rung that can express it —
+**Rung 0** config · **Rung 1** official extension points (extensions/skills/hooks) · **Rung 2** first-party additive modules
+(`extensions/opzava-*`; upstream files untouched) · **Rung 3** source patches to upstream files, each logged in
+`mainframe/PATCHES.md` (what/why/upstream status), re-reviewed at every bump. Rung 3 is expected near-empty. Blog
+auto-generation, FB-ads analysis, and email-campaign automation are NOT fork customizations — they are Opzava Marketing
+features that USE the gateway (skills/cron/agents via broker). Branding = rung 0/1 (the fork's Control UI is replaced by our
+dashboard anyway).
+**Topology unchanged:** the static Platform Gateway (mainframe-built) is the canonical runtime. ADR-002 per-tenant dynamic
+provisioning is **deferred-not-deleted** (code retained — it still powers onboard-exec + operator bootstrap; at
+multi-tenant, dynamic gateways use the same mainframe image). ADR-003 two-token broker/worker ACL untouched. "No routable
+orphan Gateway" retained.
+**Production home:** VPS Dokploy at `5.189.186.18` (6 vCPU / 12GB RAM / 100GB NVMe; creds in `secrets/dokploy.env` —
+**ROTATE the API key**, it transited a chat transcript, and move the panel off plain HTTP-on-IP). No Dokploy project exists
+yet. **Local compose REMAINS the dev/verify environment** — the local↔Dokploy parity invariant is intact; the VPS is the
+production home, not a replacement for local dev. **Domain: `opzava.app` is purchased at the first live-dev push** (explicit
+bring-up gate; today it is only a local-Traefik name); wildcard A `*.opzava.app` → VPS; Traefik + Let's Encrypt; all public
+traffic on 443; the Dokploy panel itself gets a TLS subdomain.
+**WebSocket (production-grade; the fix for the experienced wss/SSL pain):** the gateway keeps **zero public listeners**.
+Exactly **ONE public WS surface**: browser ↔ app/broker (`wss://app.opzava.app`) via Traefik+LE. Every external consumer —
+browser, local Claude Code MCP, PWA/mobile, guest portals, future public API — enters through Opzava's authenticated
+endpoints; the broker relays. Internal legs (broker/worker → gateway) stay plain `ws://` on `dokploy-network` — no certs by
+design. Root cause of past wss failures = certs on a bare IP; solved structurally by the domain gate. Hardening spec for the
+one surface: Traefik WS upgrade + long idle timeouts, ping/pong heartbeat, client auto-reconnect with backoff+jitter,
+session-bound sockets (revocation closes them), graceful drain on deploy. **Reconnect = re-snapshot** (RPC snapshots are
+truth, WS events are hints) so drops never lose data. Laptop→VPS gateway/node pairing is deferred; if ever needed it is an
+ADDITIVE authenticated Traefik route, not a rearchitect.
+**Execution order:** (a) **mainframe-move slice** (move + `UPSTREAM.md` + `PATCHES.md` + workspace exclusion + compose
+`build: ./mainframe` + boot proof on existing volumes + the pivot-docs package) → (b) **Slice 3.7 port program**
+view-by-view → (c) **Dokploy bring-up** when the user says push (buy domain, wildcard DNS, LE, deploy, wss verified live).
+The dashboard port is the first substantial priority; the move is its foundation stone.
+**Dashboard design contract (mockup-revision-first):** the OpenClaw Control UI view defines **WHAT** (fields, data, states,
+RPCs); the mockup defines **HOW IT LOOKS**; on disagreement the **mockup is revised first** (delete invented elements no
+gateway RPC can back, add real capabilities), then the screen is implemented to the corrected mockup with side-by-side
+screenshot parity. Views without mockups (sessions, nodes, MCP) get one authored before implementation. `/senior-frontend`
+is mandatory; the bar is **calm, user-friendly, optimal UX** — improve OpenClaw's ergonomics, never regress them. The
+"mockup IS the design" directive SURVIVES via this reconciliation gate.
+**Retention + port additions:** Tasks, Issues, and Ask Admin Opzava are all RETAINED (Opzava-native family); the admin
+dashboard = union of native surfaces + the ported gateway-ops views. OpenClaw's **workboard view is deliberately NOT
+ported** — Opzava Tasks IS the workboard (Q17). **New port-program row #14: Ask Admin = WebChat parity**
+(`docs/openclaw/web/webchat.md`): `chat.history`/`chat.send`/`chat.inject`/`chat.message.get` via the broker,
+backing-`sessionId` continuity across reconnects, idempotency-keyed send coalescing, truncated-message side-reader,
+compaction dividers linking to Sessions.
+**Break-glass:** the fork's own Control UI stays ENABLED in our image, internal-only, never Traefik-routed; ops access =
+SSH tunnel + port-forward (runbook entry). We are never locked out of the gateway while the port program is mid-flight.
+**Build path:** Dokploy builds ALL images from the repo with the same `build:` directives local uses (parity by
+construction; the 12GB box handles the monorepo build). **Pre-agreed fallback, no re-litigating:** if VPS builds OOM or
+crawl, GitHub Actions builds the mainframe image → private ghcr → BOTH environments pull it; app images stay Dokploy-built
+either way. Rollback = previous image; gateway state lives in named volumes, never the image. Runbook gains a docker
+build-cache prune policy.
+**Docs revision = targeted amendments bundled into the mainframe-move slice, NOT a mass rewrite** (the broker ACL,
+two-token, projections-as-cache, RLS, tool-policy-first, parity, and the port program all survive unchanged): new
+**ADR-016** "Own OpenClaw as a tracked fork (mainframe)"; amend ADR-002 (deferral note) + ADR-015 (build-from-source + VPS
+home); EXECUTION.md restructure; CLAUDE.md doc map + mockup-nuance edits; port-program spec edits (+row #14, workboard
+non-port note, mockup-revision-first gate); GH issues sweep (close obsoleted, relabel survivors); PRDs amended lazily by the
+view slice that contradicts them; consensus/research memos stay frozen.
+**Biggest sad paths + invariants:** fork rot (ladder + `PATCHES.md` + `UPSTREAM.md` pin); accidental 1.9GB commit
+(gitignore guard on `docs/openclaw/clone/` until the move lands); a routable gateway (invariant retained; one public WS
+surface only); wss cert failures (domain purchase is a hard gate before live push); VPS build OOM (pre-agreed CI fallback);
+dashboard broken mid-port (break-glass Control UI); leaked Dokploy key (rotate directive recorded in `secrets/dokploy.env`).
+
+---
+
+## Grilling status — COMPLETE ✅ (Q1–Q18)
 All architecture branches locked with paired codex + mmx consensus: **Q1** BFF+DB · **Q1b** stack · **Q2** pure-B tenancy · **Q3**
 WS broker+scoped token · **Q4** contexts+CQRS+ACL · **Q4b** knowledge mgmt+two-token · **Q4c** tool-policy-first security · **Q5**
 RBAC+RLS · **Q6** auth (Better Auth) · **Q7** realtime+chat+assistants+PWA/Push · **Q8** AI Workforce · **Q9** error→admin-card ·
 **Q10** CRM · **Q11** dept workflows · **Q12** billing+provisioning · **Q13** capability-parity map + ADR/PRD backlog ·
 **Q14** local⇄Dokploy parity · **Q15** MVP roadmap · **Q16** orchestrator runtime + local coding harness (user-grilled, no
 paired consensus — decisions taken interactively 2026-07-03) · **Q17** admin Tasks board as AI-Workforce dev pipeline
-(user-grilled, no paired consensus — decisions taken interactively 2026-07-04).
-The grilling sequence is complete. Design is realized in ADR-001..015 + PRD-001..018; execution is controlled by
-`docs/plan/EXECUTION.md`.
+(user-grilled, no paired consensus — decisions taken interactively 2026-07-04) · **Q18** own OpenClaw as tracked fork
+(`mainframe/`) + VPS Dokploy production home + Control-UI port contract (user-grilled, no paired consensus — decisions taken
+interactively 2026-07-04).
+The grilling sequence is complete. Design is realized in ADR-001..015 + PRD-001..018 (ADR-016 pending in the mainframe-move
+slice per Q18); execution is controlled by `docs/plan/EXECUTION.md`.
