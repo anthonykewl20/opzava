@@ -44,10 +44,26 @@ source of truth for what each admin surface must show + do, re-implemented in Op
 | 11 | Channels (Slack/WhatsApp/Telegram/...) | channels.* | worker/provisioning (P8 scope) |
 | 12 | Config (advanced) | config-form.*, config-presets, config-quick | worker (config.get/patch) |
 | 13 | Debug / exec-approval / dreaming | debug.ts, exec-approval.ts, dreaming.ts | broker |
+| 14 | Ask Admin Opzava = WebChat parity (Q18): backing-sessionId continuity across reconnects, idempotency-keyed send coalescing, truncated-message side-reader via chat.message.get, compaction dividers linking to Sessions | Control UI chat tab per `docs/openclaw/web/webchat.md`; RPCs chat.history/chat.send/chat.inject/chat.message.get | broker (existing Ask Admin connection, upgraded to this contract) |
+
+DELIBERATELY NOT PORTED (Q18): OpenClaw's **workboard** view — Opzava Tasks IS the workboard (Q17
+Tasks-as-AI-Workforce). Do not "helpfully" port a second, competing task surface. CRM is NEVER an
+admin-dashboard surface (user directive 2026-07-04) — it is out of this program's scope entirely.
 
 Each view = its own focused slice: read the OpenClaw reference view + gateway-methods, define the ACL
 endpoints, re-implement in shadcn/React, verify via real login + logs, commit. Do NOT boil the ocean in one
 pass. This program supersedes the hand-built connections catalog approach for surface #1.
+
+## Design contract per view (Q18: mockup-revision-first)
+1. The OpenClaw Control-UI view defines WHAT (fields, data, states, flows, exact gateway RPCs).
+2. The mockup (`ux-redesign/mockups/`) defines HOW IT LOOKS. On disagreement, REVISE THE MOCKUP FIRST:
+   delete invented elements no gateway RPC can back, add real capabilities, keep the mockup language
+   (tokens/app/shadcn CSS). Views without a mockup (sessions, nodes, MCP) get one AUTHORED before
+   implementation. Then implement to the corrected mockup with side-by-side screenshot parity.
+3. `/senior-frontend` is mandatory; the bar is calm, user-friendly, optimal UX — improve OpenClaw's
+   ergonomics, never regress them (a11y AA, one canonical component, honest states).
+4. Final gate for every view slice: `real-world-validation` (real login, real data, loop until 2
+   consecutive clean passes, exit 0) — in addition to the view's own real-RPC log proof.
 
 ## First slice (now): #1 Models & Providers, grounded in OpenClaw + docs/openclaw/providers
 - Providers = canonical LLM list (providers/index.md); runtimes (claude-cli/codex/gemini-cli) fold UNDER

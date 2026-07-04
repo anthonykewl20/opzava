@@ -2,6 +2,11 @@
 
 Source of truth: `docs/plan/grilling-decisions.md` locked architecture (this map classifies the Q1-Q12 plus Q4b/Q4c decision set and is itself the Q13 deliverable; Q14/Q15 landed later and do not change classifications), mockup feature surface in `ux-redesign/mockups/*.html`, and OpenClaw docs under `docs/openclaw`.
 
+> **Q18 note (2026-07-04):** for ADMIN gateway-ops screens this map is now superseded by the authoritative port
+> program `docs/plan/consensus/port-openclaw-control-ui-program.md` (OpenClaw Control-UI views 1–14, re-implemented
+> through the ACL). Classifications below still govern user-side/product surfaces. CRM is NEVER an admin-dashboard
+> surface (user directive 2026-07-04); its permanent home is the user-side dashboard.
+
 ## Classification legend
 
 | Classification | Meaning |

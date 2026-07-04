@@ -68,7 +68,8 @@ gated with `requiredScope: "operator.admin"` and return a structured
 `provisioning.openclawAdmin.operatorAdminRequired` error before any provider key is sent when the
 worker device is not admin-scoped.
 
-The inspected Gateway image `ghcr.io/openclaw/openclaw:2026.6.11` documents
+The inspected Gateway image `ghcr.io/openclaw/openclaw:2026.6.11` (Q18: same version, now built from
+`./mainframe` per ADR-016 — findings unchanged) documents
 `wizard.start/next/status/cancel`, but its live `wizard.start` validator accepts only `mode` and
 `workspace`. It does not expose a targeted provider/auth-choice admin RPC for model-provider
 device-code OAuth. Until that RPC exists, the GUI returns an explicit unsupported state for

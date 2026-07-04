@@ -36,6 +36,7 @@ Pin source: `docs/plan/research/slice1-foundation-stack.md`, especially its "Loc
 
 | Tech | Locked pin |
 | --- | --- |
+| OpenClaw (mainframe tracked fork) | `v2026.6.11`, commit `bd2740fedc` (ADR-016; authoritative pin record: `mainframe/UPSTREAM.md` after the move slice; gateway built from `./mainframe`, no longer pulled) |
 | Node.js | `24.18` |
 | pnpm | `11.9` |
 | Next.js | `16.2.9` |

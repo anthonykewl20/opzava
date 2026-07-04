@@ -1,6 +1,14 @@
 # ADR-015: Deployment and environment parity
 
-Status: Accepted
+Status: Accepted — AMENDED 2026-07-04 (Q18): (1) the Platform Gateway is a STATIC Compose service
+(`openclaw-platform-gateway`) built from `./mainframe` ([ADR-016](ADR-016-mainframe-tracked-fork.md)), no longer a
+pulled upstream image; dynamic per-tenant Gateway containers are deferred with ADR-002. (2) The production home is
+the Dokploy VPS at 5.189.186.18; `opzava.app` (wildcard DNS + Let's Encrypt) is purchased at the first live-dev
+push; local compose remains the dev/verify environment — parity contract unchanged. (3) Exactly ONE public
+WebSocket surface exists (browser ↔ app/broker via Traefik+LE); the gateway keeps zero public listeners; internal
+legs stay plain `ws://` on `dokploy-network`. (4) Dokploy builds all images from the repo with the same `build:`
+directives local uses; pre-agreed fallback is CI-built mainframe image in a private registry pulled by BOTH
+environments.
 
 Opzava will use one canonical `docker-compose.yml` with Compose profiles as the source of truth for both local development and live Dokploy deployment. Local runs the same stack with its own Traefik, mkcert wildcard TLS, and local secret files; Dokploy runs the same Compose stack attached to its existing Traefik, Let's Encrypt wildcard TLS, and Dokploy-managed secrets. Per-tenant OpenClaw Gateways remain runtime Docker containers created by `worker-provisioning` through the ADR-002 `GatewayRuntimePort` docker adapter, not static Compose services.
 

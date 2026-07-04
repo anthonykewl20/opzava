@@ -1,6 +1,11 @@
 # ADR-002: Pure-per-tenant tenancy, GatewayRuntimePort, and provisioning saga
 
-Status: Accepted
+Status: Accepted — AMENDED 2026-07-04 (Q18): dynamic per-tenant Gateway provisioning is **deferred-not-deleted**.
+While Opzava runs single-tenant, the canonical runtime is the static `openclaw-platform-gateway` Compose service
+built from `mainframe/` ([ADR-016](ADR-016-mainframe-tracked-fork.md)). The `GatewayRuntimePort` /
+provisioning-worker / docker-socket-proxy machinery is RETAINED (it powers onboard-exec and operator bootstrap
+today) and resumes dynamic per-tenant duty at the multi-tenant phase using the same mainframe-built image. The
+tenancy model below is unchanged; "pure per-tenant" holds trivially at N=1.
 
 Opzava will run exactly one OpenClaw Gateway per tenant from day one, with no shared Gateway pool. Tenant onboarding and runtime lifecycle are owned by a compensating provisioning saga, and Gateway execution is abstracted behind `GatewayRuntimePort` so the default rootless-Docker implementation can later move to K8s or Nomad without changing the tenant model.
 

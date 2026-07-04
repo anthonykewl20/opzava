@@ -30,6 +30,8 @@ Do not let this document become aspirational. If implementation changes the plan
 
 **Real-world final validation (user directive, 2026-07-04):** slices were falsely reported complete/working/deployed while the live stack was broken (acceptance passed via mocks + minted sessions). Therefore: the FINAL validation of EVERY slice/issue is the `real-world-validation` skill gate - automated user-level drives of the REAL local docker stack (`http://web.opzava.localhost:18088`) with REAL form login (minted sessions banned), REAL data (mocks/synthetic banned), REAL visual screenshots, and ITERATIVE full sweeps looping until 2 consecutive clean passes (`node real-world-validate.local.mjs`; exit 0 = Done-eligible, anything else = NOT Done; routes auto-discovered from the live nav so gaps cannot hide; findings include console errors, 5xx/404s, error states, empty pages, failed write round-trips, and service-log ground truth). TDD (unit/mock/mutation) gates development only - NEVER final acceptance. Every UI slice ships/extends a `*-drive.local.mjs` exercising its own real flows. These instructions are deliberately executor-agnostic with zero ambiguity: any assigned model (Claude, GPT 5.5 via codex-exec, GLM, ...) follows the same WHAT/HOW-TO-TEST/HOW-TO-VALIDATE and the exit code - not the narrative - is the verdict.
 
+**CRM placement (user directive, 2026-07-04):** CRM is NEVER an admin-dashboard surface. Its permanent home is the user-side dashboard (future surface family). The `/crm/*` routes currently in the admin app are a TEMPORARY Slice-3 parking spot pending relocation; no new CRM surfaces may be added to the admin dashboard, and the Control-UI port program excludes CRM entirely.
+
 ## Current State
 
 | Field | Value |
@@ -50,6 +52,7 @@ Opzava runs single-tenant internally first to market and promote Opzava itself. 
 | Reference | Use |
 | --- | --- |
 | `ARCHITECTURE.md` | System overview: bounded contexts, ports, invariants, deployment topology, ADR index. |
+| `CONTEXT.md` | Canonical glossary (ubiquitous language). Use these terms exactly; on conflict, CONTEXT.md wins. |
 | `docs/plan/roadmap.md` | Phase detail after the admin Tasks MVP; this doc controls execution order. |
 | `docs/plan/grilling-decisions.md` | Locked design record and sad-path invariants from Q1-Q16. |
 | `docs/plan/official-docs.md` | Official documentation registry; validate every API against it before coding. |

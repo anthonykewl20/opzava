@@ -526,8 +526,10 @@ screenshot parity. Views without mockups (sessions, nodes, MCP) get one authored
 is mandatory; the bar is **calm, user-friendly, optimal UX** — improve OpenClaw's ergonomics, never regress them. The
 "mockup IS the design" directive SURVIVES via this reconciliation gate.
 **Retention + port additions:** Tasks, Issues, and Ask Admin Opzava are all RETAINED (Opzava-native family); the admin
-dashboard = union of native surfaces + the ported gateway-ops views. OpenClaw's **workboard view is deliberately NOT
-ported** — Opzava Tasks IS the workboard (Q17). **New port-program row #14: Ask Admin = WebChat parity**
+dashboard = union of native surfaces + the ported gateway-ops views. **CRM is NEVER an admin-dashboard surface** (user
+clarification, same day): its permanent home is the user-side dashboard; the `/crm/*` routes currently in the admin app
+are a temporary Slice-3 parking spot pending relocation when the user dashboard exists. OpenClaw's **workboard view is
+deliberately NOT ported** — Opzava Tasks IS the workboard (Q17). **New port-program row #14: Ask Admin = WebChat parity**
 (`docs/openclaw/web/webchat.md`): `chat.history`/`chat.send`/`chat.inject`/`chat.message.get` via the broker,
 backing-`sessionId` continuity across reconnects, idempotency-keyed send coalescing, truncated-message side-reader,
 compaction dividers linking to Sessions.

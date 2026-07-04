@@ -6,6 +6,8 @@ Opzava is an AI-workforce PM/CRM SaaS over OpenClaw: persona'd delegate agents a
 
 Current operating mode (2026-07-02): Opzava runs single-tenant internally first to market and promote Opzava itself. The scale-ready multi-tenant architecture is retained and runs one tenant now; Opzava is not a public multi-tenant SaaS yet. The first business-value build after the admin-Tasks MVP is Marketing + CRM.
 
+Q18 (2026-07-04, `docs/plan/grilling-decisions.md`): Opzava OWNS OpenClaw as a tracked fork at `mainframe/` ([ADR-016](docs/adr/ADR-016-mainframe-tracked-fork.md)); the Platform Gateway is built from that source, runs as a static Compose service, and dynamic per-tenant provisioning is deferred-not-deleted (ADR-002 amendment). Production home is the Dokploy VPS; local compose remains the dev/verify environment. The admin dashboard = Opzava-native admin surfaces (Tasks, Issues, Ask Admin) + the ported OpenClaw Control-UI views. CRM is NEVER an admin-dashboard surface (user directive 2026-07-04): its permanent home is the user-side dashboard; the current `/crm/*` routes in the admin app are a temporary Slice-3 parking spot pending relocation.
+
 ## Governing principles
 
 | Principle | What it means here |
@@ -34,7 +36,7 @@ flowchart LR
 
   Broker --> Postgres
   Broker --> Redis
-  Broker --> Gateways["Per-tenant OpenClaw Gateway containers\none Gateway per active tenant"]
+  Broker --> Gateways["OpenClaw Platform Gateway\nstatic service built from mainframe/ (Q18);\nper-tenant dynamic containers deferred"]
 
   Workers["workers\nprojection / metering / jobs"] --> Postgres
   Workers --> Redis
@@ -93,7 +95,7 @@ flowchart LR
 
 | Invariant | Consequence |
 | --- | --- |
-| Pure per-tenant Gateway | Every tenant has exactly one OpenClaw Gateway route and no production shared pool. `GatewayInstance.tenant_id` is unique. |
+| Pure per-tenant Gateway | Every tenant has exactly one OpenClaw Gateway route and no production shared pool. `GatewayInstance.tenant_id` is unique. Q18: at the current N=1, that one Gateway is the static mainframe-built `openclaw-platform-gateway` service; dynamic provisioning resumes at multi-tenant. |
 | Two-token model | Hot path uses a per-Gateway paired device token with `operator.write` + `operator.approvals`; admin/provisioning uses short-lived, audited, job-scoped `operator.admin`. |
 | Projections are cache | Postgres projections are rebuildable caches; OpenClaw RPC snapshots are truth for OpenClaw-owned runtime state; WS events are hints that trigger updates and reconciliation. |
 | Command path is write-through | User-visible commands apply the synchronous broker response immediately where read-your-writes matters; async projectors later replay idempotently. |
@@ -128,7 +130,9 @@ flowchart LR
 
 One canonical root `docker-compose.yml` is the deployment contract for local and Dokploy. Local runs the stack with a `local` Traefik profile, mkcert wildcard TLS on `*.localhost`, local secret files, and the shared external `dokploy-network`. Live Dokploy runs the same Compose stack attached to Dokploy Traefik, Let's Encrypt wildcard TLS on `*.opzava.app`, Dokploy-managed secrets, and the same service names, health checks, labels, network, and environment keys.
 
-Compose-managed services are `traefik` (local profile only), `postgres`, `pgbouncer`, `redis`, `minio`, `next`, `gateway-broker`, `worker-provisioning`, `worker-projection`, `worker-metering`, and `dockerproxy`. Per-tenant OpenClaw Gateways are dynamic runtime Docker containers created by `worker-provisioning` through `GatewayRuntimePort`, joined to `dokploy-network`, labeled for Traefik Docker-provider routing, and reconciled by the same reaper locally and live.
+Compose-managed services AS BUILT today (`docker compose config --services`) are `traefik` (local profile), `postgres`, `minio` + `minio-bucket-init` (one-shot), `web`, `gateway-broker`, `provisioning-worker`, `docker-socket-proxy`, and `openclaw-platform-gateway` — the static Platform Gateway, built from `./mainframe` per [ADR-016](docs/adr/ADR-016-mainframe-tracked-fork.md) (Q18; previously the pulled upstream image). Planned-but-not-yet-composed services from the original design (`pgbouncer`, `redis`, `worker-projection`, `worker-metering`) arrive with the phases that need them — do not assume they exist. Dynamic per-tenant Gateway containers (created by the provisioning worker through `GatewayRuntimePort`, Traefik-labeled, reaper-reconciled) are deferred to the multi-tenant phase per the ADR-002 amendment; the machinery is retained and already serves onboard-exec and operator bootstrap.
+
+Production home (Q18): the Dokploy VPS (6 vCPU / 12GB / 100GB NVMe). Dokploy builds all images from this repo with the same `build:` directives local uses. Public traffic terminates at Traefik + Let's Encrypt on `*.opzava.app` (domain purchased at first live-dev push); exactly ONE public WebSocket surface exists (browser ↔ app/broker); the gateway has zero public listeners and its built-in Control UI is reachable only by SSH tunnel (break-glass).
 
 Docker host control is isolated: Traefik may read `/var/run/docker.sock` directly only for Docker-provider discovery, `tecnativa/docker-socket-proxy` is the only mutation surface, only `worker-provisioning` can reach the scoped mutation API, and the broker/web/projection/metering services never receive Docker access. If Dokploy Traefik cannot discover plain Docker-provider containers on `dokploy-network` with `exposedByDefault=false`, Opzava must run a dedicated Traefik for tenant Gateway routing rather than relying on partial Swarm-provider behavior.
 
@@ -137,7 +141,7 @@ Docker host control is isolated: Traefik may read `/var/run/docker.sock` directl
 | ID | Title | One-line decision | Status |
 | --- | --- | --- | --- |
 | [ADR-001](docs/adr/ADR-001-stack-ddd-structure.md) | Monorepo, DDD module structure, and locked stack | Use a pnpm/turborepo TypeScript monorepo with Next.js BFF, separate broker, workers, Drizzle/Postgres, bounded-context packages, and agnostic ports. | Accepted |
-| [ADR-002](docs/adr/ADR-002-tenancy-provisioning.md) | Pure-per-tenant tenancy, GatewayRuntimePort, and provisioning saga | Run exactly one OpenClaw Gateway per tenant from day one, managed by an idempotent provisioning saga behind `GatewayRuntimePort`. | Accepted |
+| [ADR-002](docs/adr/ADR-002-tenancy-provisioning.md) | Pure-per-tenant tenancy, GatewayRuntimePort, and provisioning saga | Run exactly one OpenClaw Gateway per tenant from day one, managed by an idempotent provisioning saga behind `GatewayRuntimePort`. | Accepted / dynamic provisioning deferred (Q18) |
 | [ADR-003](docs/adr/ADR-003-gateway-broker-acl-two-token.md) | gateway-broker ACL, two-token model, and WS protocol client | Put all OpenClaw runtime access behind a long-lived broker ACL with WS-first per-tenant clients and split hot-path/admin credentials. | Accepted |
 | [ADR-004](docs/adr/ADR-004-data-boundary-cqrs.md) | Data model boundary, hybrid CQRS, outbox, and projections | Keep Opzava Postgres as product truth and OpenClaw as runtime truth, connected through hybrid CQRS, outbox, and broker snapshots/events. | Accepted |
 | [ADR-005](docs/adr/ADR-005-tool-policy-security.md) | Tool-policy-first security, approval gates, and sandbox posture | Make tool policy and Opzava approvals the hard authority boundary; avoid per-project sandboxes for standard agents. | Accepted |
@@ -150,4 +154,5 @@ Docker host control is isolated: Traefik may read `/var/run/docker.sock` directl
 | [ADR-012](docs/adr/ADR-012-dept-workflow-engine.md) | Department workflow engine, approvals, and content pipeline | Let Opzava define workflows/playbooks and approvals while OpenClaw executes provisioned standing orders, cron, TaskFlow, sessions, and channels. | Accepted |
 | [ADR-013](docs/adr/ADR-013-error-admin-card.md) | Error-to-admin-card incident pipeline and remediation loop | Own incident grouping, redaction, ADMIN-card projection, alerting, and constrained remediation in Opzava Postgres. | Accepted |
 | [ADR-014](docs/adr/ADR-014-billing-metering.md) | Billing, usage metering, and plan enforcement | Deferred: retain billing, metering, quotas, invoices, entitlement, and dunning design in Opzava; keep `BillingPort` as a null adapter until external monetization. | Accepted / Deferred |
-| [ADR-015](docs/adr/ADR-015-deployment-parity.md) | Deployment and environment parity | Use one canonical Compose stack for local and Dokploy, with Traefik parity and runtime per-tenant Gateway containers created by provisioning. | Accepted |
+| [ADR-015](docs/adr/ADR-015-deployment-parity.md) | Deployment and environment parity | Use one canonical Compose stack for local and Dokploy, with Traefik parity and runtime per-tenant Gateway containers created by provisioning. | Accepted / amended (Q18: static mainframe-built gateway, VPS home, one public WS surface) |
+| [ADR-016](docs/adr/ADR-016-mainframe-tracked-fork.md) | Own OpenClaw as a tracked fork (`mainframe/`) | Squash-import upstream at a pinned version, build the Platform Gateway from that source, and customize only via the rung 0–3 ladder so the upstream merge path survives. | Accepted (Q18) |
