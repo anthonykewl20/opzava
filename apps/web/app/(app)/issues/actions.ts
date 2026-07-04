@@ -3,9 +3,10 @@
 import { createHash } from "node:crypto";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { forbidden, redirect } from "next/navigation";
 
 import { createIssueForContext, syncIssuesForContext } from "@/lib/issues";
+import { formFailureState, initialFormActionState, type FormActionState } from "@/lib/action-state";
 import { getAppSessionContext } from "@/lib/session";
 
 async function requireIssuesContext() {
@@ -46,7 +47,43 @@ function idempotencyKeyFromForm(
 }
 
 function throwIssueActionError(error: unknown): never {
+  if (issueErrorCode(error) === "projectManagement.forbidden" || issueErrorStatus(error) === 403) {
+    forbidden();
+  }
+
   throw error instanceof Error ? error : new Error("GitHub issue action failed.");
+}
+
+function issueErrorStatus(error: unknown, depth = 0): number | undefined {
+  if (depth > 5 || typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  const status = (error as { readonly status?: unknown }).status;
+  return typeof status === "number"
+    ? status
+    : issueErrorStatus((error as { readonly cause?: unknown }).cause, depth + 1);
+}
+
+function issueErrorCode(error: unknown, depth = 0): string | undefined {
+  if (depth > 5 || typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  const code = (error as { readonly code?: unknown }).code;
+  return typeof code === "string"
+    ? code
+    : issueErrorCode((error as { readonly cause?: unknown }).cause, depth + 1);
+}
+
+function issueActionErrorState(error: unknown): FormActionState {
+  if (issueErrorCode(error) === "projectManagement.forbidden" || issueErrorStatus(error) === 403) {
+    forbidden();
+  }
+
+  return formFailureState(
+    error instanceof Error ? error.message : "GitHub issue could not be created.",
+  );
 }
 
 export async function syncIssuesAction(): Promise<void> {
@@ -59,7 +96,10 @@ export async function syncIssuesAction(): Promise<void> {
   revalidatePath("/issues");
 }
 
-export async function createIssueAction(formData: FormData): Promise<void> {
+export async function createIssueAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireIssuesContext();
   const title = stringFromForm(formData, "title");
   const body = stringFromForm(formData, "body");
@@ -74,8 +114,9 @@ export async function createIssueAction(formData: FormData): Promise<void> {
   });
 
   if (!result.ok) {
-    throwIssueActionError(result.error);
+    return issueActionErrorState(result.error);
   }
 
   revalidatePath("/issues");
+  return initialFormActionState;
 }

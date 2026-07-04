@@ -85,6 +85,27 @@
       "when": 1782951400001,
       "tag": "0011_slice25_drop_position_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1782951500000,
+      "tag": "0012_slice3_crm_core",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1782951600000,
+      "tag": "0013_slice3_per_workspace_card_numbers",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782951700000,
+      "tag": "0014_slice3_deal_stage_coherence",
+      "breakpoints": true
     }
   ]
 }

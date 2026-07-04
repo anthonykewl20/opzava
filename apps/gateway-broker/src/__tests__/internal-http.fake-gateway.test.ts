@@ -137,6 +137,33 @@ afterEach(async () => {
 });
 
 describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => {
+  it("returns authenticated gateway health snapshots", async () => {
+    const { broker } = await createFixture();
+    const internalToken = randomUUID();
+    const server = createBrokerInternalHttpServer({
+      gatewayPort: broker,
+      internalToken,
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const response = await fetch(`${baseUrl}/internal/gateway/health?routeId=${routeId}`, {
+        headers: {
+          authorization: `Bearer ${internalToken}`,
+        },
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        routeId,
+        reachable: false,
+        circuitOpen: false,
+      });
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   it("rejects internal stream requests without the shared token", async () => {
     const { broker } = await createFixture();
     const server = createBrokerInternalHttpServer({

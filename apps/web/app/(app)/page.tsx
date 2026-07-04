@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 export default function AdminHomePage() {
+  // DESCOPE(overview-page): shell-overview.html arrives with P8 overview dashboard work.
   return (
     <div className="page">
       <div className="page-header">

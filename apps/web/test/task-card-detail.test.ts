@@ -45,6 +45,8 @@ import {
   formatCardId,
   parseCardNumberRouteSegment,
   stepProgress,
+  taskCardTabDomId,
+  taskCardTabs,
   watcherOverflow,
 } from "../lib/task-card-format";
 import {
@@ -299,6 +301,15 @@ describe("Task card pure state", () => {
       label: "2 of 2 done",
     });
     expect(toggled[1]?.done).toBe(true);
+  });
+
+  it("maps task card tabs to the mockup tab and panel ids", () => {
+    expect(taskCardTabs.map((tab) => [tab.label, `tab-${taskCardTabDomId(tab.id)}`])).toEqual([
+      ["Overview", "tab-overview"],
+      ["AI Run", "tab-airun"],
+      ["Evidence & Files", "tab-evidence"],
+      ["Quality Review", "tab-quality"],
+    ]);
   });
 
   it("renders due dates and watcher overflow without fake rows", () => {

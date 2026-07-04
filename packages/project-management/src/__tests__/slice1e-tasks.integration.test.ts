@@ -289,45 +289,76 @@ describe("slice 1e tasks", () => {
     expect(listed).toMatchObject({ ok: true, value: [{ title: "Ship the admin Tasks board" }] });
   });
 
-  it("allocates card numbers with retry-on-conflict inside a workspace", async () => {
-    const tenant = await adminCreateTenant("card-number-retry");
-    const baseCardNumber = 900_000_000_000 + Number.parseInt(testRunId.slice(0, 6), 16);
-    const blockedCardNumber = baseCardNumber + 1;
-
-    await adminPool.query("select setval('public.tasks_card_number_seq', $1, true)", [
-      baseCardNumber,
-    ]);
+  it("allocates human-readable card numbers per workspace without consuming replays", async () => {
+    const tenant = await adminCreateTenant("card-number-sequence");
+    const otherWorkspaceId = randomUUID();
     await adminPool.query(
-      `insert into public.tasks (
-        organization_id,
-        workspace_id,
-        card_number,
-        title,
-        description,
-        status,
-        priority,
-        labels,
-        position
-      )
-      values ($1, $2, $3, 'Manual blocker', '', 'todo', 'normal', '{}'::text[], 1)`,
-      [tenant.organizationId, tenant.workspaceId, blockedCardNumber],
+      `insert into public.workspaces (id, organization_id, slug, name)
+       values ($1, $2, $3, $4)`,
+      [otherWorkspaceId, tenant.organizationId, "service", "Service"],
     );
 
-    const created = await createTask({
+    const first = await createTask({
       orgId: tenant.organizationId,
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
-      title: "Create through retry",
+      title: "First workspace card",
+      priority: "normal",
+      idempotencyKey: "task:create:first-card",
+    });
+    const replay = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "First workspace card replay",
+      priority: "urgent",
+      idempotencyKey: "task:create:first-card",
+    });
+    const second = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Second workspace card",
       priority: "normal",
     });
+    const otherWorkspaceTask = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: otherWorkspaceId,
+      actor: actor(tenant.userId),
+      title: "Other workspace first card",
+      priority: "normal",
+    });
+    const burst = await Promise.all(
+      [1, 2, 3].map((index) =>
+        createTask({
+          orgId: tenant.organizationId,
+          workspaceId: tenant.workspaceId,
+          actor: actor(tenant.userId),
+          title: `Concurrent workspace card ${index}`,
+          priority: "normal",
+        }),
+      ),
+    );
 
-    expect(created.ok).toBe(true);
-    if (!created.ok) {
-      throw created.error;
+    expect(first.ok && replay.ok && second.ok && otherWorkspaceTask.ok).toBe(true);
+    if (!first.ok || !replay.ok || !second.ok || !otherWorkspaceTask.ok) {
+      throw new Error("expected per-workspace card number allocation success");
     }
+    const burstCardNumbers = burst.map((result) => {
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        throw result.error;
+      }
 
-    expect(created.value.cardNumber).toBe(blockedCardNumber + 1);
-    expect(created.value.provenanceSource).toBe("manual");
+      return result.value.cardNumber;
+    });
+
+    expect(first.value.cardNumber).toBe(1);
+    expect(replay.value.id).toBe(first.value.id);
+    expect(replay.value.cardNumber).toBe(1);
+    expect(second.value.cardNumber).toBe(2);
+    expect(otherWorkspaceTask.value.cardNumber).toBe(1);
+    expect(new Set(burstCardNumbers).size).toBe(3);
   });
 
   it("idempotently returns existing create rows when a stable key is retried", async () => {

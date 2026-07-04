@@ -26,13 +26,15 @@ Do not let this document become aspirational. If implementation changes the plan
 
 **Mockup functional parity (user directive, 2026-07-03):** every visible element on a mockup screen a slice implements MUST function live - real data, real interactions; no dead buttons, no decorative chrome, no fake/placeholder data. If an element's backing capability is not yet built, the slice either builds it or the element is explicitly descoped IN THIS DOC with its arrival phase. Silent non-functionality is a bug.
 
+**Mockup VISUAL parity (user directive, 2026-07-03, later same day):** the rendered design must be **100% parity with the HTML mockup** - the mockup IS the design. Screens replicate the mockup DOM structure and classes driven by live data, styled by the ported mockup stylesheets (`ux-redesign/mockups/{tokens,app,shadcn}.css`), and are verified by side-by-side screenshots (mockup file vs live page). Tailwind-approximation of a mockup is a bug even when functional. Remediation of already-built screens is tracked in Slice 3 (see worklog).
+
 ## Current State
 
 | Field | Value |
 | --- | --- |
-| Active slice | Slice 3 - CRM core (thin) |
+| Active slice | Slice 4 - Marketing content pipeline (thin) |
 | Status | not-started |
-| Next concrete action | Slice 2.5 build COMPLETE on `slice/2.5-cc-mcp-live-card` (MCP+link tokens, live card all tabs, Ask Admin page, GitHub issues+active-close, multi-provider+GitHub Connections, MinIO evidence). Run final verify-deep, open PR to development, then begin Slice 3 (thin CRM core). |
+| Next concrete action | Slice 3 COMPLETE on `slice/3-crm-core-thin` (verify-deep + 3-lane adversarial review converged 15->2->0; live UI acceptance run). Merge the Slice 3 PR into development, then begin Slice 4 (Campaign/ContentItem aggregates, exact-version approval invariant, assistant drafting via the Slice 2 loop). |
 | Blockers | None |
 
 ## Operating Mode
@@ -211,17 +213,17 @@ Deferred: presence/read-receipt TRANSPORT upgrade (Redis + WS hub; UI contract s
 
 ### Slice 3 - CRM core (thin, pulled forward from P4)
 
-Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
+Status: [ ] not-started | [ ] in-progress | [ ] blocked | [x] done
 
 Goal: Own customer truth in Postgres with manually managed CRM records so Opzava can track real prospects while promoting itself. No channel ingest yet.
 
 Deliverables:
 
-- [ ] Contact, Account, Deal (pipeline/stage), and Ticket aggregates with tenant/workspace RLS through `withTenant` (same pattern as the Task aggregate).
-- [ ] Contacts and Accounts list + detail admin surfaces with manual create/edit.
-- [ ] Deal pipeline board and a simple ticket queue (manual creation only; no `SenderSeen`/UnknownContact projection yet).
-- [ ] Contact timeline skeleton fed by Opzava-owned activities only.
-- [ ] Assistant read access via the Slice 2 loop: list/summarize CRM records through admitted server-side tools.
+- [x] Contact, Account, Deal (pipeline/stage), and Ticket aggregates with tenant/workspace RLS through `withTenant` (same pattern as the Task aggregate). (Versioned Pipeline/Stage reference data; append-only Activity; migrations 0012-0014.)
+- [x] Contacts and Accounts list + detail admin surfaces with manual create/edit.
+- [x] Deal pipeline board and a simple ticket queue (manual creation only; no `SenderSeen`/UnknownContact projection yet).
+- [x] Contact timeline skeleton fed by Opzava-owned activities only.
+- [x] Assistant read access via the Slice 2 loop: list/summarize CRM records through admitted server-side tools (STRICTLY read-only — proven by row-count-invariance tests; SQL-paginated; MCP exposure deferred until a crm scope is grilled).
 
 Skills: `postgres`, `domain-modeling`, `senior-frontend`, `tdd`, `opzava-conventions`*
 
@@ -467,6 +469,12 @@ Per slice:
 - [ ] Changes are committed with `commit-style`.
 
 ## Worklog
+
+- 2026-07-04 - Slice 3 (thin CRM core) COMPLETE on `slice/3-crm-core-thin`. Data layer `@opzava/crm` (Contact/Account/Deal + VERSIONED Pipeline/Stage/Ticket/append-only Activity; migrations 0012-0014; RLS trio + FORCE verified in pg_catalog), admin surfaces in the canonical design system, per-workspace human-readable card numbers (0013 - fixed the global-sequence deviation from the 2.5 deliverable), strictly read-only assistant CRM tools admitted end-to-end (registry/web dispatch/provisioning allowlist/fake gateway). PROVE: verify-deep + 3-lane adversarial codex review (data/web+security/tools+docker) found 15 findings (3 HIGH: transition lost-updates, moveDealStage TOCTOU + missing DB coherence FK, read-tool-that-writes ensureDefaultPipeline) -> all fixed -> convergence re-review 14 PASS + 2 MEDIUM -> fixed -> 0. Clean checks held throughout: authority session-derived, no server-only leakage into client bundles, XSS-safe rendering, docker image secret-free + self-contained. ACCEPTANCE (live UI, DB ground-truth verified): Account -> Contact -> Deal -> stage moves (activities 'Lead in -> Qualified -> Proposal' appended in-tx) -> Ticket -> reload persists under RLS. Full chain TC/TEST/LINT/BUILD 0 forced. Evidence: docs/plan/consensus/slice3-review-{data,web,tools}.codex.md + slice3-rereview.codex.md.
+
+- 2026-07-04 - MOCKUP VISUAL PARITY remediation (user directive: 100% parity with the HTML mockups; recorded as a non-negotiable in CLAUDE.md + this doc). Root-cause: 2.5 screens implemented mockup ELEMENTS live but styled with Tailwind approximations. Remediation on `slice/3-crm-core-thin`: ported `ux-redesign/mockups/{tokens,app,shadcn}.css` VERBATIM as the canonical app stylesheet layer; screen-by-screen DOM ports keeping all live wiring - shell/nav+topbar (admin-nav.js contract: theme toggle, health pill, account menu, sidebar collapse), tasks board (task-board.html), task card (essential-card.html), Ask Opzava (orchestrator-chat.html), issues (issues.html), connections thin slice (connections.html), CRM pages as design-system siblings (essential-card-table idioms; net-new per PRD-010). Screenshot-audit fix pack: hardcoded mockup badge counts (fake data) -> real counts; extra filter chrome not in mockup -> removed; health pill -> real DB+gateway checks (new broker internal health endpoint); Cmd+K search/jump -> working command palette; login page purged of mockup annotation caption, social buttons explicitly descoped (DESCOPE(social-login) -> P8 SSO); ask page: annotation block removed, breadcrumb + real online pill, empty-turn honest fallback. Verification lane: authenticated side-by-side headless screenshots (live vs mockup file; session minted via direct auth_sessions insert - custom cookie `opzava.session_token` holds the raw token) + E2E driver for real flows. NOTE: nav label follows task-board.html ("Ask Opzava") where mockups disagree (orchestrator-chat.html says "Ask Admin Opzava"). ALSO FIXED (real-world stack): web Docker image was silently broken since 2.5 (missing crm/mcp-server package.json COPYs; image only ever built via host-artifact leakage - now builds dep graph in-image via turbo and .dockerignore **/-globs prevent leakage; local stack at web.opzava.localhost:18088 now serves current builds).
+
+- 2026-07-03 - Slice 2.5 DONE + MERGED (PR #124 -> development). Iterated verify-deep converged to zero: 4 adversarial lanes (8 must-fixes incl. assignee data-loss + live-trace fragility) -> re-review caught a fencing race in the outbox fix (claim-token fence, 0009) -> correctness follow-ups caught a reorder-breaking position unique index (reverted 0011) and an idempotency-vs-approved-gate ordering [HIGH] in addQualityCheck (fixed + regression test). Migrations 0004-0011 applied; TC/TEST/LINT/BUILD all green forced. Evidence: `docs/plan/consensus/slice2.5-verify.codex.md`. Slice 3 (thin CRM core) STARTED on `slice/3-crm-core-thin`: spec surface validated (PRD-010 thin subset + ADR-011); thin shape locked - Contact/Account/Deal aggregates + VERSIONED Pipeline/Stage reference data (historical stage meaning stable from day one), append-only Activity (deal stage changes append in-transaction), manual-only Ticket queue; ChannelIdentity/SenderSeen/UnknownContact/consent/merge/erasure all stay P4. CRM screens are net-new design (no mockup binds them; PRD-010 confirms) - built with existing visual language + style-guide tokens, so the mockup-parity directive is satisfied by construction.
 
 - 2026-07-03 - Slice 2.5 BUILD COMPLETE (2.5a-2.5g) on `slice/2.5-cc-mcp-live-card`; codegen files-only + Claude full-chain verification (typecheck/test/lint/build forced) each sub-slice. Delivered: @opzava/runtime-control card data layer + 0004; @opzava/mcp-server stdio + scoped link tokens (0005); live Task card (0004+0007) - Overview/comments/AI-Run/Evidence(MinIO ObjectStorePort)/Quality all functional per essential-card.html; Ask Admin relocated to its own /ask-opzava page (dead sidebar entry fixed, Tasks-panel removed); GitHub issues page + IssueTrackerPort + active-close outbox (0006); Connections surface - catalog-driven multi-provider connect (device-flow + API-key, orchestrator/subagent roles per Q16) + GitHub connect, all through the provisioning/admin path. Verify-loop caught real defects generation missed: server/client pg-in-bundle leak, inconsistent RLS error mapping, Traefik router-name collision, broker dev-script NodeNext crash. Method note: codex self-verification tripped the background-task timeout (kills during test/build) - switched to codex-writes-files-only + Claude-verifies, which is stable. mmx removed (quota+fabrication); consensus now codex profile diversity + Claude adjudication. REMAINING for slice-done: final verify-deep + PR; provider device-flow browser polling is implemented + fake-lane tested but not yet runtime-proven against every real provider (GPT-Pro/Codex proven live in Slice 2).
 

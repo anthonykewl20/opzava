@@ -70,12 +70,54 @@ describe("Ask Opzava page state", () => {
 
   it("wires /ask-opzava as a page route and active sidebar item", async () => {
     const page = await readRepoFile("app/(app)/ask-opzava/page.tsx");
+    const layout = await readRepoFile("app/(app)/layout.tsx");
+    const topbar = await readRepoFile("components/shell/command-palette.tsx");
     const nav = await readRepoFile("components/shell/admin-nav.tsx");
 
     expect(page).toContain("AskOpzavaChat");
     expect(page).toContain("getOrCreateAskAdminHistory");
-    expect(nav).toContain('href="/ask-opzava"');
-    expect(nav).toContain('pathname.startsWith("/ask-opzava")');
+    expect(layout).toContain("TopbarRouteSearchOrBreadcrumb");
+    expect(layout).toContain("AskOpzavaAgentStatus");
+    expect(topbar).toContain("usePathname");
+    expect(topbar).toContain('pathname.startsWith("/ask-opzava")');
+    expect(topbar).toContain("gatewayReachable === true");
+    expect(topbar).toContain("Ask Admin Opzava");
+    expect(nav).toContain('href: "/ask-opzava"');
+    expect(nav).toContain("pathname.startsWith(href)");
+  });
+
+  it("keeps the Ask Opzava chat on the orchestrator mockup class contract and live SSE loop", async () => {
+    const component = await readRepoFile("components/ask-opzava/ask-opzava-chat.tsx");
+
+    for (const className of [
+      ".chat-canvas",
+      ".chat-log-inner",
+      ".chat-tool-card",
+      ".chat-status-pill",
+      ".action-bubble",
+      ".composer-wrap",
+      ".example-chip",
+      ".chat-title-strip",
+    ]) {
+      expect(component).toContain(className);
+    }
+
+    expect(component).toContain("chat-row chat-row--user");
+    expect(component).toContain('className="composer"');
+    expect(component).toContain('id="composerForm"');
+    expect(component).toContain('id="msgInput"');
+    expect(component).toContain('fetch("/api/tasks/ask-admin/turn"');
+    expect(component).toContain("parseAskAdminSseBuffer");
+    expect(component).toContain("upsertToolReceipt");
+    expect(component).toContain("router.refresh()");
+    expect(component).toContain("setDraft(emptyAskAdminDraft())");
+    expect(component).toContain("No reply — the turn did not complete.");
+    expect(component).toContain("u-muted");
+    expect(component).not.toContain("Conversation states and recovery paths");
+    expect(component).not.toContain('className="ops-state-panel"');
+    expect(component).toContain("DESCOPE(proactive-digest)");
+    expect(component).toContain("DESCOPE(inline-approval-action)");
+    expect(component).toContain("DESCOPE(conversation-state-annotation)");
   });
 
   it("keeps the Tasks page free of the interim Ask Admin panel", async () => {

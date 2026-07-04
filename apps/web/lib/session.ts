@@ -16,6 +16,10 @@ export interface AppSessionContext {
   readonly organizationLifecycleState: string;
   readonly workspaceId: string;
   readonly workspaceName: string;
+  readonly workspaces?: readonly {
+    readonly id: string;
+    readonly name: string;
+  }[];
   readonly roleKeys: readonly string[];
 }
 
@@ -53,7 +57,7 @@ export async function isFirstOwnerSetupComplete(): Promise<boolean> {
 }
 
 export async function getCurrentAuthSession(
-  requestHeaderInput?: Headers
+  requestHeaderInput?: Headers,
 ): Promise<AuthSession | null> {
   const requestHeaderSnapshot = requestHeaderInput ?? (await requestHeaders());
   const result = await authPort.getSession({ headers: requestHeaderSnapshot });
@@ -66,7 +70,7 @@ export async function getCurrentAuthSession(
 }
 
 async function resolveTenantContextForSession(
-  session: AuthSession
+  session: AuthSession,
 ): Promise<AppSessionContext | null> {
   const orgId = session.identity.activeMembership.orgId;
   const result = await withTenantForSession(session, orgId, async (tx) =>
@@ -85,11 +89,11 @@ async function resolveTenantContextForSession(
       join public.workspaces w on w.organization_id = o.id
       where u.id = ${String(session.identity.userId)}
       order by w.created_at asc
-      limit 1
-    `)
+    `),
   );
 
-  const row = rowsFromExecuteResult(result)[0];
+  const rows = rowsFromExecuteResult(result);
+  const row = rows[0];
   if (row === undefined) {
     return null;
   }
@@ -116,24 +120,40 @@ async function resolveTenantContextForSession(
     return null;
   }
 
+  const workspaces = rows
+    .map((workspaceRow) => {
+      const id = stringValue(workspaceRow, "workspace_id");
+      const name = stringValue(workspaceRow, "workspace_name");
+      return id === null || name === null ? null : { id, name };
+    })
+    .filter(
+      (workspace): workspace is { readonly id: string; readonly name: string } =>
+        workspace !== null,
+    );
+
+  if (workspaces.length === 0) {
+    return null;
+  }
+
   return {
     sessionId: session.sessionId,
     user: {
       id: userId,
       email: userEmail,
-      name: userName
+      name: userName,
     },
     orgId: organizationId,
     organizationName,
     organizationLifecycleState,
     workspaceId,
     workspaceName,
-    roleKeys: session.identity.activeMembership.roleKeys
+    workspaces,
+    roleKeys: session.identity.activeMembership.roleKeys,
   };
 }
 
 export async function getAppSessionContext(
-  requestHeaderInput?: Headers
+  requestHeaderInput?: Headers,
 ): Promise<AppSessionContext | null> {
   const requestHeaderSnapshot = requestHeaderInput ?? (await requestHeaders());
   const session = await getCurrentAuthSession(requestHeaderSnapshot);

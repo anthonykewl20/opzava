@@ -7,15 +7,19 @@ import type {
 } from "@opzava/ports";
 import type {
   AssistantTurn,
+  RuntimeControlCrmToolExecution,
+  RuntimeControlCrmToolName,
   RuntimeControlTaskToolExecution,
   ToolExecutionContext,
 } from "@opzava/runtime-control";
 import {
   appendAssistantDelta,
   appendUserTurn,
+  executeRuntimeControlCrmTool,
   executeRuntimeControlTaskTool,
   failAssistantTurn,
   finalizeAssistantTurn,
+  runtimeControlCrmToolNames,
   startAssistantTurn,
   toolExecutionContextFromSessionPrincipal,
 } from "@opzava/runtime-control";
@@ -43,9 +47,14 @@ interface RuntimeControlServices {
   readonly appendAssistantDelta: typeof appendAssistantDelta;
   readonly finalizeAssistantTurn: typeof finalizeAssistantTurn;
   readonly failAssistantTurn: typeof failAssistantTurn;
+  readonly executeRuntimeControlCrmTool: typeof executeRuntimeControlCrmTool;
   readonly executeRuntimeControlTaskTool: typeof executeRuntimeControlTaskTool;
   readonly toolExecutionContextFromSessionPrincipal: typeof toolExecutionContextFromSessionPrincipal;
 }
+
+type AskAdminToolExecution =
+  | RuntimeControlCrmToolExecution
+  | RuntimeControlTaskToolExecution;
 
 export interface AskAdminTurnPostDependencies {
   readonly getSessionContext: (headers: Headers) => Promise<AppSessionContext | null>;
@@ -61,6 +70,7 @@ const runtimeControlServices: RuntimeControlServices = {
   appendAssistantDelta,
   finalizeAssistantTurn,
   failAssistantTurn,
+  executeRuntimeControlCrmTool,
   executeRuntimeControlTaskTool,
   toolExecutionContextFromSessionPrincipal,
 };
@@ -285,6 +295,10 @@ function completedEventFromTurn(
   };
 }
 
+function isCrmToolName(toolName: string): toolName is RuntimeControlCrmToolName {
+  return runtimeControlCrmToolNames.includes(toolName as RuntimeControlCrmToolName);
+}
+
 function toolFailureFromError(
   error: unknown,
   event: Extract<OpenClawStreamEvent, { readonly type: "tool.call" }>,
@@ -301,7 +315,7 @@ function toolFailureFromError(
 }
 
 function toolSucceededEvent(
-  execution: Extract<RuntimeControlTaskToolExecution, { readonly status: "succeeded" }>,
+  execution: Extract<AskAdminToolExecution, { readonly status: "succeeded" }>,
   event: Extract<OpenClawStreamEvent, { readonly type: "tool.call" }>,
 ): Extract<AskAdminClientStreamEvent, { readonly type: "tool.succeeded" }> {
   return {
@@ -315,7 +329,7 @@ function toolSucceededEvent(
 }
 
 function toolFailedEvent(
-  execution: Extract<RuntimeControlTaskToolExecution, { readonly status: "failed" }>,
+  execution: Extract<AskAdminToolExecution, { readonly status: "failed" }>,
   event: Extract<OpenClawStreamEvent, { readonly type: "tool.call" }>,
 ): Extract<AskAdminClientStreamEvent, { readonly type: "tool.failed" }> {
   return {
@@ -387,12 +401,19 @@ async function handleGatewayEvent(
       state: "tool_running",
     });
 
-    const execution = await runtime.executeRuntimeControlTaskTool({
-      context: toolContext,
-      toolName: event.toolName,
-      toolCallId: event.toolCallId,
-      args: event.args,
-    });
+    const execution = isCrmToolName(event.toolName)
+      ? await runtime.executeRuntimeControlCrmTool({
+          context: toolContext,
+          toolName: event.toolName,
+          toolCallId: event.toolCallId,
+          args: event.args,
+        })
+      : await runtime.executeRuntimeControlTaskTool({
+          context: toolContext,
+          toolName: event.toolName,
+          toolCallId: event.toolCallId,
+          args: event.args,
+        });
 
     if (!execution.ok) {
       writeEvent(controller, toolFailureFromError(execution.error, event));

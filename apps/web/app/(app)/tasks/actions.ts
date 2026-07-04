@@ -7,12 +7,13 @@ import {
   taskStatuses,
   updateTask,
   type TaskPriority,
-  type TaskStatus
+  type TaskStatus,
 } from "@opzava/project-management";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { forbidden, redirect } from "next/navigation";
 import { z } from "zod";
 
+import { formFailureState, formValidationState, type FormActionState } from "@/lib/action-state";
 import { getAppSessionContext, type AppSessionContext } from "@/lib/session";
 
 const taskStatusSchema = z.enum(taskStatuses);
@@ -25,7 +26,7 @@ const createTaskSchema = z.object({
   priority: taskPrioritySchema.default("normal"),
   assignee: z.string().optional(),
   labels: z.string().optional(),
-  idempotencyKey: z.string().trim().min(1).max(160).optional()
+  idempotencyKey: z.string().trim().min(1).max(160),
 });
 
 const updateTaskSchema = z.object({
@@ -34,13 +35,13 @@ const updateTaskSchema = z.object({
   description: z.string().max(4000).optional(),
   priority: taskPrioritySchema,
   assignee: z.string().optional(),
-  labels: z.string().optional()
+  labels: z.string().optional(),
 });
 
 const moveTaskSchema = z.object({
   taskId: z.string().trim().min(1),
   status: taskStatusSchema,
-  position: z.coerce.number().int().min(0)
+  position: z.coerce.number().int().min(0),
 });
 
 function stringFromForm(formData: FormData, key: string): string {
@@ -73,7 +74,7 @@ async function requireTaskContext(): Promise<AppSessionContext> {
 function actorFromContext(context: AppSessionContext) {
   return {
     userId: context.user.id,
-    roleKeys: context.roleKeys
+    roleKeys: context.roleKeys,
   };
 }
 
@@ -104,18 +105,18 @@ function errorCode(error: unknown, depth = 0): string | undefined {
     : errorCode((error as { readonly cause?: unknown }).cause, depth + 1);
 }
 
-function throwTaskActionError(error: unknown): never {
-  if (
-    errorCode(error) === "projectManagement.forbidden" ||
-    errorStatus(error) === 403
-  ) {
-    redirect("/");
+function taskActionErrorState(error: unknown, fallback: string): FormActionState {
+  if (errorCode(error) === "projectManagement.forbidden" || errorStatus(error) === 403) {
+    forbidden();
   }
 
-  throw error instanceof Error ? error : new Error("Task action failed.");
+  return formFailureState(error instanceof Error ? error.message : fallback);
 }
 
-export async function createTaskAction(formData: FormData): Promise<void> {
+export async function createTaskAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireTaskContext();
   const parsed = createTaskSchema.safeParse({
     title: stringFromForm(formData, "title"),
@@ -124,11 +125,11 @@ export async function createTaskAction(formData: FormData): Promise<void> {
     priority: stringFromForm(formData, "priority"),
     assignee: stringFromForm(formData, "assignee"),
     labels: stringFromForm(formData, "labels"),
-    idempotencyKey: stringFromForm(formData, "idempotencyKey") || undefined
+    idempotencyKey: stringFromForm(formData, "idempotencyKey"),
   });
 
   if (!parsed.success) {
-    throw new Error("Task form is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const result = await createTask({
@@ -141,19 +142,20 @@ export async function createTaskAction(formData: FormData): Promise<void> {
     priority: parsed.data.priority as TaskPriority,
     assigneeUserId: assigneeFromForm(parsed.data.assignee, context),
     labels: labelsFromForm(parsed.data.labels),
-    ...(parsed.data.idempotencyKey === undefined
-      ? {}
-      : { idempotencyKey: parsed.data.idempotencyKey })
+    idempotencyKey: parsed.data.idempotencyKey,
   });
 
   if (!result.ok) {
-    throwTaskActionError(result.error);
+    return taskActionErrorState(result.error, "Task could not be created.");
   }
 
   redirectAfterMutation();
 }
 
-export async function updateTaskAction(formData: FormData): Promise<void> {
+export async function updateTaskAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireTaskContext();
   const parsed = updateTaskSchema.safeParse({
     taskId: stringFromForm(formData, "taskId"),
@@ -161,11 +163,11 @@ export async function updateTaskAction(formData: FormData): Promise<void> {
     description: stringFromForm(formData, "description"),
     priority: stringFromForm(formData, "priority"),
     assignee: stringFromForm(formData, "assignee"),
-    labels: stringFromForm(formData, "labels")
+    labels: stringFromForm(formData, "labels"),
   });
 
   if (!parsed.success) {
-    throw new Error("Task form is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const result = await updateTask({
@@ -177,26 +179,29 @@ export async function updateTaskAction(formData: FormData): Promise<void> {
     description: parsed.data.description ?? "",
     priority: parsed.data.priority as TaskPriority,
     assigneeUserId: assigneeFromForm(parsed.data.assignee, context),
-    labels: labelsFromForm(parsed.data.labels)
+    labels: labelsFromForm(parsed.data.labels),
   });
 
   if (!result.ok) {
-    throwTaskActionError(result.error);
+    return taskActionErrorState(result.error, "Task could not be updated.");
   }
 
   redirectAfterMutation();
 }
 
-export async function moveTaskAction(formData: FormData): Promise<void> {
+export async function moveTaskAction(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const context = await requireTaskContext();
   const parsed = moveTaskSchema.safeParse({
     taskId: stringFromForm(formData, "taskId"),
     status: stringFromForm(formData, "status"),
-    position: stringFromForm(formData, "position")
+    position: stringFromForm(formData, "position"),
   });
 
   if (!parsed.success) {
-    throw new Error("Task move is invalid.");
+    return formValidationState(parsed.error.issues);
   }
 
   const result = await moveTask({
@@ -205,11 +210,11 @@ export async function moveTaskAction(formData: FormData): Promise<void> {
     actor: actorFromContext(context),
     taskId: parsed.data.taskId,
     status: parsed.data.status as TaskStatus,
-    position: parsed.data.position
+    position: parsed.data.position,
   });
 
   if (!result.ok) {
-    throwTaskActionError(result.error);
+    return taskActionErrorState(result.error, "Task could not be moved.");
   }
 
   redirectAfterMutation();

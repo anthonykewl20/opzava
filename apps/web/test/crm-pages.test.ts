@@ -1,0 +1,182 @@
+import { readFile } from "node:fs/promises";
+
+import type { CrmAccountDto, CrmDealDto, CrmTicketDto } from "@opzava/crm";
+import { describe, expect, it } from "vitest";
+
+import {
+  accountWebsiteHref,
+  accountOpenDealCount,
+  accountOpenTicketCount,
+  dealStatusBadgeClassName,
+  dealStatusLabel,
+  formatMoney,
+  lifecycleBadgeClassName,
+  lifecycleLabel,
+  normalizeCrmWebsiteForStorage,
+  ownerLabel,
+  ticketPriorityBadgeClassName,
+  ticketPriorityLabel,
+  ticketStatusBadgeClassName,
+  ticketStatusLabel,
+} from "../lib/crm-pages";
+import type { AppSessionContext } from "../lib/session";
+
+async function readRepoFile(path: string): Promise<string> {
+  return readFile(new URL(`../${path}`, import.meta.url), "utf8");
+}
+
+function context(): AppSessionContext {
+  return {
+    sessionId: "session-1",
+    user: { id: "user-1", email: "anthony@example.test", name: "Anthony" },
+    orgId: "org-1",
+    organizationName: "Opzava",
+    organizationLifecycleState: "active",
+    workspaceId: "workspace-1",
+    workspaceName: "Admin",
+    roleKeys: ["admin"],
+  };
+}
+
+describe("CRM page state", () => {
+  it("maps CRM statuses, priorities, lifecycle stages, ownership, and money labels", () => {
+    expect(lifecycleLabel("qualified")).toBe("Qualified");
+    expect(lifecycleBadgeClassName("customer")).toBe("badge badge-success");
+    expect(dealStatusLabel("lost")).toBe("Lost");
+    expect(dealStatusBadgeClassName("open")).toBe("badge badge-accent");
+    expect(ticketStatusLabel("waiting_on_customer")).toBe("Waiting");
+    expect(ticketStatusBadgeClassName("new")).toBe("badge badge-accent");
+    expect(ticketPriorityLabel("urgent")).toBe("Urgent");
+    expect(ticketPriorityBadgeClassName("high")).toBe("badge badge-warning");
+    expect(ownerLabel("user-1", context())).toBe("Anthony");
+    expect(ownerLabel(null, context())).toBe("Unassigned");
+    expect(formatMoney(129900, "USD")).toBe("$1,299.00");
+    expect(formatMoney(null, "USD")).toBe("No value");
+  });
+
+  it("counts account work without treating resolved tickets as active", () => {
+    const account = { id: "account-1" } as CrmAccountDto;
+    const openDeal = { accountId: "account-1", status: "open" } as CrmDealDto;
+    const otherDeal = { accountId: "account-2", status: "open" } as CrmDealDto;
+    const openTicket = { accountId: "account-1", status: "open" } as CrmTicketDto;
+    const resolvedTicket = { accountId: "account-1", status: "resolved" } as CrmTicketDto;
+    const otherTicket = { accountId: "account-2", status: "open" } as CrmTicketDto;
+
+    expect(accountOpenDealCount(account, [openDeal, otherDeal])).toBe(1);
+    expect(accountOpenTicketCount(account, [openTicket, resolvedTicket, otherTicket])).toBe(1);
+  });
+
+  it("normalizes account websites and rejects non-http schemes", () => {
+    expect(normalizeCrmWebsiteForStorage(null)).toEqual({ ok: true, value: null });
+    expect(normalizeCrmWebsiteForStorage("example.com")).toEqual({
+      ok: true,
+      value: "https://example.com/",
+    });
+    expect(normalizeCrmWebsiteForStorage("http://example.com/path")).toEqual({
+      ok: true,
+      value: "http://example.com/path",
+    });
+    expect(normalizeCrmWebsiteForStorage("data:text/html,hi")).toEqual({
+      ok: false,
+      message: "Website must use http:// or https://.",
+    });
+    expect(accountWebsiteHref("data:text/html,hi")).toBeNull();
+  });
+
+  it("wires CRM pages to the remediated mockup class contract and live actions", async () => {
+    const [
+      styles,
+      contacts,
+      contactDetail,
+      accounts,
+      accountDetail,
+      accountActions,
+      actionStateForm,
+      deals,
+      dealCreateDialog,
+      tickets,
+      ticketDetail,
+      loading,
+      forbidden,
+      error,
+    ] = await Promise.all([
+      readRepoFile("app/(app)/crm/_components/crm-page-styles.tsx"),
+      readRepoFile("app/(app)/crm/contacts/page.tsx"),
+      readRepoFile("app/(app)/crm/contacts/[id]/page.tsx"),
+      readRepoFile("app/(app)/crm/accounts/page.tsx"),
+      readRepoFile("app/(app)/crm/accounts/[id]/page.tsx"),
+      readRepoFile("app/(app)/crm/accounts/actions.ts"),
+      readRepoFile("components/forms/action-state-form.tsx"),
+      readRepoFile("app/(app)/crm/deals/page.tsx"),
+      readRepoFile("app/(app)/crm/deals/_components/deal-create-dialog.tsx"),
+      readRepoFile("app/(app)/crm/tickets/page.tsx"),
+      readRepoFile("app/(app)/crm/tickets/[id]/page.tsx"),
+      readRepoFile("app/(app)/crm/loading.tsx"),
+      readRepoFile("app/(app)/crm/forbidden.tsx"),
+      readRepoFile("app/(app)/crm/error.tsx"),
+    ]);
+
+    expect(styles).toContain(
+      "Page-specific layout only — no color, font-size, shadow, or radius overrides",
+    );
+    expect(styles).toContain(".ct-card");
+    expect(styles).toContain(".count-pill");
+    expect(styles).toContain(".crm-detail-grid");
+    expect(styles).toContain(".crm-table td");
+
+    for (const page of [
+      contacts,
+      contactDetail,
+      accounts,
+      accountDetail,
+      deals,
+      tickets,
+      ticketDetail,
+      loading,
+      forbidden,
+      error,
+    ]) {
+      expect(page).toContain("CrmPageStyles");
+      expect(page).toContain("page crm-page");
+    }
+
+    expect(contacts).toContain('className="table table-compact table-cards crm-table"');
+    expect(contacts).toContain("createContactAction");
+    expect(contacts).toContain("web.crm.contact.create");
+    expect(accounts).toContain('className="table table-compact table-cards crm-table"');
+    expect(accounts).toContain("createAccountAction");
+    expect(accounts).toContain("web.crm.account.create");
+    expect(accounts).toContain("ActionStateForm");
+    expect(accountActions).toContain("normalizeCrmWebsiteForStorage");
+    expect(accountDetail).toContain("accountWebsiteHref(account.website)");
+    expect(actionStateForm).toContain("sb-alert sb-alert--destructive");
+    expect(actionStateForm).toContain("useActionState");
+
+    expect(deals).toContain('className="board-columns crm-deals-board"');
+    expect(deals).toContain('className="board-col"');
+    expect(deals).toContain('className="board-col-header"');
+    expect(deals).toContain('className="count-pill"');
+    expect(deals).not.toContain("openDealCount === 0");
+    expect(deals).not.toContain("No open deals");
+    expect(deals).not.toContain("Add account");
+    expect(dealCreateDialog).toContain("New deal");
+    expect(dealCreateDialog).toContain('role="dialog"');
+    expect(dealCreateDialog).toContain('href="/crm/accounts"');
+    expect(dealCreateDialog).toContain("Create an account first");
+    expect(dealCreateDialog).toContain('disabled={selectedAccountId === ""}');
+    expect(deals).toContain("moveDealStageAction");
+    expect(deals).toContain("closeDealAction");
+    expect(deals).toContain("reopenDealAction");
+
+    expect(tickets).toContain('className="tabs"');
+    expect(tickets).toContain('className="table table-compact table-cards crm-table"');
+    expect(tickets).toContain("updateTicketStatusAction");
+    expect(ticketDetail).toContain("updateTicketAction");
+
+    expect(contactDetail).toContain("addContactActivityAction");
+    expect(contactDetail).toContain('className="crm-timeline"');
+    expect(contactDetail).toContain("DESCOPE(crm-consent-erasure)");
+    expect(accountDetail).toContain("DESCOPE(crm-account-health)");
+    expect(ticketDetail).toContain("DESCOPE(external-channel-transcript)");
+  });
+});

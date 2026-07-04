@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import type {
   CardDetailDto,
@@ -53,6 +60,7 @@ import {
   relativeTimeLabel,
   statusBadgeClassName,
   statusLabel,
+  taskCardTabDomId,
   stepProgress,
   taskCardTabs,
   watcherOverflow,
@@ -72,6 +80,59 @@ interface TaskCardDetailProps {
 
 const priorities: readonly TaskPriority[] = ["low", "normal", "high", "urgent"];
 
+const taskCardDetailPageStyles = `
+    .bc { min-height: 100vh; font-size: var(--text-base); }
+    .topbar { position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--space-5); height: 60px; padding: 0 var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topnav { display: flex; align-items: center; gap: var(--space-1); }
+    .topnav a { display: inline-flex; align-items: center; height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); color: var(--fg-muted); text-decoration: none; font-weight: var(--fw-medium); }
+    .topnav a:hover { background: var(--surface-2); color: var(--fg); }
+    .bc-wrap { max-width: 1080px; margin: 0 auto; padding: var(--space-6) var(--space-6) var(--space-16); }
+    .id-chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: var(--text-sm); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 3px 4px 3px 9px; }
+    .id-copy { border: 0; background: none; color: var(--fg-subtle); font: inherit; font-size: var(--text-xs); cursor: pointer; padding: 2px 6px; border-radius: var(--radius-sm); }
+    .id-copy:hover { background: var(--surface-3); color: var(--fg); }
+    .meta-grid { display: flex; flex-wrap: wrap; gap: var(--space-6); padding: var(--space-4) 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: var(--space-5) 0; }
+    .meta b { display: block; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); margin-bottom: 6px; }
+    .sec-h { font-size: var(--text-md); font-weight: var(--fw-semibold); margin: var(--space-6) 0 var(--space-3); }
+    .step { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+    .step:last-child { border-bottom: 0; }
+    .step.done .step-text { color: var(--fg-subtle); text-decoration: line-through; }
+    .comment { display: flex; gap: var(--space-3); padding: var(--space-4) 0; border-top: 1px solid var(--border); }
+    .comment.ai { padding-left: var(--space-3); border-left: 2px solid var(--accent-soft); }
+    .bmeta { display: flex; align-items: center; gap: var(--space-2); margin-bottom: 4px; }
+    .read { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: var(--text-xs); color: var(--fg-subtle); }
+    .rdot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+    .read.unread .rdot { background: var(--border-strong); }
+    .typing { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; }
+    .dots { display: inline-flex; gap: 4px; align-items: flex-end; height: 14px; }
+    .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: typ 1.2s infinite ease-in-out; }
+    .dots.human i { background: var(--info); }
+    .dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
+    @keyframes typ { 0%,70%,100% { transform: translateY(0); opacity: .4; } 35% { transform: translateY(-5px); opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .dots i { animation: none; opacity: .7; } }
+    /* evidence */
+    .ev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-3); }
+    .ev-thumb { aspect-ratio: 16/10; border-radius: var(--radius-md); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 26px; color: #fff; position: relative; overflow: hidden; }
+    .ev-cap { padding: 8px 2px 0; font-size: var(--text-xs); color: var(--fg-muted); }
+    .ev-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+    .ftype { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; background: var(--surface-2); color: var(--fg-muted); font-size: var(--text-xs); font-weight: 700; flex: none; }
+    .tabpanel[hidden] { display: none; }
+    .mention-pop { position:absolute; left:0; top:calc(100% - 2px); z-index:var(--z-dropdown); width:320px; max-width:calc(100vw - 32px); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); padding:6px; }
+    .mention-pop[hidden] { display:none; }
+    .mention-hd { font-size:var(--text-xs); color:var(--fg-subtle); text-transform:uppercase; letter-spacing:var(--tracking-caps); font-weight:var(--fw-semibold); padding:6px 8px 4px; }
+    .mention-item { display:flex; align-items:center; gap:8px; width:100%; padding:7px 8px; border:0; background:none; border-radius:var(--radius-sm); cursor:pointer; font:inherit; text-align:left; color:var(--fg); }
+    .mention-item:hover, .mention-item.active { background:var(--surface-2); }
+    .mention-nm { font-size:var(--text-sm); font-weight:var(--fw-medium); }
+    .mention-sub { font-size:var(--text-xs); color:var(--fg-subtle); margin-left:auto; }
+    .mention-at { width:26px; height:26px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:var(--surface-3); color:var(--fg-muted); font-size:var(--text-sm); flex:none; }
+    #p-airun .run-steps { list-style: none; margin: 0; padding: var(--space-4) var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+    #p-airun .run-step { display: flex; align-items: flex-start; gap: var(--space-3); font-size: var(--text-sm); color: var(--fg); line-height: var(--lh-normal); }
+    #p-airun .run-step .rs-g { flex: none; width: 18px; text-align: center; color: var(--fg-muted); }
+    #p-airun .run-step strong { font-weight: var(--fw-semibold); color: var(--fg); }
+    .bc .sb-tabs { margin-bottom: 0; }
+    .bc .textarea { min-height: 72px; }
+    .bc .ev-row .field { flex: 1 1 160px; min-width: 0; }
+`;
+
 function actionMessage(
   result:
     | { readonly ok: true }
@@ -83,16 +144,20 @@ function actionMessage(
   return result.ok ? null : result.error.message;
 }
 
-function cardBorderClassName(task: TaskDto): string {
+function TaskCardPageStyles() {
+  return <style>{taskCardDetailPageStyles}</style>;
+}
+
+function cardBorderColor(task: TaskDto): string {
   if (task.status === "blocked") {
-    return "task-card-detail-card task-card-detail-card-warning";
+    return "var(--warning)";
   }
 
   if (task.status === "done") {
-    return "task-card-detail-card task-card-detail-card-success";
+    return "var(--success)";
   }
 
-  return "task-card-detail-card task-card-detail-card-accent";
+  return "var(--chart-1)";
 }
 
 function deferredPanelCopy(): {
@@ -103,6 +168,99 @@ function deferredPanelCopy(): {
     title: "No assistant runs yet",
     description:
       "Mention Ask Admin Opzava in a comment or use task tools to create an auditable run.",
+  };
+}
+
+function isAiIdentity(input: { readonly userId: string | null; readonly name: string | null }) {
+  const userId = input.userId ?? "";
+  const name = input.name ?? "";
+
+  return (
+    userId.startsWith("assistant:") ||
+    userId.startsWith("ai:") ||
+    /^ai[:\s-]/i.test(name) ||
+    /\bassistant\b/i.test(name) ||
+    /\bopzava\b/i.test(name)
+  );
+}
+
+function avatarClassName(input: { readonly ai: boolean; readonly small?: boolean }): string {
+  return [
+    "sb-avatar",
+    input.small === false ? "" : "sb-avatar--sm",
+    input.ai ? "sb-avatar--ai" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function avatarBackground(input: { readonly ai: boolean; readonly index?: number }): string {
+  if (input.ai) {
+    return "var(--chart-5)";
+  }
+
+  const colors = ["var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-6)"];
+  return colors[(input.index ?? 0) % colors.length] ?? "var(--chart-2)";
+}
+
+function aiRunGlyph(state: "queued" | "working" | "succeeded" | "failed"): string {
+  if (state === "failed") {
+    return "!";
+  }
+
+  if (state === "working") {
+    return "◷";
+  }
+
+  if (state === "queued") {
+    return "○";
+  }
+
+  return "✓";
+}
+
+function evidenceFileType(item: TaskEvidenceDto): string {
+  const contentType = item.contentType ?? "";
+  const filename = item.filename;
+  const extension = filename.includes(".") ? filename.split(".").pop() : null;
+
+  if (contentType.includes("json")) {
+    return "JSON";
+  }
+
+  if (contentType.includes("pdf")) {
+    return "PDF";
+  }
+
+  if (contentType.startsWith("image/")) {
+    return "IMG";
+  }
+
+  if (contentType.startsWith("video/")) {
+    return "VID";
+  }
+
+  return (extension ?? "FILE").slice(0, 4).toUpperCase();
+}
+
+function evidenceThumbStyle(
+  index: number,
+  item: TaskEvidenceDto,
+): { readonly background: string; readonly color?: string } {
+  if (item.contentType?.startsWith("video/")) {
+    return { background: "#11131c", color: "#cbd5e1" };
+  }
+
+  const gradients = [
+    "linear-gradient(135deg,var(--chart-1),var(--chart-6))",
+    "linear-gradient(135deg,var(--chart-2),var(--chart-4))",
+    "linear-gradient(135deg,var(--chart-3),var(--chart-5))",
+  ];
+
+  return {
+    background:
+      gradients[index % gradients.length] ??
+      "linear-gradient(135deg,var(--chart-1),var(--chart-6))",
   };
 }
 
@@ -118,9 +276,15 @@ function StepAssignee({
   }
 
   const name = step.assigneeUserId === currentUser.id ? currentUser.name : step.assigneeUserId;
+  const ai = isAiIdentity({ userId: step.assigneeUserId, name });
 
   return (
-    <span className="task-card-mini-avatar" aria-label={`Assigned to ${name}`} title={name}>
+    <span
+      className={avatarClassName({ ai })}
+      style={{ background: avatarBackground({ ai }), width: 22, height: 22 }}
+      aria-label={`Assigned to ${name}`}
+      title={name}
+    >
       {initials(name)}
     </span>
   );
@@ -831,771 +995,1034 @@ export function TaskCardDetail({
     setMenuOpen(false);
   };
 
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, tab: TaskCardTab) => {
+    const currentIndex = taskCardTabs.findIndex((candidate) => candidate.id === tab);
+    const nextIndex =
+      event.key === "ArrowRight" || event.key === "ArrowDown"
+        ? (currentIndex + 1) % taskCardTabs.length
+        : event.key === "ArrowLeft" || event.key === "ArrowUp"
+          ? (currentIndex - 1 + taskCardTabs.length) % taskCardTabs.length
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? taskCardTabs.length - 1
+              : null;
+
+    if (nextIndex === null) {
+      return;
+    }
+
+    event.preventDefault();
+    const nextTab = taskCardTabs[nextIndex];
+    if (nextTab === undefined) {
+      return;
+    }
+
+    setActiveTab(nextTab.id);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`tab-${taskCardTabDomId(nextTab.id)}`)?.focus();
+    });
+  };
+
+  const visualEvidenceFiles = evidenceFiles.filter(
+    (item) => item.contentType?.startsWith("image/") || item.contentType?.startsWith("video/"),
+  );
+  const qualityChecks = qualityReview?.checks ?? [];
+  const assistantDisplayName = assignedIsAssistant ? assignedName : "Ask Admin Opzava";
+  const assignedAvatarAi = assignedIsAssistant;
+  const currentUserInitials = initials(currentUser.name);
+
   return (
-    <div className="page task-card-detail-page">
-      <nav className="sb-breadcrumb task-card-breadcrumb" aria-label="Breadcrumb">
-        <a href="/">Home</a>
-        <span className="sep" aria-hidden="true">
-          /
-        </span>
-        <a href="/tasks">Tasks</a>
-        <span className="sep" aria-hidden="true">
-          /
-        </span>
-        <span className="current">{cardId.cardId}</span>
-      </nav>
+    <div className="bc">
+      <TaskCardPageStyles />
+      <main>
+        <div className="bc-wrap">
+          <nav
+            className="sb-breadcrumb"
+            aria-label="Breadcrumb"
+            style={{ marginBottom: "var(--space-5)" }}
+          >
+            <a href="/">Home</a>
+            <span className="sep" aria-hidden="true">
+              ›
+            </span>
+            <a href="/tasks">{workspaceName}</a>
+            <span className="sep" aria-hidden="true">
+              ›
+            </span>
+            <a href="/tasks">Board</a>
+            <span className="sep" aria-hidden="true">
+              ›
+            </span>
+            <span className="current">{cardId.cardId}</span>
+          </nav>
 
-      <article className={`card ${cardBorderClassName(task)}`} aria-labelledby="task-card-title">
-        <div className="card-body task-card-detail-body">
-          <div className="task-card-detail-top">
-            <div className="u-row task-card-id-tools">
-              <span className="task-card-id-chip">
-                <span className="u-subtle">#</span>
-                {cardId.cardId}
-                <button
-                  className="task-card-id-copy"
-                  type="button"
-                  aria-label={`Copy ${cardId.cardId}`}
-                  onClick={() => void copyText(cardId.cardId, "id")}
-                >
-                  {copied === "id" ? "Copied" : "Copy"}
-                </button>
-              </span>
-
-              <div className="task-card-popover-wrap">
-                <button
-                  className="btn btn-sm btn-ghost"
-                  type="button"
-                  aria-expanded={idPopoverOpen}
-                  aria-controls="task-card-id-popover"
-                  onClick={() => setIdPopoverOpen((open) => !open)}
-                >
-                  What's this ID?
-                  <span aria-hidden="true">v</span>
-                </button>
-                {idPopoverOpen ? (
-                  <div className="sb-popover task-card-id-popover" id="task-card-id-popover">
-                    <strong>Standardized workspace ID</strong>
-                    <p className="u-muted">
-                      Cards in {workspaceName} use a stable {cardId.prefix}-N handle. People,
-                      agents, MCP tools, and links can refer to {cardId.cardId} without trusting
-                      caller-supplied tenant or workspace ids.
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="u-row task-card-header-actions">
-              <button
-                className="btn"
-                type="button"
-                disabled={task.status === "done" || isMarkDonePending}
-                onClick={handleMarkDone}
+          <article
+            className="card"
+            aria-labelledby="task-card-title"
+            style={{ borderTop: `3px solid ${cardBorderColor(task)}` }}
+          >
+            <div className="card-body" style={{ padding: "var(--space-6)" }}>
+              <div
+                className="u-between"
+                style={{ gap: "var(--space-3)", marginBottom: "var(--space-3)" }}
               >
-                <span aria-hidden="true">✓</span>
-                {task.status === "done" ? "Done" : isMarkDonePending ? "Marking..." : "Mark done"}
-              </button>
-
-              <div className="task-card-popover-wrap">
-                <button
-                  className="btn btn-icon"
-                  type="button"
-                  aria-label="Card actions"
-                  aria-haspopup="menu"
-                  aria-expanded={menuOpen}
-                  onClick={() => setMenuOpen((open) => !open)}
-                >
-                  <span aria-hidden="true">...</span>
-                </button>
-                {menuOpen ? (
-                  <div className="sb-menu task-card-actions-menu" role="menu">
-                    <div className="sb-menu-label">Card</div>
+                <div className="u-row u-wrap" style={{ gap: "var(--space-3)" }}>
+                  <span className="id-chip">
+                    <span className="u-subtle">#</span>
+                    {cardId.cardId}
                     <button
-                      className="sb-menu-item"
+                      className="id-copy"
                       type="button"
-                      role="menuitem"
-                      onClick={handleCopyLink}
+                      aria-label={`Copy ${cardId.cardId}`}
+                      onClick={() => void copyText(cardId.cardId, "id")}
                     >
-                      <span aria-hidden="true">↗</span>
-                      {copied === "link" ? "Copied link" : "Copy link"}
+                      {copied === "id" ? "Copied" : "Copy"}
                     </button>
+                  </span>
+
+                  <div style={{ position: "relative" }}>
                     <button
-                      className="sb-menu-item"
+                      className="btn btn-sm btn-ghost"
+                      id="idInfo"
                       type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setEditOpen(true);
-                        setMenuOpen(false);
+                      aria-expanded={idPopoverOpen}
+                      aria-controls="idPop"
+                      aria-label="About this ID"
+                      onClick={() => setIdPopoverOpen((open) => !open)}
+                    >
+                      What's this ID?
+                      <span aria-hidden="true">▾</span>
+                    </button>
+                    <div
+                      className="sb-popover"
+                      id="idPop"
+                      style={{
+                        display: idPopoverOpen ? "block" : "none",
+                        position: "absolute",
+                        top: "calc(100% + 6px)",
+                        left: 0,
+                        width: 300,
+                        zIndex: "var(--z-dropdown)",
                       }}
                     >
-                      <span aria-hidden="true">✎</span>
-                      Edit
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-
-          <h1 className="task-card-detail-title" id="task-card-title">
-            {task.title}
-          </h1>
-
-          <div className="task-card-chip-row" aria-label="Task card metadata">
-            <span className={statusBadgeClassName(task.status)}>{statusLabel(task.status)}</span>
-            {task.labels.length === 0 ? (
-              <span className="sb-badge">No labels</span>
-            ) : (
-              task.labels.map((label) => (
-                <span className="sb-badge sb-badge--outline" key={label}>
-                  {label}
-                </span>
-              ))
-            )}
-            <span className="sb-badge sb-badge--warning">
-              <span className="dot dot-warning" aria-hidden="true" />
-              {dueDateLabel(task.dueAt)}
-            </span>
-          </div>
-
-          <div className="task-card-meta-grid">
-            <div className="task-card-meta">
-              <b>Assigned to</b>
-              <span className="u-row">
-                <span
-                  className={assignedIsAssistant ? "task-avatar task-avatar-ai" : "task-avatar"}
-                >
-                  {initials(assignedName)}
-                </span>
-                <span>{assignedName}</span>
-                {assignedIsAssistant ? <span className="sb-badge sb-badge--accent">AI</span> : null}
-              </span>
-            </div>
-
-            <div className="task-card-meta">
-              <b>Added</b>
-              <span>{provenance}</span>
-            </div>
-
-            <div className="task-card-meta">
-              <b>Watching</b>
-              {watchers.visible.length === 0 ? (
-                <span className="u-subtle">No watchers</span>
-              ) : (
-                <span className="task-card-avatar-group" aria-label={watchers.label}>
-                  {watchers.visible.map((watcher) => (
-                    <span
-                      className="task-card-mini-avatar"
-                      key={watcher.userId}
-                      title={watcher.name ?? watcher.userId}
-                    >
-                      {initials(watcher.name ?? watcher.userId)}
-                    </span>
-                  ))}
-                  {watchers.overflowCount === 0 ? null : (
-                    <span className="task-card-mini-avatar">+{watchers.overflowCount}</span>
-                  )}
-                </span>
-              )}
-            </div>
-
-            <div className="task-card-meta">
-              <b>Issue</b>
-              {linkedIssue === null ? (
-                <span className="u-subtle">No GitHub issue</span>
-              ) : (
-                <a
-                  className="sb-badge sb-badge--outline"
-                  href={linkedIssue.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {linkedIssue.label}
-                </a>
-              )}
-            </div>
-          </div>
-
-          {actionError === null ? null : (
-            <div className="sb-alert sb-alert--destructive task-card-action-alert" role="alert">
-              <span className="ico" aria-hidden="true">
-                !
-              </span>
-              <span className="sb-alert-title">Card action failed</span>
-              <span className="sb-alert-desc">{actionError}</span>
-            </div>
-          )}
-
-          <div className="sb-tabs task-card-tabs" role="tablist" aria-label="Card sections">
-            {taskCardTabs.map((tab) => (
-              <button
-                className="sb-tab"
-                type="button"
-                role="tab"
-                key={tab.id}
-                aria-selected={activeTab === tab.id}
-                aria-controls={`task-card-panel-${tab.id}`}
-                id={`task-card-tab-${tab.id}`}
-                tabIndex={activeTab === tab.id ? 0 : -1}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-                {tab.id === "evidence" ? (
-                  <span className="sb-badge sb-badge--secondary task-card-tab-count">
-                    {evidence.length}
-                  </span>
-                ) : null}
-                {tab.id === "quality" && qualityProjection.remainingCount > 0 ? (
-                  <span className="sb-badge sb-badge--warning task-card-tab-count">
-                    {qualityProjection.remainingCount}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-
-          <section
-            className="task-card-tabpanel"
-            id="task-card-panel-overview"
-            role="tabpanel"
-            aria-labelledby="task-card-tab-overview"
-            hidden={activeTab !== "overview"}
-          >
-            <p className="task-card-description">
-              {task.description.trim() === "" ? "No description yet." : task.description}
-            </p>
-
-            <div className="task-card-section-head">
-              <h2>Steps</h2>
-              <span className="u-subtle">{progress.label}</span>
-            </div>
-
-            {steps.length === 0 ? (
-              <div className="task-card-empty-inline">
-                <p className="empty-title">No steps yet</p>
-                <p className="empty-desc">
-                  Add steps through the MCP task tools or a later card edit slice.
-                </p>
-              </div>
-            ) : (
-              <div className="task-card-steps">
-                {steps.map((step) => (
-                  <label
-                    className={step.done ? "task-card-step task-card-step-done" : "task-card-step"}
-                    key={step.id}
-                  >
-                    <input
-                      className="sb-check"
-                      type="checkbox"
-                      checked={step.done}
-                      disabled={isStepPending}
-                      aria-label={step.text}
-                      onChange={() => handleToggleStep(step)}
-                    />
-                    <span className="task-card-step-text">{step.text}</span>
-                    <StepAssignee step={step} currentUser={currentUser} />
-                  </label>
-                ))}
-              </div>
-            )}
-
-            <p className="task-card-provenance">
-              Added {relativeTimeLabel(task.createdAt)} from {task.provenanceSource}
-              {task.provenanceExternalRef === null ? "." : ` (${task.provenanceExternalRef}).`}
-            </p>
-
-            <div className="task-card-section-head">
-              <h2>Comments</h2>
-              <span className="u-subtle">{comments.length} total</span>
-            </div>
-
-            <div className="task-card-comments" role="log" aria-label="Task card comments">
-              {comments.length === 0 ? (
-                <div className="task-card-empty-inline">
-                  <p className="empty-title">No comments yet</p>
-                  <p className="empty-desc">Post the first comment for this card.</p>
-                </div>
-              ) : (
-                comments.map((comment) => {
-                  const authorName = commentAuthorName(comment, {
-                    currentUser,
-                    userNamesById: memberNamesById,
-                  });
-                  const readState = commentReadState(comment, {
-                    currentUserId: currentUser.id,
-                    userNamesById: memberNamesById,
-                  });
-
-                  return (
-                    <article
-                      className={
-                        comment.authorKind === "assistant"
-                          ? "task-card-comment task-card-comment-ai"
-                          : "task-card-comment"
-                      }
-                      key={comment.id}
-                    >
-                      <span
-                        className={
-                          comment.authorKind === "assistant"
-                            ? "task-avatar task-avatar-ai"
-                            : "task-avatar"
-                        }
-                        aria-hidden="true"
-                      >
-                        {initials(authorName)}
-                      </span>
-                      <div className="u-grow">
-                        <div className="task-card-comment-meta">
-                          <strong>{authorName}</strong>
-                          {comment.authorKind === "assistant" ? (
-                            <span className="sb-badge sb-badge--accent">AI</span>
-                          ) : comment.authorUserId === currentUser.id ? (
-                            <span className="sb-badge sb-badge--secondary">You</span>
-                          ) : null}
-                          <span className="u-subtle">{commentRelativeTime(comment.createdAt)}</span>
-                        </div>
-                        <p className="task-card-comment-body">{comment.body}</p>
-                        <span
-                          className={
-                            readState.unread
-                              ? "task-card-read-state task-card-read-state-unread"
-                              : "task-card-read-state"
-                          }
-                        >
-                          <span className="task-card-read-dots" aria-hidden="true">
-                            {readState.readers.slice(0, 2).map((reader) => (
-                              <span className="task-card-reader-avatar" key={reader.userId}>
-                                {initials(reader.name)}
-                              </span>
-                            ))}
-                            {readState.readers.length === 0 ? <span className="dot" /> : null}
-                          </span>
-                          {readState.label}
-                        </span>
-                      </div>
-                    </article>
-                  );
-                })
-              )}
-
-              {assistantActivityText === null ? null : (
-                <div className="task-card-typing" role="status" aria-live="polite">
-                  <span className="task-avatar task-avatar-ai" aria-hidden="true">
-                    A
-                  </span>
-                  <span className="u-muted">
-                    <strong>Ask Admin Opzava</strong> {assistantActivityText}
-                  </span>
-                  <span className="task-card-dots" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                </div>
-              )}
-
-              {commentBody.trim() === "" ? null : (
-                <div className="task-card-typing task-card-typing-human" role="status">
-                  <span className="u-subtle">You're typing</span>
-                  <span className="task-card-dots task-card-dots-human" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <form className="task-card-comment-form" onSubmit={handlePostComment}>
-              <span className="task-avatar" aria-hidden="true">
-                {initials(currentUser.name)}
-              </span>
-              <div className="u-grow task-card-comment-compose">
-                <label className="u-sr-only" htmlFor="task-card-comment">
-                  Add a comment
-                </label>
-                <textarea
-                  className="textarea"
-                  id="task-card-comment"
-                  rows={2}
-                  placeholder="Write a comment... type @ to mention Ask Admin Opzava"
-                  value={commentBody}
-                  onChange={(event) => {
-                    setCommentBody(event.currentTarget.value);
-                    setMentionPopoverOpen(shouldShowMentionPopover(event.currentTarget.value));
-                  }}
-                  onFocus={() => setMentionPopoverOpen(shouldShowMentionPopover(commentBody))}
-                />
-                {mentionPopoverOpen ? (
-                  <div className="mention-pop" role="listbox" aria-label="Mention someone">
-                    <div className="mention-hd">Mention</div>
-                    {targets.map((target) => (
-                      <button
-                        className="mention-item"
-                        role="option"
-                        type="button"
-                        key={`${target.kind}:${target.key}`}
-                        onClick={() => {
-                          setCommentBody((current) => insertMention(current, target));
-                          setMentionPopoverOpen(false);
+                      <strong style={{ fontSize: "var(--text-sm)" }}>Standardized global ID</strong>
+                      <p
+                        className="u-muted"
+                        style={{
+                          fontSize: "var(--text-sm)",
+                          marginTop: 6,
+                          lineHeight: "var(--lh-normal)",
                         }}
                       >
-                        <span
-                          className={
-                            target.kind === "assistant"
-                              ? "task-avatar task-avatar-ai"
-                              : "task-avatar"
-                          }
-                          aria-hidden="true"
-                        >
-                          {initials(target.label)}
-                        </span>
-                        <span className="mention-nm">{target.label}</span>
-                        <span className="mention-sub">
-                          {target.kind === "assistant" ? "AI assistant" : "workspace member"}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                <div>
-                  <button className="btn" type="submit" disabled={isCommentPending}>
-                    {isCommentPending ? "Posting..." : "Post comment"}
-                  </button>
-                </div>
-              </div>
-            </form>
-          </section>
-
-          <section
-            className="task-card-tabpanel"
-            id="task-card-panel-ai-run"
-            role="tabpanel"
-            aria-labelledby="task-card-tab-ai-run"
-            hidden={activeTab !== "ai-run"}
-          >
-            {aiProjection.steps.length === 0 ? (
-              <div className="task-card-empty-inline">
-                <p className="empty-title">{deferredPanelCopy().title}</p>
-                <p className="empty-desc">{deferredPanelCopy().description}</p>
-              </div>
-            ) : (
-              <>
-                <div className="u-between task-card-ai-run-head">
-                  <p className="u-muted">
-                    Plain-language trace of assistant turns and tool outcomes linked to this card.
-                  </p>
-                  {aiProjection.elapsedLabel === null ? null : (
-                    <span className="u-row u-subtle">
-                      <span className="sb-spinner sb-spinner--sm" aria-hidden="true" />
-                      live · {aiProjection.elapsedLabel}
-                    </span>
-                  )}
-                </div>
-                <ol className="task-card-run-steps" aria-label="Assistant run steps">
-                  {aiProjection.steps.map((step) => (
-                    <li
-                      className={`task-card-run-step task-card-run-step-${step.state}`}
-                      key={step.id}
-                    >
-                      <span className="task-card-run-glyph" aria-hidden="true">
-                        {step.state === "failed" ? "!" : step.state === "working" ? "..." : "✓"}
-                      </span>
-                      <span>{step.text}</span>
-                    </li>
-                  ))}
-                </ol>
-              </>
-            )}
-          </section>
-
-          <section
-            className="task-card-tabpanel"
-            id="task-card-panel-evidence"
-            role="tabpanel"
-            aria-labelledby="task-card-tab-evidence"
-            hidden={activeTab !== "evidence"}
-          >
-            <div className="task-card-section-head">
-              <div>
-                <h2>Evidence & Files</h2>
-                <p className="u-muted">{evidenceCountLabel(evidence)} attached to this card.</p>
-              </div>
-            </div>
-
-            {evidenceMessage === null ? null : (
-              <div className="sb-alert task-card-action-alert" role="status">
-                <span className="ico" aria-hidden="true">
-                  i
-                </span>
-                <span className="sb-alert-title">Evidence</span>
-                <span className="sb-alert-desc">{evidenceMessage}</span>
-              </div>
-            )}
-
-            <div className="task-card-evidence-grid">
-              <form className="task-card-evidence-upload" onSubmit={handleEvidenceUpload}>
-                <div className="field">
-                  <label className="label" htmlFor="task-card-evidence-file">
-                    Upload file
-                  </label>
-                  <input className="input" id="task-card-evidence-file" name="file" type="file" />
-                </div>
-                <button className="btn" type="submit" disabled={isEvidencePending}>
-                  {isEvidencePending ? "Working..." : "Upload"}
-                </button>
-              </form>
-
-              <form className="task-card-evidence-upload" onSubmit={handleEvidenceLink}>
-                <div className="field">
-                  <label className="label" htmlFor="task-card-evidence-link">
-                    Add link
-                  </label>
-                  <input
-                    className="input"
-                    id="task-card-evidence-link"
-                    name="url"
-                    type="url"
-                    placeholder="https://..."
-                  />
-                </div>
-                <div className="field">
-                  <label className="label" htmlFor="task-card-evidence-link-title">
-                    Link title
-                  </label>
-                  <input
-                    className="input"
-                    id="task-card-evidence-link-title"
-                    name="title"
-                    type="text"
-                    maxLength={240}
-                  />
-                </div>
-                <button className="btn" type="submit" disabled={isEvidencePending}>
-                  Add link
-                </button>
-              </form>
-            </div>
-
-            {evidence.length === 0 ? (
-              <div className="task-card-empty-inline">
-                <p className="empty-title">No evidence yet</p>
-                <p className="empty-desc">
-                  Upload a file or add a source link. Evidence rows are saved only after an
-                  authorized card action.
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="task-card-evidence-section">
-                  <h3>Files</h3>
-                  {evidenceFiles.length === 0 ? (
-                    <p className="u-muted">No files uploaded yet.</p>
-                  ) : (
-                    <div className="task-card-evidence-list">
-                      {evidenceFiles.map((item) => (
-                        <article className="task-card-evidence-row" key={item.id}>
-                          <div>
-                            <strong>{item.filename}</strong>
-                            <p className="u-muted">
-                              {item.provenance} · {evidenceSizeLabel(item.sizeBytes)}
-                            </p>
-                          </div>
-                          <button
-                            className="btn btn-sm"
-                            type="button"
-                            disabled={isEvidencePending}
-                            onClick={() => handleEvidenceDownload(item)}
-                          >
-                            Download
-                          </button>
-                        </article>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="task-card-evidence-section">
-                  <h3>Links</h3>
-                  {evidenceLinks.length === 0 ? (
-                    <p className="u-muted">No links added yet.</p>
-                  ) : (
-                    <div className="task-card-evidence-list">
-                      {evidenceLinks.map((item) => (
-                        <article className="task-card-evidence-row" key={item.id}>
-                          <div>
-                            <strong>{item.filename}</strong>
-                            <p className="u-muted">
-                              {item.provenance} · {evidenceSizeLabel(item.sizeBytes)}
-                            </p>
-                          </div>
-                          {item.url === null ? null : (
-                            <a
-                              className="btn btn-sm"
-                              href={item.url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              Open
-                            </a>
-                          )}
-                        </article>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </section>
-
-          <section
-            className="task-card-tabpanel"
-            id="task-card-panel-quality"
-            role="tabpanel"
-            aria-labelledby="task-card-tab-quality"
-            hidden={activeTab !== "quality"}
-          >
-            <div className="task-card-section-head">
-              <div>
-                <h2>Quality Review</h2>
-                <p className="u-muted">{qualityProjection.itemLeftLabel}</p>
-              </div>
-              <button
-                className="btn"
-                type="button"
-                disabled={!qualityProjection.canApprove || isQualityPending}
-                onClick={handleApproveQualityReview}
-              >
-                {qualityReview?.status === "approved" ? "Approved" : "Approve"}
-              </button>
-            </div>
-
-            {qualityProjection.hasChangesRequested ? (
-              <div className="sb-alert sb-alert--warning task-card-action-alert" role="status">
-                <span className="ico" aria-hidden="true">
-                  !
-                </span>
-                <span className="sb-alert-title">Changes requested</span>
-                <span className="sb-alert-desc">
-                  One or more checks failed. Resolve them before approval.
-                </span>
-              </div>
-            ) : null}
-
-            {qualityMessage === null ? null : (
-              <div className="sb-alert task-card-action-alert" role="status">
-                <span className="ico" aria-hidden="true">
-                  i
-                </span>
-                <span className="sb-alert-title">Quality review</span>
-                <span className="sb-alert-desc">{qualityMessage}</span>
-              </div>
-            )}
-
-            <form className="task-card-quality-form" onSubmit={handleAddQualityCheck}>
-              <label className="u-sr-only" htmlFor="task-card-quality-label">
-                Add quality check
-              </label>
-              <input
-                className="input"
-                id="task-card-quality-label"
-                name="label"
-                type="text"
-                maxLength={240}
-                placeholder="Add a human review check"
-              />
-              <button
-                className="btn"
-                type="submit"
-                disabled={qualityReviewApproved || isQualityPending}
-              >
-                Add check
-              </button>
-            </form>
-
-            {assistantPrechecks.length === 0 && (qualityReview?.checks.length ?? 0) === 0 ? (
-              <div className="task-card-empty-inline">
-                <p className="empty-title">No quality checks yet</p>
-                <p className="empty-desc">
-                  Assistant pre-checks appear from completed tool receipts, and human checks can be
-                  added here.
-                </p>
-              </div>
-            ) : (
-              <div className="task-card-quality-list">
-                {assistantPrechecks.map((check) => (
-                  <article className="task-card-quality-row" key={check.id}>
-                    <span
-                      className={`task-card-quality-state task-card-quality-state-${check.state}`}
-                    >
-                      {check.state === "pass" ? "Pass" : "Fail"}
-                    </span>
-                    <div>
-                      <strong>{check.label}</strong>
-                      <p className="u-muted">{check.actor}</p>
-                    </div>
-                  </article>
-                ))}
-                {(qualityReview?.checks ?? []).map((check) => (
-                  <article className="task-card-quality-row" key={check.id}>
-                    <span
-                      className={`task-card-quality-state task-card-quality-state-${check.state}`}
-                    >
-                      {check.state === "pass"
-                        ? "Pass"
-                        : check.state === "fail"
-                          ? "Fail"
-                          : "Pending"}
-                    </span>
-                    <div className="u-grow">
-                      <strong>{check.label}</strong>
-                      <p className="u-muted">
-                        {check.kind === "ai_precheck" ? "AI pre-check" : check.actor}
+                        Every card has a stable <code>{cardId.prefix}-N</code> handle. Agents and
+                        people refer to it the same way in chat, the API and the CLI, for example{" "}
+                        <em>"work {cardId.cardId}"</em>.
                       </p>
                     </div>
-                    <div className="u-row">
+                  </div>
+                </div>
+
+                <div className="u-row" style={{ gap: "var(--space-2)" }}>
+                  <button
+                    className="btn"
+                    id="doneBtn"
+                    type="button"
+                    disabled={task.status === "done" || isMarkDonePending}
+                    onClick={handleMarkDone}
+                  >
+                    <span aria-hidden="true">✓</span>
+                    {task.status === "done"
+                      ? "Done"
+                      : isMarkDonePending
+                        ? "Marking..."
+                        : "Mark done"}
+                  </button>
+
+                  <div style={{ position: "relative" }}>
+                    <button
+                      className="btn-icon btn"
+                      id="menuBtn"
+                      type="button"
+                      aria-label="Card actions"
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen}
+                      onClick={() => setMenuOpen((open) => !open)}
+                    >
+                      <span aria-hidden="true">⋯</span>
+                    </button>
+                    <div
+                      className="sb-menu"
+                      id="cardMenu"
+                      style={{
+                        display: menuOpen ? "block" : "none",
+                        position: "absolute",
+                        top: "calc(100% + 6px)",
+                        right: 0,
+                        zIndex: "var(--z-dropdown)",
+                      }}
+                      role="menu"
+                    >
+                      <div className="sb-menu-label">Card</div>
                       <button
-                        className="btn btn-sm"
+                        className="sb-menu-item"
                         type="button"
-                        disabled={qualityReviewApproved || isQualityPending}
-                        onClick={() => handleToggleQualityCheck(check.id, "pass")}
+                        role="menuitem"
+                        onClick={handleCopyLink}
                       >
-                        Pass
+                        <span aria-hidden="true">🔗</span>
+                        {copied === "link" ? "Copied link" : "Copy link"}
+                        <span className="sb-shortcut">⌘L</span>
                       </button>
                       <button
-                        className="btn btn-sm btn-ghost"
+                        className="sb-menu-item"
                         type="button"
-                        disabled={qualityReviewApproved || isQualityPending}
-                        onClick={() => handleToggleQualityCheck(check.id, "fail")}
+                        role="menuitem"
+                        onClick={() => {
+                          setEditOpen(true);
+                          setMenuOpen(false);
+                        }}
                       >
-                        Request changes
+                        <span aria-hidden="true">✎</span>
+                        Edit card
                       </button>
                     </div>
-                  </article>
-                ))}
+                  </div>
+                </div>
               </div>
-            )}
 
-            <div className="task-card-reviewers">
-              <h3>Reviewers</h3>
-              {qualityReview?.reviewers.length ? (
-                qualityReview.reviewers.map((reviewer) => (
-                  <span className="task-card-reviewer" key={reviewer.id}>
-                    <span className="task-card-mini-avatar" aria-hidden="true">
-                      {initials(reviewer.reviewerName ?? reviewer.reviewerUserId)}
+              <h1 style={{ fontSize: "var(--text-xl)" }} id="task-card-title">
+                {task.title}
+              </h1>
+
+              <div
+                className="u-row u-wrap"
+                style={{ gap: "var(--space-2)", marginTop: "var(--space-3)" }}
+                aria-label="Task card metadata"
+              >
+                <span className={statusBadgeClassName(task.status)}>
+                  {statusLabel(task.status)}
+                </span>
+                {task.labels.length === 0 ? (
+                  <span className="sb-badge sb-badge--outline">No labels</span>
+                ) : (
+                  task.labels.map((label) => (
+                    <span className="sb-badge sb-badge--outline" key={label}>
+                      {label}
                     </span>
-                    {reviewer.reviewerName ?? reviewer.reviewerUserId} · {reviewer.state}
+                  ))
+                )}
+                <span className="sb-badge sb-badge--warning">
+                  <span className="dot dot-warning" aria-hidden="true" />
+                  {dueDateLabel(task.dueAt)}
+                </span>
+              </div>
+
+              <div className="meta-grid">
+                <div className="meta">
+                  <b>Assigned to</b>
+                  <span className="sb-hc">
+                    <span className="u-row" tabIndex={0} style={{ cursor: "default" }}>
+                      <span
+                        className={avatarClassName({ ai: assignedAvatarAi })}
+                        style={{ background: avatarBackground({ ai: assignedAvatarAi }) }}
+                      >
+                        {initials(assignedName)}
+                      </span>
+                      &nbsp;{assignedName}&nbsp;
+                      {assignedIsAssistant ? (
+                        <span className="sb-badge sb-badge--accent">✦ AI</span>
+                      ) : null}
+                    </span>
+                    <span className="sb-hovercard sb-popover">
+                      <span className="u-row" style={{ gap: "var(--space-3)" }}>
+                        <span
+                          className={avatarClassName({ ai: assignedAvatarAi, small: false })}
+                          style={{ background: avatarBackground({ ai: assignedAvatarAi }) }}
+                        >
+                          {initials(assignedName)}
+                        </span>
+                        <span>
+                          <strong>{assignedName}</strong>
+                          <br />
+                          <span className="u-subtle" style={{ fontSize: "var(--text-xs)" }}>
+                            {assignedIsAssistant ? "AI assistant" : "Workspace member"} ·{" "}
+                            {workspaceName}
+                          </span>
+                        </span>
+                      </span>
+                      <p
+                        className="u-muted"
+                        style={{ fontSize: "var(--text-sm)", marginTop: "var(--space-3)" }}
+                      >
+                        {assignedIsAssistant
+                          ? "Handles triage and drafts replies with auditable task activity."
+                          : "Owns the next visible action on this card."}
+                      </p>
+                    </span>
                   </span>
-                ))
-              ) : (
-                <p className="u-muted">No reviewer decisions yet.</p>
+                </div>
+
+                <div className="meta">
+                  <b>Added</b>
+                  <span>{provenance}</span>
+                </div>
+
+                <div className="meta">
+                  <b>Watching</b>
+                  {watchers.visible.length === 0 ? (
+                    <span className="u-subtle">No watchers</span>
+                  ) : (
+                    <span className="sb-avatar-group" aria-label={watchers.label}>
+                      {watchers.visible.map((watcher, index) => {
+                        const name = watcher.name ?? watcher.userId;
+                        const ai = isAiIdentity({ userId: watcher.userId, name });
+
+                        return (
+                          <span
+                            className={avatarClassName({ ai })}
+                            key={watcher.userId}
+                            style={{ background: avatarBackground({ ai, index }) }}
+                            title={name}
+                          >
+                            {initials(name)}
+                          </span>
+                        );
+                      })}
+                      {watchers.overflowCount === 0 ? null : (
+                        <span className="sb-avatar sb-avatar--sm">+{watchers.overflowCount}</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {actionError === null ? null : (
+                <div className="sb-alert sb-alert--destructive" role="alert">
+                  <span className="ico" aria-hidden="true">
+                    !
+                  </span>
+                  <span className="sb-alert-title">Card action failed</span>
+                  <span className="sb-alert-desc">{actionError}</span>
+                </div>
               )}
+
+              <div className="sb-tabs" role="tablist" aria-label="Card sections">
+                {taskCardTabs.map((tab) => {
+                  const domId = taskCardTabDomId(tab.id);
+
+                  return (
+                    <button
+                      className="sb-tab"
+                      type="button"
+                      role="tab"
+                      key={tab.id}
+                      data-panel={`p-${domId}`}
+                      aria-selected={activeTab === tab.id}
+                      aria-controls={`p-${domId}`}
+                      id={`tab-${domId}`}
+                      tabIndex={activeTab === tab.id ? 0 : -1}
+                      onClick={() => setActiveTab(tab.id)}
+                      onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
+                    >
+                      {tab.label}
+                      {tab.id === "evidence" ? (
+                        <span
+                          className="sb-badge sb-badge--secondary"
+                          style={{ height: 18, marginLeft: 4 }}
+                        >
+                          {evidence.length}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <section
+                className="tabpanel"
+                id="p-overview"
+                role="tabpanel"
+                aria-labelledby="tab-overview"
+                tabIndex={0}
+                hidden={activeTab !== "overview"}
+                style={{ marginTop: "var(--space-5)" }}
+              >
+                <p style={{ lineHeight: "var(--lh-normal)" }}>
+                  {task.description.trim() === "" ? "No description yet." : task.description}
+                </p>
+
+                <h2 className="sec-h">
+                  Steps{" "}
+                  <span
+                    className="u-subtle"
+                    style={{ fontSize: "var(--text-xs)", fontWeight: 400 }}
+                  >
+                    · {progress.label}
+                  </span>
+                </h2>
+
+                {steps.length === 0 ? (
+                  <div className="ev-row">
+                    <p className="empty-title">No steps yet</p>
+                    <p className="empty-desc">
+                      Add steps through the MCP task tools or a later card edit slice.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    {steps.map((step) => (
+                      <div className={step.done ? "step done" : "step"} key={step.id}>
+                        <input
+                          className="sb-check"
+                          type="checkbox"
+                          checked={step.done}
+                          disabled={isStepPending}
+                          aria-label={step.text}
+                          onChange={() => handleToggleStep(step)}
+                        />
+                        <span className="step-text u-grow">{step.text}</span>
+                        <StepAssignee step={step} currentUser={currentUser} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <h2 className="sec-h">Comments</h2>
+
+                <div role="log" aria-label="Task card comments">
+                  {comments.length === 0 ? (
+                    <div className="ev-row">
+                      <p className="empty-title">No comments yet</p>
+                      <p className="empty-desc">Post the first comment for this card.</p>
+                    </div>
+                  ) : (
+                    comments.map((comment) => {
+                      const authorName = commentAuthorName(comment, {
+                        currentUser,
+                        userNamesById: memberNamesById,
+                      });
+                      const readState = commentReadState(comment, {
+                        currentUserId: currentUser.id,
+                        userNamesById: memberNamesById,
+                      });
+                      const authorIsCurrentUser = comment.authorUserId === currentUser.id;
+                      const displayAuthorName = authorIsCurrentUser ? "You" : authorName;
+                      const authorAi = comment.authorKind === "assistant";
+
+                      return (
+                        <article className={authorAi ? "comment ai" : "comment"} key={comment.id}>
+                          <span
+                            className={avatarClassName({ ai: authorAi, small: false })}
+                            style={{ background: avatarBackground({ ai: authorAi }) }}
+                            aria-hidden="true"
+                          >
+                            {initials(authorName)}
+                          </span>
+                          <div className="u-grow">
+                            <div className="bmeta">
+                              <strong>{displayAuthorName}</strong>
+                              {authorAi ? (
+                                <span className="sb-badge sb-badge--accent">✦ AI</span>
+                              ) : authorIsCurrentUser ? (
+                                <span className="sb-badge sb-badge--secondary">You</span>
+                              ) : null}
+                              <span className="u-subtle" style={{ fontSize: "var(--text-xs)" }}>
+                                {commentRelativeTime(comment.createdAt)}
+                              </span>
+                            </div>
+                            <p style={{ lineHeight: "var(--lh-normal)" }}>{comment.body}</p>
+                            <span className={readState.unread ? "read unread" : "read"}>
+                              <span className="u-row" style={{ gap: 3 }} aria-hidden="true">
+                                <span className="rdot" />
+                                <span className="rdot" />
+                              </span>
+                              {readState.label}
+                            </span>
+                          </div>
+                        </article>
+                      );
+                    })
+                  )}
+
+                  {assistantActivityText === null ? null : (
+                    <div className="typing" role="status" aria-live="polite">
+                      <span
+                        className="sb-avatar sb-avatar--ai"
+                        style={{ background: "var(--chart-5)" }}
+                        aria-hidden="true"
+                      >
+                        {initials(assistantDisplayName)}
+                      </span>
+                      <span className="u-muted">
+                        <strong>{assistantDisplayName}</strong>{" "}
+                        <span className="sb-badge sb-badge--accent">✦ AI</span>{" "}
+                        {assistantActivityText}
+                      </span>
+                      <span className="dots" aria-hidden="true">
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                    </div>
+                  )}
+
+                  <div
+                    className="typing"
+                    id="you"
+                    role="status"
+                    style={{ display: commentBody.trim() === "" ? "none" : "flex", padding: 0 }}
+                  >
+                    <span className="u-subtle">You're typing</span>
+                    <span className="dots human" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  </div>
+                </div>
+
+                <form
+                  className="u-row"
+                  style={{
+                    gap: "var(--space-3)",
+                    alignItems: "flex-start",
+                    marginTop: "var(--space-4)",
+                  }}
+                  onSubmit={handlePostComment}
+                >
+                  <span
+                    className="sb-avatar"
+                    style={{ background: "var(--chart-2)" }}
+                    aria-hidden="true"
+                  >
+                    {currentUserInitials}
+                  </span>
+                  <div className="u-grow u-col-2">
+                    <label className="u-sr-only" htmlFor="c">
+                      Add a comment
+                    </label>
+                    <div style={{ position: "relative" }}>
+                      <textarea
+                        className="textarea"
+                        id="c"
+                        rows={2}
+                        placeholder={`Write a comment… type @ to mention · ${assistantDisplayName} sees it in realtime`}
+                        value={commentBody}
+                        onChange={(event) => {
+                          setCommentBody(event.currentTarget.value);
+                          setMentionPopoverOpen(
+                            shouldShowMentionPopover(event.currentTarget.value),
+                          );
+                        }}
+                        onFocus={() => setMentionPopoverOpen(shouldShowMentionPopover(commentBody))}
+                      />
+                      <div
+                        className="mention-pop"
+                        id="mentionPop"
+                        role="listbox"
+                        aria-label="Mention someone"
+                        hidden={!mentionPopoverOpen}
+                      >
+                        <div className="mention-hd">Mention</div>
+                        {targets.map((target, index) => (
+                          <button
+                            className={index === 0 ? "mention-item active" : "mention-item"}
+                            role="option"
+                            type="button"
+                            key={`${target.kind}:${target.key}`}
+                            onClick={() => {
+                              setCommentBody((current) => insertMention(current, target));
+                              setMentionPopoverOpen(false);
+                            }}
+                          >
+                            <span
+                              className={
+                                target.kind === "assistant"
+                                  ? "sb-avatar sb-avatar--ai sb-avatar--sm"
+                                  : "sb-avatar sb-avatar--sm"
+                              }
+                              style={{
+                                background: avatarBackground({
+                                  ai: target.kind === "assistant",
+                                  index,
+                                }),
+                              }}
+                              aria-hidden="true"
+                            >
+                              {initials(target.label)}
+                            </span>
+                            <span className="mention-nm">{target.label}</span>
+                            <span className="mention-sub">
+                              {target.kind === "assistant" ? "AI assistant" : "workspace member"}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <button className="btn" type="submit" disabled={isCommentPending}>
+                        {isCommentPending ? "Posting..." : "Post comment"}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </section>
+
+              <section
+                className="tabpanel"
+                id="p-airun"
+                role="tabpanel"
+                aria-labelledby="tab-airun"
+                tabIndex={0}
+                hidden={activeTab !== "ai-run"}
+                style={{ marginTop: "var(--space-5)" }}
+              >
+                {aiProjection.steps.length === 0 ? (
+                  <div className="ev-row">
+                    <p className="empty-title">{deferredPanelCopy().title}</p>
+                    <p className="empty-desc">{deferredPanelCopy().description}</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="u-between" style={{ marginBottom: "var(--space-3)" }}>
+                      <p className="u-muted" style={{ fontSize: "var(--text-sm)" }}>
+                        How <strong>{assistantDisplayName}</strong> worked this card, step by step,
+                        so you and other agents can audit what it did.
+                      </p>
+                      {aiProjection.elapsedLabel === null ? null : (
+                        <span
+                          className="u-row u-subtle"
+                          style={{ fontSize: "var(--text-xs)", gap: 6 }}
+                        >
+                          <span className="sb-spinner sb-spinner--sm" aria-hidden="true" />
+                          live · {aiProjection.elapsedLabel}
+                        </span>
+                      )}
+                    </div>
+                    <ol
+                      className="run-steps"
+                      role="list"
+                      aria-label={`How ${assistantDisplayName} worked this card, step by step`}
+                    >
+                      {aiProjection.steps.map((step) => (
+                        <li className="run-step" data-step={step.state} key={step.id}>
+                          <span className="rs-g" aria-hidden="true">
+                            {aiRunGlyph(step.state)}
+                          </span>
+                          <span>{step.text}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </>
+                )}
+              </section>
+
+              <section
+                className="tabpanel"
+                id="p-evidence"
+                role="tabpanel"
+                aria-labelledby="tab-evidence"
+                tabIndex={0}
+                hidden={activeTab !== "evidence"}
+                style={{ marginTop: "var(--space-5)" }}
+              >
+                {evidenceMessage === null ? null : (
+                  <div
+                    className="sb-alert"
+                    role="status"
+                    style={{ marginBottom: "var(--space-4)" }}
+                  >
+                    <span className="ico" aria-hidden="true">
+                      i
+                    </span>
+                    <span className="sb-alert-title">Evidence</span>
+                    <span className="sb-alert-desc">{evidenceMessage}</span>
+                  </div>
+                )}
+
+                <h2 className="sec-h" style={{ marginTop: 0 }}>
+                  Add evidence
+                </h2>
+                <div className="u-col-2">
+                  <form className="ev-row u-wrap" onSubmit={handleEvidenceUpload}>
+                    <div className="field">
+                      <label className="label" htmlFor="task-card-evidence-file">
+                        Upload file
+                      </label>
+                      <input
+                        className="input"
+                        id="task-card-evidence-file"
+                        name="file"
+                        type="file"
+                      />
+                    </div>
+                    <button className="btn" type="submit" disabled={isEvidencePending}>
+                      {isEvidencePending ? "Working..." : "Upload"}
+                    </button>
+                  </form>
+
+                  <form className="ev-row u-wrap" onSubmit={handleEvidenceLink}>
+                    <div className="field">
+                      <label className="label" htmlFor="task-card-evidence-link">
+                        Add link
+                      </label>
+                      <input
+                        className="input"
+                        id="task-card-evidence-link"
+                        name="url"
+                        type="url"
+                        placeholder="https://..."
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="task-card-evidence-link-title">
+                        Link title
+                      </label>
+                      <input
+                        className="input"
+                        id="task-card-evidence-link-title"
+                        name="title"
+                        type="text"
+                        maxLength={240}
+                      />
+                    </div>
+                    <button className="btn" type="submit" disabled={isEvidencePending}>
+                      Add link
+                    </button>
+                  </form>
+                </div>
+
+                <h2 className="sec-h">Screenshots &amp; video</h2>
+                {visualEvidenceFiles.length === 0 ? (
+                  <div className="ev-row">
+                    <span className="ftype">0</span>
+                    <div>
+                      <strong style={{ fontSize: "var(--text-sm)" }}>
+                        No screenshots or video yet
+                      </strong>
+                      <div className="u-subtle" style={{ fontSize: "var(--text-xs)" }}>
+                        {evidenceCountLabel(evidence)} attached to this card.
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="ev-grid">
+                    {visualEvidenceFiles.map((item, index) => (
+                      <div key={item.id}>
+                        <div className="ev-thumb" style={evidenceThumbStyle(index, item)}>
+                          <span aria-hidden="true">
+                            {item.contentType?.startsWith("video/") ? "▶" : "🖼"}
+                          </span>
+                        </div>
+                        <div className="ev-cap">
+                          {item.filename} · {evidenceSizeLabel(item.sizeBytes)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <h2 className="sec-h">Files</h2>
+                <div className="u-col-2">
+                  {evidenceFiles.length === 0 ? (
+                    <div className="ev-row">
+                      <span className="ftype">--</span>
+                      <div className="u-grow">
+                        <strong style={{ fontSize: "var(--text-sm)" }}>
+                          No files uploaded yet
+                        </strong>
+                        <div className="u-subtle" style={{ fontSize: "var(--text-xs)" }}>
+                          Uploads appear here after storage accepts them.
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    evidenceFiles.map((item) => (
+                      <div className="ev-row" key={item.id}>
+                        <span className="ftype">{evidenceFileType(item)}</span>
+                        <div className="u-grow">
+                          <strong style={{ fontSize: "var(--text-sm)" }}>{item.filename}</strong>
+                          <div className="u-subtle" style={{ fontSize: "var(--text-xs)" }}>
+                            {item.provenance} · {evidenceSizeLabel(item.sizeBytes)}
+                          </div>
+                        </div>
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          type="button"
+                          disabled={isEvidencePending}
+                          onClick={() => handleEvidenceDownload(item)}
+                        >
+                          Open
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <h2 className="sec-h">Links</h2>
+                <div className="u-col-2">
+                  {evidenceLinks.length === 0 && linkedIssue === null ? (
+                    <div className="ev-row">
+                      <span className="ftype">🔗</span>
+                      <div className="u-grow">
+                        <strong style={{ fontSize: "var(--text-sm)" }}>No links added yet</strong>
+                        <div className="u-subtle" style={{ fontSize: "var(--text-xs)" }}>
+                          Source URLs and linked issues appear here.
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {evidenceLinks.map((item) =>
+                        item.url === null ? null : (
+                          <a
+                            className="ev-row"
+                            href={item.url}
+                            style={{ textDecoration: "none", color: "inherit" }}
+                            target="_blank"
+                            rel="noreferrer"
+                            key={item.id}
+                          >
+                            <span className="ftype">🔗</span>
+                            <div className="u-grow">
+                              <strong style={{ fontSize: "var(--text-sm)" }}>
+                                {item.filename}
+                              </strong>
+                              <div className="u-subtle" style={{ fontSize: "var(--text-xs)" }}>
+                                {item.provenance}
+                              </div>
+                            </div>
+                            <span className="u-subtle" aria-hidden="true">
+                              ↗
+                            </span>
+                          </a>
+                        ),
+                      )}
+                      {linkedIssue === null ? null : (
+                        <a
+                          className="ev-row"
+                          href={linkedIssue.href}
+                          style={{ textDecoration: "none", color: "inherit" }}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <span className="ftype">🔗</span>
+                          <div className="u-grow">
+                            <strong style={{ fontSize: "var(--text-sm)" }}>
+                              Related issue {linkedIssue.label}
+                            </strong>
+                            <div className="u-subtle" style={{ fontSize: "var(--text-xs)" }}>
+                              GitHub issue from task provenance
+                            </div>
+                          </div>
+                          <span className="u-subtle" aria-hidden="true">
+                            ↗
+                          </span>
+                        </a>
+                      )}
+                    </>
+                  )}
+                </div>
+              </section>
+
+              <section
+                className="tabpanel"
+                id="p-quality"
+                role="tabpanel"
+                aria-labelledby="tab-quality"
+                tabIndex={0}
+                hidden={activeTab !== "quality"}
+                style={{ marginTop: "var(--space-5)" }}
+              >
+                {qualityProjection.hasChangesRequested ? (
+                  <div className="sb-alert sb-alert--warning" role="status">
+                    <span className="ico" aria-hidden="true">
+                      ⚠
+                    </span>
+                    <span className="sb-alert-title">Changes requested</span>
+                    <span className="sb-alert-desc">
+                      The AI pre-checks and human review still have{" "}
+                      {qualityProjection.itemLeftLabel}.
+                    </span>
+                  </div>
+                ) : null}
+
+                {qualityMessage === null ? null : (
+                  <div className="sb-alert" role="status" style={{ marginTop: "var(--space-4)" }}>
+                    <span className="ico" aria-hidden="true">
+                      i
+                    </span>
+                    <span className="sb-alert-title">Quality review</span>
+                    <span className="sb-alert-desc">{qualityMessage}</span>
+                  </div>
+                )}
+
+                <h2 className="sec-h">Checks</h2>
+                <div className="u-col-2">
+                  {assistantPrechecks.length === 0 && qualityChecks.length === 0 ? (
+                    <div className="ev-row">
+                      <span className="ftype">QA</span>
+                      <div className="u-grow">
+                        <strong style={{ fontSize: "var(--text-sm)" }}>
+                          No quality checks yet
+                        </strong>
+                        <div className="u-subtle" style={{ fontSize: "var(--text-xs)" }}>
+                          Assistant pre-checks appear from completed tool receipts, and human checks
+                          can be added here.
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {assistantPrechecks.map((check) => (
+                    <div className="ev-row" key={check.id}>
+                      <input
+                        className="sb-check"
+                        type="checkbox"
+                        checked={check.state === "pass"}
+                        disabled
+                        aria-label={check.label}
+                        readOnly
+                      />
+                      <span className="u-grow">{check.label}</span>
+                      <span className="sb-badge sb-badge--accent">✦ AI pre-check</span>
+                    </div>
+                  ))}
+
+                  {qualityChecks.map((check) => (
+                    <div className="ev-row" key={check.id}>
+                      <input
+                        className="sb-check"
+                        type="checkbox"
+                        checked={check.state === "pass"}
+                        disabled={qualityReviewApproved || isQualityPending}
+                        aria-label={check.label}
+                        onChange={(event) =>
+                          handleToggleQualityCheck(
+                            check.id,
+                            event.currentTarget.checked ? "pass" : "fail",
+                          )
+                        }
+                      />
+                      <span className="u-grow">{check.label}</span>
+                      <span className="sb-badge sb-badge--secondary">
+                        {check.kind === "ai_precheck" ? "✦ AI pre-check" : check.actor}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <form
+                  className="ev-row u-wrap"
+                  style={{ marginTop: "var(--space-3)" }}
+                  onSubmit={handleAddQualityCheck}
+                >
+                  <label className="u-sr-only" htmlFor="task-card-quality-label">
+                    Add quality check
+                  </label>
+                  <input
+                    className="input"
+                    id="task-card-quality-label"
+                    name="label"
+                    type="text"
+                    maxLength={240}
+                    placeholder="Add a human review check"
+                    style={{ flex: "1 1 240px" }}
+                  />
+                  <button
+                    className="btn"
+                    type="submit"
+                    disabled={qualityReviewApproved || isQualityPending}
+                  >
+                    Add check
+                  </button>
+                </form>
+
+                <h2 className="sec-h">Reviewers</h2>
+                <div className="u-row" style={{ gap: "var(--space-5)", flexWrap: "wrap" }}>
+                  {assistantPrechecks.length === 0 ? null : (
+                    <span className="u-row" style={{ gap: "var(--space-2)" }}>
+                      <span
+                        className="sb-avatar sb-avatar--sm sb-avatar--ai"
+                        style={{ background: "var(--chart-5)" }}
+                      >
+                        {initials(assistantDisplayName)}
+                      </span>
+                      {assistantDisplayName}
+                      <span className="sb-badge sb-badge--success">Pre-check recorded</span>
+                    </span>
+                  )}
+                  {qualityReview?.reviewers.length ? (
+                    qualityReview.reviewers.map((reviewer) => (
+                      <span className="u-row" style={{ gap: "var(--space-2)" }} key={reviewer.id}>
+                        <span
+                          className="sb-avatar sb-avatar--sm"
+                          style={{ background: "var(--chart-2)" }}
+                        >
+                          {initials(reviewer.reviewerName ?? reviewer.reviewerUserId)}
+                        </span>
+                        {reviewer.reviewerName ?? reviewer.reviewerUserId}
+                        <span
+                          className={
+                            reviewer.state === "approved"
+                              ? "sb-badge sb-badge--success"
+                              : reviewer.state === "changes_requested"
+                                ? "sb-badge sb-badge--warning"
+                                : "sb-badge sb-badge--secondary"
+                          }
+                        >
+                          {reviewer.state}
+                        </span>
+                      </span>
+                    ))
+                  ) : (
+                    <span className="u-row" style={{ gap: "var(--space-2)" }}>
+                      <span
+                        className="sb-avatar sb-avatar--sm"
+                        style={{ background: "var(--chart-2)" }}
+                      >
+                        {currentUserInitials}
+                      </span>
+                      You
+                      <span
+                        className={
+                          qualityProjection.hasChangesRequested
+                            ? "sb-badge sb-badge--warning"
+                            : qualityReview?.status === "approved"
+                              ? "sb-badge sb-badge--success"
+                              : "sb-badge sb-badge--secondary"
+                        }
+                      >
+                        {qualityProjection.hasChangesRequested
+                          ? "Changes requested"
+                          : qualityReview?.status === "approved"
+                            ? "Approved"
+                            : "Review open"}
+                      </span>
+                    </span>
+                  )}
+                </div>
+                <div style={{ marginTop: "var(--space-5)" }}>
+                  {/* DESCOPE(customer-send): governed sends arrive P4 (PRD-010); keep this local approval copy until a real send command exists. */}
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    disabled={!qualityProjection.canApprove || isQualityPending}
+                    onClick={handleApproveQualityReview}
+                  >
+                    {qualityReview?.status === "approved"
+                      ? "Approved"
+                      : isQualityPending
+                        ? "Approving..."
+                        : "Approve review"}
+                  </button>
+                </div>
+              </section>
             </div>
-          </section>
+          </article>
         </div>
-      </article>
+      </main>
 
       {editOpen ? (
         <EditTaskModal task={task} onClose={() => setEditOpen(false)} onSaved={handleSaved} />
