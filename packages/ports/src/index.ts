@@ -4,6 +4,7 @@ export * from "./connections-provisioning.js";
 export * from "./error-capture.js";
 export * from "./event-bus.js";
 export * from "./issue-tracker.js";
+export * from "./model-provider-taxonomy.js";
 export * from "./object-store.js";
 export * from "./openclaw-gateway.js";
 export * from "./realtime-transport.js";

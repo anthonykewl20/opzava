@@ -13,7 +13,7 @@ import {
   type SecretReference,
 } from "@opzava/ports";
 import { DomainError, err, ok, type Result, type TenantId } from "@opzava/shared-kernel";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildGitHubConnectionProvisioningReceipt,
@@ -252,6 +252,7 @@ class RecordingGatewayRuntime {
     readonly keyFlag: string;
     readonly apiKey: string;
   }[] = [];
+  public modelStatusCalls = 0;
 
   public constructor(
     private readonly options: {
@@ -288,6 +289,7 @@ class RecordingGatewayRuntime {
   }
 
   public async modelStatus(): Promise<Result<unknown>> {
+    this.modelStatusCalls += 1;
     return ok(
       this.options.status ?? {
         allowed: ["zai/glm-5.2"],
@@ -736,6 +738,50 @@ describe("Connections provisioning helpers", () => {
               suggestedModel: "zai/glm-5.2",
               authChoices: [apiKeyChoice()],
             },
+            {
+              id: "deepgram",
+              label: "Deepgram",
+              vendor: "Deepgram",
+              suggestedModel: "deepgram/nova-3",
+              authChoices: [],
+            },
+            {
+              id: "openrouter",
+              label: "OpenRouter",
+              vendor: "OpenRouter",
+              suggestedModel: "openrouter/auto",
+              authChoices: [],
+            },
+          ],
+          models: [
+            { id: "glm-4.7", name: "GLM 4.7", provider: "zai", available: true },
+            { id: "glm-5.2", name: "GLM 5.2", provider: "zai", available: true },
+            { id: "nova-3", name: "Nova 3", provider: "deepgram", available: true },
+          ],
+        }),
+        "models.authStatus": ok({
+          providers: [
+            {
+              provider: "zai",
+              displayName: "Z.AI Coding",
+              status: "expiring",
+              expiry: { label: "2h" },
+              usage: {
+                plan: "Coding",
+                windows: [{ label: "daily", usedPercent: 32 }],
+              },
+            },
+            {
+              provider: "deepgram",
+              displayName: "Deepgram",
+              status: "missing",
+            },
+            {
+              provider: "openrouter",
+              displayName: "OpenRouter",
+              status: "expired",
+              expiry: { label: "expired" },
+            },
           ],
         }),
       },
@@ -760,15 +806,183 @@ describe("Connections provisioning helpers", () => {
       authLabel: "Opzava Gateway operator.read, operator.write, operator.approvals",
       lastHeartbeatAt: "2026-07-02T23:59:00.000Z",
     });
-    expect(snapshot.value.providerCatalog[0]).toMatchObject({ id: "zai", label: "z.ai / GLM" });
+    expect(snapshot.value.providerCatalog[0]).toMatchObject({
+      id: "zai",
+      label: "Z.AI",
+      category: "llm",
+      models: expect.arrayContaining([expect.objectContaining({ id: "glm-4.7" })]),
+    });
+    expect(
+      snapshot.value.providerCatalog.find((provider) => provider.id === "deepgram"),
+    ).toMatchObject({
+      id: "deepgram",
+      category: "non-llm",
+      models: expect.arrayContaining([expect.objectContaining({ id: "nova-3" })]),
+    });
     expect(snapshot.value.providerConnections[0]).toMatchObject({
       providerId: "zai",
       status: "connected",
       authChoiceId: "zai-api-key",
+      authHealth: "expiring",
+      expiryLabel: "2h",
+      planLabel: "Coding",
+      usageLabel: "68% window left",
+      accountLabel: "Z.AI Coding",
+    });
+    expect(
+      snapshot.value.providerConnections.find((connection) => connection.providerId === "deepgram"),
+    ).toMatchObject({
+      providerId: "deepgram",
+      status: "needs_attention",
+      authHealth: "missing",
+    });
+    expect(
+      snapshot.value.providerConnections.find(
+        (connection) => connection.providerId === "openrouter",
+      ),
+    ).toMatchObject({
+      providerId: "openrouter",
+      status: "needs_attention",
+      authHealth: "expired",
+      expiryLabel: "expired",
     });
     expect(admin.calls.find((call) => call.method === "models.list")?.params).toEqual({
       view: "all",
     });
+    expect(admin.calls.find((call) => call.method === "models.authStatus")?.params).toEqual({
+      refresh: false,
+    });
+  });
+
+  it("falls back to models status CLI when models.authStatus is unavailable", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        region: "config-region",
+        auth: {
+          profiles: {
+            "zai-zai-api-key": {
+              providerId: "zai",
+              authChoiceId: "zai-api-key",
+              accountLabel: "Z.AI",
+              model: "zai/glm-5.2",
+            },
+          },
+          order: { zai: ["zai-zai-api-key"] },
+        },
+      }),
+      health: ok({ status: "ok" }),
+      "last-heartbeat": ok({ lastHeartbeatAt: "2026-07-03T00:00:00.000Z" }),
+      "models.list": ok({
+        providers: [
+          {
+            id: "zai",
+            label: "z.ai / GLM",
+            vendor: "z.ai",
+            suggestedModel: "zai/glm-5.2",
+            authChoices: [apiKeyChoice()],
+          },
+        ],
+        models: [{ id: "glm-4.7", name: "GLM 4.7", provider: "zai", available: true }],
+      }),
+      "models.authStatus": err(
+        new DomainError({
+          code: "openclaw.methodNotFound",
+          message: "models.authStatus is not advertised.",
+        }),
+      ),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      status: {
+        allowed: ["zai/glm-4.7"],
+        auth: {
+          providers: [
+            {
+              provider: "zai",
+              profiles: { count: 1, labels: ["zai:manual=API key"] },
+            },
+          ],
+        },
+      },
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    try {
+      const snapshot = await port.getConnectionsSnapshot(principal());
+
+      expect(snapshot.ok).toBe(true);
+      if (!snapshot.ok) {
+        throw snapshot.error;
+      }
+      expect(warn).toHaveBeenCalledWith("connections.authStatus.fallback");
+      expect(gatewayRuntime.modelStatusCalls).toBe(1);
+      expect(snapshot.value.providerCatalog.map((provider) => provider.id)).toContain("zai");
+      expect(snapshot.value.providerConnections).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            providerId: "zai",
+            status: "connected",
+            model: "zai/glm-4.7",
+            usageLabel: "1 auth profile",
+          }),
+        ]),
+      );
+      expect(JSON.stringify(admin.calls)).not.toContain("secret-provider-key");
+      expect(JSON.stringify(snapshot.value)).not.toContain("secret-provider-key");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("surfaces canonical LLM connect targets that have onboard auth-choices but no models yet", async () => {
+    // openrouter/xai have no bundled models until connected, so models.list omits them — but the live
+    // gateway advertises their onboard auth-choices, so the connect surface MUST still list them.
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "config-hash-1", plugins: { allow: [] } }),
+      health: ok({ status: "ok" }),
+      "last-heartbeat": ok({ lastHeartbeatAt: "2026-07-03T00:00:00.000Z" }),
+      "models.list": ok({ providers: [], models: [] }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        {
+          id: "openrouter-api-key",
+          label: "OpenRouter API key",
+          mode: "api-key",
+          keyFlag: "openrouter-api-key",
+        },
+        { id: "openrouter-oauth", label: "OpenRouter OAuth", mode: "device-flow" },
+        { id: "xai-api-key", label: "xAI API key", mode: "api-key", keyFlag: "xai-api-key" },
+      ],
+      status: { allowed: [], auth: { providers: [] } },
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const snapshot = await port.getConnectionsSnapshot(principal());
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) {
+      throw snapshot.error;
+    }
+    const ids = snapshot.value.providerCatalog.map((provider) => provider.id);
+    expect(ids).toContain("openrouter");
+    expect(ids).toContain("xai");
+    const openrouter = snapshot.value.providerCatalog.find((provider) => provider.id === "openrouter");
+    expect(openrouter?.authChoices.length).toBeGreaterThan(0);
+    expect(openrouter?.models).toEqual([]);
+    expect(openrouter?.category).toBe("llm");
   });
 
   it("patches provider API-key auth profiles without returning the key material", async () => {
@@ -825,6 +1039,43 @@ describe("Connections provisioning helpers", () => {
     });
     expect(JSON.stringify(admin.calls)).not.toContain("secret-provider-key");
     expect(JSON.stringify(result)).not.toContain("secret-provider-key");
+  });
+
+  it("never leaks the submitted API key when the gateway onboard command fails", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "config-hash-1", plugins: { allow: ["codex"] } }),
+      "config.patch": ok({ ok: true }),
+    });
+    // The gateway echoes the submitted key in its failure output (a real onboard behavior).
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      connectResult: ok({
+        exitCode: 1,
+        stdout: "",
+        stderr: "onboard failed: invalid api key sk-live-secret-provider-key",
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.connectModelProviderApiKey({
+      ...principal(),
+      providerId: "zai",
+      authChoiceId: "zai-api-key",
+      apiKey: "sk-live-secret-provider-key",
+    });
+
+    expect(result.ok).toBe(false);
+    // The raw onboard output (which contains the submitted key) must NOT reach the result/browser.
+    expect(JSON.stringify(result)).not.toContain("sk-live-secret-provider-key");
+    expect(result.ok ? null : result.error.code).toBe(
+      "provisioning.connections.invalidProviderCredential",
+    );
+    expect(result.ok ? null : result.error.message).not.toContain("sk-live");
   });
 
   it("does not send provider API-key material when the device lacks operator.admin", async () => {

@@ -399,129 +399,163 @@
           </section>
 
           <!-- ── 3 · Model providers — what the gateway routes the fleet to ── -->
+          <!-- Q18 mockup-revision-first (Slice 3.7 view #1): reconciled against the OpenClaw
+               Control-UI reference. Every column here maps to a REAL gateway RPC field — no
+               invented data. DELETED vs the prior mockup: the free-text "Backs" column and the
+               fake "$52/$100" plan amounts (no RPC backs them). CHANGED: one row per canonical
+               LLM PARENT provider (docs/openclaw/providers) — CLI runtimes (Codex→OpenAI,
+               Claude CLI→Anthropic, Gemini CLI→Google) fold UNDER the parent, never as their own
+               rows; plan/region auth variants fold into the Auth cell. ADDED: real Models list
+               (models.list) and 5-state Status (models.authStatus: ok|expiring|expired|missing|
+               static) with real usage/expiry. Non-LLM providers (speech/image/video) are excluded. -->
           <section aria-labelledby="providers-lbl">
             <div class="u-between u-wrap" style="gap:var(--space-2);margin-bottom:var(--space-2);">
               <div class="section-label" id="providers-lbl" style="padding:0;">Model providers</div>
-              <span class="u-subtle" style="font-size:var(--text-xs);">The gateway routes the fleet to these · 6 linked · auth order OAuth → API key</span>
+              <span class="u-subtle" style="font-size:var(--text-xs);">Canonical LLM providers the gateway can route to · auth order OAuth → API key</span>
             </div>
             <div class="card">
               <table class="table table-compact table-cards">
-                <caption class="u-sr-only">AI providers backing the fleet — provider, authentication, what each backs, plan or usage, and live status. Six providers; five within limits and one near its limit.</caption>
+                <caption class="u-sr-only">LLM model providers the gateway can route to — provider (with folded CLI runtimes), authentication method(s), current models, and live connection status. Driven by the live gateway catalog; connected providers first.</caption>
                 <thead>
                   <tr>
                     <th scope="col">Provider</th>
                     <th scope="col">Auth</th>
-                    <th scope="col">Backs</th>
-                    <th scope="col">Plan / usage</th>
+                    <th scope="col">Models</th>
                     <th scope="col">Status</th>
+                    <th scope="col"><span class="u-sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
 
-                  <!-- GPT Plus -->
+                  <!-- OpenAI (parent) — Codex CLI folds under; orchestrator role -->
                   <tr>
                     <td data-label="Provider">
-                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">GPT Plus</div>
-                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">OpenAI</div>
+                      <div class="u-row" style="gap:6px;font-weight:var(--fw-medium);line-height:var(--lh-snug);">
+                        OpenAI
+                        <span class="badge badge-accent" title="Coordinator agent"><span class="u-accent" aria-hidden="true">✦</span> Orchestrator</span>
+                      </div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">incl. Codex CLI runtime</div>
                     </td>
-                    <td data-label="Auth"><span class="badge">OAuth</span></td>
-                    <td data-label="Backs">
-                      <span class="u-row" style="gap:6px;">
-                        <span class="u-sr-only">AI lead — </span>
-                        <span class="u-accent" aria-hidden="true" style="font-size:var(--text-base);line-height:1;">✦</span>
-                        Lead orchestrator
-                      </span>
-                    </td>
-                    <td data-label="Plan / usage" class="u-muted">within limits</td>
+                    <td data-label="Auth"><span class="badge">OAuth</span> <span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">gpt-5.5</span> <span class="u-subtle">· gpt-5-codex · +3</span></td>
                     <td data-label="Status">
-                      <span class="u-row">
-                        <span class="dot dot-success dot-beat" aria-hidden="true"></span>
-                        Connected
-                      </span>
+                      <span class="u-row"><span class="dot dot-success dot-beat" aria-hidden="true"></span> Connected <span class="u-subtle">· plan Pro</span></span>
                     </td>
+                    <td data-label="Actions" class="u-right"><span class="u-row" style="gap:var(--space-2);justify-content:flex-end;"><button class="btn btn-ghost btn-sm" type="button">Manage</button><button class="btn btn-ghost btn-sm" type="button">Disconnect</button></span></td>
                   </tr>
 
-                  <!-- Claude Max -->
+                  <!-- Anthropic (parent) — Claude CLI folds under -->
                   <tr>
                     <td data-label="Provider">
-                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Claude Max</div>
-                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Anthropic</div>
+                      <div class="u-row" style="gap:6px;font-weight:var(--fw-medium);line-height:var(--lh-snug);">
+                        Anthropic
+                        <span class="badge">Subagent</span>
+                      </div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">incl. Claude CLI runtime</div>
                     </td>
-                    <td data-label="Auth"><span class="badge">OAuth</span></td>
-                    <td data-label="Backs">Sonnet workers <span class="u-subtle">(local CLI)</span></td>
-                    <td data-label="Plan / usage" class="u-muted">within limits</td>
+                    <td data-label="Auth"><span class="badge">Setup token</span> <span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">claude-opus-4-8</span> <span class="u-subtle">· claude-sonnet-5 · +2</span></td>
                     <td data-label="Status">
-                      <span class="u-row">
-                        <span class="dot dot-success dot-beat" aria-hidden="true"></span>
-                        Connected
-                      </span>
+                      <span class="u-row"><span class="dot dot-success dot-beat" aria-hidden="true"></span> Connected</span>
                     </td>
+                    <td data-label="Actions" class="u-right"><span class="u-row" style="gap:var(--space-2);justify-content:flex-end;"><button class="btn btn-ghost btn-sm" type="button">Manage</button><button class="btn btn-ghost btn-sm" type="button">Disconnect</button></span></td>
                   </tr>
 
-                  <!-- GLM -->
+                  <!-- Z.AI (GLM) — plan/region variants fold into Auth; real usage window -->
                   <tr>
                     <td data-label="Provider">
-                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">GLM</div>
-                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Z.ai</div>
+                      <div class="u-row" style="gap:6px;font-weight:var(--fw-medium);line-height:var(--lh-snug);">
+                        Z.AI <span class="badge">Subagent</span>
+                      </div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">GLM · Coding-Plan / Global / CN</div>
                     </td>
                     <td data-label="Auth"><span class="badge">API key</span></td>
-                    <td data-label="Backs">content workers</td>
-                    <td data-label="Plan / usage">token plan <span class="u-mono">$52/$100</span></td>
+                    <td data-label="Models"><span class="u-mono">glm-4.7</span> <span class="u-subtle">· glm-5.2</span></td>
                     <td data-label="Status">
-                      <span class="u-row">
-                        <span class="dot dot-success dot-beat" aria-hidden="true"></span>
-                        Connected
-                      </span>
+                      <span class="u-row"><span class="dot dot-success dot-beat" aria-hidden="true"></span> Connected <span class="u-subtle">· 68% window left</span></span>
                     </td>
+                    <td data-label="Actions" class="u-right"><span class="u-row" style="gap:var(--space-2);justify-content:flex-end;"><button class="btn btn-ghost btn-sm" type="button">Manage</button><button class="btn btn-ghost btn-sm" type="button">Disconnect</button></span></td>
                   </tr>
 
-                  <!-- KIMI -->
+                  <!-- Google (parent) — Gemini CLI folds under; not connected -->
                   <tr>
                     <td data-label="Provider">
-                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">KIMI</div>
-                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Moonshot</div>
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Google</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Gemini · incl. Gemini CLI runtime</div>
                     </td>
-                    <td data-label="Auth"><span class="badge">API key</span></td>
-                    <td data-label="Backs">research</td>
-                    <td data-label="Plan / usage" class="u-muted">metered</td>
-                    <td data-label="Status">
-                      <span class="u-row">
-                        <span class="dot dot-success dot-beat" aria-hidden="true"></span>
-                        Connected
-                      </span>
-                    </td>
+                    <td data-label="Auth"><span class="badge">OAuth</span> <span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">gemini-2.5-pro</span></td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
                   </tr>
 
-                  <!-- MiniMax — near limit -->
-                  <tr>
-                    <td data-label="Provider">
-                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">MiniMax</div>
-                    </td>
-                    <td data-label="Auth"><span class="badge">API key</span></td>
-                    <td data-label="Backs">content</td>
-                    <td data-label="Plan / usage" class="u-muted">metered</td>
-                    <td data-label="Status">
-                      <span class="badge badge-warning">
-                        <span class="dot dot-warning" aria-hidden="true" style="width:6px;height:6px;"></span>
-                        Near limit
-                      </span>
-                    </td>
-                  </tr>
-
-                  <!-- OpenRouter -->
+                  <!-- OpenRouter — OAuth + API key; not connected -->
                   <tr>
                     <td data-label="Provider">
                       <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">OpenRouter</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Aggregator</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">OAuth</span> <span class="badge">API key</span></td>
+                    <td data-label="Models" class="u-subtle">Routes many</td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
+                  </tr>
+
+                  <!-- Moonshot (Kimi) — .ai / .cn variants fold into Auth -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Moonshot</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Kimi · .ai / .cn</div>
                     </td>
                     <td data-label="Auth"><span class="badge">API key</span></td>
-                    <td data-label="Backs"><span class="u-mono">Sonnet 4.6</span> <span class="u-subtle">(content)</span></td>
-                    <td data-label="Plan / usage" class="u-muted">metered</td>
-                    <td data-label="Status">
-                      <span class="u-row">
-                        <span class="dot dot-success dot-beat" aria-hidden="true"></span>
-                        Connected
-                      </span>
+                    <td data-label="Models"><span class="u-mono">kimi-k2</span></td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
+                  </tr>
+
+                  <!-- Qwen — OAuth + API key -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Qwen</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Alibaba · Coding / Standard</div>
                     </td>
+                    <td data-label="Auth"><span class="badge">OAuth</span> <span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">qwen3-max</span></td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
+                  </tr>
+
+                  <!-- DeepSeek — API key -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">DeepSeek</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">deepseek-v4</span></td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
+                  </tr>
+
+                  <!-- Groq — API key -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Groq</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">llama-3.3-70b</span></td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
+                  </tr>
+
+                  <!-- xAI — OAuth + API key -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">xAI</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">OAuth</span> <span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">grok-4</span></td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
                   </tr>
 
                 </tbody>

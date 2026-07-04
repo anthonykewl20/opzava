@@ -1,13 +1,18 @@
-import type {
-  ConnectionsSnapshot,
-  ConnectionStatus,
-  DeviceFlowChallenge,
-  DeviceFlowPollState,
-  GitHubConnectionState,
-  ModelProviderAuthChoice,
-  ModelProviderCatalogEntry,
-  OrchestratorDelegationState,
-  OrchestratorSubagentRole,
+import {
+  classifyModelProvider,
+  type ConnectionsSnapshot,
+  type ConnectionStatus,
+  type DeviceFlowChallenge,
+  type DeviceFlowPollState,
+  type GitHubConnectionState,
+  type ModelSummary,
+  type ModelProviderAuthChoice,
+  type ModelProviderCatalogEntry,
+  type OrchestratorDelegationState,
+  type OrchestratorSubagentRole,
+  type ProviderAuthHealth,
+  type ProviderCategory,
+  type ProviderConnectionState,
 } from "@opzava/ports";
 
 export interface ConnectionHealthSummary {
@@ -24,6 +29,9 @@ export interface ProviderConnectionSummary extends ConnectionHealthSummary {
 
 export interface ProviderConnectionView {
   readonly id: string;
+  /** The RAW gateway provider id that resolved this row's connection state (the folded child when a
+   * runtime backs the parent). Disconnect targets THIS, not the display/group id. */
+  readonly connectionProviderId: string;
   readonly label: string;
   readonly vendor: string;
   readonly status: ConnectionStatus;
@@ -35,6 +43,11 @@ export interface ProviderConnectionView {
   readonly deviceFlowChoices: readonly ModelProviderAuthChoice[];
   readonly roleLabel: "Lead orchestrator" | "Subagent";
   readonly model: string;
+  readonly runtimeLabels: readonly string[];
+  readonly models: readonly ModelSummary[];
+  readonly authHealth: ProviderAuthHealth | null;
+  readonly expiryLabel: string | null;
+  readonly planLabel: string | null;
   readonly accountLabel: string | null;
   readonly usageLabel: string | null;
   readonly message: string | null;
@@ -120,10 +133,7 @@ export function preferredAuthChoice(
 
 export function connectionHealthSummary(snapshot: ConnectionsSnapshot): ConnectionHealthSummary {
   const statuses: ConnectionStatus[] = [
-    ...snapshot.providerCatalog.map((provider) => {
-      const state = snapshot.providerConnections.find((item) => item.providerId === provider.id);
-      return state?.status ?? "not_connected";
-    }),
+    ...projectModelProviders(snapshot).map((provider) => provider.status),
     snapshot.github.status,
     snapshot.gateway.status === "active" ? "connected" : "needs_attention",
   ];
@@ -160,43 +170,242 @@ export function projectProviderConnections(
     "providerCatalog" | "providerConnections" | "pendingDeviceFlows"
   >,
 ): readonly ProviderConnectionView[] {
-  return snapshot.providerCatalog.map((provider) => {
-    const state = snapshot.providerConnections.find((item) => item.providerId === provider.id);
-    const apiKeyChoices = provider.authChoices.filter((choice) => choice.mode === "api-key");
-    const deviceFlowChoices = provider.authChoices.filter(
-      (choice) => choice.mode === "device-flow",
-    );
-    const pendingFlow =
-      snapshot.pendingDeviceFlows.find(
-        (flow) => flow.kind === "model_provider" && flow.providerId === provider.id,
-      ) ?? null;
-    const status = pendingFlow === null ? (state?.status ?? "not_connected") : "pending";
-    const model = state?.model ?? provider.suggestedModel;
+  return projectModelProviders(snapshot);
+}
 
-    return {
-      id: provider.id,
-      label: provider.label,
-      vendor: provider.vendor,
-      status,
-      statusLabel: statusLabel(status),
-      statusClassName: statusClassName(status),
-      authSummary: provider.authChoices.map((choice) => choice.label).join(" / "),
-      primaryAuthChoice: preferredAuthChoice(provider),
-      apiKeyChoices,
-      deviceFlowChoices,
-      roleLabel: provider.id === "openai" ? "Lead orchestrator" : "Subagent",
-      model,
-      accountLabel: state?.accountLabel ?? null,
-      usageLabel: state?.usageLabel ?? null,
-      message: state?.message ?? null,
-      strength: provider.roleStrength,
-      whenToUse: provider.whenToUse,
-      pendingFlow,
-    };
-  });
+interface ProviderClassificationView {
+  readonly category: ProviderCategory;
+  readonly parentId: string | null;
+  readonly runtimeLabel: string | null;
+  readonly canonicalLabel: string | null;
+}
+
+interface ProviderGroupAccumulator {
+  readonly id: string;
+  label: string;
+  vendor: string;
+  suggestedModel: string;
+  roleStrength: string;
+  whenToUse: string;
+  readonly authChoices: Map<string, ModelProviderAuthChoice>;
+  readonly runtimeLabels: Set<string>;
+  readonly models: Map<string, ModelSummary>;
+  readonly providerIds: Set<string>;
+}
+
+function providerClassification(provider: ModelProviderCatalogEntry): ProviderClassificationView {
+  const fallback = classifyModelProvider(provider.id);
+
+  return {
+    category: provider.category ?? fallback.category,
+    parentId: provider.parentId === undefined ? fallback.parentId : provider.parentId,
+    runtimeLabel:
+      provider.runtimeLabel === undefined ? fallback.runtimeLabel : provider.runtimeLabel,
+    canonicalLabel: fallback.canonicalLabel,
+  };
+}
+
+function createProviderGroup(
+  provider: ModelProviderCatalogEntry,
+  classification: ProviderClassificationView,
+): ProviderGroupAccumulator {
+  return {
+    id: provider.id,
+    label: classification.canonicalLabel ?? provider.label,
+    vendor: provider.vendor,
+    suggestedModel: provider.suggestedModel,
+    roleStrength: provider.roleStrength,
+    whenToUse: provider.whenToUse,
+    authChoices: new Map(),
+    runtimeLabels: new Set(),
+    models: new Map(),
+    providerIds: new Set([provider.id]),
+  };
+}
+
+function addProviderToGroup(
+  group: ProviderGroupAccumulator,
+  provider: ModelProviderCatalogEntry,
+  classification: ProviderClassificationView,
+  folded: boolean,
+): void {
+  group.providerIds.add(provider.id);
+
+  if (!folded) {
+    group.label = classification.canonicalLabel ?? provider.label;
+    group.vendor = provider.vendor;
+    group.suggestedModel = provider.suggestedModel;
+    group.roleStrength = provider.roleStrength;
+    group.whenToUse = provider.whenToUse;
+  }
+
+  for (const choice of provider.authChoices) {
+    group.authChoices.set(`${choice.mode}:${choice.id}`, choice);
+  }
+
+  for (const model of provider.models ?? []) {
+    group.models.set(model.id, model);
+  }
+
+  if (folded) {
+    const runtimeLabel =
+      classification.runtimeLabel ?? classification.canonicalLabel ?? provider.label;
+    if (runtimeLabel.trim() !== "") {
+      group.runtimeLabels.add(runtimeLabel);
+    }
+  }
+}
+
+function providerStateForGroup(
+  providerIds: ReadonlySet<string>,
+  parentId: string,
+  states: readonly ProviderConnectionState[],
+): ProviderConnectionState | null {
+  // A REAL parent signal (connected / needs_attention / pending) is authoritative: a folded runtime
+  // being connected must never mask a parent that needs_attention (codex review #3). But the worker
+  // synthesizes a `not_connected` row for EVERY catalog provider, so a bare not_connected parent must
+  // NOT mask a connected folded runtime that genuinely backs it (codex convergence re-review). So:
+  // parent wins only when it carries a real signal; otherwise a connected/attention/pending child does.
+  const parentState = states.find((state) => state.providerId === parentId) ?? null;
+  if (parentState !== null && parentState.status !== "not_connected") {
+    return parentState;
+  }
+
+  const groupedStates = states.filter((state) => providerIds.has(state.providerId));
+  return (
+    groupedStates.find((state) => state.status === "connected") ??
+    groupedStates.find((state) => state.status === "needs_attention") ??
+    groupedStates.find((state) => state.status === "pending") ??
+    parentState ??
+    groupedStates[0] ??
+    null
+  );
+}
+
+function pendingFlowForGroup(
+  providerIds: ReadonlySet<string>,
+  flows: readonly DeviceFlowChallenge[],
+): DeviceFlowChallenge | null {
+  return (
+    flows.find((flow) => flow.kind === "model_provider" && providerIds.has(flow.providerId)) ??
+    null
+  );
+}
+
+function providerGroupToCatalogEntry(group: ProviderGroupAccumulator): ModelProviderCatalogEntry {
+  return {
+    id: group.id,
+    label: group.label,
+    vendor: group.vendor,
+    authChoices: [...group.authChoices.values()],
+    suggestedModel: group.suggestedModel,
+    roleStrength: group.roleStrength,
+    whenToUse: group.whenToUse,
+    models: [...group.models.values()],
+  };
+}
+
+export function projectModelProviders(
+  snapshot: Pick<
+    ConnectionsSnapshot,
+    "providerCatalog" | "providerConnections" | "pendingDeviceFlows"
+  >,
+): readonly ProviderConnectionView[] {
+  const classifications = new Map(
+    snapshot.providerCatalog.map((provider) => [provider.id, providerClassification(provider)]),
+  );
+  const parentIds = new Set(
+    snapshot.providerCatalog
+      .filter((provider) => {
+        const classification = classifications.get(provider.id);
+        return classification?.category === "llm" && classification.parentId === null;
+      })
+      .map((provider) => provider.id),
+  );
+  const catalogById = new Map(snapshot.providerCatalog.map((provider) => [provider.id, provider]));
+  const groups = new Map<string, ProviderGroupAccumulator>();
+
+  for (const provider of snapshot.providerCatalog) {
+    const classification = classifications.get(provider.id) ?? providerClassification(provider);
+    if (classification.category !== "llm") {
+      continue;
+    }
+
+    const parentId = classification.parentId;
+    const foldsIntoCatalogParent = parentId !== null && parentIds.has(parentId);
+    const groupId = foldsIntoCatalogParent ? parentId : provider.id;
+    const groupSource = catalogById.get(groupId) ?? provider;
+    const groupClassification =
+      classifications.get(groupSource.id) ?? providerClassification(groupSource);
+    const existing =
+      groups.get(groupId) ?? createProviderGroup(groupSource, groupClassification);
+    groups.set(groupId, existing);
+
+    addProviderToGroup(existing, provider, classification, foldsIntoCatalogParent);
+  }
+
+  return [...groups.values()]
+    .map((group): ProviderConnectionView => {
+      const state = providerStateForGroup(
+        group.providerIds,
+        group.id,
+        snapshot.providerConnections,
+      );
+      const provider = providerGroupToCatalogEntry(group);
+      const apiKeyChoices = provider.authChoices.filter((choice) => choice.mode === "api-key");
+      const deviceFlowChoices = provider.authChoices.filter(
+        (choice) => choice.mode === "device-flow",
+      );
+      const pendingFlow = pendingFlowForGroup(group.providerIds, snapshot.pendingDeviceFlows);
+      const status = pendingFlow === null ? (state?.status ?? "not_connected") : "pending";
+      const models = [...group.models.values()]
+        .sort(
+          (left, right) =>
+            left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
+        )
+        .slice(0, 6);
+      const model = state?.model ?? provider.suggestedModel;
+
+      return {
+        id: group.id,
+        connectionProviderId: state?.providerId ?? group.id,
+        label: group.label,
+        vendor: group.vendor,
+        status,
+        statusLabel: statusLabel(status),
+        statusClassName: statusClassName(status),
+        authSummary: provider.authChoices.map((choice) => choice.label).join(" / "),
+        primaryAuthChoice: preferredAuthChoice(provider),
+        apiKeyChoices,
+        deviceFlowChoices,
+        roleLabel: group.id === "openai" ? "Lead orchestrator" : "Subagent",
+        model,
+        runtimeLabels: [...group.runtimeLabels].sort((left, right) => left.localeCompare(right)),
+        models,
+        authHealth: state?.authHealth ?? null,
+        expiryLabel: state?.expiryLabel ?? null,
+        planLabel: state?.planLabel ?? null,
+        accountLabel: state?.accountLabel ?? null,
+        usageLabel: state?.usageLabel ?? null,
+        message: state?.message ?? null,
+        strength: group.roleStrength,
+        whenToUse: group.whenToUse,
+        pendingFlow,
+      };
+    })
+    .sort((left, right) => {
+      const leftConnected = left.status === "connected" ? 0 : 1;
+      const rightConnected = right.status === "connected" ? 0 : 1;
+      return leftConnected === rightConnected
+        ? left.label.localeCompare(right.label)
+        : leftConnected - rightConnected;
+    });
 }
 
 export function connectedProviderIds(snapshot: ConnectionsSnapshot): readonly string[] {
+  // Must return RAW gateway provider ids: the worker's applyOrchestratorDelegation matches these
+  // against `providerConnections[].providerId` (e.g. a CLI-synced `claude-cli`). Returning grouped
+  // parent ids here silently dropped folded runtimes from delegation (codex/Claude review MED-1).
   return snapshot.providerConnections
     .filter((connection) => connection.status === "connected")
     .map((connection) => connection.providerId);
@@ -205,9 +414,16 @@ export function connectedProviderIds(snapshot: ConnectionsSnapshot): readonly st
 export function hasConnectedProviderOrGitHub(
   snapshot: Pick<ConnectionsSnapshot, "providerConnections" | "github">,
 ): boolean {
+  // "Any connection" for the shell gate: GitHub, or any connected provider that is a canonical LLM.
+  // A connected non-LLM provider (curated out of the surface) must never claim a connection the user
+  // cannot see. Kept catalog-independent so it holds even before the catalog snapshot resolves.
   return (
     snapshot.github.status === "connected" ||
-    snapshot.providerConnections.some((connection) => connection.status === "connected")
+    snapshot.providerConnections.some(
+      (connection) =>
+        connection.status === "connected" &&
+        classifyModelProvider(connection.providerId).category === "llm",
+    )
   );
 }
 

@@ -2,8 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { LocalFileSecretsVault } from "@opzava/adapters";
 import {
+  CANONICAL_LLM_PROVIDER_IDS,
+  CANONICAL_PROVIDER_LABELS,
   GITHUB_ISSUES_TOKEN_SECRET_LABEL,
   type ApplyOrchestratorDelegationInput,
+  classifyModelProvider,
   type ConnectModelProviderApiKeyInput,
   type ConnectionsProvisioningPort,
   type ConnectionsSnapshot,
@@ -14,10 +17,12 @@ import {
   type DisconnectModelProviderInput,
   type GetSecretRefInput,
   type GitHubConnectionState,
+  type ModelSummary,
   type ModelProviderAuthChoice,
   type ModelProviderCatalogEntry,
   type OrchestratorDelegationState,
   type OrchestratorSubagentRole,
+  type ProviderAuthHealth,
   type ProviderConnectionState,
   type ResolveSecretInput,
   type SecretReference,
@@ -275,6 +280,62 @@ function authChoiceFromUnknown(value: unknown, providerId: string): ModelProvide
   };
 }
 
+function modelSummariesByProvider(
+  modelSources: readonly unknown[],
+): ReadonlyMap<string, readonly ModelSummary[]> {
+  const byProvider = new Map<string, Map<string, ModelSummary>>();
+
+  for (const modelSource of modelSources) {
+    if (!isRecord(modelSource)) {
+      continue;
+    }
+
+    const modelId = stringValue(modelSource["id"]) ?? stringValue(modelSource["model"]);
+    const providerId =
+      stringValue(modelSource["providerId"]) ??
+      stringValue(modelSource["provider"]) ??
+      (modelId?.includes("/") === true ? (modelId.split("/", 1)[0] ?? null) : null);
+    if (modelId === null || providerId === null) {
+      continue;
+    }
+
+    const providerModels = byProvider.get(providerId) ?? new Map<string, ModelSummary>();
+    providerModels.set(modelId, {
+      id: modelId,
+      label: stringValue(modelSource["name"]) ?? stringValue(modelSource["label"]) ?? modelId,
+    });
+    byProvider.set(providerId, providerModels);
+  }
+
+  return new Map(
+    [...byProvider.entries()].map(([providerId, models]) => [
+      providerId,
+      [...models.values()]
+        .sort(
+          (left, right) =>
+            left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
+        )
+        .slice(0, 8),
+    ]),
+  );
+}
+
+function withModelProviderClassification(
+  provider: ModelProviderCatalogEntry,
+  modelsByProvider: ReadonlyMap<string, readonly ModelSummary[]>,
+): ModelProviderCatalogEntry {
+  const classification = classifyModelProvider(provider.id);
+
+  return {
+    ...provider,
+    label: classification.canonicalLabel ?? provider.label,
+    category: classification.category,
+    parentId: classification.parentId,
+    runtimeLabel: classification.runtimeLabel,
+    models: modelsByProvider.get(provider.id) ?? [],
+  };
+}
+
 function providerCatalogFromModels(
   payload: unknown,
   config: Record<string, unknown>,
@@ -286,6 +347,7 @@ function providerCatalogFromModels(
     ...arrayValue(root["authChoices"]),
   ];
   const modelSources = [...arrayValue(root["models"]), ...(Array.isArray(payload) ? payload : [])];
+  const modelsByProvider = modelSummariesByProvider(modelSources);
   const catalog = new Map<string, ModelProviderCatalogEntry>();
 
   for (const providerSource of providerSources) {
@@ -385,14 +447,17 @@ function providerCatalogFromModels(
     });
   }
 
-  return [...catalog.values()].map((provider) =>
-    provider.authChoices.length === 0
-      ? {
-          ...provider,
-          authChoices: authChoicesFromConfig(provider.id, config),
-        }
-      : provider,
-  );
+  return [...catalog.values()].map((provider) => {
+    const withAuthChoices =
+      provider.authChoices.length === 0
+        ? {
+            ...provider,
+            authChoices: authChoicesFromConfig(provider.id, config),
+          }
+        : provider;
+
+    return withModelProviderClassification(withAuthChoices, modelsByProvider);
+  });
 }
 
 function authChoicesFromConfig(
@@ -786,6 +851,49 @@ function mergeRuntimeAuthChoices(input: {
   });
 }
 
+// Ensure the well-known LLM connect targets surface even when they have NO bundled models yet
+// (zai/openrouter/moonshot/qwen/deepseek/groq/xai/google have onboard auth-choices but no models
+// until connected, so `models.list` alone omits them). Presence stays GATEWAY-DRIVEN: a canonical
+// provider is added ONLY if the live `onboard --help` list advertises a matching auth-choice.
+function ensureCanonicalLlmProviders(input: {
+  readonly catalog: readonly ModelProviderCatalogEntry[];
+  readonly choices: readonly GatewayRuntimeAuthChoice[];
+}): readonly ModelProviderCatalogEntry[] {
+  // Compare case-insensitively so a mixed-case catalog id (e.g. "OpenAI") is not treated as absent
+  // and duplicated by the lowercase canonical id (glm review LOW #2). Ids used for gateway writes are
+  // left untouched — this normalizes only the dedupe comparison.
+  const present = new Set(input.catalog.map((provider) => provider.id.toLowerCase()));
+  const additions: ModelProviderCatalogEntry[] = [];
+
+  for (const rootId of CANONICAL_LLM_PROVIDER_IDS) {
+    if (present.has(rootId.toLowerCase())) {
+      continue;
+    }
+
+    const authChoices = authChoicesForProvider({ providerId: rootId, choices: input.choices });
+    if (authChoices.length === 0) {
+      continue;
+    }
+
+    const label = CANONICAL_PROVIDER_LABELS[rootId] ?? rootId;
+    additions.push({
+      id: rootId,
+      label,
+      vendor: label,
+      authChoices,
+      suggestedModel: rootId,
+      roleStrength: "Gateway-advertised provider",
+      whenToUse: "Connect to route the fleet to this provider.",
+      category: "llm",
+      parentId: null,
+      runtimeLabel: null,
+      models: [],
+    });
+  }
+
+  return [...input.catalog, ...additions];
+}
+
 function parseOnboardAuthChoices(helpText: string): readonly GatewayRuntimeAuthChoice[] {
   const choiceIds = parseOnboardAuthChoiceIds(helpText);
   const keyFlags = parseOnboardApiKeyFlags(helpText);
@@ -890,6 +998,97 @@ function providerConnectionFromModelStatus(input: {
   };
 }
 
+interface ModelAuthStatusConnection {
+  readonly providerId: string;
+  readonly status: ProviderConnectionState["status"];
+  readonly authHealth: ProviderAuthHealth;
+  readonly expiryLabel: string | null;
+  readonly planLabel: string | null;
+  readonly usageLabel: string | null;
+  readonly accountLabel: string | null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function providerAuthHealth(value: unknown): ProviderAuthHealth | null {
+  const status = stringValue(value);
+  if (
+    status === "ok" ||
+    status === "expiring" ||
+    status === "expired" ||
+    status === "missing" ||
+    status === "static"
+  ) {
+    return status;
+  }
+
+  return null;
+}
+
+function connectionStatusFromAuthHealth(
+  status: ProviderAuthHealth,
+): ProviderConnectionState["status"] {
+  if (status === "expired" || status === "missing") {
+    return "needs_attention";
+  }
+
+  return "connected";
+}
+
+function cleanOptionalLabel(value: unknown): string | null {
+  const label = stringValue(value);
+  return label === null || label.toLowerCase() === "unknown" ? null : label;
+}
+
+function usageLabelFromAuthStatus(usage: Record<string, unknown> | null): string | null {
+  if (usage === null) {
+    return null;
+  }
+
+  const windows = arrayValue(usage["windows"])
+    .filter(isRecord)
+    .map((window) => numberValue(window["usedPercent"]))
+    .filter((usedPercent): usedPercent is number => usedPercent !== null)
+    .map((usedPercent) => Math.max(0, Math.min(100, 100 - Math.round(usedPercent))))
+    .sort((left, right) => left - right);
+  const lowestRemaining = windows[0];
+  if (lowestRemaining !== undefined) {
+    return `${lowestRemaining}% window left`;
+  }
+
+  return stringValue(usage["summary"]);
+}
+
+function modelAuthStatusMap(payload: unknown): ReadonlyMap<string, ModelAuthStatusConnection> {
+  const root = recordValue(payload) ?? {};
+  const providers = arrayValue(root["providers"]).filter(isRecord);
+  const byProvider = new Map<string, ModelAuthStatusConnection>();
+
+  for (const provider of providers) {
+    const providerId = stringValue(provider["provider"]) ?? stringValue(provider["providerId"]);
+    const authHealth = providerAuthHealth(provider["status"]);
+    if (providerId === null || authHealth === null) {
+      continue;
+    }
+
+    const expiry = recordValue(provider["expiry"]);
+    const usage = recordValue(provider["usage"]);
+    byProvider.set(providerId, {
+      providerId,
+      status: connectionStatusFromAuthHealth(authHealth),
+      authHealth,
+      expiryLabel: cleanOptionalLabel(expiry?.["label"]),
+      planLabel: stringValue(usage?.["plan"]),
+      usageLabel: usageLabelFromAuthStatus(usage),
+      accountLabel: stringValue(provider["displayName"]),
+    });
+  }
+
+  return byProvider;
+}
+
 function providerPluginId(providerId: string): string {
   return providerId;
 }
@@ -933,8 +1132,11 @@ function commandFailureError(input: {
   readonly authChoiceId: string;
   readonly result: GatewayRuntimeCommandResult;
 }): DomainError {
-  const output = `${input.result.stderr}\n${input.result.stdout}`.trim();
-  const normalized = output.toLowerCase();
+  // SECURITY (codex review HIGH): `onboard` is a credential-bearing command — its stderr/stdout can
+  // echo the SUBMITTED API key (e.g. "invalid key sk-live-..."). Classify from the raw output
+  // internally, but NEVER surface it: the returned message reaches the browser via action state.
+  // Only code-derived, metadata-safe copy leaves this function.
+  const normalized = `${input.result.stderr}\n${input.result.stdout}`.toLowerCase();
   const code =
     normalized.includes("allow") && normalized.includes("plugin")
       ? "provisioning.connections.providerBlockedByAllowlist"
@@ -945,17 +1147,18 @@ function commandFailureError(input: {
         ? "provisioning.connections.invalidProviderCredential"
         : "provisioning.connections.gatewayOnboardFailed";
 
-  return provisioningError(
-    code,
-    output === ""
-      ? `Gateway onboard failed for ${input.providerId} with exit code ${input.result.exitCode}.`
-      : output,
-    {
-      providerId: input.providerId,
-      authChoiceId: input.authChoiceId,
-      exitCode: input.result.exitCode,
-    },
-  );
+  const message =
+    code === "provisioning.connections.providerBlockedByAllowlist"
+      ? `Gateway blocked ${input.providerId} on the plugin allowlist.`
+      : code === "provisioning.connections.invalidProviderCredential"
+        ? `Gateway rejected the ${input.providerId} credential (invalid or unauthorized).`
+        : `Gateway onboard failed for ${input.providerId} with exit code ${input.result.exitCode}.`;
+
+  return provisioningError(code, message, {
+    providerId: input.providerId,
+    authChoiceId: input.authChoiceId,
+    exitCode: input.result.exitCode,
+  });
 }
 
 class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
@@ -1370,6 +1573,31 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     this.now = options.now ?? (() => new Date());
   }
 
+  private async modelAuthStatus(): Promise<ReadonlyMap<string, ModelAuthStatusConnection> | null> {
+    try {
+      const result = await this.options.adminClient.request("models.authStatus", {
+        refresh: false,
+      });
+      if (!result.ok) {
+        console.warn("connections.authStatus.fallback");
+        return null;
+      }
+
+      // An ok-but-unparseable/empty payload must ALSO fall back to the CLI status path, not silently
+      // degrade to config-only (codex/Claude review LOW-5). Treat an empty parse as unavailable.
+      const map = modelAuthStatusMap(result.value);
+      if (map.size === 0) {
+        console.warn("connections.authStatus.fallback");
+        return null;
+      }
+
+      return map;
+    } catch {
+      console.warn("connections.authStatus.fallback");
+      return null;
+    }
+  }
+
   public async getConnectionsSnapshot(
     input: ConnectionProvisioningPrincipal,
   ): Promise<Result<ConnectionsSnapshot>> {
@@ -1385,32 +1613,57 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
-    const [healthResult, heartbeatResult, modelsResult, modelStatusResult, authChoicesResult] =
+    const [healthResult, heartbeatResult, modelsResult, authChoicesResult, authStatus] =
       await Promise.all([
         this.options.adminClient.request("health", {}),
         this.options.adminClient.request("last-heartbeat", {}),
         this.options.adminClient.request("models.list", { view: "all" }),
-        this.options.gatewayRuntime?.modelStatus() ??
-          ok<unknown>({ auth: { providers: [] }, allowed: [] }),
         this.options.gatewayRuntime?.listAuthChoices() ??
           ok<readonly GatewayRuntimeAuthChoice[]>([]),
+        this.modelAuthStatus(),
       ]);
+    const modelStatusResult =
+      authStatus === null
+        ? await (this.options.gatewayRuntime?.modelStatus() ??
+            ok<unknown>({ auth: { providers: [] }, allowed: [] }))
+        : ok<unknown>({ auth: { providers: [] }, allowed: [] });
     const config = configPayload(configResult.value);
-    const catalog = mergeRuntimeAuthChoices({
-      catalog: providerCatalogFromModels(modelsResult.ok ? modelsResult.value : {}, config),
-      choices: authChoicesResult.ok ? authChoicesResult.value : [],
+    const runtimeChoices = authChoicesResult.ok ? authChoicesResult.value : [];
+    const catalog = ensureCanonicalLlmProviders({
+      catalog: mergeRuntimeAuthChoices({
+        catalog: providerCatalogFromModels(modelsResult.ok ? modelsResult.value : {}, config),
+        choices: runtimeChoices,
+      }),
+      choices: runtimeChoices,
     });
-    const providerConnections = catalog.map(
-      (provider) =>
-        (modelStatusResult.ok
+    const providerConnections = catalog.map((provider) => {
+      const baseConnection =
+        (authStatus === null && modelStatusResult.ok
           ? providerConnectionFromModelStatus({
               provider,
               config,
               modelStatus: modelStatusResult.value,
               now,
             })
-          : null) ?? providerConnectionFromConfig({ provider, config, now }),
-    );
+          : null) ?? providerConnectionFromConfig({ provider, config, now });
+      const authState = authStatus?.get(provider.id);
+      if (authState === undefined) {
+        return baseConnection;
+      }
+
+      return {
+        ...baseConnection,
+        status: authState.status,
+        authHealth: authState.authHealth,
+        expiryLabel: authState.expiryLabel,
+        planLabel: authState.planLabel,
+        usageLabel: authState.usageLabel,
+        accountLabel: authState.accountLabel ?? baseConnection.accountLabel,
+      };
+    });
+    // Connections stay catalog-aligned by construction: a provider the model catalog does not
+    // advertise is not routable as a model, so we do not synthesize a phantom connection row for it
+    // (review: authStatus is a subset of models.list in practice). The projection is catalog-driven.
     const github = await this.githubState(input, now);
 
     return ok({

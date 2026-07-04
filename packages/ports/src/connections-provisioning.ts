@@ -3,6 +3,18 @@ import type { Result } from "@opzava/shared-kernel";
 export type ConnectionAuthMode = "api-key" | "device-flow";
 export type ConnectionStatus = "connected" | "not_connected" | "pending" | "needs_attention";
 
+/** OpenClaw `models.authStatus` per-provider health (5-state). Enriches the coarse ConnectionStatus. */
+export type ProviderAuthHealth = "ok" | "expiring" | "expired" | "missing" | "static";
+
+/** Curation axis: only canonical LLM parents are rendered as provider rows (Slice 3.7). */
+export type ProviderCategory = "llm" | "non-llm";
+
+/** A real, current model advertised by the gateway (`models.list`). */
+export interface ModelSummary {
+  readonly id: string;
+  readonly label: string;
+}
+
 export interface ConnectionProvisioningPrincipal {
   readonly orgId: string;
   readonly workspaceId: string;
@@ -28,6 +40,19 @@ export interface ModelProviderCatalogEntry {
   readonly suggestedModel: string;
   readonly roleStrength: string;
   readonly whenToUse: string;
+  /**
+   * Grouping + curation hints (Slice 3.7 Models & Providers port). Optional so existing
+   * fixtures keep compiling; the web projection classifies by provider id via
+   * `classifyModelProvider` when absent, so these are advisory overrides, never the sole
+   * source of truth. Providers still come from the LIVE gateway catalog (no invented list).
+   */
+  readonly category?: ProviderCategory;
+  /** Canonical parent this entry folds under (e.g. runtime `claude-cli` → `anthropic`); undefined/null = it IS a parent. */
+  readonly parentId?: string | null;
+  /** Human label when this entry is a CLI runtime folded under its parent (e.g. "Claude CLI", "Codex CLI"). */
+  readonly runtimeLabel?: string | null;
+  /** Real, current models advertised by the gateway (`models.list`); empty allowed, never faked. */
+  readonly models?: readonly ModelSummary[];
 }
 
 export interface ProviderConnectionState {
@@ -40,6 +65,16 @@ export interface ProviderConnectionState {
   readonly usageLabel: string | null;
   readonly lastCheckedAt: string | null;
   readonly message: string | null;
+  /**
+   * Enrichment from OpenClaw `models.authStatus` (primary source; the `models status` CLI is a
+   * degraded fallback). Optional so the coarse `status` stays authoritative when authStatus is
+   * unavailable — honest empty, never faked.
+   */
+  readonly authHealth?: ProviderAuthHealth | null;
+  /** Human expiry countdown for OAuth/token profiles (e.g. "10d", "2h"); null for static api-key. */
+  readonly expiryLabel?: string | null;
+  /** Subscription/plan label from `usage.plan` (e.g. "Pro"); null when the provider reports none. */
+  readonly planLabel?: string | null;
 }
 
 export interface GatewayConnectionState {

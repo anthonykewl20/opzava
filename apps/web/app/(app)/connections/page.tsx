@@ -39,18 +39,17 @@ const connectionsPageStyles = `
     .connections-card-copy { color: var(--fg-muted); font-size: var(--text-sm); max-width: 72ch; }
     .connections-provider-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-3); }
     .connections-provider-count { color: var(--fg-muted); font-size: var(--text-sm); }
-    .connections-provider-list { margin: 0; padding: 0; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: visible; }
-    .connections-provider-row { display: grid; grid-template-columns: minmax(220px, 1.05fr) minmax(230px, 1fr) minmax(260px, auto); gap: var(--space-4); align-items: start; padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
-    .connections-provider-row:last-child { border-bottom: 0; }
-    .connections-provider-name { font-weight: var(--fw-semibold); line-height: var(--lh-snug); }
+    .connections-provider-table-card { overflow: hidden; }
+    .connections-provider-table td { vertical-align: top; }
+    .connections-provider-table th:last-child, .connections-provider-table td:last-child { text-align: right; }
+    .connections-provider-title { min-width: 0; flex-wrap: wrap; }
     .connections-provider-sub { margin-top: 2px; color: var(--fg-subtle); font-size: var(--text-xs); }
-    .connections-provider-meta { display: flex; flex-direction: column; gap: var(--space-2); color: var(--fg-muted); font-size: var(--text-sm); }
-    .connections-provider-meta-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+    .connections-provider-badges { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+    .connections-provider-status { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
     .connections-provider-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
-    .connections-provider-state { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); text-align: right; }
     .connections-provider-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+    .connections-provider-hint { font-size: var(--text-xs); }
     .connections-provider-search { width: min(280px, 100%); }
-    .connections-provider-tabs { width: 100%; }
     .connections-inline-alert { width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--warning-soft); border-radius: var(--radius-md); background: var(--warning-soft); color: var(--fg); font-size: var(--text-sm); text-align: left; }
     .connections-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
     .connections-key-form { position: relative; }
@@ -60,15 +59,14 @@ const connectionsPageStyles = `
     .connections-github-card { border-left: 3px solid var(--accent); }
     @media (max-width: 980px) {
       .connections-overview { grid-template-columns: 1fr; }
-      .connections-provider-row { grid-template-columns: 1fr; }
-      .connections-provider-state, .connections-provider-actions { align-items: flex-start; justify-content: flex-start; text-align: left; }
+      .connections-provider-actions { align-items: flex-start; justify-content: flex-start; text-align: left; }
+      .connections-provider-table th:last-child, .connections-provider-table td:last-child { text-align: left; }
     }
     @media (max-width: 640px) {
       .connections-page { padding: var(--space-4); }
       .connections-header, .connections-provider-toolbar { flex-direction: column; }
       .connections-header-actions, .connections-action-stack, .connections-provider-search { width: 100%; align-items: stretch; }
       .connections-provider-head { flex-direction: column; }
-      .connections-provider-row { padding: var(--space-4); }
       .connections-actions .btn, .connections-provider-actions .btn, .connections-key-form { width: 100%; }
       .connections-actions form, .connections-provider-actions form { width: 100%; }
     }
