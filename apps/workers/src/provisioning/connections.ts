@@ -10,14 +10,10 @@ import { ASK_ADMIN_AGENT_ID, ASK_ADMIN_AGENT_MODEL } from "./ask-admin-agent.js"
 export interface GatewayConfigPatchInvocation {
   readonly method: "config.patch";
   readonly params: {
-    readonly patch: {
-      readonly auth: {
-        readonly profiles: Record<string, unknown>;
-        readonly order: Record<string, readonly string[]>;
-      };
-    };
+    readonly raw: string;
+    readonly baseHash: string;
   };
-  readonly secretPath: readonly ["patch", "auth", "profiles", string, "key"];
+  readonly secretPath: readonly ["auth", "profiles", string, "key"];
 }
 
 export interface DelegationProvisioningReceipt {
@@ -44,6 +40,7 @@ function provisioningError(code: string, message: string): DomainError {
 export function gatewayApiKeyConfigPatchInvocation(input: {
   readonly authChoice: ModelProviderAuthChoice;
   readonly apiKey: string;
+  readonly configBaseHash: string;
 }): Result<GatewayConfigPatchInvocation> {
   if (input.authChoice.mode !== "api-key") {
     return err(
@@ -66,42 +63,47 @@ export function gatewayApiKeyConfigPatchInvocation(input: {
     .replace(/[^a-z0-9_.-]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
+  const patch = {
+    auth: {
+      profiles: {
+        [profileId]: {
+          id: profileId,
+          providerId: input.authChoice.providerId,
+          authChoiceId: input.authChoice.id,
+          type: "api-key",
+          key: input.apiKey,
+        },
+      },
+      order: {
+        [input.authChoice.providerId]: [profileId],
+      },
+    },
+  };
+
   return ok({
     method: "config.patch",
     params: {
-      patch: {
-        auth: {
-          profiles: {
-            [profileId]: {
-              id: profileId,
-              providerId: input.authChoice.providerId,
-              authChoiceId: input.authChoice.id,
-              type: "api-key",
-              key: input.apiKey,
-            },
-          },
-          order: {
-            [input.authChoice.providerId]: [profileId],
-          },
-        },
-      },
+      raw: JSON.stringify(patch),
+      baseHash: input.configBaseHash,
     },
-    secretPath: ["patch", "auth", "profiles", profileId, "key"],
+    secretPath: ["auth", "profiles", profileId, "key"],
   });
 }
 
 export function redactedGatewayConfigPatchInvocation(
   invocation: GatewayConfigPatchInvocation,
 ): string {
-  const redacted = JSON.parse(JSON.stringify(invocation.params)) as Record<string, unknown>;
-  const profileId = invocation.secretPath[3];
-  const auth = redacted["patch"] as Record<string, unknown>;
-  const authBlock = auth["auth"] as Record<string, unknown>;
+  const patch = JSON.parse(invocation.params.raw) as Record<string, unknown>;
+  const profileId = invocation.secretPath[2];
+  const authBlock = patch["auth"] as Record<string, unknown>;
   const profiles = authBlock["profiles"] as Record<string, unknown>;
   const profile = profiles[profileId] as Record<string, unknown>;
   profile["key"] = "<redacted>";
 
-  return `${invocation.method} ${JSON.stringify(redacted)}`;
+  return `${invocation.method} ${JSON.stringify({
+    ...invocation.params,
+    raw: JSON.stringify(patch),
+  })}`;
 }
 
 export function buildDelegationProvisioningReceipt(input: {

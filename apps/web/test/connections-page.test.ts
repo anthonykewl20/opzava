@@ -26,6 +26,7 @@ import {
   deviceFlowPollSchedule,
   deviceFlowReducer,
   isTerminalDeviceFlowStatus,
+  providerConnectionSummary,
   projectProviderConnections,
 } from "../lib/connections-state";
 import type { AppSessionContext } from "../lib/session";
@@ -320,6 +321,19 @@ describe("Connections page state", () => {
     expect(authBranchForChoice(views[1]!.apiKeyChoices[0]!)).toBe("api-key");
   });
 
+  it("summarizes model providers without mixing in GitHub or gateway health", () => {
+    const summary = providerConnectionSummary(snapshot());
+
+    expect(summary).toEqual({
+      total: 7,
+      available: 5,
+      connected: 2,
+      needsAttention: 0,
+      pending: 0,
+      notConnected: 5,
+    });
+  });
+
   it("builds orchestrator delegation config with sessions tool-policy expansion", () => {
     const providers = projectProviderConnections(snapshot());
     const config = buildOrchestratorConfigPlan({ providers });
@@ -461,19 +475,31 @@ describe("Connections page state", () => {
   it("wires /connections page, actions, API poll route, and sidebar without JSX imports", async () => {
     const page = await readRepoFile("app/(app)/connections/page.tsx");
     const actions = await readRepoFile("app/(app)/connections/actions.ts");
+    const healthCheckButton = await readRepoFile("components/connections/health-check-submit.tsx");
     const route = await readRepoFile("app/api/connections/device-flow/route.ts");
     const nav = await readRepoFile("components/shell/admin-nav.tsx");
 
     expect(page).toContain("Model providers");
-    expect(page).toContain("Gateway & models");
+    expect(page).toContain("Provider connection status");
     expect(page).toContain("Opzava Gateway");
+    expect(page).toContain("Gateway health");
     expect(page).toContain("Provider catalog unavailable");
     expect(page).not.toContain("OpenClaw gateway");
     expect(page).not.toContain("OpenClaw ·");
     expect(page).not.toContain("Gateway catalog unavailable");
-    expect(page).toContain("table table-compact table-cards");
-    expect(page).toContain('data-label="Provider"');
+    expect(page).not.toContain('?? "unknown"');
+    expect(page).not.toContain("Region: unknown");
+    expect(page).toContain("connections-provider-list");
+    expect(page).toContain("modelProviderCountLabel");
+    expect(page).toContain("Counts only model providers from the live gateway catalog");
     expect(page).toContain("ProviderActions");
+    expect(page).toContain("Connect OAuth");
+    expect(page).toContain("Connect API key");
+    expect(page).toContain("Admin device required");
+    expect(page).toContain("HealthCheckSubmitButton");
+    expect(healthCheckButton).toContain("Checking...");
+    expect(actions).toContain("operator-admin-required");
+    expect(actions).toContain("health-check-complete");
     expect(page).toContain("GitHub");
     expect(page).toContain("startGitHubDeviceFlowAction");
     expect(actions).toContain("connectModelProviderApiKeyForContext");

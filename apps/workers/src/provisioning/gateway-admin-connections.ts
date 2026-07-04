@@ -119,6 +119,31 @@ function profileId(providerId: string, authChoiceId: string): string {
   return normalizeId(`${providerId}-${authChoiceId}`);
 }
 
+function configBaseHash(value: unknown): string | null {
+  const root = recordValue(value);
+  return root === null ? null : stringValue(root["hash"]);
+}
+
+function configPatchParams(input: {
+  readonly configGetPayload: unknown;
+  readonly patch: Record<string, unknown>;
+}): Result<Record<string, unknown>> {
+  const baseHash = configBaseHash(input.configGetPayload);
+  if (baseHash === null) {
+    return err(
+      provisioningError(
+        "provisioning.connections.configBaseHashMissing",
+        "Opzava Gateway config.get did not return the base hash required by config.patch.",
+      ),
+    );
+  }
+
+  return ok({
+    raw: JSON.stringify(input.patch),
+    baseHash,
+  });
+}
+
 function secretRef(input: ConnectionProvisioningPrincipal): GetSecretRefInput {
   return {
     tenantId: input.orgId as TenantId,
@@ -503,10 +528,6 @@ function unavailableSnapshot(input: {
   };
 }
 
-function idempotencyKey(action: string): string {
-  return `connections:${action}:${randomUUID()}`;
-}
-
 function readPrivateKeyPem(env: NodeJS.ProcessEnv): string | null {
   const base64Value = env["OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64"]?.trim();
   if (base64Value !== undefined && base64Value !== "") {
@@ -752,32 +773,38 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     }
 
     const id = profileId(input.providerId, input.authChoiceId);
-    const result = await this.options.adminClient.request(
-      "config.patch",
-      {
-        patch: {
-          auth: {
-            profiles: {
-              [id]: {
-                id,
-                providerId: input.providerId,
-                authChoiceId: input.authChoiceId,
-                type: "api-key",
-                key: input.apiKey,
-                updatedBy: input.actorUserId,
-              },
+    const configResult = await this.options.adminClient.request("config.get", {});
+    if (!configResult.ok) {
+      return err(configResult.error);
+    }
+
+    const patchParams = configPatchParams({
+      configGetPayload: configResult.value,
+      patch: {
+        auth: {
+          profiles: {
+            [id]: {
+              id,
+              providerId: input.providerId,
+              authChoiceId: input.authChoiceId,
+              type: "api-key",
+              key: input.apiKey,
+              updatedBy: input.actorUserId,
             },
-            order: {
-              [input.providerId]: [id],
-            },
+          },
+          order: {
+            [input.providerId]: [id],
           },
         },
       },
-      {
-        idempotencyKey: idempotencyKey(`model-api-key:${input.providerId}`),
-        requiredScope: "operator.admin",
-      },
-    );
+    });
+    if (!patchParams.ok) {
+      return err(patchParams.error);
+    }
+
+    const result = await this.options.adminClient.request("config.patch", patchParams.value, {
+      requiredScope: "operator.admin",
+    });
     if (!result.ok) {
       return err(result.error);
     }
@@ -839,7 +866,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     input: DisconnectModelProviderInput,
   ): Promise<Result<ProviderConnectionState>> {
     const configResult = await this.options.adminClient.request("config.get", {});
-    const config = configResult.ok ? configPayload(configResult.value) : {};
+    if (!configResult.ok) {
+      return err(configResult.error);
+    }
+
+    const config = configPayload(configResult.value);
     const matchingProfileIds = Object.entries(authProfiles(config))
       .filter(
         ([id, profile]) =>
@@ -851,23 +882,24 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         ? [profileId(input.providerId, "api-key")]
         : matchingProfileIds;
     const profilePatch = Object.fromEntries(profileIds.map((id) => [id, null]));
-    const result = await this.options.adminClient.request(
-      "config.patch",
-      {
-        patch: {
-          auth: {
-            profiles: profilePatch,
-            order: {
-              [input.providerId]: [],
-            },
+    const patchParams = configPatchParams({
+      configGetPayload: configResult.value,
+      patch: {
+        auth: {
+          profiles: profilePatch,
+          order: {
+            [input.providerId]: [],
           },
         },
       },
-      {
-        idempotencyKey: idempotencyKey(`model-disconnect:${input.providerId}`),
-        requiredScope: "operator.admin",
-      },
-    );
+    });
+    if (!patchParams.ok) {
+      return err(patchParams.error);
+    }
+
+    const result = await this.options.adminClient.request("config.patch", patchParams.value, {
+      requiredScope: "operator.admin",
+    });
     if (!result.ok) {
       return err(result.error);
     }
@@ -928,24 +960,21 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       const id = stringValue(agent["id"]);
       return id !== ASK_ADMIN_AGENT_ID && id?.startsWith("subagent-") !== true;
     });
-    const result = await this.options.adminClient.request(
-      "config.patch",
-      {
-        patch: {
-          agents: {
-            list: [...existingAgents, ...agentConfig.agents.list],
-          },
-        },
-        receipt: {
-          ...receipt,
-          tokenMaterialIncluded: false,
+    const patchParams = configPatchParams({
+      configGetPayload: configResult.value,
+      patch: {
+        agents: {
+          list: [...existingAgents, ...agentConfig.agents.list],
         },
       },
-      {
-        idempotencyKey: idempotencyKey("orchestrator-delegation"),
-        requiredScope: "operator.admin",
-      },
-    );
+    });
+    if (!patchParams.ok) {
+      return err(patchParams.error);
+    }
+
+    const result = await this.options.adminClient.request("config.patch", patchParams.value, {
+      requiredScope: "operator.admin",
+    });
     if (!result.ok) {
       return err(result.error);
     }

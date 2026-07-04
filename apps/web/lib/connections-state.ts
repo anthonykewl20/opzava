@@ -17,6 +17,11 @@ export interface ConnectionHealthSummary {
   readonly pending: number;
 }
 
+export interface ProviderConnectionSummary extends ConnectionHealthSummary {
+  readonly available: number;
+  readonly notConnected: number;
+}
+
 export interface ProviderConnectionView {
   readonly id: string;
   readonly label: string;
@@ -32,6 +37,7 @@ export interface ProviderConnectionView {
   readonly model: string;
   readonly accountLabel: string | null;
   readonly usageLabel: string | null;
+  readonly message: string | null;
   readonly strength: string;
   readonly whenToUse: string;
   readonly pendingFlow: DeviceFlowChallenge | null;
@@ -130,6 +136,24 @@ export function connectionHealthSummary(snapshot: ConnectionsSnapshot): Connecti
   };
 }
 
+export function providerConnectionSummary(
+  snapshot: Pick<
+    ConnectionsSnapshot,
+    "providerCatalog" | "providerConnections" | "pendingDeviceFlows"
+  >,
+): ProviderConnectionSummary {
+  const statuses = projectProviderConnections(snapshot).map((provider) => provider.status);
+
+  return {
+    total: statuses.length,
+    available: statuses.filter((status) => status !== "connected").length,
+    connected: statuses.filter((status) => status === "connected").length,
+    needsAttention: statuses.filter((status) => status === "needs_attention").length,
+    pending: statuses.filter((status) => status === "pending").length,
+    notConnected: statuses.filter((status) => status === "not_connected").length,
+  };
+}
+
 export function projectProviderConnections(
   snapshot: Pick<
     ConnectionsSnapshot,
@@ -164,6 +188,7 @@ export function projectProviderConnections(
       model,
       accountLabel: state?.accountLabel ?? null,
       usageLabel: state?.usageLabel ?? null,
+      message: state?.message ?? null,
       strength: provider.roleStrength,
       whenToUse: provider.whenToUse,
       pendingFlow,

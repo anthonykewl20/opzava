@@ -116,6 +116,14 @@ function connectionsPageData(current: ConnectionsSnapshot): ConnectionsPageData 
       needsAttention: 0,
       pending: 0,
     },
+    providerSummary: {
+      total: 0,
+      available: 0,
+      connected: 0,
+      needsAttention: 0,
+      pending: 0,
+      notConnected: 0,
+    },
     providers: [],
     orchestratorPlan: {
       agents: { list: [] },

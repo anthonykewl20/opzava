@@ -59,6 +59,15 @@ function providerConnection(): ProviderConnectionState {
   };
 }
 
+function rawPatch(params: Record<string, unknown>): Record<string, unknown> {
+  const raw = params["raw"];
+  if (typeof raw !== "string") {
+    throw new Error("expected raw config.patch params");
+  }
+
+  return JSON.parse(raw) as Record<string, unknown>;
+}
+
 function githubConnection(): GitHubConnectionState {
   return {
     status: "not_connected",
@@ -349,6 +358,7 @@ describe("Connections provisioning helpers", () => {
     const invocation = gatewayApiKeyConfigPatchInvocation({
       authChoice: apiKeyChoice(),
       apiKey: "runtime-secret",
+      configBaseHash: "config-hash-1",
     });
 
     expect(invocation.ok).toBe(true);
@@ -359,18 +369,21 @@ describe("Connections provisioning helpers", () => {
     expect(invocation.value).toMatchObject({
       method: "config.patch",
       params: {
-        patch: {
+        baseHash: "config-hash-1",
+        raw: JSON.stringify({
           auth: {
             profiles: {
               "zai-zai-api-key": {
+                id: "zai-zai-api-key",
                 providerId: "zai",
                 authChoiceId: "zai-api-key",
+                type: "api-key",
                 key: "runtime-secret",
               },
             },
             order: { zai: ["zai-zai-api-key"] },
           },
-        },
+        }),
       },
     });
     expect(redactedGatewayConfigPatchInvocation(invocation.value)).toContain("<redacted>");
@@ -381,6 +394,7 @@ describe("Connections provisioning helpers", () => {
     const invocation = gatewayApiKeyConfigPatchInvocation({
       authChoice: apiKeyChoice({ mode: "device-flow" }),
       apiKey: "runtime-secret",
+      configBaseHash: "config-hash-1",
     });
 
     expect(invocation.ok).toBe(false);
@@ -529,8 +543,8 @@ describe("Connections provisioning helpers", () => {
 
     const result = await client.request(
       "config.patch",
-      { patch: { auth: { profiles: {} } } },
-      { idempotencyKey: "idem-1", requiredScope: "operator.admin" },
+      { raw: "{}", baseHash: "config-hash-1" },
+      { requiredScope: "operator.admin" },
     );
 
     expect(result.ok).toBe(true);
@@ -545,8 +559,9 @@ describe("Connections provisioning helpers", () => {
     });
     expect(frames[1]).toMatchObject({
       method: "config.patch",
-      params: { idempotencyKey: "idem-1" },
+      params: { raw: "{}", baseHash: "config-hash-1" },
     });
+    expect(JSON.stringify(frames[1])).not.toContain("idempotencyKey");
   });
 
   it("returns a structured admin-required error before sending mutating RPCs", async () => {
@@ -566,7 +581,10 @@ describe("Connections provisioning helpers", () => {
 
     const result = await client.request(
       "config.patch",
-      { patch: { auth: { profiles: { zai: { key: "runtime-secret" } } } } },
+      {
+        raw: JSON.stringify({ auth: { profiles: { zai: { key: "runtime-secret" } } } }),
+        baseHash: "config-hash-1",
+      },
       { requiredScope: "operator.admin" },
     );
 
@@ -683,7 +701,10 @@ describe("Connections provisioning helpers", () => {
   });
 
   it("patches provider API-key auth profiles without returning the key material", async () => {
-    const admin = new RecordingAdminClient({ "config.patch": ok({ ok: true }) });
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "config-hash-1" }),
+      "config.patch": ok({ ok: true }),
+    });
     const port = new GatewayAdminConnectionsProvisioningPort({
       adminClient: admin,
       secretsVault: new MemorySecretsVault(),
@@ -699,29 +720,33 @@ describe("Connections provisioning helpers", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(admin.calls[0]).toMatchObject({
+    expect(admin.calls[0]).toMatchObject({ method: "config.get" });
+    expect(admin.calls[1]).toMatchObject({
       method: "config.patch",
       params: {
-        patch: {
-          auth: {
-            profiles: {
-              "zai-zai-api-key": {
-                providerId: "zai",
-                authChoiceId: "zai-api-key",
-                key: "secret-provider-key",
-              },
-            },
-            order: { zai: ["zai-zai-api-key"] },
-          },
-        },
+        baseHash: "config-hash-1",
       },
     });
-    expect(admin.calls[0]?.idempotencyKey).toMatch(/^connections:model-api-key:zai:/);
+    expect(rawPatch(admin.calls[1]!.params)).toMatchObject({
+      auth: {
+        profiles: {
+          "zai-zai-api-key": {
+            providerId: "zai",
+            authChoiceId: "zai-api-key",
+            key: "secret-provider-key",
+          },
+        },
+        order: { zai: ["zai-zai-api-key"] },
+      },
+    });
+    expect(admin.calls[1]?.params).not.toHaveProperty("patch");
+    expect(admin.calls[1]?.params).not.toHaveProperty("receipt");
+    expect(admin.calls[1]?.idempotencyKey).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain("secret-provider-key");
   });
 
   it("does not send provider API-key material when the device lacks operator.admin", async () => {
-    const admin = new RecordingAdminClient({ "config.patch": ok({ ok: true }) }, [
+    const admin = new RecordingAdminClient({ "config.get": ok({ hash: "config-hash-1" }) }, [
       "operator.read",
       "operator.write",
       "operator.approvals",
@@ -752,13 +777,64 @@ describe("Connections provisioning helpers", () => {
         grantedScopes: ["operator.read", "operator.write", "operator.approvals"],
       },
     });
-    expect(admin.calls).toEqual([]);
+    expect(admin.calls).toEqual([
+      {
+        method: "config.get",
+        params: {},
+      },
+    ]);
     expect(JSON.stringify(admin.calls)).not.toContain("secret-provider-key");
+  });
+
+  it("patches provider disconnect with raw JSON merge-patch deletion semantics", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        hash: "config-hash-2",
+        auth: {
+          profiles: {
+            "zai-zai-api-key": {
+              providerId: "zai",
+              authChoiceId: "zai-api-key",
+            },
+          },
+          order: { zai: ["zai-zai-api-key"] },
+        },
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({
+      ...principal(),
+      providerId: "zai",
+    });
+
+    expect(result.ok).toBe(true);
+    const patchCall = admin.calls.find((call) => call.method === "config.patch");
+    expect(patchCall?.params).toMatchObject({ baseHash: "config-hash-2" });
+    expect(rawPatch(patchCall!.params)).toEqual({
+      auth: {
+        profiles: {
+          "zai-zai-api-key": null,
+        },
+        order: {
+          zai: [],
+        },
+      },
+    });
+    expect(patchCall?.params).not.toHaveProperty("patch");
+    expect(patchCall?.idempotencyKey).toBeUndefined();
   });
 
   it("applies orchestrator delegation through config.patch with the audited tool expansion", async () => {
     const admin = new RecordingAdminClient({
       "config.get": ok({
+        hash: "config-hash-3",
         auth: {
           profiles: {
             "zai-zai-api-key": {
@@ -803,23 +879,27 @@ describe("Connections provisioning helpers", () => {
     ]);
     const patchCall = admin.calls.find((call) => call.method === "config.patch");
     expect(patchCall?.params).toMatchObject({
-      patch: {
-        agents: {
-          list: expect.arrayContaining([
-            expect.objectContaining({ id: "other-agent" }),
-            expect.objectContaining({
-              id: "ask-admin-opzava",
-              subagents: {
-                delegationMode: "prefer",
-                allowAgents: ["subagent-zai"],
-              },
-              tools: { allow: ["sessions_spawn", "subagents", "group:sessions"] },
-            }),
-            expect.objectContaining({ id: "subagent-zai", model: "zai/glm-5.2" }),
-          ]),
-        },
+      baseHash: "config-hash-3",
+    });
+    expect(rawPatch(patchCall!.params)).toMatchObject({
+      agents: {
+        list: expect.arrayContaining([
+          expect.objectContaining({ id: "other-agent" }),
+          expect.objectContaining({
+            id: "ask-admin-opzava",
+            subagents: {
+              delegationMode: "prefer",
+              allowAgents: ["subagent-zai"],
+            },
+            tools: { allow: ["sessions_spawn", "subagents", "group:sessions"] },
+          }),
+          expect.objectContaining({ id: "subagent-zai", model: "zai/glm-5.2" }),
+        ]),
       },
     });
+    expect(patchCall?.params).not.toHaveProperty("patch");
+    expect(patchCall?.params).not.toHaveProperty("receipt");
+    expect(patchCall?.idempotencyKey).toBeUndefined();
   });
 
   it("returns an honest unsupported poll state for model-provider device flow", async () => {

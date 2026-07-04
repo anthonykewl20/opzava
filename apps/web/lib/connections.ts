@@ -15,9 +15,11 @@ import {
   connectedProviderIds,
   connectionHealthSummary,
   githubConnectionSummary,
+  providerConnectionSummary,
   projectProviderConnections,
   type ConnectionHealthSummary,
   type OrchestratorConfigPlan,
+  type ProviderConnectionSummary,
   type ProviderConnectionView,
 } from "@/lib/connections-state";
 import type { AppSessionContext } from "@/lib/session";
@@ -25,6 +27,7 @@ import type { AppSessionContext } from "@/lib/session";
 export interface ConnectionsPageData {
   readonly snapshot: ConnectionsSnapshot;
   readonly health: ConnectionHealthSummary;
+  readonly providerSummary: ProviderConnectionSummary;
   readonly providers: readonly ProviderConnectionView[];
   readonly orchestratorPlan: OrchestratorConfigPlan;
   readonly githubSummary: string;
@@ -295,13 +298,22 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
           typeof payload === "object" && payload !== null && "code" in payload
             ? (payload as { readonly code?: unknown }).code
             : null;
+        const payloadDetails =
+          typeof payload === "object" && payload !== null && "details" in payload
+            ? (payload as { readonly details?: unknown }).details
+            : undefined;
         return err(
-          connectionsError(
-            typeof payloadCode === "string" ? payloadCode : "web.connectionsProvisioningFailed",
-            typeof payload === "object" && payload !== null && "message" in payload
-              ? String((payload as { readonly message?: unknown }).message)
-              : "Provisioning worker request failed.",
-          ),
+          new DomainError({
+            code:
+              typeof payloadCode === "string" ? payloadCode : "web.connectionsProvisioningFailed",
+            message:
+              typeof payload === "object" && payload !== null && "message" in payload
+                ? String((payload as { readonly message?: unknown }).message)
+                : "Provisioning worker request failed.",
+            ...(typeof payloadDetails === "object" && payloadDetails !== null
+              ? { details: payloadDetails as Readonly<Record<string, unknown>> }
+              : {}),
+          }),
         );
       }
 
@@ -351,9 +363,11 @@ export async function loadConnectionsPageData(
         now: dependencies.now?.() ?? new Date(),
       });
       const providers = projectProviderConnections(fallback);
+      const providerSummary = providerConnectionSummary(fallback);
       return ok({
         snapshot: fallback,
         health: connectionHealthSummary(fallback),
+        providerSummary,
         providers,
         orchestratorPlan: buildOrchestratorConfigPlan({
           providers,
@@ -368,9 +382,11 @@ export async function loadConnectionsPageData(
   }
 
   const providers = projectProviderConnections(snapshot.value);
+  const providerSummary = providerConnectionSummary(snapshot.value);
   return ok({
     snapshot: snapshot.value,
     health: connectionHealthSummary(snapshot.value),
+    providerSummary,
     providers,
     orchestratorPlan: buildOrchestratorConfigPlan({
       providers,
