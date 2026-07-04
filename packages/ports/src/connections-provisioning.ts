@@ -1,7 +1,10 @@
 import type { Result } from "@opzava/shared-kernel";
 
+import type { ProviderTier } from "./model-provider-taxonomy.js";
+
 export type ConnectionAuthMode = "api-key" | "device-flow";
 export type ConnectionStatus = "connected" | "not_connected" | "pending" | "needs_attention";
+export type ConnectedAuthMode = "oauth" | "token" | "api_key";
 
 /** OpenClaw `models.authStatus` per-provider health (5-state). Enriches the coarse ConnectionStatus. */
 export type ProviderAuthHealth = "ok" | "expiring" | "expired" | "missing" | "static";
@@ -75,6 +78,15 @@ export interface ProviderConnectionState {
   readonly expiryLabel?: string | null;
   /** Subscription/plan label from `usage.plan` (e.g. "Pro"); null when the provider reports none. */
   readonly planLabel?: string | null;
+  /** Real connected credential type from OpenClaw `models.authStatus.providers[].profiles[].type`. */
+  readonly connectedAuthMode?: ConnectedAuthMode | null;
+}
+
+export interface ModelProviderTierGroup {
+  readonly id: ProviderTier;
+  readonly label: string;
+  readonly collapsed: boolean;
+  readonly providers: readonly string[];
 }
 
 export interface GatewayConnectionState {

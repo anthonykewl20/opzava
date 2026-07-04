@@ -29,10 +29,40 @@ export const RUNTIME_PARENTS: Readonly<Record<string, { parentId: string; runtim
 
 /** Non-runtime provider ids that are auth/plan variants of a parent (folded, no runtime label). */
 export const PROVIDER_PARENT_ALIASES: Readonly<Record<string, string>> = {
+  "claude-max-api-proxy": "anthropic",
   "qwen-oauth": "qwen",
   "anthropic-vertex": "anthropic",
   "gemini-vertex": "google",
   "vertex-gemini": "google",
+};
+
+export const PROVIDER_TIER_IDS = [
+  "frontier",
+  "bundles",
+  "best-subagents",
+  "other",
+] as const;
+
+export type ProviderTier = (typeof PROVIDER_TIER_IDS)[number];
+
+export const PROVIDER_TIER_LABELS: Readonly<Record<ProviderTier, string>> = {
+  frontier: "Frontier",
+  bundles: "Bundles",
+  "best-subagents": "Best Subagents",
+  other: "Other providers",
+};
+
+export const PROVIDER_TIERS: Readonly<Record<string, Exclude<ProviderTier, "other">>> = {
+  openai: "frontier",
+  anthropic: "frontier",
+  "opencode-go": "bundles",
+  openrouter: "bundles",
+  qwen: "bundles",
+  "cloudflare-ai-gateway": "bundles",
+  zai: "best-subagents",
+  moonshot: "best-subagents",
+  minimax: "best-subagents",
+  xiaomi: "best-subagents",
 };
 
 /**
@@ -57,12 +87,15 @@ export const NON_LLM_PROVIDER_IDS: ReadonlySet<string> = new Set([
 /** Nicer display labels for providers the gateway advertises with raw/lowercase ids. */
 export const CANONICAL_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   anthropic: "Anthropic",
+  "claude-max-api-proxy": "Claude Max API Proxy",
   openai: "OpenAI",
   google: "Google",
-  zai: "Z.AI",
+  zai: "Z.AI (GLM)",
+  "opencode-go": "OpenCode Go",
   openrouter: "OpenRouter",
-  moonshot: "Moonshot",
-  qwen: "Qwen",
+  moonshot: "Moonshot (Kimi)",
+  qwen: "Alibaba Model Studio",
+  "cloudflare-ai-gateway": "Cloudflare AI Gateway",
   deepseek: "DeepSeek",
   groq: "Groq",
   xai: "xAI",
@@ -72,6 +105,7 @@ export const CANONICAL_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   fireworks: "Fireworks",
   perplexity: "Perplexity",
   minimax: "MiniMax",
+  xiaomi: "Xiaomi MiMo",
 };
 
 /**
@@ -132,4 +166,10 @@ export function classifyModelProvider(providerId: string): ModelProviderClassifi
 export function isTopLevelLlmProvider(providerId: string): boolean {
   const c = classifyModelProvider(providerId);
   return c.category === "llm" && c.parentId === null;
+}
+
+export function providerTier(providerId: string): ProviderTier {
+  const id = providerId.trim().toLowerCase();
+  const parentId = classifyModelProvider(id).parentId;
+  return PROVIDER_TIERS[parentId ?? id] ?? "other";
 }

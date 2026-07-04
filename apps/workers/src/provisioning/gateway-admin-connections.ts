@@ -8,6 +8,7 @@ import {
   type ApplyOrchestratorDelegationInput,
   classifyModelProvider,
   type ConnectModelProviderApiKeyInput,
+  type ConnectedAuthMode,
   type ConnectionsProvisioningPort,
   type ConnectionsSnapshot,
   type ConnectionProvisioningPrincipal,
@@ -137,18 +138,6 @@ function stringArrayValue(value: unknown): readonly string[] {
   return value.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "");
 }
 
-function normalizeId(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_.-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function profileId(providerId: string, authChoiceId: string): string {
-  return normalizeId(`${providerId}-${authChoiceId}`);
-}
-
 function configBaseHash(value: unknown): string | null {
   const root = recordValue(value);
   return root === null ? null : stringValue(root["hash"]);
@@ -267,7 +256,9 @@ function authChoiceFromUnknown(value: unknown, providerId: string): ModelProvide
 
   const modeValue = stringValue(value["mode"]) ?? stringValue(value["type"]);
   const mode =
-    modeValue === "device-flow" || modeValue === "oauth" ? "device-flow" : authModeFromChoiceId(id);
+    modeValue === "device-flow" || modeValue === "oauth" || modeValue === "token"
+      ? "device-flow"
+      : authModeFromChoiceId(id);
   const keyFlag = stringValue(value["keyFlag"]);
   const docsPath = stringValue(value["docsPath"]);
   return {
@@ -320,11 +311,139 @@ function modelSummariesByProvider(
   );
 }
 
+function modelProviderId(modelRef: string): string | null {
+  const [providerId] = modelRef.trim().split("/", 1);
+  return providerId === undefined || providerId === "" ? null : providerId;
+}
+
+function modelRefMatchesProvider(modelRef: string, providerId: string): boolean {
+  return modelProviderId(modelRef)?.toLowerCase() === providerId.toLowerCase();
+}
+
+function modelSelectorPrimary(value: unknown): string | null {
+  if (typeof value === "string") {
+    return stringValue(value);
+  }
+
+  const record = recordValue(value);
+  return record === null ? null : stringValue(record["primary"]);
+}
+
+function providerModelRef(providerId: string, modelId: string): string {
+  return modelId.includes("/") ? modelId : `${providerId}/${modelId}`;
+}
+
+function firstConfiguredProviderModel(
+  providerId: string,
+  config: Record<string, unknown>,
+): string | null {
+  const modelsConfig = recordValue(config["models"]);
+  const providers = recordValue(modelsConfig?.["providers"]);
+  const provider = recordValue(providers?.[providerId]);
+  if (provider === null) {
+    return null;
+  }
+
+  const direct =
+    modelSelectorPrimary(provider["model"]) ??
+    modelSelectorPrimary(provider["default"]) ??
+    stringValue(provider["primary"]) ??
+    stringValue(provider["defaultModel"]) ??
+    stringValue(provider["defaultModelId"]) ??
+    stringValue(provider["modelId"]);
+  if (direct !== null) {
+    return providerModelRef(providerId, direct);
+  }
+
+  const configuredModel = arrayValue(provider["models"])
+    .map((entry) =>
+      typeof entry === "string"
+        ? stringValue(entry)
+        : isRecord(entry)
+          ? stringValue(entry["id"]) ?? stringValue(entry["model"]) ?? stringValue(entry["name"])
+          : null,
+    )
+    .find((value): value is string => value !== null);
+  return configuredModel === undefined ? null : providerModelRef(providerId, configuredModel);
+}
+
+// All model refs the gateway is CONFIGURED to route to, from the agent config where they actually
+// live: `agents.defaults.model.primary`, `agents.defaults.models` keys, and each agent's model +
+// `models` keys (e.g. "openai/gpt-5.5", "zai/glm-5.2"). This is the real enabled set — NOT the full
+// `models.list` catalog.
+function configuredModelRefs(config: Record<string, unknown>): readonly string[] {
+  const refs = new Set<string>();
+  const agents = recordValue(config["agents"]);
+  const collect = (agentLike: unknown): void => {
+    const rec = recordValue(agentLike);
+    if (rec === null) {
+      return;
+    }
+    const primary = modelSelectorPrimary(rec["model"]);
+    if (primary !== null) {
+      refs.add(primary);
+    }
+    for (const key of Object.keys(recordValue(rec["models"]) ?? {})) {
+      refs.add(key);
+    }
+  };
+  collect(recordValue(agents?.["defaults"]));
+  for (const agent of arrayValue(agents?.["list"])) {
+    collect(agent);
+  }
+  return [...refs];
+}
+
+// The configured models for one provider (e.g. openai -> [gpt-5.5], zai -> [glm-5.2]).
+function configuredModelsForProvider(
+  providerId: string,
+  config: Record<string, unknown>,
+): readonly ModelSummary[] {
+  const seen = new Map<string, ModelSummary>();
+  for (const ref of configuredModelRefs(config)) {
+    if (!modelRefMatchesProvider(ref, providerId)) {
+      continue;
+    }
+    const id = ref.includes("/") ? ref.slice(ref.indexOf("/") + 1) : ref;
+    if (id !== "" && !seen.has(id)) {
+      seen.set(id, { id, label: id });
+    }
+  }
+  return [...seen.values()];
+}
+
+function configuredModelForProvider(input: {
+  readonly providerId: string;
+  readonly config: Record<string, unknown>;
+  readonly models?: readonly ModelSummary[] | undefined;
+}): string | null {
+  const configured = configuredModelsForProvider(input.providerId, input.config);
+  if (configured[0] !== undefined) {
+    return providerModelRef(input.providerId, configured[0].id);
+  }
+
+  const defaults = recordValue(recordValue(input.config["agents"])?.["defaults"]);
+  const primary = modelSelectorPrimary(defaults?.["model"]);
+  if (primary !== null && modelRefMatchesProvider(primary, input.providerId)) {
+    return primary;
+  }
+
+  return (
+    firstConfiguredProviderModel(input.providerId, input.config) ??
+    input.models?.[0]?.id ??
+    null
+  );
+}
+
 function withModelProviderClassification(
   provider: ModelProviderCatalogEntry,
   modelsByProvider: ReadonlyMap<string, readonly ModelSummary[]>,
+  config: Record<string, unknown>,
 ): ModelProviderCatalogEntry {
   const classification = classifyModelProvider(provider.id);
+  // Prefer the CONFIGURED models (what the gateway actually routes to) over the raw catalog list.
+  const configured = configuredModelsForProvider(provider.id, config);
+  const models = configured.length > 0 ? configured : (modelsByProvider.get(provider.id) ?? []);
 
   return {
     ...provider,
@@ -332,7 +451,7 @@ function withModelProviderClassification(
     category: classification.category,
     parentId: classification.parentId,
     runtimeLabel: classification.runtimeLabel,
-    models: modelsByProvider.get(provider.id) ?? [],
+    models,
   };
 }
 
@@ -456,7 +575,7 @@ function providerCatalogFromModels(
           }
         : provider;
 
-    return withModelProviderClassification(withAuthChoices, modelsByProvider);
+    return withModelProviderClassification(withAuthChoices, modelsByProvider, config);
   });
 }
 
@@ -506,6 +625,11 @@ function providerConnectionFromConfig(input: {
 }): ProviderConnectionState {
   const id = firstProfileIdForProvider(input.provider.id, input.config);
   const profile = id === null ? null : recordValue(authProfiles(input.config)[id]);
+  const model = configuredModelForProvider({
+    providerId: input.provider.id,
+    config: input.config,
+    models: input.provider.models,
+  });
   if (id === null || profile === null) {
     return {
       providerId: input.provider.id,
@@ -513,10 +637,11 @@ function providerConnectionFromConfig(input: {
       authChoiceId: null,
       accountLabel: null,
       scopes: [],
-      model: input.provider.suggestedModel,
+      model,
       usageLabel: null,
       lastCheckedAt: input.now.toISOString(),
       message: null,
+      connectedAuthMode: null,
     };
   }
 
@@ -526,10 +651,11 @@ function providerConnectionFromConfig(input: {
     authChoiceId: authChoiceIdFromProfile(id, profile),
     accountLabel: stringValue(profile["accountLabel"]) ?? stringValue(profile["label"]),
     scopes: stringArrayValue(profile["scopes"]),
-    model: stringValue(profile["model"]) ?? input.provider.suggestedModel,
+    model,
     usageLabel: stringValue(profile["usageLabel"]),
     lastCheckedAt: input.now.toISOString(),
     message: "Opzava Gateway auth profile is present.",
+    connectedAuthMode: null,
   };
 }
 
@@ -728,6 +854,7 @@ function authChoiceMode(choiceId: string, keyFlag: string | null): "api-key" | "
   return normalized.includes("oauth") ||
     normalized.includes("device") ||
     normalized.includes("cli") ||
+    normalized.includes("claude-max") ||
     normalized === "openai" ||
     normalized === "github-copilot"
     ? "device-flow"
@@ -737,6 +864,10 @@ function authChoiceMode(choiceId: string, keyFlag: string | null): "api-key" | "
 function authChoiceLabel(choiceId: string, mode: "api-key" | "device-flow"): string {
   if (mode === "api-key") {
     return "API key";
+  }
+
+  if (choiceId.includes("claude-max") || choiceId.includes("claude")) {
+    return "Claude Max proxy subscription";
   }
 
   if (choiceId.includes("cli")) {
@@ -772,6 +903,10 @@ function parseOnboardApiKeyFlags(helpText: string): readonly string[] {
 
 function providerChoiceRoots(providerId: string): readonly string[] {
   const roots = new Set<string>([providerId]);
+  if (providerId === "anthropic") {
+    roots.add("claude-max-api-proxy");
+    roots.add("claude");
+  }
   if (providerId.endsWith("-plan")) {
     roots.add(providerId.replace(/-plan$/, ""));
   }
@@ -838,16 +973,20 @@ function mergeRuntimeAuthChoices(input: {
   readonly choices: readonly GatewayRuntimeAuthChoice[];
 }): readonly ModelProviderCatalogEntry[] {
   return input.catalog.map((provider) => {
-    if (provider.authChoices.length > 0) {
-      return provider;
-    }
-
     const authChoices = authChoicesForProvider({
       providerId: provider.id,
       choices: input.choices,
     });
+    if (authChoices.length === 0) {
+      return provider;
+    }
 
-    return authChoices.length === 0 ? provider : { ...provider, authChoices };
+    const merged = new Map<string, ModelProviderAuthChoice>();
+    for (const choice of [...provider.authChoices, ...authChoices]) {
+      merged.set(`${choice.providerId}:${choice.mode}:${choice.id}`, choice);
+    }
+
+    return { ...provider, authChoices: [...merged.values()] };
   });
 }
 
@@ -962,6 +1101,27 @@ function modelStatusProfileLabels(provider: Record<string, unknown> | null): rea
   return stringArrayValue(profiles?.["labels"]);
 }
 
+// Derive the real connected auth mode from the CLI `models status` profile counts
+// (e.g. openai → {oauth:1} → "oauth"), the store the authStatus RPC under-reports.
+function connectedAuthModeFromModelStatus(
+  statusProvider: Record<string, unknown> | null,
+): ConnectedAuthMode | null {
+  const profiles = recordValue(statusProvider?.["profiles"]);
+  if (profiles === null) {
+    return null;
+  }
+  if ((numberValue(profiles["oauth"]) ?? 0) > 0) {
+    return "oauth";
+  }
+  if ((numberValue(profiles["token"]) ?? 0) > 0) {
+    return "token";
+  }
+  if ((numberValue(profiles["apiKey"]) ?? 0) > 0) {
+    return "api_key";
+  }
+  return null;
+}
+
 function providerConnectionFromModelStatus(input: {
   readonly provider: ModelProviderCatalogEntry;
   readonly config: Record<string, unknown>;
@@ -987,14 +1147,17 @@ function providerConnectionFromModelStatus(input: {
     authChoiceId: id === null || profile === null ? null : authChoiceIdFromProfile(id, profile),
     accountLabel: firstLabel === null ? stringValue(statusProvider?.["provider"]) : firstLabel,
     scopes: [],
-    model:
-      allowedModels.find((model) => model.startsWith(`${input.provider.id}/`)) ??
-      input.provider.suggestedModel,
+    model: configuredModelForProvider({
+      providerId: input.provider.id,
+      config: input.config,
+      models: input.provider.models,
+    }),
     usageLabel: profileCount === 1 ? "1 auth profile" : `${profileCount} auth profiles`,
     lastCheckedAt: input.now.toISOString(),
     message: providerAllowed
       ? "Gateway model auth profile is usable."
       : "Provider has credentials but no allowed model in the Gateway model allowlist.",
+    connectedAuthMode: connectedAuthModeFromModelStatus(statusProvider),
   };
 }
 
@@ -1002,6 +1165,7 @@ interface ModelAuthStatusConnection {
   readonly providerId: string;
   readonly status: ProviderConnectionState["status"];
   readonly authHealth: ProviderAuthHealth;
+  readonly connectedAuthMode: ConnectedAuthMode | null;
   readonly expiryLabel: string | null;
   readonly planLabel: string | null;
   readonly usageLabel: string | null;
@@ -1025,6 +1189,39 @@ function providerAuthHealth(value: unknown): ProviderAuthHealth | null {
   }
 
   return null;
+}
+
+function connectedAuthMode(value: unknown): ConnectedAuthMode | null {
+  const mode = stringValue(value);
+  if (mode === "oauth" || mode === "token" || mode === "api_key") {
+    return mode;
+  }
+
+  return null;
+}
+
+function connectedAuthModeFromProfiles(value: unknown): ConnectedAuthMode | null {
+  const profiles = arrayValue(value).filter(isRecord);
+  const ranked = [
+    "ok",
+    "expiring",
+    "static",
+    "expired",
+    "missing",
+  ] as const satisfies readonly ProviderAuthHealth[];
+
+  for (const status of ranked) {
+    const profile = profiles.find((entry) => stringValue(entry["status"]) === status);
+    const mode = connectedAuthMode(profile?.["type"]);
+    if (mode !== null) {
+      return mode;
+    }
+  }
+
+  return (
+    profiles.map((profile) => connectedAuthMode(profile["type"])).find((mode) => mode !== null) ??
+    null
+  );
 }
 
 function connectionStatusFromAuthHealth(
@@ -1079,6 +1276,7 @@ function modelAuthStatusMap(payload: unknown): ReadonlyMap<string, ModelAuthStat
       providerId,
       status: connectionStatusFromAuthHealth(authHealth),
       authHealth,
+      connectedAuthMode: connectedAuthModeFromProfiles(provider["profiles"]),
       expiryLabel: cleanOptionalLabel(expiry?.["label"]),
       planLabel: stringValue(usage?.["plan"]),
       usageLabel: usageLabelFromAuthStatus(usage),
@@ -1159,6 +1357,52 @@ function commandFailureError(input: {
     authChoiceId: input.authChoiceId,
     exitCode: input.result.exitCode,
   });
+}
+
+function authLogoutUnavailable(error: DomainError): boolean {
+  const text = `${error.code} ${error.message}`.toLowerCase();
+  return (
+    text.includes("methodnotfound") ||
+    text.includes("method not found") ||
+    text.includes("not advertised") ||
+    text.includes("unknown method")
+  );
+}
+
+function profileUsesApiKeyAuth(profileIdValue: string, profile: Record<string, unknown>): boolean {
+  const mode =
+    stringValue(profile["type"]) ??
+    stringValue(profile["mode"]) ??
+    stringValue(profile["auth"]);
+  if (mode === "oauth" || mode === "token") {
+    return false;
+  }
+
+  if (mode === "api_key" || mode === "api-key") {
+    return true;
+  }
+
+  const authChoiceId = authChoiceIdFromProfile(profileIdValue, profile);
+  return authChoiceId === null ? false : authModeFromChoiceId(authChoiceId) === "api-key";
+}
+
+function disconnectedProviderState(input: {
+  readonly providerId: string;
+  readonly now: Date;
+  readonly message: string;
+}): ProviderConnectionState {
+  return {
+    providerId: input.providerId,
+    status: "not_connected",
+    authChoiceId: null,
+    accountLabel: null,
+    scopes: [],
+    model: null,
+    usageLabel: null,
+    lastCheckedAt: input.now.toISOString(),
+    message: input.message,
+    connectedAuthMode: null,
+  };
 }
 
 class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
@@ -1573,6 +1817,27 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     this.now = options.now ?? (() => new Date());
   }
 
+  private async refreshedProviderConnection(
+    input: ConnectionProvisioningPrincipal & { readonly providerId: string },
+    fallbackMessage: string,
+  ): Promise<ProviderConnectionState> {
+    const snapshot = await this.getConnectionsSnapshot(input);
+    if (snapshot.ok) {
+      const connection = snapshot.value.providerConnections.find(
+        (entry) => entry.providerId === input.providerId,
+      );
+      if (connection !== undefined) {
+        return connection;
+      }
+    }
+
+    return disconnectedProviderState({
+      providerId: input.providerId,
+      now: this.now(),
+      message: fallbackMessage,
+    });
+  }
+
   private async modelAuthStatus(): Promise<ReadonlyMap<string, ModelAuthStatusConnection> | null> {
     try {
       const result = await this.options.adminClient.request("models.authStatus", {
@@ -1613,20 +1878,19 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
-    const [healthResult, heartbeatResult, modelsResult, authChoicesResult, authStatus] =
+    const [healthResult, heartbeatResult, modelsResult, authChoicesResult, modelStatusResult, authStatus] =
       await Promise.all([
         this.options.adminClient.request("health", {}),
         this.options.adminClient.request("last-heartbeat", {}),
         this.options.adminClient.request("models.list", { view: "all" }),
         this.options.gatewayRuntime?.listAuthChoices() ??
           ok<readonly GatewayRuntimeAuthChoice[]>([]),
+        // `models status` (CLI) sees the REAL profile stores — incl. the Codex/OAuth store that the
+        // `models.authStatus` RPC under-reports as "missing" for openai. It is the connected-truth.
+        this.options.gatewayRuntime?.modelStatus() ??
+          ok<unknown>({ auth: { providers: [] }, allowed: [] }),
         this.modelAuthStatus(),
       ]);
-    const modelStatusResult =
-      authStatus === null
-        ? await (this.options.gatewayRuntime?.modelStatus() ??
-            ok<unknown>({ auth: { providers: [] }, allowed: [] }))
-        : ok<unknown>({ auth: { providers: [] }, allowed: [] });
     const config = configPayload(configResult.value);
     const runtimeChoices = authChoicesResult.ok ? authChoicesResult.value : [];
     const catalog = ensureCanonicalLlmProviders({
@@ -1637,8 +1901,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       choices: runtimeChoices,
     });
     const providerConnections = catalog.map((provider) => {
+      // Base connection = the profile-truth: CLI `models status` first, then config auth profiles.
       const baseConnection =
-        (authStatus === null && modelStatusResult.ok
+        (modelStatusResult.ok
           ? providerConnectionFromModelStatus({
               provider,
               config,
@@ -1651,13 +1916,24 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         return baseConnection;
       }
 
+      // authStatus ENRICHES (expiry/plan/usage/authMode) but does not get to demote a provider the
+      // profile stores show as connected — except on a hard `expired` (a real re-auth signal). Its
+      // `missing` is a store-visibility gap (openai/Codex), never a disconnect.
+      const connectedByProfiles = baseConnection.status === "connected";
+      const status: ProviderConnectionState["status"] = connectedByProfiles
+        ? authState.authHealth === "expired"
+          ? "needs_attention"
+          : "connected"
+        : authState.status;
+
       return {
         ...baseConnection,
-        status: authState.status,
+        status,
         authHealth: authState.authHealth,
+        connectedAuthMode: authState.connectedAuthMode ?? baseConnection.connectedAuthMode ?? null,
         expiryLabel: authState.expiryLabel,
         planLabel: authState.planLabel,
-        usageLabel: authState.usageLabel,
+        usageLabel: authState.usageLabel ?? baseConnection.usageLabel,
         accountLabel: authState.accountLabel ?? baseConnection.accountLabel,
       };
     });
@@ -1861,23 +2137,47 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async disconnectModelProvider(
     input: DisconnectModelProviderInput,
   ): Promise<Result<ProviderConnectionState>> {
+    const logout = await this.options.adminClient.request(
+      "models.authLogout",
+      { provider: input.providerId },
+      { requiredScope: "operator.admin" },
+    );
+    if (logout.ok) {
+      return ok(
+        await this.refreshedProviderConnection(
+          input,
+          "Opzava Gateway provider auth profiles removed.",
+        ),
+      );
+    }
+    if (!authLogoutUnavailable(logout.error)) {
+      return err(logout.error);
+    }
+
     const configResult = await this.options.adminClient.request("config.get", {});
     if (!configResult.ok) {
       return err(configResult.error);
     }
 
     const config = configPayload(configResult.value);
-    const matchingProfileIds = Object.entries(authProfiles(config))
-      .filter(
-        ([id, profile]) =>
-          isRecord(profile) && providerIdFromProfile(id, profile) === input.providerId,
-      )
+    const matchingProfiles = Object.entries(authProfiles(config)).filter(
+      ([id, profile]) =>
+        isRecord(profile) && providerIdFromProfile(id, profile) === input.providerId,
+    );
+    const apiKeyProfileIds = matchingProfiles
+      .filter(([id, profile]) => isRecord(profile) && profileUsesApiKeyAuth(id, profile))
       .map(([id]) => id);
-    const profileIds =
-      matchingProfileIds.length === 0
-        ? [profileId(input.providerId, "api-key")]
-        : matchingProfileIds;
-    const profilePatch = Object.fromEntries(profileIds.map((id) => [id, null]));
+    if (apiKeyProfileIds.length === 0) {
+      return err(
+        provisioningError(
+          "provisioning.connections.authLogoutUnavailable",
+          "Gateway models.authLogout is unavailable and no API-key config profile can be removed safely.",
+          { providerId: input.providerId },
+        ),
+      );
+    }
+
+    const profilePatch = Object.fromEntries(apiKeyProfileIds.map((id) => [id, null]));
     const patchParams = configPatchParams({
       configGetPayload: configResult.value,
       patch: {
@@ -1900,17 +2200,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(result.error);
     }
 
-    return ok({
-      providerId: input.providerId,
-      status: "not_connected",
-      authChoiceId: null,
-      accountLabel: null,
-      scopes: [],
-      model: null,
-      usageLabel: null,
-      lastCheckedAt: this.now().toISOString(),
-      message: "Opzava Gateway auth profile removed.",
-    });
+    return ok(
+      await this.refreshedProviderConnection(input, "Opzava Gateway auth profile removed."),
+    );
   }
 
   public async applyOrchestratorDelegation(

@@ -56,6 +56,7 @@ function providerConnection(): ProviderConnectionState {
     usageLabel: "within limits",
     lastCheckedAt: "2026-07-03T00:00:00.000Z",
     message: null,
+    connectedAuthMode: "api_key",
   };
 }
 
@@ -717,7 +718,15 @@ describe("Connections provisioning helpers", () => {
             },
             order: { zai: ["zai-zai-api-key"] },
           },
-          agents: { list: [{ id: "ask-admin-opzava", model: "openai/gpt-5.5" }] },
+          agents: {
+            defaults: { model: { primary: "zai/glm-5.2" } },
+            list: [{ id: "ask-admin-opzava", model: "openai/gpt-5.5" }],
+          },
+          models: {
+            providers: {
+              openrouter: { model: { primary: "openrouter/auto" } },
+            },
+          },
         }),
         health: ok({
           status: "ok",
@@ -765,6 +774,7 @@ describe("Connections provisioning helpers", () => {
               provider: "zai",
               displayName: "Z.AI Coding",
               status: "expiring",
+              profiles: [{ profileId: "zai:manual", type: "api_key", status: "expiring" }],
               expiry: { label: "2h" },
               usage: {
                 plan: "Coding",
@@ -775,11 +785,13 @@ describe("Connections provisioning helpers", () => {
               provider: "deepgram",
               displayName: "Deepgram",
               status: "missing",
+              profiles: [],
             },
             {
               provider: "openrouter",
               displayName: "OpenRouter",
               status: "expired",
+              profiles: [{ profileId: "openrouter:oauth", type: "oauth", status: "expired" }],
               expiry: { label: "expired" },
             },
           ],
@@ -808,9 +820,10 @@ describe("Connections provisioning helpers", () => {
     });
     expect(snapshot.value.providerCatalog[0]).toMatchObject({
       id: "zai",
-      label: "Z.AI",
+      label: "Z.AI (GLM)",
       category: "llm",
-      models: expect.arrayContaining([expect.objectContaining({ id: "glm-4.7" })]),
+      // configured model (agents.defaults.model.primary zai/glm-5.2), not the raw catalog list
+      models: expect.arrayContaining([expect.objectContaining({ id: "glm-5.2" })]),
     });
     expect(
       snapshot.value.providerCatalog.find((provider) => provider.id === "deepgram"),
@@ -823,7 +836,9 @@ describe("Connections provisioning helpers", () => {
       providerId: "zai",
       status: "connected",
       authChoiceId: "zai-api-key",
+      model: "zai/glm-5.2",
       authHealth: "expiring",
+      connectedAuthMode: "api_key",
       expiryLabel: "2h",
       planLabel: "Coding",
       usageLabel: "68% window left",
@@ -843,7 +858,9 @@ describe("Connections provisioning helpers", () => {
     ).toMatchObject({
       providerId: "openrouter",
       status: "needs_attention",
+      model: "openrouter/auto",
       authHealth: "expired",
+      connectedAuthMode: "oauth",
       expiryLabel: "expired",
     });
     expect(admin.calls.find((call) => call.method === "models.list")?.params).toEqual({
@@ -928,7 +945,7 @@ describe("Connections provisioning helpers", () => {
           expect.objectContaining({
             providerId: "zai",
             status: "connected",
-            model: "zai/glm-4.7",
+            model: "glm-4.7",
             usageLabel: "1 auth profile",
           }),
         ]),
@@ -941,8 +958,9 @@ describe("Connections provisioning helpers", () => {
   });
 
   it("surfaces canonical LLM connect targets that have onboard auth-choices but no models yet", async () => {
-    // openrouter/xai have no bundled models until connected, so models.list omits them — but the live
-    // gateway advertises their onboard auth-choices, so the connect surface MUST still list them.
+    // Several provider plugins have no bundled models until connected, so models.list omits them —
+    // but the live gateway advertises their onboard auth-choices, so the connect surface MUST still
+    // list them with the canonical Slice 3.7 labels.
     const admin = new RecordingAdminClient({
       "config.get": ok({ hash: "config-hash-1", plugins: { allow: [] } }),
       health: ok({ status: "ok" }),
@@ -959,6 +977,37 @@ describe("Connections provisioning helpers", () => {
           keyFlag: "openrouter-api-key",
         },
         { id: "openrouter-oauth", label: "OpenRouter OAuth", mode: "device-flow" },
+        {
+          id: "opencode-go-api-key",
+          label: "OpenCode Go API key",
+          mode: "api-key",
+          keyFlag: "opencode-go-api-key",
+        },
+        { id: "qwen-oauth", label: "Qwen OAuth", mode: "device-flow" },
+        {
+          id: "cloudflare-ai-gateway-api-key",
+          label: "Cloudflare AI Gateway API key",
+          mode: "api-key",
+          keyFlag: "cloudflare-ai-gateway-api-key",
+        },
+        {
+          id: "minimax-api-key",
+          label: "MiniMax API key",
+          mode: "api-key",
+          keyFlag: "minimax-api-key",
+        },
+        {
+          id: "xiaomi-api-key",
+          label: "Xiaomi API key",
+          mode: "api-key",
+          keyFlag: "xiaomi-api-key",
+        },
+        {
+          id: "claude-max-api-proxy",
+          label: "Claude Max proxy subscription",
+          mode: "device-flow",
+        },
+        { id: "zai-api-key", label: "Z.AI API key", mode: "api-key", keyFlag: "zai-api-key" },
         { id: "xai-api-key", label: "xAI API key", mode: "api-key", keyFlag: "xai-api-key" },
       ],
       status: { allowed: [], auth: { providers: [] } },
@@ -977,12 +1026,28 @@ describe("Connections provisioning helpers", () => {
       throw snapshot.error;
     }
     const ids = snapshot.value.providerCatalog.map((provider) => provider.id);
+    expect(ids).toContain("anthropic");
+    expect(ids).toContain("opencode-go");
     expect(ids).toContain("openrouter");
+    expect(ids).toContain("qwen");
+    expect(ids).toContain("cloudflare-ai-gateway");
+    expect(ids).toContain("minimax");
+    expect(ids).toContain("xiaomi");
     expect(ids).toContain("xai");
-    const openrouter = snapshot.value.providerCatalog.find((provider) => provider.id === "openrouter");
+    const openrouter = snapshot.value.providerCatalog.find(
+      (provider) => provider.id === "openrouter",
+    );
     expect(openrouter?.authChoices.length).toBeGreaterThan(0);
     expect(openrouter?.models).toEqual([]);
     expect(openrouter?.category).toBe("llm");
+    expect(snapshot.value.providerCatalog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "anthropic", label: "Anthropic" }),
+        expect.objectContaining({ id: "qwen", label: "Alibaba Model Studio" }),
+        expect.objectContaining({ id: "zai", label: "Z.AI (GLM)" }),
+        expect.objectContaining({ id: "xiaomi", label: "Xiaomi MiMo" }),
+      ]),
+    );
   });
 
   it("patches provider API-key auth profiles without returning the key material", async () => {
@@ -1121,8 +1186,65 @@ describe("Connections provisioning helpers", () => {
     expect(gatewayRuntime.connectCalls).toEqual([]);
   });
 
-  it("patches provider disconnect with raw JSON merge-patch deletion semantics", async () => {
+  it("disconnects model providers through models.authLogout with operator.admin scope", async () => {
     const admin = new RecordingAdminClient({
+      "models.authLogout": ok({
+        provider: "openai",
+        removedProfiles: ["openai:chatgpt"],
+        abortedRunIds: [],
+      }),
+      "config.get": ok({ hash: "config-hash-logout", auth: { profiles: {}, order: {} } }),
+      "models.list": ok({
+        providers: [
+          {
+            id: "openai",
+            label: "OpenAI",
+            authChoices: [
+              {
+                id: "openai",
+                label: "OAuth device flow",
+                mode: "device-flow",
+                providerId: "openai",
+              },
+            ],
+          },
+        ],
+        models: [{ id: "gpt-5.5", name: "GPT 5.5", provider: "openai" }],
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({
+      ...principal(),
+      providerId: "openai",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.ok ? result.value : null).toMatchObject({
+      providerId: "openai",
+      status: "not_connected",
+      connectedAuthMode: null,
+    });
+    expect(admin.calls[0]).toMatchObject({
+      method: "models.authLogout",
+      params: { provider: "openai" },
+    });
+    expect(admin.calls.some((call) => call.method === "config.patch")).toBe(false);
+  });
+
+  it("falls back to config.patch API-key profile deletion when authLogout is unavailable", async () => {
+    const admin = new RecordingAdminClient({
+      "models.authLogout": err(
+        new DomainError({
+          code: "openclaw.methodNotFound",
+          message: "models.authLogout is not advertised.",
+        }),
+      ),
       "config.get": ok({
         hash: "config-hash-2",
         auth: {
@@ -1130,6 +1252,7 @@ describe("Connections provisioning helpers", () => {
             "zai-zai-api-key": {
               providerId: "zai",
               authChoiceId: "zai-api-key",
+              type: "api_key",
             },
           },
           order: { zai: ["zai-zai-api-key"] },
@@ -1150,6 +1273,10 @@ describe("Connections provisioning helpers", () => {
     });
 
     expect(result.ok).toBe(true);
+    expect(admin.calls[0]).toMatchObject({
+      method: "models.authLogout",
+      params: { provider: "zai" },
+    });
     const patchCall = admin.calls.find((call) => call.method === "config.patch");
     expect(patchCall?.params).toMatchObject({ baseHash: "config-hash-2" });
     expect(rawPatch(patchCall!.params)).toEqual({

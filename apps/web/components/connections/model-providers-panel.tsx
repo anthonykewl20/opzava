@@ -14,6 +14,14 @@ import { DeviceFlowPoller } from "@/components/connections/device-flow-poller";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -25,11 +33,22 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ConnectionsPageData } from "@/lib/connections";
 import {
   initialConnectionActionState,
   type ConnectionActionState,
 } from "@/lib/connections-action-state";
+import { groupProviderConnectionsByTier } from "@/lib/connections-state";
 import { cn } from "@/lib/utils";
 
 type ProviderRow = ConnectionsPageData["providers"][number];
@@ -38,6 +57,9 @@ interface ModelProvidersPanelProps {
   readonly providers: readonly ProviderRow[];
   readonly summary: ConnectionsPageData["providerSummary"];
 }
+
+const TABLE_CAPTION =
+  "LLM model providers the gateway can route to, with folded CLI runtimes, authentication methods, current models, live connection status, and actions.";
 
 function providerSort(left: ProviderRow, right: ProviderRow): number {
   const leftConnected = left.status === "connected" ? 0 : 1;
@@ -48,7 +70,7 @@ function providerSort(left: ProviderRow, right: ProviderRow): number {
 }
 
 function connectChoice(provider: ProviderRow) {
-  return provider.apiKeyChoices[0] ?? provider.deviceFlowChoices[0] ?? null;
+  return provider.deviceFlowChoices[0] ?? provider.apiKeyChoices[0] ?? null;
 }
 
 function filterProviders(providers: readonly ProviderRow[], query: string): readonly ProviderRow[] {
@@ -61,7 +83,7 @@ function filterProviders(providers: readonly ProviderRow[], query: string): read
     [
       provider.label,
       provider.vendor,
-      provider.model,
+      provider.model ?? "",
       provider.id,
       ...provider.runtimeLabels,
       ...provider.models.map((model) => model.id),
@@ -77,6 +99,11 @@ function providerAuthBadges(provider: ProviderRow): readonly string[] {
 
   for (const choice of [...provider.deviceFlowChoices, ...provider.apiKeyChoices]) {
     const haystack = `${choice.id} ${choice.label} ${choice.mode}`.toLowerCase();
+    if (haystack.includes("proxy") || haystack.includes("subscription")) {
+      labels.add("Subscription");
+      continue;
+    }
+
     if (haystack.includes("setup") || (haystack.includes("token") && !haystack.includes("api"))) {
       labels.add("Setup token");
       continue;
@@ -90,7 +117,7 @@ function providerAuthBadges(provider: ProviderRow): readonly string[] {
     labels.add(haystack.includes("oauth") ? "OAuth" : "Device");
   }
 
-  const ordered = ["OAuth", "Device", "API key", "Setup token"].filter((label) =>
+  const ordered = ["Subscription", "OAuth", "Device", "API key", "Setup token"].filter((label) =>
     labels.has(label),
   );
   return ordered.length === 0 ? ["No live auth method"] : ordered;
@@ -107,16 +134,38 @@ function runtimeHint(provider: ProviderRow): string | null {
   return `incl. ${labels.join(", ")}`;
 }
 
+function connectedAuthLabel(provider: ProviderRow): string {
+  if (provider.connectedAuthMode === "oauth") {
+    return provider.id === "openai" ? "ChatGPT/OAuth subscription" : "OAuth subscription";
+  }
+
+  if (provider.connectedAuthMode === "token") {
+    return "setup token";
+  }
+
+  if (provider.connectedAuthMode === "api_key") {
+    return "API key";
+  }
+
+  return "gateway credential";
+}
+
+function activeModelLabel(provider: ProviderRow): string {
+  return provider.model ?? "No configured model";
+}
+
 // Provider sub-line: the live gateway `vendor` (when it adds information beyond the label) plus any
 // folded CLI runtime hint — keeps `vendor` live data on-screen and mirrors the mockup sub-line
 // ("Gemini · incl. Gemini CLI runtime"). Null when there is nothing meaningful to add.
 function providerSubLine(provider: ProviderRow): string | null {
   const vendor = provider.vendor.trim();
   const showVendor = vendor !== "" && vendor.toLowerCase() !== provider.label.trim().toLowerCase();
-  return [showVendor ? vendor : null, runtimeHint(provider)]
-    .filter((part): part is string => part !== null && part !== "")
-    .join(" · ")
-    .trim() || null;
+  return (
+    [showVendor ? vendor : null, runtimeHint(provider)]
+      .filter((part): part is string => part !== null && part !== "")
+      .join(" · ")
+      .trim() || null
+  );
 }
 
 function providerModelParts(provider: ProviderRow): {
@@ -140,6 +189,51 @@ function statusMeta(provider: ProviderRow): readonly string[] {
   ].filter((label): label is string => label !== null);
 }
 
+// One canonical status dot rendered with theme tokens (mockup-parity look, shadcn-native styling).
+function StatusDot({ status }: { readonly status: ProviderRow["status"] }) {
+  if (status === "not_connected") {
+    return null;
+  }
+
+  const connected = status === "connected";
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "inline-block size-2 shrink-0 rounded-full",
+        connected ? "bg-[var(--success)]" : "bg-[var(--warning)]",
+        connected && "animate-pulse",
+      )}
+    />
+  );
+}
+
+const ALERT_TONE = {
+  success: "border-[color-mix(in_oklab,var(--success)_35%,transparent)] bg-[var(--success-soft)]",
+  warning: "border-[color-mix(in_oklab,var(--warning)_35%,transparent)] bg-[var(--warning-soft)]",
+  destructive: "border-destructive/30 bg-destructive/10",
+  neutral: "border-border bg-muted",
+} as const;
+
+function DialogNotice({
+  tone,
+  title,
+  children,
+  role = "status",
+}: {
+  readonly tone: keyof typeof ALERT_TONE;
+  readonly title: string;
+  readonly children: ReactNode;
+  readonly role?: "status" | "alert";
+}) {
+  return (
+    <div role={role} className={cn("rounded-lg border p-3 text-sm", ALERT_TONE[tone])}>
+      <p className="font-medium text-foreground">{title}</p>
+      <p className="mt-1 text-muted-foreground">{children}</p>
+    </div>
+  );
+}
+
 function DialogSubmitButton({
   pendingLabel,
   children,
@@ -151,7 +245,6 @@ function DialogSubmitButton({
 
   return (
     <Button type="submit" disabled={pending} aria-busy={pending}>
-      {pending ? <span className="sb-spinner sb-spinner--sm" aria-hidden="true" /> : null}
       {pending ? pendingLabel : children}
     </Button>
   );
@@ -175,29 +268,15 @@ function ProviderActionResult({
   const success = state.status === "success";
 
   return (
-    <div
-      className={cn(
-        "sb-alert mt-2",
-        success
-          ? "sb-alert--success"
-          : adminRequired
-            ? "sb-alert--warning"
-            : "sb-alert--destructive",
-      )}
+    <DialogNotice
+      tone={success ? "success" : adminRequired ? "warning" : "destructive"}
       role={success ? "status" : "alert"}
+      title={
+        success ? "Connection updated" : adminRequired ? "Admin device required" : "Connection failed"
+      }
     >
-      <span className="ico" aria-hidden="true">
-        {success ? "OK" : "!"}
-      </span>
-      <div className="sb-alert-title">
-        {success
-          ? "Connection updated"
-          : adminRequired
-            ? "Admin device required"
-            : "Connection failed"}
-      </div>
-      <div className="sb-alert-desc">{state.message}</div>
-    </div>
+      {state.message}
+    </DialogNotice>
   );
 }
 
@@ -211,12 +290,8 @@ function ProviderBacks({ provider }: { readonly provider: ProviderRow }) {
   if (provider.roleLabel === "Lead orchestrator") {
     return (
       <Badge variant="secondary" title="Coordinator agent">
-        <span className="u-sr-only">AI lead - </span>
-        <span
-          className="u-accent"
-          aria-hidden="true"
-          style={{ fontSize: "var(--text-sm)", lineHeight: 1 }}
-        >
+        <span className="sr-only">AI lead - </span>
+        <span aria-hidden="true" className="text-[var(--accent)]">
           ✦
         </span>
         Orchestrator
@@ -229,9 +304,20 @@ function ProviderBacks({ provider }: { readonly provider: ProviderRow }) {
 
 function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow }) {
   const router = useRouter();
-  const choice = connectChoice(provider);
+  const apiKeyChoice = provider.apiKeyChoices[0] ?? null;
+  const choice =
+    provider.status === "connected" && provider.connectedAuthMode === "api_key"
+      ? apiKeyChoice
+      : connectChoice(provider);
+  const connectedWithoutKeyField =
+    provider.status === "connected" &&
+    (provider.connectedAuthMode === "oauth" || provider.connectedAuthMode === "token");
+  const showApiKeyForm =
+    provider.status === "connected"
+      ? provider.connectedAuthMode === "api_key" && apiKeyChoice !== null
+      : choice?.mode === "api-key";
   // A folded child (e.g. codex under openai) owns its own auth choice; the connect must target the
-  // choice's OWN provider id, not the display/group id, or the gateway rejects it (review MED-2).
+  // choice's OWN provider id, not the display/group id, or the gateway rejects it.
   const connectProviderId = choice?.providerId ?? provider.id;
   const [apiKeyState, apiKeyAction] = useActionState(
     connectModelProviderApiKeyStateAction,
@@ -249,7 +335,7 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
     }
   }, [router, state.status]);
 
-  if (choice === null) {
+  if (choice === null && provider.status !== "connected") {
     return (
       <Button type="button" variant="secondary" size="sm" disabled>
         Connect
@@ -274,41 +360,66 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
             {provider.status === "connected" ? "Manage" : "Connect"} {provider.label}
           </DialogTitle>
           <DialogDescription>
-            Auth method from the live gateway catalog: {choice.label} (
-            {choice.mode === "api-key" ? "API key" : "OAuth device-flow"}).
+            {provider.status === "connected"
+              ? `Connected via ${connectedAuthLabel(provider)}.`
+              : choice === null
+                ? "No live auth method is available for this provider."
+                : `Auth method from the live gateway catalog: ${choice.label} (${
+                    choice.mode === "api-key" ? "API key" : "OAuth device-flow"
+                  }).`}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4">
-          <div className="rounded-lg border border-border bg-[var(--surface-2)] p-3 text-sm">
-            <div className="font-medium text-foreground">{provider.model}</div>
-            <div className="mt-1 text-muted-foreground">
-              {provider.message ?? provider.whenToUse}
+          <div className="rounded-lg border border-border bg-muted p-3 text-sm">
+            <div className="font-mono font-medium text-foreground" data-active-model>
+              {activeModelLabel(provider)}
             </div>
+            <p className="mt-1 text-muted-foreground">{provider.message ?? provider.whenToUse}</p>
           </div>
 
-          {choice.mode === "api-key" ? (
+          {connectedWithoutKeyField ? (
+            <div className="grid gap-4">
+              <DialogNotice tone="success" title={`Connected via ${connectedAuthLabel(provider)}`}>
+                Disconnect this provider before re-authenticating with a different account or
+                subscription.
+              </DialogNotice>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button type="button" variant="secondary">
+                    Close
+                  </Button>
+                </DialogClose>
+                <form action={disconnectModelProviderAction}>
+                  <input type="hidden" name="providerId" value={provider.connectionProviderId} />
+                  <Button type="submit" variant="destructive">
+                    Disconnect
+                  </Button>
+                </form>
+              </DialogFooter>
+            </div>
+          ) : showApiKeyForm && apiKeyChoice !== null ? (
             <form action={apiKeyAction} className="grid gap-4">
-              <input type="hidden" name="providerId" value={connectProviderId} />
-              <input type="hidden" name="authChoiceId" value={choice.id} />
-              <div className="field">
-                <Label htmlFor={`${provider.id}-${choice.id}-dialog-key`}>API key</Label>
+              <input type="hidden" name="providerId" value={apiKeyChoice.providerId} />
+              <input type="hidden" name="authChoiceId" value={apiKeyChoice.id} />
+              <div className="grid gap-2">
+                <Label htmlFor={`${provider.id}-${apiKeyChoice.id}-dialog-key`}>API key</Label>
                 <Input
-                  id={`${provider.id}-${choice.id}-dialog-key`}
+                  id={`${provider.id}-${apiKeyChoice.id}-dialog-key`}
                   name="apiKey"
                   type="password"
                   autoComplete="off"
                   required
                   placeholder="Paste key once"
                 />
-                <p className="hint">
+                <p className="text-xs text-muted-foreground">
                   The key is sent to the provisioning worker and written inside Opzava Gateway.
                 </p>
               </div>
               <ProviderActionResult
                 state={apiKeyState}
                 provider={provider}
-                matchProviderId={connectProviderId}
+                matchProviderId={apiKeyChoice.providerId}
               />
               <DialogFooter>
                 <DialogClose asChild>
@@ -321,20 +432,14 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
                 </DialogSubmitButton>
               </DialogFooter>
             </form>
-          ) : (
+          ) : choice?.mode === "device-flow" ? (
             <form action={deviceAction} className="grid gap-4">
               <input type="hidden" name="providerId" value={connectProviderId} />
               <input type="hidden" name="authChoiceId" value={choice.id} />
-              <div className="sb-alert sb-alert--warning" role="status">
-                <span className="ico" aria-hidden="true">
-                  !
-                </span>
-                <div className="sb-alert-title">Interactive OAuth required</div>
-                <div className="sb-alert-desc">
-                  This provider uses the gateway's interactive device-flow path. The worker will
-                  return the real gateway response instead of pretending to connect.
-                </div>
-              </div>
+              <DialogNotice tone="warning" title="Interactive OAuth required">
+                This provider uses the gateway&apos;s interactive device-flow path. The worker returns
+                the real gateway response instead of pretending to connect.
+              </DialogNotice>
               <ProviderActionResult
                 state={deviceState}
                 provider={provider}
@@ -351,6 +456,10 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
                 </DialogSubmitButton>
               </DialogFooter>
             </form>
+          ) : (
+            <DialogNotice tone="warning" title="No live auth method">
+              Refresh the gateway catalog after enabling this provider&apos;s auth choice.
+            </DialogNotice>
           )}
         </div>
       </DialogContent>
@@ -358,77 +467,77 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
   );
 }
 
-function ProviderRowView({ provider }: { readonly provider: ProviderRow }) {
+function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
   const models = providerModelParts(provider);
   const meta = statusMeta(provider);
   const subLine = providerSubLine(provider);
+  const authBadges = providerAuthBadges(provider);
 
   return (
-    <tr data-provider-id={provider.id}>
-      <td data-label="Provider">
-        <div
-          className="u-row connections-provider-title"
-          style={{ gap: "6px", fontWeight: "var(--fw-medium)", lineHeight: "var(--lh-snug)" }}
-        >
+    <TableRow data-provider-id={provider.id}>
+      <TableCell data-label="Provider" className="align-top">
+        <div className="flex flex-wrap items-center gap-2 font-medium">
           <span>{provider.label}</span>
           <ProviderBacks provider={provider} />
         </div>
         {subLine === null ? null : (
-          <div className="u-subtle connections-provider-sub">{subLine}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{subLine}</div>
         )}
-      </td>
-      <td data-label="Auth">
-        <div className="connections-provider-badges">
-          {providerAuthBadges(provider).map((label) => (
+      </TableCell>
+      <TableCell data-label="Auth" className="align-top">
+        <div className="flex flex-wrap gap-1.5">
+          {authBadges.map((label) => (
             <Badge
-              variant={label === "No live auth method" ? "muted" : "outline"}
               key={`${provider.id}-${label}`}
+              variant={label === "No live auth method" ? "muted" : "outline"}
             >
               {label}
             </Badge>
           ))}
         </div>
-      </td>
-      <td data-label="Models">
+      </TableCell>
+      <TableCell data-label="Models" className="align-top">
         {models.first === null ? (
-          <span className="u-subtle">
-            {provider.id === "openrouter" ? "Routes many" : <span>&mdash;</span>}
+          <span className="text-muted-foreground">
+            {provider.id === "openrouter" ? "Routes many" : "—"}
           </span>
         ) : (
           <span>
-            <span className="u-mono">{models.first}</span>
+            <span className="font-mono text-[13px]" data-model>
+              {models.first}
+            </span>
             {models.rest.length === 0 && models.more === 0 ? null : (
-              <span className="u-subtle">
-                {" "}
-                · {models.rest.join(" · ")}
+              <span className="text-muted-foreground">
+                {" · "}
+                {models.rest.join(" · ")}
                 {models.more > 0 ? ` · +${models.more} more` : ""}
               </span>
             )}
           </span>
         )}
-      </td>
-      <td data-label="Status">
+      </TableCell>
+      <TableCell data-label="Status" className="align-top">
         <span
           className={cn(
-            "connections-provider-status",
-            provider.status === "not_connected" ? "u-subtle" : null,
+            "inline-flex items-center gap-2",
+            provider.status === "not_connected" && "text-muted-foreground",
           )}
         >
-          {provider.status === "not_connected" ? null : (
-            <span className={provider.statusClassName} aria-hidden="true" />
-          )}
+          <StatusDot status={provider.status} />
           <span>{provider.statusLabel}</span>
-          {meta.length === 0 ? null : <span className="u-subtle">· {meta.join(" · ")}</span>}
+          {meta.length === 0 ? null : (
+            <span className="text-xs text-muted-foreground">· {meta.join(" · ")}</span>
+          )}
         </span>
         {provider.accountLabel === null ? null : (
-          <div className="u-subtle connections-provider-sub">{provider.accountLabel}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{provider.accountLabel}</div>
         )}
         {provider.message === null ? null : (
-          <div className="hint connections-provider-sub">{provider.message}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{provider.message}</div>
         )}
-      </td>
-      <td data-label="Actions" className="u-right">
-        <div className="connections-provider-actions">
+      </TableCell>
+      <TableCell data-label="Actions" className="align-top text-right">
+        <div className="flex items-center justify-end gap-2">
           <ProviderConnectDialog provider={provider} />
           {provider.status === "connected" ? (
             <form action={disconnectModelProviderAction}>
@@ -448,53 +557,44 @@ function ProviderRowView({ provider }: { readonly provider: ProviderRow }) {
             expiresAt={provider.pendingFlow.expiresAt}
           />
         )}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
-function ProviderTable({
-  providers,
-  emptyTitle,
-  emptyDescription,
-}: {
-  readonly providers: readonly ProviderRow[];
-  readonly emptyTitle: string;
-  readonly emptyDescription: string;
-}) {
+function ProviderTable({ providers }: { readonly providers: readonly ProviderRow[] }) {
   if (providers.length === 0) {
     return (
-      <div className="empty connections-empty">
-        <p className="empty-title">{emptyTitle}</p>
-        <p className="empty-desc">{emptyDescription}</p>
+      <div className="rounded-lg border border-dashed border-border p-8 text-center">
+        <p className="font-medium">No model providers match</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Clear the search or refresh the gateway catalog.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="card connections-provider-table-card">
-      <table className="table table-compact table-cards connections-provider-table">
-        <caption className="u-sr-only">
-          LLM model providers the gateway can route to, with folded CLI runtimes, authentication
-          methods, current models, live connection status, and actions.
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">Provider</th>
-            <th scope="col">Auth</th>
-            <th scope="col">Models</th>
-            <th scope="col">Status</th>
-            <th scope="col">
-              <span className="u-sr-only">Actions</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
+    <div className="rounded-lg border border-border">
+      <Table>
+        <TableCaption className="sr-only">{TABLE_CAPTION}</TableCaption>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Provider</TableHead>
+            <TableHead>Auth</TableHead>
+            <TableHead>Models</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="text-right">
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {providers.map((provider) => (
-            <ProviderRowView provider={provider} key={provider.id} />
+            <ProviderTableRow provider={provider} key={provider.id} />
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }
@@ -506,60 +606,82 @@ export function ModelProvidersPanel({ providers, summary }: ModelProvidersPanelP
     () => filterProviders(sortedProviders, query),
     [query, sortedProviders],
   );
+  const tiers = useMemo(
+    () => groupProviderConnectionsByTier(filteredProviders),
+    [filteredProviders],
+  );
+  const searchActive = query.trim() !== "";
+  const defaultTier = tiers[0]?.id ?? "frontier";
 
   return (
-    <section aria-labelledby="providers-lbl">
-      <div className="connections-provider-head">
-        <div>
-          <div className="section-label" id="providers-lbl" style={{ padding: 0 }}>
-            Model providers
-          </div>
-          <h2>Provider connection status</h2>
-          <p className="connections-provider-count">
-            Model providers - {summary.connected} connected / {summary.available} available.
-          </p>
-          <p className="hint">
-            Connected providers can route models now; available providers need credentials.
-          </p>
-        </div>
-        <Badge variant={summary.needsAttention > 0 ? "warning" : "secondary"}>
-          {summary.needsAttention} need attention - {summary.pending} pending
-        </Badge>
-      </div>
+    <Card aria-labelledby="providers-lbl">
+      <CardHeader>
+        <CardTitle id="providers-lbl">Provider connection status</CardTitle>
+        <CardDescription>
+          Model providers — {summary.connected} connected / {summary.available} available. Connected
+          providers can route models now; available providers need credentials.
+        </CardDescription>
+        <CardAction>
+          <Badge variant={summary.needsAttention > 0 ? "warning" : "secondary"}>
+            {summary.needsAttention} need attention · {summary.pending} pending
+          </Badge>
+        </CardAction>
+      </CardHeader>
 
-      {providers.length === 0 ? (
-        <div className="empty connections-empty">
-          <p className="empty-title">Provider catalog unavailable</p>
-          <p className="empty-desc">
-            Configure the provisioning worker to read the live Opzava Gateway auth-choice catalog.
-          </p>
-        </div>
-      ) : (
-        <div>
-          <div className="connections-provider-toolbar">
-            <span className="u-subtle connections-provider-hint">
-              Canonical LLM providers the gateway can route to - auth order OAuth to API key
-            </span>
-            <div className="connections-provider-search">
-              <Label className="u-sr-only" htmlFor="connections-provider-search">
-                Search model providers
-              </Label>
-              <Input
-                id="connections-provider-search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search providers"
-                type="search"
-              />
-            </div>
+      <CardContent className="grid gap-4">
+        {providers.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border p-8 text-center">
+            <p className="font-medium">Provider catalog unavailable</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Configure the provisioning worker to read the live Opzava Gateway auth-choice catalog.
+            </p>
           </div>
-          <ProviderTable
-            providers={filteredProviders}
-            emptyTitle="No model providers match"
-            emptyDescription="Clear search or refresh the gateway catalog."
-          />
-        </div>
-      )}
-    </section>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                Canonical LLM providers the gateway can route to — auth order OAuth to API key.
+              </p>
+              <div className="w-full max-w-xs">
+                <Label className="sr-only" htmlFor="connections-provider-search">
+                  Search model providers
+                </Label>
+                <Input
+                  id="connections-provider-search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search providers"
+                  type="search"
+                />
+              </div>
+            </div>
+
+            {searchActive ? (
+              <ProviderTable providers={filteredProviders} />
+            ) : tiers.length === 0 ? (
+              <ProviderTable providers={[]} />
+            ) : (
+              <Tabs defaultValue={defaultTier} className="gap-4">
+                <TabsList className="flex-wrap">
+                  {tiers.map((tier) => (
+                    <TabsTrigger key={tier.id} value={tier.id} className="gap-1.5">
+                      {tier.label}
+                      <Badge variant="muted" className="h-5 px-1.5">
+                        {tier.providers.length}
+                      </Badge>
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+                {tiers.map((tier) => (
+                  <TabsContent key={tier.id} value={tier.id} data-provider-tier={tier.id}>
+                    <ProviderTable providers={tier.providers} />
+                  </TabsContent>
+                ))}
+              </Tabs>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

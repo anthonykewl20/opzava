@@ -1,5 +1,9 @@
 import {
   classifyModelProvider,
+  PROVIDER_TIER_IDS,
+  PROVIDER_TIER_LABELS,
+  providerTier,
+  type ConnectedAuthMode,
   type ConnectionsSnapshot,
   type ConnectionStatus,
   type DeviceFlowChallenge,
@@ -13,6 +17,7 @@ import {
   type ProviderAuthHealth,
   type ProviderCategory,
   type ProviderConnectionState,
+  type ProviderTier,
 } from "@opzava/ports";
 
 export interface ConnectionHealthSummary {
@@ -42,18 +47,28 @@ export interface ProviderConnectionView {
   readonly apiKeyChoices: readonly ModelProviderAuthChoice[];
   readonly deviceFlowChoices: readonly ModelProviderAuthChoice[];
   readonly roleLabel: "Lead orchestrator" | "Subagent";
-  readonly model: string;
+  readonly model: string | null;
   readonly runtimeLabels: readonly string[];
   readonly models: readonly ModelSummary[];
   readonly authHealth: ProviderAuthHealth | null;
   readonly expiryLabel: string | null;
   readonly planLabel: string | null;
+  readonly connectedAuthMode: ConnectedAuthMode | null;
   readonly accountLabel: string | null;
   readonly usageLabel: string | null;
   readonly message: string | null;
   readonly strength: string;
   readonly whenToUse: string;
   readonly pendingFlow: DeviceFlowChallenge | null;
+  readonly tier: ProviderTier;
+  readonly tierLabel: string;
+}
+
+export interface ProviderConnectionTierView {
+  readonly id: ProviderTier;
+  readonly label: string;
+  readonly collapsed: boolean;
+  readonly providers: readonly ProviderConnectionView[];
 }
 
 export interface DeviceFlowUiState {
@@ -364,7 +379,8 @@ export function projectModelProviders(
             left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
         )
         .slice(0, 6);
-      const model = state?.model ?? provider.suggestedModel;
+      const model = state?.model ?? models[0]?.id ?? null;
+      const tier = providerTier(group.id);
 
       return {
         id: group.id,
@@ -385,12 +401,15 @@ export function projectModelProviders(
         authHealth: state?.authHealth ?? null,
         expiryLabel: state?.expiryLabel ?? null,
         planLabel: state?.planLabel ?? null,
+        connectedAuthMode: state?.connectedAuthMode ?? null,
         accountLabel: state?.accountLabel ?? null,
         usageLabel: state?.usageLabel ?? null,
         message: state?.message ?? null,
         strength: group.roleStrength,
         whenToUse: group.whenToUse,
         pendingFlow,
+        tier,
+        tierLabel: PROVIDER_TIER_LABELS[tier],
       };
     })
     .sort((left, right) => {
@@ -400,6 +419,17 @@ export function projectModelProviders(
         ? left.label.localeCompare(right.label)
         : leftConnected - rightConnected;
     });
+}
+
+export function groupProviderConnectionsByTier(
+  providers: readonly ProviderConnectionView[],
+): readonly ProviderConnectionTierView[] {
+  return PROVIDER_TIER_IDS.map((id): ProviderConnectionTierView => ({
+    id,
+    label: PROVIDER_TIER_LABELS[id],
+    collapsed: id === "other",
+    providers: providers.filter((provider) => provider.tier === id),
+  })).filter((group) => group.providers.length > 0);
 }
 
 export function connectedProviderIds(snapshot: ConnectionsSnapshot): readonly string[] {
@@ -438,7 +468,7 @@ export function buildOrchestratorConfigPlan(input: {
       agentId: `subagent-${provider.id}`,
       providerId: provider.id,
       providerLabel: provider.label,
-      model: provider.model,
+      model: provider.model ?? provider.models[0]?.id ?? provider.id,
       strength: provider.strength,
       whenToUse: provider.whenToUse,
     }));
@@ -449,7 +479,11 @@ export function buildOrchestratorConfigPlan(input: {
       list: [
         {
           id: input.current?.orchestratorAgentId ?? "ask-admin-opzava",
-          model: orchestrator?.model ?? input.current?.orchestratorModel ?? "openai/gpt-5.5",
+          model:
+            orchestrator?.model ??
+            orchestrator?.models[0]?.id ??
+            input.current?.orchestratorModel ??
+            "openai/gpt-5.5",
           default: true,
           subagents: {
             delegationMode: "prefer",

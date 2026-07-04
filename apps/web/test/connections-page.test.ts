@@ -26,6 +26,7 @@ import {
   connectionHealthSummary,
   deviceFlowPollSchedule,
   deviceFlowReducer,
+  groupProviderConnectionsByTier,
   isTerminalDeviceFlowStatus,
   providerConnectionSummary,
   projectModelProviders,
@@ -58,6 +59,7 @@ function providerState(overrides: Partial<ProviderConnectionState> = {}): Provid
     usageLabel: "within limits",
     lastCheckedAt: "2026-07-03T00:00:00.000Z",
     message: null,
+    connectedAuthMode: "oauth",
     ...overrides,
   };
 }
@@ -84,6 +86,29 @@ function challenge(overrides: Partial<DeviceFlowChallenge> = {}): DeviceFlowChal
     userCode: "ABCD-EFGH",
     expiresAt: "2026-07-03T00:10:00.000Z",
     intervalSeconds: 2,
+    ...overrides,
+  };
+}
+
+function catalogEntry(
+  overrides: Pick<ConnectionsSnapshot["providerCatalog"][number], "id" | "label"> &
+    Partial<ConnectionsSnapshot["providerCatalog"][number]>,
+): ConnectionsSnapshot["providerCatalog"][number] {
+  return {
+    vendor: overrides.label,
+    authChoices: [
+      {
+        id: `${overrides.id}-api-key`,
+        label: "API key",
+        mode: "api-key",
+        providerId: overrides.id,
+        keyFlag: `${overrides.id}-api-key`,
+      },
+    ],
+    suggestedModel: `${overrides.id}/default`,
+    models: [{ id: `${overrides.id}-model`, label: `${overrides.label} model` }],
+    roleStrength: "Gateway-advertised provider",
+    whenToUse: "Use when this connected model is appropriate.",
     ...overrides,
   };
 }
@@ -299,6 +324,7 @@ function snapshot(overrides: Partial<ConnectionsSnapshot> = {}): ConnectionsSnap
         authChoiceId: "zai-api-key",
         accountLabel: "Z.AI plan",
         model: "zai/glm-5.2",
+        connectedAuthMode: "api_key",
       }),
     ],
     pendingDeviceFlows: [],
@@ -338,6 +364,7 @@ function fakePort(): ConnectionsProvisioningPort {
           providerId: input.providerId,
           authChoiceId: input.authChoiceId,
           accountLabel: "stored in gateway",
+          connectedAuthMode: "api_key",
         }),
       ),
     startModelProviderDeviceFlow: async (input) =>
@@ -401,6 +428,63 @@ describe("Connections page state", () => {
     expect(authBranchForChoice(views.find((view) => view.id === "zai")!.apiKeyChoices[0]!)).toBe(
       "api-key",
     );
+  });
+
+  it("groups model providers into the Slice 3.7 tiers with other providers folded separately", () => {
+    const base = snapshot();
+    const views = projectModelProviders(
+      snapshot({
+        providerCatalog: [
+          ...base.providerCatalog,
+          catalogEntry({ id: "cloudflare-ai-gateway", label: "Cloudflare AI Gateway" }),
+          catalogEntry({ id: "minimax", label: "MiniMax" }),
+          catalogEntry({ id: "xiaomi", label: "Xiaomi MiMo" }),
+          catalogEntry({ id: "mistral", label: "Mistral" }),
+        ],
+      }),
+    );
+    const groups = groupProviderConnectionsByTier(views);
+    const byTier = new Map(groups.map((group) => [group.id, group]));
+
+    expect(groups.map((group) => group.label)).toEqual([
+      "Frontier",
+      "Bundles",
+      "Best Subagents",
+      "Other providers",
+    ]);
+    expect(byTier.get("frontier")?.providers.map((provider) => provider.id)).toEqual(
+      expect.arrayContaining(["openai", "anthropic"]),
+    );
+    expect(byTier.get("bundles")?.providers.map((provider) => provider.id)).toEqual(
+      expect.arrayContaining(["opencode-go", "openrouter", "qwen", "cloudflare-ai-gateway"]),
+    );
+    expect(byTier.get("best-subagents")?.providers.map((provider) => provider.id)).toEqual(
+      expect.arrayContaining(["zai", "moonshot", "minimax", "xiaomi"]),
+    );
+    expect(byTier.get("other")).toMatchObject({
+      collapsed: true,
+      providers: [expect.objectContaining({ id: "mistral" })],
+    });
+  });
+
+  it("passes through connected auth mode and configured active model for Manage", () => {
+    const views = projectModelProviders(
+      snapshot({
+        providerConnections: [
+          providerState({
+            providerId: "openai",
+            status: "connected",
+            connectedAuthMode: "oauth",
+            model: "openai/gpt-5.5",
+          }),
+        ],
+      }),
+    );
+
+    expect(views.find((view) => view.id === "openai")).toMatchObject({
+      connectedAuthMode: "oauth",
+      model: "openai/gpt-5.5",
+    });
   });
 
   it("keeps the parent provider's own state authoritative over a connected folded runtime", () => {
@@ -660,8 +744,12 @@ describe("Connections page state", () => {
     expect(page).not.toContain("Gateway catalog unavailable");
     expect(page).not.toContain('?? "unknown"');
     expect(page).not.toContain("Region: unknown");
-    expect(providersPanel).toContain("table table-compact table-cards");
-    expect(providersPanel).toContain("<th scope=\"col\">Models</th>");
+    // Full shadcn: the panel is driven by the centralized components/ui primitives, not mockup CSS.
+    expect(providersPanel).toContain("@/components/ui/table");
+    expect(providersPanel).toContain("@/components/ui/tabs");
+    expect(providersPanel).toContain("@/components/ui/card");
+    expect(providersPanel).toContain("<TableHead>Models</TableHead>");
+    expect(providersPanel).not.toContain("table table-compact table-cards");
     expect(providersPanel).toContain("LLM model providers the gateway can route to");
     expect(providersPanel).not.toContain("connections-provider-list");
     expect(page).toContain("modelProviderCountLabel");
@@ -670,6 +758,11 @@ describe("Connections page state", () => {
     expect(providersPanel).toContain("Dialog");
     expect(providersPanel).toContain("Search providers");
     expect(providersPanel).toContain("Connect provider");
+    expect(providersPanel).toContain("connectedWithoutKeyField");
+    expect(providersPanel).toContain("Connected via");
+    expect(providersPanel).toContain("data-active-model");
+    expect(providersPanel).toContain("data-provider-tier");
+    expect(providersPanel).toContain("groupProviderConnectionsByTier");
     expect(providersPanel).toContain("DeviceFlowPoller");
     expect(providersPanel).toContain("Disconnect");
     expect(providersPanel).toContain("Admin device required");

@@ -63,6 +63,20 @@ function handleConnectionMutationError(error: unknown, providerId?: string): nev
   throwConnectionActionError(error);
 }
 
+function handleDisconnectMutationError(error: unknown, providerId: string): never {
+  if (connectionActionErrorCode(error) === "provisioning.openclawAdmin.operatorAdminRequired") {
+    redirectToConnectionsNotice({
+      notice: "operator-admin-required",
+      providerId,
+    });
+  }
+
+  redirectToConnectionsNotice({
+    notice: "connection-action-error",
+    providerId,
+  });
+}
+
 async function requireConnectionsMutationContext() {
   const context = await requireConnectionsContext();
   const allowed = requireConnectionMutationRole(context);
@@ -203,14 +217,19 @@ export async function startModelProviderDeviceFlowAction(formData: FormData): Pr
 }
 
 export async function disconnectModelProviderAction(formData: FormData): Promise<void> {
-  const context = await requireConnectionsMutationContext();
   const providerId = stringFromForm(formData, "providerId");
+  const context = await requireConnectionsContext();
+  const allowed = requireConnectionMutationRole(context);
+  if (!allowed.ok) {
+    handleDisconnectMutationError(allowed.error, providerId);
+  }
+
   const result = await disconnectModelProviderForContext({
     context,
     providerId,
   });
   if (!result.ok) {
-    handleConnectionMutationError(result.error, providerId);
+    handleDisconnectMutationError(result.error, providerId);
   }
 
   revalidatePath("/connections");

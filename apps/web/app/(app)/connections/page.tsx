@@ -23,6 +23,7 @@ interface ConnectionsPageProps {
 type ConnectionsNotice =
   | { readonly kind: "health-check-complete" }
   | { readonly kind: "health-check-error" }
+  | { readonly kind: "connection-action-error"; readonly providerId?: string }
   | { readonly kind: "operator-admin-required"; readonly providerId?: string };
 
 const connectionsPageStyles = `
@@ -50,6 +51,12 @@ const connectionsPageStyles = `
     .connections-provider-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
     .connections-provider-hint { font-size: var(--text-xs); }
     .connections-provider-search { width: min(280px, 100%); }
+    .connections-provider-tiers { display: grid; gap: var(--space-5); }
+    .connections-provider-tier { display: grid; gap: var(--space-2); }
+    .connections-provider-tier-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+    .connections-provider-tier-head h3 { margin: 0; font-size: var(--text-base); line-height: var(--lh-snug); }
+    .connections-provider-tier-summary { cursor: pointer; color: var(--fg); font-weight: var(--fw-medium); }
+    .connections-provider-tier-title { margin-right: var(--space-2); }
     .connections-inline-alert { width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--warning-soft); border-radius: var(--radius-md); background: var(--warning-soft); color: var(--fg); font-size: var(--text-sm); text-align: left; }
     .connections-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
     .connections-key-form { position: relative; }
@@ -137,6 +144,13 @@ function noticeFromSearchParams(
     };
   }
 
+  if (params?.notice === "connection-action-error") {
+    return {
+      kind: "connection-action-error",
+      ...(params.provider === undefined ? {} : { providerId: params.provider }),
+    };
+  }
+
   return null;
 }
 
@@ -163,8 +177,38 @@ function PageNotice({
   readonly notice: ConnectionsNotice | null;
   readonly refreshedAt: string;
 }) {
-  if (notice === null || notice.kind === "operator-admin-required") {
+  if (notice === null) {
     return null;
+  }
+
+  if (notice.kind === "operator-admin-required") {
+    return (
+      <div className="connections-notice connections-notice-warning" role="alert">
+        <span className="dot dot-warning" aria-hidden="true" />
+        <div>
+          <strong>Admin device required.</strong>
+          <p className="hint">
+            Pair or upgrade an operator.admin device before changing provider credentials
+            {notice.providerId === undefined ? "." : ` for ${notice.providerId}.`}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (notice.kind === "connection-action-error") {
+    return (
+      <div className="connections-notice connections-notice-danger" role="alert">
+        <span className="dot dot-danger" aria-hidden="true" />
+        <div>
+          <strong>Connection action could not complete.</strong>
+          <p className="hint">
+            Showing the latest available connection snapshot
+            {notice.providerId === undefined ? "." : ` for ${notice.providerId}.`}
+          </p>
+        </div>
+      </div>
+    );
   }
 
   if (notice.kind === "health-check-error") {

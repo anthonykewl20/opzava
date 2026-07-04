@@ -1,0 +1,42 @@
+{
+  "base": "http://web.opzava.localhost:18088",
+  "startedAt": "2026-07-04T15:17:29.086Z",
+  "passes": [
+    {
+      "pass": 1,
+      "routes": [
+        "/",
+        "/tasks",
+        "/issues",
+        "/connections",
+        "/ask-opzava",
+        "/crm/accounts",
+        "/crm/contacts",
+        "/crm/deals",
+        "/crm/tickets"
+      ],
+      "clean": true,
+      "findings": [],
+      "warnings": []
+    },
+    {
+      "pass": 2,
+      "routes": [
+        "/",
+        "/tasks",
+        "/issues",
+        "/connections",
+        "/ask-opzava",
+        "/crm/accounts",
+        "/crm/contacts",
+        "/crm/deals",
+        "/crm/tickets"
+      ],
+      "clean": true,
+      "findings": [],
+      "warnings": []
+    }
+  ],
+  "verdict": "DONE-ELIGIBLE",
+  "finishedAt": "2026-07-04T15:18:29.176Z"
+}
