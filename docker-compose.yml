@@ -225,11 +225,12 @@ services:
       - dokploy-network
 
   openclaw-platform-gateway:
-    # Official image per docs/openclaw/install/docker.md. Default pin matches
-    # the first verified local real-Gateway bring-up. This now runs by default
-    # with gateway-broker for the internal single-tenant phase; it remains
-    # expose-only, with no Traefik labels, so there is no routable orphan Gateway.
-    image: ghcr.io/openclaw/openclaw:${OPENCLAW_IMAGE_TAG:-2026.6.11}
+    # Built from the Opzava-owned tracked fork at ./mainframe (ADR-016, Q18);
+    # previously pulled ghcr.io/openclaw/openclaw at the same version. Pin
+    # record: mainframe/UPSTREAM.md. Still expose-only, no Traefik labels, so
+    # there is no routable orphan Gateway. Local and Dokploy both build this.
+    build: ./mainframe
+    image: opzava/mainframe-gateway:${OPENCLAW_IMAGE_TAG:-2026.6.11}
     command: ["node", "openclaw.mjs", "gateway", "--port", "18789", "--bind", "lan"]
     environment:
       OPENCLAW_SKIP_ONBOARDING: ${OPENCLAW_SKIP_ONBOARDING:-1}
