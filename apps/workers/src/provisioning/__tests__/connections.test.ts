@@ -830,7 +830,8 @@ describe("Connections provisioning helpers", () => {
     ).toMatchObject({
       id: "deepgram",
       category: "non-llm",
-      models: expect.arrayContaining([expect.objectContaining({ id: "nova-3" })]),
+      // No configured model in agent config -> Models is empty (never the raw catalog list).
+      models: [],
     });
     expect(snapshot.value.providerConnections[0]).toMatchObject({
       providerId: "zai",
@@ -945,7 +946,8 @@ describe("Connections provisioning helpers", () => {
           expect.objectContaining({
             providerId: "zai",
             status: "connected",
-            model: "glm-4.7",
+            // configured model from the connected auth profile (auth.profiles[].model), not catalog
+            model: "zai/glm-5.2",
             usageLabel: "1 auth profile",
           }),
         ]),
@@ -1235,6 +1237,39 @@ describe("Connections provisioning helpers", () => {
       params: { provider: "openai" },
     });
     expect(admin.calls.some((call) => call.method === "config.patch")).toBe(false);
+  });
+
+  it("clears an api-key config profile even when authLogout succeeds but removed nothing", async () => {
+    // The zai regression: authLogout returns ok with removedProfiles:[] (the key lives in
+    // config.auth.profiles, not the managed store), so disconnect must ALSO config.patch it away.
+    const admin = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "zai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": ok({
+        hash: "config-hash-zai",
+        auth: {
+          profiles: { "zai-zai-api-key": { provider: "zai", mode: "api_key" } },
+          order: { zai: ["zai-zai-api-key"] },
+        },
+      }),
+      "config.patch": ok({ ok: true }),
+      "models.list": ok({ providers: [{ id: "zai", label: "Z.AI", authChoices: [apiKeyChoice()] }] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "zai" });
+
+    expect(result.ok).toBe(true);
+    expect(admin.calls[0]).toMatchObject({ method: "models.authLogout", params: { provider: "zai" } });
+    const patch = admin.calls.find((call) => call.method === "config.patch");
+    expect(patch).toBeDefined();
+    expect(rawPatch(patch!.params)).toEqual({
+      auth: { profiles: { "zai-zai-api-key": null }, order: { zai: [] } },
+    });
   });
 
   it("falls back to config.patch API-key profile deletion when authLogout is unavailable", async () => {

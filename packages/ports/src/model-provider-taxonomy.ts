@@ -87,7 +87,6 @@ export const NON_LLM_PROVIDER_IDS: ReadonlySet<string> = new Set([
 /** Nicer display labels for providers the gateway advertises with raw/lowercase ids. */
 export const CANONICAL_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   anthropic: "Anthropic",
-  "claude-max-api-proxy": "Claude Max API Proxy",
   openai: "OpenAI",
   google: "Google",
   zai: "Z.AI (GLM)",

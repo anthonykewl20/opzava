@@ -271,46 +271,6 @@ function authChoiceFromUnknown(value: unknown, providerId: string): ModelProvide
   };
 }
 
-function modelSummariesByProvider(
-  modelSources: readonly unknown[],
-): ReadonlyMap<string, readonly ModelSummary[]> {
-  const byProvider = new Map<string, Map<string, ModelSummary>>();
-
-  for (const modelSource of modelSources) {
-    if (!isRecord(modelSource)) {
-      continue;
-    }
-
-    const modelId = stringValue(modelSource["id"]) ?? stringValue(modelSource["model"]);
-    const providerId =
-      stringValue(modelSource["providerId"]) ??
-      stringValue(modelSource["provider"]) ??
-      (modelId?.includes("/") === true ? (modelId.split("/", 1)[0] ?? null) : null);
-    if (modelId === null || providerId === null) {
-      continue;
-    }
-
-    const providerModels = byProvider.get(providerId) ?? new Map<string, ModelSummary>();
-    providerModels.set(modelId, {
-      id: modelId,
-      label: stringValue(modelSource["name"]) ?? stringValue(modelSource["label"]) ?? modelId,
-    });
-    byProvider.set(providerId, providerModels);
-  }
-
-  return new Map(
-    [...byProvider.entries()].map(([providerId, models]) => [
-      providerId,
-      [...models.values()]
-        .sort(
-          (left, right) =>
-            left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
-        )
-        .slice(0, 8),
-    ]),
-  );
-}
-
 function modelProviderId(modelRef: string): string | null {
   const [providerId] = modelRef.trim().split("/", 1);
   return providerId === undefined || providerId === "" ? null : providerId;
@@ -391,6 +351,14 @@ function configuredModelRefs(config: Record<string, unknown>): readonly string[]
   for (const agent of arrayValue(agents?.["list"])) {
     collect(agent);
   }
+  // A connected auth profile can pin the routed model directly (auth.profiles[<id>].model) — this is
+  // where an api-key provider's active model lives (e.g. zai -> "zai/glm-5.2").
+  for (const profile of Object.values(authProfiles(config))) {
+    const model = isRecord(profile) ? modelSelectorPrimary(profile["model"]) : null;
+    if (model !== null) {
+      refs.add(model);
+    }
+  }
   return [...refs];
 }
 
@@ -437,13 +405,9 @@ function configuredModelForProvider(input: {
 
 function withModelProviderClassification(
   provider: ModelProviderCatalogEntry,
-  modelsByProvider: ReadonlyMap<string, readonly ModelSummary[]>,
   config: Record<string, unknown>,
 ): ModelProviderCatalogEntry {
   const classification = classifyModelProvider(provider.id);
-  // Prefer the CONFIGURED models (what the gateway actually routes to) over the raw catalog list.
-  const configured = configuredModelsForProvider(provider.id, config);
-  const models = configured.length > 0 ? configured : (modelsByProvider.get(provider.id) ?? []);
 
   return {
     ...provider,
@@ -451,7 +415,10 @@ function withModelProviderClassification(
     category: classification.category,
     parentId: classification.parentId,
     runtimeLabel: classification.runtimeLabel,
-    models,
+    // Models come ONLY from the gateway CONFIG (the models it actually routes to) — never a raw
+    // `models.list` catalog dump. Agnostic (no hardcoding) + aligned: a connected provider shows its
+    // configured model(s); an unconfigured/unconnected provider shows none.
+    models: configuredModelsForProvider(provider.id, config),
   };
 }
 
@@ -465,8 +432,10 @@ function providerCatalogFromModels(
     ...arrayValue(root["authProviders"]),
     ...arrayValue(root["authChoices"]),
   ];
+  // Model entries are used only to DISCOVER providers (which providers exist), never to populate the
+  // per-provider model list — that comes from config (configuredModelsForProvider), keeping the
+  // Models column agnostic and config-driven.
   const modelSources = [...arrayValue(root["models"]), ...(Array.isArray(payload) ? payload : [])];
-  const modelsByProvider = modelSummariesByProvider(modelSources);
   const catalog = new Map<string, ModelProviderCatalogEntry>();
 
   for (const providerSource of providerSources) {
@@ -575,7 +544,7 @@ function providerCatalogFromModels(
           }
         : provider;
 
-    return withModelProviderClassification(withAuthChoices, modelsByProvider, config);
+    return withModelProviderClassification(withAuthChoices, config);
   });
 }
 
@@ -655,7 +624,9 @@ function providerConnectionFromConfig(input: {
     usageLabel: stringValue(profile["usageLabel"]),
     lastCheckedAt: input.now.toISOString(),
     message: "Opzava Gateway auth profile is present.",
-    connectedAuthMode: null,
+    // The config profile records its own auth mode (e.g. {mode:"api_key"}); surface it so Manage
+    // renders the right form (rotate key vs subscription) instead of a dead "no auth method" state.
+    connectedAuthMode: connectedAuthMode(profile["mode"]) ?? connectedAuthMode(profile["type"]),
   };
 }
 
@@ -1006,6 +977,13 @@ function ensureCanonicalLlmProviders(input: {
 
   for (const rootId of CANONICAL_LLM_PROVIDER_IDS) {
     if (present.has(rootId.toLowerCase())) {
+      continue;
+    }
+
+    // Only ever ADD top-level LLM parents. A canonical id that folds under a parent (e.g. an
+    // alias/plan/proxy like claude-max-api-proxy -> anthropic) must NOT become its own row — it
+    // merges into its parent via the web projection instead.
+    if (classifyModelProvider(rootId).parentId !== null) {
       continue;
     }
 
@@ -2137,20 +2115,17 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async disconnectModelProvider(
     input: DisconnectModelProviderInput,
   ): Promise<Result<ProviderConnectionState>> {
+    // A provider's credential can live in EITHER store, so disconnect must clear BOTH:
+    //  (1) models.authLogout — the OAuth/token/managed store (e.g. openai/Codex OAuth).
+    //  (2) config.auth.profiles — config-file api-key profiles (e.g. zai). authLogout returns ok
+    //      but removes 0 profiles for a config api-key, so clearing only via authLogout leaves the
+    //      key in place and the provider still "connected" (the zai disconnect-does-nothing bug).
     const logout = await this.options.adminClient.request(
       "models.authLogout",
       { provider: input.providerId },
       { requiredScope: "operator.admin" },
     );
-    if (logout.ok) {
-      return ok(
-        await this.refreshedProviderConnection(
-          input,
-          "Opzava Gateway provider auth profiles removed.",
-        ),
-      );
-    }
-    if (!authLogoutUnavailable(logout.error)) {
+    if (!logout.ok && !authLogoutUnavailable(logout.error)) {
       return err(logout.error);
     }
 
@@ -2160,48 +2135,50 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     }
 
     const config = configPayload(configResult.value);
-    const matchingProfiles = Object.entries(authProfiles(config)).filter(
-      ([id, profile]) =>
-        isRecord(profile) && providerIdFromProfile(id, profile) === input.providerId,
-    );
-    const apiKeyProfileIds = matchingProfiles
-      .filter(([id, profile]) => isRecord(profile) && profileUsesApiKeyAuth(id, profile))
+    const apiKeyProfileIds = Object.entries(authProfiles(config))
+      .filter(
+        ([id, profile]) =>
+          isRecord(profile) &&
+          providerIdFromProfile(id, profile) === input.providerId &&
+          profileUsesApiKeyAuth(id, profile),
+      )
       .map(([id]) => id);
-    if (apiKeyProfileIds.length === 0) {
+
+    if (apiKeyProfileIds.length > 0) {
+      const patchParams = configPatchParams({
+        configGetPayload: configResult.value,
+        patch: {
+          auth: {
+            profiles: Object.fromEntries(apiKeyProfileIds.map((id) => [id, null])),
+            order: { [input.providerId]: [] },
+          },
+        },
+      });
+      if (!patchParams.ok) {
+        return err(patchParams.error);
+      }
+      const result = await this.options.adminClient.request("config.patch", patchParams.value, {
+        requiredScope: "operator.admin",
+      });
+      if (!result.ok) {
+        return err(result.error);
+      }
+    }
+
+    // If neither store held anything, authLogout was genuinely unavailable AND there was no config
+    // profile — surface that rather than pretending we disconnected.
+    if (!logout.ok && apiKeyProfileIds.length === 0) {
       return err(
         provisioningError(
           "provisioning.connections.authLogoutUnavailable",
-          "Gateway models.authLogout is unavailable and no API-key config profile can be removed safely.",
+          "Gateway models.authLogout is unavailable and no API-key config profile was found to remove.",
           { providerId: input.providerId },
         ),
       );
     }
 
-    const profilePatch = Object.fromEntries(apiKeyProfileIds.map((id) => [id, null]));
-    const patchParams = configPatchParams({
-      configGetPayload: configResult.value,
-      patch: {
-        auth: {
-          profiles: profilePatch,
-          order: {
-            [input.providerId]: [],
-          },
-        },
-      },
-    });
-    if (!patchParams.ok) {
-      return err(patchParams.error);
-    }
-
-    const result = await this.options.adminClient.request("config.patch", patchParams.value, {
-      requiredScope: "operator.admin",
-    });
-    if (!result.ok) {
-      return err(result.error);
-    }
-
     return ok(
-      await this.refreshedProviderConnection(input, "Opzava Gateway auth profile removed."),
+      await this.refreshedProviderConnection(input, "Opzava Gateway provider credentials removed."),
     );
   }
 

@@ -65,7 +65,8 @@ async function openTier(page, tier) {
     .evaluateAll((rows) =>
       rows.flatMap((row) => {
         const status = row.querySelector('[data-label="Status"]')?.textContent ?? "";
-        if (!/\bconnected\b/i.test(status) || /not connected/i.test(status)) return [];
+        // Status text concatenates ("ConnectedOpzava Gateway…"), so match substring, not \bword\b.
+        if (!/connected/i.test(status) || /not connected/i.test(status)) return [];
         return [...row.querySelectorAll('[data-label="Models"] .font-mono')].map(
           (m) => (m.textContent ?? "").trim(),
         );
@@ -120,65 +121,63 @@ try {
   if (hasNonLlm) findings.push("no-non-llm=false");
   if (connectedModels.filter(Boolean).length === 0) findings.push("connected-provider-real-model=false");
 
-  // Manage OpenAI (OAuth connection): dialog must NOT ask for an API key + must show a real model.
-  await page.getByRole("tab", { name: /^frontier/i }).first().click();
-  await page.waitForTimeout(250);
-  const openaiRow = page
-    .locator('[data-provider-tier="frontier"] tr[data-provider-id="openai"]')
-    .first();
-  if ((await openaiRow.count()) === 0) {
-    findings.push("openai-frontier-row=false");
-  } else {
-    const manageButton = openaiRow.getByRole("button", { name: /^manage$/i });
-    if ((await manageButton.count()) === 0) {
-      findings.push("openai-manage-button=false");
-    } else {
-      await manageButton.click();
-      const dialog = page.getByRole("dialog");
-      await dialog.waitFor({ state: "visible", timeout: 5_000 });
-      if ((await dialog.locator('input[name="apiKey"]').count()) !== 0) {
-        findings.push("openai-manage-api-key-input=true");
+  // Agnostic Manage + Disconnect-confirm checks against whatever is ACTUALLY connected (not a
+  // hardcoded provider). Find the first connected row (it has a Manage button) across the tiers.
+  let connectedRow = null;
+  let connectedTier = null;
+  for (const tier of TIERS) {
+    const tab = page.getByRole("tab", { name: tier.tab });
+    if ((await tab.count()) === 0) continue;
+    await tab.first().click();
+    await page.waitForTimeout(250);
+    const rows = page.locator(`[data-provider-tier="${tier.id}"] tr[data-provider-id]`);
+    const count = await rows.count();
+    for (let i = 0; i < count; i++) {
+      const row = rows.nth(i);
+      if ((await row.getByRole("button", { name: /^manage$/i }).count()) > 0) {
+        connectedRow = row;
+        connectedTier = tier.id;
+        break;
       }
-      const model = (await dialog.locator("[data-active-model]").first().textContent())?.trim() ?? "";
-      if (model === "" || model === "No configured model" || model === "gpt-5.3-chat-latest") {
-        findings.push(`openai-manage-real-model=false:${model || "empty"}`);
-      }
-      await dialog.getByRole("button", { name: /^close$/i }).click();
-      await dialog.waitFor({ state: "hidden", timeout: 5_000 });
     }
+    if (connectedRow) break;
+  }
 
-    // Capture the CLEAN working page (Frontier tab, OpenAI connected) before the disconnect probe.
+  if (connectedRow === null) {
+    findings.push("no-connected-provider-to-manage=true");
+  } else {
+    // Manage: dialog opens and shows a REAL configured model (never "No configured model").
+    await connectedRow.getByRole("button", { name: /^manage$/i }).first().click();
+    const dialog = page.getByRole("dialog");
+    await dialog.waitFor({ state: "visible", timeout: 5_000 });
+    const model = (await dialog.locator("[data-active-model]").first().textContent())?.trim() ?? "";
+    if (model === "" || model === "No configured model") {
+      findings.push(`manage-real-model=false:${model || "empty"}`);
+    }
+    await dialog.getByRole("button", { name: /^close$/i }).click();
+    await dialog.waitFor({ state: "hidden", timeout: 5_000 });
+
     await page.screenshot({ path: `${OUT}/connections-model-providers.png`, fullPage: true });
 
-    // Disconnect must not 404. Observe the server-action POST target WITHOUT committing (abort), so
-    // the live OpenAI credential is never removed. The bug was a navigation to a 404 page; here we
-    // assert the action posts same-origin to /connections (not a dead route).
-    let intercept = false;
-    let observed = false;
-    let badTarget = null;
+    // Disconnect is destructive → MUST open a confirmation AlertDialog and NOT post until confirmed.
+    // Non-destructive check: assert the confirm dialog appears, then Cancel (never commit).
+    let postedBeforeConfirm = false;
     await page.route("**/*", async (route) => {
-      const req = route.request();
-      if (intercept && req.method() === "POST") {
-        observed = true;
-        const path = new URL(req.url()).pathname;
-        if (!path.startsWith("/connections")) badTarget = req.url();
-        await route.abort();
-        return;
-      }
+      if (route.request().method() === "POST") postedBeforeConfirm = true;
       await route.continue();
     });
-    const disconnectButton = openaiRow.getByRole("button", { name: /^disconnect$/i }).first();
-    if ((await disconnectButton.count()) === 0) {
-      findings.push("openai-disconnect-button=false");
+    await connectedRow.getByRole("button", { name: /^disconnect$/i }).first().click();
+    await page.waitForTimeout(300);
+    const confirm = page.getByRole("alertdialog");
+    if ((await confirm.count()) === 0) {
+      findings.push("disconnect-confirm-missing=true");
     } else {
-      intercept = true;
-      await disconnectButton.click().catch(() => {});
-      await page.waitForTimeout(500);
-      intercept = false;
-      if (!observed) findings.push("openai-disconnect-action-observed=false");
-      if (badTarget !== null) findings.push(`openai-disconnect-bad-target=${badTarget}`);
+      if (postedBeforeConfirm) findings.push("disconnect-posted-before-confirm=true");
+      await confirm.getByRole("button", { name: /^cancel$/i }).click().catch(() => {});
     }
+    if (connectedTier === null) findings.push("connected-tier-null=true");
   }
+  await page.unroute("**/*").catch(() => {});
   writeFileSync(
     `${OUT}/connections-report.json`,
     JSON.stringify(

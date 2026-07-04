@@ -8,11 +8,21 @@ import { useRouter } from "next/navigation";
 import {
   connectModelProviderApiKeyStateAction,
   disconnectModelProviderAction,
-  startModelProviderDeviceFlowStateAction,
 } from "@/app/(app)/connections/actions";
 import { DeviceFlowPoller } from "@/components/connections/device-flow-poller";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardAction,
@@ -280,6 +290,46 @@ function ProviderActionResult({
   );
 }
 
+// Destructive-action guard: disconnect logs the gateway out of a provider, so it must be confirmed
+// (UX error-prevention) — an accidental click on the row button should never sever a live connection.
+function DisconnectConfirm({
+  provider,
+  size = "sm",
+  triggerVariant = "ghost",
+}: {
+  readonly provider: ProviderRow;
+  readonly size?: "sm" | "default";
+  readonly triggerVariant?: "ghost" | "destructive";
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button type="button" variant={triggerVariant} size={size}>
+          Disconnect
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Disconnect {provider.label}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This logs the gateway out of {provider.label} and stops routing its models. Reconnecting
+            requires re-authenticating this provider. This can&apos;t be undone from here.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <form action={disconnectModelProviderAction}>
+            <input type="hidden" name="providerId" value={provider.connectionProviderId} />
+            <AlertDialogAction type="submit" className={buttonVariants({ variant: "destructive" })}>
+              Disconnect {provider.label}
+            </AlertDialogAction>
+          </form>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 function ProviderBacks({ provider }: { readonly provider: ProviderRow }) {
   // Role is only real once a provider is connected (an unconnected provider is not yet a subagent);
   // showing it otherwise is misleading chrome. Matches the mockup (badges only connected rows).
@@ -309,25 +359,20 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
     provider.status === "connected" && provider.connectedAuthMode === "api_key"
       ? apiKeyChoice
       : connectChoice(provider);
+  // Any CONNECTED provider that is not an api-key connection shows "Connected + Disconnect" with no
+  // key field. Covers oauth/token AND unknown (null) auth mode, so a connected provider's Manage
+  // dialog can ALWAYS be closed and disconnected — never a dead "no auth method" end state.
   const connectedWithoutKeyField =
-    provider.status === "connected" &&
-    (provider.connectedAuthMode === "oauth" || provider.connectedAuthMode === "token");
+    provider.status === "connected" && provider.connectedAuthMode !== "api_key";
   const showApiKeyForm =
     provider.status === "connected"
       ? provider.connectedAuthMode === "api_key" && apiKeyChoice !== null
       : choice?.mode === "api-key";
-  // A folded child (e.g. codex under openai) owns its own auth choice; the connect must target the
-  // choice's OWN provider id, not the display/group id, or the gateway rejects it.
-  const connectProviderId = choice?.providerId ?? provider.id;
   const [apiKeyState, apiKeyAction] = useActionState(
     connectModelProviderApiKeyStateAction,
     initialConnectionActionState,
   );
-  const [deviceState, deviceAction] = useActionState(
-    startModelProviderDeviceFlowStateAction,
-    initialConnectionActionState,
-  );
-  const state = choice?.mode === "device-flow" ? deviceState : apiKeyState;
+  const state = apiKeyState;
 
   useEffect(() => {
     if (state.status === "success") {
@@ -390,12 +435,7 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
                     Close
                   </Button>
                 </DialogClose>
-                <form action={disconnectModelProviderAction}>
-                  <input type="hidden" name="providerId" value={provider.connectionProviderId} />
-                  <Button type="submit" variant="destructive">
-                    Disconnect
-                  </Button>
-                </form>
+                <DisconnectConfirm provider={provider} size="default" triggerVariant="destructive" />
               </DialogFooter>
             </div>
           ) : showApiKeyForm && apiKeyChoice !== null ? (
@@ -433,29 +473,26 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
               </DialogFooter>
             </form>
           ) : choice?.mode === "device-flow" ? (
-            <form action={deviceAction} className="grid gap-4">
-              <input type="hidden" name="providerId" value={connectProviderId} />
-              <input type="hidden" name="authChoiceId" value={choice.id} />
-              <DialogNotice tone="warning" title="Interactive OAuth required">
-                This provider uses the gateway&apos;s interactive device-flow path. The worker returns
-                the real gateway response instead of pretending to connect.
+            <div className="grid gap-4">
+              <DialogNotice tone="warning" title="Interactive sign-in on the gateway">
+                {provider.label} connects with an OAuth device sign-in that completes on the gateway
+                itself (no key to paste). This gateway build has no in-browser device flow, so sign
+                in once on the gateway host, then re-check:
               </DialogNotice>
-              <ProviderActionResult
-                state={deviceState}
-                provider={provider}
-                matchProviderId={connectProviderId}
-              />
+              <pre className="overflow-x-auto rounded-md border border-border bg-muted p-3 text-xs">
+                <code>openclaw onboard --auth-choice {choice.id}</code>
+              </pre>
               <DialogFooter>
                 <DialogClose asChild>
                   <Button type="button" variant="secondary">
                     Close
                   </Button>
                 </DialogClose>
-                <DialogSubmitButton pendingLabel="Starting...">
-                  Start device flow
-                </DialogSubmitButton>
+                <Button type="button" onClick={() => router.refresh()}>
+                  Re-check status
+                </Button>
               </DialogFooter>
-            </form>
+            </div>
           ) : (
             <DialogNotice tone="warning" title="No live auth method">
               Refresh the gateway catalog after enabling this provider&apos;s auth choice.
@@ -539,14 +576,7 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
       <TableCell data-label="Actions" className="align-top text-right">
         <div className="flex items-center justify-end gap-2">
           <ProviderConnectDialog provider={provider} />
-          {provider.status === "connected" ? (
-            <form action={disconnectModelProviderAction}>
-              <input type="hidden" name="providerId" value={provider.connectionProviderId} />
-              <Button type="submit" variant="ghost" size="sm">
-                Disconnect
-              </Button>
-            </form>
-          ) : null}
+          {provider.status === "connected" ? <DisconnectConfirm provider={provider} /> : null}
         </div>
         {provider.pendingFlow === null ? null : (
           <DeviceFlowPoller
