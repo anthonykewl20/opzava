@@ -113,6 +113,7 @@ export interface DeviceFlowChallenge {
   readonly authChoiceId: string;
   readonly verificationUri: string;
   readonly userCode: string;
+  readonly codePending?: boolean;
   readonly expiresAt: string;
   readonly intervalSeconds: number;
 }
@@ -121,6 +122,9 @@ export interface DeviceFlowPollState {
   readonly status: "pending" | "connected" | "expired" | "failed";
   readonly message: string | null;
   readonly intervalSeconds?: number;
+  readonly verificationUri?: string;
+  readonly userCode?: string;
+  readonly codePending?: boolean;
   readonly connection?: ProviderConnectionState | GitHubConnectionState;
 }
 

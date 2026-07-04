@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import {
   connectModelProviderApiKeyStateAction,
   disconnectModelProviderAction,
+  startModelProviderDeviceFlowStateAction,
 } from "@/app/(app)/connections/actions";
 import { DeviceFlowPoller } from "@/components/connections/device-flow-poller";
 import {
@@ -282,7 +283,11 @@ function ProviderActionResult({
       tone={success ? "success" : adminRequired ? "warning" : "destructive"}
       role={success ? "status" : "alert"}
       title={
-        success ? "Connection updated" : adminRequired ? "Admin device required" : "Connection failed"
+        success
+          ? "Connection updated"
+          : adminRequired
+            ? "Admin device required"
+            : "Connection failed"
       }
     >
       {state.message}
@@ -372,13 +377,16 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
     connectModelProviderApiKeyStateAction,
     initialConnectionActionState,
   );
-  const state = apiKeyState;
+  const [deviceFlowState, deviceAction] = useActionState(
+    startModelProviderDeviceFlowStateAction,
+    initialConnectionActionState,
+  );
 
   useEffect(() => {
-    if (state.status === "success") {
+    if (apiKeyState.status === "success") {
       router.refresh();
     }
-  }, [router, state.status]);
+  }, [apiKeyState.status, router]);
 
   if (choice === null && provider.status !== "connected") {
     return (
@@ -435,7 +443,11 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
                     Close
                   </Button>
                 </DialogClose>
-                <DisconnectConfirm provider={provider} size="default" triggerVariant="destructive" />
+                <DisconnectConfirm
+                  provider={provider}
+                  size="default"
+                  triggerVariant="destructive"
+                />
               </DialogFooter>
             </div>
           ) : showApiKeyForm && apiKeyChoice !== null ? (
@@ -473,26 +485,50 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
               </DialogFooter>
             </form>
           ) : choice?.mode === "device-flow" ? (
-            <div className="grid gap-4">
-              <DialogNotice tone="warning" title="Interactive sign-in on the gateway">
-                {provider.label} connects with an OAuth device sign-in that completes on the gateway
-                itself (no key to paste). This gateway build has no in-browser device flow, so sign
-                in once on the gateway host, then re-check:
-              </DialogNotice>
-              <pre className="overflow-x-auto rounded-md border border-border bg-muted p-3 text-xs">
-                <code>openclaw onboard --auth-choice {choice.id}</code>
-              </pre>
+            <form action={deviceAction} className="grid gap-4">
+              <input type="hidden" name="providerId" value={choice.providerId} />
+              <input type="hidden" name="authChoiceId" value={choice.id} />
+              {deviceFlowState.status === "success" &&
+              deviceFlowState.deviceFlowChallenge !== null ? (
+                <DeviceFlowPoller
+                  flowId={deviceFlowState.deviceFlowChallenge.flowId}
+                  verificationUri={deviceFlowState.deviceFlowChallenge.verificationUri}
+                  userCode={deviceFlowState.deviceFlowChallenge.userCode}
+                  codePending={deviceFlowState.deviceFlowChallenge.codePending}
+                  intervalSeconds={deviceFlowState.deviceFlowChallenge.intervalSeconds}
+                  expiresAt={deviceFlowState.deviceFlowChallenge.expiresAt}
+                />
+              ) : (
+                <DialogNotice tone="neutral" title="Browser device sign-in">
+                  Start the device flow, then authorize {provider.label} with the verification code.
+                </DialogNotice>
+              )}
+              {deviceFlowState.status === "error" ? (
+                <ProviderActionResult
+                  state={deviceFlowState}
+                  provider={provider}
+                  matchProviderId={choice.providerId}
+                />
+              ) : null}
+              {deviceFlowState.status === "error" ? (
+                <pre className="overflow-x-auto rounded-md border border-border bg-muted p-3 text-xs">
+                  <code>openclaw onboard --auth-choice {choice.id}</code>
+                </pre>
+              ) : null}
               <DialogFooter>
                 <DialogClose asChild>
                   <Button type="button" variant="secondary">
                     Close
                   </Button>
                 </DialogClose>
-                <Button type="button" onClick={() => router.refresh()}>
-                  Re-check status
-                </Button>
+                {deviceFlowState.status === "success" &&
+                deviceFlowState.deviceFlowChallenge !== null ? null : (
+                  <DialogSubmitButton pendingLabel="Starting...">
+                    Start device flow
+                  </DialogSubmitButton>
+                )}
               </DialogFooter>
-            </div>
+            </form>
           ) : (
             <DialogNotice tone="warning" title="No live auth method">
               Refresh the gateway catalog after enabling this provider&apos;s auth choice.
@@ -583,6 +619,7 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
             flowId={provider.pendingFlow.flowId}
             verificationUri={provider.pendingFlow.verificationUri}
             userCode={provider.pendingFlow.userCode}
+            codePending={provider.pendingFlow.codePending}
             intervalSeconds={provider.pendingFlow.intervalSeconds}
             expiresAt={provider.pendingFlow.expiresAt}
           />

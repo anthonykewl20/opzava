@@ -253,6 +253,13 @@ class RecordingGatewayRuntime {
     readonly keyFlag: string;
     readonly apiKey: string;
   }[] = [];
+  public readonly deviceLoginCalls: string[] = [];
+  public readonly deviceLogReads: string[] = [];
+  public readonly deviceStops: {
+    readonly execId: string;
+    readonly logPath: string;
+  }[] = [];
+  public connectedDeviceProviderId: string | null = null;
   public modelStatusCalls = 0;
 
   public constructor(
@@ -263,12 +270,13 @@ class RecordingGatewayRuntime {
         readonly mode: "api-key" | "device-flow";
         readonly keyFlag?: string;
       }[];
-      readonly status?: unknown;
+      readonly status?: unknown | (() => unknown);
       readonly connectResult?: Result<{
         readonly exitCode: number;
         readonly stdout: string;
         readonly stderr: string;
       }>;
+      readonly deviceCodeLog?: string | (() => string);
     } = {},
   ) {}
 
@@ -291,19 +299,43 @@ class RecordingGatewayRuntime {
 
   public async modelStatus(): Promise<Result<unknown>> {
     this.modelStatusCalls += 1;
-    return ok(
-      this.options.status ?? {
-        allowed: ["zai/glm-5.2"],
+    if (typeof this.options.status === "function") {
+      return ok(this.options.status());
+    }
+
+    if (this.options.status !== undefined) {
+      return ok(this.options.status);
+    }
+
+    if (this.connectedDeviceProviderId !== null) {
+      return ok({
+        allowed: [`${this.connectedDeviceProviderId}/gpt-5.5`],
         auth: {
           providers: [
             {
-              provider: "zai",
-              profiles: { count: 1, apiKey: 1, labels: ["zai:manual=API key"] },
+              provider: this.connectedDeviceProviderId,
+              profiles: {
+                count: 1,
+                oauth: 1,
+                labels: [`${this.connectedDeviceProviderId}:oauth=OAuth`],
+              },
             },
           ],
         },
+      });
+    }
+
+    return ok({
+      allowed: ["zai/glm-5.2"],
+      auth: {
+        providers: [
+          {
+            provider: "zai",
+            profiles: { count: 1, apiKey: 1, labels: ["zai:manual=API key"] },
+          },
+        ],
       },
-    );
+    });
   }
 
   public async connectApiKey(input: {
@@ -316,6 +348,28 @@ class RecordingGatewayRuntime {
   > {
     this.connectCalls.push(input);
     return this.options.connectResult ?? ok({ exitCode: 0, stdout: "{}", stderr: "" });
+  }
+
+  public async startDeviceCodeLogin(
+    providerId: string,
+  ): Promise<Result<{ readonly execId: string; readonly logPath: string }>> {
+    this.deviceLoginCalls.push(providerId);
+    return ok({ execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" });
+  }
+
+  public async readDeviceCodeLog(logPath: string): Promise<Result<string>> {
+    this.deviceLogReads.push(logPath);
+    const value =
+      typeof this.options.deviceCodeLog === "function"
+        ? this.options.deviceCodeLog()
+        : this.options.deviceCodeLog;
+    return ok(
+      value ?? "\u001B[32mOpen https://auth.openai.com/codex/device\u001B[0m\nCode: NRK5-7IPKG\n",
+    );
+  }
+
+  public async stopDeviceCodeLogin(execId: string, logPath: string): Promise<void> {
+    this.deviceStops.push({ execId, logPath });
   }
 }
 
@@ -398,6 +452,50 @@ function fakeKeypair(): OpenClawAdminDeviceKeypair {
     publicKey: "public-key-1",
     sign: async () => "signature-1",
   };
+}
+
+function openAiDeviceFlowAdmin(): RecordingAdminClient {
+  return new RecordingAdminClient({
+    "config.get": ok({
+      hash: "config-hash-openai",
+      auth: { profiles: {}, order: {} },
+      agents: {
+        defaults: { model: { primary: "openai/gpt-5.5" } },
+        list: [{ id: "ask-admin-opzava", model: "openai/gpt-5.5" }],
+      },
+    }),
+    health: ok({ status: "ok" }),
+    "last-heartbeat": ok({ lastHeartbeatAt: "2026-07-03T00:00:00.000Z" }),
+    "models.list": ok({
+      providers: [
+        {
+          id: "openai",
+          label: "OpenAI",
+          vendor: "OpenAI",
+          suggestedModel: "openai/gpt-5.5",
+          authChoices: [
+            {
+              id: "openai-device-code",
+              label: "OAuth device flow",
+              mode: "device-flow",
+              providerId: "openai",
+            },
+          ],
+        },
+      ],
+      models: [{ id: "gpt-5.5", name: "GPT 5.5", provider: "openai", available: true }],
+    }),
+    "models.authStatus": ok({
+      providers: [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          status: "missing",
+          profiles: [],
+        },
+      ],
+    }),
+  });
 }
 
 async function listen(
@@ -1252,7 +1350,9 @@ describe("Connections provisioning helpers", () => {
         },
       }),
       "config.patch": ok({ ok: true }),
-      "models.list": ok({ providers: [{ id: "zai", label: "Z.AI", authChoices: [apiKeyChoice()] }] }),
+      "models.list": ok({
+        providers: [{ id: "zai", label: "Z.AI", authChoices: [apiKeyChoice()] }],
+      }),
     });
     const port = new GatewayAdminConnectionsProvisioningPort({
       adminClient: admin,
@@ -1264,7 +1364,10 @@ describe("Connections provisioning helpers", () => {
     const result = await port.disconnectModelProvider({ ...principal(), providerId: "zai" });
 
     expect(result.ok).toBe(true);
-    expect(admin.calls[0]).toMatchObject({ method: "models.authLogout", params: { provider: "zai" } });
+    expect(admin.calls[0]).toMatchObject({
+      method: "models.authLogout",
+      params: { provider: "zai" },
+    });
     const patch = admin.calls.find((call) => call.method === "config.patch");
     expect(patch).toBeDefined();
     expect(rawPatch(patch!.params)).toEqual({
@@ -1399,11 +1502,18 @@ describe("Connections provisioning helpers", () => {
     expect(patchCall?.idempotencyKey).toBeUndefined();
   });
 
-  it("returns an honest unsupported poll state for model-provider device flow", async () => {
+  it("starts model-provider device flow by parsing the gateway device-code log", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLog:
+        "\u001B[36mAuthorize at https://auth.openai.com/codex/device\u001B[0m\nCode: NRK5-7IPKG\nrefresh_token=secret-device-token\n",
+    });
     const port = new GatewayAdminConnectionsProvisioningPort({
-      adminClient: new RecordingAdminClient({}),
+      adminClient: openAiDeviceFlowAdmin(),
       secretsVault: new MemorySecretsVault(),
       githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
     });
 
     const result = await port.startModelProviderDeviceFlow({
@@ -1412,15 +1522,261 @@ describe("Connections provisioning helpers", () => {
       authChoiceId: "openai-device-code",
     });
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected device-flow unsupported failure");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw result.error;
     }
-    expect(result.error).toMatchObject({
-      code: "provisioning.connections.deviceFlowRequiresInteractive",
-      message:
-        "Model-provider device-flow OAuth requires an interactive gateway login. Use the Gateway CLI runbook for this provider.",
+    expect(gatewayRuntime.deviceLoginCalls).toEqual(["openai"]);
+    expect(result.value).toMatchObject({
+      kind: "model_provider",
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "NRK5-7IPKG",
+      codePending: false,
+      expiresAt: "2026-07-03T00:15:00.000Z",
+      intervalSeconds: 5,
     });
+    expect(JSON.stringify(result.value)).not.toContain("secret-device-token");
+  });
+
+  it("returns a pending model-provider device-flow challenge after a short empty-log probe", async () => {
+    vi.useFakeTimers();
+    try {
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+        deviceCodeLog: "",
+      });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: openAiDeviceFlowAdmin(),
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        gatewayRuntime,
+        now: () => new Date("2026-07-03T00:00:00.000Z"),
+      });
+
+      const resultPromise = port.startModelProviderDeviceFlow({
+        ...principal(),
+        providerId: "openai",
+        authChoiceId: "openai-device-code",
+      });
+
+      await vi.runAllTimersAsync();
+      const result = await resultPromise;
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        throw result.error;
+      }
+      expect(result.value).toMatchObject({
+        kind: "model_provider",
+        providerId: "openai",
+        authChoiceId: "openai-device-code",
+        verificationUri: "",
+        userCode: "",
+        codePending: true,
+        expiresAt: "2026-07-03T00:15:00.000Z",
+        intervalSeconds: 5,
+      });
+      expect(gatewayRuntime.deviceLogReads).toHaveLength(4);
+      expect(gatewayRuntime.deviceStops).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain("secret");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("polls model-provider device flow from code-pending to code-ready to connected", async () => {
+    let deviceCodeLog = "";
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLog: () => deviceCodeLog,
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    vi.useFakeTimers();
+    let challenge: Awaited<ReturnType<typeof port.startModelProviderDeviceFlow>> | null = null;
+    try {
+      const challengePromise = port.startModelProviderDeviceFlow({
+        ...principal(),
+        providerId: "openai",
+        authChoiceId: "openai-device-code",
+      });
+      await vi.runAllTimersAsync();
+      challenge = await challengePromise;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(challenge?.ok).toBe(true);
+    if (challenge === null) {
+      throw new Error("expected device-flow challenge");
+    }
+    if (!challenge.ok) {
+      throw challenge.error;
+    }
+    expect(challenge.value).toMatchObject({ codePending: true, verificationUri: "", userCode: "" });
+
+    const codePending = await port.pollDeviceFlow({
+      ...principal(),
+      flowId: challenge.value.flowId,
+    });
+    expect(codePending.ok ? codePending.value : null).toMatchObject({
+      status: "pending",
+      message: "Requesting device code...",
+      codePending: true,
+      intervalSeconds: 5,
+    });
+
+    deviceCodeLog =
+      "Open https://auth.openai.com/codex/device\nCode: NRK5-7IPKG\nrefresh_token=secret-poll-token\n";
+    const codeReady = await port.pollDeviceFlow({
+      ...principal(),
+      flowId: challenge.value.flowId,
+    });
+    expect(codeReady.ok ? codeReady.value : null).toMatchObject({
+      status: "pending",
+      message: "Waiting for gateway device-code authorization.",
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "NRK5-7IPKG",
+      codePending: false,
+      intervalSeconds: 5,
+    });
+    expect(JSON.stringify(codeReady)).not.toContain("secret-poll-token");
+
+    deviceCodeLog = "";
+    const persistedCode = await port.pollDeviceFlow({
+      ...principal(),
+      flowId: challenge.value.flowId,
+    });
+    expect(persistedCode.ok ? persistedCode.value : null).toMatchObject({
+      status: "pending",
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "NRK5-7IPKG",
+      codePending: false,
+    });
+
+    gatewayRuntime.connectedDeviceProviderId = "openai";
+    const connected = await port.pollDeviceFlow({
+      ...principal(),
+      flowId: challenge.value.flowId,
+    });
+
+    expect(connected.ok ? connected.value : null).toMatchObject({
+      status: "connected",
+      message: "openai connected in Opzava Gateway.",
+      connection: {
+        providerId: "openai",
+        status: "connected",
+        authChoiceId: "openai-device-code",
+        connectedAuthMode: "oauth",
+      },
+    });
+    expect(gatewayRuntime.deviceStops).toEqual([
+      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
+    ]);
+    expect(JSON.stringify(connected)).not.toContain("secret");
+  });
+
+  it("expires pending model-provider device flows and cleans up the gateway log", async () => {
+    let nowMs = Date.parse("2026-07-03T00:00:00.000Z");
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLog: "",
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date(nowMs),
+    });
+
+    vi.useFakeTimers();
+    let challenge: Awaited<ReturnType<typeof port.startModelProviderDeviceFlow>> | null = null;
+    try {
+      const challengePromise = port.startModelProviderDeviceFlow({
+        ...principal(),
+        providerId: "openai",
+        authChoiceId: "openai-device-code",
+      });
+      await vi.runAllTimersAsync();
+      challenge = await challengePromise;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(challenge?.ok).toBe(true);
+    if (challenge === null) {
+      throw new Error("expected device-flow challenge");
+    }
+    if (!challenge.ok) {
+      throw challenge.error;
+    }
+
+    nowMs += 15 * 60 * 1000 + 1;
+    const expired = await port.pollDeviceFlow({ ...principal(), flowId: challenge.value.flowId });
+
+    expect(expired.ok ? expired.value : null).toMatchObject({
+      status: "expired",
+      message: "Could not get a device code, try again.",
+    });
+    expect(gatewayRuntime.deviceStops).toEqual([
+      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
+    ]);
+  });
+
+  it("maps terminal gateway device-flow logs to failed without leaking log contents", async () => {
+    let deviceCodeLog = "";
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLog: () => deviceCodeLog,
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    vi.useFakeTimers();
+    let challenge: Awaited<ReturnType<typeof port.startModelProviderDeviceFlow>> | null = null;
+    try {
+      const challengePromise = port.startModelProviderDeviceFlow({
+        ...principal(),
+        providerId: "openai",
+        authChoiceId: "openai-device-code",
+      });
+      await vi.runAllTimersAsync();
+      challenge = await challengePromise;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(challenge?.ok).toBe(true);
+    if (challenge === null) {
+      throw new Error("expected device-flow challenge");
+    }
+    if (!challenge.ok) {
+      throw challenge.error;
+    }
+
+    deviceCodeLog = "Error: authorization denied refresh_token=secret-terminal-token";
+    const failed = await port.pollDeviceFlow({ ...principal(), flowId: challenge.value.flowId });
+
+    expect(failed.ok ? failed.value : null).toMatchObject({
+      status: "failed",
+      message: "Gateway device-code authorization failed or was denied.",
+    });
+    expect(gatewayRuntime.deviceStops).toEqual([
+      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
+    ]);
+    expect(JSON.stringify(failed)).not.toContain("secret-terminal-token");
+    expect(JSON.stringify(failed)).not.toContain("authorization denied");
   });
 
   it("runs GitHub OAuth device flow against fetch and stores the token in the vault", async () => {

@@ -79,6 +79,11 @@ interface GatewayRuntimeCommandResult {
   readonly stderr: string;
 }
 
+interface GatewayRuntimeDeviceCodeLogin {
+  readonly execId: string;
+  readonly logPath: string;
+}
+
 interface GatewayRuntimePort {
   listAuthChoices(): Promise<Result<readonly GatewayRuntimeAuthChoice[]>>;
   modelStatus(): Promise<Result<unknown>>;
@@ -88,6 +93,9 @@ interface GatewayRuntimePort {
     readonly keyFlag: string;
     readonly apiKey: string;
   }): Promise<Result<GatewayRuntimeCommandResult>>;
+  startDeviceCodeLogin(providerId: string): Promise<Result<GatewayRuntimeDeviceCodeLogin>>;
+  readDeviceCodeLog(logPath: string): Promise<Result<string>>;
+  stopDeviceCodeLogin(execId: string, logPath: string): Promise<void>;
 }
 
 interface PendingGitHubDeviceFlow {
@@ -99,8 +107,26 @@ interface PendingGitHubDeviceFlow {
   readonly principal: ConnectionProvisioningPrincipal;
 }
 
-const modelDeviceFlowUnsupportedMessage =
-  "Model-provider device-flow OAuth requires an interactive gateway login. Use the Gateway CLI runbook for this provider.";
+interface PendingModelProviderDeviceFlow {
+  readonly flowId: string;
+  /** Owning tenant — a flow may only be polled by the principal that started it (multi-tenant scope). */
+  readonly orgId: string;
+  readonly providerId: string;
+  readonly authChoiceId: string;
+  readonly verificationUri?: string;
+  readonly userCode?: string;
+  readonly expiresAt: Date;
+  readonly intervalSeconds: number;
+  readonly execId: string;
+  readonly logPath: string;
+}
+
+const modelDeviceFlowRequiredMessage =
+  "That provider auth method uses OAuth device flow. Start the browser device-flow sign-in instead.";
+const modelDeviceFlowStartPollDelayMs = 1_500;
+const modelDeviceFlowStartMaxAttempts = 4;
+const modelDeviceFlowExpiresMs = 15 * 60 * 1000;
+const modelDeviceFlowPollIntervalSeconds = 5;
 
 function provisioningError(
   code: string,
@@ -112,6 +138,10 @@ function provisioningError(
     message,
     ...(details === undefined ? {} : { details }),
   });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -136,6 +166,48 @@ function stringArrayValue(value: unknown): readonly string[] {
   }
 
   return value.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "");
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function stripAnsi(value: string): string {
+  // The device-code CLI is a TTY prompter (ANSI escapes + spinners); strip CSI sequences so the
+  // verification URL + code parse cleanly. ESC (0x1B) is intentional here.
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, "");
+}
+
+function parseDeviceCodeLog(value: string): {
+  readonly verificationUri: string;
+  readonly userCode: string;
+} | null {
+  const stripped = stripAnsi(value);
+  const verificationUri =
+    stripped.match(/https?:\/\/[^\s"']*device[^\s"']*/i)?.[0] ??
+    stripped.match(/https?:\/\/auth\.[^\s"']+/i)?.[0] ??
+    null;
+  const userCode =
+    stripped.match(/Code:\s*([A-Z0-9][A-Z0-9-]{3,})/i)?.[1] ??
+    stripped.match(/\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/i)?.[1] ??
+    null;
+
+  if (verificationUri === null || userCode === null) {
+    return null;
+  }
+
+  return { verificationUri, userCode: userCode.toUpperCase() };
+}
+
+function deviceCodeLogTerminalFailure(logValue: string): boolean {
+  // Deliberately narrow: connected + expiry are the reliable terminals, so match only
+  // unambiguous OAuth-denial signals absent from normal prompter output (a broad
+  // /error|expired|invalid/ would false-kill valid flows: the "Code expires in N minutes"
+  // countdown, stray "error" in the spinner UI, etc.).
+  return /\b(access[_ ]denied|authorization[_ ](denied|declined)|expired[_ ]token|invalid[_ ]grant|invalid[_ ]client|denied by (the )?user|sign[- ]?in (failed|was denied|declined))\b/i.test(
+    stripAnsi(logValue).slice(-4096),
+  );
 }
 
 function configBaseHash(value: unknown): string | null {
@@ -320,7 +392,7 @@ function firstConfiguredProviderModel(
       typeof entry === "string"
         ? stringValue(entry)
         : isRecord(entry)
-          ? stringValue(entry["id"]) ?? stringValue(entry["model"]) ?? stringValue(entry["name"])
+          ? (stringValue(entry["id"]) ?? stringValue(entry["model"]) ?? stringValue(entry["name"]))
           : null,
     )
     .find((value): value is string => value !== null);
@@ -397,9 +469,7 @@ function configuredModelForProvider(input: {
   }
 
   return (
-    firstConfiguredProviderModel(input.providerId, input.config) ??
-    input.models?.[0]?.id ??
-    null
+    firstConfiguredProviderModel(input.providerId, input.config) ?? input.models?.[0]?.id ?? null
   );
 }
 
@@ -907,6 +977,17 @@ function choiceMatchesProvider(input: {
   );
 }
 
+function deviceCodeProviderArg(input: {
+  readonly providerId: string;
+  readonly authChoiceId: string;
+}): string {
+  return (
+    providerChoiceRoots(input.providerId).find(
+      (root) => input.authChoiceId === root || input.authChoiceId.startsWith(`${root}-`),
+    ) ?? input.providerId
+  );
+}
+
 function authChoicesForProvider(input: {
   readonly providerId: string;
   readonly choices: readonly GatewayRuntimeAuthChoice[];
@@ -1349,9 +1430,7 @@ function authLogoutUnavailable(error: DomainError): boolean {
 
 function profileUsesApiKeyAuth(profileIdValue: string, profile: Record<string, unknown>): boolean {
   const mode =
-    stringValue(profile["type"]) ??
-    stringValue(profile["mode"]) ??
-    stringValue(profile["auth"]);
+    stringValue(profile["type"]) ?? stringValue(profile["mode"]) ?? stringValue(profile["auth"]);
   if (mode === "oauth" || mode === "token") {
     return false;
   }
@@ -1469,6 +1548,73 @@ class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       input.apiKey,
       "--json",
     ]);
+  }
+
+  public async startDeviceCodeLogin(
+    providerId: string,
+  ): Promise<Result<GatewayRuntimeDeviceCodeLogin>> {
+    const logPath = `/tmp/opzava-df-${randomUUID()}.log`;
+    const command = `node openclaw.mjs models auth login --provider ${shellQuote(
+      providerId,
+    )} --device-code`;
+    const shellCommand = `/usr/bin/script -qfc ${shellQuote(command)} ${shellQuote(logPath)}`;
+    const containerId = await this.resolveContainerId();
+    if (!containerId.ok) {
+      return err(containerId.error);
+    }
+
+    const created = await this.dockerRequest<{ readonly Id?: unknown }>(
+      `/containers/${encodeURIComponent(containerId.value)}/exec`,
+      {
+        method: "POST",
+        body: {
+          AttachStdout: false,
+          AttachStderr: false,
+          Tty: false,
+          Cmd: ["sh", "-lc", shellCommand],
+        },
+      },
+    );
+    if (!created.ok) {
+      return err(created.error);
+    }
+
+    const execId = stringValue(created.value["Id"]);
+    if (execId === null) {
+      return err(
+        provisioningError(
+          "provisioning.docker.execCreateInvalid",
+          "Docker exec create did not return an exec id.",
+        ),
+      );
+    }
+
+    const started = await this.dockerRawRequest(`/exec/${encodeURIComponent(execId)}/start`, {
+      method: "POST",
+      body: {
+        Detach: true,
+        Tty: false,
+      },
+    });
+    if (!started.ok) {
+      await this.stopDeviceCodeLogin(execId, logPath);
+      return err(started.error);
+    }
+
+    return ok({ execId, logPath });
+  }
+
+  public async readDeviceCodeLog(logPath: string): Promise<Result<string>> {
+    const result = await this.exec(["sh", "-lc", `cat ${shellQuote(logPath)} 2>/dev/null || true`]);
+    if (!result.ok) {
+      return err(result.error);
+    }
+
+    return ok(result.value.stdout);
+  }
+
+  public async stopDeviceCodeLogin(_execId: string, logPath: string): Promise<void> {
+    await this.exec(["sh", "-lc", `rm -f ${shellQuote(logPath)}`]).catch(() => undefined);
   }
 
   private async exec(cmd: readonly string[]): Promise<Result<GatewayRuntimeCommandResult>> {
@@ -1788,7 +1934,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private readonly fetchImpl: Fetch;
   private readonly now: () => Date;
   private readonly githubFlows = new Map<string, PendingGitHubDeviceFlow>();
-  private readonly modelDeviceFlows = new Map<string, DeviceFlowChallenge>();
+  private readonly modelDeviceFlows = new Map<string, PendingModelProviderDeviceFlow>();
 
   public constructor(private readonly options: GatewayAdminConnectionsOptions) {
     this.fetchImpl = options.fetch ?? fetch;
@@ -1856,19 +2002,24 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
-    const [healthResult, heartbeatResult, modelsResult, authChoicesResult, modelStatusResult, authStatus] =
-      await Promise.all([
-        this.options.adminClient.request("health", {}),
-        this.options.adminClient.request("last-heartbeat", {}),
-        this.options.adminClient.request("models.list", { view: "all" }),
-        this.options.gatewayRuntime?.listAuthChoices() ??
-          ok<readonly GatewayRuntimeAuthChoice[]>([]),
-        // `models status` (CLI) sees the REAL profile stores — incl. the Codex/OAuth store that the
-        // `models.authStatus` RPC under-reports as "missing" for openai. It is the connected-truth.
-        this.options.gatewayRuntime?.modelStatus() ??
-          ok<unknown>({ auth: { providers: [] }, allowed: [] }),
-        this.modelAuthStatus(),
-      ]);
+    const [
+      healthResult,
+      heartbeatResult,
+      modelsResult,
+      authChoicesResult,
+      modelStatusResult,
+      authStatus,
+    ] = await Promise.all([
+      this.options.adminClient.request("health", {}),
+      this.options.adminClient.request("last-heartbeat", {}),
+      this.options.adminClient.request("models.list", { view: "all" }),
+      this.options.gatewayRuntime?.listAuthChoices() ?? ok<readonly GatewayRuntimeAuthChoice[]>([]),
+      // `models status` (CLI) sees the REAL profile stores — incl. the Codex/OAuth store that the
+      // `models.authStatus` RPC under-reports as "missing" for openai. It is the connected-truth.
+      this.options.gatewayRuntime?.modelStatus() ??
+        ok<unknown>({ auth: { providers: [] }, allowed: [] }),
+      this.modelAuthStatus(),
+    ]);
     const config = configPayload(configResult.value);
     const runtimeChoices = authChoicesResult.ok ? authChoicesResult.value : [];
     const catalog = ensureCanonicalLlmProviders({
@@ -1932,7 +2083,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       providerCatalog: catalog,
       providerConnections,
       pendingDeviceFlows: [
-        ...this.modelDeviceFlows.values(),
+        ...[...this.modelDeviceFlows.values()].map((flow) => this.challengeFromModelFlow(flow)),
         ...[...this.githubFlows.values()].map((flow) => this.challengeFromGitHubFlow(flow)),
       ],
       github,
@@ -1981,8 +2132,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     if (authChoice.mode !== "api-key" || authChoice.keyFlag === undefined) {
       return err(
         provisioningError(
-          "provisioning.connections.deviceFlowRequiresInteractive",
-          modelDeviceFlowUnsupportedMessage,
+          "provisioning.connections.deviceFlowAuthChoiceRequired",
+          modelDeviceFlowRequiredMessage,
           { providerId: input.providerId, authChoiceId: input.authChoiceId },
         ),
       );
@@ -2080,13 +2231,84 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async startModelProviderDeviceFlow(
     input: StartModelProviderDeviceFlowInput,
   ): Promise<Result<DeviceFlowChallenge>> {
-    return err(
-      provisioningError(
-        "provisioning.connections.deviceFlowRequiresInteractive",
-        modelDeviceFlowUnsupportedMessage,
-        { providerId: input.providerId, authChoiceId: input.authChoiceId },
-      ),
+    const gatewayRuntime = this.options.gatewayRuntime;
+    if (gatewayRuntime === undefined) {
+      return err(gatewayRuntimeUnavailableError());
+    }
+
+    const authChoices = await gatewayRuntime.listAuthChoices();
+    if (!authChoices.ok) {
+      return err(authChoices.error);
+    }
+
+    const authChoice = authChoicesForProvider({
+      providerId: input.providerId,
+      choices: authChoices.value,
+    }).find((choice) => choice.id === input.authChoiceId);
+    if (authChoice === undefined) {
+      return err(
+        provisioningError(
+          "provisioning.connections.authChoiceUnavailable",
+          "The live Opzava Gateway auth-choice catalog does not expose that provider auth method.",
+          { providerId: input.providerId, authChoiceId: input.authChoiceId },
+        ),
+      );
+    }
+
+    if (authChoice.mode !== "device-flow") {
+      return err(
+        provisioningError(
+          "provisioning.connections.deviceFlowAuthChoiceRequired",
+          "That provider auth method does not support OAuth device flow.",
+          { providerId: input.providerId, authChoiceId: input.authChoiceId },
+        ),
+      );
+    }
+
+    const login = await gatewayRuntime.startDeviceCodeLogin(
+      deviceCodeProviderArg({
+        providerId: input.providerId,
+        authChoiceId: input.authChoiceId,
+      }),
     );
+    if (!login.ok) {
+      return err(login.error);
+    }
+
+    const baseFlow: PendingModelProviderDeviceFlow = {
+      flowId: `model:${randomUUID()}`,
+      orgId: input.orgId,
+      providerId: input.providerId,
+      authChoiceId: input.authChoiceId,
+      expiresAt: new Date(this.now().getTime() + modelDeviceFlowExpiresMs),
+      intervalSeconds: modelDeviceFlowPollIntervalSeconds,
+      execId: login.value.execId,
+      logPath: login.value.logPath,
+    };
+
+    for (let attempt = 0; attempt < modelDeviceFlowStartMaxAttempts; attempt += 1) {
+      const log = await gatewayRuntime.readDeviceCodeLog(login.value.logPath);
+      if (!log.ok) {
+        await gatewayRuntime.stopDeviceCodeLogin(login.value.execId, login.value.logPath);
+        return err(log.error);
+      }
+
+      const parsed = parseDeviceCodeLog(log.value);
+      if (parsed !== null) {
+        const flow: PendingModelProviderDeviceFlow = {
+          ...baseFlow,
+          verificationUri: parsed.verificationUri,
+          userCode: parsed.userCode,
+        };
+        this.modelDeviceFlows.set(flow.flowId, flow);
+        return ok(this.challengeFromModelFlow(flow));
+      }
+
+      await sleep(modelDeviceFlowStartPollDelayMs);
+    }
+
+    this.modelDeviceFlows.set(baseFlow.flowId, baseFlow);
+    return ok(this.challengeFromModelFlow(baseFlow));
   }
 
   public async pollDeviceFlow(
@@ -2099,10 +2321,13 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
 
     const modelFlow = this.modelDeviceFlows.get(input.flowId);
     if (modelFlow !== undefined) {
-      this.modelDeviceFlows.delete(input.flowId);
+      return this.pollModelProviderFlow(input, modelFlow);
+    }
+
+    if (input.flowId.startsWith("model:")) {
       return ok({
-        status: "failed",
-        message: modelDeviceFlowUnsupportedMessage,
+        status: "expired",
+        message: "Model-provider device code expired or has already completed.",
       });
     }
 
@@ -2464,6 +2689,107 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       lastCheckedAt: now.toISOString(),
       message: "GitHub token validated from SecretsVaultPort.",
     };
+  }
+
+  private challengeFromModelFlow(flow: PendingModelProviderDeviceFlow): DeviceFlowChallenge {
+    const codePending = flow.verificationUri === undefined || flow.userCode === undefined;
+    return {
+      flowId: flow.flowId,
+      kind: "model_provider",
+      providerId: flow.providerId,
+      authChoiceId: flow.authChoiceId,
+      verificationUri: flow.verificationUri ?? "",
+      userCode: flow.userCode ?? "",
+      codePending,
+      expiresAt: flow.expiresAt.toISOString(),
+      intervalSeconds: flow.intervalSeconds,
+    };
+  }
+
+  private async cleanupModelProviderFlow(flow: PendingModelProviderDeviceFlow): Promise<void> {
+    this.modelDeviceFlows.delete(flow.flowId);
+    await this.options.gatewayRuntime?.stopDeviceCodeLogin(flow.execId, flow.logPath);
+  }
+
+  private async pollModelProviderFlow(
+    input: { readonly flowId: string } & ConnectionProvisioningPrincipal,
+    flow: PendingModelProviderDeviceFlow,
+  ): Promise<Result<DeviceFlowPollState>> {
+    // A device flow belongs to the principal that started it; never let another tenant poll it.
+    if (flow.orgId !== input.orgId) {
+      return ok({ status: "expired", message: "Device sign-in not found." });
+    }
+    if (this.now().getTime() >= flow.expiresAt.getTime()) {
+      await this.cleanupModelProviderFlow(flow);
+      return ok({
+        status: "expired",
+        message:
+          flow.verificationUri === undefined || flow.userCode === undefined
+            ? "Could not get a device code, try again."
+            : "Model-provider device code expired.",
+      });
+    }
+
+    const connection = await this.refreshedProviderConnection(
+      { ...input, providerId: flow.providerId },
+      "Waiting for gateway device-code authorization.",
+    );
+    if (connection.status === "connected") {
+      await this.cleanupModelProviderFlow(flow);
+      return ok({
+        status: "connected",
+        message: `${flow.providerId} connected in Opzava Gateway.`,
+        connection: {
+          ...connection,
+          authChoiceId: connection.authChoiceId ?? flow.authChoiceId,
+        },
+      });
+    }
+
+    let currentFlow = flow;
+    const log = await this.options.gatewayRuntime?.readDeviceCodeLog(flow.logPath);
+    if (log !== undefined && !log.ok) {
+      return err(log.error);
+    }
+    if (
+      log !== undefined &&
+      (currentFlow.verificationUri === undefined || currentFlow.userCode === undefined)
+    ) {
+      const parsed = parseDeviceCodeLog(log.value);
+      if (parsed !== null) {
+        currentFlow = {
+          ...currentFlow,
+          verificationUri: parsed.verificationUri,
+          userCode: parsed.userCode,
+        };
+        this.modelDeviceFlows.set(currentFlow.flowId, currentFlow);
+      }
+    }
+    if (log !== undefined && deviceCodeLogTerminalFailure(log.value)) {
+      await this.cleanupModelProviderFlow(currentFlow);
+      return ok({
+        status: "failed",
+        message: "Gateway device-code authorization failed or was denied.",
+      });
+    }
+
+    if (currentFlow.verificationUri !== undefined && currentFlow.userCode !== undefined) {
+      return ok({
+        status: "pending",
+        message: "Waiting for gateway device-code authorization.",
+        intervalSeconds: currentFlow.intervalSeconds,
+        verificationUri: currentFlow.verificationUri,
+        userCode: currentFlow.userCode,
+        codePending: false,
+      });
+    }
+
+    return ok({
+      status: "pending",
+      message: "Requesting device code...",
+      intervalSeconds: currentFlow.intervalSeconds,
+      codePending: true,
+    });
   }
 
   private challengeFromGitHubFlow(flow: PendingGitHubDeviceFlow): DeviceFlowChallenge {

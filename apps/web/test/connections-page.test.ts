@@ -605,21 +605,45 @@ describe("Connections page state", () => {
   });
 
   it("reduces device-flow poll states deterministically", () => {
-    const current = { status: "pending", message: "Waiting" } as const;
+    const current = {
+      status: "pending",
+      message: "Requesting device code...",
+      codePending: true,
+    } as const;
+    const codeReady: DeviceFlowPollState = {
+      status: "pending",
+      message: "Waiting for gateway device-code authorization.",
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "NRK5-7IPKG",
+      codePending: false,
+      intervalSeconds: 5,
+    };
     const connected: DeviceFlowPollState = {
       status: "connected",
       message: "Connected.",
       connection: providerState(),
     };
     const failed: DeviceFlowPollState = { status: "failed", message: "Denied." };
+    const readyState = deviceFlowReducer(current, codeReady);
 
-    expect(deviceFlowReducer(current, connected)).toEqual({
+    expect(readyState).toEqual({
+      status: "pending",
+      message: "Waiting for gateway device-code authorization.",
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "NRK5-7IPKG",
+      codePending: false,
+    });
+    expect(deviceFlowReducer(readyState, connected)).toEqual({
       status: "connected",
       message: "Connected.",
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "NRK5-7IPKG",
+      codePending: false,
     });
     expect(deviceFlowReducer(current, failed)).toEqual({
       status: "failed",
       message: "Denied.",
+      codePending: false,
     });
   });
 
@@ -764,6 +788,10 @@ describe("Connections page state", () => {
     expect(providersPanel).toContain("data-provider-tier");
     expect(providersPanel).toContain("groupProviderConnectionsByTier");
     expect(providersPanel).toContain("DeviceFlowPoller");
+    expect(providersPanel).toContain("startModelProviderDeviceFlowStateAction");
+    expect(providersPanel).toContain("Start device flow");
+    expect(providersPanel).toContain("openclaw onboard --auth-choice");
+    expect(providersPanel).not.toContain("no in-browser device flow");
     expect(providersPanel).toContain("Disconnect");
     expect(providersPanel).toContain("Admin device required");
     expect(page).toContain("HealthCheckSubmitButton");
@@ -774,6 +802,7 @@ describe("Connections page state", () => {
     expect(page).toContain("GitHub");
     expect(page).toContain("startGitHubDeviceFlowAction");
     expect(actions).toContain("connectModelProviderApiKeyForContext");
+    expect(actions).toContain("deviceFlowChallenge: result.value");
     expect(route).toContain("pollConnectionDeviceFlowForContext");
     expect(nav).toContain('href: "/connections"');
   });

@@ -109,6 +109,7 @@ function connectionActionStateError(error: unknown, providerId: string): Connect
     message: connectionActionErrorMessage(error),
     code: connectionActionErrorCode(error) ?? "web.connectionsProvisioningFailed",
     providerId,
+    deviceFlowChallenge: null,
   };
 }
 
@@ -154,6 +155,7 @@ export async function connectModelProviderApiKeyStateAction(
     message: `${result.value.providerId} connected in Opzava Gateway.`,
     code: null,
     providerId,
+    deviceFlowChallenge: null,
   };
 }
 
@@ -177,11 +179,18 @@ export async function startModelProviderDeviceFlowStateAction(
   }
 
   revalidatePath("/connections");
+  const codePending =
+    result.value.codePending === true ||
+    result.value.verificationUri.trim() === "" ||
+    result.value.userCode.trim() === "";
   return {
     status: "success",
-    message: `Open ${result.value.verificationUri} and enter ${result.value.userCode}.`,
+    message: codePending
+      ? "Requesting device code..."
+      : `Open ${result.value.verificationUri} and enter ${result.value.userCode}.`,
     code: null,
     providerId,
+    deviceFlowChallenge: result.value,
   };
 }
 

@@ -13,21 +13,43 @@ interface DeviceFlowPollerProps {
   readonly flowId: string;
   readonly verificationUri: string;
   readonly userCode: string;
+  readonly codePending?: boolean | undefined;
   readonly intervalSeconds: number;
   readonly expiresAt: string;
+}
+
+function present(value: string | undefined): value is string {
+  return value !== undefined && value.trim() !== "";
+}
+
+function currentDeviceFlowCodeFields(
+  current: DeviceFlowUiState,
+): Pick<DeviceFlowUiState, "verificationUri" | "userCode"> {
+  return {
+    ...(current.verificationUri === undefined ? {} : { verificationUri: current.verificationUri }),
+    ...(current.userCode === undefined ? {} : { userCode: current.userCode }),
+  };
 }
 
 export function DeviceFlowPoller({
   flowId,
   verificationUri,
   userCode,
+  codePending,
   intervalSeconds,
   expiresAt,
 }: DeviceFlowPollerProps) {
   const router = useRouter();
+  const initialVerificationUri = verificationUri.trim() === "" ? undefined : verificationUri;
+  const initialUserCode = userCode.trim() === "" ? undefined : userCode;
+  const initialCodePending =
+    codePending ?? (initialVerificationUri === undefined || initialUserCode === undefined);
   const [state, setState] = useState<DeviceFlowUiState>({
     status: "pending",
-    message: "Waiting for device authorization.",
+    message: initialCodePending ? "Requesting device code..." : "Waiting for device authorization.",
+    ...(initialVerificationUri === undefined ? {} : { verificationUri: initialVerificationUri }),
+    ...(initialUserCode === undefined ? {} : { userCode: initialUserCode }),
+    codePending: initialCodePending,
   });
 
   useEffect(() => {
@@ -53,7 +75,15 @@ export function DeviceFlowPoller({
         previousDelayMs: delayMs,
       });
       if (schedule.expired) {
-        setState({ status: "expired", message: "Device code expired." });
+        setState((current) => ({
+          status: "expired",
+          message:
+            current.codePending === true
+              ? "Could not get a device code, try again."
+              : "Device code expired.",
+          ...currentDeviceFlowCodeFields(current),
+          codePending: false,
+        }));
         stop();
         return true;
       }
@@ -84,7 +114,12 @@ export function DeviceFlowPoller({
         });
       } catch {
         if (!cancelled) {
-          setState({ status: "failed", message: "Device authorization polling failed." });
+          setState((current) => ({
+            status: "failed",
+            message: "Device authorization polling failed.",
+            ...currentDeviceFlowCodeFields(current),
+            codePending: false,
+          }));
         }
         stop();
         return;
@@ -92,7 +127,12 @@ export function DeviceFlowPoller({
 
       if (!response.ok) {
         if (!cancelled) {
-          setState({ status: "failed", message: "Device authorization polling failed." });
+          setState((current) => ({
+            status: "failed",
+            message: "Device authorization polling failed.",
+            ...currentDeviceFlowCodeFields(current),
+            codePending: false,
+          }));
         }
         stop();
         return;
@@ -116,7 +156,15 @@ export function DeviceFlowPoller({
         event: payload,
       });
       if (schedule.expired) {
-        setState({ status: "expired", message: "Device code expired." });
+        setState((current) => ({
+          status: "expired",
+          message:
+            current.codePending === true
+              ? "Could not get a device code, try again."
+              : "Device code expired.",
+          ...currentDeviceFlowCodeFields(current),
+          codePending: false,
+        }));
       }
       if (schedule.stop) {
         stop();
@@ -134,20 +182,60 @@ export function DeviceFlowPoller({
     };
   }, [expiresAt, flowId, intervalSeconds, router]);
 
+  const hasCode =
+    state.codePending !== true && present(state.verificationUri) && present(state.userCode);
+  const expiresLabel = new Date(expiresAt).toLocaleTimeString();
+
+  if (state.status === "connected") {
+    return (
+      <div className="connections-device-flow" aria-live="polite">
+        <div className="col-span-full">
+          <div className="label">Connected</div>
+          <p className="hint">{state.message}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === "expired" || state.status === "failed") {
+    return (
+      <div className="connections-device-flow" aria-live="polite">
+        <div className="col-span-full">
+          <div className="label">
+            {state.status === "expired" ? "Device code expired" : "Device authorization failed"}
+          </div>
+          <p className="hint">{state.message}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="connections-device-flow" aria-live="polite">
-      <div>
-        <div className="label">Authorize in browser</div>
-        <a href={verificationUri} target="_blank" rel="noopener noreferrer">
-          {verificationUri}
-        </a>
-      </div>
-      <div>
-        <div className="label">Code</div>
-        <span className="connections-device-code u-mono">{userCode}</span>
-      </div>
-      <p className="hint">
-        {state.message} Expires {new Date(expiresAt).toLocaleTimeString()}.
+      {hasCode ? (
+        <>
+          <div>
+            <div className="label">Authorize in browser</div>
+            <a href={state.verificationUri} target="_blank" rel="noopener noreferrer">
+              {state.verificationUri}
+            </a>
+          </div>
+          <div>
+            <div className="label">Code</div>
+            <span className="connections-device-code u-mono">{state.userCode}</span>
+          </div>
+        </>
+      ) : (
+        <div className="col-span-full flex items-center gap-3">
+          <span className="sb-spinner sb-spinner--sm" aria-hidden="true" />
+          <div>
+            <div className="label">Authorize in browser</div>
+            <p className="hint">Requesting device code...</p>
+          </div>
+        </div>
+      )}
+      <p className="hint col-span-full">
+        {hasCode ? state.message : "Requesting device code..."} Expires {expiresLabel}.
       </p>
     </div>
   );

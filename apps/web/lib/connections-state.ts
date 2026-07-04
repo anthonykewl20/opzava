@@ -74,6 +74,9 @@ export interface ProviderConnectionTierView {
 export interface DeviceFlowUiState {
   readonly status: "idle" | "pending" | "connected" | "expired" | "failed";
   readonly message: string;
+  readonly verificationUri?: string;
+  readonly userCode?: string;
+  readonly codePending?: boolean;
 }
 
 export interface DeviceFlowPollSchedule {
@@ -302,8 +305,7 @@ function pendingFlowForGroup(
   flows: readonly DeviceFlowChallenge[],
 ): DeviceFlowChallenge | null {
   return (
-    flows.find((flow) => flow.kind === "model_provider" && providerIds.has(flow.providerId)) ??
-    null
+    flows.find((flow) => flow.kind === "model_provider" && providerIds.has(flow.providerId)) ?? null
   );
 }
 
@@ -352,8 +354,7 @@ export function projectModelProviders(
     const groupSource = catalogById.get(groupId) ?? provider;
     const groupClassification =
       classifications.get(groupSource.id) ?? providerClassification(groupSource);
-    const existing =
-      groups.get(groupId) ?? createProviderGroup(groupSource, groupClassification);
+    const existing = groups.get(groupId) ?? createProviderGroup(groupSource, groupClassification);
     groups.set(groupId, existing);
 
     addProviderToGroup(existing, provider, classification, foldsIntoCatalogParent);
@@ -375,8 +376,7 @@ export function projectModelProviders(
       const status = pendingFlow === null ? (state?.status ?? "not_connected") : "pending";
       const models = [...group.models.values()]
         .sort(
-          (left, right) =>
-            left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
+          (left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
         )
         .slice(0, 6);
       const model = state?.model ?? models[0]?.id ?? null;
@@ -507,25 +507,60 @@ export function buildOrchestratorConfigPlan(input: {
   };
 }
 
+function deviceFlowCodeFields(input: {
+  readonly current: DeviceFlowUiState;
+  readonly event: DeviceFlowPollState;
+}): Pick<DeviceFlowUiState, "verificationUri" | "userCode"> {
+  const verificationUri = input.event.verificationUri ?? input.current.verificationUri;
+  const userCode = input.event.userCode ?? input.current.userCode;
+  return {
+    ...(verificationUri === undefined ? {} : { verificationUri }),
+    ...(userCode === undefined ? {} : { userCode }),
+  };
+}
+
 export function deviceFlowReducer(
   current: DeviceFlowUiState,
   event: DeviceFlowPollState,
 ): DeviceFlowUiState {
   if (event.status === "connected") {
-    return { status: "connected", message: event.message ?? "Connected." };
+    return {
+      status: "connected",
+      message: event.message ?? "Connected.",
+      ...deviceFlowCodeFields({ current, event }),
+      codePending: false,
+    };
   }
 
   if (event.status === "expired") {
-    return { status: "expired", message: event.message ?? "Device code expired." };
+    return {
+      status: "expired",
+      message: event.message ?? "Device code expired.",
+      ...deviceFlowCodeFields({ current, event }),
+      codePending: false,
+    };
   }
 
   if (event.status === "failed") {
-    return { status: "failed", message: event.message ?? "Connection failed." };
+    return {
+      status: "failed",
+      message: event.message ?? "Connection failed.",
+      ...deviceFlowCodeFields({ current, event }),
+      codePending: false,
+    };
   }
+
+  const verificationUri = event.verificationUri ?? current.verificationUri;
+  const userCode = event.userCode ?? current.userCode;
+  const codePending =
+    event.codePending ?? (verificationUri === undefined || userCode === undefined);
 
   return {
     status: "pending",
-    message: event.message ?? current.message,
+    message: event.message ?? (codePending ? "Requesting device code..." : current.message),
+    ...(verificationUri === undefined ? {} : { verificationUri }),
+    ...(userCode === undefined ? {} : { userCode }),
+    codePending,
   };
 }
 
