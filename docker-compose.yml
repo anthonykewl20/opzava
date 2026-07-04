@@ -86,11 +86,18 @@ services:
       PROVISIONING_WORKER_TOKEN: ${PROVISIONING_WORKER_TOKEN:?PROVISIONING_WORKER_TOKEN is required}
       OPENCLAW_GATEWAY_URL: ${COMPOSE_OPENCLAW_GATEWAY_URL:-ws://openclaw-platform-gateway:18789}
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
-      OPENCLAW_OPERATOR_DEVICE_TOKEN: ${OPENCLAW_OPERATOR_DEVICE_TOKEN:-}
-      OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64: ${OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64:-}
-      OPENCLAW_DEVICE_PRIVATE_KEY_PEM: ${OPENCLAW_DEVICE_PRIVATE_KEY_PEM:-}
-      OPENCLAW_DEVICE_ID: ${OPENCLAW_DEVICE_ID:-}
-      OPENCLAW_DEVICE_PUBLIC_KEY: ${OPENCLAW_DEVICE_PUBLIC_KEY:-}
+      # Least-privilege operator scopes the worker requests on connect; must match
+      # the paired worker device's approved scopes (read materializes alongside write).
+      # operator.admin is a per-RPC preflight for config mutation, not required to connect.
+      OPENCLAW_OPERATOR_SCOPES: ${WORKER_OPENCLAW_OPERATOR_SCOPES:-operator.write,operator.approvals}
+      # Dedicated worker operator device — two-token boundary: a SEPARATE paired
+      # device from the broker's hot-path device (never share one device identity;
+      # the gateway rejects concurrent connections from the same device).
+      OPENCLAW_OPERATOR_DEVICE_TOKEN: ${WORKER_OPENCLAW_OPERATOR_DEVICE_TOKEN:-}
+      OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64: ${WORKER_OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64:-}
+      OPENCLAW_DEVICE_PRIVATE_KEY_PEM: ${WORKER_OPENCLAW_DEVICE_PRIVATE_KEY_PEM:-}
+      OPENCLAW_DEVICE_ID: ${WORKER_OPENCLAW_DEVICE_ID:-}
+      OPENCLAW_DEVICE_PUBLIC_KEY: ${WORKER_OPENCLAW_DEVICE_PUBLIC_KEY:-}
       OPENCLAW_DEV_SECRETS_FILE: ${COMPOSE_OPENCLAW_DEV_SECRETS_FILE:-/run/opzava-secrets/openclaw-secrets.json}
       GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
       GITHUB_ISSUES_REPOSITORY: ${GITHUB_ISSUES_REPOSITORY:-anthonykewl20/opzava}

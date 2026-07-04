@@ -14,19 +14,20 @@ const openClawClientId = "cli";
 const openClawClientMode = "cli";
 const openClawProtocolVersion = 4;
 const ed25519SpkiPrefix = Buffer.from("302a300506032b6570032100", "hex");
-const adminOperatorScopes = [
-  "operator.read",
-  "operator.write",
-  "operator.approvals",
-  "operator.admin",
-] as const;
+const defaultOperatorScopes = ["operator.read"] as const;
+
+export type OpenClawOperatorScope = `operator.${string}`;
 
 export interface OpenClawAdminRpcPort {
   request(
     method: string,
     params: Record<string, unknown>,
-    options?: { readonly idempotencyKey?: string },
+    options?: {
+      readonly idempotencyKey?: string;
+      readonly requiredScope?: OpenClawOperatorScope;
+    },
   ): Promise<Result<unknown>>;
+  grantedScopes(): readonly OpenClawOperatorScope[] | null;
   close(): void;
 }
 
@@ -61,6 +62,7 @@ export interface OpenClawAdminRpcClientOptions {
   readonly url: string;
   readonly gatewayToken?: string;
   readonly operatorDeviceToken?: string;
+  readonly requestedScopes?: readonly OpenClawOperatorScope[];
   readonly keypair: OpenClawAdminDeviceKeypair;
   readonly socketFactory?: OpenClawAdminWebSocketFactory;
   readonly requestTimeoutMs?: number;
@@ -91,7 +93,7 @@ interface PendingRequest {
 
 interface OpenClawAdminHello {
   readonly protocol: number;
-  readonly scopes: readonly string[];
+  readonly scopes: readonly OpenClawOperatorScope[];
 }
 
 interface OpenClawAdminAuthCredential {
@@ -104,6 +106,31 @@ function adminError(code: string, message: string, cause?: unknown): DomainError
     code,
     message,
     ...(cause === undefined ? {} : { cause }),
+  });
+}
+
+function scopeError(
+  requiredScope: OpenClawOperatorScope,
+  grantedScopes: readonly string[],
+): DomainError {
+  if (requiredScope === "operator.admin") {
+    return new DomainError({
+      code: "provisioning.openclawAdmin.operatorAdminRequired",
+      message: "operator.admin scope required — pair/upgrade an admin device.",
+      details: {
+        requiredScope,
+        grantedScopes,
+      },
+    });
+  }
+
+  return new DomainError({
+    code: "provisioning.openclawAdmin.scopeRequired",
+    message: `${requiredScope} scope required.`,
+    details: {
+      requiredScope,
+      grantedScopes,
+    },
   });
 }
 
@@ -122,6 +149,43 @@ function parseFrame(raw: string): OpenClawAdminFrame | null {
   return isRecord(parsed) && typeof parsed["type"] === "string"
     ? (parsed as unknown as OpenClawAdminFrame)
     : null;
+}
+
+function operatorScopes(value: unknown): readonly OpenClawOperatorScope[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(
+    (scope): scope is OpenClawOperatorScope =>
+      typeof scope === "string" && scope.startsWith("operator."),
+  );
+}
+
+export function openClawOperatorScopeGranted(
+  grantedScopes: readonly string[],
+  requiredScope: OpenClawOperatorScope,
+): boolean {
+  if (grantedScopes.includes("operator.admin")) {
+    return true;
+  }
+
+  if (requiredScope === "operator.read" && grantedScopes.includes("operator.write")) {
+    return true;
+  }
+
+  return grantedScopes.includes(requiredScope);
+}
+
+function normalizeRequestedScopes(
+  scopes: readonly OpenClawOperatorScope[] | undefined,
+): readonly OpenClawOperatorScope[] {
+  const requested = scopes ?? defaultOperatorScopes;
+  const unique = [...new Set(requested.map((scope) => scope.trim()).filter(Boolean))].filter(
+    (scope): scope is OpenClawOperatorScope => scope.startsWith("operator."),
+  );
+
+  return unique.length === 0 ? defaultOperatorScopes : unique;
 }
 
 function serializeFrame(frame: OpenClawAdminFrame): string {
@@ -292,19 +356,15 @@ function helloPayload(value: unknown): Result<OpenClawAdminHello> {
   }
 
   const auth = value["auth"];
-  const scopes =
-    isRecord(auth) && Array.isArray(auth["scopes"])
-      ? auth["scopes"].filter((scope): scope is string => typeof scope === "string")
-      : [];
+  const scopes = isRecord(auth) ? operatorScopes(auth["scopes"]) : [];
   if (
     value["protocol"] !== openClawProtocolVersion ||
-    !scopes.includes("operator.admin") ||
-    !scopes.includes("operator.read")
+    !openClawOperatorScopeGranted(scopes, "operator.read")
   ) {
     return err(
       adminError(
-        "provisioning.openclawAdmin.adminScopeMissing",
-        "Opzava Gateway did not grant the provisioning admin RPC scopes.",
+        "provisioning.openclawAdmin.readScopeMissing",
+        "Opzava Gateway did not grant the provisioning read RPC scope.",
       ),
     );
   }
@@ -342,16 +402,19 @@ function authCredentialFromOptions(
 
 export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
   private readonly authCredential: OpenClawAdminAuthCredential;
+  private readonly requestedScopes: readonly OpenClawOperatorScope[];
   private readonly socketFactory: OpenClawAdminWebSocketFactory;
   private readonly requestTimeoutMs: number;
   private readonly connectTimeoutMs: number;
   private readonly now: () => number;
   private socket: OpenClawAdminWebSocket | null = null;
   private connectPromise: Promise<Result<OpenClawAdminHello>> | null = null;
+  private connectedScopes: readonly OpenClawOperatorScope[] | null = null;
   private readonly pendingRequests = new Map<string, PendingRequest>();
 
   public constructor(private readonly options: OpenClawAdminRpcClientOptions) {
     this.authCredential = authCredentialFromOptions(options);
+    this.requestedScopes = normalizeRequestedScopes(options.requestedScopes);
     this.socketFactory = options.socketFactory ?? defaultSocketFactory;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 15_000;
     this.connectTimeoutMs = options.connectTimeoutMs ?? 15_000;
@@ -361,11 +424,21 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
   public async request(
     method: string,
     params: Record<string, unknown>,
-    options: { readonly idempotencyKey?: string } = {},
+    options: {
+      readonly idempotencyKey?: string;
+      readonly requiredScope?: OpenClawOperatorScope;
+    } = {},
   ): Promise<Result<unknown>> {
     const connected = await this.connect();
     if (!connected.ok) {
       return err(connected.error);
+    }
+
+    if (
+      options.requiredScope !== undefined &&
+      !openClawOperatorScopeGranted(connected.value.scopes, options.requiredScope)
+    ) {
+      return err(scopeError(options.requiredScope, connected.value.scopes));
     }
 
     const socket = this.socket;
@@ -413,6 +486,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
     const socket = this.socket;
     this.socket = null;
     this.connectPromise = null;
+    this.connectedScopes = null;
     for (const [id, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout);
       pending.resolve(
@@ -426,6 +500,10 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
       this.pendingRequests.delete(id);
     }
     socket?.close();
+  }
+
+  public grantedScopes(): readonly OpenClawOperatorScope[] | null {
+    return this.connectedScopes;
   }
 
   private connect(): Promise<Result<OpenClawAdminHello>> {
@@ -536,7 +614,11 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
             return;
           }
 
-          settle(helloPayload(frame.payload));
+          const hello = helloPayload(frame.payload);
+          if (hello.ok) {
+            this.connectedScopes = hello.value.scopes;
+          }
+          settle(hello);
           return;
         }
 
@@ -600,7 +682,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
       clientMode: openClawClientMode,
       deviceId: this.options.keypair.deviceId,
       role: "operator",
-      scopes: adminOperatorScopes,
+      scopes: this.requestedScopes,
       token: this.authCredential.token,
       nonce,
       signedAt,
@@ -620,7 +702,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
           mode: openClawClientMode,
         },
         role: "operator",
-        scopes: adminOperatorScopes,
+        scopes: this.requestedScopes,
         caps: [],
         commands: [],
         permissions: {},

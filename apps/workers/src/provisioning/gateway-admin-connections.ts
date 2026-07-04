@@ -32,6 +32,7 @@ import { buildDelegationProvisioningReceipt, buildOrchestratorAgentConfig } from
 import {
   Ed25519OpenClawAdminDeviceKeypair,
   OpenClawAdminRpcClient,
+  type OpenClawOperatorScope,
   type OpenClawAdminRpcPort,
 } from "./openclaw-admin-client.js";
 
@@ -520,6 +521,22 @@ function readRepository(env: NodeJS.ProcessEnv): string {
   return env["GITHUB_ISSUES_REPOSITORY"]?.trim() || "anthonykewl20/opzava";
 }
 
+function readRequestedOperatorScopes(
+  env: NodeJS.ProcessEnv,
+): readonly OpenClawOperatorScope[] | undefined {
+  const raw = env["OPENCLAW_OPERATOR_SCOPES"]?.trim();
+  if (raw === undefined || raw === "") {
+    return undefined;
+  }
+
+  const scopes = raw
+    .split(/[,\s]+/)
+    .map((scope) => scope.trim())
+    .filter((scope): scope is OpenClawOperatorScope => scope.startsWith("operator."));
+
+  return scopes.length === 0 ? undefined : scopes;
+}
+
 function githubTokenScopes(value: unknown): readonly string[] {
   return splitScope(value);
 }
@@ -634,6 +651,7 @@ function gatewayConnectionState(input: {
   readonly healthResult: Result<unknown>;
   readonly heartbeatResult: Result<unknown>;
   readonly modelsResult: Result<unknown>;
+  readonly grantedScopes: readonly string[] | null;
   readonly now: Date;
 }): ConnectionsSnapshot["gateway"] {
   const healthPayload = input.healthResult.ok ? input.healthResult.value : {};
@@ -651,7 +669,10 @@ function gatewayConnectionState(input: {
       healthPayload,
       heartbeatPayload,
     }),
-    authLabel: "Opzava Gateway operator.admin",
+    authLabel:
+      input.grantedScopes === null || input.grantedScopes.length === 0
+        ? "Opzava Gateway operator.read"
+        : `Opzava Gateway ${input.grantedScopes.join(", ")}`,
     lastHeartbeatAt:
       firstNestedTimestamp(heartbeatPayload) ??
       firstNestedTimestamp(healthPayload) ??
@@ -702,6 +723,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         healthResult,
         heartbeatResult,
         modelsResult,
+        grantedScopes: this.options.adminClient.grantedScopes(),
         now,
       }),
       providerCatalog: catalog,
@@ -751,7 +773,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           },
         },
       },
-      { idempotencyKey: idempotencyKey(`model-api-key:${input.providerId}`) },
+      {
+        idempotencyKey: idempotencyKey(`model-api-key:${input.providerId}`),
+        requiredScope: "operator.admin",
+      },
     );
     if (!result.ok) {
       return err(result.error);
@@ -838,7 +863,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           },
         },
       },
-      { idempotencyKey: idempotencyKey(`model-disconnect:${input.providerId}`) },
+      {
+        idempotencyKey: idempotencyKey(`model-disconnect:${input.providerId}`),
+        requiredScope: "operator.admin",
+      },
     );
     if (!result.ok) {
       return err(result.error);
@@ -913,7 +941,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           tokenMaterialIncluded: false,
         },
       },
-      { idempotencyKey: idempotencyKey("orchestrator-delegation") },
+      {
+        idempotencyKey: idempotencyKey("orchestrator-delegation"),
+        requiredScope: "operator.admin",
+      },
     );
     if (!result.ok) {
       return err(result.error);
@@ -1310,6 +1341,7 @@ export function createDefaultConnectionsProvisioningPort(
   const gatewayUrl = env["OPENCLAW_GATEWAY_URL"]?.trim();
   const gatewayToken = env["OPENCLAW_GATEWAY_TOKEN"]?.trim();
   const operatorDeviceToken = env["OPENCLAW_OPERATOR_DEVICE_TOKEN"]?.trim();
+  const requestedScopes = readRequestedOperatorScopes(env);
   const privateKeyPem = readPrivateKeyPem(env);
   const hasAdminCredential =
     (operatorDeviceToken !== undefined && operatorDeviceToken !== "") ||
@@ -1350,6 +1382,7 @@ export function createDefaultConnectionsProvisioningPort(
       ...(operatorDeviceToken === undefined || operatorDeviceToken === ""
         ? {}
         : { operatorDeviceToken }),
+      ...(requestedScopes === undefined ? {} : { requestedScopes }),
       keypair,
     }),
     secretsVault: vault,

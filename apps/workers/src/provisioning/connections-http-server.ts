@@ -92,7 +92,11 @@ function writeJson(response: ServerResponse, statusCode: number, body: unknown):
   response.end(JSON.stringify(body));
 }
 
-function errorPayload(error: unknown): { readonly code: string; readonly message: string } {
+function errorPayload(error: unknown): {
+  readonly code: string;
+  readonly message: string;
+  readonly details?: Readonly<Record<string, unknown>>;
+} {
   if (typeof error !== "object" || error === null) {
     return {
       code: "provisioning.connectionsFailed",
@@ -102,12 +106,16 @@ function errorPayload(error: unknown): { readonly code: string; readonly message
 
   const code = (error as { readonly code?: unknown }).code;
   const message = (error as { readonly message?: unknown }).message;
+  const details = (error as { readonly details?: unknown }).details;
   return {
     code: typeof code === "string" ? code : "provisioning.connectionsFailed",
     message:
       typeof message === "string" && message.trim() !== ""
         ? message
         : "Connection provisioning failed.",
+    ...(typeof details === "object" && details !== null && !Array.isArray(details)
+      ? { details: details as Readonly<Record<string, unknown>> }
+      : {}),
   };
 }
 

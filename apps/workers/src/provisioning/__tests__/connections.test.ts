@@ -26,10 +26,12 @@ import { GatewayAdminConnectionsProvisioningPort } from "../gateway-admin-connec
 import { resolveProvisioningWorkerRuntimeConfig } from "../../main.js";
 import {
   OpenClawAdminRpcClient,
+  openClawOperatorScopeGranted,
   type OpenClawAdminDeviceKeypair,
   type OpenClawAdminRpcPort,
   type OpenClawAdminWebSocket,
   type OpenClawAdminWebSocketFactory,
+  type OpenClawOperatorScope,
 } from "../openclaw-admin-client.js";
 
 function apiKeyChoice(overrides: Partial<ModelProviderAuthChoice> = {}): ModelProviderAuthChoice {
@@ -149,13 +151,32 @@ class RecordingAdminClient implements OpenClawAdminRpcPort {
     readonly idempotencyKey?: string;
   }[] = [];
 
-  public constructor(private readonly responses: Record<string, Result<unknown>>) {}
+  public constructor(
+    private readonly responses: Record<string, Result<unknown>>,
+    private readonly scopes: readonly OpenClawOperatorScope[] = ["operator.read", "operator.admin"],
+  ) {}
 
   public async request(
     method: string,
     params: Record<string, unknown>,
-    options: { readonly idempotencyKey?: string } = {},
+    options: {
+      readonly idempotencyKey?: string;
+      readonly requiredScope?: OpenClawOperatorScope;
+    } = {},
   ): Promise<Result<unknown>> {
+    if (
+      options.requiredScope !== undefined &&
+      !openClawOperatorScopeGranted(this.scopes, options.requiredScope)
+    ) {
+      return err(
+        new DomainError({
+          code: "provisioning.openclawAdmin.operatorAdminRequired",
+          message: "operator.admin scope required — pair/upgrade an admin device.",
+          details: { requiredScope: options.requiredScope, grantedScopes: this.scopes },
+        }),
+      );
+    }
+
     this.calls.push({
       method,
       params,
@@ -163,6 +184,10 @@ class RecordingAdminClient implements OpenClawAdminRpcPort {
     });
 
     return this.responses[method] ?? ok({});
+  }
+
+  public grantedScopes(): readonly OpenClawOperatorScope[] {
+    return this.scopes;
   }
 
   public close(): void {}
@@ -225,7 +250,10 @@ function principal(): {
   };
 }
 
-function fakeAdminSocketFactory(seenFrames: unknown[]): OpenClawAdminWebSocketFactory {
+function fakeAdminSocketFactory(
+  seenFrames: unknown[],
+  grantedScopes: readonly OpenClawOperatorScope[] = ["operator.read", "operator.admin"],
+): OpenClawAdminWebSocketFactory {
   return () => {
     let onMessage: ((data: string) => void) | null = null;
     const socket: OpenClawAdminWebSocket = {
@@ -242,7 +270,7 @@ function fakeAdminSocketFactory(seenFrames: unknown[]): OpenClawAdminWebSocketFa
                 payload: {
                   type: "hello-ok",
                   protocol: 4,
-                  auth: { role: "operator", scopes: ["operator.read", "operator.admin"] },
+                  auth: { role: "operator", scopes: grantedScopes },
                 },
               }),
             ),
@@ -451,20 +479,58 @@ describe("Connections provisioning helpers", () => {
     });
   });
 
-  it("uses the provisioning-only OpenClaw admin client for req/res RPC with idempotency", async () => {
+  it("connects with least-privilege read scope for read-only admin RPC", async () => {
     const frames: unknown[] = [];
     const client = new OpenClawAdminRpcClient({
       url: "ws://127.0.0.1:18789",
       gatewayToken: "gateway-token",
       keypair: fakeKeypair(),
-      socketFactory: fakeAdminSocketFactory(frames),
+      socketFactory: fakeAdminSocketFactory(frames, [
+        "operator.read",
+        "operator.write",
+        "operator.approvals",
+      ]),
+      now: () => 1000,
+    });
+
+    const result = await client.request("models.list", { view: "all" });
+
+    expect(result.ok).toBe(true);
+    expect(frames).toHaveLength(2);
+    expect(frames[0]).toMatchObject({
+      method: "connect",
+      params: {
+        client: { id: "cli", mode: "cli" },
+        auth: { token: "gateway-token" },
+        scopes: ["operator.read"],
+      },
+    });
+    expect(frames[1]).toMatchObject({
+      method: "models.list",
+      params: { view: "all" },
+    });
+    expect(client.grantedScopes()).toEqual([
+      "operator.read",
+      "operator.write",
+      "operator.approvals",
+    ]);
+  });
+
+  it("uses the provisioning-only OpenClaw admin client for admin-scoped config.patch", async () => {
+    const frames: unknown[] = [];
+    const client = new OpenClawAdminRpcClient({
+      url: "ws://127.0.0.1:18789",
+      gatewayToken: "gateway-token",
+      requestedScopes: ["operator.read", "operator.admin"],
+      keypair: fakeKeypair(),
+      socketFactory: fakeAdminSocketFactory(frames, ["operator.read", "operator.admin"]),
       now: () => 1000,
     });
 
     const result = await client.request(
       "config.patch",
       { patch: { auth: { profiles: {} } } },
-      { idempotencyKey: "idem-1" },
+      { idempotencyKey: "idem-1", requiredScope: "operator.admin" },
     );
 
     expect(result.ok).toBe(true);
@@ -474,13 +540,50 @@ describe("Connections provisioning helpers", () => {
       params: {
         client: { id: "cli", mode: "cli" },
         auth: { token: "gateway-token" },
-        scopes: expect.arrayContaining(["operator.admin"]),
+        scopes: ["operator.read", "operator.admin"],
       },
     });
     expect(frames[1]).toMatchObject({
       method: "config.patch",
       params: { idempotencyKey: "idem-1" },
     });
+  });
+
+  it("returns a structured admin-required error before sending mutating RPCs", async () => {
+    const frames: unknown[] = [];
+    const client = new OpenClawAdminRpcClient({
+      url: "ws://127.0.0.1:18789",
+      operatorDeviceToken: "operator-device-token",
+      requestedScopes: ["operator.write", "operator.approvals"],
+      keypair: fakeKeypair(),
+      socketFactory: fakeAdminSocketFactory(frames, [
+        "operator.read",
+        "operator.write",
+        "operator.approvals",
+      ]),
+      now: () => 1000,
+    });
+
+    const result = await client.request(
+      "config.patch",
+      { patch: { auth: { profiles: { zai: { key: "runtime-secret" } } } } },
+      { requiredScope: "operator.admin" },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected admin scope failure");
+    }
+    expect(result.error).toMatchObject({
+      code: "provisioning.openclawAdmin.operatorAdminRequired",
+      message: "operator.admin scope required — pair/upgrade an admin device.",
+      details: {
+        requiredScope: "operator.admin",
+        grantedScopes: ["operator.read", "operator.write", "operator.approvals"],
+      },
+    });
+    expect(frames).toHaveLength(1);
+    expect(JSON.stringify(frames)).not.toContain("runtime-secret");
   });
 
   it("prefers the paired operator device token for OpenClaw admin RPC auth", async () => {
@@ -501,50 +604,54 @@ describe("Connections provisioning helpers", () => {
       method: "connect",
       params: {
         auth: { deviceToken: "operator-device-token" },
+        scopes: ["operator.read"],
       },
     });
     expect(JSON.stringify(frames[0])).not.toContain("gateway-token");
   });
 
   it("maps config.get and models.list into a Connections snapshot", async () => {
-    const admin = new RecordingAdminClient({
-      "config.get": ok({
-        region: "config-region",
-        auth: {
-          profiles: {
-            "zai-zai-api-key": {
-              providerId: "zai",
-              authChoiceId: "zai-api-key",
-              accountLabel: "Z.AI",
-              model: "zai/glm-5.2",
+    const admin = new RecordingAdminClient(
+      {
+        "config.get": ok({
+          region: "config-region",
+          auth: {
+            profiles: {
+              "zai-zai-api-key": {
+                providerId: "zai",
+                authChoiceId: "zai-api-key",
+                accountLabel: "Z.AI",
+                model: "zai/glm-5.2",
+              },
             },
+            order: { zai: ["zai-zai-api-key"] },
           },
-          order: { zai: ["zai-zai-api-key"] },
-        },
-        agents: { list: [{ id: "ask-admin-opzava", model: "openai/gpt-5.5" }] },
-      }),
-      health: ok({
-        status: "ok",
-        region: "fra1",
-        auth: { role: "operator", scopes: ["operator.read", "operator.admin"] },
-      }),
-      "last-heartbeat": ok({
-        gateway: {
-          lastHeartbeatAt: "2026-07-02T23:59:00.000Z",
-        },
-      }),
-      "models.list": ok({
-        providers: [
-          {
-            id: "zai",
-            label: "z.ai / GLM",
-            vendor: "z.ai",
-            suggestedModel: "zai/glm-5.2",
-            authChoices: [apiKeyChoice()],
+          agents: { list: [{ id: "ask-admin-opzava", model: "openai/gpt-5.5" }] },
+        }),
+        health: ok({
+          status: "ok",
+          region: "fra1",
+          auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        }),
+        "last-heartbeat": ok({
+          gateway: {
+            lastHeartbeatAt: "2026-07-02T23:59:00.000Z",
           },
-        ],
-      }),
-    });
+        }),
+        "models.list": ok({
+          providers: [
+            {
+              id: "zai",
+              label: "z.ai / GLM",
+              vendor: "z.ai",
+              suggestedModel: "zai/glm-5.2",
+              authChoices: [apiKeyChoice()],
+            },
+          ],
+        }),
+      },
+      ["operator.read", "operator.write", "operator.approvals"],
+    );
     const port = new GatewayAdminConnectionsProvisioningPort({
       adminClient: admin,
       secretsVault: new MemorySecretsVault(),
@@ -561,7 +668,7 @@ describe("Connections provisioning helpers", () => {
     expect(snapshot.value.gateway.status).toBe("active");
     expect(snapshot.value.gateway).toMatchObject({
       region: "fra1",
-      authLabel: "Opzava Gateway operator.admin",
+      authLabel: "Opzava Gateway operator.read, operator.write, operator.approvals",
       lastHeartbeatAt: "2026-07-02T23:59:00.000Z",
     });
     expect(snapshot.value.providerCatalog[0]).toMatchObject({ id: "zai", label: "z.ai / GLM" });
@@ -611,6 +718,42 @@ describe("Connections provisioning helpers", () => {
     });
     expect(admin.calls[0]?.idempotencyKey).toMatch(/^connections:model-api-key:zai:/);
     expect(JSON.stringify(result)).not.toContain("secret-provider-key");
+  });
+
+  it("does not send provider API-key material when the device lacks operator.admin", async () => {
+    const admin = new RecordingAdminClient({ "config.patch": ok({ ok: true }) }, [
+      "operator.read",
+      "operator.write",
+      "operator.approvals",
+    ]);
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.connectModelProviderApiKey({
+      ...principal(),
+      providerId: "zai",
+      authChoiceId: "zai-api-key",
+      apiKey: "secret-provider-key",
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected admin scope failure");
+    }
+    expect(result.error).toMatchObject({
+      code: "provisioning.openclawAdmin.operatorAdminRequired",
+      message: "operator.admin scope required — pair/upgrade an admin device.",
+      details: {
+        requiredScope: "operator.admin",
+        grantedScopes: ["operator.read", "operator.write", "operator.approvals"],
+      },
+    });
+    expect(admin.calls).toEqual([]);
+    expect(JSON.stringify(admin.calls)).not.toContain("secret-provider-key");
   });
 
   it("applies orchestrator delegation through config.patch with the audited tool expansion", async () => {

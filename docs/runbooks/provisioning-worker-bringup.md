@@ -16,6 +16,10 @@ Set these through `.env` for local compose or managed secrets in Dokploy:
   compose.
 - `OPENCLAW_OPERATOR_DEVICE_TOKEN`: paired operator device token for the worker. This token stays on
   the worker and is never passed to the gateway-broker.
+- `OPENCLAW_OPERATOR_SCOPES`: optional comma- or space-separated scopes to request at Gateway
+  connect. Leave unset for read-only snapshot/catalog access, set
+  `operator.write,operator.approvals` for bounded operator devices, and include `operator.admin`
+  only for workers allowed to mutate Gateway config.
 - `OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64` or `OPENCLAW_DEVICE_PRIVATE_KEY_PEM`: Ed25519 private key
   used to sign the Gateway admin handshake.
 - `OPENCLAW_DEV_SECRETS_FILE`: local file vault path. Compose uses
@@ -57,6 +61,12 @@ The Connections page reads the live provider catalog through Gateway admin RPC
 API-key provider connects call `config.patch` and store the key inside the Gateway auth profile.
 GitHub connects use GitHub device flow and store the access token in `SecretsVaultPort`; status is
 validated against `GET https://api.github.com/user` and the OAuth scopes response header.
+
+Snapshot, health, catalog, and config-read paths need only `operator.read`; the Gateway also reports
+`operator.read` when a connected token holds `operator.write`. `config.patch` mutations are locally
+gated with `requiredScope: "operator.admin"` and return a structured
+`provisioning.openclawAdmin.operatorAdminRequired` error before any provider key is sent when the
+worker device is not admin-scoped.
 
 The inspected Gateway image `ghcr.io/openclaw/openclaw:2026.6.11` documents
 `wizard.start/next/status/cancel`, but its live `wizard.start` validator accepts only `mode` and
