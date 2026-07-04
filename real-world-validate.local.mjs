@@ -1,0 +1,182 @@
+// REAL-WORLD FINAL VALIDATION GATE (user directive 2026-07-04).
+// Automated user-level validation against the REAL local docker stack:
+//   real login (NO minted sessions), real data (NO mocks/synthetic),
+//   real visuals (screenshots), iterative sweeps that LOOP UNTIL CLEAN.
+// A slice is NOT Done until this exits 0. See .claude/skills/real-world-validation.
+//
+// Usage:
+//   docker compose up -d --build && node real-world-validate.local.mjs [outDir]
+// Env:
+//   REAL_BASE     (default http://web.opzava.localhost:18088)
+//   REAL_EMAIL    (default owner@opzava.localhost)
+//   REAL_PASSWORD (default OpzavaLocalDev!2026)
+//   REAL_MAX_PASSES (default 5)  REAL_CLEAN_STREAK (default 2)
+// Exit 0 = REAL_CLEAN_STREAK consecutive clean passes. Anything else = NOT DONE.
+
+import { chromium } from "@playwright/test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+
+const BASE = process.env.REAL_BASE ?? "http://web.opzava.localhost:18088";
+const EMAIL = process.env.REAL_EMAIL ?? "owner@opzava.localhost";
+const PASSWORD = process.env.REAL_PASSWORD ?? "OpzavaLocalDev!2026";
+const MAX_PASSES = Number(process.env.REAL_MAX_PASSES ?? 5);
+const CLEAN_STREAK = Number(process.env.REAL_CLEAN_STREAK ?? 2);
+const OUT = process.argv[2] ?? `real-validate-artifacts/${new Date().toISOString().replaceAll(":", "-")}`;
+mkdirSync(OUT, { recursive: true });
+
+const SEED_ROUTES = ["/", "/tasks", "/issues", "/connections", "/ask-opzava",
+  "/crm/accounts", "/crm/contacts", "/crm/deals", "/crm/tickets"];
+// One-shot init containers that legitimately exit 0.
+const ALLOW_EXITED = new Set(["minio-bucket-init"]);
+const HARD_LOG = /unhandled|fatal|panic/i;
+
+if (process.env.PARITY_COOKIE) {
+  console.warn("PARITY_COOKIE is IGNORED: final validation requires a REAL login.");
+}
+
+// ---------- Preflight: the REAL composed stack must be up (root cause of past
+// false positives was acceptance passing while compose services were missing).
+function preflight() {
+  const cfg = spawnSync("docker", ["compose", "config", "--services"], { encoding: "utf8" });
+  if (cfg.status !== 0) fail(`docker compose config failed: ${cfg.stderr}`);
+  const expected = cfg.stdout.trim().split("\n").filter(Boolean);
+  const ps = spawnSync("docker", ["compose", "ps", "-a", "--format", "json"], { encoding: "utf8" });
+  if (ps.status !== 0) fail(`docker compose ps failed: ${ps.stderr}`);
+  const rows = ps.stdout.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  const state = new Map(rows.map((r) => [r.Service, r]));
+  const problems = [];
+  for (const svc of expected) {
+    const row = state.get(svc);
+    if (!row) { problems.push(`${svc}: NOT CREATED`); continue; }
+    const running = row.State === "running";
+    const cleanExit = row.State === "exited" && row.ExitCode === 0 && ALLOW_EXITED.has(svc);
+    if (!running && !cleanExit) problems.push(`${svc}: ${row.State} (exit ${row.ExitCode})`);
+  }
+  if (problems.length) fail(`Stack incomplete - validation is meaningless:\n  ${problems.join("\n  ")}`);
+  console.log(`preflight OK: ${expected.length} services (${[...ALLOW_EXITED].join(", ")} may be exited 0)`);
+}
+function fail(msg) { console.error(`PREFLIGHT FAIL: ${msg}`); process.exit(2); }
+
+// ---------- Findings collection
+function makeCollector(page, pass, findings) {
+  page.on("console", (m) => { if (m.type() === "error") findings.push({ pass, kind: "console-error", where: page.url(), detail: m.text().slice(0, 500) }); });
+  page.on("pageerror", (e) => findings.push({ pass, kind: "pageerror", where: page.url(), detail: String(e).slice(0, 500) }));
+  page.on("response", (r) => {
+    const status = r.status();
+    const sameOrigin = r.url().startsWith(BASE);
+    if (status >= 500) findings.push({ pass, kind: `http-${status}`, where: page.url(), detail: r.url() });
+    else if (status === 404 && sameOrigin && ["document", "fetch", "xhr"].includes(r.request().resourceType()))
+      findings.push({ pass, kind: "http-404", where: page.url(), detail: r.url() });
+  });
+}
+
+async function realLogin(ctx) {
+  const page = await ctx.newPage();
+  await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+  await page.locator('input[name="email"]').fill(EMAIL);
+  await page.locator('input[name="password"]').fill(PASSWORD);
+  await page.locator('button[type="submit"]').first().click();
+  await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 15000 })
+    .catch(() => { throw new Error("REAL LOGIN FAILED - cannot validate anything else"); });
+  await page.waitForLoadState("networkidle");
+  return page;
+}
+
+async function discoverRoutes(page) {
+  const hrefs = await page.$$eval('a[href^="/"]', (as) => as.map((a) => a.getAttribute("href")));
+  const routes = new Set(SEED_ROUTES);
+  for (const h of hrefs) {
+    const clean = h.split("#")[0].split("?")[0];
+    if (!clean || clean.startsWith("/api") || /log(in|out)|sign(in|out)/.test(clean)) continue;
+    routes.add(clean);
+  }
+  return [...routes].slice(0, 40);
+}
+
+async function sweepRoute(page, route, pass, findings, screenshot) {
+  try {
+    await page.goto(`${BASE}${route}`, { waitUntil: "networkidle", timeout: 30000 });
+  } catch (e) {
+    findings.push({ pass, kind: "route-load-failed", where: route, detail: String(e).slice(0, 300) });
+    return;
+  }
+  await page.waitForTimeout(500);
+  if (new URL(page.url()).pathname.startsWith("/login"))
+    findings.push({ pass, kind: "auth-bounce", where: route, detail: "redirected to /login mid-session" });
+  for (const alert of await page.locator('[role="alert"]').all()) {
+    const text = ((await alert.textContent()) ?? "").trim();
+    if (text && /error|fail|unavailable|not implemented/i.test(text))
+      findings.push({ pass, kind: "ui-error-state", where: route, detail: text.slice(0, 300) });
+  }
+  const mainText = (await page.locator("main").first().innerText().catch(() => "")).trim();
+  if (mainText.length < 10)
+    findings.push({ pass, kind: "empty-page", where: route, detail: `main has ${mainText.length} chars of text` });
+  if (screenshot) await page.screenshot({ path: `${OUT}/p${pass}${route.replaceAll("/", "_") || "_root"}.png`, fullPage: true });
+}
+
+// Real WRITE round-trip: prove the UI -> server -> Postgres -> UI loop with real data.
+async function writeFlowProof(page, pass, findings) {
+  const title = `real-validate p${pass} ${Date.now() % 1000000}`;
+  try {
+    await page.goto(`${BASE}/tasks`, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: /new task/i }).first().click();
+    await page.locator('input[name="title"], textarea[name="title"]').first().fill(title);
+    await page.getByRole("button", { name: /create task/i }).first().click();
+    await page.waitForLoadState("networkidle");
+    await page.reload({ waitUntil: "networkidle" });
+    if ((await page.getByText(title, { exact: false }).count()) === 0)
+      findings.push({ pass, kind: "write-flow-failed", where: "/tasks", detail: `created task "${title}" not visible after reload` });
+  } catch (e) {
+    findings.push({ pass, kind: "write-flow-failed", where: "/tasks", detail: String(e).slice(0, 300) });
+  }
+}
+
+// Service-log ground truth for the pass window. HARD_LOG matches block the pass;
+// other error-ish lines are reported as warnings for the human/agent to audit.
+function auditLogs(sinceIso, pass, findings, warnings) {
+  const logs = spawnSync("docker", ["compose", "logs", "--since", sinceIso, "--no-color"], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+  for (const line of (logs.stdout ?? "").split("\n")) {
+    if (!/error|exception|unhandled|fatal|panic/i.test(line)) continue;
+    const entry = { pass, kind: "service-log", where: "docker compose logs", detail: line.trim().slice(0, 400) };
+    (HARD_LOG.test(line) ? findings : warnings).push(entry);
+  }
+}
+
+// ---------- Main loop: iterate until CLEAN_STREAK consecutive clean passes.
+preflight();
+const browser = await chromium.launch();
+const report = { base: BASE, startedAt: new Date().toISOString(), passes: [], verdict: "NOT-DONE" };
+let streak = 0;
+
+for (let pass = 1; pass <= MAX_PASSES && streak < CLEAN_STREAK; pass++) {
+  const passStart = new Date().toISOString();
+  const findings = [], warnings = [];
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 960 }, colorScheme: "dark" });
+  let routes = [];
+  try {
+    const page = await realLogin(ctx);
+    makeCollector(page, pass, findings);
+    routes = await discoverRoutes(page);
+    console.log(`pass ${pass}: sweeping ${routes.length} routes (discovered from live nav + seeds)`);
+    for (const route of routes) await sweepRoute(page, route, pass, findings, pass === 1 || streak === CLEAN_STREAK - 1);
+    await writeFlowProof(page, pass, findings);
+  } catch (e) {
+    findings.push({ pass, kind: "pass-aborted", where: BASE, detail: String(e).slice(0, 500) });
+  } finally {
+    await ctx.close();
+  }
+  auditLogs(passStart, pass, findings, warnings);
+  const clean = findings.length === 0;
+  streak = clean ? streak + 1 : 0;
+  report.passes.push({ pass, routes, clean, findings, warnings });
+  console.log(`pass ${pass}: ${clean ? "CLEAN" : `${findings.length} FINDINGS`} (${warnings.length} log warnings) - streak ${streak}/${CLEAN_STREAK}`);
+  for (const f of findings) console.log(`  [${f.kind}] ${f.where} :: ${f.detail}`);
+}
+
+await browser.close();
+report.verdict = streak >= CLEAN_STREAK ? "DONE-ELIGIBLE" : "NOT-DONE";
+report.finishedAt = new Date().toISOString();
+writeFileSync(`${OUT}/report.json`, JSON.stringify(report, null, 2));
+console.log(`\nverdict: ${report.verdict} - artifacts + report.json in ${OUT}`);
+process.exit(report.verdict === "DONE-ELIGIBLE" ? 0 : 1);
