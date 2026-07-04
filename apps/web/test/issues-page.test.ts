@@ -18,7 +18,11 @@ import {
   filterIssues,
   issueAssigneeView,
   issueDivergenceLabel,
+  issueLabelView,
+  issuePageCount,
+  issuePageWindow,
   issuePipelineStages,
+  issueSectionGroups,
   issueStatusView,
   parseIssueFilter,
   relativeIssueTime,
@@ -124,6 +128,53 @@ describe("Issues page state", () => {
     ).toBe("Task done · GitHub still open");
   });
 
+  it("keeps the issue list scannable with one primary label and hidden extras", () => {
+    expect(issueLabelView(issue())).toEqual({
+      primaryLabel: "needs-triage",
+      hiddenLabels: [],
+    });
+    expect(
+      issueLabelView(issue({ labels: ["ready-for-agent", "area:gateway", "priority:p1"] })),
+    ).toEqual({
+      primaryLabel: "priority:p1",
+      hiddenLabels: ["ready-for-agent", "area:gateway"],
+    });
+    expect(issueLabelView(issue({ labels: ["ready-for-agent", "orchestrator"] }))).toEqual({
+      primaryLabel: "orchestrator",
+      hiddenLabels: ["ready-for-agent"],
+    });
+  });
+
+  it("chunks visible issues into typed sections and an 18-row page window", () => {
+    const issues = Array.from({ length: 33 }, (_, index) =>
+      issue({
+        number: index + 1,
+        title:
+          index % 3 === 0
+            ? `ADR-${index + 1} architecture record`
+            : index % 3 === 1
+              ? `PRD ${index + 1}: product requirement`
+              : `Operational issue ${index + 1}`,
+      }),
+    );
+
+    expect(issuePageCount(issues.length)).toBe(2);
+    const secondPage = issuePageWindow(issues, 2);
+    expect(secondPage).toMatchObject({
+      page: 2,
+      pageCount: 2,
+      totalCount: 33,
+      startItem: 19,
+      endItem: 33,
+    });
+    expect(secondPage.issues).toHaveLength(15);
+    expect(issueSectionGroups(secondPage.issues).map((group) => [group.id, group.count])).toEqual([
+      ["adr", 5],
+      ["prd", 5],
+      ["other", 5],
+    ]);
+  });
+
   it("routes sync and create through session-derived issue services", async () => {
     let syncInput: SyncIssueProjectionInput | null = null;
     let createInput: CreateTrackedIssueInput | null = null;
@@ -181,10 +232,16 @@ describe("Issues page state", () => {
     expect(page).toContain('name="idempotencyKey"');
     expect(page).toContain("Triage pipeline");
     expect(page).toContain(
-      "Page-specific layout only — no color, font-size, shadow, or radius overrides",
+      "Page-specific composition only; values come from existing tokens and primitives.",
     );
+    expect(page).toContain("UX laws: Hick's/Miller's chunking");
     expect(page).toContain('className="tabs"');
-    expect(page).toContain('className="table table-compact table-cards"');
+    expect(page).toContain('className="card issues-pipeline-strip"');
+    expect(page).toContain("issuePageWindow");
+    expect(page).toContain("issueSectionGroups");
+    expect(page).toContain("IssueLabelChips");
+    expect(page).toContain('className="table table-compact table-cards issues-list-table"');
+    expect(page).toContain('className="issues-number-link"');
     expect(page).toContain("issueDivergenceLabel");
     expect(page).toContain("<time dateTime={value}>");
     expect(page).not.toContain("issues-page-header");

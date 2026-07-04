@@ -44,22 +44,71 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://web.opzava.localhost:18088}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
       DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://opzava_app:opzava_app_local_only@postgres:5432/opzava}
+      BROKER_INTERNAL_URL: ${COMPOSE_BROKER_INTERNAL_URL:-http://gateway-broker:19088}
+      BROKER_INTERNAL_TOKEN: ${BROKER_INTERNAL_TOKEN:?BROKER_INTERNAL_TOKEN is required}
       OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-opzava-task-evidence}
       OBJECT_STORE_REGION: ${OBJECT_STORE_REGION:-us-east-1}
       OBJECT_STORE_ENDPOINT: ${COMPOSE_OBJECT_STORE_ENDPOINT:-http://minio:9000}
       OBJECT_STORE_ACCESS_KEY_ID: ${OBJECT_STORE_ACCESS_KEY_ID:-opzava_minio_local}
       OBJECT_STORE_SECRET_ACCESS_KEY: ${OBJECT_STORE_SECRET_ACCESS_KEY:-opzava_minio_local_only_not_for_shared_envs}
+      # GitHub token for the Issues surface (IssueTrackerPort GitHub adapter). Internal-phase
+      # dev config path; sourced from .env (gitignored), never committed. Vault ref supersedes
+      # this once the provisioning-worker GitHub device-flow connect is live.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       # DATABASE_MIGRATION_URL is intentionally not passed to runtime services.
     depends_on:
       postgres:
         condition: service_healthy
       minio:
         condition: service_healthy
+      gateway-broker:
+        condition: service_started
     labels:
       traefik.enable: "true"
       traefik.http.routers.opzava-web.rule: "Host(`web.opzava.localhost`)"
       traefik.http.routers.opzava-web.entrypoints: "web"
       traefik.http.services.opzava-web.loadbalancer.server.port: "3000"
+      traefik.docker.network: "dokploy-network"
+    networks:
+      - dokploy-network
+
+  gateway-broker:
+    build:
+      context: .
+      dockerfile: apps/gateway-broker/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${GATEWAY_BROKER_PORT:-19088}
+      BROKER_INTERNAL_TOKEN: ${BROKER_INTERNAL_TOKEN:?BROKER_INTERNAL_TOKEN is required}
+      OPENCLAW_GATEWAY_URL: ${COMPOSE_OPENCLAW_GATEWAY_URL:-ws://openclaw-platform-gateway:18789}
+      OPENCLAW_GATEWAY_ROUTE_ID: ${OPENCLAW_GATEWAY_ROUTE_ID:-platform-openclaw}
+      # Internal single-tenant default for the seeded Anito org. Override in .env
+      # when the active Opzava org id changes; the broker still rejects caller
+      # tenant drift at runtime.
+      OPENCLAW_GATEWAY_TENANT_ID: ${OPENCLAW_GATEWAY_TENANT_ID:-93b43f1a-1d25-406d-b52c-8b4fd3cde01d}
+      OPENCLAW_DEV_SECRETS_FILE: ${COMPOSE_OPENCLAW_DEV_SECRETS_FILE:-/run/opzava-secrets/openclaw-secrets.json}
+      OPENCLAW_DEVICE_TOKEN_VAULT_TENANT_ID: ${OPENCLAW_DEVICE_TOKEN_VAULT_TENANT_ID:-platform}
+      OPENCLAW_DEVICE_TOKEN_VAULT_LABEL: ${OPENCLAW_DEVICE_TOKEN_VAULT_LABEL:-platform-operator-device-token}
+      OPENCLAW_DEVICE_TOKEN_VAULT_VERSION: ${OPENCLAW_DEVICE_TOKEN_VAULT_VERSION:-}
+      OPENCLAW_OPERATOR_DEVICE_TOKEN: ${OPENCLAW_OPERATOR_DEVICE_TOKEN:-}
+      OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64: ${OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64:-}
+      OPENCLAW_DEVICE_PRIVATE_KEY_PEM: ${OPENCLAW_DEVICE_PRIVATE_KEY_PEM:-}
+      OPENCLAW_DEVICE_ID: ${OPENCLAW_DEVICE_ID:-}
+      OPENCLAW_DEVICE_PUBLIC_KEY: ${OPENCLAW_DEVICE_PUBLIC_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      openclaw-platform-gateway:
+        condition: service_healthy
+    volumes:
+      - ${OPENCLAW_DEV_SECRETS_DIR:-./.dev-secrets}:/run/opzava-secrets:ro
+    expose:
+      - "19088"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.opzava-gateway-broker.rule: "Host(`gateway-broker.opzava.localhost`)"
+      traefik.http.routers.opzava-gateway-broker.entrypoints: "web"
+      traefik.http.services.opzava-gateway-broker.loadbalancer.server.port: "19088"
       traefik.docker.network: "dokploy-network"
     networks:
       - dokploy-network
@@ -102,9 +151,10 @@ services:
       - dokploy-network
 
   openclaw-platform-gateway:
-    profiles: ["openclaw"]
     # Official image per docs/openclaw/install/docker.md. Default pin matches
-    # the first verified local real-Gateway bring-up.
+    # the first verified local real-Gateway bring-up. This now runs by default
+    # with gateway-broker for the internal single-tenant phase; it remains
+    # expose-only, with no Traefik labels, so there is no routable orphan Gateway.
     image: ghcr.io/openclaw/openclaw:${OPENCLAW_IMAGE_TAG:-2026.6.11}
     command: ["node", "openclaw.mjs", "gateway", "--port", "18789", "--bind", "lan"]
     environment:
@@ -129,10 +179,9 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - default
+      - dokploy-network
 
 networks:
-  default:
   dokploy-network:
     external: true
 

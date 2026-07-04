@@ -228,7 +228,7 @@ export function AdminNav({ state }: { readonly state: AdminNavState }) {
       : item,
   );
   const askOpzavaItem: NavItem = {
-    label: "Ask Opzava",
+    label: "Ask Admin Opzava",
     href: "/ask-opzava",
     icon: "ask",
     ...(state.askOpzavaActive

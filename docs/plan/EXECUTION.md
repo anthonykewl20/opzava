@@ -32,10 +32,10 @@ Do not let this document become aspirational. If implementation changes the plan
 
 | Field | Value |
 | --- | --- |
-| Active slice | Slice 4 - Marketing content pipeline (thin) |
-| Status | not-started |
-| Next concrete action | Slice 3 COMPLETE on `slice/3-crm-core-thin` (verify-deep + 3-lane adversarial review converged 15->2->0; live UI acceptance run). Merge the Slice 3 PR into development, then begin Slice 4 (Campaign/ContentItem aggregates, exact-version approval invariant, assistant drafting via the Slice 2 loop). |
-| Blockers | None |
+| Active slice | Slice 3.5 - Live functional-parity bring-up (admin dashboard) |
+| Status | in-progress |
+| Next concrete action | REPRIORITIZED (user, 2026-07-04): POLISH THE ADMIN DASHBOARD LIVE FIRST; user-side Marketing (Slice 4) DEFERRED until admin side is complete + polished. New spine: (A) Slice 3.5 live bring-up -> (B) Q17 Tasks/AI-Workforce slice -> (C) admin polish -> (D) then Slice 4 Marketing. Slices 1-3 passed acceptance via MOCKS but the runnable `docker-compose` never contained gateway-broker/provisioning-worker/mcp-server services + web had no integration env, so every live AI/integration surface was dead. Branch `slice/4-marketing-content-pipeline` (rename pending). DONE: org "Anito" seeded (RLS-verified), sidebar -> "Ask Admin Opzava", Issues lit via GITHUB_TOKEN, gateway-broker CONTAINERIZED (codex-exec, verified green - Ask Admin needs device-token at mounted `.dev-secrets/openclaw-secrets.json` or re-pair; Codex OAuth persists in gateway volume). NEXT: bring broker up live + verify Ask Admin turn; then provisioning-worker (Connections: rebrand "OpenClaw"->"Opzava Gateway", REAL status/catalog, production-grade model + GitHub device-flow connect); then hosted-HTTP MCP. TOTAL PARITY with docs/openclaw is a hard gate on all bring-up code. |
+| Blockers | None (some surfaces gated on user-interactive credentials: device-token pairing, Codex OAuth, GitHub OAuth-app client_id, provider connects) |
 
 ## Operating Mode
 
@@ -239,7 +239,9 @@ Deferred to P4 remainder: `SenderSeen` projection, UnknownContact shells, channe
 
 ### Slice 4 - Marketing content pipeline (thin, pulled forward from P5)
 
-Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
+Status: [x] DEFERRED (user, 2026-07-04) - user-side Marketing is on hold until the ADMIN dashboard is fully live + polished (Slice 3.5 bring-up + the Q17 Tasks/AI-Workforce slice). Do NOT start until the admin side is complete. Design contract already drafted at `docs/plan/consensus/slice4-marketing-design.md` (kept for when it resumes).
+
+Status(legacy): [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
 Goal: Run Opzava's own marketing inside Opzava: campaigns and a content pipeline with the exact-version approval invariant, using the Slice 2 agent for drafting. Manual publish; no workflow engine yet.
 
@@ -469,6 +471,8 @@ Per slice:
 - [ ] Changes are committed with `commit-style`.
 
 ## Worklog
+
+- 2026-07-04 - PR #125 (Slice 3) MERGED to development. Then user pivot: live in-browser usage revealed slices 1-3 passed acceptance via MOCKS but the runnable stack never contained gateway-broker/provisioning-worker/mcp-server (no Dockerfiles/services) + web had no integration env, so Ask Admin ("broker env undefined"), Connections ("provisioning worker unavailable"), Issues ("GITHUB_TOKEN required"), and the MCP ("stdio, not hosted") were all dead live; Tasks/CRM only looked dead because org "Anito" was empty. Started a LIVE FUNCTIONAL-PARITY BRING-UP (Slice 3.5). Landed: org Anito seeded via the RLS service layer (9 tasks/3 accts/5 contacts/4 deals/3 tickets, verified); sidebar label -> "Ask Admin Opzava"; Issues lit via GITHUB_TOKEN (gh token, .env gitignored); gateway-broker CONTAINERIZED into compose via codex-exec (Dockerfile + service + web BROKER_INTERNAL_* + runbook; typecheck/build/lint/38 tests/`docker compose config`/image build all green). Device-token finding: Slice-2 paired operator token lives in a LocalFileSecretsVault JSON - broker container reads it at mounted `.dev-secrets/openclaw-secrets.json` or re-pair; Codex OAuth persists in the gateway named volume. User directives: nav label "Ask Admin Opzava"; rebrand Connections "OpenClaw gateway"->"Opzava Gateway"; Connections must show REAL status/catalog + production-grade model + GitHub device-flow connect; GitHub card real status; TOTAL PARITY with docs/openclaw on all bring-up code; CRM->user-dashboard DEFERRED; Slice 4 Marketing DEFERRED. Q16.5/Q17 GRILLED + recorded (grilling-decisions.md Q17 + `docs/plan/consensus/tasks-ai-workforce-design.md`): the admin Tasks board becomes an AI-Workforce dev pipeline (5-lane Backlog/Todo/In-Progress/Review/Done, human owns Backlog->Todo + Review->Done, orchestrator dispatches gateway-side subagents + owns Quality Review with a hard evidence gate, doers via consumer-agnostic governed tools over hosted-HTTP MCP, PR/CI dimension, dispatcher = P1 AgentDispatch pulled forward). NEW SPINE: (A) live bring-up -> (B) Q17 Tasks/AI-Workforce slice -> (C) admin polish -> (D) then Slice 4 Marketing.
 
 - 2026-07-04 - Slice 3 (thin CRM core) COMPLETE on `slice/3-crm-core-thin`. Data layer `@opzava/crm` (Contact/Account/Deal + VERSIONED Pipeline/Stage/Ticket/append-only Activity; migrations 0012-0014; RLS trio + FORCE verified in pg_catalog), admin surfaces in the canonical design system, per-workspace human-readable card numbers (0013 - fixed the global-sequence deviation from the 2.5 deliverable), strictly read-only assistant CRM tools admitted end-to-end (registry/web dispatch/provisioning allowlist/fake gateway). PROVE: verify-deep + 3-lane adversarial codex review (data/web+security/tools+docker) found 15 findings (3 HIGH: transition lost-updates, moveDealStage TOCTOU + missing DB coherence FK, read-tool-that-writes ensureDefaultPipeline) -> all fixed -> convergence re-review 14 PASS + 2 MEDIUM -> fixed -> 0. Clean checks held throughout: authority session-derived, no server-only leakage into client bundles, XSS-safe rendering, docker image secret-free + self-contained. ACCEPTANCE (live UI, DB ground-truth verified): Account -> Contact -> Deal -> stage moves (activities 'Lead in -> Qualified -> Proposal' appended in-tx) -> Ticket -> reload persists under RLS. Full chain TC/TEST/LINT/BUILD 0 forced. Evidence: docs/plan/consensus/slice3-review-{data,web,tools}.codex.md + slice3-rereview.codex.md.
 

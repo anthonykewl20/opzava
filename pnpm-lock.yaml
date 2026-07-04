@@ -40,6 +40,9 @@ importers:
 
   apps/gateway-broker:
     dependencies:
+      "@opzava/adapters":
+        specifier: workspace:*
+        version: link:../../packages/adapters
       "@opzava/ports":
         specifier: workspace:*
         version: link:../../packages/ports

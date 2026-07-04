@@ -7,15 +7,17 @@ Q16; live protocol facts: `docs/plan/research/slice2-ask-admin-opzava.md` (live-
 ## Bring-up (local)
 
 ```bash
-docker compose --profile openclaw up -d openclaw-platform-gateway
+docker compose up -d openclaw-platform-gateway
 ```
 
 - Image pinned via `OPENCLAW_IMAGE_TAG` (currently `2026.6.11`); local host port 18799
   (`docker-compose.override.yml`; 18789 is the developer's personal OpenClaw).
+- The platform Gateway now runs by default with `gateway-broker` for the internal
+  single-tenant phase. It is still expose-only in compose, with no Traefik labels.
 - First run only: config bootstrap + auth token (gateway refuses lan bind without auth):
 
 ```bash
-docker compose --profile openclaw run --rm --no-deps --entrypoint node openclaw-platform-gateway \
+docker compose run --rm --no-deps --entrypoint node openclaw-platform-gateway \
   openclaw.mjs config set --batch-json '[{"path":"gateway.mode","value":"local"},{"path":"gateway.bind","value":"lan"}]'
 # OPENCLAW_GATEWAY_TOKEN must be set in .env (openssl rand -hex 24)
 ```
@@ -26,6 +28,8 @@ docker compose --profile openclaw run --rm --no-deps --entrypoint node openclaw-
 ## Broker device pairing (once per environment)
 
 ```bash
+OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18799 \
+OPENCLAW_DEV_SECRETS_FILE=.dev-secrets/openclaw-secrets.json \
 pnpm --filter @opzava/workers bootstrap:platform-gateway
 ```
 
@@ -34,7 +38,9 @@ Three modes (env-driven): no creds -> registers a pending pairing request; `OPEN
 `OPENCLAW_OPERATOR_DEVICE_TOKEN` -> validation only. Approvals happen in-container:
 
 ```bash
-docker compose exec openclaw-platform-gateway node openclaw.mjs devices approve <requestId>
+docker compose exec openclaw-platform-gateway sh -lc \
+  'node openclaw.mjs devices approve "$1" --url ws://127.0.0.1:18789 --token "$OPENCLAW_GATEWAY_TOKEN"' \
+  -- <requestId>
 ```
 
 - Device identity derives from `OPENCLAW_DEVICE_PRIVATE_KEY_PEM(_BASE64)` (ed25519).

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { Fragment } from "react";
+import type { IssueProjectionDto, IssueTriageFilter } from "@opzava/project-management";
 import { redirect } from "next/navigation";
 
 import { createIssueAction, syncIssuesAction } from "@/app/(app)/issues/actions";
@@ -9,7 +9,11 @@ import {
   issueAssigneeView,
   issueDivergenceLabel,
   issueFilterTabs,
+  issueLabelView,
+  issuePageWindow,
+  issueSectionGroups,
   issueStatusView,
+  parseIssuePage,
   relativeIssueTime,
 } from "@/lib/issues-state";
 import { loadIssuesPageData } from "@/lib/issues";
@@ -20,125 +24,234 @@ export const dynamic = "force-dynamic";
 interface IssuesPageProps {
   readonly searchParams?: Promise<{
     readonly filter?: string;
+    readonly page?: string;
   }>;
 }
 
 const issuesMockupPageStyles = `
-    /* Page-specific layout only — no color, font-size, shadow, or radius overrides */
-    .two-col-grid {
-      display: grid;
-      grid-template-columns: 1fr 1.8fr;
-      gap: var(--space-4);
-      align-items: start;
+    /* Page-specific composition only; values come from existing tokens and primitives. */
+    /* UX laws: Hick's/Miller's chunking, Prägnanz/aesthetic minimalism,
+       Von Restorff single primary action, Serial Position, progressive disclosure. */
+    .issues-page {
+      max-width: 1320px;
     }
-    .spend-chart {
-      display: flex;
-      align-items: flex-end;
-      gap: var(--space-2);
-      height: 72px;
-      padding: 0 var(--space-2);
-    }
-    .spend-chart-bar {
-      flex: 1;
-      border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-      min-width: 0;
-    }
-    .spend-chart-labels {
-      display: flex;
-      gap: var(--space-2);
-      padding: var(--space-1) var(--space-2) 0;
-    }
-    .spend-chart-labels span {
-      flex: 1;
-      text-align: center;
-    }
-    .activity-row {
-      display: flex;
+    .issues-page .page-header {
       align-items: center;
-      gap: var(--space-3);
-      min-height: 40px;
-      padding: 0 var(--space-5);
-      border-bottom: 1px solid var(--border);
-    }
-    .activity-row:last-child {
-      border-bottom: 0;
-    }
-    .activity-time {
-      font-family: var(--font-mono);
-      font-size: var(--text-xs);
-      color: var(--fg-subtle);
-      min-width: 68px;
-      flex: none;
-    }
-    .activity-text {
-      flex: 1;
-      min-width: 0;
-    }
-    .nav-section-gap {
-      margin-top: var(--space-2);
-    }
-    .header-avatar {
-      width: 32px;
-      height: 32px;
-      border-radius: var(--radius-full);
-      background: var(--surface-3);
-      border: 1px solid var(--border-strong);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: var(--text-xs);
-      color: var(--fg-muted);
-      flex: none;
-      cursor: pointer;
-      font-weight: var(--fw-semibold);
-    }
-    .notif-btn-wrap {
-      position: relative;
-    }
-    .notif-badge {
-      position: absolute;
-      top: 4px;
-      right: 4px;
-      width: 16px;
-      height: 16px;
-      border-radius: var(--radius-full);
-      background: var(--danger);
-      color: #fff;
-      font-size: 10px;
-      font-weight: var(--fw-semibold);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      pointer-events: none;
-    }
-    .live-indicator {
-      display: inline-flex;
-      align-items: center;
-      gap: var(--space-2);
-      font-size: var(--text-xs);
-      color: var(--fg-muted);
-    }
-    .spend-row {
-      display: flex;
-      align-items: center;
-      gap: var(--space-4);
-      flex-wrap: wrap;
-    }
-    .spend-row-sep {
-      color: var(--border-strong);
+      margin-bottom: 0;
     }
     .page-stack {
       display: flex;
       flex-direction: column;
       gap: var(--space-4);
     }
-    .fleet-table-wrap {
+    .issues-header-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+    }
+    .issues-pipeline-strip {
+      display: flex;
+      align-items: stretch;
+      gap: var(--space-1);
+      padding: var(--space-2);
+      overflow: hidden;
+      overflow-x: auto;
+    }
+    .issues-pipeline-segment {
+      display: flex;
+      align-items: center;
+      min-width: 148px;
+      min-height: 44px;
+      padding: 0 var(--space-3);
+      border: 1px solid transparent;
+      border-radius: var(--radius-md);
+      gap: var(--space-2);
+      color: inherit;
+      text-decoration: none;
+    }
+    .issues-pipeline-segment:hover {
+      background: var(--surface-2);
+      text-decoration: none;
+    }
+    .issues-pipeline-segment[aria-current="page"] {
+      background: var(--surface-2);
+      border-color: var(--border);
+    }
+    .issues-pipeline-segment.is-primary {
+      background: var(--accent-soft);
+      border-color: var(--accent-border);
+    }
+    .issues-pipeline-segment.is-zero {
+      opacity: 0.48;
+    }
+    .issues-pipeline-count {
+      min-width: 2ch;
+      font-size: var(--text-lg);
+      font-weight: var(--fw-semibold);
+      line-height: var(--lh-tight);
+      text-align: right;
+    }
+    .issues-pipeline-label {
+      min-width: 0;
+      line-height: var(--lh-snug);
+    }
+    .issues-list-card {
       overflow: hidden;
     }
-    .activity-live-header {
+    .issues-list-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+      padding: var(--space-4) var(--space-5);
+      border-bottom: 1px solid var(--border);
+    }
+    .issues-list-meta {
       display: flex;
       align-items: center;
       gap: var(--space-2);
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .issues-list-table td {
+      height: auto;
+      padding-top: var(--space-3);
+      padding-bottom: var(--space-3);
+    }
+    .issues-list-table th:first-child,
+    .issues-list-table td:first-child {
+      width: 78px;
+    }
+    .issues-number-link {
+      color: var(--fg-muted);
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-weight: var(--fw-medium);
+      text-decoration: none;
+    }
+    .issues-number-link:hover,
+    .issues-title-link:hover {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .issues-title-link {
+      color: var(--fg);
+      font-weight: var(--fw-medium);
+      line-height: var(--lh-snug);
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+    .issues-label-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: var(--space-2);
+    }
+    .issues-more-labels {
+      position: relative;
+      display: inline-flex;
+    }
+    .issues-more-labels summary {
+      min-height: 24px;
+      cursor: pointer;
+      list-style: none;
+    }
+    .issues-more-labels summary::-webkit-details-marker {
+      display: none;
+    }
+    .issues-hidden-labels {
+      position: absolute;
+      z-index: var(--z-dropdown);
+      top: calc(100% + 6px);
+      left: 0;
+      display: grid;
+      min-width: 180px;
+      gap: 6px;
+      padding: var(--space-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      box-shadow: var(--shadow-md);
+    }
+    .issues-group-row th {
+      height: auto;
+      padding: var(--space-4) var(--space-4) var(--space-2);
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      text-align: left;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .issues-group-heading {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+    }
+    .issues-dimmed-cell {
+      color: var(--fg-subtle);
+    }
+    .issues-dimmed-cell .dot {
+      opacity: 0.45;
+    }
+    .issues-status {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .issues-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+    }
+    .issues-page-indicator {
+      min-width: 8ch;
+      text-align: center;
+    }
+    .issues-pagination-disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .issues-footer-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+    }
+    @media (max-width: 720px) {
+      .issues-page .page-header,
+      .issues-list-head,
+      .issues-footer-row {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .issues-header-actions,
+      .issues-pagination {
+        justify-content: flex-start;
+      }
+      .issues-new-form {
+        position: static;
+        width: 100%;
+      }
+    }
+    @media (max-width: 640px) {
+      .table.table-cards.issues-list-table tbody .issues-group-row {
+        display: block;
+        border: 0;
+        margin: var(--space-2) 0;
+        padding: 0;
+      }
+      .table.table-cards.issues-list-table tbody .issues-group-row th {
+        display: block;
+        border: 0;
+        padding: var(--space-2) 0;
+      }
     }
 `;
 
@@ -207,6 +320,10 @@ const issuesLiveWiringStyles = `
       box-shadow: var(--shadow-md);
     }
     .issues-new-menu summary:focus-visible,
+    .issues-more-labels summary:focus-visible,
+    .issues-pipeline-segment:focus-visible,
+    .issues-number-link:focus-visible,
+    .issues-title-link:focus-visible,
     .tab:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
@@ -253,6 +370,31 @@ function LastSyncText({
 
   const label = issueAgeLabel(value);
   return <time dateTime={value}>{variant === "header" ? `updated ${label}` : label}</time>;
+}
+
+function issuesHref(filter: IssueTriageFilter, page = 1): string {
+  const params = new URLSearchParams();
+  if (filter !== "all") {
+    params.set("filter", filter);
+  }
+  if (page > 1) {
+    params.set("page", String(page));
+  }
+
+  const query = params.toString();
+  return query === "" ? "/issues" : `/issues?${query}`;
+}
+
+function issueFilterLabel(filter: IssueTriageFilter): string {
+  return issueFilterTabs.find((tab) => tab.id === filter)?.label ?? "All";
+}
+
+function pluralizedIssue(count: number): string {
+  return `${count} ${count === 1 ? "issue" : "issues"}`;
+}
+
+function issueViewTitle(filter: IssueTriageFilter): string {
+  return filter === "all" ? "All synced issues" : `${issueFilterLabel(filter)} focus`;
 }
 
 function initials(name: string): string {
@@ -320,6 +462,80 @@ function Assignee({
   );
 }
 
+function IssueLabelChips({
+  issue,
+  divergence,
+}: {
+  readonly issue: IssueProjectionDto;
+  readonly divergence: string | null;
+}) {
+  const labels = issueLabelView(issue);
+
+  return (
+    <div className="issues-label-row">
+      <span className="badge">{labels.primaryLabel}</span>
+      {labels.hiddenLabels.length === 0 ? null : (
+        <details className="issues-more-labels">
+          <summary
+            className="badge"
+            aria-label={`Show ${labels.hiddenLabels.length} more labels for issue #${issue.number}`}
+          >
+            +{labels.hiddenLabels.length}
+          </summary>
+          <div className="issues-hidden-labels">
+            {labels.hiddenLabels.map((label) => (
+              <span className="badge" key={label}>
+                {label}
+              </span>
+            ))}
+          </div>
+        </details>
+      )}
+      {divergence === null ? null : <span className="badge badge-warning">{divergence}</span>}
+    </div>
+  );
+}
+
+function IssuesPagination({
+  filter,
+  page,
+  pageCount,
+}: {
+  readonly filter: IssueTriageFilter;
+  readonly page: number;
+  readonly pageCount: number;
+}) {
+  if (pageCount <= 1) {
+    return null;
+  }
+
+  return (
+    <nav className="issues-pagination" aria-label="Issue pages">
+      {page <= 1 ? (
+        <span className="btn btn-sm issues-pagination-disabled" aria-disabled="true">
+          Previous
+        </span>
+      ) : (
+        <a className="btn btn-sm" href={issuesHref(filter, page - 1)}>
+          Previous
+        </a>
+      )}
+      <span className="hint issues-page-indicator">
+        Page {page} of {pageCount}
+      </span>
+      {page >= pageCount ? (
+        <span className="btn btn-sm issues-pagination-disabled" aria-disabled="true">
+          Next
+        </span>
+      ) : (
+        <a className="btn btn-sm" href={issuesHref(filter, page + 1)}>
+          Next
+        </a>
+      )}
+    </nav>
+  );
+}
+
 function IssuesPageStyles() {
   return (
     <>
@@ -356,11 +572,34 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
   const data = result.value;
   const openTotal = data.issues.filter((issue) => issue.state === "open").length;
   const filteredOpenTotal = data.filteredIssues.filter((issue) => issue.state === "open").length;
+  const issueWindow = issuePageWindow(
+    data.filteredIssues,
+    parseIssuePage(params?.page, data.filteredIssues.length),
+  );
+  const issueGroups = issueSectionGroups(issueWindow.issues);
+  const primaryPipelineStage =
+    data.pipeline.find((stage) => stage.id === "needs-triage" && stage.count > 0) ??
+    data.pipeline.find((stage) => stage.needsAttention && stage.count > 0);
+  const allFilteredUnassigned =
+    data.filteredIssues.length > 0 &&
+    data.filteredIssues.every(
+      (issue) => issueAssigneeView(issue.assignee, context.user.name).kind === "unassigned",
+    );
+  const filteredStatusLabels = [
+    ...new Set(data.filteredIssues.map((issue) => issueStatusView(issue).label)),
+  ];
+  const uniformStatusLabel =
+    filteredStatusLabels.length === 1 ? (filteredStatusLabels[0] ?? null) : null;
+  const listMeta = [
+    `${pluralizedIssue(issueWindow.totalCount)} in this view`,
+    allFilteredUnassigned ? "all unassigned" : null,
+    uniformStatusLabel === null ? null : `all ${uniformStatusLabel.toLowerCase()}`,
+  ].filter((item): item is string => item !== null);
 
   return (
     <>
       <IssuesPageStyles />
-      <div className="page">
+      <div className="page issues-page">
         <div className="page-stack">
           <div className="page-header">
             <div>
@@ -373,7 +612,7 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
                 · <LastSyncText value={data.lastSyncedAt} variant="header" />
               </p>
             </div>
-            <div className="u-row" style={{ gap: "var(--space-2)" }}>
+            <div className="issues-header-actions">
               <form action={syncIssuesAction}>
                 <button type="submit" className="btn">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -438,7 +677,7 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
                     />
                     <p className="hint">Comma-separated GitHub labels.</p>
                   </div>
-                  <button className="btn btn-primary" type="submit">
+                  <button className="btn" type="submit">
                     Create issue
                   </button>
                 </ActionStateForm>
@@ -450,63 +689,68 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
             <div className="section-label" id="pipeline-lbl" style={{ paddingLeft: 0 }}>
               Triage pipeline
             </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "stretch",
-                gap: "var(--space-2)",
-                overflowX: "auto",
-              }}
-            >
-              {data.pipeline.map((stage, index) => (
-                <Fragment key={stage.id}>
-                  <div
-                    className="stat"
-                    style={{
-                      flex: "1 1 0",
-                      minWidth: "150px",
-                      ...(stage.needsAttention ? { borderLeft: "3px solid var(--accent)" } : {}),
-                    }}
-                  >
-                    <div className="stat-label">{stage.label}</div>
-                    <div className="stat-value u-tnum">{stage.count}</div>
-                    <div
-                      className="u-subtle"
-                      style={{ fontSize: "var(--text-xs)", marginTop: "4px" }}
-                    >
-                      {stage.description}
-                    </div>
-                  </div>
-                  {index === data.pipeline.length - 1 ? null : (
-                    <span
-                      className="u-subtle"
-                      aria-hidden="true"
-                      style={{
-                        flex: "none",
-                        alignSelf: "center",
-                        fontSize: "var(--text-base)",
-                      }}
-                    >
-                      →
+            <div className="card issues-pipeline-strip">
+              {data.pipeline.map((stage) => (
+                <a
+                  className={[
+                    "issues-pipeline-segment",
+                    stage.count === 0 ? "is-zero" : "",
+                    primaryPipelineStage?.id === stage.id ? "is-primary" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  href={issuesHref(stage.id)}
+                  aria-current={data.filter === stage.id ? "page" : undefined}
+                  aria-label={`${stage.label}: ${pluralizedIssue(stage.count)} (${stage.description})`}
+                  key={stage.id}
+                >
+                  <span className="issues-pipeline-count u-tnum">{stage.count}</span>
+                  <span className="issues-pipeline-label">
+                    <span className="u-row" style={{ gap: "6px" }}>
+                      {stage.needsAttention && stage.count > 0 ? (
+                        <span className="dot dot-accent" aria-hidden="true" />
+                      ) : null}
+                      <span>{stage.label}</span>
                     </span>
-                  )}
-                </Fragment>
+                    <span className="u-subtle" style={{ display: "block" }}>
+                      {stage.description}
+                    </span>
+                  </span>
+                </a>
               ))}
             </div>
           </section>
 
           <section aria-label="Synced GitHub issues">
-            <div className="card">
+            <div className="card issues-list-card">
+              <div className="issues-list-head">
+                <div>
+                  <h2 className="card-title">{issueViewTitle(data.filter)}</h2>
+                  <p className="hint issues-list-meta">
+                    {listMeta.map((item, index) => (
+                      <span key={item}>
+                        {index === 0 ? null : "· "}
+                        {item}
+                      </span>
+                    ))}
+                  </p>
+                </div>
+                <IssuesPagination
+                  filter={data.filter}
+                  page={issueWindow.page}
+                  pageCount={issueWindow.pageCount}
+                />
+              </div>
+
               <div className="tabs" role="tablist" aria-label="Filter issues">
                 {issueFilterTabs.map((tab) => {
-                  const href = tab.id === "all" ? "/issues" : `/issues?filter=${tab.id}`;
                   return (
                     <a
                       className="tab"
                       role="tab"
                       aria-selected={data.filter === tab.id}
                       aria-current={data.filter === tab.id ? "page" : undefined}
-                      href={href}
+                      href={issuesHref(tab.id)}
                       key={tab.id}
                     >
                       {tab.label}
@@ -521,10 +765,12 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
                   <p className="empty-desc">Run Sync now or choose another filter.</p>
                 </div>
               ) : (
-                <table className="table table-compact table-cards">
+                <table className="table table-compact table-cards issues-list-table">
                   <caption className="u-sr-only">
                     Synced GitHub issues — issue number, title with triage labels, assignee, last
-                    updated, and status. Showing {filteredOpenTotal} of {openTotal} open issues.
+                    updated, and status. Showing {issueWindow.startItem} to {issueWindow.endItem} of{" "}
+                    {issueWindow.totalCount} issues in this view, with {filteredOpenTotal} of{" "}
+                    {openTotal} open issues.
                   </caption>
                   <thead>
                     <tr>
@@ -535,75 +781,97 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
                       <th scope="col">Status</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {data.filteredIssues.map((issue) => {
-                      const status = issueStatusView(issue);
-                      const divergence = issueDivergenceLabel(issue);
-                      return (
-                        <tr key={`${issue.repository}#${issue.number}`}>
-                          <td data-label="#" className="u-mono u-muted">
-                            #{issue.number}
-                          </td>
-                          <td data-label="Issue">
-                            <a
-                              href={issue.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                color: "var(--fg)",
-                                fontWeight: "var(--fw-medium)",
-                                lineHeight: "var(--lh-snug)",
-                                textDecoration: "none",
-                              }}
+                  {issueGroups.map((group) => (
+                    <tbody
+                      aria-label={`${group.label}: ${pluralizedIssue(group.count)}`}
+                      key={group.id}
+                    >
+                      <tr className="issues-group-row">
+                        <th scope="rowgroup" colSpan={5}>
+                          <span className="issues-group-heading">
+                            <span>{group.label}</span>
+                            <span className="badge">{group.count}</span>
+                            <span className="u-subtle">{group.description}</span>
+                          </span>
+                        </th>
+                      </tr>
+                      {group.issues.map((issue) => {
+                        const status = issueStatusView(issue);
+                        const divergence = issueDivergenceLabel(issue);
+                        return (
+                          <tr key={`${issue.repository}#${issue.number}`}>
+                            <td data-label="#">
+                              <a
+                                className="issues-number-link"
+                                href={issue.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-label={`Open GitHub issue #${issue.number}`}
+                              >
+                                #{issue.number}
+                              </a>
+                            </td>
+                            <td data-label="Issue">
+                              <a
+                                className="issues-title-link"
+                                href={issue.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {issue.title}
+                              </a>
+                              <IssueLabelChips issue={issue} divergence={divergence} />
+                            </td>
+                            <td
+                              data-label="Assignee"
+                              className={allFilteredUnassigned ? "issues-dimmed-cell" : undefined}
                             >
-                              {issue.title}
-                            </a>
-                            <div className="u-row u-wrap" style={{ gap: "6px", marginTop: "6px" }}>
-                              {issue.labels.length === 0 ? (
-                                <span className="badge">needs-triage</span>
-                              ) : (
-                                issue.labels.map((label) => (
-                                  <span className="badge" key={label}>
-                                    {label}
-                                  </span>
-                                ))
-                              )}
-                              {divergence === null ? null : (
-                                <span className="badge badge-warning">{divergence}</span>
-                              )}
-                            </div>
-                          </td>
-                          <td data-label="Assignee">
-                            <Assignee
-                              assignee={issue.assignee}
-                              currentUserName={context.user.name}
-                            />
-                          </td>
-                          <td data-label="Updated" className="u-mono u-subtle">
-                            {relativeIssueTime(issue.updatedAt)}
-                          </td>
-                          <td data-label="Status">
-                            <span className="u-row">
-                              <span className={status.dotClassName} aria-hidden="true" />
-                              {issue.state === "closed" ? (
-                                <span className="u-muted">{status.label}</span>
-                              ) : (
-                                status.label
-                              )}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
+                              <Assignee
+                                assignee={issue.assignee}
+                                currentUserName={context.user.name}
+                              />
+                            </td>
+                            <td data-label="Updated" className="u-mono u-subtle">
+                              <time dateTime={issue.updatedAt}>
+                                {relativeIssueTime(issue.updatedAt)}
+                              </time>
+                            </td>
+                            <td
+                              data-label="Status"
+                              className={
+                                uniformStatusLabel === null ? undefined : "issues-dimmed-cell"
+                              }
+                            >
+                              <span className="issues-status">
+                                <span className={status.dotClassName} aria-hidden="true" />
+                                {issue.state === "closed" ? (
+                                  <span className="u-muted">{status.label}</span>
+                                ) : (
+                                  status.label
+                                )}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  ))}
                 </table>
               )}
 
               <div className="card-footer">
-                <p className="hint">
-                  Showing {filteredOpenTotal} of {openTotal} open · last sync{" "}
-                  <LastSyncText value={data.lastSyncedAt} variant="footer" />
-                </p>
+                <div className="issues-footer-row">
+                  <p className="hint">
+                    Showing {issueWindow.startItem}-{issueWindow.endItem} of{" "}
+                    {issueWindow.totalCount} · {filteredOpenTotal} of {openTotal} open · last sync{" "}
+                    <LastSyncText value={data.lastSyncedAt} variant="footer" />
+                  </p>
+                  <IssuesPagination
+                    filter={data.filter}
+                    page={issueWindow.page}
+                    pageCount={issueWindow.pageCount}
+                  />
+                </div>
               </div>
             </div>
           </section>

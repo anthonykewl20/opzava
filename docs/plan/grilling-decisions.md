@@ -412,14 +412,78 @@ Consensus trail: `docs/plan/consensus/q15-mvp-roadmap.mmx.md`.
   fallback), `auth-credential-semantics.md` (OAuth non-portability, SecretRef guard), `concepts/agent-runtimes.md`
   (embedded runtimes), `tools/acp-agents.md` (ACP = gateway-hosted harness), `cli/mcp.md` (MCP surfaces).
 
+## Q17 — Admin Tasks board as AI-Workforce dev pipeline — LOCKED (2026-07-04)
+**Purpose:** the Tasks board is **ADMIN-ONLY** and exists for Opzava-platform development work: slices, fixes, incidents,
+PRs, and repo dogfooding. It is **Opzava dogfooding Opzava**, not an end-user product surface. CRM/Marketing remain the
+separate user-side business surfaces and stay deferred from this slice.
+**Actors (3):** (1) human admin = owner/curator/approver; (2) doer agent = either a gateway-side subagent dispatched by
+the Lead Orchestrator and running on the VPS, OR an external local tool (`claude-code`/`claude-desktop`/`codex`) connected
+through hosted MCP; (3) Lead Orchestrator = **Ask Admin Opzava**, the dispatcher + adversarial reviewer.
+**Dispatch model:** "Dispatch" means Ask Admin Opzava spawns **gateway-side subagents** using OpenClaw native
+`sessions_spawn` + `subagents` with `delegationMode: "prefer"`; those subagents run **on the VPS**. It is NOT remote-control
+of the admin's local desktop apps, and ACP/CLI-backends also run on the gateway host (Q16 rejected ACP for the local-first
+dev harness for that reason). Local tools are the manual/grab path via hosted MCP. Both paths drive the SAME card through
+the SAME consumer-agnostic governed task/review tool registry.
+**Lifecycle (5 lanes + orthogonal Blocked):** `Backlog -> Todo -> In Progress -> Review -> Done`, with `Blocked` as a
+flag/label, not a lane. Backlog is planning/curation only; doers never touch it, and the creating agent drafts Overview
+there. `Backlog -> Todo` is **human-only** and is the actionable gate. Todo can be pre-assigned by a human; otherwise the
+orchestrator auto-dispatches and `Assigned to` shows the agent identity. `Todo -> In Progress` is doer-owned through
+`task.claim` and begins the AI Run. `In Progress -> Review` is doer-owned but hard-gated by matching Evidence or Files.
+Quality Review is orchestrator-owned adversarial verification; the card stays in Review and never auto-Dones. Review pass
+waits for a human; changes-requested sends the same doer back to In Progress with a required note. `Review -> Done` is
+**human-only**; Done triggers the orchestrator to merge the linked PR only when CI is green, fail-closed otherwise, and the
+linked GitHub issue auto-closes on merge. Current DB status enum `todo|in_progress|blocked|done` must gain `backlog` and
+`review`.
+**Evidence gate:** the doer must declare `change-type = visual|non-visual` and attach matching evidence before Review:
+visual work requires screenshot proof; non-visual work requires e2e/user-level tests, smoke tests, real-world tests,
+mutation tests, or other verify-deep artifacts. `In Progress -> Review` fails closed without matching evidence. The
+orchestrator independently verifies sufficiency/reality by re-running tests or checking screenshots against stated outcome;
+Evidence is not a checkbox.
+**Issue ⇄ Task ⇄ PR:** GitHub issues can be imported as Tasks, curated in Backlog, and shown with a `#NN` chip. A Task has
+0..1 primary issue and can produce a PR with `Closes #NN`. GitHub remains source of truth for issue state; the Opzava
+Postgres Task is the execution unit. Code tasks branch from `development` and use PR + CI status + tests/screenshots as
+first-class Evidence. Net-new: PRs do not exist in the current issue adapter; gateway-side subagents need a repo clone and
+git credentials on the VPS to push branches and open PRs.
+**Trigger mechanism:** Opzava task events emitted through the ADR-004 transactional outbox (`card -> Todo`, comment/
+`@mention`, `review-requested`) feed the **dispatcher worker**: the ADR-008/P1 AI-Workforce `AgentDispatch` loop pulled
+forward for platform development. Gateway-side doers are real-time push (dispatcher -> broker `sessions.send` ->
+orchestrator turn -> dispatch subagent/respond/run review). Local-tool doers are poll only (`list_my_open_items` over
+hosted MCP), so comments on local-tool-owned cards are answered on next poll, not instantly. `@mention` routes to the
+specific agent identity: push for gateway-side identities, queue-for-poll for local-tool identities.
+**Surfaces:** AI Run tab is the full step-by-step run trace with live elapsed ticker. Evidence/Files stores artifacts
+including PRs. Comments are human-readable summaries and replies to human comments/mentions in the Opzava task-authoring
+voice, not every raw tool call. `Assigned to` is the named agent identity plus AI badge.
+**Governed tool registry:** consumer-agnostic tools for gateway subagents and local MCP tools are `task.claim`,
+`task.report_run_step`, `task.attach_evidence(kind: screenshot|e2e|smoke|real_world|mutation|verify_deep|pr)`,
+`task.comment`/`task.reply`, `task.request_review` (hard-gated), and `task.update(overview/labels/due/watchers/link_issue/
+link_pr)`. Reviewer-only tools, enforced by tool policy for the orchestrator identity, are `review.record_check`,
+`review.pass`, and `review.request_changes`. No agent gets `set Done` or `merge`; those remain human-gated /
+orchestrator-internal-on-Done.
+**Hosted MCP:** promote the MCP server from local stdio to a hosted Streamable HTTP compose service behind Traefik at
+`mcp.opzava.<domain>` on the VPS; stdio stays as a local fallback. Auth uses the Slice 2.5 scoped/revocable/hashed link
+tokens as `Authorization: Bearer`. The token resolves to on-behalf-of authority: issuing human RBAC/RLS plus a named agent
+identity bound at issuance in the UI, not client-declared. One token per tool gives trustworthy attribution. Revocation
+dies with membership/session-version changes and explicit revoke. Compatibility with `claude-code`, `claude-desktop`, and
+`codex` over remote HTTP MCP + bearer must be runtime-verified, not assumed.
+**Scope note:** this is effectively **P1 AI Workforce** (ADR-008) pulled forward and applied to Opzava's own dev work. It
+is a large multi-part build: 5-lane state machine + transition tool-policy, dispatcher worker, gateway-side subagent
+execution with repo+git credentials, PR/CI dimension, evidence gate, orchestrator Quality-Review automation, agent-identity
+registry, and hosted-HTTP MCP. Sequence it after live bring-up and before user-side Marketing.
+**Biggest sad path + invariants:** the doer self-approves, fabricates evidence, or merges unreviewed code. Invariants:
+doers can never touch Backlog, set Done, call reviewer-only tools, or merge; `request_review` fails closed without matching
+evidence; Review is adversarial orchestrator verification and still waits for human Done; CI red blocks Done/merge and the
+card stays in Review; named agent identity comes from token/provisioning policy, never from client-supplied text.
+Canonical slice contract: `docs/plan/consensus/tasks-ai-workforce-design.md`.
+
 ---
 
-## Grilling status — COMPLETE ✅ (Q1–Q16)
+## Grilling status — COMPLETE ✅ (Q1–Q17)
 All architecture branches locked with paired codex + mmx consensus: **Q1** BFF+DB · **Q1b** stack · **Q2** pure-B tenancy · **Q3**
 WS broker+scoped token · **Q4** contexts+CQRS+ACL · **Q4b** knowledge mgmt+two-token · **Q4c** tool-policy-first security · **Q5**
 RBAC+RLS · **Q6** auth (Better Auth) · **Q7** realtime+chat+assistants+PWA/Push · **Q8** AI Workforce · **Q9** error→admin-card ·
 **Q10** CRM · **Q11** dept workflows · **Q12** billing+provisioning · **Q13** capability-parity map + ADR/PRD backlog ·
 **Q14** local⇄Dokploy parity · **Q15** MVP roadmap · **Q16** orchestrator runtime + local coding harness (user-grilled, no
-paired consensus — decisions taken interactively 2026-07-03).
+paired consensus — decisions taken interactively 2026-07-03) · **Q17** admin Tasks board as AI-Workforce dev pipeline
+(user-grilled, no paired consensus — decisions taken interactively 2026-07-04).
 The grilling sequence is complete. Design is realized in ADR-001..015 + PRD-001..018; execution is controlled by
 `docs/plan/EXECUTION.md`.
