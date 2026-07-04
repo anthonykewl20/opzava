@@ -245,6 +245,77 @@ class MemorySecretsVault {
   }
 }
 
+class RecordingGatewayRuntime {
+  public readonly connectCalls: {
+    readonly providerId: string;
+    readonly authChoiceId: string;
+    readonly keyFlag: string;
+    readonly apiKey: string;
+  }[] = [];
+
+  public constructor(
+    private readonly options: {
+      readonly choices?: readonly {
+        readonly id: string;
+        readonly label: string;
+        readonly mode: "api-key" | "device-flow";
+        readonly keyFlag?: string;
+      }[];
+      readonly status?: unknown;
+      readonly connectResult?: Result<{
+        readonly exitCode: number;
+        readonly stdout: string;
+        readonly stderr: string;
+      }>;
+    } = {},
+  ) {}
+
+  public async listAuthChoices(): Promise<
+    Result<
+      readonly {
+        readonly id: string;
+        readonly label: string;
+        readonly mode: "api-key" | "device-flow";
+        readonly keyFlag?: string;
+      }[]
+    >
+  > {
+    return ok(
+      this.options.choices ?? [
+        { id: "zai-api-key", label: "API key", mode: "api-key", keyFlag: "zai-api-key" },
+      ],
+    );
+  }
+
+  public async modelStatus(): Promise<Result<unknown>> {
+    return ok(
+      this.options.status ?? {
+        allowed: ["zai/glm-5.2"],
+        auth: {
+          providers: [
+            {
+              provider: "zai",
+              profiles: { count: 1, apiKey: 1, labels: ["zai:manual=API key"] },
+            },
+          ],
+        },
+      },
+    );
+  }
+
+  public async connectApiKey(input: {
+    readonly providerId: string;
+    readonly authChoiceId: string;
+    readonly keyFlag: string;
+    readonly apiKey: string;
+  }): Promise<
+    Result<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }>
+  > {
+    this.connectCalls.push(input);
+    return this.options.connectResult ?? ok({ exitCode: 0, stdout: "{}", stderr: "" });
+  }
+}
+
 function principal(): {
   readonly orgId: string;
   readonly workspaceId: string;
@@ -702,13 +773,15 @@ describe("Connections provisioning helpers", () => {
 
   it("patches provider API-key auth profiles without returning the key material", async () => {
     const admin = new RecordingAdminClient({
-      "config.get": ok({ hash: "config-hash-1" }),
+      "config.get": ok({ hash: "config-hash-1", plugins: { allow: ["codex"] } }),
       "config.patch": ok({ ok: true }),
     });
+    const gatewayRuntime = new RecordingGatewayRuntime();
     const port = new GatewayAdminConnectionsProvisioningPort({
       adminClient: admin,
       secretsVault: new MemorySecretsVault(),
       githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
       now: () => new Date("2026-07-03T00:00:00.000Z"),
     });
 
@@ -725,36 +798,46 @@ describe("Connections provisioning helpers", () => {
       method: "config.patch",
       params: {
         baseHash: "config-hash-1",
+        replacePaths: ["plugins.allow"],
       },
     });
-    expect(rawPatch(admin.calls[1]!.params)).toMatchObject({
-      auth: {
-        profiles: {
-          "zai-zai-api-key": {
-            providerId: "zai",
-            authChoiceId: "zai-api-key",
-            key: "secret-provider-key",
-          },
-        },
-        order: { zai: ["zai-zai-api-key"] },
+    expect(rawPatch(admin.calls[1]!.params)).toEqual({
+      plugins: {
+        allow: ["codex", "zai"],
       },
     });
     expect(admin.calls[1]?.params).not.toHaveProperty("patch");
     expect(admin.calls[1]?.params).not.toHaveProperty("receipt");
     expect(admin.calls[1]?.idempotencyKey).toBeUndefined();
+    expect(gatewayRuntime.connectCalls).toEqual([
+      {
+        providerId: "zai",
+        authChoiceId: "zai-api-key",
+        keyFlag: "zai-api-key",
+        apiKey: "secret-provider-key",
+      },
+    ]);
+    expect(result.ok ? result.value : null).toMatchObject({
+      providerId: "zai",
+      status: "connected",
+      authChoiceId: "zai-api-key",
+      usageLabel: "1 auth profile",
+    });
+    expect(JSON.stringify(admin.calls)).not.toContain("secret-provider-key");
     expect(JSON.stringify(result)).not.toContain("secret-provider-key");
   });
 
   it("does not send provider API-key material when the device lacks operator.admin", async () => {
-    const admin = new RecordingAdminClient({ "config.get": ok({ hash: "config-hash-1" }) }, [
-      "operator.read",
-      "operator.write",
-      "operator.approvals",
-    ]);
+    const admin = new RecordingAdminClient(
+      { "config.get": ok({ hash: "config-hash-1", plugins: { allow: ["codex"] } }) },
+      ["operator.read", "operator.write", "operator.approvals"],
+    );
+    const gatewayRuntime = new RecordingGatewayRuntime();
     const port = new GatewayAdminConnectionsProvisioningPort({
       adminClient: admin,
       secretsVault: new MemorySecretsVault(),
       githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
       now: () => new Date("2026-07-03T00:00:00.000Z"),
     });
 
@@ -784,6 +867,7 @@ describe("Connections provisioning helpers", () => {
       },
     ]);
     expect(JSON.stringify(admin.calls)).not.toContain("secret-provider-key");
+    expect(gatewayRuntime.connectCalls).toEqual([]);
   });
 
   it("patches provider disconnect with raw JSON merge-patch deletion semantics", async () => {
@@ -915,20 +999,14 @@ describe("Connections provisioning helpers", () => {
       authChoiceId: "openai-device-code",
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      throw result.error;
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected device-flow unsupported failure");
     }
-    expect(result.value).toMatchObject({
-      kind: "model_provider",
-      verificationUri: "docs/runbooks/provisioning-worker-bringup.md",
-      userCode: "unsupported-via-gui",
-    });
-
-    const poll = await port.pollDeviceFlow({ ...principal(), flowId: result.value.flowId });
-    expect(poll.ok ? poll.value : null).toMatchObject({
-      status: "failed",
-      message: expect.stringContaining("docs/runbooks/provisioning-worker-bringup.md"),
+    expect(result.error).toMatchObject({
+      code: "provisioning.connections.deviceFlowRequiresInteractive",
+      message:
+        "Model-provider device-flow OAuth requires an interactive gateway login. Use the Gateway CLI runbook for this provider.",
     });
   });
 

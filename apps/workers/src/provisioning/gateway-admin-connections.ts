@@ -55,8 +55,33 @@ interface GatewayAdminConnectionsOptions {
   readonly secretsVault: MutableSecretsVault;
   readonly githubRepository: string;
   readonly githubOAuthClientId?: string;
+  readonly gatewayRuntime?: GatewayRuntimePort;
   readonly fetch?: Fetch;
   readonly now?: () => Date;
+}
+
+interface GatewayRuntimeAuthChoice {
+  readonly id: string;
+  readonly label: string;
+  readonly mode: "api-key" | "device-flow";
+  readonly keyFlag?: string;
+}
+
+interface GatewayRuntimeCommandResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+interface GatewayRuntimePort {
+  listAuthChoices(): Promise<Result<readonly GatewayRuntimeAuthChoice[]>>;
+  modelStatus(): Promise<Result<unknown>>;
+  connectApiKey(input: {
+    readonly providerId: string;
+    readonly authChoiceId: string;
+    readonly keyFlag: string;
+    readonly apiKey: string;
+  }): Promise<Result<GatewayRuntimeCommandResult>>;
 }
 
 interface PendingGitHubDeviceFlow {
@@ -69,7 +94,7 @@ interface PendingGitHubDeviceFlow {
 }
 
 const modelDeviceFlowUnsupportedMessage =
-  "The current Gateway release exposes no admin RPC for model-provider device-code OAuth; use docs/runbooks/provisioning-worker-bringup.md for the documented credential paths.";
+  "Model-provider device-flow OAuth requires an interactive gateway login. Use the Gateway CLI runbook for this provider.";
 
 function provisioningError(
   code: string,
@@ -127,6 +152,7 @@ function configBaseHash(value: unknown): string | null {
 function configPatchParams(input: {
   readonly configGetPayload: unknown;
   readonly patch: Record<string, unknown>;
+  readonly replacePaths?: readonly string[];
 }): Result<Record<string, unknown>> {
   const baseHash = configBaseHash(input.configGetPayload);
   if (baseHash === null) {
@@ -141,6 +167,9 @@ function configPatchParams(input: {
   return ok({
     raw: JSON.stringify(input.patch),
     baseHash,
+    ...(input.replacePaths === undefined || input.replacePaths.length === 0
+      ? {}
+      : { replacePaths: input.replacePaths }),
   });
 }
 
@@ -558,6 +587,634 @@ function readRequestedOperatorScopes(
   return scopes.length === 0 ? undefined : scopes;
 }
 
+function readDockerHost(env: NodeJS.ProcessEnv): string | null {
+  const value = env["DOCKER_HOST"]?.trim();
+  return value === undefined || value === "" ? null : value;
+}
+
+function readGatewayContainerName(env: NodeJS.ProcessEnv): string | null {
+  const value =
+    env["OPENCLAW_GATEWAY_CONTAINER_NAME"]?.trim() ?? env["OPENCLAW_GATEWAY_CONTAINER"]?.trim();
+  return value === undefined || value === "" ? null : value;
+}
+
+function dockerHttpBaseUrl(dockerHost: string): Result<string> {
+  if (!dockerHost.startsWith("tcp://")) {
+    return err(
+      provisioningError(
+        "provisioning.docker.unsupportedHost",
+        "DOCKER_HOST must use tcp:// for the provisioning worker docker-socket-proxy path.",
+      ),
+    );
+  }
+
+  try {
+    return ok(new URL(dockerHost.replace(/^tcp:\/\//, "http://")).toString().replace(/\/$/, ""));
+  } catch (error) {
+    return err(
+      provisioningError("provisioning.docker.invalidHost", "DOCKER_HOST is invalid.", {
+        error: String(error),
+      }),
+    );
+  }
+}
+
+function dockerMultiplexedOutput(buffer: Buffer): {
+  readonly stdout: string;
+  readonly stderr: string;
+} {
+  let offset = 0;
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+
+  while (offset + 8 <= buffer.length) {
+    const stream = buffer[offset];
+    const size = buffer.readUInt32BE(offset + 4);
+    const next = offset + 8 + size;
+    if (size < 0 || next > buffer.length) {
+      return { stdout: buffer.toString("utf8"), stderr: "" };
+    }
+
+    const chunk = buffer.subarray(offset + 8, next);
+    if (stream === 2) {
+      stderr.push(chunk);
+    } else {
+      stdout.push(chunk);
+    }
+    offset = next;
+  }
+
+  if (offset !== buffer.length) {
+    return { stdout: buffer.toString("utf8"), stderr: "" };
+  }
+
+  return {
+    stdout: Buffer.concat(stdout).toString("utf8"),
+    stderr: Buffer.concat(stderr).toString("utf8"),
+  };
+}
+
+function authChoiceMode(choiceId: string, keyFlag: string | null): "api-key" | "device-flow" {
+  if (keyFlag !== null) {
+    return "api-key";
+  }
+
+  const normalized = choiceId.toLowerCase();
+  return normalized.includes("oauth") ||
+    normalized.includes("device") ||
+    normalized.includes("cli") ||
+    normalized === "openai" ||
+    normalized === "github-copilot"
+    ? "device-flow"
+    : "api-key";
+}
+
+function authChoiceLabel(choiceId: string, mode: "api-key" | "device-flow"): string {
+  if (mode === "api-key") {
+    return "API key";
+  }
+
+  if (choiceId.includes("cli")) {
+    return "Interactive CLI";
+  }
+
+  return "OAuth device flow";
+}
+
+function parseOnboardAuthChoiceIds(helpText: string): readonly string[] {
+  const match = helpText.match(/--auth-choice <choice>\s+Auth:\s+([^\n]+)/);
+  if (match === null || match[1] === undefined) {
+    return [];
+  }
+
+  return match[1]
+    .split("|")
+    .map((choice) => choice.trim())
+    .filter((choice) => choice !== "");
+}
+
+function parseOnboardApiKeyFlags(helpText: string): readonly string[] {
+  const flags = new Set<string>();
+  for (const line of helpText.split("\n")) {
+    const match = line.match(/^\s+--([a-z0-9-]+-api-key)\s+<key>\s+/i);
+    if (match?.[1] !== undefined) {
+      flags.add(match[1]);
+    }
+  }
+
+  return [...flags].sort((left, right) => left.localeCompare(right));
+}
+
+function providerChoiceRoots(providerId: string): readonly string[] {
+  const roots = new Set<string>([providerId]);
+  if (providerId.endsWith("-plan")) {
+    roots.add(providerId.replace(/-plan$/, ""));
+  }
+  if (providerId.includes("-token-plan")) {
+    roots.add(providerId.replace(/-token-plan.*$/, ""));
+  }
+  const [first] = providerId.split("-");
+  if (first !== undefined && first !== "") {
+    roots.add(first);
+  }
+
+  return [...roots];
+}
+
+function choiceMatchesProvider(input: {
+  readonly providerId: string;
+  readonly choiceId: string;
+  readonly keyFlag: string | null;
+}): boolean {
+  const roots = providerChoiceRoots(input.providerId);
+  return roots.some(
+    (root) =>
+      input.choiceId === root ||
+      input.choiceId.startsWith(`${root}-`) ||
+      input.keyFlag === `${root}-api-key` ||
+      input.keyFlag?.startsWith(`${root}-`) === true,
+  );
+}
+
+function authChoicesForProvider(input: {
+  readonly providerId: string;
+  readonly choices: readonly GatewayRuntimeAuthChoice[];
+}): readonly ModelProviderAuthChoice[] {
+  const matches = input.choices.filter((choice) =>
+    choiceMatchesProvider({
+      providerId: input.providerId,
+      choiceId: choice.id,
+      keyFlag: choice.keyFlag ?? null,
+    }),
+  );
+  const apiKeyLegacy = input.choices.find((choice) => choice.id === "apiKey");
+  const roots = providerChoiceRoots(input.providerId);
+  const legacyKeyFlag = roots
+    .map((root) => `${root}-api-key`)
+    .find((flag) => input.choices.some((choice) => choice.keyFlag === flag));
+  const withLegacy =
+    apiKeyLegacy !== undefined &&
+    legacyKeyFlag !== undefined &&
+    matches.every((choice) => choice.keyFlag !== legacyKeyFlag)
+      ? [...matches, { ...apiKeyLegacy, keyFlag: legacyKeyFlag, mode: "api-key" as const }]
+      : matches;
+
+  return withLegacy.map((choice) => ({
+    id: choice.id,
+    label: choice.label,
+    mode: choice.mode,
+    providerId: input.providerId,
+    ...(choice.keyFlag === undefined ? {} : { keyFlag: choice.keyFlag }),
+  }));
+}
+
+function mergeRuntimeAuthChoices(input: {
+  readonly catalog: readonly ModelProviderCatalogEntry[];
+  readonly choices: readonly GatewayRuntimeAuthChoice[];
+}): readonly ModelProviderCatalogEntry[] {
+  return input.catalog.map((provider) => {
+    if (provider.authChoices.length > 0) {
+      return provider;
+    }
+
+    const authChoices = authChoicesForProvider({
+      providerId: provider.id,
+      choices: input.choices,
+    });
+
+    return authChoices.length === 0 ? provider : { ...provider, authChoices };
+  });
+}
+
+function parseOnboardAuthChoices(helpText: string): readonly GatewayRuntimeAuthChoice[] {
+  const choiceIds = parseOnboardAuthChoiceIds(helpText);
+  const keyFlags = parseOnboardApiKeyFlags(helpText);
+  const byId = new Map<string, GatewayRuntimeAuthChoice>();
+
+  for (const choiceId of choiceIds) {
+    const keyFlag =
+      keyFlags.find((flag) => flag === choiceId || flag === `${choiceId}-api-key`) ?? null;
+    const mode = authChoiceMode(choiceId, keyFlag);
+    byId.set(choiceId, {
+      id: choiceId,
+      label: authChoiceLabel(choiceId, mode),
+      mode,
+      ...(keyFlag === null ? {} : { keyFlag }),
+    });
+  }
+
+  for (const keyFlag of keyFlags) {
+    const choiceId = choiceIds.includes(keyFlag)
+      ? keyFlag
+      : choiceIds.includes(keyFlag.replace(/-api-key$/, ""))
+        ? keyFlag.replace(/-api-key$/, "")
+        : keyFlag;
+    if (!byId.has(choiceId)) {
+      byId.set(choiceId, {
+        id: choiceId,
+        label: "API key",
+        mode: "api-key",
+        keyFlag,
+      });
+    }
+  }
+
+  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function modelStatusAllowedModels(status: unknown): readonly string[] {
+  const root = recordValue(status);
+  return stringArrayValue(root?.["allowed"]);
+}
+
+function modelStatusProvider(status: unknown, providerId: string): Record<string, unknown> | null {
+  const auth = recordValue(recordValue(status)?.["auth"]);
+  const providers = arrayValue(auth?.["providers"]).filter(isRecord);
+  return (
+    providers.find((provider) => stringValue(provider["provider"]) === providerId) ??
+    providers.find(
+      (provider) => stringValue(provider["provider"]) === providerIdFromModel(providerId),
+    ) ??
+    null
+  );
+}
+
+function providerIdFromModel(providerId: string): string {
+  return providerId.split("/", 1)[0] ?? providerId;
+}
+
+function modelStatusProfileCount(provider: Record<string, unknown> | null): number {
+  const profiles = recordValue(provider?.["profiles"]);
+  const count = profiles?.["count"];
+  return typeof count === "number" && Number.isFinite(count) ? count : 0;
+}
+
+function modelStatusProfileLabels(provider: Record<string, unknown> | null): readonly string[] {
+  const profiles = recordValue(provider?.["profiles"]);
+  return stringArrayValue(profiles?.["labels"]);
+}
+
+function providerConnectionFromModelStatus(input: {
+  readonly provider: ModelProviderCatalogEntry;
+  readonly config: Record<string, unknown>;
+  readonly modelStatus: unknown;
+  readonly now: Date;
+}): ProviderConnectionState | null {
+  const statusProvider = modelStatusProvider(input.modelStatus, input.provider.id);
+  const profileCount = modelStatusProfileCount(statusProvider);
+  if (profileCount <= 0) {
+    return null;
+  }
+
+  const allowedModels = modelStatusAllowedModels(input.modelStatus);
+  const providerAllowed = allowedModels.some((model) => model.startsWith(`${input.provider.id}/`));
+  const labels = modelStatusProfileLabels(statusProvider);
+  const firstLabel = labels[0] ?? null;
+  const id = firstProfileIdForProvider(input.provider.id, input.config);
+  const profile = id === null ? null : recordValue(authProfiles(input.config)[id]);
+
+  return {
+    providerId: input.provider.id,
+    status: providerAllowed ? "connected" : "needs_attention",
+    authChoiceId: id === null || profile === null ? null : authChoiceIdFromProfile(id, profile),
+    accountLabel: firstLabel === null ? stringValue(statusProvider?.["provider"]) : firstLabel,
+    scopes: [],
+    model:
+      allowedModels.find((model) => model.startsWith(`${input.provider.id}/`)) ??
+      input.provider.suggestedModel,
+    usageLabel: profileCount === 1 ? "1 auth profile" : `${profileCount} auth profiles`,
+    lastCheckedAt: input.now.toISOString(),
+    message: providerAllowed
+      ? "Gateway model auth profile is usable."
+      : "Provider has credentials but no allowed model in the Gateway model allowlist.",
+  };
+}
+
+function providerPluginId(providerId: string): string {
+  return providerId;
+}
+
+function pluginAllowPatch(input: {
+  readonly providerId: string;
+  readonly configGetPayload: unknown;
+}): { readonly patch: Record<string, unknown>; readonly replacePaths: readonly string[] } | null {
+  const config = configPayload(input.configGetPayload);
+  const plugins = recordValue(config["plugins"]);
+  const allow = plugins?.["allow"];
+  if (!Array.isArray(allow)) {
+    return null;
+  }
+
+  const current = stringArrayValue(allow);
+  const pluginId = providerPluginId(input.providerId);
+  if (current.includes(pluginId)) {
+    return null;
+  }
+
+  return {
+    patch: {
+      plugins: {
+        allow: [...current, pluginId],
+      },
+    },
+    replacePaths: ["plugins.allow"],
+  };
+}
+
+function gatewayRuntimeUnavailableError(): DomainError {
+  return provisioningError(
+    "provisioning.connections.gatewayRuntimeUnavailable",
+    "Gateway container exec is not configured for model-provider credential writes.",
+  );
+}
+
+function commandFailureError(input: {
+  readonly providerId: string;
+  readonly authChoiceId: string;
+  readonly result: GatewayRuntimeCommandResult;
+}): DomainError {
+  const output = `${input.result.stderr}\n${input.result.stdout}`.trim();
+  const normalized = output.toLowerCase();
+  const code =
+    normalized.includes("allow") && normalized.includes("plugin")
+      ? "provisioning.connections.providerBlockedByAllowlist"
+      : normalized.includes("invalid") ||
+          normalized.includes("unauthorized") ||
+          normalized.includes("401") ||
+          normalized.includes("403")
+        ? "provisioning.connections.invalidProviderCredential"
+        : "provisioning.connections.gatewayOnboardFailed";
+
+  return provisioningError(
+    code,
+    output === ""
+      ? `Gateway onboard failed for ${input.providerId} with exit code ${input.result.exitCode}.`
+      : output,
+    {
+      providerId: input.providerId,
+      authChoiceId: input.authChoiceId,
+      exitCode: input.result.exitCode,
+    },
+  );
+}
+
+class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
+  private readonly baseUrlResult: Result<string>;
+
+  public constructor(
+    private readonly options: {
+      readonly dockerHost: string;
+      readonly containerName?: string;
+      readonly fetch?: Fetch;
+    },
+  ) {
+    this.baseUrlResult = dockerHttpBaseUrl(options.dockerHost);
+  }
+
+  public async listAuthChoices(): Promise<Result<readonly GatewayRuntimeAuthChoice[]>> {
+    const result = await this.exec(["node", "openclaw.mjs", "onboard", "--help"]);
+    if (!result.ok) {
+      return err(result.error);
+    }
+
+    if (result.value.exitCode !== 0) {
+      return err(
+        commandFailureError({
+          providerId: "catalog",
+          authChoiceId: "onboard-help",
+          result: result.value,
+        }),
+      );
+    }
+
+    return ok(parseOnboardAuthChoices(`${result.value.stdout}\n${result.value.stderr}`));
+  }
+
+  public async modelStatus(): Promise<Result<unknown>> {
+    const result = await this.exec(["node", "openclaw.mjs", "models", "status", "--json"]);
+    if (!result.ok) {
+      return err(result.error);
+    }
+
+    if (result.value.exitCode !== 0) {
+      return err(
+        commandFailureError({
+          providerId: "status",
+          authChoiceId: "models-status",
+          result: result.value,
+        }),
+      );
+    }
+
+    try {
+      return ok(JSON.parse(result.value.stdout) as unknown);
+    } catch (error) {
+      return err(
+        provisioningError(
+          "provisioning.connections.modelStatusInvalidJson",
+          "models status JSON was invalid.",
+          {
+            error: String(error),
+          },
+        ),
+      );
+    }
+  }
+
+  public async connectApiKey(input: {
+    readonly providerId: string;
+    readonly authChoiceId: string;
+    readonly keyFlag: string;
+    readonly apiKey: string;
+  }): Promise<Result<GatewayRuntimeCommandResult>> {
+    console.log(
+      `provisioning-worker running gateway onboard for provider ${input.providerId} authChoice ${input.authChoiceId}`,
+    );
+    return this.exec([
+      "node",
+      "openclaw.mjs",
+      "onboard",
+      "--non-interactive",
+      "--accept-risk",
+      "--flow",
+      "manual",
+      "--auth-choice",
+      input.authChoiceId,
+      `--${input.keyFlag}`,
+      input.apiKey,
+      "--json",
+    ]);
+  }
+
+  private async exec(cmd: readonly string[]): Promise<Result<GatewayRuntimeCommandResult>> {
+    const containerId = await this.resolveContainerId();
+    if (!containerId.ok) {
+      return err(containerId.error);
+    }
+
+    const created = await this.dockerRequest<{ readonly Id?: unknown }>(
+      `/containers/${encodeURIComponent(containerId.value)}/exec`,
+      {
+        method: "POST",
+        body: {
+          AttachStdout: true,
+          AttachStderr: true,
+          Tty: false,
+          Cmd: cmd,
+        },
+      },
+    );
+    if (!created.ok) {
+      return err(created.error);
+    }
+
+    const execId = stringValue(created.value["Id"]);
+    if (execId === null) {
+      return err(
+        provisioningError(
+          "provisioning.docker.execCreateInvalid",
+          "Docker exec create did not return an exec id.",
+        ),
+      );
+    }
+
+    const started = await this.dockerRawRequest(`/exec/${encodeURIComponent(execId)}/start`, {
+      method: "POST",
+      body: {
+        Detach: false,
+        Tty: false,
+      },
+    });
+    if (!started.ok) {
+      return err(started.error);
+    }
+
+    const inspected = await this.dockerRequest<{ readonly ExitCode?: unknown }>(
+      `/exec/${encodeURIComponent(execId)}/json`,
+      { method: "GET" },
+    );
+    if (!inspected.ok) {
+      return err(inspected.error);
+    }
+
+    const output = dockerMultiplexedOutput(started.value);
+    const exitCode = inspected.value.ExitCode;
+    return ok({
+      exitCode: typeof exitCode === "number" && Number.isFinite(exitCode) ? exitCode : 1,
+      stdout: output.stdout,
+      stderr: output.stderr,
+    });
+  }
+
+  private async resolveContainerId(): Promise<Result<string>> {
+    if (this.options.containerName !== undefined && this.options.containerName !== "") {
+      return ok(this.options.containerName);
+    }
+
+    const filters = encodeURIComponent(
+      JSON.stringify({ label: ["com.docker.compose.service=openclaw-platform-gateway"] }),
+    );
+    const containers = await this.dockerRequest<readonly { readonly Id?: unknown }[]>(
+      `/containers/json?filters=${filters}`,
+      { method: "GET" },
+    );
+    if (!containers.ok) {
+      return err(containers.error);
+    }
+
+    const id = containers.value
+      .map((container) => stringValue(container.Id))
+      .find((value): value is string => value !== null);
+    if (id === undefined) {
+      return err(
+        provisioningError(
+          "provisioning.docker.gatewayContainerNotFound",
+          "Could not find the openclaw-platform-gateway container through docker-socket-proxy.",
+        ),
+      );
+    }
+
+    return ok(id);
+  }
+
+  private async dockerRequest<T>(
+    path: string,
+    init: { readonly method: "GET" | "POST"; readonly body?: unknown },
+  ): Promise<Result<T>> {
+    const response = await this.dockerRawResponse(path, init);
+    if (!response.ok) {
+      return err(response.error);
+    }
+
+    try {
+      return ok((await response.value.json()) as T);
+    } catch (error) {
+      return err(
+        provisioningError("provisioning.docker.invalidJson", "Docker API returned invalid JSON.", {
+          error: String(error),
+        }),
+      );
+    }
+  }
+
+  private async dockerRawRequest(
+    path: string,
+    init: { readonly method: "GET" | "POST"; readonly body?: unknown },
+  ): Promise<Result<Buffer>> {
+    const response = await this.dockerRawResponse(path, init);
+    if (!response.ok) {
+      return err(response.error);
+    }
+
+    return ok(Buffer.from(await response.value.arrayBuffer()));
+  }
+
+  private async dockerRawResponse(
+    path: string,
+    init: { readonly method: "GET" | "POST"; readonly body?: unknown },
+  ): Promise<Result<Response>> {
+    if (!this.baseUrlResult.ok) {
+      return err(this.baseUrlResult.error);
+    }
+
+    let response: Response;
+    try {
+      const requestInit: RequestInit = {
+        method: init.method,
+        ...(init.body === undefined
+          ? {}
+          : {
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(init.body),
+            }),
+      };
+      response = await (this.options.fetch ?? fetch)(
+        `${this.baseUrlResult.value}${path}`,
+        requestInit,
+      );
+    } catch (error) {
+      return err(
+        provisioningError("provisioning.docker.requestFailed", "Docker API request failed.", {
+          error: String(error),
+        }),
+      );
+    }
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      return err(
+        provisioningError(
+          "provisioning.docker.requestRejected",
+          `Docker API request failed with HTTP ${response.status}.`,
+          { body },
+        ),
+      );
+    }
+
+    return ok(response);
+  }
+}
+
 function githubTokenScopes(value: unknown): readonly string[] {
   return splitScope(value);
 }
@@ -728,13 +1385,31 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
-    const healthResult = await this.options.adminClient.request("health", {});
-    const heartbeatResult = await this.options.adminClient.request("last-heartbeat", {});
-    const modelsResult = await this.options.adminClient.request("models.list", { view: "all" });
+    const [healthResult, heartbeatResult, modelsResult, modelStatusResult, authChoicesResult] =
+      await Promise.all([
+        this.options.adminClient.request("health", {}),
+        this.options.adminClient.request("last-heartbeat", {}),
+        this.options.adminClient.request("models.list", { view: "all" }),
+        this.options.gatewayRuntime?.modelStatus() ??
+          ok<unknown>({ auth: { providers: [] }, allowed: [] }),
+        this.options.gatewayRuntime?.listAuthChoices() ??
+          ok<readonly GatewayRuntimeAuthChoice[]>([]),
+      ]);
     const config = configPayload(configResult.value);
-    const catalog = providerCatalogFromModels(modelsResult.ok ? modelsResult.value : {}, config);
-    const providerConnections = catalog.map((provider) =>
-      providerConnectionFromConfig({ provider, config, now }),
+    const catalog = mergeRuntimeAuthChoices({
+      catalog: providerCatalogFromModels(modelsResult.ok ? modelsResult.value : {}, config),
+      choices: authChoicesResult.ok ? authChoicesResult.value : [],
+    });
+    const providerConnections = catalog.map(
+      (provider) =>
+        (modelStatusResult.ok
+          ? providerConnectionFromModelStatus({
+              provider,
+              config,
+              modelStatus: modelStatusResult.value,
+              now,
+            })
+          : null) ?? providerConnectionFromConfig({ provider, config, now }),
     );
     const github = await this.githubState(input, now);
 
@@ -772,71 +1447,139 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
-    const id = profileId(input.providerId, input.authChoiceId);
+    const gatewayRuntime = this.options.gatewayRuntime;
+    if (gatewayRuntime === undefined) {
+      return err(gatewayRuntimeUnavailableError());
+    }
+
+    const authChoices = await gatewayRuntime.listAuthChoices();
+    if (!authChoices.ok) {
+      return err(authChoices.error);
+    }
+
+    const authChoice = authChoicesForProvider({
+      providerId: input.providerId,
+      choices: authChoices.value,
+    }).find((choice) => choice.id === input.authChoiceId);
+    if (authChoice === undefined) {
+      return err(
+        provisioningError(
+          "provisioning.connections.authChoiceUnavailable",
+          "The live Opzava Gateway auth-choice catalog does not expose that provider auth method.",
+          { providerId: input.providerId, authChoiceId: input.authChoiceId },
+        ),
+      );
+    }
+
+    if (authChoice.mode !== "api-key" || authChoice.keyFlag === undefined) {
+      return err(
+        provisioningError(
+          "provisioning.connections.deviceFlowRequiresInteractive",
+          modelDeviceFlowUnsupportedMessage,
+          { providerId: input.providerId, authChoiceId: input.authChoiceId },
+        ),
+      );
+    }
+
     const configResult = await this.options.adminClient.request("config.get", {});
     if (!configResult.ok) {
       return err(configResult.error);
     }
 
-    const patchParams = configPatchParams({
-      configGetPayload: configResult.value,
-      patch: {
-        auth: {
-          profiles: {
-            [id]: {
-              id,
-              providerId: input.providerId,
-              authChoiceId: input.authChoiceId,
-              type: "api-key",
-              key: input.apiKey,
-              updatedBy: input.actorUserId,
-            },
-          },
-          order: {
-            [input.providerId]: [id],
-          },
-        },
-      },
-    });
-    if (!patchParams.ok) {
-      return err(patchParams.error);
-    }
-
-    const result = await this.options.adminClient.request("config.patch", patchParams.value, {
-      requiredScope: "operator.admin",
-    });
-    if (!result.ok) {
-      return err(result.error);
-    }
-
-    return ok({
+    const allowPatch = pluginAllowPatch({
       providerId: input.providerId,
-      status: "connected",
-      authChoiceId: input.authChoiceId,
-      accountLabel: null,
-      scopes: [],
-      model: null,
-      usageLabel: null,
-      lastCheckedAt: this.now().toISOString(),
-      message: "Provider API key stored in the Opzava Gateway auth profile.",
+      configGetPayload: configResult.value,
     });
+    if (allowPatch !== null) {
+      const patchParams = configPatchParams({
+        configGetPayload: configResult.value,
+        patch: allowPatch.patch,
+        replacePaths: allowPatch.replacePaths,
+      });
+      if (!patchParams.ok) {
+        return err(patchParams.error);
+      }
+
+      const patchResult = await this.options.adminClient.request(
+        "config.patch",
+        patchParams.value,
+        {
+          requiredScope: "operator.admin",
+        },
+      );
+      if (!patchResult.ok) {
+        return err(patchResult.error);
+      }
+    }
+
+    const onboard = await gatewayRuntime.connectApiKey({
+      providerId: input.providerId,
+      authChoiceId: input.authChoiceId,
+      keyFlag: authChoice.keyFlag,
+      apiKey: input.apiKey,
+    });
+    if (!onboard.ok) {
+      return err(onboard.error);
+    }
+    if (onboard.value.exitCode !== 0) {
+      return err(
+        commandFailureError({
+          providerId: input.providerId,
+          authChoiceId: input.authChoiceId,
+          result: onboard.value,
+        }),
+      );
+    }
+
+    const status = await gatewayRuntime.modelStatus();
+    if (!status.ok) {
+      return err(status.error);
+    }
+
+    const config = configPayload(configResult.value);
+    const catalogProvider =
+      mergeRuntimeAuthChoices({
+        catalog: providerCatalogFromModels({}, config),
+        choices: authChoices.value,
+      }).find((provider) => provider.id === input.providerId) ??
+      ({
+        id: input.providerId,
+        label: input.providerId,
+        vendor: input.providerId,
+        authChoices: [authChoice],
+        suggestedModel: input.providerId,
+        roleStrength: "Gateway-advertised provider",
+        whenToUse: "Use when this connected model is appropriate.",
+      } satisfies ModelProviderCatalogEntry);
+    const connection = providerConnectionFromModelStatus({
+      provider: catalogProvider,
+      config,
+      modelStatus: status.value,
+      now: this.now(),
+    });
+    if (connection === null || connection.status !== "connected") {
+      return err(
+        provisioningError(
+          "provisioning.connections.providerStatusNotConnected",
+          "Gateway onboard completed, but models status did not report a usable provider credential.",
+          { providerId: input.providerId, authChoiceId: input.authChoiceId },
+        ),
+      );
+    }
+
+    return ok({ ...connection, authChoiceId: input.authChoiceId });
   }
 
   public async startModelProviderDeviceFlow(
     input: StartModelProviderDeviceFlowInput,
   ): Promise<Result<DeviceFlowChallenge>> {
-    const challenge: DeviceFlowChallenge = {
-      flowId: `model:${randomUUID()}`,
-      kind: "model_provider",
-      providerId: input.providerId,
-      authChoiceId: input.authChoiceId,
-      verificationUri: "docs/runbooks/provisioning-worker-bringup.md",
-      userCode: "unsupported-via-gui",
-      expiresAt: new Date(this.now().getTime() + 5 * 60_000).toISOString(),
-      intervalSeconds: 30,
-    };
-    this.modelDeviceFlows.set(challenge.flowId, challenge);
-    return ok(challenge);
+    return err(
+      provisioningError(
+        "provisioning.connections.deviceFlowRequiresInteractive",
+        modelDeviceFlowUnsupportedMessage,
+        { providerId: input.providerId, authChoiceId: input.authChoiceId },
+      ),
+    );
   }
 
   public async pollDeviceFlow(
@@ -1391,6 +2134,8 @@ export function createDefaultConnectionsProvisioningPort(
   const explicitDeviceId = env["OPENCLAW_DEVICE_ID"]?.trim();
   const explicitPublicKey = env["OPENCLAW_DEVICE_PUBLIC_KEY"]?.trim();
   const githubOAuthClientId = env["GITHUB_OAUTH_CLIENT_ID"]?.trim();
+  const dockerHost = readDockerHost(env);
+  const gatewayContainerName = readGatewayContainerName(env);
   const keypair = new Ed25519OpenClawAdminDeviceKeypair({
     privateKeyPem,
     ...(explicitDeviceId === undefined || explicitDeviceId === ""
@@ -1416,6 +2161,14 @@ export function createDefaultConnectionsProvisioningPort(
     }),
     secretsVault: vault,
     githubRepository: repository,
+    ...(dockerHost === null
+      ? {}
+      : {
+          gatewayRuntime: new DockerOpenClawGatewayRuntime({
+            dockerHost,
+            ...(gatewayContainerName === null ? {} : { containerName: gatewayContainerName }),
+          }),
+        }),
     ...(githubOAuthClientId === undefined || githubOAuthClientId === ""
       ? {}
       : { githubOAuthClientId }),

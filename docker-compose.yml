@@ -170,7 +170,7 @@ services:
       BUILD: 0
       CONFIGS: 0
       DISTRIBUTION: 0
-      EXEC: 0
+      EXEC: 1
       IMAGES: 0
       PLUGINS: 0
       SECRETS: 0

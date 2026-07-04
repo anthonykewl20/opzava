@@ -2,19 +2,21 @@
 
 import { useFormStatus } from "react-dom";
 
+import { Button } from "@/components/ui/button";
+
 export function HealthCheckSubmitButton({ describedBy }: { readonly describedBy: string }) {
   const { pending } = useFormStatus();
 
   return (
-    <button
+    <Button
       type="submit"
-      className="btn"
+      variant="secondary"
       aria-busy={pending}
       aria-describedby={describedBy}
       disabled={pending}
     >
       {pending ? <span className="sb-spinner sb-spinner--sm" aria-hidden="true" /> : null}
       {pending ? "Checking..." : "Run health check"}
-    </button>
+    </Button>
   );
 }

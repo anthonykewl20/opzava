@@ -13,6 +13,7 @@ import {
   startGitHubDeviceFlowForContext,
   startModelProviderDeviceFlowForContext,
 } from "@/lib/connections";
+import type { ConnectionActionState } from "@/lib/connections-action-state";
 import { getAppSessionContext } from "@/lib/session";
 
 async function requireConnectionsContext() {
@@ -75,6 +76,99 @@ async function requireConnectionsMutationContext() {
 function stringFromForm(formData: FormData, key: string): string {
   const value = formData.get(key);
   return typeof value === "string" ? value : "";
+}
+
+function connectionActionErrorMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null) {
+    const message = (error as { readonly message?: unknown }).message;
+    if (typeof message === "string" && message.trim() !== "") {
+      return message;
+    }
+  }
+
+  return "Connection provisioning failed.";
+}
+
+function connectionActionStateError(error: unknown, providerId: string): ConnectionActionState {
+  return {
+    status: "error",
+    message: connectionActionErrorMessage(error),
+    code: connectionActionErrorCode(error) ?? "web.connectionsProvisioningFailed",
+    providerId,
+  };
+}
+
+async function requireConnectionActionStateContext(): Promise<
+  | { readonly ok: true; readonly context: Awaited<ReturnType<typeof requireConnectionsContext>> }
+  | { readonly ok: false; readonly state: ConnectionActionState }
+> {
+  const context = await requireConnectionsContext();
+  const allowed = requireConnectionMutationRole(context);
+  if (!allowed.ok) {
+    return {
+      ok: false,
+      state: connectionActionStateError(allowed.error, ""),
+    };
+  }
+
+  return { ok: true, context };
+}
+
+export async function connectModelProviderApiKeyStateAction(
+  _current: ConnectionActionState,
+  formData: FormData,
+): Promise<ConnectionActionState> {
+  const contextResult = await requireConnectionActionStateContext();
+  const providerId = stringFromForm(formData, "providerId");
+  if (!contextResult.ok) {
+    return { ...contextResult.state, providerId };
+  }
+
+  const result = await connectModelProviderApiKeyForContext({
+    context: contextResult.context,
+    providerId,
+    authChoiceId: stringFromForm(formData, "authChoiceId"),
+    apiKey: stringFromForm(formData, "apiKey"),
+  });
+  if (!result.ok) {
+    return connectionActionStateError(result.error, providerId);
+  }
+
+  revalidatePath("/connections");
+  return {
+    status: "success",
+    message: `${result.value.providerId} connected in Opzava Gateway.`,
+    code: null,
+    providerId,
+  };
+}
+
+export async function startModelProviderDeviceFlowStateAction(
+  _current: ConnectionActionState,
+  formData: FormData,
+): Promise<ConnectionActionState> {
+  const contextResult = await requireConnectionActionStateContext();
+  const providerId = stringFromForm(formData, "providerId");
+  if (!contextResult.ok) {
+    return { ...contextResult.state, providerId };
+  }
+
+  const result = await startModelProviderDeviceFlowForContext({
+    context: contextResult.context,
+    providerId,
+    authChoiceId: stringFromForm(formData, "authChoiceId"),
+  });
+  if (!result.ok) {
+    return connectionActionStateError(result.error, providerId);
+  }
+
+  revalidatePath("/connections");
+  return {
+    status: "success",
+    message: `Open ${result.value.verificationUri} and enter ${result.value.userCode}.`,
+    code: null,
+    providerId,
+  };
 }
 
 export async function connectModelProviderApiKeyAction(formData: FormData): Promise<void> {

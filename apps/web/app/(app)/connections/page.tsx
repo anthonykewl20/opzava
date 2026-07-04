@@ -1,21 +1,17 @@
 import { redirect } from "next/navigation";
 
 import {
-  connectModelProviderApiKeyAction,
   disconnectGitHubAction,
-  disconnectModelProviderAction,
   refreshConnectionsAction,
   startGitHubDeviceFlowAction,
-  startModelProviderDeviceFlowAction,
 } from "@/app/(app)/connections/actions";
 import { DeviceFlowPoller } from "@/components/connections/device-flow-poller";
 import { HealthCheckSubmitButton } from "@/components/connections/health-check-submit";
+import { ModelProvidersPanel } from "@/components/connections/model-providers-panel";
 import { loadConnectionsPageData, type ConnectionsPageData } from "@/lib/connections";
 import { getAppSessionContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-
-type ProviderRow = ConnectionsPageData["providers"][number];
 
 interface ConnectionsPageProps {
   readonly searchParams?: Promise<{
@@ -31,8 +27,8 @@ type ConnectionsNotice =
 
 const connectionsPageStyles = `
     /* Page-specific layout only; shared primitives come from app tokens/classes. */
-    .connections-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-    .connections-header-actions { align-items: flex-end; }
+    .connections-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+    .connections-header-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); flex: none; }
     .connections-action-stack { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); }
     .connections-refresh-status { color: var(--fg-subtle); font-size: var(--text-xs); }
     .connections-notice { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); align-items: start; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius-md); background: var(--surface); }
@@ -52,6 +48,9 @@ const connectionsPageStyles = `
     .connections-provider-meta-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
     .connections-provider-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
     .connections-provider-state { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); text-align: right; }
+    .connections-provider-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+    .connections-provider-search { width: min(280px, 100%); }
+    .connections-provider-tabs { width: 100%; }
     .connections-inline-alert { width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--warning-soft); border-radius: var(--radius-md); background: var(--warning-soft); color: var(--fg); font-size: var(--text-sm); text-align: left; }
     .connections-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
     .connections-key-form { position: relative; }
@@ -66,8 +65,8 @@ const connectionsPageStyles = `
     }
     @media (max-width: 640px) {
       .connections-page { padding: var(--space-4); }
-      .connections-header { grid-template-columns: 1fr; }
-      .connections-header-actions, .connections-action-stack { align-items: stretch; }
+      .connections-header, .connections-provider-toolbar { flex-direction: column; }
+      .connections-header-actions, .connections-action-stack, .connections-provider-search { width: 100%; align-items: stretch; }
       .connections-provider-head { flex-direction: column; }
       .connections-provider-row { padding: var(--space-4); }
       .connections-actions .btn, .connections-provider-actions .btn, .connections-key-form { width: 100%; }
@@ -143,53 +142,6 @@ function noticeFromSearchParams(
   return null;
 }
 
-function providerSortRank(provider: ProviderRow): number {
-  if (provider.status === "connected") {
-    return 0;
-  }
-
-  if (provider.status === "pending") {
-    return 1;
-  }
-
-  if (provider.status === "needs_attention") {
-    return 2;
-  }
-
-  return 3;
-}
-
-function providerAuthLabel(provider: ProviderRow): string {
-  const hasDeviceFlow = provider.deviceFlowChoices.length > 0;
-  const hasApiKey = provider.apiKeyChoices.length > 0;
-
-  if (hasDeviceFlow && hasApiKey) {
-    return "OAuth device-flow + API key";
-  }
-
-  if (hasDeviceFlow) {
-    return "OAuth device-flow";
-  }
-
-  if (hasApiKey) {
-    return "API key";
-  }
-
-  return "No live auth method";
-}
-
-function providerStatusBadgeClassName(status: ProviderRow["status"]): string {
-  if (status === "connected") {
-    return "badge badge-success";
-  }
-
-  if (status === "pending" || status === "needs_attention") {
-    return "badge badge-warning";
-  }
-
-  return "badge";
-}
-
 function githubStatusDotClass(status: ConnectionsPageData["snapshot"]["github"]["status"]): string {
   if (status === "connected") {
     return "dot dot-success dot-beat";
@@ -204,30 +156,6 @@ function githubStatusDotClass(status: ConnectionsPageData["snapshot"]["github"][
 
 function modelProviderCountLabel(data: ConnectionsPageData): string {
   return `${data.providerSummary.connected} connected / ${data.providerSummary.available} available`;
-}
-
-function ProviderBacks({ provider }: { readonly provider: ProviderRow }) {
-  if (provider.roleLabel === "Lead orchestrator") {
-    return (
-      <span className="u-row" style={{ gap: "6px" }}>
-        <span className="u-sr-only">AI lead — </span>
-        <span
-          className="u-accent"
-          aria-hidden="true"
-          style={{ fontSize: "var(--text-base)", lineHeight: 1 }}
-        >
-          ✦
-        </span>
-        Lead orchestrator
-      </span>
-    );
-  }
-
-  return (
-    <span>
-      Subagent <span className="u-subtle">({provider.whenToUse})</span>
-    </span>
-  );
 }
 
 function PageNotice({
@@ -264,143 +192,6 @@ function PageNotice({
   );
 }
 
-function ProviderAdminNotice({
-  provider,
-  notice,
-}: {
-  readonly provider: ProviderRow;
-  readonly notice: ConnectionsNotice | null;
-}) {
-  const matchesProvider =
-    notice?.kind === "operator-admin-required" &&
-    (notice.providerId === undefined || notice.providerId === provider.id);
-
-  if (!matchesProvider) {
-    return null;
-  }
-
-  return (
-    <div className="connections-inline-alert" role="alert">
-      Admin device required. Pair or upgrade the worker device with{" "}
-      <span className="u-mono">operator.admin</span> to change this provider.
-    </div>
-  );
-}
-
-function ProviderActions({ provider }: { readonly provider: ProviderRow }) {
-  const connected = provider.status === "connected";
-
-  if (provider.deviceFlowChoices.length === 0 && provider.apiKeyChoices.length === 0) {
-    return (
-      <button type="button" className="btn btn-sm" disabled>
-        Connect
-      </button>
-    );
-  }
-
-  return (
-    <div className="connections-actions">
-      {provider.deviceFlowChoices.map((choice) => (
-        <form action={startModelProviderDeviceFlowAction} key={choice.id}>
-          <input type="hidden" name="providerId" value={provider.id} />
-          <input type="hidden" name="authChoiceId" value={choice.id} />
-          <button
-            type="submit"
-            className="btn btn-sm"
-            aria-label={`${connected ? "Reconnect" : "Connect"} ${provider.label} with ${choice.label}`}
-          >
-            {connected ? "Reconnect OAuth" : "Connect OAuth"}
-          </button>
-        </form>
-      ))}
-      {provider.apiKeyChoices.map((choice) => (
-        <details className="connections-key-form" key={choice.id}>
-          <summary
-            className="btn btn-sm"
-            aria-label={`${connected ? "Rotate key for" : "Connect"} ${provider.label} with ${choice.label}`}
-          >
-            {connected ? "Rotate key" : "Connect API key"}
-          </summary>
-          <form action={connectModelProviderApiKeyAction}>
-            <input type="hidden" name="providerId" value={provider.id} />
-            <input type="hidden" name="authChoiceId" value={choice.id} />
-            <label className="label" htmlFor={`${provider.id}-${choice.id}-key`}>
-              Paste API key once
-            </label>
-            <input
-              className="input"
-              id={`${provider.id}-${choice.id}-key`}
-              name="apiKey"
-              type="password"
-              autoComplete="off"
-              required
-            />
-            <p className="hint">The key is sent only to the provisioning worker.</p>
-            <button type="submit" className="btn btn-sm">
-              Store in Gateway profile
-            </button>
-          </form>
-        </details>
-      ))}
-      {connected ? (
-        <form action={disconnectModelProviderAction}>
-          <input type="hidden" name="providerId" value={provider.id} />
-          <button type="submit" className="btn btn-ghost btn-sm">
-            Disconnect
-          </button>
-        </form>
-      ) : null}
-    </div>
-  );
-}
-
-function ProviderRowView({
-  provider,
-  notice,
-}: {
-  readonly provider: ProviderRow;
-  readonly notice: ConnectionsNotice | null;
-}) {
-  return (
-    <li className="connections-provider-row">
-      <div>
-        <div className="connections-provider-name">{provider.label}</div>
-        <div className="connections-provider-sub">
-          {provider.vendor} · <span className="u-mono">{provider.model}</span>
-        </div>
-      </div>
-      <div className="connections-provider-meta">
-        <div className="connections-provider-meta-row">
-          <span className={providerStatusBadgeClassName(provider.status)}>
-            <span className={provider.statusClassName} aria-hidden="true" />
-            {provider.statusLabel}
-          </span>
-          <span className="badge">{providerAuthLabel(provider)}</span>
-        </div>
-        <ProviderBacks provider={provider} />
-        {provider.accountLabel === null ? null : (
-          <span className="u-subtle">{provider.accountLabel}</span>
-        )}
-        {provider.usageLabel === null ? null : <span>{provider.usageLabel}</span>}
-        {provider.message === null ? null : <span className="hint">{provider.message}</span>}
-      </div>
-      <div className="connections-provider-state">
-        <ProviderActions provider={provider} />
-        <ProviderAdminNotice provider={provider} notice={notice} />
-        {provider.pendingFlow === null ? null : (
-          <DeviceFlowPoller
-            flowId={provider.pendingFlow.flowId}
-            verificationUri={provider.pendingFlow.verificationUri}
-            userCode={provider.pendingFlow.userCode}
-            intervalSeconds={provider.pendingFlow.intervalSeconds}
-            expiresAt={provider.pendingFlow.expiresAt}
-          />
-        )}
-      </div>
-    </li>
-  );
-}
-
 export default async function ConnectionsPage({ searchParams }: ConnectionsPageProps = {}) {
   const context = await getAppSessionContext();
   if (context === null) {
@@ -426,10 +217,6 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
   const connectedSubagentProviders = data.providers.filter(
     (provider) => provider.id !== "openai" && provider.status === "connected",
   );
-  const sortedProviders = [...data.providers].sort((left, right) => {
-    const statusRank = providerSortRank(left) - providerSortRank(right);
-    return statusRank === 0 ? left.label.localeCompare(right.label) : statusRank;
-  });
   const gatewayActive = data.snapshot.gateway.status === "active";
   const gatewayHeartbeat = relativeTime(data.snapshot.gateway.lastHeartbeatAt);
   const refreshedAt = relativeTime(data.snapshot.refreshedAt);
@@ -445,18 +232,13 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
               Live provider credentials and GitHub access. Keys never return to the browser.
             </p>
           </div>
-          <div className="u-row connections-header-actions">
-            <div className="connections-action-stack">
-              <form action={refreshConnectionsAction}>
-                <HealthCheckSubmitButton describedBy="connections-refresh-status" />
-              </form>
-              <p className="connections-refresh-status" id="connections-refresh-status">
-                Snapshot updated {refreshedAt}
-              </p>
-            </div>
-            <a href="#providers-lbl" className="btn btn-primary">
-              Connect provider
-            </a>
+          <div className="connections-header-actions">
+            <form action={refreshConnectionsAction}>
+              <HealthCheckSubmitButton describedBy="connections-refresh-status" />
+            </form>
+            <p className="connections-refresh-status" id="connections-refresh-status">
+              Snapshot updated {refreshedAt}
+            </p>
           </div>
         </div>
 
@@ -557,39 +339,7 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
           </div>
         </section>
 
-        <section aria-labelledby="providers-lbl">
-          <div className="connections-provider-head">
-            <div>
-              <div className="section-label" id="providers-lbl" style={{ padding: 0 }}>
-                Model providers
-              </div>
-              <h2>Provider connection status</h2>
-              <p className="connections-provider-count">
-                {modelProviderCountLabel(data)} · connected providers are shown first.
-              </p>
-            </div>
-            <span className="badge">
-              {data.providerSummary.needsAttention} need attention · {data.providerSummary.pending}{" "}
-              pending
-            </span>
-          </div>
-
-          {data.providers.length === 0 ? (
-            <div className="empty connections-empty">
-              <p className="empty-title">Provider catalog unavailable</p>
-              <p className="empty-desc">
-                Configure the provisioning worker to read the live Opzava Gateway auth-choice
-                catalog.
-              </p>
-            </div>
-          ) : (
-            <ul className="connections-provider-list" aria-label="Model provider connections">
-              {sortedProviders.map((provider) => (
-                <ProviderRowView provider={provider} notice={notice} key={provider.id} />
-              ))}
-            </ul>
-          )}
-        </section>
+        <ModelProvidersPanel providers={data.providers} summary={data.providerSummary} />
 
         {/* DESCOPE(gateway-configuration): P8 PRD-013 keeps restart-gated gateway settings out of the shipped thin slice until those controls are backed by live data. */}
         {/* DESCOPE(provider-policy-catalogs): P8 PRD-013 omits catalog policy controls until auth-order editing and model catalog reads are implemented. */}
