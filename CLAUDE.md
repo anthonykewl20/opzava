@@ -12,7 +12,7 @@ use the `handoff` skill. Do not skip ahead; keep the doc in sync with reality.
 - `docs/plan/grilling-decisions.md` — the canonical design record (Q1–Q18, every invariant).
 - `docs/plan/official-docs.md` — official documentation registry; validate every API against it before coding.
 - `docs/adr/` — 16 ADRs (architecture decisions). `docs/prd/` — 18 PRDs (product specs).
-- `mainframe/` — the Opzava-owned OpenClaw tracked fork (ADR-016; arrives via the mainframe-move slice): the Platform Gateway is built from this source; customize ONLY via the rung 0–3 ladder (`mainframe/PATCHES.md`); excluded from the Opzava pnpm workspace.
+- `mainframe/` — the Opzava-owned OpenClaw tracked fork (ADR-016; landed 2026-07-04): the Platform Gateway is built from this source (`build: ./mainframe`); customize ONLY via the rung 0–3 ladder (`mainframe/PATCHES.md`); excluded from the Opzava pnpm workspace.
 - `docs/plan/capability-parity.md` — every screen: OpenClaw-native vs Opzava-owned vs hybrid.
 - `docs/plan/backlog.md` — initial ADR/PRD dependency backlog (planning input; `EXECUTION.md` controls order).
 - `docs/plan/consensus/` + `docs/plan/research/` — frozen evidence memos behind the decisions (see each dir's README; never current truth).

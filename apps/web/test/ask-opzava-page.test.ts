@@ -6,6 +6,8 @@ import {
   askOpzavaPromptActions,
   askOpzavaShellSummary,
   askOpzavaStatusView,
+  formatAskOpzavaTurnTime,
+  hydrationSafeAskOpzavaTimeZone,
   visibleAskOpzavaTurns,
 } from "../lib/ask-opzava-page-state";
 import type { AskAdminTurnView } from "../lib/ask-admin-history";
@@ -66,6 +68,19 @@ describe("Ask Opzava page state", () => {
         status: "idle",
       }),
     ).toBe("Customer Support workspace assistant is ready; no conversation yet.");
+  });
+
+  it("keeps chat timestamp text hydration-safe before switching to browser-local time", async () => {
+    expect(hydrationSafeAskOpzavaTimeZone).toBe("UTC");
+    expect(formatAskOpzavaTurnTime("2026-07-04T08:16:00.000Z")).toBe("8:16 AM");
+    expect(formatAskOpzavaTurnTime("2026-07-04T08:16:00.000Z", "Asia/Manila")).toBe(
+      "4:16 PM",
+    );
+
+    const component = await readRepoFile("components/ask-opzava/ask-opzava-chat.tsx");
+    expect(component).toContain("useState(hydrationSafeAskOpzavaTimeZone)");
+    expect(component).toContain("resolvedOptions().timeZone");
+    expect(component).toContain("formatAskOpzavaTurnTime(turn.createdAt, timeZone)");
   });
 
   it("wires /ask-opzava as a page route and active sidebar item", async () => {

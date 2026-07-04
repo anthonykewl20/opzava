@@ -25,7 +25,9 @@ The FINAL gate is a human-like automated drive of the real stack with real data 
 5. ITERATIVE: the harness loops full sweeps until **2 consecutive clean passes**
    (max 5, then hard NOT-DONE). One lucky pass proves nothing; convergence does.
 6. Exit code is the verdict: `0` = DONE-eligible, anything else = NOT Done. No narrative
-   ("it looks fine") overrides a non-zero exit.
+   ("it looks fine") overrides a non-zero exit. NEVER pipe the command (`| tail`, `| tee`)
+   without `set -o pipefail` — a pipe returns the LAST command's exit code and silently
+   converts NOT-DONE into a false green. Run it bare; read the tail from the artifacts dir.
 
 ## Exact procedure (any agent, any model, same result)
 

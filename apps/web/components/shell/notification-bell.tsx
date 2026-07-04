@@ -18,7 +18,7 @@ const notifyPopoverCss = `
 
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
-  const bellRef = useRef<HTMLAnchorElement>(null);
+  const bellRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const arrowRef = useRef<HTMLSpanElement>(null);
 
@@ -84,15 +84,17 @@ export function NotificationBell() {
 
   return (
     <div className="notif-btn-wrap">
-      <a
+      {/* Popover toggle, not navigation: a /notifications page does not exist yet
+          (DESCOPE(notify-bell) below; PRD-004 / issue #106). A button avoids
+          advertising a dead route to crawlers and the real-world-validation gate. */}
+      <button
         ref={bellRef}
-        href="/notifications"
+        type="button"
         className="btn btn-ghost btn-icon"
         aria-label="Notifications, 0 unread"
         aria-haspopup="dialog"
         aria-expanded={open ? "true" : "false"}
         onClick={(event) => {
-          event.preventDefault();
           event.stopPropagation();
           setOpen((current) => !current);
         }}
@@ -106,7 +108,7 @@ export function NotificationBell() {
           />
           <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" />
         </svg>
-      </a>
+      </button>
       <span className="u-sr-only">0 unread notifications</span>
 
       <div

@@ -23,6 +23,8 @@ import {
 } from "@/lib/ask-admin-stream";
 import {
   askOpzavaDraftTitle,
+  formatAskOpzavaTurnTime,
+  hydrationSafeAskOpzavaTimeZone,
   askOpzavaPromptActions,
   askOpzavaStatusView,
   shouldShowAskOpzavaDraft,
@@ -472,18 +474,6 @@ function turnLabel(turn: AskAdminTurnView, currentUserName: string): string {
   return "System";
 }
 
-function turnTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
 function isEmptyAssistantTurn(turn: AskAdminTurnView): boolean {
   return (
     turn.role === "assistant" && turn.text.trim() === "" && (turn.errorMessage?.trim() ?? "") === ""
@@ -674,9 +664,11 @@ function persistedToolReceipt(turn: AskAdminTurnView): StreamToolReceipt {
 function AskOpzavaTurn({
   turn,
   currentUserName,
+  timeZone,
 }: {
   readonly turn: AskAdminTurnView;
   readonly currentUserName: string;
+  readonly timeZone: string;
 }) {
   const label = turnLabel(turn, currentUserName);
   const text = messageText(turn);
@@ -691,7 +683,7 @@ function AskOpzavaTurn({
           <div className="chat-meta">
             <strong>{label}</strong>
             <span className="sb-badge sb-badge--secondary">tool</span>
-            <span className="chat-time">{turnTime(turn.createdAt)}</span>
+            <span className="chat-time">{formatAskOpzavaTurnTime(turn.createdAt, timeZone)}</span>
           </div>
           <ChatToolCard receipt={persistedToolReceipt(turn)} />
         </div>
@@ -711,7 +703,7 @@ function AskOpzavaTurn({
           {turn.status === "failed" ? (
             <span className="sb-badge sb-badge--destructive">Failed</span>
           ) : null}
-          <span className="chat-time">{turnTime(turn.createdAt)}</span>
+          <span className="chat-time">{formatAskOpzavaTurnTime(turn.createdAt, timeZone)}</span>
         </div>
         <div className={isUser ? "chat-bubble chat-bubble--user" : "chat-bubble"}>
           {mutedFallback ? <span className="u-muted">{text}</span> : text}
@@ -721,7 +713,13 @@ function AskOpzavaTurn({
   );
 }
 
-function AskOpzavaToolReceiptRow({ receipt }: { readonly receipt: StreamToolReceipt }) {
+function AskOpzavaToolReceiptRow({
+  receipt,
+  timeZone,
+}: {
+  readonly receipt: StreamToolReceipt;
+  readonly timeZone: string;
+}) {
   return (
     <article className="chat-row" aria-label={`Opzava tool receipt: ${receipt.toolName}`}>
       <AskOpzavaAvatar role="tool" name="Opzava tool" />
@@ -729,7 +727,7 @@ function AskOpzavaToolReceiptRow({ receipt }: { readonly receipt: StreamToolRece
         <div className="chat-meta">
           <strong>Opzava</strong>
           <span className="sb-badge sb-badge--secondary">tool</span>
-          <span className="chat-time">{turnTime(receipt.createdAt)}</span>
+          <span className="chat-time">{formatAskOpzavaTurnTime(receipt.createdAt, timeZone)}</span>
         </div>
         {/* DESCOPE(standup.report-sample): the mockup's canned trace is replaced by live Runtime-Control tool receipts; a named admin digest tool arrives with the P2 admin-attention projection. */}
         <ChatToolCard receipt={receipt} />
@@ -871,8 +869,17 @@ export function AskOpzavaChat({
   const [toolReceipts, setToolReceipts] = useState<readonly StreamToolReceipt[]>([]);
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
+  const [turnTimeZone, setTurnTimeZone] = useState(hydrationSafeAskOpzavaTimeZone);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    // Keep SSR and the first client render on UTC, then switch to the
+    // browser timezone after hydration so chat timestamps stay local.
+    setTurnTimeZone(
+      Intl.DateTimeFormat().resolvedOptions().timeZone ?? hydrationSafeAskOpzavaTimeZone,
+    );
+  }, []);
 
   useEffect(() => {
     setTurns(initialTurns);
@@ -1076,12 +1083,17 @@ export function AskOpzavaChat({
             />
           ) : (
             visibleTurns.map((turn) => (
-              <AskOpzavaTurn key={turn.id} turn={turn} currentUserName={currentUserName} />
+              <AskOpzavaTurn
+                key={turn.id}
+                turn={turn}
+                currentUserName={currentUserName}
+                timeZone={turnTimeZone}
+              />
             ))
           )}
 
           {toolReceipts.map((receipt) => (
-            <AskOpzavaToolReceiptRow key={receipt.id} receipt={receipt} />
+            <AskOpzavaToolReceiptRow key={receipt.id} receipt={receipt} timeZone={turnTimeZone} />
           ))}
 
           {shouldShowAskOpzavaDraft(draft) ? <AskOpzavaDraftMessage draft={draft} /> : null}
