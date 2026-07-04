@@ -1,15 +1,16 @@
 import type { AddressInfo } from "node:net";
 
-import type {
-  ConnectionsProvisioningPort,
-  ConnectionsSnapshot,
-  DeviceFlowChallenge,
-  GitHubConnectionState,
-  ModelProviderAuthChoice,
-  OrchestratorDelegationState,
-  OrchestratorSubagentRole,
-  ProviderConnectionState,
-  SecretReference,
+import {
+  GITHUB_ISSUES_TOKEN_SECRET_LABEL,
+  type ConnectionsProvisioningPort,
+  type ConnectionsSnapshot,
+  type DeviceFlowChallenge,
+  type GitHubConnectionState,
+  type ModelProviderAuthChoice,
+  type OrchestratorDelegationState,
+  type OrchestratorSubagentRole,
+  type ProviderConnectionState,
+  type SecretReference,
 } from "@opzava/ports";
 import { DomainError, err, ok, type Result, type TenantId } from "@opzava/shared-kernel";
 import { describe, expect, it } from "vitest";
@@ -22,6 +23,7 @@ import {
 } from "../connections.js";
 import { createConnectionsInternalHttpServer } from "../connections-http-server.js";
 import { GatewayAdminConnectionsProvisioningPort } from "../gateway-admin-connections.js";
+import { resolveProvisioningWorkerRuntimeConfig } from "../../main.js";
 import {
   OpenClawAdminRpcClient,
   type OpenClawAdminDeviceKeypair,
@@ -168,6 +170,7 @@ class RecordingAdminClient implements OpenClawAdminRpcPort {
 
 class MemorySecretsVault {
   private secret: SecretReference | null = null;
+  private value: string | null = null;
 
   public async getRef(): Promise<Result<SecretReference | null>> {
     return ok(this.secret);
@@ -189,11 +192,21 @@ class MemorySecretsVault {
       purpose: input.purpose,
       label: input.label,
     };
+    this.value = input.value;
     return ok(this.secret);
+  }
+
+  public async resolveSecretValue(): Promise<Result<string>> {
+    if (this.value === null) {
+      return err(new DomainError({ code: "test.notFound", message: "Secret not found." }));
+    }
+
+    return ok(this.value);
   }
 
   public async deleteSecret(): Promise<Result<void>> {
     this.secret = null;
+    this.value = null;
     return ok(undefined);
   }
 }
@@ -426,6 +439,18 @@ describe("Connections provisioning helpers", () => {
     }
   });
 
+  it("resolves provisioning-worker runtime config from the production env names", () => {
+    expect(
+      resolveProvisioningWorkerRuntimeConfig({
+        PROVISIONING_WORKER_TOKEN: "worker-token",
+        PROVISIONING_WORKER_PORT: "19188",
+      }),
+    ).toEqual({
+      internalToken: "worker-token",
+      port: 19188,
+    });
+  });
+
   it("uses the provisioning-only OpenClaw admin client for req/res RPC with idempotency", async () => {
     const frames: unknown[] = [];
     const client = new OpenClawAdminRpcClient({
@@ -458,9 +483,33 @@ describe("Connections provisioning helpers", () => {
     });
   });
 
+  it("prefers the paired operator device token for OpenClaw admin RPC auth", async () => {
+    const frames: unknown[] = [];
+    const client = new OpenClawAdminRpcClient({
+      url: "ws://127.0.0.1:18789",
+      gatewayToken: "gateway-token",
+      operatorDeviceToken: "operator-device-token",
+      keypair: fakeKeypair(),
+      socketFactory: fakeAdminSocketFactory(frames),
+      now: () => 1000,
+    });
+
+    const result = await client.request("config.get", {});
+
+    expect(result.ok).toBe(true);
+    expect(frames[0]).toMatchObject({
+      method: "connect",
+      params: {
+        auth: { deviceToken: "operator-device-token" },
+      },
+    });
+    expect(JSON.stringify(frames[0])).not.toContain("gateway-token");
+  });
+
   it("maps config.get and models.list into a Connections snapshot", async () => {
     const admin = new RecordingAdminClient({
       "config.get": ok({
+        region: "config-region",
         auth: {
           profiles: {
             "zai-zai-api-key": {
@@ -473,6 +522,16 @@ describe("Connections provisioning helpers", () => {
           order: { zai: ["zai-zai-api-key"] },
         },
         agents: { list: [{ id: "ask-admin-opzava", model: "openai/gpt-5.5" }] },
+      }),
+      health: ok({
+        status: "ok",
+        region: "fra1",
+        auth: { role: "operator", scopes: ["operator.read", "operator.admin"] },
+      }),
+      "last-heartbeat": ok({
+        gateway: {
+          lastHeartbeatAt: "2026-07-02T23:59:00.000Z",
+        },
       }),
       "models.list": ok({
         providers: [
@@ -500,11 +559,19 @@ describe("Connections provisioning helpers", () => {
       throw snapshot.error;
     }
     expect(snapshot.value.gateway.status).toBe("active");
+    expect(snapshot.value.gateway).toMatchObject({
+      region: "fra1",
+      authLabel: "Opzava Gateway operator.admin",
+      lastHeartbeatAt: "2026-07-02T23:59:00.000Z",
+    });
     expect(snapshot.value.providerCatalog[0]).toMatchObject({ id: "zai", label: "z.ai / GLM" });
     expect(snapshot.value.providerConnections[0]).toMatchObject({
       providerId: "zai",
       status: "connected",
       authChoiceId: "zai-api-key",
+    });
+    expect(admin.calls.find((call) => call.method === "models.list")?.params).toEqual({
+      view: "all",
     });
   });
 
@@ -631,14 +698,14 @@ describe("Connections provisioning helpers", () => {
     }
     expect(result.value).toMatchObject({
       kind: "model_provider",
-      verificationUri: "docs/runbooks/platform-gateway.md",
+      verificationUri: "docs/runbooks/provisioning-worker-bringup.md",
       userCode: "unsupported-via-gui",
     });
 
     const poll = await port.pollDeviceFlow({ ...principal(), flowId: result.value.flowId });
     expect(poll.ok ? poll.value : null).toMatchObject({
       status: "failed",
-      message: expect.stringContaining("docs/runbooks/platform-gateway.md"),
+      message: expect.stringContaining("docs/runbooks/provisioning-worker-bringup.md"),
     });
   });
 
@@ -694,6 +761,52 @@ describe("Connections provisioning helpers", () => {
 
     const ref = await vault.getRef();
     expect(ref.ok && ref.value !== null).toBe(true);
+  });
+
+  it("reports vault-backed GitHub status from the live GitHub token probe", async () => {
+    const vault = new MemorySecretsVault();
+    await vault.putSecret({
+      tenantId: principal().orgId as TenantId,
+      purpose: "provider",
+      label: GITHUB_ISSUES_TOKEN_SECRET_LABEL,
+      value: "github-access-token",
+    });
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      expect(init?.headers).toMatchObject({
+        authorization: "Bearer github-access-token",
+      });
+
+      return new Response(JSON.stringify({ login: "opzava-admin" }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "x-oauth-scopes": "repo, read:user",
+        },
+      });
+    };
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: new RecordingAdminClient({
+        "config.get": ok({}),
+        health: ok({ status: "ok" }),
+        "last-heartbeat": ok({ lastHeartbeatAt: "2026-07-03T00:00:00.000Z" }),
+        "models.list": ok({ providers: [] }),
+      }),
+      secretsVault: vault,
+      githubRepository: "anthonykewl20/opzava",
+      fetch: fetchImpl,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.getConnectionsSnapshot(principal());
+
+    expect(result.ok).toBe(true);
+    expect(result.ok ? result.value.github : null).toMatchObject({
+      status: "connected",
+      accountLabel: "@opzava-admin",
+      scopes: ["repo", "read:user"],
+      repository: "anthonykewl20/opzava",
+      message: "GitHub token validated from SecretsVaultPort.",
+    });
   });
 
   it("maps GitHub OAuth denial and expiry without storing token material", async () => {

@@ -7,9 +7,9 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "dev": "tsx watch --enable-source-maps src/index.ts",
+    "dev": "tsx watch --enable-source-maps src/main.ts",
     "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/index.js",
+    "start": "node dist/main.js",
     "bootstrap:platform-gateway": "tsx src/provisioning/bootstrap-platform-gateway.ts",
     "issue:mcp-link-token": "tsx src/link-tokens/issue-mcp-link-token.ts",
     "issue:close-outbox": "tsx src/issues/process-close-outbox.ts",

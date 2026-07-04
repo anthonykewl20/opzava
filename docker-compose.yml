@@ -46,6 +46,8 @@ services:
       DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://opzava_app:opzava_app_local_only@postgres:5432/opzava}
       BROKER_INTERNAL_URL: ${COMPOSE_BROKER_INTERNAL_URL:-http://gateway-broker:19088}
       BROKER_INTERNAL_TOKEN: ${BROKER_INTERNAL_TOKEN:?BROKER_INTERNAL_TOKEN is required}
+      PROVISIONING_WORKER_URL: ${COMPOSE_PROVISIONING_WORKER_URL:-http://provisioning-worker:19188}
+      PROVISIONING_WORKER_TOKEN: ${PROVISIONING_WORKER_TOKEN:?PROVISIONING_WORKER_TOKEN is required}
       OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-opzava-task-evidence}
       OBJECT_STORE_REGION: ${OBJECT_STORE_REGION:-us-east-1}
       OBJECT_STORE_ENDPOINT: ${COMPOSE_OBJECT_STORE_ENDPOINT:-http://minio:9000}
@@ -63,12 +65,46 @@ services:
         condition: service_healthy
       gateway-broker:
         condition: service_started
+      provisioning-worker:
+        condition: service_started
     labels:
       traefik.enable: "true"
       traefik.http.routers.opzava-web.rule: "Host(`web.opzava.localhost`)"
       traefik.http.routers.opzava-web.entrypoints: "web"
       traefik.http.services.opzava-web.loadbalancer.server.port: "3000"
       traefik.docker.network: "dokploy-network"
+    networks:
+      - dokploy-network
+
+  provisioning-worker:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PROVISIONING_WORKER_PORT:-19188}
+      PROVISIONING_WORKER_TOKEN: ${PROVISIONING_WORKER_TOKEN:?PROVISIONING_WORKER_TOKEN is required}
+      OPENCLAW_GATEWAY_URL: ${COMPOSE_OPENCLAW_GATEWAY_URL:-ws://openclaw-platform-gateway:18789}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_OPERATOR_DEVICE_TOKEN: ${OPENCLAW_OPERATOR_DEVICE_TOKEN:-}
+      OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64: ${OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64:-}
+      OPENCLAW_DEVICE_PRIVATE_KEY_PEM: ${OPENCLAW_DEVICE_PRIVATE_KEY_PEM:-}
+      OPENCLAW_DEVICE_ID: ${OPENCLAW_DEVICE_ID:-}
+      OPENCLAW_DEVICE_PUBLIC_KEY: ${OPENCLAW_DEVICE_PUBLIC_KEY:-}
+      OPENCLAW_DEV_SECRETS_FILE: ${COMPOSE_OPENCLAW_DEV_SECRETS_FILE:-/run/opzava-secrets/openclaw-secrets.json}
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_ISSUES_REPOSITORY: ${GITHUB_ISSUES_REPOSITORY:-anthonykewl20/opzava}
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+      DOCKER_API_VERSION: ${DOCKER_API_VERSION:-1.44}
+    depends_on:
+      openclaw-platform-gateway:
+        condition: service_healthy
+      docker-socket-proxy:
+        condition: service_started
+    volumes:
+      - ${OPENCLAW_DEV_SECRETS_DIR:-./.dev-secrets}:/run/opzava-secrets:rw
+    expose:
+      - "19188"
     networks:
       - dokploy-network
 
@@ -110,6 +146,37 @@ services:
       traefik.http.routers.opzava-gateway-broker.entrypoints: "web"
       traefik.http.services.opzava-gateway-broker.loadbalancer.server.port: "19088"
       traefik.docker.network: "dokploy-network"
+    networks:
+      - dokploy-network
+
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:${DOCKER_SOCKET_PROXY_IMAGE_TAG:-latest}
+    environment:
+      LOG_LEVEL: warning
+      CONTAINERS: 1
+      NETWORKS: 1
+      INFO: 1
+      PING: 1
+      VERSION: 1
+      POST: 1
+      DELETE: 1
+      BUILD: 0
+      CONFIGS: 0
+      DISTRIBUTION: 0
+      EXEC: 0
+      IMAGES: 0
+      PLUGINS: 0
+      SECRETS: 0
+      SERVICES: 0
+      SESSION: 0
+      SWARM: 0
+      SYSTEM: 0
+      TASKS: 0
+      VOLUMES: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    expose:
+      - "2375"
     networks:
       - dokploy-network
 

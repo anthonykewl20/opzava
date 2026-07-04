@@ -93,13 +93,15 @@ function readGitHubIssuesRepository(source: NodeJS.ProcessEnv = process.env): st
 function readProvisioningConfig(
   source: NodeJS.ProcessEnv = process.env,
 ): Result<InternalProvisioningConfig> {
-  const url = source["PROVISIONING_INTERNAL_URL"]?.trim();
-  const token = source["PROVISIONING_INTERNAL_TOKEN"]?.trim();
+  const url =
+    source["PROVISIONING_WORKER_URL"]?.trim() ?? source["PROVISIONING_INTERNAL_URL"]?.trim();
+  const token =
+    source["PROVISIONING_WORKER_TOKEN"]?.trim() ?? source["PROVISIONING_INTERNAL_TOKEN"]?.trim();
   if (url === undefined || url === "" || token === undefined || token === "") {
     return err(
       connectionsError(
         "web.connectionsProvisioningNotConfigured",
-        "Provisioning worker internal URL/token are not configured.",
+        "PROVISIONING_WORKER_URL and PROVISIONING_WORKER_TOKEN are not configured.",
       ),
     );
   }
@@ -128,10 +130,10 @@ function unavailableSnapshot(input: {
     gateway: {
       status: "unavailable",
       region: null,
-      authLabel: "provisioning worker unavailable",
+      authLabel: "Opzava Gateway unavailable",
       lastHeartbeatAt: null,
       message:
-        "Configure PROVISIONING_INTERNAL_URL and PROVISIONING_INTERNAL_TOKEN to connect providers.",
+        "Configure PROVISIONING_WORKER_URL and PROVISIONING_WORKER_TOKEN to connect providers.",
     },
     providerCatalog: [],
     providerConnections: [],
@@ -198,7 +200,7 @@ class UnavailableConnectionsProvisioningPort implements ConnectionsProvisioningP
   private error(): DomainError {
     return connectionsError(
       "web.connectionsProvisioningNotConfigured",
-      "Provisioning worker internal URL/token are not configured.",
+      "PROVISIONING_WORKER_URL and PROVISIONING_WORKER_TOKEN are not configured.",
     );
   }
 }

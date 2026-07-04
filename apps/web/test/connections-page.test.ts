@@ -466,6 +466,11 @@ describe("Connections page state", () => {
 
     expect(page).toContain("Model providers");
     expect(page).toContain("Gateway & models");
+    expect(page).toContain("Opzava Gateway");
+    expect(page).toContain("Provider catalog unavailable");
+    expect(page).not.toContain("OpenClaw gateway");
+    expect(page).not.toContain("OpenClaw ·");
+    expect(page).not.toContain("Gateway catalog unavailable");
     expect(page).toContain("table table-compact table-cards");
     expect(page).toContain('data-label="Provider"');
     expect(page).toContain("ProviderActions");
@@ -474,6 +479,14 @@ describe("Connections page state", () => {
     expect(actions).toContain("connectModelProviderApiKeyForContext");
     expect(route).toContain("pollConnectionDeviceFlowForContext");
     expect(nav).toContain('href: "/connections"');
+  });
+
+  it("names the production provisioning-worker env boundary", async () => {
+    const connections = await readRepoFile("lib/connections.ts");
+
+    expect(connections).toContain("PROVISIONING_WORKER_URL");
+    expect(connections).toContain("PROVISIONING_WORKER_TOKEN");
+    expect(connections).not.toContain("provisioning worker unavailable");
   });
 
   it("omits unbacked Connections mockup surfaces behind P8 PRD-013 DESCOPE markers", async () => {

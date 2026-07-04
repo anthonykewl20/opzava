@@ -19,6 +19,7 @@ import {
   type OrchestratorDelegationState,
   type OrchestratorSubagentRole,
   type ProviderConnectionState,
+  type ResolveSecretInput,
   type SecretReference,
   type SecretsVaultPort,
   type StartGitHubDeviceFlowInput,
@@ -37,6 +38,7 @@ import {
 type Fetch = typeof fetch;
 
 interface MutableSecretsVault extends SecretsVaultPort {
+  resolveSecretValue?(input: ResolveSecretInput): Promise<Result<string>>;
   putSecret(input: {
     readonly tenantId: TenantId;
     readonly purpose: SecretReference["purpose"];
@@ -66,7 +68,7 @@ interface PendingGitHubDeviceFlow {
 }
 
 const modelDeviceFlowUnsupportedMessage =
-  "OpenClaw 2026.6.11 exposes no admin RPC for model-provider device-code OAuth; use docs/runbooks/platform-gateway.md for GPT-Pro/Codex.";
+  "The current Gateway release exposes no admin RPC for model-provider device-code OAuth; use docs/runbooks/provisioning-worker-bringup.md for the documented credential paths.";
 
 function provisioningError(
   code: string,
@@ -407,7 +409,7 @@ function providerConnectionFromConfig(input: {
     model: stringValue(profile["model"]) ?? input.provider.suggestedModel,
     usageLabel: stringValue(profile["usageLabel"]),
     lastCheckedAt: input.now.toISOString(),
-    message: "OpenClaw Gateway auth profile is present.",
+    message: "Opzava Gateway auth profile is present.",
   };
 }
 
@@ -469,7 +471,7 @@ function unavailableSnapshot(input: {
     gateway: {
       status: "unavailable",
       region: null,
-      authLabel: "OpenClaw admin RPC unavailable",
+      authLabel: "Opzava Gateway admin RPC unavailable",
       lastHeartbeatAt: null,
       message: input.message,
     },
@@ -522,6 +524,142 @@ function githubTokenScopes(value: unknown): readonly string[] {
   return splitScope(value);
 }
 
+function isoTimestamp(value: unknown): string | null {
+  if (typeof value === "string" && value.trim() !== "") {
+    const timestamp = Date.parse(value);
+    return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const timestamp = value < 10_000_000_000 ? value * 1000 : value;
+    return new Date(timestamp).toISOString();
+  }
+
+  return null;
+}
+
+function firstNestedString(value: unknown, keys: readonly string[], depth = 0): string | null {
+  if (depth > 4 || !isRecord(value)) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const direct = stringValue(value[key]);
+    if (direct !== null) {
+      return direct;
+    }
+  }
+
+  for (const nested of Object.values(value)) {
+    const found = firstNestedString(nested, keys, depth + 1);
+    if (found !== null) {
+      return found;
+    }
+  }
+
+  return null;
+}
+
+function firstNestedTimestamp(value: unknown, depth = 0): string | null {
+  if (depth > 4) {
+    return null;
+  }
+
+  const direct = isoTimestamp(value);
+  if (direct !== null) {
+    return direct;
+  }
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const timestampKeys = [
+    "lastHeartbeatAt",
+    "lastHeartbeat",
+    "heartbeatAt",
+    "lastSeenAt",
+    "updatedAt",
+    "timestamp",
+    "time",
+  ] as const;
+  for (const key of timestampKeys) {
+    const timestamp = isoTimestamp(value[key]);
+    if (timestamp !== null) {
+      return timestamp;
+    }
+  }
+
+  for (const nested of Object.values(value)) {
+    const found = firstNestedTimestamp(nested, depth + 1);
+    if (found !== null) {
+      return found;
+    }
+  }
+
+  return null;
+}
+
+function healthPayloadIsUnavailable(value: unknown): boolean {
+  const root = recordValue(value);
+  if (root === null) {
+    return false;
+  }
+
+  if (root["ok"] === false || root["healthy"] === false) {
+    return true;
+  }
+
+  const status = stringValue(root["status"])?.toLowerCase();
+  return (
+    status === "down" || status === "failed" || status === "unavailable" || status === "unhealthy"
+  );
+}
+
+function gatewayRegion(input: {
+  readonly config: Record<string, unknown>;
+  readonly healthPayload: unknown;
+  readonly heartbeatPayload: unknown;
+}): string | null {
+  return (
+    firstNestedString(input.healthPayload, ["region", "gatewayRegion", "location"]) ??
+    firstNestedString(input.heartbeatPayload, ["region", "gatewayRegion", "location"]) ??
+    stringValue(input.config["region"]) ??
+    stringValue(input.config["gatewayRegion"])
+  );
+}
+
+function gatewayConnectionState(input: {
+  readonly config: Record<string, unknown>;
+  readonly healthResult: Result<unknown>;
+  readonly heartbeatResult: Result<unknown>;
+  readonly modelsResult: Result<unknown>;
+  readonly now: Date;
+}): ConnectionsSnapshot["gateway"] {
+  const healthPayload = input.healthResult.ok ? input.healthResult.value : {};
+  const heartbeatPayload = input.heartbeatResult.ok ? input.heartbeatResult.value : {};
+  const messages = [
+    input.healthResult.ok ? null : input.healthResult.error.message,
+    input.heartbeatResult.ok ? null : input.heartbeatResult.error.message,
+    input.modelsResult.ok ? null : input.modelsResult.error.message,
+  ].filter((message): message is string => message !== null);
+
+  return {
+    status: healthPayloadIsUnavailable(healthPayload) ? "unavailable" : "active",
+    region: gatewayRegion({
+      config: input.config,
+      healthPayload,
+      heartbeatPayload,
+    }),
+    authLabel: "Opzava Gateway operator.admin",
+    lastHeartbeatAt:
+      firstNestedTimestamp(heartbeatPayload) ??
+      firstNestedTimestamp(healthPayload) ??
+      input.now.toISOString(),
+    message: messages.length === 0 ? null : messages.join(" "),
+  };
+}
+
 export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvisioningPort {
   private readonly fetchImpl: Fetch;
   private readonly now: () => Date;
@@ -548,7 +686,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
-    const modelsResult = await this.options.adminClient.request("models.list", {});
+    const healthResult = await this.options.adminClient.request("health", {});
+    const heartbeatResult = await this.options.adminClient.request("last-heartbeat", {});
+    const modelsResult = await this.options.adminClient.request("models.list", { view: "all" });
     const config = configPayload(configResult.value);
     const catalog = providerCatalogFromModels(modelsResult.ok ? modelsResult.value : {}, config);
     const providerConnections = catalog.map((provider) =>
@@ -557,13 +697,13 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     const github = await this.githubState(input, now);
 
     return ok({
-      gateway: {
-        status: "active",
-        region: stringValue(config["region"]),
-        authLabel: "OpenClaw operator.admin RPC",
-        lastHeartbeatAt: now.toISOString(),
-        message: modelsResult.ok ? null : modelsResult.error.message,
-      },
+      gateway: gatewayConnectionState({
+        config,
+        healthResult,
+        heartbeatResult,
+        modelsResult,
+        now,
+      }),
       providerCatalog: catalog,
       providerConnections,
       pendingDeviceFlows: [
@@ -626,7 +766,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       model: null,
       usageLabel: null,
       lastCheckedAt: this.now().toISOString(),
-      message: "Provider API key stored in the OpenClaw Gateway auth profile.",
+      message: "Provider API key stored in the Opzava Gateway auth profile.",
     });
   }
 
@@ -638,7 +778,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       kind: "model_provider",
       providerId: input.providerId,
       authChoiceId: input.authChoiceId,
-      verificationUri: "docs/runbooks/platform-gateway.md",
+      verificationUri: "docs/runbooks/provisioning-worker-bringup.md",
       userCode: "unsupported-via-gui",
       expiresAt: new Date(this.now().getTime() + 5 * 60_000).toISOString(),
       intervalSeconds: 30,
@@ -713,7 +853,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       model: null,
       usageLabel: null,
       lastCheckedAt: this.now().toISOString(),
-      message: "OpenClaw Gateway auth profile removed.",
+      message: "Opzava Gateway auth profile removed.",
     });
   }
 
@@ -725,7 +865,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(configResult.error);
     }
 
-    const modelsResult = await this.options.adminClient.request("models.list", {});
+    const modelsResult = await this.options.adminClient.request("models.list", { view: "all" });
     const config = configPayload(configResult.value);
     const catalog = providerCatalogFromModels(modelsResult.ok ? modelsResult.value : {}, config);
     const providerConnections = catalog.map((provider) =>
@@ -914,16 +1054,90 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       };
     }
 
+    if (ref.value === null) {
+      return {
+        status: "not_connected",
+        accountLabel: null,
+        scopes: [],
+        repository: this.options.githubRepository,
+        lastCheckedAt: now.toISOString(),
+        message: "GitHub is not connected.",
+      };
+    }
+
+    const resolver = this.options.secretsVault.resolveSecretValue;
+    if (resolver === undefined) {
+      return {
+        status: "connected",
+        accountLabel: "GitHub token",
+        scopes: [],
+        repository: this.options.githubRepository,
+        lastCheckedAt: now.toISOString(),
+        message: "GitHub token vault reference is present.",
+      };
+    }
+
+    const resolved = await resolver.call(this.options.secretsVault, {
+      ref: ref.value,
+      requestedBy: input.actorUserId,
+      reason: "connections.github.status",
+    });
+    if (!resolved.ok) {
+      return {
+        status: "needs_attention",
+        accountLabel: null,
+        scopes: [],
+        repository: this.options.githubRepository,
+        lastCheckedAt: now.toISOString(),
+        message: resolved.error.message,
+      };
+    }
+
+    return this.verifiedGitHubState(resolved.value, now);
+  }
+
+  private async verifiedGitHubState(token: string, now: Date): Promise<GitHubConnectionState> {
+    let response: Response;
+    try {
+      response = await this.fetchImpl("https://api.github.com/user", {
+        method: "GET",
+        headers: {
+          accept: "application/vnd.github+json",
+          authorization: `Bearer ${token}`,
+          "x-github-api-version": "2022-11-28",
+        },
+      });
+    } catch (error) {
+      return {
+        status: "needs_attention",
+        accountLabel: null,
+        scopes: [],
+        repository: this.options.githubRepository,
+        lastCheckedAt: now.toISOString(),
+        message: `GitHub token validation failed before response: ${String(error)}`,
+      };
+    }
+
+    if (!response.ok) {
+      return {
+        status: "needs_attention",
+        accountLabel: null,
+        scopes: splitScope(response.headers.get("x-oauth-scopes")),
+        repository: this.options.githubRepository,
+        lastCheckedAt: now.toISOString(),
+        message: `GitHub token validation failed with HTTP ${response.status}.`,
+      };
+    }
+
+    const payload = await response.json().catch(() => null);
+    const login = isRecord(payload) ? stringValue(payload["login"]) : null;
     return {
-      status: ref.value === null ? "not_connected" : "connected",
-      accountLabel: ref.value === null ? null : "GitHub token",
-      scopes: [],
+      status: "connected",
+      accountLabel: login === null ? "GitHub token" : `@${login}`,
+      scopes: splitScope(response.headers.get("x-oauth-scopes")),
       repository: this.options.githubRepository,
       lastCheckedAt: now.toISOString(),
-      message:
-        ref.value === null
-          ? "GitHub is not connected."
-          : "GitHub token vault reference is present.",
+      message: "GitHub token validated from SecretsVaultPort.",
     };
   }
 
@@ -1020,17 +1234,21 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     }
 
     this.githubFlows.delete(flow.flowId);
+    const connection = await this.githubState(flow.principal, this.now());
     return ok({
       status: "connected",
       message: "GitHub token stored in SecretsVaultPort.",
-      connection: {
-        status: "connected",
-        accountLabel: "GitHub token",
-        scopes: githubTokenScopes(payload["scope"]),
-        repository: flow.repository,
-        lastCheckedAt: this.now().toISOString(),
-        message: "GitHub token vault reference is present.",
-      },
+      connection:
+        connection.status === "connected"
+          ? connection
+          : {
+              status: "connected",
+              accountLabel: "GitHub token",
+              scopes: githubTokenScopes(payload["scope"]),
+              repository: flow.repository,
+              lastCheckedAt: this.now().toISOString(),
+              message: "GitHub token vault reference is present.",
+            },
     });
   }
 }
@@ -1091,17 +1309,20 @@ export function createDefaultConnectionsProvisioningPort(
   const repository = readRepository(env);
   const gatewayUrl = env["OPENCLAW_GATEWAY_URL"]?.trim();
   const gatewayToken = env["OPENCLAW_GATEWAY_TOKEN"]?.trim();
+  const operatorDeviceToken = env["OPENCLAW_OPERATOR_DEVICE_TOKEN"]?.trim();
   const privateKeyPem = readPrivateKeyPem(env);
+  const hasAdminCredential =
+    (operatorDeviceToken !== undefined && operatorDeviceToken !== "") ||
+    (gatewayToken !== undefined && gatewayToken !== "");
 
   if (
     gatewayUrl === undefined ||
     gatewayUrl === "" ||
-    gatewayToken === undefined ||
-    gatewayToken === "" ||
+    !hasAdminCredential ||
     privateKeyPem === null
   ) {
     return new UnavailableConnectionsProvisioningPort(
-      "OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN, and OPENCLAW_DEVICE_PRIVATE_KEY_PEM(_BASE64) are required for Connections provisioning.",
+      "OPENCLAW_GATEWAY_URL, OPENCLAW_OPERATOR_DEVICE_TOKEN or OPENCLAW_GATEWAY_TOKEN, and OPENCLAW_DEVICE_PRIVATE_KEY_PEM(_BASE64) are required for Connections provisioning.",
       repository,
     );
   }
@@ -1125,7 +1346,10 @@ export function createDefaultConnectionsProvisioningPort(
   return new GatewayAdminConnectionsProvisioningPort({
     adminClient: new OpenClawAdminRpcClient({
       url: gatewayUrl,
-      gatewayToken,
+      ...(gatewayToken === undefined || gatewayToken === "" ? {} : { gatewayToken }),
+      ...(operatorDeviceToken === undefined || operatorDeviceToken === ""
+        ? {}
+        : { operatorDeviceToken }),
       keypair,
     }),
     secretsVault: vault,

@@ -303,7 +303,7 @@ export default async function ConnectionsPage() {
                 />
               </div>
               <div className="stat-delta u-subtle">
-                OpenClaw ·{" "}
+                Opzava Gateway ·{" "}
                 <span className="u-mono">{data.snapshot.gateway.region ?? "unknown"}</span>
               </div>
             </div>
@@ -312,7 +312,7 @@ export default async function ConnectionsPage() {
 
         <div className="conn-group">
           <div className="conn-group-head">
-            <span className="conn-group-eyebrow">OpenClaw gateway</span>
+            <span className="conn-group-eyebrow">Opzava Gateway</span>
             <h2>Gateway & models</h2>
             <p>
               The backend LLM substrate the fleet runs on. The <strong>gateway</strong> holds
@@ -329,7 +329,7 @@ export default async function ConnectionsPage() {
           >
             <div className="card-header">
               <h2 className="card-title" id="gw-heading">
-                OpenClaw gateway
+                Opzava Gateway
               </h2>
               <span className="badge badge-accent">24/7 substrate</span>
             </div>
@@ -422,9 +422,10 @@ export default async function ConnectionsPage() {
 
           {data.providers.length === 0 ? (
             <div className="empty">
-              <p className="empty-title">Gateway catalog unavailable</p>
+              <p className="empty-title">Provider catalog unavailable</p>
               <p className="empty-desc">
-                Configure the provisioning worker to read the live Gateway auth-choice catalog.
+                Configure the provisioning worker to read the live Opzava Gateway auth-choice
+                catalog.
               </p>
             </div>
           ) : (

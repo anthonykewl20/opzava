@@ -1,3 +1,1 @@
-const serviceName = "workers";
-
-console.log(`${serviceName} up`);
+export * from "./provisioning/index.js";

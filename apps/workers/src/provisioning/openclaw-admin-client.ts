@@ -59,7 +59,8 @@ export interface OpenClawAdminDeviceKeypair {
 
 export interface OpenClawAdminRpcClientOptions {
   readonly url: string;
-  readonly gatewayToken: string;
+  readonly gatewayToken?: string;
+  readonly operatorDeviceToken?: string;
   readonly keypair: OpenClawAdminDeviceKeypair;
   readonly socketFactory?: OpenClawAdminWebSocketFactory;
   readonly requestTimeoutMs?: number;
@@ -91,6 +92,11 @@ interface PendingRequest {
 interface OpenClawAdminHello {
   readonly protocol: number;
   readonly scopes: readonly string[];
+}
+
+interface OpenClawAdminAuthCredential {
+  readonly token: string;
+  readonly auth: { readonly token: string } | { readonly deviceToken: string };
 }
 
 function adminError(code: string, message: string, cause?: unknown): DomainError {
@@ -280,7 +286,7 @@ function helloPayload(value: unknown): Result<OpenClawAdminHello> {
     return err(
       adminError(
         "provisioning.openclawAdmin.invalidHello",
-        "OpenClaw Gateway returned an invalid hello-ok payload.",
+        "Opzava Gateway returned an invalid hello-ok payload.",
       ),
     );
   }
@@ -298,7 +304,7 @@ function helloPayload(value: unknown): Result<OpenClawAdminHello> {
     return err(
       adminError(
         "provisioning.openclawAdmin.adminScopeMissing",
-        "OpenClaw Gateway did not grant the provisioning admin RPC scopes.",
+        "Opzava Gateway did not grant the provisioning admin RPC scopes.",
       ),
     );
   }
@@ -309,7 +315,33 @@ function helloPayload(value: unknown): Result<OpenClawAdminHello> {
   });
 }
 
+function authCredentialFromOptions(
+  options: OpenClawAdminRpcClientOptions,
+): OpenClawAdminAuthCredential {
+  const operatorDeviceToken = options.operatorDeviceToken?.trim();
+  if (operatorDeviceToken !== undefined && operatorDeviceToken !== "") {
+    return {
+      token: operatorDeviceToken,
+      auth: { deviceToken: operatorDeviceToken },
+    };
+  }
+
+  const gatewayToken = options.gatewayToken?.trim();
+  if (gatewayToken !== undefined && gatewayToken !== "") {
+    return {
+      token: gatewayToken,
+      auth: { token: gatewayToken },
+    };
+  }
+
+  throw adminError(
+    "provisioning.openclawAdmin.authNotConfigured",
+    "OPENCLAW_OPERATOR_DEVICE_TOKEN or OPENCLAW_GATEWAY_TOKEN is required for provisioning admin RPC.",
+  );
+}
+
 export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
+  private readonly authCredential: OpenClawAdminAuthCredential;
   private readonly socketFactory: OpenClawAdminWebSocketFactory;
   private readonly requestTimeoutMs: number;
   private readonly connectTimeoutMs: number;
@@ -319,6 +351,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
   private readonly pendingRequests = new Map<string, PendingRequest>();
 
   public constructor(private readonly options: OpenClawAdminRpcClientOptions) {
+    this.authCredential = authCredentialFromOptions(options);
     this.socketFactory = options.socketFactory ?? defaultSocketFactory;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 15_000;
     this.connectTimeoutMs = options.connectTimeoutMs ?? 15_000;
@@ -410,7 +443,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
           err(
             adminError(
               "provisioning.openclawAdmin.gatewayUnavailable",
-              "OpenClaw Gateway WebSocket could not be opened for provisioning.",
+              "Opzava Gateway WebSocket could not be opened for provisioning.",
               error,
             ),
           ),
@@ -437,7 +470,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
           err(
             adminError(
               "provisioning.openclawAdmin.connectTimeout",
-              "OpenClaw Gateway did not complete the admin handshake in time.",
+              "Opzava Gateway did not complete the admin handshake in time.",
             ),
           ),
         );
@@ -450,7 +483,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
             err(
               adminError(
                 "provisioning.openclawAdmin.invalidFrame",
-                "OpenClaw Gateway returned an invalid admin frame.",
+                "Opzava Gateway returned an invalid admin frame.",
               ),
             ),
           );
@@ -467,7 +500,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
               err(
                 adminError(
                   "provisioning.openclawAdmin.invalidChallenge",
-                  "OpenClaw Gateway returned an invalid admin challenge.",
+                  "Opzava Gateway returned an invalid admin challenge.",
                 ),
               ),
             );
@@ -496,7 +529,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
               err(
                 adminError(
                   "provisioning.openclawAdmin.connectRejected",
-                  frame.error?.message ?? "OpenClaw Gateway rejected the admin connection.",
+                  frame.error?.message ?? "Opzava Gateway rejected the admin connection.",
                 ),
               ),
             );
@@ -534,7 +567,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
             err(
               adminError(
                 "provisioning.openclawAdmin.connectionClosed",
-                "OpenClaw Gateway closed the admin connection during handshake.",
+                "Opzava Gateway closed the admin connection during handshake.",
               ),
             ),
           );
@@ -550,7 +583,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
             err(
               adminError(
                 "provisioning.openclawAdmin.gatewayUnavailable",
-                "OpenClaw Gateway admin WebSocket failed.",
+                "Opzava Gateway admin WebSocket failed.",
                 error,
               ),
             ),
@@ -568,7 +601,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
       deviceId: this.options.keypair.deviceId,
       role: "operator",
       scopes: adminOperatorScopes,
-      token: this.options.gatewayToken,
+      token: this.authCredential.token,
       nonce,
       signedAt,
     });
@@ -591,9 +624,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
         caps: [],
         commands: [],
         permissions: {},
-        auth: {
-          token: this.options.gatewayToken,
-        },
+        auth: this.authCredential.auth,
         locale: "en-US",
         userAgent: `opzava-connections-provisioning/${ASK_ADMIN_AGENT_VERSION}`,
         device: {
