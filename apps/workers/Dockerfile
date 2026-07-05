@@ -20,7 +20,8 @@ COPY apps/web/package.json apps/web/package.json
 COPY apps/gateway-broker/package.json apps/gateway-broker/package.json
 COPY apps/mcp-server/package.json apps/mcp-server/package.json
 COPY apps/workers/package.json apps/workers/package.json
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=opzava-pnpm-store,target=/pnpm/store \
+  pnpm --store-dir /pnpm/store install --frozen-lockfile
 
 FROM base AS builder
 ENV NODE_ENV=production
@@ -31,7 +32,8 @@ COPY . .
 RUN pnpm exec turbo run build --filter=@opzava/workers
 
 FROM builder AS deploy
-RUN pnpm --filter @opzava/workers deploy --prod --legacy /app/deploy/workers \
+RUN --mount=type=cache,id=opzava-pnpm-store,target=/pnpm/store \
+  pnpm --store-dir /pnpm/store --filter @opzava/workers deploy --prod --legacy /app/deploy/workers \
   && rm -rf \
     /app/deploy/workers/.turbo \
     /app/deploy/workers/Dockerfile \

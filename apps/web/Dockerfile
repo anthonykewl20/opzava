@@ -20,7 +20,8 @@ COPY apps/web/package.json apps/web/package.json
 COPY apps/gateway-broker/package.json apps/gateway-broker/package.json
 COPY apps/mcp-server/package.json apps/mcp-server/package.json
 COPY apps/workers/package.json apps/workers/package.json
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=opzava-pnpm-store,target=/pnpm/store \
+  pnpm --store-dir /pnpm/store install --frozen-lockfile
 
 FROM base AS builder
 ARG APP_URL=http://web.opzava.localhost:18080
@@ -32,11 +33,17 @@ COPY --from=deps /app/packages ./packages
 COPY . .
 # Build workspace dependency packages (tsc -> dist) before next build; the
 # package exports point at ./dist, which does not exist in a clean context.
-RUN pnpm exec turbo run build --filter=@opzava/web
+RUN --mount=type=cache,id=opzava-web-next-cache,target=/app/apps/web/.next/cache \
+  pnpm exec turbo run build --filter=@opzava/web
 
 FROM node:24.18.0-bookworm-slim AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
+# Next.js standalone server.js binds to $HOSTNAME; Docker auto-sets HOSTNAME to the
+# container id, which resolves to eth0 only, leaving loopback unbound. That breaks the
+# 127.0.0.1 healthcheck -> container goes unhealthy -> Traefik drops the router -> 404.
+# Bind all interfaces (matches the official Next.js Docker example). Do not remove.
+ENV HOSTNAME=0.0.0.0
 WORKDIR /app
 RUN groupadd --system --gid 1001 nodejs \
   && useradd --system --uid 1001 --gid nodejs nextjs

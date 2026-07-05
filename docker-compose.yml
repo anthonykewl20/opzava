@@ -1,15 +1,20 @@
+x-json-file-logging: &json-file-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   traefik:
     image: traefik:v3.6.1
+    restart: unless-stopped
+    logging: *json-file-logging
     command:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=dokploy-network"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
-    ports:
-      - "18088:80"
-      - "18448:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -17,6 +22,8 @@ services:
 
   postgres:
     image: postgres:18.4-bookworm
+    restart: unless-stopped
+    logging: *json-file-logging
     environment:
       POSTGRES_DB: opzava
       POSTGRES_USER: opzava
@@ -31,6 +38,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
     networks:
       - dokploy-network
 
@@ -38,6 +46,10 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    logging: *json-file-logging
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       APP_URL: ${APP_URL:-http://web.opzava.localhost:18088}
@@ -64,9 +76,21 @@ services:
       minio:
         condition: service_healthy
       gateway-broker:
-        condition: service_started
+        condition: service_healthy
       provisioning-worker:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     labels:
       traefik.enable: "true"
       traefik.http.routers.opzava-web.rule: "Host(`web.opzava.localhost`)"
@@ -80,6 +104,10 @@ services:
     build:
       context: .
       dockerfile: apps/workers/Dockerfile
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    logging: *json-file-logging
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: ${PROVISIONING_WORKER_PORT:-19188}
@@ -112,6 +140,18 @@ services:
       - ${OPENCLAW_DEV_SECRETS_DIR:-./.dev-secrets}:/run/opzava-secrets:rw
     expose:
       - "19188"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:19188/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - dokploy-network
 
@@ -119,6 +159,10 @@ services:
     build:
       context: .
       dockerfile: apps/gateway-broker/Dockerfile
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    logging: *json-file-logging
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: ${GATEWAY_BROKER_PORT:-19088}
@@ -147,6 +191,18 @@ services:
       - ${OPENCLAW_DEV_SECRETS_DIR:-./.dev-secrets}:/run/opzava-secrets:ro
     expose:
       - "19088"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:19088/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     labels:
       traefik.enable: "true"
       traefik.http.routers.opzava-gateway-broker.rule: "Host(`gateway-broker.opzava.localhost`)"
@@ -157,7 +213,9 @@ services:
       - dokploy-network
 
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:${DOCKER_SOCKET_PROXY_IMAGE_TAG:-latest}
+    image: tecnativa/docker-socket-proxy:${DOCKER_SOCKET_PROXY_IMAGE_TAG:-v0.4.2}
+    restart: unless-stopped
+    logging: *json-file-logging
     environment:
       LOG_LEVEL: warning
       CONTAINERS: 1
@@ -188,26 +246,26 @@ services:
       - dokploy-network
 
   minio:
-    image: quay.io/minio/minio:${MINIO_IMAGE_TAG:-latest}
+    image: quay.io/minio/minio:${MINIO_IMAGE_TAG:-RELEASE.2025-09-07T16-13-09Z}
+    restart: unless-stopped
+    logging: *json-file-logging
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-opzava_minio_local}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-opzava_minio_local_only_not_for_shared_envs}
     volumes:
       - opzava-minio-data:/data
-    ports:
-      - "19000:9000"
-      - "19001:9001"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:9000/minio/health/live || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
     networks:
       - dokploy-network
 
   minio-bucket-init:
-    image: quay.io/minio/mc:${MINIO_MC_IMAGE_TAG:-latest}
+    image: quay.io/minio/mc:${MINIO_MC_IMAGE_TAG:-RELEASE.2025-08-13T08-35-41Z}
     depends_on:
       minio:
         condition: service_healthy
@@ -231,6 +289,9 @@ services:
     # there is no routable orphan Gateway. Local and Dokploy both build this.
     build: ./mainframe
     image: opzava/mainframe-gateway:${OPENCLAW_IMAGE_TAG:-2026.6.11}
+    restart: unless-stopped
+    init: true
+    logging: *json-file-logging
     command: ["node", "openclaw.mjs", "gateway", "--port", "18789", "--bind", "lan"]
     environment:
       OPENCLAW_SKIP_ONBOARDING: ${OPENCLAW_SKIP_ONBOARDING:-1}
@@ -253,6 +314,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
     networks:
       - dokploy-network
 

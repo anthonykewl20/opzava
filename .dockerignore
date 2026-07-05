@@ -2,6 +2,9 @@
 **/.next/
 **/.turbo/
 coverage/
+real-validate-artifacts/
+build/
+**/build/
 **/dist/
 **/node_modules/
 **/*.tsbuildinfo

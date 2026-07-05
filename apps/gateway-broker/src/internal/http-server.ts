@@ -419,6 +419,11 @@ export function createBrokerInternalHttpServer(
   options: BrokerInternalHttpServerOptions,
 ): http.Server {
   return http.createServer((request, response) => {
+    if (request.method === "GET" && request.url === "/healthz") {
+      writeJson(response, 200, { status: "ok" });
+      return;
+    }
+
     if (request.method === "GET" && request.url?.startsWith("/internal/gateway/health")) {
       void handleGatewayHealth(request, response, options).catch((error) => {
         if (!response.headersSent) {

@@ -310,6 +310,11 @@ export function createConnectionsInternalHttpServer(
   };
 
   return http.createServer((request, response) => {
+    if (request.method === "GET" && request.url === "/healthz") {
+      writeJson(response, 200, { status: "ok" });
+      return;
+    }
+
     if (request.method !== "POST") {
       writeJson(response, 404, { error: "not_found" });
       return;

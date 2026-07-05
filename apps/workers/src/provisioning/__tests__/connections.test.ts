@@ -526,6 +526,23 @@ async function closeServer(
 }
 
 describe("Connections provisioning helpers", () => {
+  it("serves a lightweight unauthenticated process health endpoint", async () => {
+    const server = createConnectionsInternalHttpServer({
+      provisioningPort: fakeProvisioningPort(),
+      internalToken: "local-provisioning-token",
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const response = await fetch(`${baseUrl}/healthz`);
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ status: "ok" });
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   it("builds an OpenClaw config.patch API-key payload without logging the secret", () => {
     const invocation = gatewayApiKeyConfigPatchInvocation({
       authChoice: apiKeyChoice(),

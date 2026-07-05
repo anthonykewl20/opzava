@@ -137,6 +137,24 @@ afterEach(async () => {
 });
 
 describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => {
+  it("serves a lightweight unauthenticated process health endpoint", async () => {
+    const { broker } = await createFixture();
+    const server = createBrokerInternalHttpServer({
+      gatewayPort: broker,
+      internalToken: randomUUID(),
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const response = await fetch(`${baseUrl}/healthz`);
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ status: "ok" });
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   it("returns authenticated gateway health snapshots", async () => {
     const { broker } = await createFixture();
     const internalToken = randomUUID();

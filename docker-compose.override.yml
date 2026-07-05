@@ -2,7 +2,7 @@
 # Dokploy deploys consume docker-compose.yml ONLY, so nothing here reaches live.
 # Exposes the Traefik dashboard at http://localhost:18089 for local routing debug.
 # `command` replaces the base list (Compose merge rule), so it is restated in full;
-# `ports` concatenate, so only the extra dashboard port is added here.
+# host port publishes stay local-only here.
 services:
   traefik:
     command:
@@ -14,11 +14,18 @@ services:
       - "--api.dashboard=true"
       - "--api.insecure=true"
     ports:
+      - "18088:80"
+      - "18448:443"
       - "18089:8080"
 
   postgres:
     ports:
       - "15432:5432"
+
+  minio:
+    ports:
+      - "19000:9000"
+      - "19001:9001"
 
   # Local-only host access for the dev broker/bootstrap scripts; live keeps the
   # Gateway unreachable from outside the compose network (expose-only).
