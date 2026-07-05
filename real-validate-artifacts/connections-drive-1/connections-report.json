@@ -1,0 +1,33 @@
+{
+  "base": "http://web.opzava.localhost:18088",
+  "providerNames": [
+    "OpenAIAI lead - ✦Orchestratorincl. Codex CLI runtime",
+    "Anthropicincl. Claude CLI runtime",
+    "byteplus",
+    "byteplus-plan",
+    "cohere",
+    "github-copilot",
+    "Mistral",
+    "novita",
+    "nvidia",
+    "ollama-cloud",
+    "opencode",
+    "opencode-go",
+    "Together AItogether",
+    "volcengine",
+    "volcengine-plan",
+    "xiaomi",
+    "xiaomi-token-plan"
+  ],
+  "hasZai": false,
+  "hasOpenRouter": false,
+  "noStandaloneRuntimeRow": true,
+  "noNonLlm": true,
+  "connectedModelIds": [
+    "gpt-5.2"
+  ],
+  "findings": [
+    "has-zai=false",
+    "has-openrouter=false"
+  ]
+}

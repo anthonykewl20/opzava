@@ -1,0 +1,53 @@
+{
+  "base": "http://web.opzava.localhost:18088",
+  "perTier": {
+    "frontier": [
+      "anthropic",
+      "claude-max-api-proxy",
+      "openai"
+    ],
+    "bundles": [
+      "qwen",
+      "cloudflare-ai-gateway",
+      "opencode-go",
+      "openrouter"
+    ],
+    "best-subagents": [
+      "zai",
+      "minimax",
+      "moonshot",
+      "xiaomi"
+    ],
+    "other": [
+      "byteplus",
+      "byteplus-plan",
+      "cerebras",
+      "cohere",
+      "deepseek",
+      "fireworks",
+      "github-copilot",
+      "google",
+      "groq",
+      "mistral",
+      "novita",
+      "nvidia",
+      "ollama-cloud",
+      "opencode",
+      "together",
+      "volcengine",
+      "volcengine-plan",
+      "xai",
+      "xiaomi-token-plan"
+    ]
+  },
+  "hasZai": true,
+  "hasOpenRouter": true,
+  "noStandaloneRuntimeRow": true,
+  "noNonLlm": true,
+  "connectedModels": [],
+  "findings": [
+    "connected-provider-real-model=false",
+    "openai-manage-button=false",
+    "openai-disconnect-button=false"
+  ]
+}
