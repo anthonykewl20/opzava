@@ -35,7 +35,7 @@
     },
     {
       "path": "0008_slice25_issue_outbox_hardening.sql",
-      "sha256": "3f984b22c04ef3a30f43dad91f9c29c8ccdf9a2fd754e33d09b796fa66ac94b5"
+      "sha256": "33f9a3877892daca905fea5cb15654a628eeea40ec40564c14597849f358b61a"
     },
     {
       "path": "0009_slice25_outbox_claim_token.sql",

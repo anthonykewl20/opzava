@@ -1,4 +1,4 @@
-# Slice 2 verify-deep review (Codex)
+# Slice 2 no-mistakes review (Codex)
 
 Scope: branch `slice/2-ask-admin-opzava`, diff base `development...HEAD`. This review covers the requested correctness lanes only: broker/OpenClaw stream state, internal SSE relay, web SSE relay/finalization, runtime-control turn/tool idempotency, tenant context/RLS, and roadmap seed/migration rerunnability.
 
