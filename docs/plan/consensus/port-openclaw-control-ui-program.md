@@ -62,8 +62,10 @@ pass. This program supersedes the hand-built connections catalog approach for su
    implementation. Then implement to the corrected mockup with side-by-side screenshot parity.
 3. `/senior-frontend` is mandatory; the bar is calm, user-friendly, optimal UX — improve OpenClaw's
    ergonomics, never regress them (a11y AA, one canonical component, honest states).
-4. Final gate for every view slice: `real-world-validation` (real login, real data, loop until 2
-   consecutive clean passes, exit 0) — in addition to the view's own real-RPC log proof.
+4. Final gate for every view slice: `senior-qa` GATE (real login, real data, loop until 2
+   consecutive clean passes via `node real-world-validate.local.mjs`, exit 0) - in addition to the
+   view's own real-RPC log proof. Use SeniorQA PROBE for bounded exploratory checks; it never
+   replaces the gate.
 
 ## First slice (now): #1 Models & Providers, grounded in OpenClaw + docs/openclaw/providers
 - Providers = canonical LLM list (providers/index.md); runtimes (claude-cli/codex/gemini-cli) fold UNDER

@@ -17,3 +17,6 @@ secrets/*
 test-results/
 playwright-report/
 .dev-secrets/
+
+# SeniorQA live-validation run artifacts (screenshots/reports) - regenerated per run
+real-validate-artifacts/

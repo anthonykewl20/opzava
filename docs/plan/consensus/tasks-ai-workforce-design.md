@@ -313,7 +313,7 @@ type ChangeType = "visual" | "non_visual";
 
 - `visual`: at least one screenshot artifact showing the changed UI/state.
 - `non_visual`: at least one e2e/user-level test, smoke test, real-world test, mutation test, or
-  verify-deep artifact.
+  deep-verification artifact.
 - PRs can count as evidence only with CI/check status and test/screenshot artifacts attached.
 
 ### 8.3 Hard gate
@@ -450,7 +450,7 @@ duplicating tool logic.
   issue/PR chips.
 - Comments: human-readable summaries and replies to human comments/mentions. Not every raw tool call.
 - AI Run: full step-by-step run trace with live elapsed ticker.
-- Evidence/Files: screenshots, tests, verify-deep artifacts, PRs, CI links, provenance.
+- Evidence/Files: screenshots, tests, deep-verification artifacts, PRs, CI links, provenance.
 - Quality Review: orchestrator checks, pass/request changes, human Done gate state.
 - Assigned to: named human or agent identity; AI badge for agent doers.
 
@@ -528,7 +528,7 @@ Do not accept the slice unless these pass:
 - Local-tool task assignment appears in `list_my_open_items` and does not claim instant replies.
 - Hosted MCP token attribution uses named identity from issuance, not client text.
 - Revoked/expired/membership-version-changed token fails closed.
-- PR evidence, screenshots, tests, and verify-deep artifacts render in Evidence/Files.
+- PR evidence, screenshots, tests, and deep-verification artifacts render in Evidence/Files.
 - AI Run tab shows ordered run steps and elapsed ticker.
 - Comments remain human-readable summaries, not raw tool-call transcript spam.
 - Projection rebuild from Task/Issue/PR/runtime refs reproduces board state without OpenClaw storage
@@ -558,7 +558,7 @@ Do not accept the slice unless these pass:
 | Doer tries to self-approve | Tool policy and app auth deny reviewer tools; audit denial. |
 | Doer fabricates evidence metadata | Artifact lookup and orchestrator verification fail closed. |
 | Visual change has stale/wrong screenshot | Orchestrator records failed check and requests changes. |
-| Non-visual change has unit-only proof for user-visible behavior | Review rejects unless e2e/smoke/real-world/mutation/verify-deep suffices. |
+| Non-visual change has unit-only proof for user-visible behavior | Review rejects unless e2e/smoke/real-world/mutation/deep-verification suffices. |
 | CI turns red after review pass | Human Done blocked; task stays Review. |
 | GitHub close/merge fails | Done/merge path records failure, stays Review, shows divergence. |
 | Local tool expected instant mention response | Queue for poll and render honest "waiting for local tool" state. |

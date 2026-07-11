@@ -8,7 +8,7 @@ is NOT blinded"). Scope = the ENTIRE codebase, not just frontend. Acceptance is 
 deliverable is concrete + verifiable. Codegen/docs (codex-exec) implement against this; architecture
 decisions + acceptance are owned here.
 
-Programme shape: this is a multi-pass programme (large), executed slice-by-slice and verify-deep'd, NOT a
+Programme shape: this is a multi-pass programme (large), executed slice-by-slice and deeply verified, NOT a
 single fire-and-forget. Each layer below (A frontend, B backend, C database, D docs/app) is standardized
 first (ONE canonical way, drift removed), then documented so the standard is legible.
 
@@ -132,8 +132,8 @@ B4. DEPENDENCY GRAPH. `docs/architecture/dependency-graph.md`: the workspace pac
       tenant-data access route.
 - [ ] Every `packages/*` + `apps/*` has a README; `routes-and-endpoints.md`, `flows/*`,
       `dependency-graph.md`, `data-model.md`, `migrations.md` exist and are accurate (spot-checked vs code).
-- [ ] `pnpm --filter @opzava/web typecheck+lint+build` green; nothing else regressed (verify-deep).
-- [ ] EXECUTION.md updated; committed via commit-style.
+- [ ] `pnpm --filter @opzava/web typecheck+lint+build` green; nothing else regressed.
+- [ ] EXECUTION.md updated; committed.
 
 ## Sequencing
 v2 (Connections shadcn + real connect backend) lands first and is folded in as the reference migration.

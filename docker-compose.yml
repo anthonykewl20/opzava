@@ -114,14 +114,15 @@ services:
       PROVISIONING_WORKER_TOKEN: ${PROVISIONING_WORKER_TOKEN:?PROVISIONING_WORKER_TOKEN is required}
       OPENCLAW_GATEWAY_URL: ${COMPOSE_OPENCLAW_GATEWAY_URL:-ws://openclaw-platform-gateway:18789}
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
-      # Least-privilege operator scopes the worker requests on connect; must match
-      # the paired worker device's approved scopes (read materializes alongside write).
-      # operator.admin is a per-RPC preflight for config mutation, not required to connect.
-      OPENCLAW_OPERATOR_SCOPES: ${WORKER_OPENCLAW_OPERATOR_SCOPES:-operator.write,operator.approvals}
+      # Worker JIT-admin operator scopes; must match the paired worker-admin device.
+      OPENCLAW_OPERATOR_SCOPES: ${WORKER_OPENCLAW_OPERATOR_SCOPES:-operator.read,operator.admin}
       # Dedicated worker operator device — two-token boundary: a SEPARATE paired
       # device from the broker's hot-path device (never share one device identity;
       # the gateway rejects concurrent connections from the same device).
       OPENCLAW_OPERATOR_DEVICE_TOKEN: ${WORKER_OPENCLAW_OPERATOR_DEVICE_TOKEN:-}
+      OPENCLAW_DEVICE_TOKEN_VAULT_TENANT_ID: ${WORKER_OPENCLAW_DEVICE_TOKEN_VAULT_TENANT_ID:-platform}
+      OPENCLAW_DEVICE_TOKEN_VAULT_LABEL: ${WORKER_OPENCLAW_DEVICE_TOKEN_VAULT_LABEL:-platform-worker-admin-device-token}
+      OPENCLAW_DEVICE_TOKEN_VAULT_VERSION: ${WORKER_OPENCLAW_DEVICE_TOKEN_VAULT_VERSION:-}
       OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64: ${WORKER_OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64:-}
       OPENCLAW_DEVICE_PRIVATE_KEY_PEM: ${WORKER_OPENCLAW_DEVICE_PRIVATE_KEY_PEM:-}
       OPENCLAW_DEVICE_ID: ${WORKER_OPENCLAW_DEVICE_ID:-}
@@ -287,7 +288,12 @@ services:
     # previously pulled ghcr.io/openclaw/openclaw at the same version. Pin
     # record: mainframe/UPSTREAM.md. Still expose-only, no Traefik labels, so
     # there is no routable orphan Gateway. Local and Dokploy both build this.
-    build: ./mainframe
+    build:
+      context: ./mainframe
+      args:
+        # Bakes the pinned Claude Code CLI into the gateway so Anthropic setup-token /
+        # claude-cli auth flows run in-container (PATCHES.md #1). Match the host pin.
+        OPZAVA_CLAUDE_CODE_VERSION: ${OPZAVA_CLAUDE_CODE_VERSION:-2.1.207}
     image: opzava/mainframe-gateway:${OPENCLAW_IMAGE_TAG:-2026.6.11}
     restart: unless-stopped
     init: true
@@ -301,6 +307,14 @@ services:
       - openclaw-platform-config:/home/node/.openclaw
       - openclaw-platform-workspace:/home/node/.openclaw/workspace
       - openclaw-platform-auth-profiles:/home/node/.config/openclaw
+      # Provide the canonical agent-workspace IDENTITY.md the image ships only as
+      # IDENTITY.dev.md, so the heartbeat's ensureAgentWorkspace resolves it
+      # (no image rebuild). Baking it into mainframe is the cleaner long-term fix.
+      - ./mainframe/docs/reference/templates/IDENTITY.dev.md:/app/src/agents/templates/IDENTITY.md:ro
+      # Same fix for USER.md: the heartbeat's ensureAgentWorkspace requires it and the
+      # image ships only USER.dev.md, so without this the heartbeat fails ("Missing
+      # workspace template: USER.md") and the gateway never emits a fresh heartbeat.
+      - ./mainframe/docs/reference/templates/USER.dev.md:/app/src/agents/templates/USER.md:ro
     expose:
       - "18789"
     healthcheck:

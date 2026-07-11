@@ -33,6 +33,9 @@ OPENCLAW_DEV_SECRETS_FILE=.dev-secrets/openclaw-secrets.json \
 pnpm --filter @opzava/workers bootstrap:platform-gateway
 ```
 
+The local dev vault file must be container-readable (`0644`); host-run bootstrap writes now leave it
+so for uid-1001 broker/worker containers.
+
 Three modes (env-driven): no creds -> registers a pending pairing request; `OPENCLAW_GATEWAY_TOKEN`
 -> issuance dial (fresh device token minted in hello-ok, vaulted by ref, then auto-validated);
 `OPENCLAW_OPERATOR_DEVICE_TOKEN` -> validation only. Approvals happen in-container:

@@ -1,6 +1,6 @@
 # Slice 2.5 final verification — SHIP
 
-Adversarial verify of `git diff development...HEAD`. The multi-agent verify-deep fan-out and
+Adversarial verify of `git diff development...HEAD`. The multi-agent deep-verification fan-out and
 the consolidated codex review both exceeded the background-task timeout (repeated kills on
 long runs), so the high-risk lanes were verified by DIRECT inspection + the full forced gate
 chain. Honest about that below.
@@ -45,7 +45,7 @@ No CONFIRMED blocker. Recommend `/code-review ultra` on the PR for the deep clou
 couldn't run locally, and a live device-flow smoke against one API-key provider (e.g. OpenRouter)
 before relying on multi-provider in anger.
 
-## Heavy verify-deep — 4 parallel adversarial lanes (2026-07-03)
+## Heavy deep-verification — 4 parallel adversarial lanes (2026-07-03)
 
 Ran L6-security, S3-idempotency, S1-races, L3-correctness as parallel subagents against the full
 diff. They CONVERGE (independent lanes flagging the same defect = high confidence) and the
@@ -97,7 +97,7 @@ which is exactly why the fix diff was itself re-verified. All gates green after 
 
 ## Final verdict: 🟢 SHIP (merge-ready)
 4 adversarial lanes + an iterated fix re-review. Security/integrity core independently confirmed
-across all passes; 8 verify-deep must-fixes + 1 fix-introduced fencing race all resolved and
+across all passes; 8 deep-verification must-fixes + 1 fix-introduced fencing race all resolved and
 regression-tested. Tracked follow-ups (non-blocking, recorded): duplicate board position on
 concurrent create; duplicate issue rows on multi-link; UTC due-label off-by-one; comment button
 blocked during assistant stream; MCP card-mutation idempotency keys (highest-priority follow-up —

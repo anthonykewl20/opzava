@@ -327,6 +327,14 @@ RUN install -d -m 0755 -o node -g node /home/node/.config && \
 
 ENV NODE_ENV=production
 
+# Opzava rung-3 patch (PATCHES.md #1): optionally bake a pinned Claude Code CLI into the
+# runtime so provider auth flows (Anthropic setup-token / claude-cli reuse) can run inside
+# the gateway container. Default empty keeps the upstream image byte-identical.
+ARG OPZAVA_CLAUDE_CODE_VERSION=""
+RUN if [ -n "$OPZAVA_CLAUDE_CODE_VERSION" ]; then \
+      npm install -g "@anthropic-ai/claude-code@${OPZAVA_CLAUDE_CODE_VERSION}"; \
+    fi
+
 # Security hardening: Run as non-root user
 # The node:24-bookworm image includes a 'node' user (uid 1000)
 # This reduces the attack surface by preventing container escape via root privileges

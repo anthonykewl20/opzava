@@ -11,4 +11,4 @@ Every change to Mainframe lands on the LOWEST rung that can express it:
 
 | # | Files touched | What / why | Upstream status |
 | --- | --- | --- | --- |
-| — | (none yet) | | |
+| 1 | `Dockerfile` | Optional `OPZAVA_CLAUDE_CODE_VERSION` build arg installs a pinned `@anthropic-ai/claude-code` in the runtime stage, so Anthropic setup-token / claude-cli auth flows can run inside the gateway container (in-browser Claude Max connect). Default empty = upstream-identical image. | Local only; candidate to upstream as a generic extra-globals build arg. |

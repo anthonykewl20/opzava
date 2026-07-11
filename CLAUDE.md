@@ -1,46 +1,68 @@
-# Opzava — build guide for AI agents
+# Opzava - AI agent guide
 
-**Read `docs/plan/EXECUTION.md` FIRST.** It is the single **living control doc** for building Opzava: it holds the current
-phase/slice, the exact next action, which **skills** to use, and the **acceptance signal**. Work **one slice at a time**, then
-update it (tick deliverables, set slice status, append a dated worklog entry) and commit. It supports clean start/stop/resume —
-use the `handoff` skill. Do not skip ahead; keep the doc in sync with reality.
+Concise, project-specific, scannable. Claude treats this as guidance, not enforcement; use hooks or scripts for hard guarantees.
 
-## Doc map (reference — `EXECUTION.md` is the control surface)
-- `ARCHITECTURE.md` — the whole system in ~5 minutes (bounded contexts, ports, invariants, deployment, ADR index).
-- `CONTEXT.md` — the canonical glossary (ubiquitous language); use these terms exactly, never invent synonyms.
-- `docs/plan/roadmap.md` — the phased product roadmap (P1–P8) after the MVP.
-- `docs/plan/grilling-decisions.md` — the canonical design record (Q1–Q18, every invariant).
-- `docs/plan/official-docs.md` — official documentation registry; validate every API against it before coding.
-- `docs/adr/` — 16 ADRs (architecture decisions). `docs/prd/` — 18 PRDs (product specs).
-- `mainframe/` — the Opzava-owned OpenClaw tracked fork (ADR-016; landed 2026-07-04): the Platform Gateway is built from this source (`build: ./mainframe`); customize ONLY via the rung 0–3 ladder (`mainframe/PATCHES.md`); excluded from the Opzava pnpm workspace.
-- `docs/plan/capability-parity.md` — every screen: OpenClaw-native vs Opzava-owned vs hybrid.
-- `docs/plan/backlog.md` — initial ADR/PRD dependency backlog (planning input; `EXECUTION.md` controls order).
-- `docs/plan/consensus/` + `docs/plan/research/` — frozen evidence memos behind the decisions (see each dir's README; never current truth).
-- `docs/plan/audits/` — dated docs-audit reports. `docs/runbooks/` — ops runbooks (gateway, pairing, model auth).
-- `docs/ux-law/` — curated UX reference library; use for frontend/design work (PRD-017).
-- `ux-redesign/mockups/` — the canonical screen mockups every PRD/UI slice designs to (tokens from `style-guide.html`; PRD-017 is the contract).
-- `docs/openclaw/` — vendored OpenClaw docs. **Design to these; harness, don't reinvent.**
+## Start Here
+- `docs/plan/EXECUTION.md` (hereafter `EXECUTION.md`) is the living control doc: current phase, slice, next action, required skills, acceptance signal. Read it before any work.
+- Work one slice or issue at a time; never skip ahead.
+- Keep `EXECUTION.md` in sync with reality: tick deliverables, set status, append a dated worklog, then commit.
+- Use the `handoff` skill for clean stop, resume, and transfer.
 
-## Non-negotiables (full detail in `ARCHITECTURE.md` + the ADRs)
-- **OpenClaw parity:** design to OpenClaw's real capabilities (`docs/openclaw`); stay on its grain.
-- **Official-docs rule:** validate against official documentation before coding any API. Training knowledge is a starting point, never the source of truth; verify current official docs for OpenClaw (`docs/openclaw`) and every framework, language, and library used.
-- **Pure per-tenant Gateway** (Q18: today that is ONE static `openclaw-platform-gateway` built from `mainframe/`; dynamic provisioning deferred to multi-tenant); **two-token** (hot-path `write`+`approvals` vs JIT `admin`); the **gateway-broker is the only ACL** to OpenClaw.
-- **Postgres is the source of truth**; projections are a **rebuildable cache** (RPC snapshots are truth, WS events are hints).
-- **Tool-policy-first** security ("SOUL can lie; tool policy cannot"); **RLS denial is a hard 403**, never a silent empty result.
-- **Local docker-compose in parity with live Dokploy** (single compose, Traefik labels); **no routable orphan Gateway**.
-- Scale-ready modular DDD (no MVP-then-rewrite); agnostic ports; sad-path-first; lean VPS ops.
-- **Mockup functional parity:** every visible element on a mockup screen a slice implements must FUNCTION LIVE — real data, real interactions; no dead chrome, no fake data. Descope only explicitly in `EXECUTION.md` (user directive 2026-07-03).
-- **Mockup VISUAL parity:** the rendered design must be **100% parity with the HTML mockup** (user directive 2026-07-03) — the mockup IS the design: same DOM structure/classes driven by live data, styled by the mockup stylesheets (`tokens.css`/`app.css`/`shadcn.css`), verified by side-by-side screenshots. "Looks close" is a bug. Q18 nuance: for ported OpenClaw Control-UI views, reconcile the mockup to the OpenClaw reference FIRST (mockup-revision-first), then implement to the corrected mockup.
-- **Real-world final validation (user directive 2026-07-04):** a slice/issue is Done ONLY after the `real-world-validation` gate passes on the REAL local docker stack (`http://web.opzava.localhost:18088`): real form login (minted sessions BANNED), real data (mocks/synthetic BANNED), real visual screenshots, iterative sweeps looping until **2 consecutive clean passes** (`node real-world-validate.local.mjs`, exit 0). TDD's unit/mock/mutation tests gate development, NEVER final acceptance. "It works" claimed without this gate's artifacts is a false positive — the exact failure mode that broke slices 1–3.
+## Source Map
+- `ARCHITECTURE.md`: system overview, bounded contexts, ports, invariants, deployment, ADR index.
+- `CONTEXT.md`: canonical glossary; use these terms exactly.
+- `docs/adr/`, `docs/prd/`: architecture decisions and product specs.
+- `docs/plan/official-docs.md`: official docs registry; validate APIs here before coding.
+- `docs/plan/roadmap.md`: post-MVP product roadmap.
+- `docs/plan/grilling-decisions.md`: design record Q1-Q18.
+- `docs/plan/capability-parity.md`: screen ownership and parity map.
+- `docs/plan/backlog.md`: planning input only; `EXECUTION.md` controls work order.
+- `docs/plan/consensus/`, `docs/plan/research/`: frozen evidence, not current truth.
+- `docs/plan/audits/`, `docs/runbooks/`: audits and ops runbooks.
+- `docs/openclaw/`: vendored OpenClaw docs; design to these.
+- `docs/ux-law/`, `ux-redesign/mockups/`: UX reference library and canonical mockups/tokens.
+- `mainframe/`: Opzava-owned OpenClaw fork; customize only via `mainframe/PATCHES.md` rung 0-3.
+- `docs/agents/`: issue-tracker, triage-label, and domain-doc conventions for the engineering skills.
 
-## Gated workflow (MANDATORY — every issue, slice, and phase)
-Every unit of work follows the same gates, in order — do not skip:
-1. **Orient:** read this file + `docs/plan/EXECUTION.md`; load the `opzava-conventions` skill and the skills named on the issue/slice.
-2. **Scope:** work ONLY the current slice/issue (`EXECUTION.md` → Current State). Never skip ahead.
-3. **Validate official docs:** use `docs/plan/official-docs.md`, `docs/openclaw`, official vendor docs, and validation tools before coding any API.
-4. **Build to spec:** implement strictly to the linked ADR/PRD; honor every invariant above; design to `docs/openclaw` (parity — harness, don't reinvent).
-5. **Prove:** `tdd` (red→green) → `verify-deep` (tests + lint + typecheck) → `code-review` → **`real-world-validation` (FINAL gate: `node real-world-validate.local.mjs`, real login/data/visuals on the live local stack, loop until 2 consecutive clean passes, exit 0)**. Local↔Dokploy parity must stay intact.
-6. **Record:** update `EXECUTION.md` (slice status + dated worklog) and the issue; commit via `commit-style` on a branch off `development`.
+## Non-Negotiables
+- OpenClaw parity: harness OpenClaw's real capabilities; do not reinvent.
+- Official-docs: verify current official docs for OpenClaw, frameworks, languages, libraries, and APIs before coding.
+- Gateway: one static per-tenant `openclaw-platform-gateway`; dynamic provisioning waits for multi-tenant.
+- Token: hot path uses `write` + `approvals`; JIT path uses `admin`.
+- ACL: `gateway-broker` is the only ACL to OpenClaw.
+- Data: Postgres is truth; projections are rebuildable caches; RPC snapshots are truth, WS events are hints.
+- Security: tool policy beats SOUL claims; RLS denial is a hard 403, never an empty result.
+- Ops: local docker-compose stays in parity with live Dokploy; no routable orphan Gateway.
+- Architecture: scale-ready modular DDD, agnostic ports, sad-path-first behavior, lean VPS ops.
+- Mockup parity: corrected mockups are the design contract. Match structure, classes, and tokens (visual), and make every implemented element work live with real data and interactions (functional); prove with side-by-side screenshots.
 
-A slice/issue is **Done** only when all six gates pass. Missing a skill? Author it with `writing-great-skills` before proceeding.
-Each GitHub issue restates this workflow + its exact skill set — follow it verbatim.
+## Repo Hygiene
+- Keep files clean, clearly named, and easy to delete or reuse.
+- Contain scratch work, prototypes, probes, generated artifacts, and disposable scripts in one folder that can be cleaned wholesale; never scatter `.local.*`, screenshot, log, fixture, or validation files across the repo root.
+- Keep E2E scripts, fixtures, helpers, screenshots, and validation flows in the standard test area so they stay available for future slices; promote useful probes into it rather than leaving ad hoc copies, and if no standard location exists, create or document one first.
+
+## Workflow
+1. Orient: read this file and `EXECUTION.md`; load `opzava-conventions` and the slice's required skills named in `EXECUTION.md`.
+2. Scope: work only the current slice or issue from `EXECUTION.md`.
+3. Validate docs: check `docs/plan/official-docs.md`, `docs/openclaw`, vendor docs, and validation tools before coding APIs.
+4. Build: implement only the linked ADR or PRD behavior; keep local style and architecture.
+5. Prove: run `tdd`, `code-review`, then the SeniorQA final gate.
+6. Record: update `EXECUTION.md` and the issue, then commit on a branch off `development`.
+
+**SeniorQA final gate (the Done bar):** `node real-world-validate.local.mjs` against `http://web.opzava.localhost:18088` with real login, real seeded data, and real screenshots, passing 2 consecutive clean runs.
+
+Done means every workflow gate passed. Missing a required skill means authoring it with `writing-great-skills` first.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`anthonykewl20/opzava`) via the `gh` CLI; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) map to identically named labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.

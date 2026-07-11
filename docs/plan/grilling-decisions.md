@@ -436,7 +436,7 @@ linked GitHub issue auto-closes on merge. Current DB status enum `todo|in_progre
 `review`.
 **Evidence gate:** the doer must declare `change-type = visual|non-visual` and attach matching evidence before Review:
 visual work requires screenshot proof; non-visual work requires e2e/user-level tests, smoke tests, real-world tests,
-mutation tests, or other verify-deep artifacts. `In Progress -> Review` fails closed without matching evidence. The
+mutation tests, or other deep-verification artifacts. `In Progress -> Review` fails closed without matching evidence. The
 orchestrator independently verifies sufficiency/reality by re-running tests or checking screenshots against stated outcome;
 Evidence is not a checkbox.
 **Issue ⇄ Task ⇄ PR:** GitHub issues can be imported as Tasks, curated in Backlog, and shown with a `#NN` chip. A Task has
