@@ -901,9 +901,26 @@ function providerConnectionFromConfig(input: {
   };
 }
 
+function orchestratorProviderIdFromConnections(input: {
+  readonly primaryModel: string | null;
+  readonly providerConnections: readonly ProviderConnectionState[];
+}): string | null {
+  if (input.primaryModel === null) {
+    return null;
+  }
+
+  const primaryModel = input.primaryModel.trim();
+  const connection = input.providerConnections.find(
+    (entry) =>
+      entry.status === "connected" && entry.model !== null && entry.model.trim() === primaryModel,
+  );
+  return connection?.providerId ?? modelProviderId(input.primaryModel);
+}
+
 function currentOrchestratorState(input: {
   readonly config: Record<string, unknown>;
   readonly catalog: readonly ModelProviderCatalogEntry[];
+  readonly providerConnections: readonly ProviderConnectionState[];
   readonly now: Date;
 }): OrchestratorDelegationState {
   const primaryModel = gatewayPrimaryModel(input.config);
@@ -936,7 +953,10 @@ function currentOrchestratorState(input: {
   return {
     orchestratorAgentId: ASK_ADMIN_AGENT_ID,
     orchestratorModel: primaryModel ?? ASK_ADMIN_AGENT_MODEL,
-    orchestratorProviderId: primaryModel === null ? null : modelProviderId(primaryModel),
+    orchestratorProviderId: orchestratorProviderIdFromConnections({
+      primaryModel,
+      providerConnections: input.providerConnections,
+    }),
     delegationMode: "prefer",
     allowAgents,
     subagents,
@@ -1609,6 +1629,54 @@ function providerConnectionFromModelStatus(input: {
       ? "Gateway model auth profile is usable."
       : "Provider has credentials but no routable Gateway model.",
     connectedAuthMode: connectedAuthModeFromModelStatus(statusProvider),
+  };
+}
+
+function providerConnectionFromConnectionSources(input: {
+  readonly provider: ModelProviderCatalogEntry;
+  readonly config: Record<string, unknown>;
+  readonly modelStatus: unknown | null;
+  readonly authStatus: ReadonlyMap<string, ModelAuthStatusConnection> | null;
+  readonly now: Date;
+}): ProviderConnectionState {
+  const baseConnection =
+    (input.modelStatus === null
+      ? null
+      : providerConnectionFromModelStatus({
+          provider: input.provider,
+          config: input.config,
+          modelStatus: input.modelStatus,
+          now: input.now,
+        })) ??
+    providerConnectionFromConfig({
+      provider: input.provider,
+      config: input.config,
+      now: input.now,
+    });
+  const authState = input.authStatus?.get(input.provider.id);
+  if (authState === undefined) {
+    return baseConnection;
+  }
+
+  const status: ProviderConnectionState["status"] =
+    authState.authHealth === "missing"
+      ? baseConnection.status
+      : authState.authHealth === "expired"
+        ? "needs_attention"
+        : baseConnection.status;
+
+  return {
+    ...baseConnection,
+    status,
+    authHealth: authState.authHealth,
+    connectedAuthMode:
+      status === "not_connected"
+        ? (baseConnection.connectedAuthMode ?? null)
+        : (authState.connectedAuthMode ?? baseConnection.connectedAuthMode ?? null),
+    expiryLabel: authState.expiryLabel,
+    planLabel: authState.planLabel,
+    usageLabel: authState.usageLabel ?? baseConnection.usageLabel,
+    accountLabel: authState.accountLabel ?? baseConnection.accountLabel,
   };
 }
 
@@ -2899,45 +2967,15 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       }),
       choices: runtimeChoices,
     });
-    const providerConnections = catalog.map((provider) => {
-      // Base connection = the profile-truth: CLI `models status` first, then config auth profiles.
-      const baseConnection =
-        (modelStatusResult.ok
-          ? providerConnectionFromModelStatus({
-              provider,
-              config,
-              modelStatus: modelStatusResult.value,
-              now,
-            })
-          : null) ?? providerConnectionFromConfig({ provider, config, now });
-      const authState = authStatus?.get(provider.id);
-      if (authState === undefined) {
-        return baseConnection;
-      }
-
-      // authStatus ENRICHES (expiry/plan/usage/authMode), but it is not the connected gate. It only
-      // changes status on hard `expired`; `missing` is a store-visibility gap, never a disconnect.
-      const status: ProviderConnectionState["status"] =
-        authState.authHealth === "missing"
-          ? baseConnection.status
-          : authState.authHealth === "expired"
-            ? "needs_attention"
-            : baseConnection.status;
-
-      return {
-        ...baseConnection,
-        status,
-        authHealth: authState.authHealth,
-        connectedAuthMode:
-          status === "not_connected"
-            ? (baseConnection.connectedAuthMode ?? null)
-            : (authState.connectedAuthMode ?? baseConnection.connectedAuthMode ?? null),
-        expiryLabel: authState.expiryLabel,
-        planLabel: authState.planLabel,
-        usageLabel: authState.usageLabel ?? baseConnection.usageLabel,
-        accountLabel: authState.accountLabel ?? baseConnection.accountLabel,
-      };
-    });
+    const providerConnections = catalog.map((provider) =>
+      providerConnectionFromConnectionSources({
+        provider,
+        config,
+        modelStatus: modelStatusResult.ok ? modelStatusResult.value : null,
+        authStatus,
+        now,
+      }),
+    );
     // Connections stay catalog-aligned by construction: a provider the model catalog does not
     // advertise is not routable as a model, so we do not synthesize a phantom connection row for it
     // (review: authStatus is a subset of models.list in practice). The projection is catalog-driven.
@@ -2961,6 +2999,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       orchestrator: currentOrchestratorState({
         config,
         catalog,
+        providerConnections,
         now,
       }),
       refreshedAt: now.toISOString(),
@@ -3815,15 +3854,29 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(configResult.error);
     }
 
-    const modelsResult = await this.options.adminClient.request("models.list", { view: "all" });
+    const [modelsResult, modelStatusResult, authStatus] = await Promise.all([
+      this.options.adminClient.request("models.list", { view: "all" }),
+      this.options.gatewayRuntime?.modelStatus() ??
+        ok<unknown>({ auth: { providers: [] }, allowed: [] }),
+      this.modelAuthStatus(),
+    ]);
     const config = configPayload(configResult.value);
     const catalog = providerCatalogFromModels(modelsResult.ok ? modelsResult.value : {}, config);
     const providerConnections = catalog.map((provider) =>
-      providerConnectionFromConfig({ provider, config, now: this.now() }),
+      providerConnectionFromConnectionSources({
+        provider,
+        config,
+        modelStatus: modelStatusResult.ok ? modelStatusResult.value : null,
+        authStatus,
+        now: this.now(),
+      }),
     );
     const primaryModel = gatewayPrimaryModel(config);
     const orchestratorModel = primaryModel ?? ASK_ADMIN_AGENT_MODEL;
-    const orchestratorProviderId = primaryModel === null ? null : modelProviderId(primaryModel);
+    const orchestratorProviderId = orchestratorProviderIdFromConnections({
+      primaryModel,
+      providerConnections,
+    });
     const connectedProviders = new Set(input.connectedProviderIds);
     const subagents = connectedProviderSubagents({
       catalog,
@@ -3876,11 +3929,22 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(configResult.error);
     }
 
-    const modelsResult = await this.options.adminClient.request("models.list", { view: "all" });
+    const [modelsResult, modelStatusResult, authStatus] = await Promise.all([
+      this.options.adminClient.request("models.list", { view: "all" }),
+      this.options.gatewayRuntime?.modelStatus() ??
+        ok<unknown>({ auth: { providers: [] }, allowed: [] }),
+      this.modelAuthStatus(),
+    ]);
     const config = configPayload(configResult.value);
     const catalog = providerCatalogFromModels(modelsResult.ok ? modelsResult.value : {}, config);
     const providerConnections = catalog.map((provider) =>
-      providerConnectionFromConfig({ provider, config, now: this.now() }),
+      providerConnectionFromConnectionSources({
+        provider,
+        config,
+        modelStatus: modelStatusResult.ok ? modelStatusResult.value : null,
+        authStatus,
+        now: this.now(),
+      }),
     );
     const connection = providerConnections.find(
       (entry) => entry.providerId === input.providerId,

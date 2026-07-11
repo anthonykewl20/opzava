@@ -1993,6 +1993,92 @@ describe("Connections provisioning helpers", () => {
     );
   });
 
+  it("reports the connected runtime provider whose routed model is the gateway primary", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        region: "config-region",
+        agents: {
+          defaults: {
+            model: { primary: "anthropic/claude-sonnet-4.5" },
+          },
+        },
+        models: {
+          providers: {
+            "claude-cli": { model: "anthropic/claude-sonnet-4.5" },
+          },
+        },
+      }),
+      health: ok({ status: "ok" }),
+      "last-heartbeat": ok({ lastHeartbeatAt: "2026-07-03T00:00:00.000Z" }),
+      "models.list": ok({
+        providers: [
+          {
+            id: "claude-cli",
+            label: "Claude CLI",
+            suggestedModel: "anthropic/claude-sonnet-4.5",
+            authChoices: [],
+          },
+          {
+            id: "anthropic",
+            label: "Anthropic",
+            suggestedModel: "anthropic/claude-sonnet-4.5",
+            authChoices: [],
+          },
+        ],
+      }),
+      "models.authStatus": ok({
+        providers: [
+          {
+            provider: "claude-cli",
+            displayName: "Claude CLI",
+            status: "ok",
+            profiles: [{ profileId: "claude-cli:oauth", type: "oauth", status: "ok" }],
+          },
+        ],
+      }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      status: {
+        allowed: ["anthropic/claude-sonnet-4.5"],
+        auth: {
+          providers: [
+            {
+              provider: "claude-cli",
+              profiles: { count: 1, oauth: 1, labels: ["claude-cli:oauth=OAuth"] },
+            },
+          ],
+        },
+      },
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const snapshot = await port.getConnectionsSnapshot(principal());
+
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) {
+      throw snapshot.error;
+    }
+    expect(snapshot.value.providerConnections).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerId: "claude-cli",
+          status: "connected",
+          model: "anthropic/claude-sonnet-4.5",
+        }),
+      ]),
+    );
+    expect(snapshot.value.orchestrator).toMatchObject({
+      orchestratorModel: "anthropic/claude-sonnet-4.5",
+      orchestratorProviderId: "claude-cli",
+    });
+  });
+
   it("surfaces canonical LLM connect targets that have onboard auth-choices but no models yet", async () => {
     // Several provider plugins have no bundled models until connected, so models.list omits them —
     // but the live gateway advertises their onboard auth-choices, so the connect surface MUST still
@@ -4027,6 +4113,80 @@ describe("Connections provisioning helpers", () => {
           expect.objectContaining({ id: "subagent-openai", model: "openai/gpt-5.5" }),
         ]),
       },
+    });
+  });
+
+  it("sets the main orchestrator from runtime connection state without config auth profiles", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        hash: "config-hash-runtime-main",
+        auth: { profiles: {}, order: {} },
+        agents: {
+          defaults: {
+            models: { "openai/gpt-5.5": {} },
+          },
+          list: [{ id: "other-agent", model: "noop/model" }],
+        },
+      }),
+      "models.list": ok({
+        providers: [
+          {
+            id: "openai",
+            label: "OpenAI",
+            suggestedModel: "openai/gpt-5.5",
+            authChoices: [
+              apiKeyChoice({
+                id: "openai-device-code",
+                providerId: "openai",
+                keyFlag: "openai-api-key",
+              }),
+            ],
+          },
+        ],
+      }),
+      "models.authStatus": ok({
+        providers: [
+          {
+            provider: "openai",
+            displayName: "OpenAI OAuth",
+            status: "ok",
+            profiles: [{ profileId: "openai:oauth", type: "oauth", status: "ok" }],
+          },
+        ],
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      status: {
+        allowed: ["openai/gpt-5.5"],
+        auth: {
+          providers: [
+            {
+              provider: "openai",
+              profiles: { count: 1, oauth: 1, labels: ["openai:oauth=OAuth"] },
+            },
+          ],
+        },
+      },
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.setMainOrchestrator({ ...principal(), providerId: "openai" });
+
+    expect(result.ok).toBe(true);
+    expect(result.ok ? result.value : null).toMatchObject({
+      orchestratorModel: "openai/gpt-5.5",
+      orchestratorProviderId: "openai",
+    });
+    expect(admin.calls.some((call) => call.method === "config.patch")).toBe(true);
+    expect(result.ok ? null : result.error).not.toMatchObject({
+      code: "provisioning.connections.orchestratorProviderNotConnected",
     });
   });
 
