@@ -150,6 +150,44 @@ describe("Connections components", () => {
     expect(html).toContain("Claude Max");
   });
 
+  it("lets connected subagents be set as main orchestrator while the lead shows an indicator", () => {
+    const html = renderToStaticMarkup(
+      createElement(ModelProvidersPanel, {
+        gatewayStatus: "active",
+        providers: [
+          provider({
+            id: "openai",
+            label: "OpenAI / Codex",
+            status: "connected",
+            statusLabel: "Connected",
+            roleLabel: "Lead orchestrator",
+            connectedAuthMode: "oauth",
+          }),
+          provider({
+            id: "zai",
+            label: "z.ai / GLM",
+            status: "connected",
+            statusLabel: "Connected",
+            roleLabel: "Subagent",
+            connectedAuthMode: "api_key",
+          }),
+        ],
+        summary: {
+          total: 2,
+          available: 2,
+          connected: 2,
+          needsAttention: 0,
+          pending: 0,
+          notConnected: 0,
+        },
+      }),
+    );
+
+    expect(html.match(/Set as main orchestrator/g)).toHaveLength(1);
+    expect(html).toContain("Main orchestrator");
+    expect(html).toContain("Exactly one connected provider is the main orchestrator.");
+  });
+
   it("renders distinct empty copy for active and unavailable gateways", () => {
     const activeHtml = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {

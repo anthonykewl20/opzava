@@ -7,6 +7,7 @@ import type {
   DeviceFlowChallenge,
   ModelProviderApiKeyConnectStart,
   ModelProviderAuthChoice,
+  OrchestratorDelegationState,
   ProviderConnectionState,
 } from "@opzava/ports";
 
@@ -542,6 +543,142 @@ function DisconnectConfirmForm({
   );
 }
 
+function SetMainOrchestratorConfirm({ provider }: { readonly provider: ProviderRow }) {
+  const router = useRouter();
+  const formId = useId();
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [formVersion, setFormVersion] = useState(0);
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (pending) {
+        return;
+      }
+
+      if (nextOpen) {
+        setFormVersion((current) => current + 1);
+      }
+      setOpen(nextOpen);
+    },
+    [pending],
+  );
+  const handleSuccess = useCallback(() => {
+    setPending(false);
+    setOpen(false);
+    router.refresh();
+  }, [router]);
+
+  return (
+    <AlertDialog open={open} onOpenChange={handleOpenChange}>
+      <AlertDialogTrigger asChild>
+        <Button type="button" variant="secondary" size="sm">
+          Set as main orchestrator
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <SetMainOrchestratorForm
+          key={`${provider.connectionProviderId}-${formVersion}`}
+          formId={formId}
+          provider={provider}
+          onPendingChange={setPending}
+          onSuccess={handleSuccess}
+        />
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+type SetMainOrchestratorPhase =
+  | { readonly step: "idle" }
+  | { readonly step: "pending" }
+  | { readonly step: "verifying" }
+  | { readonly step: "failed"; readonly message: string; readonly code: string | null };
+
+function SetMainOrchestratorForm({
+  formId,
+  provider,
+  onPendingChange,
+  onSuccess,
+}: {
+  readonly formId: string;
+  readonly provider: ProviderRow;
+  readonly onPendingChange: (pending: boolean) => void;
+  readonly onSuccess: () => void;
+}) {
+  const [phase, setPhase] = useState<SetMainOrchestratorPhase>({ step: "idle" });
+  const isPending = phase.step === "pending" || phase.step === "verifying";
+
+  const runSetMain = useCallback(async () => {
+    const setMainOnce = () =>
+      postConnectionsMutation<OrchestratorDelegationState>(
+        "/api/connections/orchestrator/set-main",
+        {
+          providerId: provider.connectionProviderId,
+        },
+      );
+
+    setPhase({ step: "pending" });
+    onPendingChange(true);
+    let result = await setMainOnce();
+    if (!result.ok && (result.kind === "timeout" || result.kind === "network")) {
+      setPhase({ step: "verifying" });
+      result = await setMainOnce();
+    }
+    onPendingChange(false);
+    if (result.ok) {
+      setPhase({ step: "idle" });
+      onSuccess();
+      return;
+    }
+    setPhase({ step: "failed", message: result.message, code: result.code });
+  }, [onPendingChange, onSuccess, provider.connectionProviderId]);
+
+  const handleSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (isPending) {
+        return;
+      }
+      void runSetMain();
+    },
+    [isPending, runSetMain],
+  );
+
+  return (
+    <form id={formId} onSubmit={handleSubmit} className="grid gap-4">
+      <AlertDialogHeader>
+        <AlertDialogTitle>Make {provider.label} the main orchestrator?</AlertDialogTitle>
+        <AlertDialogDescription>
+          This changes the gateway&apos;s primary model leader to {provider.label}. Exactly one
+          connected provider leads at a time; the previous lead becomes a subagent.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <DialogNotice tone="neutral" title="Single main orchestrator">
+        Other connected providers stay available as subagents after this change.
+      </DialogNotice>
+      {phase.step === "verifying" ? (
+        <DialogNotice tone="neutral" role="status" title="Verifying orchestrator">
+          The first attempt did not answer in time; confirming the main orchestrator with the
+          gateway.
+        </DialogNotice>
+      ) : null}
+      {phase.step === "failed" ? (
+        <MutationErrorNotice failure={phase} title="Set orchestrator failed" />
+      ) : null}
+      <AlertDialogFooter>
+        <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+        <Button type="submit" form={formId} disabled={isPending} aria-busy={isPending}>
+          {isPending
+            ? "Setting..."
+            : phase.step === "failed"
+              ? "Retry set main"
+              : `Set ${provider.label} as main`}
+        </Button>
+      </AlertDialogFooter>
+    </form>
+  );
+}
+
 function ProviderBacks({ provider }: { readonly provider: ProviderRow }) {
   // Role is only real once a provider is connected (an unconnected provider is not yet a subagent);
   // showing it otherwise is misleading chrome. Matches the mockup (badges only connected rows).
@@ -889,6 +1026,8 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
   const statusDetails = [healthLabel, accountLabel, ...meta, guidance].filter(
     (detail): detail is string => detail !== null,
   );
+  const isLeadOrchestrator = provider.roleLabel === "Lead orchestrator";
+  const canSetMainOrchestrator = provider.status === "connected" && !isLeadOrchestrator;
 
   return (
     <TableRow data-provider-id={provider.id}>
@@ -956,6 +1095,10 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
         <div className="grid justify-items-end gap-2">
           <div className="flex flex-wrap items-center justify-end gap-2">
             <ProviderConnectDialog provider={provider} />
+            {canSetMainOrchestrator ? <SetMainOrchestratorConfirm provider={provider} /> : null}
+            {provider.status === "connected" && isLeadOrchestrator ? (
+              <Badge variant="secondary">Main orchestrator</Badge>
+            ) : null}
             {provider.status === "connected" ? <DisconnectConfirm provider={provider} /> : null}
           </div>
           {provider.pendingFlow === null ? null : (
@@ -1077,6 +1220,10 @@ export function ModelProvidersPanel({
                 />
               </div>
             </div>
+            <p className="text-sm text-muted-foreground">
+              Exactly one connected provider is the main orchestrator. Other connected providers run
+              as subagents.
+            </p>
 
             {searchActive ? (
               <ProviderTable providers={filteredProviders} />
