@@ -162,6 +162,11 @@ describe("Admin shell state", () => {
       text: "Health unknown",
       dotClassName: "dot",
     });
+    expect(shellHealthView({ databaseReachable: null, gatewayReachable: null })).toMatchObject({
+      status: "unknown",
+      text: "Health unknown",
+      dotClassName: "dot",
+    });
   });
 
   it("builds command palette entries from nav routes, task titles, and issue titles", () => {
@@ -192,7 +197,7 @@ describe("Admin shell state", () => {
     );
   });
 
-  it("loads badges, connection status, active assistant state, health, and palette data together", async () => {
+  it("loads healthy shell health from an active gateway snapshot even when the broker is idle", async () => {
     const dependencies = {
       listTasks: async () => ok([task(), task({ id: "task-2", status: "done" })]),
       listIssueProjections: async () =>
@@ -220,7 +225,7 @@ describe("Admin shell state", () => {
       countActiveAskOpzavaTurns: async () => 1,
       checkDatabaseHealth: async () => true,
       checkGatewayHealth: async () => false,
-    } satisfies AdminShellStateDependencies;
+    };
 
     const state = await loadAdminShellState(context(), dependencies);
 
@@ -230,9 +235,71 @@ describe("Admin shell state", () => {
       askOpzavaActive: true,
       connectionsConnected: true,
     });
-    expect(state.health.status).toBe("degraded");
+    expect(state.health.status).toBe("healthy");
+    expect(state.health.text).toBe("All systems healthy");
     expect(state.commandItems.map((item) => item.id)).toEqual(
       expect.arrayContaining(["nav.tasks", "task.task-1", "issue.anthonykewl20/opzava.12"]),
     );
+  });
+
+  it("degrades shell health when the gateway snapshot is unavailable", async () => {
+    const current = snapshot();
+    const dependencies = {
+      listTasks: async () => ok([]),
+      listIssueProjections: async () => ok([]),
+      loadConnectionsPageData: async () =>
+        ok(
+          connectionsPageData(
+            snapshot({
+              gateway: {
+                ...current.gateway,
+                status: "unavailable",
+                lastHeartbeatAt: null,
+                message: "Operator RPC unavailable.",
+              },
+            }),
+          ),
+        ),
+      countActiveAskOpzavaTurns: async () => 0,
+      checkDatabaseHealth: async () => true,
+    } satisfies AdminShellStateDependencies;
+
+    const state = await loadAdminShellState(context(), dependencies);
+
+    expect(state.health.status).toBe("degraded");
+    expect(state.health.gatewayReachable).toBe(false);
+  });
+
+  it("degrades shell health when the connections snapshot cannot be loaded", async () => {
+    const dependencies = {
+      listTasks: async () => ok([]),
+      listIssueProjections: async () => ok([]),
+      loadConnectionsPageData: async () => {
+        throw new Error("connections unavailable");
+      },
+      countActiveAskOpzavaTurns: async () => 0,
+      checkDatabaseHealth: async () => true,
+    } satisfies AdminShellStateDependencies;
+
+    const state = await loadAdminShellState(context(), dependencies);
+
+    expect(state.health.status).toBe("degraded");
+    expect(state.health.gatewayReachable).toBe(false);
+  });
+
+  it("degrades shell health when the database is unreachable", async () => {
+    const dependencies = {
+      listTasks: async () => ok([]),
+      listIssueProjections: async () => ok([]),
+      loadConnectionsPageData: async () => ok(connectionsPageData(snapshot())),
+      countActiveAskOpzavaTurns: async () => 0,
+      checkDatabaseHealth: async () => false,
+    } satisfies AdminShellStateDependencies;
+
+    const state = await loadAdminShellState(context(), dependencies);
+
+    expect(state.health.status).toBe("degraded");
+    expect(state.health.databaseReachable).toBe(false);
+    expect(state.health.gatewayReachable).toBe(true);
   });
 });

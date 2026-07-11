@@ -7,6 +7,22 @@ import { loginAction, type LoginActionState } from "@/app/(auth)/login/actions";
 
 const initialLoginActionState: LoginActionState = { status: "idle" };
 
+function EyeIcon({ off }: { off: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M2.5 12S5.5 5.5 12 5.5 21.5 12 21.5 12 18.5 18.5 12 18.5 2.5 12 2.5 12Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
+      {off ? <path d="M4 4L20 20" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /> : null}
+    </svg>
+  );
+}
+
 function SubmitButton() {
   const { pending } = useFormStatus();
 
@@ -88,7 +104,7 @@ export function LoginForm() {
               setPasswordVisible((value) => !value);
             }}
           >
-            {passwordVisible ? "Hide" : "Show"}
+            <EyeIcon off={passwordVisible} />
           </button>
         </div>
         {fieldError("password") ? (

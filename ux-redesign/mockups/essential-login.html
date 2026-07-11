@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Opzava — Sign in</title>
+  <title>Opzava - Sign in</title>
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="shadcn.css">
@@ -32,7 +32,7 @@
       max-width: 400px;
     }
 
-    /* ── Card — identical proportions to essential-signout.html ─────────────── */
+    /* ── Card - identical proportions to essential-signout.html ─────────────── */
     .card {
       width: 100%;
       max-width: 440px;
@@ -58,7 +58,7 @@
        rhythm (matches signout's 44px primary action). ──────────────────────── */
     .card .input { height: 44px; }
 
-    /* OAuth — neutral secondary buttons; only the inline brand mark is coloured. */
+    /* OAuth - neutral secondary buttons; only the inline brand mark is coloured. */
     .oauth { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-5); }
     .oauth .btn { height: 44px; width: 100%; justify-content: center; }
     .oauth .mark { width: 18px; height: 18px; flex: none; }
@@ -88,7 +88,7 @@
     .foot { margin-top: var(--space-5); font-size: var(--text-xs); color: var(--fg-subtle); text-align: center; line-height: var(--lh-normal); }
     .foot a { color: var(--accent); }
 
-    /* ── 2FA code boxes — the focal input of that step; 48px, mono, centred ─── */
+    /* ── 2FA code boxes - the focal input of that step; 48px, mono, centred ─── */
     .code { display: flex; gap: var(--space-2); justify-content: center; margin: var(--space-5) 0 var(--space-2); }
     .code input {
       width: 44px; height: 48px; padding: 0; text-align: center;
@@ -106,6 +106,364 @@
     .alt .badge { vertical-align: middle; }
 
     @media (max-width: 640px) { .alts { grid-template-columns: 1fr; } .login { padding: var(--space-10) var(--space-5) var(--space-12); } }
+
+    .auth-lead {
+      margin-bottom: var(--space-5);
+      color: var(--fg-muted);
+      font-size: var(--text-md);
+      line-height: var(--lh-normal);
+      text-align: center;
+    }
+
+    .auth-pw {
+      position: relative;
+    }
+
+    .auth-pw .input {
+      padding-right: 44px;
+    }
+
+    .auth-pw-toggle {
+      position: absolute;
+      top: 22px;
+      right: 4px;
+      width: 36px;
+      height: 36px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: none;
+      color: var(--fg-muted);
+      cursor: pointer;
+      font-size: var(--text-md);
+      line-height: 1;
+      transform: translateY(-50%);
+    }
+
+    .auth-pw-toggle:hover {
+      background: var(--surface-3);
+      color: var(--fg);
+    }
+
+    .auth-row-between {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      margin-top: var(--space-3);
+    }
+
+    .auth-check {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      color: var(--fg-muted);
+      font-size: var(--text-sm);
+      cursor: pointer;
+    }
+
+    .auth-check input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .auth-submit {
+      width: 100%;
+      min-height: 44px;
+      margin-top: var(--space-5);
+      font-size: var(--text-md);
+    }
+
+    .auth-foot {
+      margin-top: var(--space-5);
+      color: var(--fg-subtle);
+      font-size: var(--text-xs);
+      line-height: var(--lh-normal);
+      text-align: center;
+    }
+
+    .auth-oauth {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      margin-bottom: var(--space-5);
+    }
+
+    .auth-oauth .btn {
+      min-height: 44px;
+      width: 100%;
+    }
+
+    .auth-divider {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      margin: 0 0 var(--space-5);
+      color: var(--fg-subtle);
+      font-size: var(--text-xs);
+    }
+
+    .auth-divider::before,
+    .auth-divider::after {
+      content: "";
+      height: 1px;
+      flex: 1;
+      background: var(--border);
+    }
+
+    /* Login split-screen (redesign) - used only by /login */
+    .auth-split {
+      display: grid;
+      grid-template-columns: 1.05fr 1fr;
+      min-height: 100vh;
+      min-height: 100dvh;
+      background: var(--bg);
+      color: var(--fg);
+    }
+
+    /* Brand hero */
+    .auth-hero {
+      position: relative;
+      z-index: 0;
+      display: flex;
+      align-items: center;
+      overflow: hidden;
+      padding: var(--space-16) clamp(var(--space-10), 6vw, var(--space-16));
+      isolation: isolate;
+      --hero-ink: hsl(0 0% 100%);
+      --hero-base: color-mix(in oklab, var(--accent) 22%, hsl(240 45% 8%));
+      --hero-deep: color-mix(in oklab, var(--accent) 12%, hsl(240 50% 4%));
+      color: var(--hero-ink);
+      background:
+        radial-gradient(115% 90% at 82% 108%, color-mix(in oklab, var(--accent) 45%, transparent) 0%, transparent 55%),
+        linear-gradient(155deg, var(--hero-base) 0%, var(--hero-deep) 100%);
+    }
+    .auth-hero-fx { position: absolute; inset: 0; z-index: -1; overflow: hidden; }
+    .auth-hero-orb { position: absolute; border-radius: var(--radius-full); filter: blur(64px); opacity: 0.5; will-change: transform; }
+    .auth-hero-orb--1 {
+      top: -140px; left: -90px; width: 460px; height: 460px;
+      background: radial-gradient(circle, color-mix(in oklab, var(--accent) 92%, white) 0%, transparent 70%);
+      animation: auth-orb-1 22s var(--ease-standard) infinite alternate;
+    }
+    .auth-hero-orb--2 {
+      right: -70px; bottom: -150px; width: 400px; height: 400px;
+      background: radial-gradient(circle, color-mix(in oklab, var(--accent) 66%, hsl(280 80% 62%)) 0%, transparent 70%);
+      animation: auth-orb-2 27s var(--ease-standard) infinite alternate;
+    }
+    .auth-hero-orb--3 {
+      top: 42%; left: 54%; width: 300px; height: 300px; opacity: 0.32;
+      background: radial-gradient(circle, color-mix(in oklab, var(--accent) 55%, white) 0%, transparent 70%);
+      animation: auth-orb-3 31s var(--ease-standard) infinite alternate;
+    }
+    .auth-hero-grid {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(color-mix(in oklab, var(--hero-ink) 6%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in oklab, var(--hero-ink) 6%, transparent) 1px, transparent 1px);
+      background-size: 46px 46px;
+      -webkit-mask-image: radial-gradient(115% 115% at 28% 18%, black 0%, transparent 72%);
+      mask-image: radial-gradient(115% 115% at 28% 18%, black 0%, transparent 72%);
+    }
+    .auth-hero-sheen {
+      position: absolute; top: -55%; left: -60%; width: 38%; height: 210%;
+      transform: rotate(12deg);
+      background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--hero-ink) 12%, transparent), transparent);
+      animation: auth-sheen 9s var(--ease-standard) 1.5s infinite;
+    }
+    @keyframes auth-orb-1 { to { transform: translate3d(64px, 44px, 0) scale(1.12); } }
+    @keyframes auth-orb-2 { to { transform: translate3d(-54px, -34px, 0) scale(1.08); } }
+    @keyframes auth-orb-3 { to { transform: translate3d(-40px, 52px, 0) scale(1.16); } }
+    @keyframes auth-sheen {
+      0% { transform: translateX(0) rotate(12deg); opacity: 0; }
+      12% { opacity: 1; }
+      55%, 100% { transform: translateX(360%) rotate(12deg); opacity: 0; }
+    }
+    .auth-hero-content { position: relative; display: flex; max-width: 30rem; flex-direction: column; gap: var(--space-8); }
+    .auth-hero-brand { display: inline-flex; align-items: center; gap: var(--space-3); }
+    .auth-hero-mark {
+      display: grid; width: 40px; height: 40px; place-content: center;
+      border: 1px solid color-mix(in oklab, var(--hero-ink) 26%, transparent);
+      border-radius: var(--radius-md);
+      background: color-mix(in oklab, var(--hero-ink) 16%, transparent);
+      font-size: var(--text-lg);
+      -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+    }
+    .auth-hero-word { font-size: var(--text-lg); font-weight: var(--fw-semibold); letter-spacing: -0.01em; }
+    .auth-hero-headline {
+      color: var(--hero-ink);
+      font-size: clamp(var(--text-xl), 3.2vw, var(--text-3xl));
+      line-height: var(--lh-tight); letter-spacing: -0.02em;
+    }
+    .auth-hero-copy { display: flex; flex-direction: column; gap: var(--space-4); }
+    .auth-hero-sub { max-width: 26rem; color: color-mix(in oklab, var(--hero-ink) 82%, transparent); font-size: var(--text-md); line-height: var(--lh-normal); }
+
+    /* Sign-in panel */
+    .auth-panel { display: flex; align-items: center; justify-content: center; padding: var(--space-12) var(--space-6); background: var(--bg); }
+    .auth-panel-inner { width: 100%; max-width: 400px; }
+    .auth-panel h1 { margin-bottom: var(--space-2); text-align: left; }
+    .auth-panel .auth-lead { text-align: left; }
+    .auth-panel .auth-foot { text-align: left; }
+    .auth-mark {
+      display: none; width: 44px; height: 44px; place-content: center; margin-bottom: var(--space-5);
+      border-radius: var(--radius-md); background: var(--accent); color: var(--accent-fg);
+      font-size: var(--text-xl); font-weight: 700;
+    }
+    .auth-oauth .btn { justify-content: flex-start; gap: var(--space-3); }
+    .auth-oauth .mark { width: 18px; height: 18px; flex: none; }
+    .auth-oauth-soon {
+      margin-left: auto; padding: 1px var(--space-2);
+      border: 1px solid var(--border); border-radius: var(--radius-full);
+      color: var(--fg-subtle); font-size: var(--text-xs); font-weight: var(--fw-semibold);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .auth-hero-orb, .auth-hero-sheen { animation: none; }
+    }
+    @media (max-width: 900px) {
+      .auth-split { grid-template-columns: 1fr; }
+      .auth-hero { display: none; }
+      .auth-panel { align-items: flex-start; padding: var(--space-12) var(--space-5) var(--space-10); }
+      .auth-mark { display: grid; }
+    }
+
+    /* ========================================================================
+     * Login hero: the "AI team" (elastic model stack) + live cue + trust line.
+     * Premium, minimal, token-driven; all motion frozen under reduced-motion.
+     * ==================================================================== */
+    .auth-hero-team { display: flex; flex-direction: column; gap: var(--space-3); }
+
+    .auth-team {
+      display: flex;
+      align-items: center;
+      margin: 0;
+      padding: var(--space-8) 0 var(--space-2) 16px;
+      list-style: none;
+    }
+    .auth-team-item {
+      position: relative;
+      margin-left: -16px;
+      transition: transform 0.4s cubic-bezier(0.34, 1.45, 0.5, 1);
+    }
+    .auth-team-avatar {
+      display: grid;
+      place-content: center;
+      width: 50px;
+      height: 50px;
+      border-radius: var(--radius-full);
+      background: linear-gradient(155deg, hsl(0 0% 100%), hsl(240 30% 93%));
+      border: 2px solid color-mix(in oklab, var(--brand, white) 45%, white);
+      box-shadow: 0 6px 16px hsl(240 60% 3% / 0.5), inset 0 1px 0 hsl(0 0% 100%);
+      color: var(--brand);
+      animation: auth-team-float 5s ease-in-out infinite;
+      will-change: transform;
+    }
+    .auth-team-avatar svg { display: block; }
+    .auth-team-avatar--more {
+      background: color-mix(in oklab, var(--hero-ink) 12%, transparent);
+      border-style: dashed;
+      border-color: color-mix(in oklab, var(--hero-ink) 34%, transparent);
+      color: var(--hero-ink);
+      font-size: var(--text-lg);
+      font-weight: var(--fw-medium);
+      line-height: 1;
+    }
+    .auth-team-item:nth-child(2) .auth-team-avatar { animation-delay: 0.4s; }
+    .auth-team-item:nth-child(3) .auth-team-avatar { animation-delay: 0.8s; }
+    .auth-team-item:nth-child(4) .auth-team-avatar { animation-delay: 1.2s; }
+    .auth-team-item:nth-child(5) .auth-team-avatar { animation-delay: 1.6s; }
+    .auth-team-item:nth-child(6) .auth-team-avatar { animation-delay: 2s; }
+    .auth-team-item:nth-child(7) .auth-team-avatar { animation-delay: 2.4s; }
+    .auth-team-item:nth-child(8) .auth-team-avatar { animation-delay: 2.8s; }
+
+    .auth-team-item:hover { transform: translateY(-10px) scale(1.16); z-index: 6; }
+    .auth-team-item:hover .auth-team-avatar {
+      box-shadow: 0 12px 28px hsl(240 60% 3% / 0.62),
+        0 0 0 4px color-mix(in oklab, var(--brand) 38%, transparent),
+        inset 0 1px 0 hsl(0 0% 100%);
+    }
+    .auth-team-item:hover + .auth-team-item { transform: translateX(10px); }
+    .auth-team-item:has(+ .auth-team-item:hover) { transform: translateX(-10px); }
+
+    .auth-team-name {
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 6px);
+      transform: translate(-50%, 4px);
+      padding: 3px 9px;
+      border-radius: var(--radius-full);
+      background: color-mix(in oklab, var(--hero-ink) 16%, transparent);
+      border: 1px solid color-mix(in oklab, var(--hero-ink) 24%, transparent);
+      color: var(--hero-ink);
+      font-size: var(--text-xs);
+      font-weight: var(--fw-semibold);
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+      transition: opacity 0.2s var(--ease-standard), transform 0.2s var(--ease-standard);
+    }
+    .auth-team-item:hover .auth-team-name { opacity: 1; transform: translate(-50%, 0); }
+
+    .auth-team-cap {
+      max-width: 25rem;
+      color: color-mix(in oklab, var(--hero-ink) 74%, transparent);
+      font-size: var(--text-sm);
+      line-height: var(--lh-normal);
+    }
+
+    .auth-hero-live {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      align-self: flex-start;
+      padding: 5px 12px 5px 10px;
+      border-radius: var(--radius-full);
+      background: color-mix(in oklab, var(--hero-ink) 9%, transparent);
+      border: 1px solid color-mix(in oklab, var(--hero-ink) 18%, transparent);
+      color: var(--hero-ink);
+      font-size: var(--text-xs);
+      font-weight: var(--fw-semibold);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+    }
+    .auth-hero-live .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: var(--radius-full);
+      background: hsl(150 68% 55%);
+      animation: auth-live-pulse 2.4s ease-out infinite;
+    }
+    @keyframes auth-live-pulse {
+      0% { box-shadow: 0 0 0 0 hsl(150 68% 55% / 0.55); }
+      70% { box-shadow: 0 0 0 9px hsl(150 68% 55% / 0); }
+      100% { box-shadow: 0 0 0 0 hsl(150 68% 55% / 0); }
+    }
+
+    .auth-hero-trust {
+      color: color-mix(in oklab, var(--hero-ink) 60%, transparent);
+      font-size: var(--text-xs);
+      letter-spacing: 0.02em;
+    }
+
+    @keyframes auth-team-float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-5px); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .auth-team-avatar,
+      .auth-hero-live .dot { animation: none; }
+      .auth-team-item,
+      .auth-team-name { transition: none; }
+    }
+    .login-frame { width: 100%; max-width: 1120px; border: 1px solid var(--border);
+      border-radius: var(--radius-lg); overflow: hidden;
+      box-shadow: 0 1px 3px hsl(240 30% 20% / .06), 0 18px 48px hsl(240 30% 20% / .16); }
+    .login-frame .auth-split { min-height: 620px; }
   </style>
 </head>
 <body>
@@ -113,16 +471,124 @@
 
     <p class="cap">The sign-in screen</p>
 
-    <!-- ════════════ STEP 1 — Sign in (the actual login page) ════════════ -->
-    <section class="card" aria-label="Sign in to Opzava">
-      <div class="logo" aria-hidden="true">◆</div>
-      <h1>Welcome back</h1>
-      <p class="lead">Sign in to your workspace.</p>
+    <!-- ════════════ STEP 1 - Sign in (the actual login page) ════════════ -->
+    <div class="login-frame"><main class="auth-split">
+  <aside class="auth-hero">
+    <div class="auth-hero-fx" aria-hidden="true">
+      <span class="auth-hero-orb auth-hero-orb--1"></span>
+      <span class="auth-hero-orb auth-hero-orb--2"></span>
+      <span class="auth-hero-orb auth-hero-orb--3"></span>
+      <span class="auth-hero-grid"></span>
+      <span class="auth-hero-sheen"></span>
+    </div>
+    <div class="auth-hero-content">
+      <div class="auth-hero-brand">
+        <span class="auth-hero-mark" aria-hidden="true">◆</span>
+        <span class="auth-hero-word">Opzava</span>
+      </div>
 
-      <!-- OAuth — neutral buttons; only the inline brand logo carries colour.
-           Google is the one provider wired today; GitHub is net-new (see ARD 0026). -->
-      <div class="oauth">
-        <button class="btn" type="button" aria-label="Continue with Google">
+      <span class="auth-hero-live">
+        <span class="dot" aria-hidden="true"></span>
+        Agents online - 24/7
+      </span>
+
+      <div class="auth-hero-copy">
+        <h2 class="auth-hero-headline">Run your agents like a team.</h2>
+        <p class="auth-hero-sub">
+          Step into a workspace where a team of AI agents ships your work - around the clock, so
+          you are never the bottleneck.
+        </p>
+      </div>
+
+      <div class="auth-hero-team">
+        <ul class="auth-team" aria-label="AI models on your team">
+          <li class="auth-team-item" style="--brand: #D97757">
+            <span class="auth-team-avatar" title="Claude">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <path fill="#D97757" d="M12 2.5l1.5 5.4L18 4.9l-2.9 4.6 5.6.9-5.6.9L18 16l-4.5-3L12 18.5 10.5 13 6 16l2.9-5.7L3.3 9.4l5.6-.9L6 3.9l4.5 3.9z"></path>
+              </svg>
+            </span>
+            <span class="auth-team-name">Claude</span>
+          </li>
+          <li class="auth-team-item" style="--brand: #10A37F">
+            <span class="auth-team-avatar" title="GPT">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <g fill="none" stroke="#10A37F" stroke-width="1.5">
+                  <ellipse cx="12" cy="12" rx="8" ry="3.3"></ellipse>
+                  <ellipse cx="12" cy="12" rx="8" ry="3.3" transform="rotate(60 12 12)"></ellipse>
+                  <ellipse cx="12" cy="12" rx="8" ry="3.3" transform="rotate(120 12 12)"></ellipse>
+                </g>
+              </svg>
+            </span>
+            <span class="auth-team-name">GPT</span>
+          </li>
+          <li class="auth-team-item" style="--brand: #1A73E8">
+            <span class="auth-team-avatar" title="Gemini">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <path fill="#1A73E8" d="M12 2c.7 5.2 3 7.5 8.2 8.2C15 10.9 12.7 13.2 12 18.4c-.7-5.2-3-7.5-8.2-8.2C9 9.5 11.3 7.2 12 2z"></path>
+              </svg>
+            </span>
+            <span class="auth-team-name">Gemini</span>
+          </li>
+          <li class="auth-team-item" style="--brand: #4D6BFE">
+            <span class="auth-team-avatar" title="DeepSeek">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <path fill="none" stroke="#4D6BFE" stroke-width="1.9" stroke-linecap="round" d="M4 14.5c3 0 3-4.2 6-4.2s3 4.2 6 4.2 4-3.2 4-3.2"></path>
+              </svg>
+            </span>
+            <span class="auth-team-name">DeepSeek</span>
+          </li>
+          <li class="auth-team-item" style="--brand: #7B5CF0">
+            <span class="auth-team-avatar" title="Qwen">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <g fill="none" stroke="#7B5CF0" stroke-width="1.8" stroke-linejoin="round">
+                  <path d="M12 3l7.5 4.3v9L12 20.6 4.5 16.3v-9z"></path>
+                  <circle cx="12" cy="12" r="2.2" fill="#7B5CF0" stroke="none"></circle>
+                </g>
+              </svg>
+            </span>
+            <span class="auth-team-name">Qwen</span>
+          </li>
+          <li class="auth-team-item" style="--brand: #111827">
+            <span class="auth-team-avatar" title="Kimi">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <path fill="#111827" d="M15.5 3.2A9 9 0 1015.5 20.8 7.2 7.2 0 0115.5 3.2z"></path>
+              </svg>
+            </span>
+            <span class="auth-team-name">Kimi</span>
+          </li>
+          <li class="auth-team-item" style="--brand: #2E6BE6">
+            <span class="auth-team-avatar" title="GLM">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <path fill="none" stroke="#2E6BE6" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" d="M7 7.5h10L7 16.5h10"></path>
+              </svg>
+            </span>
+            <span class="auth-team-name">GLM</span>
+          </li>
+          <li class="auth-team-item auth-team-item--more" aria-hidden="true">
+            <span class="auth-team-avatar auth-team-avatar--more">+</span>
+          </li>
+        </ul>
+        <p class="auth-team-cap">
+          Claude, GPT, Gemini, DeepSeek, Qwen, Kimi, GLM and more - your always-on AI team,
+          working 24/7.
+        </p>
+      </div>
+
+      <p class="auth-hero-trust">
+        Tool-policy security &middot; tenant-isolated &middot; every action logged
+      </p>
+    </div>
+  </aside>
+
+  <section class="auth-panel" aria-label="Sign in to Opzava">
+    <div class="auth-panel-inner">
+      <div class="auth-mark" aria-hidden="true">◆</div>
+      <h1>Welcome back</h1>
+      <p class="auth-lead">Sign in to your workspace.</p>
+
+      <div class="auth-oauth" aria-label="Provider sign in">
+        <button class="btn" type="button" disabled aria-disabled="true" title="Single sign-on arrives with SSO (P8)">
           <svg class="mark" viewBox="0 0 48 48" aria-hidden="true">
             <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
             <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
@@ -130,51 +596,57 @@
             <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
           </svg>
           <span>Continue with Google</span>
+          <span class="auth-oauth-soon">Soon</span>
         </button>
-        <button class="btn" type="button" aria-label="Continue with GitHub">
+        <button class="btn" type="button" disabled aria-disabled="true" title="Single sign-on arrives with SSO (P8)">
           <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="#1b1f23" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+            <path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
           </svg>
           <span>Continue with GitHub</span>
+          <span class="auth-oauth-soon">Soon</span>
         </button>
       </div>
 
-      <div class="divider" role="separator" aria-label="or use your email"><span>or use your email</span></div>
+      <div class="auth-divider" role="separator" aria-label="or use your email"><span>or use your email</span></div>
 
       <form novalidate onsubmit="return false">
         <div class="field">
-          <label class="label" for="li-email">Email</label>
-          <input class="input" id="li-email" name="email" type="email" inputmode="email" autocomplete="username" placeholder="you@company.com">
+          <label class="label" for="email">Email</label>
+          <input class="input" id="email" name="email" type="email" inputmode="email" autocomplete="username" placeholder="you@company.com">
         </div>
         <div class="field">
-          <label class="label" for="li-pass">Password</label>
-          <div class="pw-wrap">
-            <input class="input" id="li-pass" name="password" type="password" autocomplete="current-password" placeholder="Your password">
-            <button class="pw-toggle" type="button" aria-label="Show password" aria-pressed="false" onclick="
+          <label class="label" for="password">Password</label>
+          <div class="auth-pw">
+            <input class="input" id="password" name="password" type="password" autocomplete="current-password" placeholder="Your password">
+            <button class="auth-pw-toggle" type="button" aria-label="Show password" aria-pressed="false" onclick="
               const i=this.previousElementSibling;
               const show = i.type==='password';
               i.type = show ? 'text' : 'password';
               this.setAttribute('aria-pressed', String(show));
               this.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
               this.textContent = show ? '🙈' : '👁';
-            ">👁</button>
+            ">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M2.5 12S5.5 5.5 12 5.5 21.5 12 21.5 12 18.5 18.5 12 18.5 2.5 12 2.5 12Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/>
+              </svg>
+            </button>
           </div>
         </div>
-
-        <div class="row-between">
-          <label class="check"><input type="checkbox" name="remember"> Remember this device</label>
-          <a class="link" href="essential-forgot-password.html">Forgot password?</a>
+        <div class="auth-row-between">
+          <label class="auth-check"><input type="checkbox" name="rememberDevice"> Remember this device</label>
         </div>
-
-        <button class="btn btn-primary signin" type="submit">Sign in →</button>
+        <button class="btn btn-primary auth-submit" type="submit">Sign in</button>
       </form>
 
-      <p class="foot">First time here? <a href="essential-setup.html">Set up Opzava →</a></p>
-    </section>
+      <p class="auth-foot">First time here? <a href="/setup">Set up Opzava</a></p>
+    </div>
+  </section>
+</main></div>
 
     <p class="cap">If you've turned on two-factor, you verify next</p>
 
-    <!-- ════════════ STEP 2 — Two-factor verification (ARD 0018) ════════════ -->
+    <!-- ════════════ STEP 2 - Two-factor verification (ARD 0018) ════════════ -->
     <section class="card" aria-label="Two-factor verification" aria-hidden="true">
       <div class="logo" aria-hidden="true">◆</div>
       <h1>Verify it's you</h1>
@@ -194,13 +666,13 @@
       <p class="foot"><a href="#">Use a recovery code</a> &nbsp;·&nbsp; <a href="#">← Back</a></p>
     </section>
 
-    <p class="cap">If something goes wrong — these are the secured variations</p>
+    <p class="cap">If something goes wrong - these are the secured variations</p>
 
-    <!-- ════════════ ALT STATES — captioned previews, never a live second form ════════════ -->
+    <!-- ════════════ ALT STATES - captioned previews, never a live second form ════════════ -->
     <div class="alts" aria-hidden="true">
 
       <div class="alt">
-        <p class="alt-cap">Wrong credentials — deliberately vague (no account enumeration)</p>
+        <p class="alt-cap">Wrong credentials - deliberately vague (no account enumeration)</p>
         <div class="sb-alert sb-alert--destructive" role="alert">
           <span class="ico" aria-hidden="true">⚠</span>
           <strong class="sb-alert-title">Wrong email or password</strong>
@@ -209,7 +681,7 @@
       </div>
 
       <div class="alt">
-        <p class="alt-cap">Too many attempts — brute-force lockout (HTTP 423)</p>
+        <p class="alt-cap">Too many attempts - brute-force lockout (HTTP 423)</p>
         <div class="sb-alert sb-alert--warning" role="alert">
           <span class="ico" aria-hidden="true">🔒</span>
           <strong class="sb-alert-title">Too many attempts</strong>
@@ -222,15 +694,15 @@
         <div class="sb-alert sb-alert--destructive" role="alert">
           <span class="ico" aria-hidden="true">⚠</span>
           <strong class="sb-alert-title">That code didn't match</strong>
-          <span class="sb-alert-desc">Codes refresh every 30 seconds — enter the newest one.</span>
+          <span class="sb-alert-desc">Codes refresh every 30 seconds - enter the newest one.</span>
         </div>
         <p class="hint"><span class="badge badge-warning">2 recovery codes left</span> &nbsp;Generate more in <strong>Profile → Security</strong> before you run out.</p>
       </div>
 
       <div class="alt">
-        <p class="alt-cap">Submitting — pending state (Doherty &lt; 400ms)</p>
+        <p class="alt-cap">Submitting - pending state (Doherty &lt; 400ms)</p>
         <button class="btn btn-primary signin" type="button" disabled style="margin-top:0"><span class="sb-spinner sb-spinner--sm" aria-hidden="true"></span> Signing in…</button>
-        <p class="hint">The button locks, shows a spinner, and an <code>aria-live</code> region announces “Signing in” while we check — no stale pre-rendered success.</p>
+        <p class="hint">The button locks, shows a spinner, and an <code>aria-live</code> region announces “Signing in” while we check - no stale pre-rendered success.</p>
       </div>
 
     </div>

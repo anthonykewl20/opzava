@@ -5,14 +5,11 @@ import {
   type IssueProjectionDto,
   type TaskDto,
 } from "@opzava/project-management";
-import type { OpenClawGatewayRouteId } from "@opzava/ports";
 
-import { askAdminAssistantKey, askAdminRouteId } from "@/lib/ask-admin-history";
-import { readBrokerInternalEnv } from "@/lib/broker-internal-env";
+import { askAdminAssistantKey } from "@/lib/ask-admin-history";
 import { hasConnectedProviderOrGitHub } from "@/lib/connections-state";
 import { loadConnectionsPageData } from "@/lib/connections";
 import { readGitHubIssuesRepository } from "@/lib/issues";
-import { createBrokerOpenClawGatewayPort } from "@/lib/openclaw-gateway-broker";
 import { formatCardId } from "@/lib/task-card-format";
 import type { AppSessionContext } from "@/lib/session";
 
@@ -57,7 +54,6 @@ export interface AdminShellStateDependencies {
   readonly loadConnectionsPageData: typeof loadConnectionsPageData;
   readonly countActiveAskOpzavaTurns: (context: AppSessionContext) => Promise<number>;
   readonly checkDatabaseHealth: () => Promise<boolean>;
-  readonly checkGatewayHealth: () => Promise<boolean | null>;
 }
 
 type QueryRow = Record<string, unknown>;
@@ -218,48 +214,6 @@ async function defaultCheckDatabaseHealth(): Promise<boolean> {
   }
 }
 
-function timeoutFetch(fetchImpl: typeof fetch, timeoutMs: number): typeof fetch {
-  return async (input, init) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      return await fetchImpl(input, {
-        ...init,
-        signal: init?.signal ?? controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-}
-
-export async function defaultCheckGatewayHealth(
-  fetchImpl: typeof fetch = fetch,
-  timeoutMs = 750,
-): Promise<boolean | null> {
-  let brokerEnv: ReturnType<typeof readBrokerInternalEnv>;
-  try {
-    brokerEnv = readBrokerInternalEnv();
-  } catch {
-    return null;
-  }
-
-  const gateway = createBrokerOpenClawGatewayPort({
-    baseUrl: brokerEnv.BROKER_INTERNAL_URL,
-    internalToken: brokerEnv.BROKER_INTERNAL_TOKEN,
-    principalSessionId: "shell-health",
-    fetchImpl: timeoutFetch(fetchImpl, timeoutMs),
-  });
-  const health = await gateway.getHealth(askAdminRouteId as OpenClawGatewayRouteId);
-
-  if (!health.ok) {
-    return false;
-  }
-
-  return health.value.reachable && !health.value.circuitOpen;
-}
-
 function defaultDependencies(): AdminShellStateDependencies {
   return {
     listTasks,
@@ -267,8 +221,13 @@ function defaultDependencies(): AdminShellStateDependencies {
     loadConnectionsPageData,
     countActiveAskOpzavaTurns: defaultCountActiveAskOpzavaTurns,
     checkDatabaseHealth: defaultCheckDatabaseHealth,
-    checkGatewayHealth: defaultCheckGatewayHealth,
   };
+}
+
+function gatewayReachableFromConnectionsPageData(
+  result: Awaited<ReturnType<typeof loadConnectionsPageData>> | null,
+): boolean {
+  return result !== null && result.ok && result.value.snapshot.gateway.status === "active";
 }
 
 function taskCommandItems(
@@ -322,7 +281,6 @@ export async function loadAdminShellState(
     connectionsResult,
     activeTurnsResult,
     databaseReachable,
-    gatewayReachable,
   ] = await Promise.all([
     dependencies.listTasks({
       orgId: context.orgId,
@@ -338,14 +296,14 @@ export async function loadAdminShellState(
           repository,
           filter: "all",
         }),
-    dependencies.loadConnectionsPageData(context),
+    dependencies.loadConnectionsPageData(context).catch(() => null),
     dependencies.countActiveAskOpzavaTurns(context).catch(() => 0),
     dependencies.checkDatabaseHealth().catch(() => false),
-    dependencies.checkGatewayHealth().catch(() => null),
   ]);
 
   const tasks = tasksResult.ok ? tasksResult.value : [];
   const issues = issuesResult?.ok === true ? issuesResult.value : [];
+  const gatewayReachable = gatewayReachableFromConnectionsPageData(connectionsResult);
 
   return {
     nav: {
@@ -353,7 +311,8 @@ export async function loadAdminShellState(
       openIssuesCount: issuesResult?.ok === true ? openIssueCount(issues) : null,
       askOpzavaActive: activeTurnsResult > 0,
       connectionsConnected:
-        connectionsResult.ok && hasConnectedProviderOrGitHub(connectionsResult.value.snapshot),
+        connectionsResult?.ok === true &&
+        hasConnectedProviderOrGitHub(connectionsResult.value.snapshot),
     },
     health: shellHealthView({
       databaseReachable,
