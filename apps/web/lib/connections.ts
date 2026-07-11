@@ -5,8 +5,12 @@ import type {
   DeviceFlowChallenge,
   DeviceFlowPollState,
   GitHubConnectionState,
+  ModelProviderApiKeyConnectPollState,
+  ModelProviderApiKeyConnectStart,
   OrchestratorDelegationState,
   ProviderConnectionState,
+  SetupTokenFlowPollState,
+  SetupTokenFlowStart,
 } from "@opzava/ports";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
@@ -43,6 +47,8 @@ interface InternalProvisioningConfig {
   readonly url: string;
   readonly token: string;
 }
+
+const workerRequestTimeoutMs = 20_000;
 
 function connectionsError(code: string, message: string, cause?: unknown): DomainError {
   return new DomainError({
@@ -172,7 +178,27 @@ class UnavailableConnectionsProvisioningPort implements ConnectionsProvisioningP
     return ok(unavailableSnapshot({ repository: readGitHubIssuesRepository(), now: this.now() }));
   }
 
-  public async connectModelProviderApiKey(): Promise<Result<ProviderConnectionState>> {
+  public async startModelProviderApiKeyConnect(): Promise<Result<ModelProviderApiKeyConnectStart>> {
+    return err(this.error());
+  }
+
+  public async pollModelProviderApiKeyConnect(): Promise<
+    Result<ModelProviderApiKeyConnectPollState>
+  > {
+    return err(this.error());
+  }
+
+  public async startModelProviderSetupTokenFlow(): Promise<Result<SetupTokenFlowStart>> {
+    return err(this.error());
+  }
+
+  public async pollModelProviderSetupTokenFlow(): Promise<Result<SetupTokenFlowPollState>> {
+    return err(this.error());
+  }
+
+  public async submitModelProviderSetupTokenCode(): Promise<
+    Result<{ readonly status: "pending" }>
+  > {
     return err(this.error());
   }
 
@@ -217,7 +243,7 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
     return this.request<ConnectionsSnapshot>("/internal/connections/snapshot", input);
   }
 
-  public async connectModelProviderApiKey(input: {
+  public async startModelProviderApiKeyConnect(input: {
     readonly orgId: string;
     readonly workspaceId: string;
     readonly actorUserId: string;
@@ -225,8 +251,44 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
     readonly providerId: string;
     readonly authChoiceId: string;
     readonly apiKey: string;
-  }): Promise<Result<ProviderConnectionState>> {
-    return this.request<ProviderConnectionState>("/internal/connections/model/api-key", input);
+  }): Promise<Result<ModelProviderApiKeyConnectStart>> {
+    return this.request<ModelProviderApiKeyConnectStart>(
+      "/internal/connections/model/api-key",
+      input,
+    );
+  }
+
+  public async pollModelProviderApiKeyConnect(
+    input: ConnectionProvisioningPrincipal & { readonly opId: string },
+  ): Promise<Result<ModelProviderApiKeyConnectPollState>> {
+    return this.request<ModelProviderApiKeyConnectPollState>(
+      "/internal/connections/model/api-key/poll",
+      input,
+    );
+  }
+
+  public async startModelProviderSetupTokenFlow(
+    input: ConnectionProvisioningPrincipal & { readonly providerId: string },
+  ): Promise<Result<SetupTokenFlowStart>> {
+    return this.request<SetupTokenFlowStart>("/internal/connections/model/setup-token", input);
+  }
+
+  public async pollModelProviderSetupTokenFlow(
+    input: ConnectionProvisioningPrincipal & { readonly flowId: string },
+  ): Promise<Result<SetupTokenFlowPollState>> {
+    return this.request<SetupTokenFlowPollState>(
+      "/internal/connections/model/setup-token/poll",
+      input,
+    );
+  }
+
+  public async submitModelProviderSetupTokenCode(
+    input: ConnectionProvisioningPrincipal & { readonly flowId: string; readonly code: string },
+  ): Promise<Result<{ readonly status: "pending" }>> {
+    return this.request<{ readonly status: "pending" }>(
+      "/internal/connections/model/setup-token/code",
+      input,
+    );
   }
 
   public async startModelProviderDeviceFlow(input: {
@@ -282,6 +344,8 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
   }
 
   private async request<T>(path: string, body: unknown): Promise<Result<T>> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), workerRequestTimeoutMs);
     try {
       const response = await fetch(`${this.config.url}${path}`, {
         method: "POST",
@@ -290,6 +354,7 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
           "content-type": "application/json",
         },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
 
       const payload = (await response.json()) as unknown;
@@ -322,10 +387,14 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
       return err(
         connectionsError(
           "web.connectionsProvisioningFailed",
-          "Provisioning worker request failed.",
+          error instanceof DOMException && error.name === "AbortError"
+            ? "Provisioning worker request timed out."
+            : "Provisioning worker request failed.",
           error,
         ),
       );
+    } finally {
+      clearTimeout(timeout);
     }
   }
 }
@@ -397,7 +466,7 @@ export async function loadConnectionsPageData(
   });
 }
 
-export async function connectModelProviderApiKeyForContext(
+export async function startModelProviderApiKeyConnectForContext(
   input: {
     readonly context: AppSessionContext;
     readonly providerId: string;
@@ -405,7 +474,7 @@ export async function connectModelProviderApiKeyForContext(
     readonly apiKey: string;
   },
   dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
-): Promise<Result<ProviderConnectionState>> {
+): Promise<Result<ModelProviderApiKeyConnectStart>> {
   const allowed = requireConnectionMutationRole(input.context);
   if (!allowed.ok) {
     return err(allowed.error);
@@ -413,14 +482,77 @@ export async function connectModelProviderApiKeyForContext(
 
   const apiKey = input.apiKey.trim();
   if (apiKey.length === 0) {
-    return err(connectionsError("web.connectionsApiKeyRequired", "API key is required."));
+    return err(
+      connectionsError("web.connectionsApiKeyRequired", "Provider credential is required."),
+    );
   }
 
-  return dependencies.provisioningPort.connectModelProviderApiKey({
+  return dependencies.provisioningPort.startModelProviderApiKeyConnect({
     ...principalFromContext(input.context),
     providerId: input.providerId,
     authChoiceId: input.authChoiceId,
     apiKey,
+  });
+}
+
+export async function pollModelProviderApiKeyConnectForContext(
+  input: { readonly context: AppSessionContext; readonly opId: string },
+  dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
+): Promise<Result<ModelProviderApiKeyConnectPollState>> {
+  const allowed = requireConnectionMutationRole(input.context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
+  return dependencies.provisioningPort.pollModelProviderApiKeyConnect({
+    ...principalFromContext(input.context),
+    opId: input.opId,
+  });
+}
+
+export async function startModelProviderSetupTokenFlowForContext(
+  input: { readonly context: AppSessionContext; readonly providerId: string },
+  dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
+): Promise<Result<SetupTokenFlowStart>> {
+  const allowed = requireConnectionMutationRole(input.context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
+  return dependencies.provisioningPort.startModelProviderSetupTokenFlow({
+    ...principalFromContext(input.context),
+    providerId: input.providerId,
+  });
+}
+
+export async function pollModelProviderSetupTokenFlowForContext(
+  input: { readonly context: AppSessionContext; readonly flowId: string },
+  dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
+): Promise<Result<SetupTokenFlowPollState>> {
+  const allowed = requireConnectionMutationRole(input.context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
+  return dependencies.provisioningPort.pollModelProviderSetupTokenFlow({
+    ...principalFromContext(input.context),
+    flowId: input.flowId,
+  });
+}
+
+export async function submitModelProviderSetupTokenCodeForContext(
+  input: { readonly context: AppSessionContext; readonly flowId: string; readonly code: string },
+  dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
+): Promise<Result<{ readonly status: "pending" }>> {
+  const allowed = requireConnectionMutationRole(input.context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
+  return dependencies.provisioningPort.submitModelProviderSetupTokenCode({
+    ...principalFromContext(input.context),
+    flowId: input.flowId,
+    code: input.code,
   });
 }
 

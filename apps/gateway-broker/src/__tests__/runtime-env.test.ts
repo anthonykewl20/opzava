@@ -1,5 +1,5 @@
 import { generateKeyPairSync, randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -100,13 +100,55 @@ describe("gateway-broker runtime environment", () => {
   });
 
   it("fails closed when neither the vault nor a managed token contains the hot-path token", async () => {
-    await expect(
-      loadGatewayBrokerRuntimeConfig({
+    const vaultFile = await tempVaultFile();
+    await writeFile(vaultFile, `${JSON.stringify({ version: 1, secrets: {} })}\n`, {
+      mode: 0o644,
+    });
+
+    let thrown: unknown;
+    try {
+      await loadGatewayBrokerRuntimeConfig({
         ...baseEnv(),
-        OPENCLAW_DEV_SECRETS_FILE: await tempVaultFile(),
-      }),
-    ).rejects.toMatchObject({
+        OPENCLAW_DEV_SECRETS_FILE: vaultFile,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
       code: "gatewayBroker.deviceTokenUnavailable",
+      message:
+        "OpenClaw paired operator device token was not found in the configured SecretsVault.",
+    });
+    expect((thrown as Error).cause).toMatchObject({
+      code: "adapters.localSecrets.notFound",
+    });
+  });
+
+  it("fails closed with a read-error cause when the local vault is unreadable", async () => {
+    const vaultFile = await tempVaultFile();
+    await writeFile(vaultFile, `${JSON.stringify({ version: 1, secrets: {} })}\n`, {
+      mode: 0o000,
+    });
+    await chmod(vaultFile, 0o000);
+
+    let thrown: unknown;
+    try {
+      await loadGatewayBrokerRuntimeConfig({
+        ...baseEnv(),
+        OPENCLAW_DEV_SECRETS_FILE: vaultFile,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "gatewayBroker.deviceTokenUnavailable",
+      message:
+        "OpenClaw paired operator device token could not be read from the configured SecretsVault.",
+    });
+    expect((thrown as Error).cause).toMatchObject({
+      code: "adapters.localSecrets.readError",
     });
   });
 

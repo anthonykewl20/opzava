@@ -170,6 +170,23 @@ function modelProviderCountLabel(data: ConnectionsPageData): string {
   return `${data.providerSummary.connected} connected / ${data.providerSummary.available} available`;
 }
 
+function gatewayOutageKind(
+  gateway: ConnectionsPageData["snapshot"]["gateway"],
+): "transient" | "persistent" {
+  if (gateway.lastHeartbeatAt === null) {
+    return "persistent";
+  }
+
+  const ageMs = Date.now() - new Date(gateway.lastHeartbeatAt).getTime();
+  return Number.isNaN(ageMs) || ageMs < 10 * 60_000 ? "transient" : "persistent";
+}
+
+function gatewayUnavailableCopy(gateway: ConnectionsPageData["snapshot"]["gateway"]): string {
+  return gatewayOutageKind(gateway) === "transient"
+    ? "Gateway unavailable - retrying automatically. The backend reconnect loop is still running."
+    : "Gateway unavailable - still retrying automatically. Check provisioning worker health if this persists.";
+}
+
 function PageNotice({
   notice,
   refreshedAt,
@@ -256,10 +273,14 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
   const notice = noticeFromSearchParams(params);
   const githubPendingFlow =
     data.snapshot.pendingDeviceFlows.find((flow) => flow.kind === "github") ?? null;
+  const connectedLeadProviders = data.providers.filter(
+    (provider) => provider.roleLabel === "Lead orchestrator" && provider.status === "connected",
+  );
   const connectedSubagentProviders = data.providers.filter(
-    (provider) => provider.id !== "openai" && provider.status === "connected",
+    (provider) => provider.roleLabel === "Subagent" && provider.status === "connected",
   );
   const gatewayActive = data.snapshot.gateway.status === "active";
+  const gatewayCopy = gatewayActive ? null : gatewayUnavailableCopy(data.snapshot.gateway);
   const gatewayHeartbeat = relativeTime(data.snapshot.gateway.lastHeartbeatAt);
   const refreshedAt = relativeTime(data.snapshot.refreshedAt);
 
@@ -306,7 +327,7 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
               />
             </div>
             <p className="stat-delta u-subtle">
-              Heartbeat {gatewayHeartbeat} · {data.providerSummary.total} providers in catalog
+              {gatewayCopy ?? `Heartbeat ${gatewayHeartbeat} · ${data.providerSummary.total} providers in catalog`}
             </p>
           </div>
         </section>
@@ -325,6 +346,18 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
               </span>
             </div>
             <div className="card-body">
+              {gatewayCopy === null ? null : (
+                <div className="connections-notice connections-notice-warning" role="status">
+                  <span className="dot dot-warning" aria-hidden="true" />
+                  <div>
+                    <strong>{gatewayCopy}</strong>
+                    <p className="hint">
+                      Last heartbeat {gatewayHeartbeat}. Provider credentials remain stored
+                      server-side while the gateway reconnects.
+                    </p>
+                  </div>
+                </div>
+              )}
               <p className="connections-card-copy">
                 The gateway stores provider credentials server-side and routes agent turns to the
                 model providers below. Raw provider keys never reach the browser.
@@ -358,19 +391,25 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
                 <dt>Hosts</dt>
                 <dd>
                   <div className="connections-actions">
-                    <span className="badge">
-                      <span className="u-sr-only">AI lead — </span>
-                      <span className="u-accent" aria-hidden="true">
-                        ✦
-                      </span>
-                      Lead orchestrator
-                    </span>
+                    {connectedLeadProviders.length === 0 ? (
+                      <span className="badge">No connected lead orchestrator</span>
+                    ) : (
+                      connectedLeadProviders.map((provider) => (
+                        <span className="badge" key={provider.id}>
+                          <span className="u-sr-only">AI lead - </span>
+                          <span className="u-accent" aria-hidden="true">
+                            ✦
+                          </span>
+                          {provider.label} · LEAD ORCHESTRATOR
+                        </span>
+                      ))
+                    )}
                     {connectedSubagentProviders.length === 0 ? (
                       <span className="u-subtle">No connected subagent providers yet</span>
                     ) : (
                       connectedSubagentProviders.map((provider) => (
                         <span className="badge" key={provider.id}>
-                          {provider.label}
+                          {provider.label} · SUBAGENT
                         </span>
                       ))
                     )}
@@ -381,7 +420,11 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
           </div>
         </section>
 
-        <ModelProvidersPanel providers={data.providers} summary={data.providerSummary} />
+        <ModelProvidersPanel
+          gatewayStatus={data.snapshot.gateway.status}
+          providers={data.providers}
+          summary={data.providerSummary}
+        />
 
         {/* DESCOPE(gateway-configuration): P8 PRD-013 keeps restart-gated gateway settings out of the shipped thin slice until those controls are backed by live data. */}
         {/* DESCOPE(provider-policy-catalogs): P8 PRD-013 omits catalog policy controls until auth-order editing and model catalog reads are implemented. */}

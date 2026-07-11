@@ -86,6 +86,10 @@ function emptyVault(): StoredVaultFile {
   };
 }
 
+function readVaultError(message: string, cause: unknown): DomainError {
+  return vaultError("adapters.localSecrets.readError", message, cause);
+}
+
 function parseVault(raw: string): StoredVaultFile {
   const parsed = JSON.parse(raw) as Partial<StoredVaultFile>;
   if (parsed.version !== 1 || typeof parsed.secrets !== "object" || parsed.secrets === null) {
@@ -121,7 +125,7 @@ export class LocalFileSecretsVault implements SecretsVaultPort {
   }
 
   public async getRef(input: GetSecretRefInput): Promise<Result<SecretReference | null>> {
-    const loaded = await this.readVault();
+    const loaded = await this.readVault({ allowMissing: true });
     if (!loaded.ok) {
       return loaded;
     }
@@ -182,7 +186,7 @@ export class LocalFileSecretsVault implements SecretsVaultPort {
       );
     }
 
-    const loaded = await this.readVault();
+    const loaded = await this.readVault({ allowMissing: true });
     if (!loaded.ok) {
       return loaded;
     }
@@ -214,7 +218,7 @@ export class LocalFileSecretsVault implements SecretsVaultPort {
   }
 
   public async deleteSecret(input: DeleteLocalFileSecretInput): Promise<Result<void>> {
-    const loaded = await this.readVault();
+    const loaded = await this.readVault({ allowMissing: true });
     if (!loaded.ok) {
       return loaded;
     }
@@ -229,19 +233,20 @@ export class LocalFileSecretsVault implements SecretsVaultPort {
     });
   }
 
-  private async readVault(): Promise<Result<StoredVaultFile>> {
+  private async readVault(
+    options: { readonly allowMissing?: boolean } = {},
+  ): Promise<Result<StoredVaultFile>> {
     try {
       await stat(this.options.filePath);
     } catch (error) {
       const code = (error as { readonly code?: unknown }).code;
-      if (code === "ENOENT") {
+      if (code === "ENOENT" && options.allowMissing === true) {
         return ok(emptyVault());
       }
 
       return err(
-        vaultError(
-          "adapters.localSecrets.readFailed",
-          "Failed to read local dev secrets vault.",
+        readVaultError(
+          `Failed to read local dev secrets vault: ${String(code ?? "stat failed")}.`,
           error,
         ),
       );
@@ -250,10 +255,18 @@ export class LocalFileSecretsVault implements SecretsVaultPort {
     try {
       return ok(parseVault(await readFile(this.options.filePath, "utf8")));
     } catch (error) {
+      if (error instanceof DomainError) {
+        return err(readVaultError(error.message, error));
+      }
+
+      if (error instanceof SyntaxError) {
+        return err(readVaultError("Failed to parse local dev secrets vault JSON.", error));
+      }
+
+      const code = (error as { readonly code?: unknown }).code;
       return err(
-        vaultError(
-          "adapters.localSecrets.readFailed",
-          "Failed to read local dev secrets vault.",
+        readVaultError(
+          `Failed to read local dev secrets vault: ${String(code ?? "read failed")}.`,
           error,
         ),
       );
@@ -266,10 +279,10 @@ export class LocalFileSecretsVault implements SecretsVaultPort {
 
     try {
       await mkdir(directory, { mode: 0o700, recursive: true });
-      await writeFile(tempPath, `${JSON.stringify(vault, null, 2)}\n`, { mode: 0o600 });
-      await chmod(tempPath, 0o600);
+      await writeFile(tempPath, `${JSON.stringify(vault, null, 2)}\n`, { mode: 0o644 });
+      await chmod(tempPath, 0o644);
       await rename(tempPath, this.options.filePath);
-      await chmod(this.options.filePath, 0o600);
+      await chmod(this.options.filePath, 0o644);
       return ok(undefined);
     } catch (error) {
       return err(

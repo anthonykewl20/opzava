@@ -11,11 +11,11 @@ import type {
 } from "@opzava/ports";
 import { ok } from "@opzava/shared-kernel";
 import { describe, expect, it } from "vitest";
-
 import {
-  connectModelProviderApiKeyForContext,
   loadConnectionsPageData,
   pollConnectionDeviceFlowForContext,
+  pollModelProviderApiKeyConnectForContext,
+  startModelProviderApiKeyConnectForContext,
   startGitHubDeviceFlowForContext,
   startModelProviderDeviceFlowForContext,
   type ConnectionsDependencies,
@@ -27,6 +27,7 @@ import {
   deviceFlowPollSchedule,
   deviceFlowReducer,
   groupProviderConnectionsByTier,
+  isLeadOrchestratorModel,
   isTerminalDeviceFlowStatus,
   providerConnectionSummary,
   projectModelProviders,
@@ -266,6 +267,13 @@ function snapshot(overrides: Partial<ConnectionsSnapshot> = {}): ConnectionsSnap
         vendor: "Anthropic",
         authChoices: [
           {
+            id: "setup-token",
+            label: "Anthropic setup-token",
+            mode: "api-key",
+            providerId: "anthropic",
+            keyFlag: "token",
+          },
+          {
             id: "anthropic-api-key",
             label: "API key",
             mode: "api-key",
@@ -358,15 +366,21 @@ function snapshot(overrides: Partial<ConnectionsSnapshot> = {}): ConnectionsSnap
 function fakePort(): ConnectionsProvisioningPort {
   return {
     getConnectionsSnapshot: async () => ok(snapshot()),
-    connectModelProviderApiKey: async (input) =>
-      ok(
-        providerState({
-          providerId: input.providerId,
-          authChoiceId: input.authChoiceId,
+    startModelProviderApiKeyConnect: async () => ok({ opId: "op-1", status: "pending" as const }),
+    pollModelProviderApiKeyConnect: async () =>
+      ok({
+        status: "connected" as const,
+        connection: providerState({
+          providerId: "zai",
+          authChoiceId: "zai-api-key",
           accountLabel: "stored in gateway",
           connectedAuthMode: "api_key",
         }),
-      ),
+      }),
+    startModelProviderSetupTokenFlow: async () => ok({ flowId: "setup:flow-1", status: "pending" }),
+    pollModelProviderSetupTokenFlow: async () =>
+      ok({ status: "connected", connection: providerState() }),
+    submitModelProviderSetupTokenCode: async () => ok({ status: "pending" }),
     startModelProviderDeviceFlow: async (input) =>
       ok(challenge({ providerId: input.providerId, authChoiceId: input.authChoiceId })),
     pollDeviceFlow: async () =>
@@ -419,6 +433,10 @@ describe("Connections page state", () => {
     });
     expect(views.find((view) => view.id === "openai")?.runtimeLabels).toContain("Codex CLI");
     expect(views.find((view) => view.id === "anthropic")?.runtimeLabels).toContain("Claude CLI");
+    expect(views.find((view) => view.id === "anthropic")?.primaryAuthChoice).toMatchObject({
+      id: "setup-token",
+      mode: "api-key",
+    });
     expect(views.find((view) => view.id === "zai")?.models).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "glm-4.7" })]),
     );
@@ -428,6 +446,36 @@ describe("Connections page state", () => {
     expect(authBranchForChoice(views.find((view) => view.id === "zai")!.apiKeyChoices[0]!)).toBe(
       "api-key",
     );
+  });
+
+  it("derives host role labels from orchestrator model ids", () => {
+    const views = projectModelProviders(
+      snapshot({
+        providerConnections: [
+          providerState(),
+          providerState({
+            providerId: "anthropic",
+            authChoiceId: "setup-token",
+            accountLabel: "Claude Max",
+            model: "anthropic/claude-opus-4.8",
+            connectedAuthMode: "token",
+          }),
+          providerState({
+            providerId: "zai",
+            authChoiceId: "zai-api-key",
+            accountLabel: "Z.AI plan",
+            model: "zai/glm-5.2",
+            connectedAuthMode: "api_key",
+          }),
+        ],
+      }),
+    );
+
+    expect(isLeadOrchestratorModel("openai/gpt-5.5")).toBe(true);
+    expect(isLeadOrchestratorModel("anthropic/claude-opus-4.8")).toBe(true);
+    expect(views.find((view) => view.id === "openai")?.roleLabel).toBe("Lead orchestrator");
+    expect(views.find((view) => view.id === "anthropic")?.roleLabel).toBe("Lead orchestrator");
+    expect(views.find((view) => view.id === "zai")?.roleLabel).toBe("Subagent");
   });
 
   it("groups model providers into the Slice 3.7 tiers with other providers folded separately", () => {
@@ -532,6 +580,48 @@ describe("Connections page state", () => {
       needsAttention: 0,
       pending: 0,
       notConnected: 5,
+    });
+  });
+
+  it("counts every credentialed provider that projects as connected", () => {
+    const summary = providerConnectionSummary(
+      snapshot({
+        providerConnections: [
+          providerState({ providerId: "openai", status: "connected" }),
+          providerState({
+            providerId: "opencode-go",
+            status: "connected",
+            model: "opencode-go/kimi-k2.6",
+            connectedAuthMode: "api_key",
+          }),
+          providerState({
+            providerId: "zai",
+            status: "connected",
+            model: "zai/glm-5.2",
+            connectedAuthMode: "api_key",
+          }),
+          providerState({
+            providerId: "openrouter",
+            status: "needs_attention",
+            authHealth: "expired",
+            connectedAuthMode: "oauth",
+          }),
+          providerState({
+            providerId: "qwen",
+            status: "not_connected",
+            connectedAuthMode: null,
+          }),
+        ],
+      }),
+    );
+
+    expect(summary).toEqual({
+      total: 7,
+      available: 4,
+      connected: 3,
+      needsAttention: 1,
+      pending: 0,
+      notConnected: 3,
     });
   });
 
@@ -694,13 +784,17 @@ describe("Connections page state", () => {
 
   it("routes web connection actions through a fake provisioning port", async () => {
     const loaded = await loadConnectionsPageData(context(), dependencies());
-    const apiKey = await connectModelProviderApiKeyForContext(
+    const apiKeyStart = await startModelProviderApiKeyConnectForContext(
       {
         context: context(),
         providerId: "zai",
         authChoiceId: "zai-api-key",
         apiKey: "runtime-secret",
       },
+      dependencies(),
+    );
+    const apiKeyPoll = await pollModelProviderApiKeyConnectForContext(
+      { context: context(), opId: "op-1" },
       dependencies(),
     );
     const device = await startModelProviderDeviceFlowForContext(
@@ -714,7 +808,11 @@ describe("Connections page state", () => {
     const github = await startGitHubDeviceFlowForContext(context(), dependencies());
 
     expect(loaded.ok).toBe(true);
-    expect(apiKey).toMatchObject({ ok: true, value: { providerId: "zai" } });
+    expect(apiKeyStart).toMatchObject({ ok: true, value: { opId: "op-1", status: "pending" } });
+    expect(apiKeyPoll).toMatchObject({
+      ok: true,
+      value: { status: "connected", connection: { providerId: "zai" } },
+    });
     expect(device).toMatchObject({ ok: true, value: { authChoiceId: "openai-device-code" } });
     expect(poll).toMatchObject({ ok: true, value: { status: "connected" } });
     expect(github).toMatchObject({ ok: true, value: { kind: "github" } });
@@ -725,14 +823,14 @@ describe("Connections page state", () => {
     const dependenciesWithGuardProbe: ConnectionsDependencies = {
       provisioningPort: {
         ...fakePort(),
-        connectModelProviderApiKey: async (input) => {
+        startModelProviderApiKeyConnect: async () => {
           calls += 1;
-          return ok(providerState({ providerId: input.providerId }));
+          return ok({ opId: "op-guard", status: "pending" as const });
         },
       },
     };
 
-    const result = await connectModelProviderApiKeyForContext(
+    const result = await startModelProviderApiKeyConnectForContext(
       {
         context: context({ roleKeys: ["member"] }),
         providerId: "zai",
@@ -752,9 +850,12 @@ describe("Connections page state", () => {
 
   it("wires /connections page, actions, API poll route, and sidebar without JSX imports", async () => {
     const page = await readRepoFile("app/(app)/connections/page.tsx");
+    const loading = await readRepoFile("app/(app)/connections/loading.tsx");
+    const errorBoundary = await readRepoFile("app/(app)/connections/error.tsx");
     const actions = await readRepoFile("app/(app)/connections/actions.ts");
     const healthCheckButton = await readRepoFile("components/connections/health-check-submit.tsx");
     const providersPanel = await readRepoFile("components/connections/model-providers-panel.tsx");
+    const skeleton = await readRepoFile("components/ui/skeleton.tsx");
     const route = await readRepoFile("app/api/connections/device-flow/route.ts");
     const nav = await readRepoFile("components/shell/admin-nav.tsx");
 
@@ -762,7 +863,18 @@ describe("Connections page state", () => {
     expect(providersPanel).toContain("Provider connection status");
     expect(page).toContain("Opzava Gateway");
     expect(page).toContain("Gateway health");
-    expect(providersPanel).toContain("Provider catalog unavailable");
+    expect(loading).toContain("ConnectionsLoading");
+    expect(loading).toContain("aria-busy");
+    expect(loading).toContain("Skeleton");
+    expect(skeleton).toContain('data-slot="skeleton"');
+    expect(errorBoundary).toContain("Connections could not load");
+    expect(errorBoundary).toContain("Fetch failed");
+    expect(errorBoundary).toContain("Retry");
+    expect(page).toContain("Gateway unavailable - retrying automatically");
+    expect(page).toContain("Gateway unavailable - still retrying automatically");
+    expect(page).toContain("{provider.label} · SUBAGENT");
+    expect(providersPanel).toContain("Gateway unavailable - retrying automatically");
+    expect(providersPanel).toContain("No model providers in the live catalog");
     expect(page).not.toContain("OpenClaw gateway");
     expect(page).not.toContain("OpenClaw ·");
     expect(page).not.toContain("Gateway catalog unavailable");
@@ -782,29 +894,88 @@ describe("Connections page state", () => {
     expect(providersPanel).toContain("Dialog");
     expect(providersPanel).toContain("Search providers");
     expect(providersPanel).toContain("Connect provider");
+    expect(providersPanel).toContain("Available to connect.");
+    expect(providersPanel).toContain("Fix: reconnect the account or rotate the credential.");
+    expect(providersPanel).toContain("data-provider-status");
     expect(providersPanel).toContain("connectedWithoutKeyField");
     expect(providersPanel).toContain("Connected via");
+    expect(providersPanel).toContain("credentialFormChoice");
+    expect(providersPanel).toContain("Setup token");
+    expect(providersPanel).toContain("SetupTokenConnect");
+    expect(providersPanel).toContain("Already have a setup token?");
+    expect(providersPanel).toContain('type="password"');
+    expect(providersPanel).toContain("It is masked here and never echoed back.");
     expect(providersPanel).toContain("data-active-model");
     expect(providersPanel).toContain("data-provider-tier");
     expect(providersPanel).toContain("groupProviderConnectionsByTier");
     expect(providersPanel).toContain("DeviceFlowPoller");
-    expect(providersPanel).toContain("startModelProviderDeviceFlowStateAction");
+    expect(providersPanel).toContain('"/api/connections/model/device-flow"');
+    expect(providersPanel).toContain('"/api/connections/model/api-key"');
     expect(providersPanel).toContain("Start device flow");
+    expect(providersPanel).toContain("Retry device flow");
     expect(providersPanel).toContain("openclaw onboard --auth-choice");
     expect(providersPanel).not.toContain("no in-browser device flow");
     expect(providersPanel).toContain("Disconnect");
+    expect(providersPanel).toContain("AlertDialog");
+    expect(providersPanel).toContain("Disconnect {provider.label}?");
+    expect(providersPanel).toContain("LEAD ORCHESTRATOR");
+    expect(providersPanel).toContain("SUBAGENT");
     expect(providersPanel).toContain("Admin device required");
     expect(page).toContain("HealthCheckSubmitButton");
     expect(healthCheckButton).toContain("Checking...");
     expect(actions).toContain("operator-admin-required");
-    expect(actions).toContain("connectModelProviderApiKeyStateAction");
     expect(actions).toContain("health-check-complete");
     expect(page).toContain("GitHub");
     expect(page).toContain("startGitHubDeviceFlowAction");
-    expect(actions).toContain("connectModelProviderApiKeyForContext");
-    expect(actions).toContain("deviceFlowChallenge: result.value");
+    const apiKeyRoute = await readRepoFile("app/api/connections/model/api-key/route.ts");
+    const apiKeyPollRoute = await readRepoFile("app/api/connections/model/api-key/poll/route.ts");
+    const setupTokenComponent = await readRepoFile(
+      "components/connections/setup-token-connect.tsx",
+    );
+    const setupTokenRoute = await readRepoFile("app/api/connections/model/setup-token/route.ts");
+    const setupTokenPollRoute = await readRepoFile(
+      "app/api/connections/model/setup-token/poll/route.ts",
+    );
+    const setupTokenCodeRoute = await readRepoFile(
+      "app/api/connections/model/setup-token/code/route.ts",
+    );
+    const deviceStartRoute = await readRepoFile("app/api/connections/model/device-flow/route.ts");
+    expect(apiKeyRoute).toContain("startModelProviderApiKeyConnectForContext");
+    expect(apiKeyPollRoute).toContain("pollModelProviderApiKeyConnectForContext");
+    expect(setupTokenComponent).toContain("postConnectionsMutation");
+    expect(setupTokenComponent).toContain("pollUntilTerminal");
+    expect(setupTokenComponent).toContain('"/api/connections/model/setup-token"');
+    expect(setupTokenComponent).toContain('"/api/connections/model/setup-token/poll"');
+    expect(setupTokenComponent).toContain('"/api/connections/model/setup-token/code"');
+    expect(setupTokenComponent).toContain('<Button asChild size="sm">');
+    expect(setupTokenComponent).not.toContain("useActionState");
+    expect(setupTokenComponent).not.toContain("useFormStatus");
+    expect(setupTokenRoute).toContain("startModelProviderSetupTokenFlowForContext");
+    expect(setupTokenPollRoute).toContain("pollModelProviderSetupTokenFlowForContext");
+    expect(setupTokenCodeRoute).toContain("submitModelProviderSetupTokenCodeForContext");
+    expect(deviceStartRoute).toContain("startModelProviderDeviceFlowForContext");
     expect(route).toContain("pollConnectionDeviceFlowForContext");
     expect(nav).toContain('href: "/connections"');
+  });
+
+  it("keeps model-provider disconnect on the fetch mutation client with sad paths", async () => {
+    const providersPanel = await readRepoFile("components/connections/model-providers-panel.tsx");
+    const disconnectRoute = await readRepoFile("app/api/connections/model/disconnect/route.ts");
+
+    // Mutations must ride plain fetch (always settles), never React form-action streams.
+    expect(providersPanel).toContain("postConnectionsMutation");
+    expect(providersPanel).toContain('"/api/connections/model/disconnect"');
+    expect(providersPanel).not.toContain("useActionState");
+    expect(providersPanel).not.toContain("useFormStatus");
+    expect(providersPanel).toContain("<form id={formId} onSubmit={handleSubmit}");
+    expect(providersPanel).toContain("Disconnecting...");
+    expect(providersPanel).toContain("Disconnect failed");
+    // Sad path: a timed-out disconnect verifies via one idempotent retry before surfacing.
+    expect(providersPanel).toContain("Verifying disconnect");
+    expect(providersPanel).toContain("Retry disconnect");
+    expect(providersPanel).not.toContain("AlertDialogAction");
+    expect(disconnectRoute).toContain("disconnectModelProviderForContext({");
+    expect(disconnectRoute).toContain("getAppSessionContext");
   });
 
   it("names the production provisioning-worker env boundary", async () => {

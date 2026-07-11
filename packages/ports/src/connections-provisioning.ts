@@ -166,6 +166,51 @@ export interface ConnectModelProviderApiKeyInput extends ConnectionProvisioningP
   readonly apiKey: string;
 }
 
+export interface ModelProviderApiKeyConnectStart {
+  readonly opId: string;
+  readonly status: "pending";
+}
+
+export interface PollModelProviderApiKeyConnectInput extends ConnectionProvisioningPrincipal {
+  readonly opId: string;
+}
+
+export type ModelProviderApiKeyConnectPollState =
+  | { readonly status: "pending" }
+  | {
+      readonly status: "connected";
+      readonly connection: ProviderConnectionState;
+    }
+  | {
+      readonly status: "failed" | "expired";
+      readonly message: string;
+      readonly code?: string;
+    };
+
+export interface StartModelProviderSetupTokenFlowInput extends ConnectionProvisioningPrincipal {
+  readonly providerId: string;
+}
+
+export interface SetupTokenFlowStart {
+  readonly flowId: string;
+  readonly status: "pending";
+}
+
+export interface PollModelProviderSetupTokenFlowInput extends ConnectionProvisioningPrincipal {
+  readonly flowId: string;
+}
+
+export interface SubmitModelProviderSetupTokenCodeInput extends ConnectionProvisioningPrincipal {
+  readonly flowId: string;
+  readonly code: string;
+}
+
+export type SetupTokenFlowPollState =
+  | { readonly status: "pending" }
+  | { readonly status: "awaiting_code"; readonly authorizeUrl: string }
+  | { readonly status: "connected"; readonly connection: ProviderConnectionState }
+  | { readonly status: "failed" | "expired"; readonly message: string; readonly code?: string };
+
 export interface StartModelProviderDeviceFlowInput extends ConnectionProvisioningPrincipal {
   readonly providerId: string;
   readonly authChoiceId: string;
@@ -190,9 +235,21 @@ export interface ConnectionsProvisioningPort {
   getConnectionsSnapshot(
     input: ConnectionProvisioningPrincipal,
   ): Promise<Result<ConnectionsSnapshot>>;
-  connectModelProviderApiKey(
+  startModelProviderApiKeyConnect(
     input: ConnectModelProviderApiKeyInput,
-  ): Promise<Result<ProviderConnectionState>>;
+  ): Promise<Result<ModelProviderApiKeyConnectStart>>;
+  pollModelProviderApiKeyConnect(
+    input: PollModelProviderApiKeyConnectInput,
+  ): Promise<Result<ModelProviderApiKeyConnectPollState>>;
+  startModelProviderSetupTokenFlow(
+    input: StartModelProviderSetupTokenFlowInput,
+  ): Promise<Result<SetupTokenFlowStart>>;
+  pollModelProviderSetupTokenFlow(
+    input: PollModelProviderSetupTokenFlowInput,
+  ): Promise<Result<SetupTokenFlowPollState>>;
+  submitModelProviderSetupTokenCode(
+    input: SubmitModelProviderSetupTokenCodeInput,
+  ): Promise<Result<{ readonly status: "pending" }>>;
   startModelProviderDeviceFlow(
     input: StartModelProviderDeviceFlowInput,
   ): Promise<Result<DeviceFlowChallenge>>;

@@ -12,6 +12,7 @@ const emptyUsageSummary = (): UsageSummary => ({ updatedAt: 0, providers: [] });
 const mocks = vi.hoisted(() => ({
   getRuntimeConfig: vi.fn(() => ({})),
   resolveDefaultAgentDir: vi.fn(() => "/tmp/agent"),
+  resolveAgentDir: vi.fn((_cfg: unknown, agentId: string) => `/tmp/openclaw/agents/${agentId}`),
   ensureAuthProfileStore: vi.fn((agentDir?: string, options?: unknown) => {
     void agentDir;
     void options;
@@ -44,6 +45,7 @@ vi.mock("../../config/config.js", () => ({
 
 vi.mock("../../agents/agent-scope.js", () => ({
   resolveDefaultAgentDir: mocks.resolveDefaultAgentDir,
+  resolveAgentDir: mocks.resolveAgentDir,
 }));
 
 vi.mock("../../agents/auth-profiles.js", async () => {
@@ -205,6 +207,9 @@ function resetAuthStatusMocks(): void {
   vi.clearAllMocks();
   invalidateModelAuthStatusCache();
   mocks.getRuntimeConfig.mockReturnValue({});
+  mocks.resolveAgentDir.mockImplementation(
+    (_cfg: unknown, agentId: string) => `/tmp/openclaw/agents/${agentId}`,
+  );
   mocks.ensureAuthProfileStore.mockReturnValue({ version: 1, profiles: {} });
   mocks.ensureAuthProfileStoreWithoutExternalProfiles.mockReturnValue({
     version: 1,
@@ -724,6 +729,27 @@ describe("models.authLogout", () => {
 
     await handler(createOptions());
     expect(mocks.buildAuthHealthSummary).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes provider auth profiles from the requested agent store", async () => {
+    mocks.resolveAgentDir.mockReturnValue("/tmp/openclaw/agents/main/agent");
+    mocks.listProfilesForProvider.mockReturnValue(["openai:oauth"]);
+
+    const opts = createLogoutOptions({ provider: "openai", agent: "main" });
+    await logoutHandler(opts);
+
+    expect(mocks.resolveAgentDir).toHaveBeenCalledWith({}, "main");
+    expect(mocks.removeProviderAuthProfilesWithLock).toHaveBeenCalledWith({
+      provider: "openai",
+      agentDir: "/tmp/openclaw/agents/main/agent",
+    });
+    const [ok, payload] = firstRespondCall(opts) ?? [];
+    expect(ok).toBe(true);
+    expect(payload).toMatchObject({
+      provider: "openai",
+      agentId: "main",
+      removedProfiles: ["openai:oauth"],
+    });
   });
 
   it("aborts active runs for the removed provider only", async () => {

@@ -1,5 +1,10 @@
+import { generateKeyPairSync, randomUUID } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
+import { LocalFileSecretsVault } from "@opzava/adapters";
 import {
   GITHUB_ISSUES_TOKEN_SECRET_LABEL,
   type ConnectionsProvisioningPort,
@@ -13,7 +18,7 @@ import {
   type SecretReference,
 } from "@opzava/ports";
 import { DomainError, err, ok, type Result, type TenantId } from "@opzava/shared-kernel";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildGitHubConnectionProvisioningReceipt,
@@ -22,17 +27,38 @@ import {
   redactedGatewayConfigPatchInvocation,
 } from "../connections.js";
 import { createConnectionsInternalHttpServer } from "../connections-http-server.js";
-import { GatewayAdminConnectionsProvisioningPort } from "../gateway-admin-connections.js";
+import {
+  createDefaultConnectionsProvisioningPort,
+  DockerOpenClawGatewayRuntime,
+  GatewayAdminConnectionsProvisioningPort,
+} from "../gateway-admin-connections.js";
 import { resolveProvisioningWorkerRuntimeConfig } from "../../main.js";
 import {
   OpenClawAdminRpcClient,
   openClawOperatorScopeGranted,
+  type OpenClawAdminClock,
   type OpenClawAdminDeviceKeypair,
   type OpenClawAdminRpcPort,
   type OpenClawAdminWebSocket,
   type OpenClawAdminWebSocketFactory,
   type OpenClawOperatorScope,
 } from "../openclaw-admin-client.js";
+
+const tempDirectories: string[] = [];
+
+function testEd25519PrivateKeyPem(): string {
+  const { privateKey } = generateKeyPairSync("ed25519");
+
+  return privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+}
+
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  await Promise.all(
+    tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
+  );
+});
 
 function apiKeyChoice(overrides: Partial<ModelProviderAuthChoice> = {}): ModelProviderAuthChoice {
   return {
@@ -125,7 +151,13 @@ function connectionsSnapshot(): ConnectionsSnapshot {
 function fakeProvisioningPort(): ConnectionsProvisioningPort {
   return {
     getConnectionsSnapshot: async () => ok(connectionsSnapshot()),
-    connectModelProviderApiKey: async () => ok(providerConnection()),
+    startModelProviderApiKeyConnect: async () => ok({ opId: "op-1", status: "pending" }),
+    pollModelProviderApiKeyConnect: async () =>
+      ok({ status: "connected", connection: providerConnection() }),
+    startModelProviderSetupTokenFlow: async () => ok({ flowId: "setup:flow-1", status: "pending" }),
+    pollModelProviderSetupTokenFlow: async () =>
+      ok({ status: "connected", connection: providerConnection() }),
+    submitModelProviderSetupTokenCode: async () => ok({ status: "pending" }),
     startModelProviderDeviceFlow: async () => ok(deviceFlowChallenge()),
     pollDeviceFlow: async () =>
       ok({ status: "connected", message: "Connected.", connection: providerConnection() }),
@@ -154,6 +186,8 @@ function fakeProvisioningPort(): ConnectionsProvisioningPort {
   };
 }
 
+type RecordingAdminResponse = Result<unknown> | (() => Result<unknown>);
+
 class RecordingAdminClient implements OpenClawAdminRpcPort {
   public readonly calls: {
     readonly method: string;
@@ -162,7 +196,7 @@ class RecordingAdminClient implements OpenClawAdminRpcPort {
   }[] = [];
 
   public constructor(
-    private readonly responses: Record<string, Result<unknown>>,
+    private readonly responses: Record<string, RecordingAdminResponse>,
     private readonly scopes: readonly OpenClawOperatorScope[] = ["operator.read", "operator.admin"],
   ) {}
 
@@ -193,7 +227,8 @@ class RecordingAdminClient implements OpenClawAdminRpcPort {
       ...(options.idempotencyKey === undefined ? {} : { idempotencyKey: options.idempotencyKey }),
     });
 
-    return this.responses[method] ?? ok({});
+    const response = this.responses[method] ?? ok({});
+    return typeof response === "function" ? response() : response;
   }
 
   public grantedScopes(): readonly OpenClawOperatorScope[] {
@@ -259,7 +294,17 @@ class RecordingGatewayRuntime {
     readonly execId: string;
     readonly logPath: string;
   }[] = [];
+  public readonly setupTokenStarts: string[] = [];
+  public readonly setupTokenWrites: {
+    readonly stdinPath: string;
+    readonly value: string;
+  }[] = [];
+  public readonly setupTokenStops: {
+    readonly execId: string;
+    readonly logPath: string;
+  }[] = [];
   public connectedDeviceProviderId: string | null = null;
+  public deviceLogResult: Result<string> | null = null;
   public modelStatusCalls = 0;
 
   public constructor(
@@ -271,12 +316,16 @@ class RecordingGatewayRuntime {
         readonly keyFlag?: string;
       }[];
       readonly status?: unknown | (() => unknown);
+      readonly statusResult?: Result<unknown> | (() => Result<unknown>);
       readonly connectResult?: Result<{
         readonly exitCode: number;
         readonly stdout: string;
         readonly stderr: string;
       }>;
+      readonly connectDelayMs?: number;
+      readonly deviceCodeLogResult?: Result<string>;
       readonly deviceCodeLog?: string | (() => string);
+      readonly setupTokenLog?: string | (() => string);
     } = {},
   ) {}
 
@@ -299,6 +348,13 @@ class RecordingGatewayRuntime {
 
   public async modelStatus(): Promise<Result<unknown>> {
     this.modelStatusCalls += 1;
+    if (typeof this.options.statusResult === "function") {
+      return this.options.statusResult();
+    }
+    if (this.options.statusResult !== undefined) {
+      return this.options.statusResult;
+    }
+
     if (typeof this.options.status === "function") {
       return ok(this.options.status());
     }
@@ -347,6 +403,9 @@ class RecordingGatewayRuntime {
     Result<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }>
   > {
     this.connectCalls.push(input);
+    if (this.options.connectDelayMs !== undefined) {
+      await new Promise((resolve) => setTimeout(resolve, this.options.connectDelayMs));
+    }
     return this.options.connectResult ?? ok({ exitCode: 0, stdout: "{}", stderr: "" });
   }
 
@@ -359,6 +418,19 @@ class RecordingGatewayRuntime {
 
   public async readDeviceCodeLog(logPath: string): Promise<Result<string>> {
     this.deviceLogReads.push(logPath);
+    if (this.deviceLogResult !== null) {
+      return this.deviceLogResult;
+    }
+    if (this.options.deviceCodeLogResult !== undefined) {
+      return this.options.deviceCodeLogResult;
+    }
+    if (logPath.includes("opzava-st")) {
+      const setupValue =
+        typeof this.options.setupTokenLog === "function"
+          ? this.options.setupTokenLog()
+          : this.options.setupTokenLog;
+      return ok(setupValue ?? "Authorize: https://claude.ai/oauth/authorize\n");
+    }
     const value =
       typeof this.options.deviceCodeLog === "function"
         ? this.options.deviceCodeLog()
@@ -368,8 +440,32 @@ class RecordingGatewayRuntime {
     );
   }
 
+  public async readSetupTokenLog(logPath: string): Promise<Result<string>> {
+    return this.readDeviceCodeLog(logPath);
+  }
+
   public async stopDeviceCodeLogin(execId: string, logPath: string): Promise<void> {
     this.deviceStops.push({ execId, logPath });
+  }
+
+  public async startSetupTokenLogin(): Promise<
+    Result<{ readonly execId: string; readonly logPath: string; readonly stdinPath: string }>
+  > {
+    this.setupTokenStarts.push("start");
+    return ok({
+      execId: "exec-setup-1",
+      logPath: "/tmp/opzava-st-test/setup.log",
+      stdinPath: "/tmp/opzava-st-test/stdin",
+    });
+  }
+
+  public async writeSetupTokenInput(stdinPath: string, value: string): Promise<Result<void>> {
+    this.setupTokenWrites.push({ stdinPath, value });
+    return ok(undefined);
+  }
+
+  public async stopSetupTokenLogin(execId: string, logPath: string): Promise<void> {
+    this.setupTokenStops.push({ execId, logPath });
   }
 }
 
@@ -385,6 +481,36 @@ function principal(): {
     actorUserId: "00000000-0000-4000-8000-000000000003",
     roleKeys: ["admin"],
   };
+}
+
+async function pollApiKeyConnectUntilTerminal(
+  port: GatewayAdminConnectionsProvisioningPort,
+  opId: string,
+) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const result = await port.pollModelProviderApiKeyConnect({ ...principal(), opId });
+    if (!result.ok || result.value.status !== "pending") {
+      return result;
+    }
+    await Promise.resolve();
+  }
+
+  return port.pollModelProviderApiKeyConnect({ ...principal(), opId });
+}
+
+function setupTokenPort(input: {
+  readonly gatewayRuntime: RecordingGatewayRuntime;
+  readonly now?: () => Date;
+}): GatewayAdminConnectionsProvisioningPort {
+  return new GatewayAdminConnectionsProvisioningPort({
+    adminClient: new RecordingAdminClient({
+      "config.get": ok({ hash: "config-hash-setup-token", plugins: { allow: ["anthropic"] } }),
+    }),
+    secretsVault: new MemorySecretsVault(),
+    githubRepository: "anthonykewl20/opzava",
+    gatewayRuntime: input.gatewayRuntime,
+    now: input.now ?? (() => new Date("2026-07-03T00:00:00.000Z")),
+  });
 }
 
 function fakeAdminSocketFactory(
@@ -444,6 +570,212 @@ function fakeAdminSocketFactory(
     };
     return socket;
   };
+}
+
+class TestClock implements OpenClawAdminClock {
+  public readonly delays: number[] = [];
+  private current = 0;
+  private nextId = 1;
+  private readonly timers = new Map<
+    number,
+    { readonly at: number; readonly callback: () => void }
+  >();
+
+  public now(): number {
+    return this.current;
+  }
+
+  public setTimeout(callback: () => void, ms: number): ReturnType<typeof setTimeout> {
+    const id = this.nextId;
+    this.nextId += 1;
+    this.delays.push(ms);
+    this.timers.set(id, { at: this.current + ms, callback });
+    return id as unknown as ReturnType<typeof setTimeout>;
+  }
+
+  public clearTimeout(timer: ReturnType<typeof setTimeout>): void {
+    this.timers.delete(timer as unknown as number);
+  }
+
+  public advance(ms: number): void {
+    this.current += ms;
+    for (;;) {
+      const next = [...this.timers.entries()]
+        .filter(([, timer]) => timer.at <= this.current)
+        .sort((a, b) => a[1].at - b[1].at)[0];
+      if (next === undefined) {
+        return;
+      }
+
+      this.timers.delete(next[0]);
+      next[1].callback();
+    }
+  }
+}
+
+class TestAdminSocket implements OpenClawAdminWebSocket {
+  public readonly frames: Record<string, unknown>[] = [];
+  public closed = false;
+  private messageListener: ((data: string) => void) | null = null;
+  private closeListener:
+    ((event?: { readonly code?: number; readonly reason?: string }) => void) | null = null;
+  private errorListener: ((error: unknown) => void) | null = null;
+
+  public constructor(
+    private readonly onRequest: (socket: TestAdminSocket, frame: Record<string, unknown>) => void,
+    private readonly grantedScopes: readonly OpenClawOperatorScope[] = [
+      "operator.read",
+      "operator.admin",
+    ],
+  ) {}
+
+  public send(data: string): void {
+    if (this.closed) {
+      throw new Error("socket closed");
+    }
+
+    const frame = JSON.parse(data) as Record<string, unknown>;
+    this.frames.push(frame);
+    if (frame["method"] === "connect") {
+      queueMicrotask(() =>
+        this.messageListener?.(
+          JSON.stringify({
+            type: "res",
+            id: frame["id"],
+            ok: true,
+            payload: {
+              type: "hello-ok",
+              protocol: 4,
+              auth: { role: "operator", scopes: this.grantedScopes },
+            },
+          }),
+        ),
+      );
+      return;
+    }
+
+    this.onRequest(this, frame);
+  }
+
+  public close(): void {
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
+    this.closeListener?.({ code: 1000 });
+  }
+
+  public onMessage(listener: (data: string) => void): void {
+    this.messageListener = listener;
+    queueMicrotask(() =>
+      listener(
+        JSON.stringify({
+          type: "event",
+          event: "connect.challenge",
+          payload: { nonce: "nonce-1", ts: 1 },
+        }),
+      ),
+    );
+  }
+
+  public onClose(
+    listener: (event?: { readonly code?: number; readonly reason?: string }) => void,
+  ): void {
+    this.closeListener = listener;
+  }
+
+  public onError(listener: (error: unknown) => void): void {
+    this.errorListener = listener;
+  }
+
+  public respondOk(frame: Record<string, unknown>, payload: unknown = { ok: true }): void {
+    queueMicrotask(() =>
+      this.messageListener?.(
+        JSON.stringify({
+          type: "res",
+          id: frame["id"],
+          ok: true,
+          payload,
+        }),
+      ),
+    );
+  }
+
+  public closeFromGateway(reason = "restart"): void {
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
+    this.closeListener?.({ code: 1012, reason });
+  }
+
+  public failFromGateway(error: unknown): void {
+    this.errorListener?.(error);
+  }
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+function stubGlobalAdminWebSocket(
+  seenFrames: unknown[],
+  grantedScopes: readonly OpenClawOperatorScope[] = ["operator.read", "operator.admin"],
+): void {
+  vi.stubGlobal(
+    "WebSocket",
+    class {
+      private messageListener: ((event: { readonly data?: unknown }) => void) | null = null;
+
+      public constructor() {}
+
+      public send(data: string): void {
+        const frame = JSON.parse(data) as Record<string, unknown>;
+        seenFrames.push(frame);
+        queueMicrotask(() =>
+          this.messageListener?.({
+            data: JSON.stringify({
+              type: "res",
+              id: frame["id"],
+              ok: true,
+              payload:
+                frame["method"] === "connect"
+                  ? {
+                      type: "hello-ok",
+                      protocol: 4,
+                      auth: { role: "operator", scopes: grantedScopes },
+                    }
+                  : { ok: true },
+            }),
+          }),
+        );
+      }
+
+      public close(): void {}
+
+      public addEventListener(
+        type: string,
+        listener: (event: { readonly data?: unknown }) => void,
+      ): void {
+        if (type !== "message") {
+          return;
+        }
+
+        this.messageListener = listener;
+        queueMicrotask(() =>
+          listener({
+            data: JSON.stringify({
+              type: "event",
+              event: "connect.challenge",
+              payload: { nonce: "nonce-1", ts: 1 },
+            }),
+          }),
+        );
+      }
+    },
+  );
 }
 
 function fakeKeypair(): OpenClawAdminDeviceKeypair {
@@ -817,6 +1149,402 @@ describe("Connections provisioning helpers", () => {
     expect(JSON.stringify(frames[0])).not.toContain("gateway-token");
   });
 
+  it("retries an idempotent read after a mid-request gateway drop", async () => {
+    const clock = new TestClock();
+    const sockets: TestAdminSocket[] = [];
+    const client = new OpenClawAdminRpcClient({
+      url: "ws://127.0.0.1:18789",
+      operatorDeviceToken: "operator-device-token",
+      keypair: fakeKeypair(),
+      socketFactory: () => {
+        const socket = new TestAdminSocket((activeSocket, frame) => {
+          if (sockets.length === 1 && frame["method"] === "config.get") {
+            activeSocket.closeFromGateway();
+            return;
+          }
+
+          activeSocket.respondOk(frame, { hash: "config-hash-recovered" });
+        });
+        sockets.push(socket);
+        return socket;
+      },
+      clock,
+      reconnectInitialBackoffMs: 10,
+      reconnectJitterRatio: 0,
+    });
+
+    const result = await client.request("config.get", {});
+
+    expect(result).toEqual(ok({ hash: "config-hash-recovered" }));
+    expect(sockets).toHaveLength(2);
+    expect(sockets.flatMap((socket) => socket.frames.map((frame) => frame["method"]))).toEqual([
+      "connect",
+      "config.get",
+      "connect",
+      "config.get",
+    ]);
+  });
+
+  it("uses exponential jittered capped backoff for reconnect attempts", async () => {
+    const clock = new TestClock();
+    let attempts = 0;
+    const client = new OpenClawAdminRpcClient({
+      url: "ws://127.0.0.1:18789",
+      operatorDeviceToken: "operator-device-token",
+      keypair: fakeKeypair(),
+      socketFactory: () => {
+        attempts += 1;
+        throw new Error("gateway down");
+      },
+      clock,
+      random: () => 1,
+      reconnectInitialBackoffMs: 100,
+      reconnectMaxBackoffMs: 250,
+      reconnectMaxAttempts: 4,
+      reconnectJitterRatio: 0.5,
+      circuitBreakerFailureThreshold: 10,
+    });
+
+    const resultPromise = client.request("config.get", {});
+    await flushMicrotasks();
+    expect(clock.delays).toEqual([150]);
+    clock.advance(150);
+    await flushMicrotasks();
+    expect(clock.delays).toEqual([150, 250]);
+    clock.advance(250);
+    await flushMicrotasks();
+    expect(clock.delays).toEqual([150, 250, 250]);
+    clock.advance(250);
+    const result = await resultPromise;
+
+    expect(result.ok).toBe(false);
+    expect(attempts).toBe(4);
+  });
+
+  it("opens the gateway circuit breaker then half-opens after cooldown", async () => {
+    const clock = new TestClock();
+    const sockets: TestAdminSocket[] = [];
+    let attempts = 0;
+    const client = new OpenClawAdminRpcClient({
+      url: "ws://127.0.0.1:18789",
+      operatorDeviceToken: "operator-device-token",
+      keypair: fakeKeypair(),
+      socketFactory: () => {
+        attempts += 1;
+        if (attempts <= 2) {
+          throw new Error("gateway down");
+        }
+
+        const socket = new TestAdminSocket((activeSocket, frame) =>
+          activeSocket.respondOk(frame, { ok: true }),
+        );
+        sockets.push(socket);
+        return socket;
+      },
+      clock,
+      reconnectInitialBackoffMs: 10,
+      reconnectJitterRatio: 0,
+      reconnectMaxAttempts: 4,
+      circuitBreakerFailureThreshold: 2,
+      circuitBreakerCooldownMs: 1_000,
+    });
+
+    const openedPromise = client.request("config.get", {});
+    await flushMicrotasks();
+    clock.advance(10);
+    const opened = await openedPromise;
+    expect(opened.ok).toBe(false);
+    expect(opened.ok ? null : opened.error).toMatchObject({
+      code: "provisioning.openclawAdmin.gatewayCircuitOpen",
+      details: expect.objectContaining({
+        reason: "gateway_unreachable_retrying",
+        retryAfterMs: 1_000,
+      }),
+    });
+
+    const fastFailed = await client.request("models.list", { view: "all" });
+    expect(fastFailed.ok).toBe(false);
+    expect(attempts).toBe(2);
+
+    clock.advance(1_000);
+    const recovered = await client.request("models.list", { view: "all" });
+
+    expect(recovered).toEqual(ok({ ok: true }));
+    expect(attempts).toBe(3);
+    expect(sockets).toHaveLength(1);
+  });
+
+  it("does not auto-retry a mutating RPC after a mid-request drop", async () => {
+    const clock = new TestClock();
+    const sockets: TestAdminSocket[] = [];
+    const client = new OpenClawAdminRpcClient({
+      url: "ws://127.0.0.1:18789",
+      operatorDeviceToken: "operator-device-token",
+      requestedScopes: ["operator.read", "operator.admin"],
+      keypair: fakeKeypair(),
+      socketFactory: () => {
+        const socket = new TestAdminSocket((activeSocket, frame) => {
+          if (frame["method"] === "config.patch") {
+            activeSocket.closeFromGateway();
+            return;
+          }
+
+          activeSocket.respondOk(frame, { ok: true });
+        });
+        sockets.push(socket);
+        return socket;
+      },
+      clock,
+    });
+
+    const result = await client.request(
+      "config.patch",
+      { raw: "{}", baseHash: "config-hash-1" },
+      { requiredScope: "operator.admin" },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe(
+      "provisioning.openclawAdmin.connectionClosed",
+    );
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0]?.frames.map((frame) => frame["method"])).toEqual(["connect", "config.patch"]);
+  });
+
+  it("does not recycle an idle socket while a request is in flight", async () => {
+    const clock = new TestClock();
+    const sockets: TestAdminSocket[] = [];
+    const client = new OpenClawAdminRpcClient({
+      url: "ws://127.0.0.1:18789",
+      operatorDeviceToken: "operator-device-token",
+      requestedScopes: ["operator.read", "operator.admin"],
+      keypair: fakeKeypair(),
+      socketFactory: () => {
+        const socket = new TestAdminSocket(() => {});
+        sockets.push(socket);
+        return socket;
+      },
+      clock,
+      idleTimeoutMs: 100,
+      requestTimeoutMs: 250,
+    });
+
+    const resultPromise = client.request(
+      "config.patch",
+      { raw: "{}", baseHash: "config-hash-1" },
+      { requiredScope: "operator.admin" },
+    );
+
+    await flushMicrotasks();
+    clock.advance(100);
+    expect(sockets[0]?.closed).toBe(false);
+
+    clock.advance(150);
+    const result = await resultPromise;
+    expect(result.ok ? null : result.error.code).toBe("provisioning.openclawAdmin.requestTimeout");
+    expect(sockets[0]?.closed).toBe(false);
+
+    clock.advance(100);
+    expect(sockets[0]?.closed).toBe(true);
+  });
+
+  it("recycles an idle socket before the next request uses it", async () => {
+    const clock = new TestClock();
+    const sockets: TestAdminSocket[] = [];
+    const client = new OpenClawAdminRpcClient({
+      url: "ws://127.0.0.1:18789",
+      operatorDeviceToken: "operator-device-token",
+      keypair: fakeKeypair(),
+      socketFactory: () => {
+        const socket = new TestAdminSocket((activeSocket, frame) =>
+          activeSocket.respondOk(frame, { hash: `config-hash-${sockets.length}` }),
+        );
+        sockets.push(socket);
+        return socket;
+      },
+      clock,
+      idleTimeoutMs: 100,
+    });
+
+    expect(await client.request("config.get", {})).toEqual(ok({ hash: "config-hash-1" }));
+    clock.advance(100);
+    await flushMicrotasks();
+    expect(sockets[0]?.closed).toBe(true);
+
+    expect(await client.request("config.get", {})).toEqual(ok({ hash: "config-hash-2" }));
+    expect(sockets).toHaveLength(2);
+  });
+
+  it("redacts gateway close reasons before logging handshake failures", async () => {
+    const logs: { readonly message: string; readonly details: Record<string, unknown> }[] = [];
+    const client = new OpenClawAdminRpcClient({
+      url: "ws://127.0.0.1:18789",
+      operatorDeviceToken: "operator-device-token",
+      keypair: fakeKeypair(),
+      socketFactory: () => {
+        let onClose:
+          ((event?: { readonly code?: number; readonly reason?: string }) => void) | null = null;
+        return {
+          send() {
+            queueMicrotask(() =>
+              onClose?.({ code: 1012, reason: "gateway restart token=secret-token-value" }),
+            );
+          },
+          close() {},
+          onMessage(listener) {
+            queueMicrotask(() =>
+              listener(
+                JSON.stringify({
+                  type: "event",
+                  event: "connect.challenge",
+                  payload: { nonce: "nonce-1", ts: 1 },
+                }),
+              ),
+            );
+          },
+          onClose(listener) {
+            onClose = listener;
+          },
+          onError() {},
+        };
+      },
+      logger: {
+        error(message, details) {
+          logs.push({ message, details });
+        },
+      },
+    });
+
+    const result = await client.request("config.get", {});
+
+    expect(result.ok).toBe(false);
+    expect(logs[0]?.details).toMatchObject({
+      closeCode: 1012,
+      closeReason: "gateway restart token=[redacted]",
+    });
+    expect(JSON.stringify(logs)).not.toContain("secret-token-value");
+  });
+
+  it("loads the worker admin device token from the vault by worker label", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "opzava-worker-vault-"));
+    tempDirectories.push(directory);
+    const vaultFile = join(directory, "openclaw-secrets.json");
+    const workerAdminToken = `worker-admin-token-${randomUUID()}`;
+    const stored = await new LocalFileSecretsVault({ filePath: vaultFile }).putSecret({
+      tenantId: "platform" as TenantId,
+      purpose: "openclaw",
+      label: "platform-worker-admin-device-token",
+      value: workerAdminToken,
+    });
+    if (!stored.ok) {
+      throw stored.error;
+    }
+
+    const frames: unknown[] = [];
+    stubGlobalAdminWebSocket(frames);
+    const port = createDefaultConnectionsProvisioningPort({
+      OPENCLAW_GATEWAY_URL: "ws://127.0.0.1:18789",
+      OPENCLAW_DEV_SECRETS_FILE: vaultFile,
+      OPENCLAW_DEVICE_PRIVATE_KEY_PEM: testEd25519PrivateKeyPem(),
+      GITHUB_ISSUES_REPOSITORY: "anthonykewl20/opzava",
+    });
+
+    await port.getConnectionsSnapshot(principal());
+
+    expect(frames[0]).toMatchObject({
+      method: "connect",
+      params: {
+        auth: { deviceToken: workerAdminToken },
+        scopes: ["operator.read", "operator.admin"],
+      },
+    });
+  });
+
+  it("logs a structured worker admin token error instead of silently returning unavailable", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "opzava-worker-vault-"));
+    tempDirectories.push(directory);
+    const logs: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((message) => {
+      logs.push(String(message));
+    });
+    const port = createDefaultConnectionsProvisioningPort({
+      OPENCLAW_GATEWAY_URL: "ws://127.0.0.1:18789",
+      OPENCLAW_DEV_SECRETS_FILE: join(directory, "openclaw-secrets.json"),
+      OPENCLAW_DEVICE_PRIVATE_KEY_PEM: testEd25519PrivateKeyPem(),
+      GITHUB_ISSUES_REPOSITORY: "anthonykewl20/opzava",
+    });
+
+    await port.getConnectionsSnapshot(principal());
+
+    expect(logs.map((entry) => JSON.parse(entry))).toContainEqual(
+      expect.objectContaining({
+        code: "provisioning.openclawAdmin.operatorWsHandshakeFailed",
+        cause: "missing_token",
+        vaultLabel: "platform-worker-admin-device-token",
+      }),
+    );
+  });
+
+  it("logs a structured pairing-not-approved handshake rejection", async () => {
+    const logs: { readonly message: string; readonly details: Record<string, unknown> }[] = [];
+    const client = new OpenClawAdminRpcClient({
+      url: "ws://127.0.0.1:18789",
+      operatorDeviceToken: "unapproved-token",
+      requestedScopes: ["operator.read", "operator.admin"],
+      keypair: fakeKeypair(),
+      socketFactory: () => {
+        let onMessage: ((data: string) => void) | null = null;
+        return {
+          send(data) {
+            const frame = JSON.parse(data) as Record<string, unknown>;
+            queueMicrotask(() =>
+              onMessage?.(
+                JSON.stringify({
+                  type: "res",
+                  id: frame["id"],
+                  ok: false,
+                  error: { code: "PAIRING_REQUIRED", message: "approval required" },
+                }),
+              ),
+            );
+          },
+          close() {},
+          onMessage(listener) {
+            onMessage = listener;
+            queueMicrotask(() =>
+              listener(
+                JSON.stringify({
+                  type: "event",
+                  event: "connect.challenge",
+                  payload: { nonce: "nonce-1", ts: 1 },
+                }),
+              ),
+            );
+          },
+          onClose() {},
+          onError() {},
+        };
+      },
+      logger: {
+        error(message, details) {
+          logs.push({ message, details });
+        },
+      },
+    });
+
+    const result = await client.request("config.get", {});
+
+    expect(result.ok).toBe(false);
+    expect(logs).toContainEqual({
+      message: "provisioning.openclawAdmin.operatorWsHandshakeFailed",
+      details: expect.objectContaining({
+        cause: "pairing_not_approved",
+        gatewayCode: "PAIRING_REQUIRED",
+        requestedScopes: ["operator.read", "operator.admin"],
+      }),
+    });
+  });
+
   it("maps config.get and models.list into a Connections snapshot", async () => {
     const admin = new RecordingAdminClient(
       {
@@ -964,7 +1692,7 @@ describe("Connections provisioning helpers", () => {
       snapshot.value.providerConnections.find((connection) => connection.providerId === "deepgram"),
     ).toMatchObject({
       providerId: "deepgram",
-      status: "needs_attention",
+      status: "not_connected",
       authHealth: "missing",
     });
     expect(
@@ -989,7 +1717,7 @@ describe("Connections provisioning helpers", () => {
 
   it("falls back to models status CLI when models.authStatus is unavailable", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const admin = new RecordingAdminClient({
+    const admin: RecordingAdminClient = new RecordingAdminClient({
       "config.get": ok({
         region: "config-region",
         auth: {
@@ -1072,6 +1800,173 @@ describe("Connections provisioning helpers", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it("uses CLI api-key profile truth for connected providers and authStatus only for health", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "config.get": ok({
+        region: "config-region",
+        agents: {
+          defaults: {
+            models: {
+              "openai/gpt-5.5": {},
+              "opencode-go/kimi-k2.6": {},
+              "zai/glm-5.1": {},
+              "qwen/qwen3.5-plus": {},
+              "openrouter/auto": {},
+            },
+          },
+        },
+      }),
+      health: ok({ status: "ok" }),
+      "last-heartbeat": ok({ lastHeartbeatAt: "2026-07-03T00:00:00.000Z" }),
+      "models.list": ok({
+        providers: [
+          { id: "openai", label: "OpenAI", authChoices: [] },
+          {
+            id: "opencode-go",
+            label: "OpenCode Go",
+            authChoices: [
+              apiKeyChoice({
+                id: "opencode-go-api-key",
+                providerId: "opencode-go",
+                keyFlag: "opencode-go-api-key",
+              }),
+            ],
+          },
+          { id: "zai", label: "Z.AI", authChoices: [apiKeyChoice()] },
+          {
+            id: "qwen",
+            label: "Qwen",
+            authChoices: [
+              apiKeyChoice({ id: "qwen-api-key", providerId: "qwen", keyFlag: "qwen-api-key" }),
+            ],
+          },
+          { id: "moonshot", label: "Moonshot", authChoices: [] },
+          { id: "minimax", label: "MiniMax", authChoices: [] },
+          { id: "openrouter", label: "OpenRouter", authChoices: [] },
+        ],
+      }),
+      "models.authStatus": ok({
+        providers: [
+          {
+            provider: "openai",
+            displayName: "OpenAI OAuth",
+            status: "ok",
+            profiles: [{ profileId: "openai:oauth", type: "oauth", status: "ok" }],
+          },
+          {
+            provider: "openrouter",
+            displayName: "OpenRouter",
+            status: "expired",
+            profiles: [{ profileId: "openrouter:oauth", type: "oauth", status: "expired" }],
+          },
+          {
+            provider: "qwen",
+            displayName: "Qwen OAuth",
+            status: "ok",
+            profiles: [{ profileId: "qwen:oauth", type: "oauth", status: "ok" }],
+          },
+          {
+            provider: "moonshot",
+            displayName: "Moonshot",
+            status: "ok",
+            profiles: [{ profileId: "moonshot:manual", type: "api_key", status: "ok" }],
+          },
+        ],
+      }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      status: {
+        allowed: ["openai/gpt-5.5", "opencode-go/kimi-k2.6", "zai/glm-5.1", "moonshot/kimi-k2.6"],
+        auth: {
+          providers: [
+            {
+              provider: "openai",
+              profiles: { count: 1, oauth: 1, labels: ["openai:oauth=OAuth"] },
+            },
+            {
+              provider: "opencode-go",
+              profiles: { api_key: 1, labels: ["opencode-go:default=API key"] },
+            },
+            {
+              provider: "zai",
+              profiles: { count: 1, api_key: 1, labels: ["zai:default=API key"] },
+            },
+            {
+              provider: "moonshot",
+              profiles: { count: 1, api_key: 1, labels: ["moonshot:default=API key"] },
+            },
+            {
+              provider: "minimax",
+              profiles: { count: 1, api_key: 1, labels: ["minimax:default=API key"] },
+            },
+          ],
+        },
+      },
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const snapshot = await port.getConnectionsSnapshot(principal());
+
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) {
+      throw snapshot.error;
+    }
+    expect(gatewayRuntime.modelStatusCalls).toBe(1);
+    expect(snapshot.value.providerConnections).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerId: "openai",
+          status: "connected",
+          authHealth: "ok",
+          connectedAuthMode: "oauth",
+        }),
+        expect.objectContaining({
+          providerId: "opencode-go",
+          status: "connected",
+          model: "opencode-go/kimi-k2.6",
+          connectedAuthMode: "api_key",
+          usageLabel: "1 auth profile",
+        }),
+        expect.objectContaining({
+          providerId: "zai",
+          status: "connected",
+          model: "zai/glm-5.1",
+          connectedAuthMode: "api_key",
+        }),
+        expect.objectContaining({
+          providerId: "qwen",
+          status: "not_connected",
+          model: "qwen/qwen3.5-plus",
+          connectedAuthMode: null,
+        }),
+        expect.objectContaining({
+          providerId: "moonshot",
+          status: "connected",
+          connectedAuthMode: "api_key",
+          model: null,
+        }),
+        expect.objectContaining({
+          providerId: "minimax",
+          status: "needs_attention",
+          connectedAuthMode: "api_key",
+          model: null,
+        }),
+        expect.objectContaining({
+          providerId: "openrouter",
+          status: "needs_attention",
+          authHealth: "expired",
+          connectedAuthMode: "oauth",
+        }),
+      ]),
+    );
   });
 
   it("surfaces canonical LLM connect targets that have onboard auth-choices but no models yet", async () => {
@@ -1181,12 +2076,14 @@ describe("Connections provisioning helpers", () => {
       now: () => new Date("2026-07-03T00:00:00.000Z"),
     });
 
-    const result = await port.connectModelProviderApiKey({
+    const start = await port.startModelProviderApiKeyConnect({
       ...principal(),
       providerId: "zai",
       authChoiceId: "zai-api-key",
       apiKey: "secret-provider-key",
     });
+    expect(start).toMatchObject({ ok: true, value: { status: "pending" } });
+    const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
 
     expect(result.ok).toBe(true);
     expect(admin.calls[0]).toMatchObject({ method: "config.get" });
@@ -1214,17 +2111,698 @@ describe("Connections provisioning helpers", () => {
       },
     ]);
     expect(result.ok ? result.value : null).toMatchObject({
-      providerId: "zai",
       status: "connected",
-      authChoiceId: "zai-api-key",
-      usageLabel: "1 auth profile",
+      connection: {
+        providerId: "zai",
+        status: "connected",
+        authChoiceId: "zai-api-key",
+        usageLabel: "1 auth profile",
+      },
     });
     expect(JSON.stringify(admin.calls)).not.toContain("secret-provider-key");
     expect(JSON.stringify(result)).not.toContain("secret-provider-key");
   });
 
-  it("never leaks the submitted API key when the gateway onboard command fails", async () => {
+  it("connects Anthropic setup-token through onboard token auth instead of device-code", async () => {
     const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "config-hash-setup-token", plugins: { allow: ["anthropic"] } }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        {
+          id: "setup-token",
+          label: "Anthropic setup-token",
+          mode: "api-key",
+          keyFlag: "token",
+        },
+      ],
+      status: {
+        allowed: ["anthropic/claude-sonnet-5"],
+        auth: {
+          providers: [
+            {
+              provider: "anthropic",
+              profiles: { count: 1, token: 1, labels: ["anthropic:manual=Setup token"] },
+            },
+          ],
+        },
+      },
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const start = await port.startModelProviderApiKeyConnect({
+      ...principal(),
+      providerId: "anthropic",
+      authChoiceId: "setup-token",
+      apiKey: `sk-ant-oat01-${"a".repeat(80)}`,
+    });
+    expect(start).toMatchObject({ ok: true, value: { status: "pending" } });
+    const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
+
+    expect(result.ok).toBe(true);
+    expect(gatewayRuntime.connectCalls).toEqual([
+      {
+        providerId: "anthropic",
+        authChoiceId: "setup-token",
+        keyFlag: "token",
+        apiKey: `sk-ant-oat01-${"a".repeat(80)}`,
+      },
+    ]);
+    expect(gatewayRuntime.deviceLoginCalls).toEqual([]);
+    expect(result.ok ? result.value : null).toMatchObject({
+      status: "connected",
+      connection: {
+        providerId: "anthropic",
+        status: "connected",
+        authChoiceId: "setup-token",
+        connectedAuthMode: "token",
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("sk-ant-oat01");
+  });
+
+  // REPRO (bug): "Gateway onboard completed, but models status did not report a usable provider
+  // credential." Mirrors the live Opzava Gateway: Anthropic is NOT in agents.defaults.models nor
+  // in `models status` -> `allowed`; the ONLY signal that Anthropic is routable is
+  // agents.defaults.model.primary (= anthropic/claude-opus-4-8), which the onboard sets WHILE
+  // connecting the Claude subscription. completeModelProviderApiKeyConnect reads config.get BEFORE
+  // the onboard, so it classifies against the pre-onboard primary (openai) and returns a false
+  // negative even though the credential was written and is usable.
+  it("connects Anthropic even when the onboard is what sets the default model (stale pre-onboard config)", async () => {
+    const preOnboardConfig = {
+      config: {
+        agents: {
+          defaults: { models: { "openai/gpt-5.5": {} }, model: { primary: "openai/gpt-5.5" } },
+        },
+        plugins: { entries: { anthropic: { enabled: true } } },
+      },
+    };
+    const postOnboardConfig = {
+      config: {
+        agents: {
+          defaults: {
+            models: { "openai/gpt-5.5": {} },
+            model: { primary: "anthropic/claude-opus-4-8" },
+          },
+        },
+        plugins: { entries: { anthropic: { enabled: true } } },
+      },
+    };
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      // Real live `models status`: anthropic token profile present, but anthropic is NOT in `allowed`.
+      status: {
+        allowed: ["openai/gpt-5.5", "opencode-go/kimi-k2.6", "zai/glm-5.1", "zai/glm-5.2"],
+        auth: {
+          providers: [
+            {
+              provider: "anthropic",
+              profiles: { count: 1, token: 1, labels: ["anthropic:default=Setup token"] },
+            },
+          ],
+        },
+      },
+    });
+    // The onboard mutates agents.defaults.model.primary -> anthropic; a config read AFTER the
+    // onboard sees it, a read before does not.
+    const admin = new RecordingAdminClient({
+      "config.get": () =>
+        ok(gatewayRuntime.connectCalls.length === 0 ? preOnboardConfig : postOnboardConfig),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-11T00:00:00.000Z"),
+    });
+
+    const start = await port.startModelProviderApiKeyConnect({
+      ...principal(),
+      providerId: "anthropic",
+      authChoiceId: "setup-token",
+      apiKey: `sk-ant-oat01-${"a".repeat(80)}`,
+    });
+    const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
+
+    expect(result.ok ? result.value : result.error).toMatchObject({
+      status: "connected",
+      connection: { providerId: "anthropic", status: "connected" },
+    });
+  });
+
+  it("fails Anthropic setup-token when onboard never yields a routable provider", async () => {
+    vi.useFakeTimers();
+    try {
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        choices: [
+          { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+        ],
+        status: {
+          allowed: ["openai/gpt-5.5"],
+          auth: {
+            providers: [
+              {
+                provider: "anthropic",
+                profiles: { count: 1, token: 1, labels: ["anthropic:default=Setup token"] },
+              },
+            ],
+          },
+        },
+      });
+      const admin = new RecordingAdminClient({
+        "config.get": ok({
+          config: {
+            agents: {
+              defaults: { models: { "openai/gpt-5.5": {} }, model: { primary: "openai/gpt-5.5" } },
+            },
+            plugins: { entries: { anthropic: { enabled: true } } },
+          },
+        }),
+      });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        gatewayRuntime,
+        now: () => new Date("2026-07-11T00:00:00.000Z"),
+      });
+
+      const start = await port.startModelProviderApiKeyConnect({
+        ...principal(),
+        providerId: "anthropic",
+        authChoiceId: "setup-token",
+        apiKey: `sk-ant-oat01-${"a".repeat(80)}`,
+      });
+      await vi.advanceTimersByTimeAsync(31_000);
+      const result = await port.pollModelProviderApiKeyConnect({
+        ...principal(),
+        opId: start.ok ? start.value.opId : "",
+      });
+
+      expect(result.ok ? result.value : result.error).toMatchObject({
+        status: "failed",
+        code: "provisioning.connections.providerStatusNotConnected",
+      });
+      expect(JSON.stringify(result)).not.toContain("sk-ant-oat01");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts Anthropic setup-token flows pending-fast", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    expect(start).toMatchObject({ ok: true, value: { status: "pending" } });
+    expect(start.ok ? start.value.flowId : "").toMatch(/^setup:/);
+    expect(gatewayRuntime.setupTokenStarts).toEqual(["start"]);
+  });
+
+  it("polls setup-token authorize URLs from ANSI logs", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: "\u001B[32mOpen https://claude.ai/oauth/authorize?state=abc\u001B[0m\n",
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    const poll = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    expect(poll).toMatchObject({
+      ok: true,
+      value: {
+        status: "awaiting_code",
+        authorizeUrl: "https://claude.ai/oauth/authorize?state=abc",
+      },
+    });
+  });
+
+  it("submits setup-token authorization codes to the CLI stdin fifo", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    const submitted = await port.submitModelProviderSetupTokenCode({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+      code: "oauth-code-123",
+    });
+
+    expect(submitted).toMatchObject({ ok: true, value: { status: "pending" } });
+    expect(gatewayRuntime.setupTokenWrites).toEqual([
+      { stdinPath: "/tmp/opzava-st-test/stdin", value: "oauth-code-123" },
+    ]);
+  });
+
+  it("keeps setup-token submitted-code exchanges pending while stale authorize URLs remain", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: "Open https://claude.ai/oauth/authorize?state=abc\n",
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+    const awaiting = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+    const submitted = await port.submitModelProviderSetupTokenCode({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+      code: "oauth-code-123",
+    });
+
+    const poll = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    expect(awaiting.ok ? awaiting.value.status : null).toBe("awaiting_code");
+    expect(submitted).toMatchObject({ ok: true, value: { status: "pending" } });
+    expect(poll.ok ? poll.value.status : null).toBe("pending");
+  });
+
+  it("fails setup-token submitted-code exchanges after the CLI does not mint a token", async () => {
+    vi.useFakeTimers();
+    let nowMs = new Date("2026-07-03T00:00:00.000Z").getTime();
+    try {
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        choices: [
+          { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+        ],
+        setupTokenLog: "Open https://claude.ai/oauth/authorize?state=abc\n",
+      });
+      const port = setupTokenPort({ gatewayRuntime, now: () => new Date(nowMs) });
+      const start = await port.startModelProviderSetupTokenFlow({
+        ...principal(),
+        providerId: "anthropic",
+      });
+      await port.pollModelProviderSetupTokenFlow({
+        ...principal(),
+        flowId: start.ok ? start.value.flowId : "",
+      });
+      await port.submitModelProviderSetupTokenCode({
+        ...principal(),
+        flowId: start.ok ? start.value.flowId : "",
+        code: "oauth-code-123",
+      });
+      nowMs += 30_001;
+      await vi.advanceTimersByTimeAsync(30_001);
+
+      const poll = await port.pollModelProviderSetupTokenFlow({
+        ...principal(),
+        flowId: start.ok ? start.value.flowId : "",
+      });
+
+      expect(poll.ok ? poll.value : null).toMatchObject({
+        status: "failed",
+        code: "provisioning.connections.setupTokenLoginFailed",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats bare invalid setup-token authorization code logs as terminal failures", async () => {
+    const logs = [
+      "Error: invalid authorization code\n",
+      "Error: invalid_grant\n",
+      "Error: invalid_request\n",
+    ];
+    for (const setupTokenLog of logs) {
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        choices: [
+          { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+        ],
+        setupTokenLog,
+      });
+      const port = setupTokenPort({ gatewayRuntime });
+      const start = await port.startModelProviderSetupTokenFlow({
+        ...principal(),
+        providerId: "anthropic",
+      });
+
+      const poll = await port.pollModelProviderSetupTokenFlow({
+        ...principal(),
+        flowId: start.ok ? start.value.flowId : "",
+      });
+
+      expect(poll.ok ? poll.value : null).toMatchObject({
+        status: "failed",
+        code: "provisioning.connections.setupTokenLoginFailed",
+      });
+    }
+  });
+
+  it("completes setup-token from a minted token log without returning the token", async () => {
+    const token = `sk-ant-oat01-${"b".repeat(80)}`;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: `Done ${token}\n`,
+      status: {
+        allowed: ["anthropic/claude-sonnet-5"],
+        auth: {
+          providers: [
+            {
+              provider: "anthropic",
+              profiles: { count: 1, token: 1, labels: ["anthropic:manual=Setup token"] },
+            },
+          ],
+        },
+      },
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    const poll = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    expect(poll.ok ? poll.value : null).toMatchObject({
+      status: "connected",
+      connection: { providerId: "anthropic", authChoiceId: "setup-token" },
+    });
+    expect(gatewayRuntime.connectCalls).toEqual([
+      { providerId: "anthropic", authChoiceId: "setup-token", keyFlag: "token", apiKey: token },
+    ]);
+    expect(JSON.stringify(poll)).not.toContain("sk-ant-oat01");
+    expect(gatewayRuntime.setupTokenStops).toEqual([
+      { execId: "exec-setup-1", logPath: "/tmp/opzava-st-test/setup.log" },
+    ]);
+  });
+
+  it("completes setup-token when the minted token is wrapped across PTY line breaks", async () => {
+    // The script PTY wraps long tokens across \r\n. setupTokenFromLog must strip the line breaks
+    // or it extracts only the first (short) segment; onboard then rejects it (the token must be
+    // >= 80 chars) and a valid token fails. Each line below is < 80 chars; the full token is not.
+    const token = `sk-ant-oat01-${"b".repeat(120)}`;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: `Done sk-ant-oat01-${"b".repeat(60)}\r\n${"b".repeat(60)}\n`,
+      status: {
+        allowed: ["anthropic/claude-sonnet-5"],
+        auth: {
+          providers: [
+            {
+              provider: "anthropic",
+              profiles: { count: 1, token: 1, labels: ["anthropic:manual=Setup token"] },
+            },
+          ],
+        },
+      },
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    const poll = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    expect(poll.ok ? poll.value : null).toMatchObject({
+      status: "connected",
+      connection: { providerId: "anthropic", authChoiceId: "setup-token" },
+    });
+    expect(gatewayRuntime.connectCalls).toEqual([
+      { providerId: "anthropic", authChoiceId: "setup-token", keyFlag: "token", apiKey: token },
+    ]);
+  });
+
+  it("redacts terminal setup-token failures", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: "setup-token failed invalid code oauth-code-secret\n",
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    const poll = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    expect(poll.ok ? poll.value : null).toMatchObject({
+      status: "failed",
+      code: "provisioning.connections.setupTokenLoginFailed",
+    });
+    expect(JSON.stringify(poll)).not.toContain("oauth-code-secret");
+    expect(poll.ok && poll.value.status === "failed" ? poll.value.message : "").toContain(
+      "Start again",
+    );
+  });
+
+  it("expires setup-token flows and clears cleanup state", async () => {
+    vi.useFakeTimers();
+    let nowMs = new Date("2026-07-03T00:00:00.000Z").getTime();
+    try {
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        choices: [
+          { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+        ],
+      });
+      const port = setupTokenPort({ gatewayRuntime, now: () => new Date(nowMs) });
+      const start = await port.startModelProviderSetupTokenFlow({
+        ...principal(),
+        providerId: "anthropic",
+      });
+      nowMs += 10 * 60 * 1000;
+
+      const expired = await port.pollModelProviderSetupTokenFlow({
+        ...principal(),
+        flowId: start.ok ? start.value.flowId : "",
+      });
+      const second = await port.pollModelProviderSetupTokenFlow({
+        ...principal(),
+        flowId: start.ok ? start.value.flowId : "",
+      });
+
+      expect(expired.ok ? expired.value : null).toMatchObject({
+        status: "expired",
+        code: "provisioning.connections.setupTokenFlowExpired",
+      });
+      expect(second.ok).toBe(false);
+      expect(gatewayRuntime.setupTokenStops).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps setup-token flows org-scoped", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    const crossOrg = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      orgId: "00000000-0000-4000-8000-000000000099",
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    expect(crossOrg.ok).toBe(false);
+    expect(crossOrg.ok ? null : crossOrg.error.code).toBe(
+      "provisioning.connections.setupTokenFlowNotFound",
+    );
+  });
+
+  it("polls API-key connect pending then connected without retaining the raw key", async () => {
+    vi.useFakeTimers();
+    try {
+      const admin: RecordingAdminClient = new RecordingAdminClient({
+        "config.get": ok({ hash: "config-hash-1", plugins: { allow: ["zai"] } }),
+      });
+      const gatewayRuntime = new RecordingGatewayRuntime({ connectDelayMs: 100 });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        gatewayRuntime,
+        now: () => new Date("2026-07-03T00:00:00.000Z"),
+      });
+
+      const start = await port.startModelProviderApiKeyConnect({
+        ...principal(),
+        providerId: "zai",
+        authChoiceId: "zai-api-key",
+        apiKey: "secret-provider-key",
+      });
+      expect(start).toMatchObject({ ok: true, value: { status: "pending" } });
+      const opId = start.ok ? start.value.opId : "";
+      await expect(port.pollModelProviderApiKeyConnect({ ...principal(), opId })).resolves.toEqual(
+        ok({ status: "pending" }),
+      );
+
+      await vi.advanceTimersByTimeAsync(100);
+      const result = await pollApiKeyConnectUntilTerminal(port, opId);
+      expect(result.ok ? result.value : null).toMatchObject({
+        status: "connected",
+        connection: { providerId: "zai", status: "connected" },
+      });
+      expect(JSON.stringify(result)).not.toContain("secret-provider-key");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries transient API-key post-check failures before reporting connected", async () => {
+    vi.useFakeTimers();
+    try {
+      const admin: RecordingAdminClient = new RecordingAdminClient({
+        "config.get": ok({ hash: "config-hash-1", plugins: { allow: ["zai"] } }),
+      });
+      let statusAttempts = 0;
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        statusResult: () => {
+          statusAttempts += 1;
+          if (statusAttempts < 3) {
+            return err(
+              new DomainError({
+                code: "test.closedBeforeResponse",
+                message: "models.status closed before a response",
+              }),
+            );
+          }
+          return ok({
+            allowed: ["zai/glm-5.2"],
+            auth: {
+              providers: [
+                {
+                  provider: "zai",
+                  profiles: { count: 1, apiKey: 1, labels: ["zai:manual=API key"] },
+                },
+              ],
+            },
+          });
+        },
+      });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        gatewayRuntime,
+        now: () => new Date("2026-07-03T00:00:00.000Z"),
+      });
+
+      const start = await port.startModelProviderApiKeyConnect({
+        ...principal(),
+        providerId: "zai",
+        authChoiceId: "zai-api-key",
+        apiKey: "secret-provider-key",
+      });
+      // Each transient failure sleeps 500ms before the next post-check attempt.
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(500);
+      const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
+
+      expect(result.ok ? result.value : null).toMatchObject({
+        status: "connected",
+        connection: { providerId: "zai", status: "connected" },
+      });
+      expect(statusAttempts).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("expires API-key connect operations and rejects cross-org polling", async () => {
+    vi.useFakeTimers();
+    try {
+      const admin: RecordingAdminClient = new RecordingAdminClient({
+        "config.get": ok({ hash: "config-hash-1", plugins: { allow: ["zai"] } }),
+      });
+      const gatewayRuntime = new RecordingGatewayRuntime({ connectDelayMs: 200_000 });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        gatewayRuntime,
+        now: () => new Date("2026-07-03T00:00:00.000Z"),
+      });
+
+      const start = await port.startModelProviderApiKeyConnect({
+        ...principal(),
+        providerId: "zai",
+        authChoiceId: "zai-api-key",
+        apiKey: "secret-provider-key",
+      });
+      const opId = start.ok ? start.value.opId : "";
+      const foreign = await port.pollModelProviderApiKeyConnect({
+        ...principal(),
+        orgId: "00000000-0000-4000-8000-000000000099",
+        opId,
+      });
+      expect(foreign.ok).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(120_000);
+      const expired = await port.pollModelProviderApiKeyConnect({ ...principal(), opId });
+      expect(expired.ok).toBe(false);
+      expect(gatewayRuntime.connectCalls).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never leaks the submitted API key when the gateway onboard command fails", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
       "config.get": ok({ hash: "config-hash-1", plugins: { allow: ["codex"] } }),
       "config.patch": ok({ ok: true }),
     });
@@ -1244,20 +2822,26 @@ describe("Connections provisioning helpers", () => {
       now: () => new Date("2026-07-03T00:00:00.000Z"),
     });
 
-    const result = await port.connectModelProviderApiKey({
+    const start = await port.startModelProviderApiKeyConnect({
       ...principal(),
       providerId: "zai",
       authChoiceId: "zai-api-key",
       apiKey: "sk-live-secret-provider-key",
     });
+    const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
 
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
+    const payload = result.ok ? result.value : null;
+    expect(payload).toMatchObject({
+      status: "failed",
+      code: "provisioning.connections.invalidProviderCredential",
+    });
     // The raw onboard output (which contains the submitted key) must NOT reach the result/browser.
     expect(JSON.stringify(result)).not.toContain("sk-live-secret-provider-key");
-    expect(result.ok ? null : result.error.code).toBe(
-      "provisioning.connections.invalidProviderCredential",
+    expect(payload?.status === "failed" ? payload.message : "").not.toContain("sk-live");
+    expect(payload?.status === "failed" ? payload.message : "").toContain(
+      "invalid api key [redacted]",
     );
-    expect(result.ok ? null : result.error.message).not.toContain("sk-live");
   });
 
   it("does not send provider API-key material when the device lacks operator.admin", async () => {
@@ -1274,24 +2858,18 @@ describe("Connections provisioning helpers", () => {
       now: () => new Date("2026-07-03T00:00:00.000Z"),
     });
 
-    const result = await port.connectModelProviderApiKey({
+    const start = await port.startModelProviderApiKeyConnect({
       ...principal(),
       providerId: "zai",
       authChoiceId: "zai-api-key",
       apiKey: "secret-provider-key",
     });
+    const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("expected admin scope failure");
-    }
-    expect(result.error).toMatchObject({
+    expect(result.ok).toBe(true);
+    expect(result.ok ? result.value : null).toMatchObject({
+      status: "failed",
       code: "provisioning.openclawAdmin.operatorAdminRequired",
-      message: "operator.admin scope required — pair/upgrade an admin device.",
-      details: {
-        requiredScope: "operator.admin",
-        grantedScopes: ["operator.read", "operator.write", "operator.approvals"],
-      },
     });
     expect(admin.calls).toEqual([
       {
@@ -1304,13 +2882,14 @@ describe("Connections provisioning helpers", () => {
   });
 
   it("disconnects model providers through models.authLogout with operator.admin scope", async () => {
-    const admin = new RecordingAdminClient({
+    const admin: RecordingAdminClient = new RecordingAdminClient({
       "models.authLogout": ok({
         provider: "openai",
         removedProfiles: ["openai:chatgpt"],
         abortedRunIds: [],
       }),
       "config.get": ok({ hash: "config-hash-logout", auth: { profiles: {}, order: {} } }),
+      "models.authStatus": ok({ providers: [] }),
       "models.list": ok({
         providers: [
           {
@@ -1347,29 +2926,396 @@ describe("Connections provisioning helpers", () => {
       status: "not_connected",
       connectedAuthMode: null,
     });
-    expect(admin.calls[0]).toMatchObject({
-      method: "models.authLogout",
-      params: { provider: "openai" },
-    });
+    expect(
+      admin.calls.filter((call) => call.method === "models.authLogout").map((call) => call.params),
+    ).toEqual([{ provider: "openai" }]);
     expect(admin.calls.some((call) => call.method === "config.patch")).toBe(false);
   });
 
-  it("clears an api-key config profile even when authLogout succeeds but removed nothing", async () => {
-    // The zai regression: authLogout returns ok with removedProfiles:[] (the key lives in
-    // config.auth.profiles, not the managed store), so disconnect must ALSO config.patch it away.
-    const admin = new RecordingAdminClient({
-      "models.authLogout": ok({ provider: "zai", removedProfiles: [], abortedRunIds: [] }),
+  it("retries disconnect post-check reads across the gateway restart window", async () => {
+    vi.useFakeTimers();
+    try {
+      let authStatusAttempts = 0;
+      const admin = new RecordingAdminClient({
+        "models.authLogout": ok({
+          provider: "openai",
+          removedProfiles: ["openai:chatgpt"],
+          abortedRunIds: [],
+        }),
+        "config.get": ok({ hash: "config-hash-logout", auth: { profiles: {}, order: {} } }),
+        // The disconnect config.patch restarts the gateway; the first post-check reads land in the
+        // restart window and fail exactly like the live repro (handshake rejected UNAVAILABLE).
+        "models.authStatus": () => {
+          authStatusAttempts += 1;
+          if (authStatusAttempts < 3) {
+            return err(
+              new DomainError({
+                code: "provisioning.openclawAdmin.operatorWsHandshakeFailed",
+                message: "operator WS handshake failed: auth_rejected (UNAVAILABLE)",
+              }),
+            );
+          }
+          return ok({ providers: [] });
+        },
+      });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        now: () => new Date("2026-07-03T00:00:00.000Z"),
+      });
+
+      const pending = port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await pending;
+
+      expect(result.ok).toBe(true);
+      expect(authStatusAttempts).toBe(3);
+      expect(result.ok ? result.value : null).toMatchObject({
+        providerId: "openai",
+        status: "not_connected",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("attempts the gateway authLogout RPC before fail-closed logout errors", async () => {
+    const admin = new RecordingAdminClient(
+      {
+        "models.authLogout": err(
+          new DomainError({
+            code: "gateway.forbidden",
+            message: "operator.admin scope required.",
+          }),
+        ),
+        "config.get": ok({ hash: "config-hash-logout", auth: { profiles: {}, order: {} } }),
+      },
+      ["operator.read", "operator.write", "operator.approvals"],
+    );
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+
+    expect(result.ok).toBe(false);
+    expect(admin.calls.map((call) => call.method)).toEqual(["config.get", "models.authLogout"]);
+    expect(admin.calls[1]).toMatchObject({
+      method: "models.authLogout",
+      params: { provider: "openai" },
+    });
+  });
+
+  it("disconnects OAuth providers from the default agent and configured agents", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": () =>
+        ok({
+          provider: "openai",
+          removedProfiles: admin.calls.some(
+            (call) => call.method === "models.authLogout" && !Object.hasOwn(call.params, "agent"),
+          )
+            ? ["openai:oauth"]
+            : [],
+          abortedRunIds: [],
+        }),
       "config.get": ok({
-        hash: "config-hash-zai",
-        auth: {
-          profiles: { "zai-zai-api-key": { provider: "zai", mode: "api_key" } },
-          order: { zai: ["zai-zai-api-key"] },
+        hash: "config-hash-openai",
+        auth: { profiles: {}, order: {} },
+        agents: {
+          list: [
+            { id: "ask-admin-opzava", model: "openai/gpt-5.5" },
+            { id: "ask-admin-opzava", model: "openai/gpt-5.5" },
+          ],
         },
       }),
-      "config.patch": ok({ ok: true }),
-      "models.list": ok({
-        providers: [{ id: "zai", label: "Z.AI", authChoices: [apiKeyChoice()] }],
+      "models.authStatus": () =>
+        ok({
+          providers: admin.calls.some(
+            (call) => call.method === "models.authLogout" && !Object.hasOwn(call.params, "agent"),
+          )
+            ? []
+            : [
+                {
+                  provider: "openai",
+                  status: "ok",
+                  profiles: [{ profileId: "openai:oauth", type: "oauth", status: "ok" }],
+                },
+              ],
+        }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+
+    expect(result.ok).toBe(true);
+    expect(
+      admin.calls.filter((call) => call.method === "models.authLogout").map((call) => call.params),
+    ).toEqual([{ provider: "openai" }, { provider: "openai", agent: "ask-admin-opzava" }]);
+  });
+
+  it("fails closed when models status still reports OAuth credentials after disconnect", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      status: {
+        agentDir: "/home/node/.openclaw/agents/main/agent",
+        auth: {
+          providers: [
+            {
+              provider: "openai",
+              profiles: { count: 1, oauth: 1, labels: ["openai:oauth=OAuth"] },
+            },
+          ],
+        },
+      },
+    });
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({
+        provider: "openai",
+        agentId: "main",
+        removedProfiles: [],
+        abortedRunIds: [],
       }),
+      "config.get": ok({ hash: "config-hash-openai", auth: { profiles: {}, order: {} } }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error).toMatchObject({
+      code: "provisioning.connections.providerStillConnected",
+      details: {
+        providerId: "openai",
+        credentialStores: ["models.status"],
+        connectedAuthMode: "oauth",
+      },
+    });
+    expect(
+      admin.calls.filter((call) => call.method === "models.authLogout").map((call) => call.params),
+    ).toEqual([{ provider: "openai" }]);
+  });
+
+  it("clears an api-key config profile even when authLogout succeeds but removed nothing", async () => {
+    vi.useFakeTimers();
+    try {
+      // The zai regression: authLogout returns ok with removedProfiles:[] (the key lives in
+      // config.auth.profiles, not the managed store), so disconnect must ALSO config.patch it away.
+      const admin: RecordingAdminClient = new RecordingAdminClient({
+        "models.authLogout": ok({ provider: "zai", removedProfiles: [], abortedRunIds: [] }),
+        "config.get": () =>
+          ok({
+            hash: "config-hash-zai",
+            auth: admin.calls.some((call) => call.method === "config.patch")
+              ? { profiles: {}, order: { zai: [] } }
+              : {
+                  profiles: { "zai-zai-api-key": { provider: "zai", mode: "api_key" } },
+                  order: { zai: ["zai-zai-api-key"] },
+                },
+            agents: {
+              list: [
+                { id: "agent-one", model: "zai/glm-5.2" },
+                { id: "agent-two", model: "zai/glm-5.2" },
+                { id: "agent-three", model: "zai/glm-5.2" },
+                { id: "agent-four", model: "zai/glm-5.2" },
+              ],
+            },
+          }),
+        "config.patch": ok({ ok: true }),
+        "models.authStatus": ok({ providers: [] }),
+        "models.list": ok({
+          providers: [{ id: "zai", label: "Z.AI", authChoices: [apiKeyChoice()] }],
+        }),
+      });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        now: () => new Date("2026-07-03T00:00:00.000Z"),
+      });
+
+      const resultPromise = port.disconnectModelProvider({ ...principal(), providerId: "zai" });
+      await vi.advanceTimersByTimeAsync(0);
+      const result = await resultPromise;
+
+      expect(result.ok).toBe(true);
+      expect(
+        admin.calls
+          .filter((call) => call.method === "models.authLogout")
+          .map((call) => call.params),
+      ).toEqual([{ provider: "zai" }]);
+      const patch = admin.calls.find((call) => call.method === "config.patch");
+      expect(patch).toBeDefined();
+      expect(patch?.params).toMatchObject({ replacePaths: ["auth.order.zai"] });
+      expect(rawPatch(patch!.params)).toEqual({
+        auth: { profiles: { "zai-zai-api-key": null }, order: { zai: [] } },
+      });
+      expect(JSON.stringify(result)).not.toContain("zai-zai-api-key-secret");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries transient authLogout rate limits while disconnecting OAuth agents", async () => {
+    vi.useFakeTimers();
+    try {
+      let logoutAttempts = 0;
+      const admin = new RecordingAdminClient({
+        "models.authLogout": () => {
+          logoutAttempts += 1;
+          return logoutAttempts === 1
+            ? err(
+                new DomainError({
+                  code: "gateway.unavailable",
+                  message:
+                    "rate limit exceeded for models.authLogout; retry after 2s api_key=sk-rate-secret",
+                  details: { retryAfterMs: 2_000, apiKey: "sk-rate-secret" },
+                }),
+              )
+            : ok({ provider: "openai", removedProfiles: [], abortedRunIds: [] });
+        },
+        "config.get": ok({
+          hash: "config-hash-openai",
+          auth: { profiles: {}, order: {} },
+          agents: {
+            list: [
+              { id: "agent-one", model: "openai/gpt-5.5" },
+              { id: "agent-two", model: "openai/gpt-5.5" },
+            ],
+          },
+        }),
+        "models.authStatus": ok({ providers: [] }),
+      });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        now: () => new Date("2026-07-03T00:00:00.000Z"),
+      });
+
+      const resultPromise = port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(admin.calls.filter((call) => call.method === "models.authLogout")).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await resultPromise;
+
+      expect(result.ok).toBe(true);
+      expect(
+        admin.calls
+          .filter((call) => call.method === "models.authLogout")
+          .map((call) => call.params),
+      ).toEqual([
+        { provider: "openai" },
+        { provider: "openai" },
+        { provider: "openai", agent: "agent-one" },
+        { provider: "openai", agent: "agent-two" },
+      ]);
+      expect(JSON.stringify(result)).not.toContain("sk-rate-secret");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("paces multi-agent authLogout batches to avoid the gateway write budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const admin = new RecordingAdminClient({
+        "models.authLogout": ok({ provider: "openai", removedProfiles: [], abortedRunIds: [] }),
+        "config.get": ok({
+          hash: "config-hash-openai",
+          auth: { profiles: {}, order: {} },
+          agents: {
+            list: [
+              { id: "agent-one", model: "openai/gpt-5.5" },
+              { id: "agent-two", model: "openai/gpt-5.5" },
+              { id: "agent-three", model: "openai/gpt-5.5" },
+              { id: "agent-four", model: "openai/gpt-5.5" },
+            ],
+          },
+        }),
+        "models.authStatus": ok({ providers: [] }),
+      });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        now: () => new Date("2026-07-03T00:00:00.000Z"),
+      });
+
+      const resultPromise = port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(admin.calls.filter((call) => call.method === "models.authLogout")).toHaveLength(1);
+
+      for (const expectedCalls of [2, 3, 4, 5]) {
+        await vi.advanceTimersByTimeAsync(19_999);
+        expect(admin.calls.filter((call) => call.method === "models.authLogout")).toHaveLength(
+          expectedCalls - 1,
+        );
+        await vi.advanceTimersByTimeAsync(1);
+        expect(admin.calls.filter((call) => call.method === "models.authLogout")).toHaveLength(
+          expectedCalls,
+        );
+      }
+      const result = await resultPromise;
+
+      expect(result.ok).toBe(true);
+      expect(
+        admin.calls
+          .filter((call) => call.method === "models.authLogout")
+          .map((call) => call.params),
+      ).toEqual([
+        { provider: "openai" },
+        { provider: "openai", agent: "agent-one" },
+        { provider: "openai", agent: "agent-two" },
+        { provider: "openai", agent: "agent-three" },
+        { provider: "openai", agent: "agent-four" },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts config.patch closed-before-response when post-check proves disconnect", async () => {
+    let patchAttempted = false;
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "zai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": () =>
+        ok({
+          hash: "config-hash-zai",
+          auth: patchAttempted
+            ? { profiles: {}, order: { zai: [] } }
+            : {
+                profiles: { "zai-zai-api-key": { provider: "zai", mode: "api_key" } },
+                order: { zai: ["zai-zai-api-key"] },
+              },
+        }),
+      "config.patch": () => {
+        patchAttempted = true;
+        return err(
+          new DomainError({
+            code: "provisioning.openclawAdmin.connectionClosed",
+            message:
+              "OpenClaw admin RPC config.patch closed before a response. api_key=sk-config-secret",
+          }),
+        );
+      },
+      "models.authStatus": ok({ providers: [] }),
     });
     const port = new GatewayAdminConnectionsProvisioningPort({
       adminClient: admin,
@@ -1381,39 +3327,148 @@ describe("Connections provisioning helpers", () => {
     const result = await port.disconnectModelProvider({ ...principal(), providerId: "zai" });
 
     expect(result.ok).toBe(true);
-    expect(admin.calls[0]).toMatchObject({
-      method: "models.authLogout",
-      params: { provider: "zai" },
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+    expect(admin.calls.filter((call) => call.method === "models.authStatus")).toHaveLength(1);
+    expect(admin.calls.filter((call) => call.method === "config.get")).toHaveLength(2);
+    expect(JSON.stringify(result)).not.toContain("sk-config-secret");
+  });
+
+  it("still fails closed when operator.admin is denied for disconnect config.patch", async () => {
+    const admin = new RecordingAdminClient(
+      {
+        "models.authLogout": ok({ provider: "zai", removedProfiles: [], abortedRunIds: [] }),
+        "config.get": ok({
+          hash: "config-hash-zai",
+          auth: {
+            profiles: { "zai-zai-api-key": { provider: "zai", mode: "api_key" } },
+            order: { zai: ["zai-zai-api-key"] },
+          },
+        }),
+        "models.authStatus": ok({ providers: [] }),
+      },
+      ["operator.read"],
+    );
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
     });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "zai" });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error).toMatchObject({
+      code: "provisioning.openclawAdmin.operatorAdminRequired",
+    });
+    expect(admin.calls.filter((call) => call.method === "models.authStatus")).toHaveLength(0);
+  });
+
+  it("redacts token material from surfaced disconnect write failures", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "zai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": ok({
+        hash: "config-hash-zai",
+        auth: {
+          profiles: { "zai-zai-api-key": { provider: "zai", mode: "api_key" } },
+          order: { zai: ["zai-zai-api-key"] },
+        },
+      }),
+      "config.patch": err(
+        new DomainError({
+          code: "gateway.configInvalid",
+          message: "invalid config api_key=sk-surfaced-secret",
+          details: { apiKey: "sk-surfaced-secret", token: "refresh-token-secret" },
+        }),
+      ),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "zai" });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error).toMatchObject({ code: "gateway.configInvalid" });
+    expect(result.ok ? "" : result.error.message).not.toContain("sk-surfaced-secret");
+    expect(JSON.stringify(result)).not.toContain("sk-surfaced-secret");
+    expect(JSON.stringify(result)).not.toContain("refresh-token-secret");
+  });
+
+  it("clears token config profiles and treats already-disconnected providers as a no-op", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "anthropic", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": () =>
+        ok({
+          hash: "config-hash-token",
+          auth: admin.calls.some((call) => call.method === "config.patch")
+            ? { profiles: {}, order: { anthropic: [], openai: [] } }
+            : {
+                profiles: { "anthropic:manual": { provider: "anthropic", mode: "token" } },
+                order: { anthropic: ["anthropic:manual"] },
+              },
+        }),
+      "config.patch": ok({ ok: true }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const disconnected = await port.disconnectModelProvider({
+      ...principal(),
+      providerId: "anthropic",
+    });
+    const noOp = await port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+
+    expect(disconnected.ok).toBe(true);
+    expect(noOp.ok).toBe(true);
     const patch = admin.calls.find((call) => call.method === "config.patch");
-    expect(patch).toBeDefined();
     expect(rawPatch(patch!.params)).toEqual({
-      auth: { profiles: { "zai-zai-api-key": null }, order: { zai: [] } },
+      auth: { profiles: { "anthropic:manual": null }, order: { anthropic: [] } },
     });
+    expect(
+      admin.calls.filter((call) => call.method === "models.authLogout").map((call) => call.params),
+    ).toEqual([{ provider: "anthropic" }, { provider: "openai" }]);
+    expect(admin.calls.filter((call) => call.method === "models.authStatus")).toEqual([
+      expect.objectContaining({ params: { refresh: true } }),
+      expect.objectContaining({ params: { refresh: true } }),
+    ]);
   });
 
   it("falls back to config.patch API-key profile deletion when authLogout is unavailable", async () => {
-    const admin = new RecordingAdminClient({
+    const admin: RecordingAdminClient = new RecordingAdminClient({
       "models.authLogout": err(
         new DomainError({
           code: "openclaw.methodNotFound",
           message: "models.authLogout is not advertised.",
         }),
       ),
-      "config.get": ok({
-        hash: "config-hash-2",
-        auth: {
-          profiles: {
-            "zai-zai-api-key": {
-              providerId: "zai",
-              authChoiceId: "zai-api-key",
-              type: "api_key",
-            },
-          },
-          order: { zai: ["zai-zai-api-key"] },
-        },
-      }),
+      "config.get": () =>
+        ok({
+          hash: "config-hash-2",
+          auth: admin.calls.some((call) => call.method === "config.patch")
+            ? { profiles: {}, order: { zai: [] } }
+            : {
+                profiles: {
+                  "zai-zai-api-key": {
+                    providerId: "zai",
+                    authChoiceId: "zai-api-key",
+                    type: "api_key",
+                  },
+                },
+                order: { zai: ["zai-zai-api-key"] },
+              },
+        }),
       "config.patch": ok({ ok: true }),
+      "models.authStatus": ok({ providers: [] }),
     });
     const port = new GatewayAdminConnectionsProvisioningPort({
       adminClient: admin,
@@ -1428,10 +3483,9 @@ describe("Connections provisioning helpers", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(admin.calls[0]).toMatchObject({
-      method: "models.authLogout",
-      params: { provider: "zai" },
-    });
+    expect(
+      admin.calls.filter((call) => call.method === "models.authLogout").map((call) => call.params),
+    ).toEqual([{ provider: "zai" }]);
     const patchCall = admin.calls.find((call) => call.method === "config.patch");
     expect(patchCall?.params).toMatchObject({ baseHash: "config-hash-2" });
     expect(rawPatch(patchCall!.params)).toEqual({
@@ -1446,6 +3500,147 @@ describe("Connections provisioning helpers", () => {
     });
     expect(patchCall?.params).not.toHaveProperty("patch");
     expect(patchCall?.idempotencyKey).toBeUndefined();
+  });
+
+  it("fails closed when post-disconnect checks still report managed OAuth credentials", async () => {
+    const admin = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "openai", removedProfiles: ["openai:chatgpt"] }),
+      "config.get": ok({ hash: "config-hash-openai", auth: { profiles: {}, order: {} } }),
+      "models.authStatus": ok({
+        providers: [
+          {
+            provider: "openai",
+            status: "missing",
+            profiles: [{ type: "oauth", status: "missing" }],
+          },
+        ],
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error).toMatchObject({
+      code: "provisioning.connections.providerStillConnected",
+      details: {
+        providerId: "openai",
+        credentialStores: ["models.authStatus"],
+        connectedAuthMode: "oauth",
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("refresh");
+    expect(JSON.stringify(result)).not.toContain("token");
+  });
+
+  it("fails closed when the managed credential post-check cannot run", async () => {
+    const admin = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "openai", removedProfiles: ["openai:chatgpt"] }),
+      "config.get": ok({ hash: "config-hash-openai", auth: { profiles: {}, order: {} } }),
+      "models.authStatus": err(
+        new DomainError({
+          code: "test.authStatusUnavailable",
+          message: "auth status unavailable secret-refresh-token",
+        }),
+      ),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error).toMatchObject({
+      code: "provisioning.connections.providerPostCheckUnavailable",
+      details: { providerId: "openai" },
+    });
+    expect(JSON.stringify(result)).not.toContain("secret-refresh-token");
+  });
+
+  it("fails closed when the managed credential post-check returns an unexpected payload", async () => {
+    const admin = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "openai", removedProfiles: ["openai:chatgpt"] }),
+      "config.get": ok({ hash: "config-hash-openai", auth: { profiles: {}, order: {} } }),
+      "models.authStatus": ok({}),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error).toMatchObject({
+      code: "provisioning.connections.providerPostCheckUnavailable",
+      details: { providerId: "openai" },
+    });
+  });
+
+  it("fails closed when the managed credential post-check returns a malformed target provider entry", async () => {
+    const admin = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "openai", removedProfiles: ["openai:chatgpt"] }),
+      "config.get": ok({ hash: "config-hash-openai", auth: { profiles: {}, order: {} } }),
+      "models.authStatus": ok({ providers: [{ provider: "openai" }] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error).toMatchObject({
+      code: "provisioning.connections.providerPostCheckUnavailable",
+      details: { providerId: "openai" },
+    });
+  });
+
+  it("fails closed when config-profile credentials remain after disconnect", async () => {
+    const admin = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "zai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": ok({
+        hash: "config-hash-zai",
+        auth: {
+          profiles: { "zai-zai-api-key": { provider: "zai", mode: "api_key" } },
+          order: { zai: ["zai-zai-api-key"] },
+        },
+      }),
+      "config.patch": ok({ ok: true }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "zai" });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error).toMatchObject({
+      code: "provisioning.connections.providerStillConnected",
+      details: {
+        providerId: "zai",
+        credentialStores: ["config.auth.profiles"],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("api_key");
   });
 
   it("applies orchestrator delegation through config.patch with the audited tool expansion", async () => {
@@ -1523,7 +3718,7 @@ describe("Connections provisioning helpers", () => {
     const gatewayRuntime = new RecordingGatewayRuntime({
       choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
       deviceCodeLog:
-        "\u001B[36mAuthorize at https://auth.openai.com/codex/device\u001B[0m\nCode: NRK5-7IPKG\nrefresh_token=secret-device-token\n",
+        '\u001B[36mAuthorize at https://auth.openai.com/codex/device\u001B[0m\nCode: NRK5-7IPKG\n{"refresh_token":"secret-device-token","access_token":"secret-access-token"}\n',
     });
     const port = new GatewayAdminConnectionsProvisioningPort({
       adminClient: openAiDeviceFlowAdmin(),
@@ -1555,6 +3750,167 @@ describe("Connections provisioning helpers", () => {
       intervalSeconds: 5,
     });
     expect(JSON.stringify(result.value)).not.toContain("secret-device-token");
+    expect(JSON.stringify(result.value)).not.toContain("secret-access-token");
+  });
+
+  it("does not surface model-provider device flows from catalog reads", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLog:
+        "Open https://auth.openai.com/codex/device\nCode: NRK5-7IPKG\nrefresh_token=secret-dashboard-token\n",
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const challenge = await port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+    if (!challenge.ok) {
+      throw challenge.error;
+    }
+
+    const samePrincipalSnapshot = await port.getConnectionsSnapshot(principal());
+    const otherPrincipalSnapshot = await port.getConnectionsSnapshot({
+      ...principal(),
+      actorUserId: "00000000-0000-4000-8000-000000000099",
+    });
+
+    expect(challenge.value).toMatchObject({
+      kind: "model_provider",
+      userCode: "NRK5-7IPKG",
+    });
+    expect(samePrincipalSnapshot.ok ? samePrincipalSnapshot.value.pendingDeviceFlows : []).toEqual(
+      [],
+    );
+    expect(
+      otherPrincipalSnapshot.ok ? otherPrincipalSnapshot.value.pendingDeviceFlows : [],
+    ).toEqual([]);
+    expect(JSON.stringify(samePrincipalSnapshot)).not.toContain("secret-dashboard-token");
+    expect(JSON.stringify(otherPrincipalSnapshot)).not.toContain("secret-dashboard-token");
+  });
+
+  it("starting a new model-provider device flow supersedes and stops the prior flow", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLog: "Open https://auth.openai.com/codex/device\nCode: NRK5-7IPKG\n",
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const first = await port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+    const second = await port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+    if (!first.ok) {
+      throw first.error;
+    }
+    if (!second.ok) {
+      throw second.error;
+    }
+
+    const firstPoll = await port.pollDeviceFlow({ ...principal(), flowId: first.value.flowId });
+    const secondPoll = await port.pollDeviceFlow({ ...principal(), flowId: second.value.flowId });
+
+    expect(gatewayRuntime.deviceLoginCalls).toEqual(["openai", "openai"]);
+    expect(gatewayRuntime.deviceStops).toEqual([
+      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
+    ]);
+    expect(firstPoll.ok ? firstPoll.value : null).toMatchObject({
+      status: "expired",
+      message: "Model-provider device code expired or has already completed.",
+    });
+    expect(secondPoll.ok ? secondPoll.value : null).toMatchObject({
+      status: "pending",
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "NRK5-7IPKG",
+    });
+  });
+
+  it("cleans up model-provider device-flow exec and log when the first log read fails", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLogResult: err(
+        new DomainError({
+          code: "test.deviceLogReadFailed",
+          message: "Could not read device log.",
+        }),
+      ),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(gatewayRuntime.deviceStops).toEqual([
+      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("secret");
+  });
+
+  it("cleans up model-provider device-flow exec and log when polling cannot read the log", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLog:
+        "Open https://auth.openai.com/codex/device\nCode: NRK5-7IPKG\nrefresh_token=poll-read-secret\n",
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const challenge = await port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+    if (!challenge.ok) {
+      throw challenge.error;
+    }
+    gatewayRuntime.deviceLogResult = err(
+      new DomainError({
+        code: "test.deviceLogReadFailed",
+        message: "Could not read device log with poll-read-secret.",
+      }),
+    );
+
+    const result = await port.pollDeviceFlow({ ...principal(), flowId: challenge.value.flowId });
+
+    expect(result.ok).toBe(false);
+    expect(gatewayRuntime.deviceStops).toEqual([
+      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("poll-read-secret");
   });
 
   it("returns a pending model-provider device-flow challenge after a short empty-log probe", async () => {
@@ -1578,7 +3934,7 @@ describe("Connections provisioning helpers", () => {
         authChoiceId: "openai-device-code",
       });
 
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(6_000);
       const result = await resultPromise;
 
       expect(result.ok).toBe(true);
@@ -1625,7 +3981,7 @@ describe("Connections provisioning helpers", () => {
         providerId: "openai",
         authChoiceId: "openai-device-code",
       });
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(6_000);
       challenge = await challengePromise;
     } finally {
       vi.useRealTimers();
@@ -1700,6 +4056,65 @@ describe("Connections provisioning helpers", () => {
     expect(JSON.stringify(connected)).not.toContain("secret");
   });
 
+  it("surfaces a provider-blocked device-code request as a terminal failure instead of hanging", async () => {
+    let deviceCodeLog = "";
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLog: () => deviceCodeLog,
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    vi.useFakeTimers();
+    let challenge: Awaited<ReturnType<typeof port.startModelProviderDeviceFlow>> | null = null;
+    try {
+      const challengePromise = port.startModelProviderDeviceFlow({
+        ...principal(),
+        providerId: "openai",
+        authChoiceId: "openai-device-code",
+      });
+      await vi.advanceTimersByTimeAsync(6_000);
+      challenge = await challengePromise;
+    } finally {
+      vi.useRealTimers();
+    }
+    if (challenge === null || !challenge.ok) {
+      throw new Error("expected device-flow challenge");
+    }
+
+    // A healthy prompter countdown ("Requesting device code..." + "Code expires in N minutes")
+    // must NOT be read as a terminal failure.
+    deviceCodeLog = "Requesting device code...\nCode expires in 15 minutes\n";
+    const stillPending = await port.pollDeviceFlow({
+      ...principal(),
+      flowId: challenge.value.flowId,
+    });
+    expect(stillPending.ok ? stillPending.value : null).toMatchObject({
+      status: "pending",
+      codePending: true,
+    });
+
+    // A provider block (Cloudflare 429): the CLI failure headline is pushed before ~4KB of
+    // trailing challenge HTML, out of the recent-tail window, so the whole log must be scanned.
+    const trailingHtml = `<!DOCTYPE html><html>${"x".repeat(6000)}</html>`;
+    deviceCodeLog =
+      "OpenAI device code failed\n" +
+      "Trouble with device code login? See https://docs.openclaw.ai/start/faq\n" +
+      `Error: OpenAI device code request failed: HTTP 429 ${trailingHtml}\n`;
+    const failed = await port.pollDeviceFlow({ ...principal(), flowId: challenge.value.flowId });
+    expect(failed.ok ? failed.value : null).toMatchObject({ status: "failed" });
+    expect(failed.ok && failed.value.status === "failed" ? failed.value.message : "").toMatch(
+      /blocked, rate-limited, or denied/i,
+    );
+    // The redacted challenge HTML must not leak into the surfaced result.
+    expect(JSON.stringify(failed)).not.toContain("<!DOCTYPE html>");
+  });
+
   it("expires pending model-provider device flows and cleans up the gateway log", async () => {
     let nowMs = Date.parse("2026-07-03T00:00:00.000Z");
     const gatewayRuntime = new RecordingGatewayRuntime({
@@ -1722,7 +4137,7 @@ describe("Connections provisioning helpers", () => {
         providerId: "openai",
         authChoiceId: "openai-device-code",
       });
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(6_000);
       challenge = await challengePromise;
     } finally {
       vi.useRealTimers();
@@ -1747,6 +4162,100 @@ describe("Connections provisioning helpers", () => {
     ]);
   });
 
+  it("cleans up an unpolled model-provider device flow when its timeout elapses", async () => {
+    vi.useFakeTimers();
+    try {
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+        deviceCodeLog: "",
+      });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: openAiDeviceFlowAdmin(),
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        gatewayRuntime,
+        now: () => new Date("2026-07-03T00:00:00.000Z"),
+      });
+
+      const challengePromise = port.startModelProviderDeviceFlow({
+        ...principal(),
+        providerId: "openai",
+        authChoiceId: "openai-device-code",
+      });
+      await vi.advanceTimersByTimeAsync(6_000);
+      const challenge = await challengePromise;
+      expect(challenge.ok).toBe(true);
+      expect(gatewayRuntime.deviceStops).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+
+      expect(gatewayRuntime.deviceStops).toEqual([
+        { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels an in-progress model-provider device flow before disconnecting that provider", async () => {
+    let deviceCodeLog = "";
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLog: () => deviceCodeLog,
+    });
+    const admin = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "openai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": ok({ hash: "config-hash-openai", auth: { profiles: {}, order: {} } }),
+      "models.authStatus": ok({ providers: [] }),
+      "models.list": ok({
+        providers: [{ id: "openai", label: "OpenAI", authChoices: [] }],
+        models: [{ id: "gpt-5.5", name: "GPT 5.5", provider: "openai" }],
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    vi.useFakeTimers();
+    let challenge: Awaited<ReturnType<typeof port.startModelProviderDeviceFlow>> | null = null;
+    try {
+      const challengePromise = port.startModelProviderDeviceFlow({
+        ...principal(),
+        providerId: "openai",
+        authChoiceId: "openai-device-code",
+      });
+      await vi.advanceTimersByTimeAsync(6_000);
+      challenge = await challengePromise;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(challenge?.ok).toBe(true);
+    if (challenge === null || !challenge.ok) {
+      throw new Error("expected device-flow challenge");
+    }
+
+    deviceCodeLog = "refresh_token=secret-race-token";
+    const disconnected = await port.disconnectModelProvider({
+      ...principal(),
+      providerId: "openai",
+    });
+    const poll = await port.pollDeviceFlow({ ...principal(), flowId: challenge.value.flowId });
+
+    expect(disconnected.ok).toBe(true);
+    expect(gatewayRuntime.deviceStops).toEqual([
+      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
+    ]);
+    expect(poll.ok ? poll.value : null).toMatchObject({
+      status: "expired",
+      message: "Model-provider device code expired or has already completed.",
+    });
+    expect(JSON.stringify(disconnected)).not.toContain("secret-race-token");
+  });
+
   it("maps terminal gateway device-flow logs to failed without leaking log contents", async () => {
     let deviceCodeLog = "";
     const gatewayRuntime = new RecordingGatewayRuntime({
@@ -1769,7 +4278,7 @@ describe("Connections provisioning helpers", () => {
         providerId: "openai",
         authChoiceId: "openai-device-code",
       });
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(6_000);
       challenge = await challengePromise;
     } finally {
       vi.useRealTimers();
@@ -1787,13 +4296,105 @@ describe("Connections provisioning helpers", () => {
 
     expect(failed.ok ? failed.value : null).toMatchObject({
       status: "failed",
-      message: "Gateway device-code authorization failed or was denied.",
+      message:
+        "The provider blocked, rate-limited, or denied the device-code request. Wait a minute and retry, or connect with an API key.",
     });
     expect(gatewayRuntime.deviceStops).toEqual([
       { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
     ]);
     expect(JSON.stringify(failed)).not.toContain("secret-terminal-token");
     expect(JSON.stringify(failed)).not.toContain("authorization denied");
+  });
+
+  it("starts Docker device-flow logging through a private redacted log and securely deletes it", async () => {
+    const requests: {
+      readonly url: string;
+      readonly body: Record<string, unknown> | null;
+    }[] = [];
+    let execNumber = 0;
+    const jsonResponse = (value: unknown) =>
+      new Response(JSON.stringify(value), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    const fetchImpl: typeof fetch = async (url, init) => {
+      const body =
+        typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : null;
+      requests.push({ url: String(url), body });
+
+      if (String(url).endsWith("/containers/gateway/exec")) {
+        execNumber += 1;
+        return jsonResponse({ Id: `exec-${execNumber}` });
+      }
+      if (String(url).includes("/start")) {
+        return new Response(new Uint8Array(), { status: 200 });
+      }
+      if (String(url).includes("/json")) {
+        return jsonResponse({ Pid: 123, Running: true, ExitCode: 0 });
+      }
+      return new Response("not found", { status: 404 });
+    };
+    const runtime = new DockerOpenClawGatewayRuntime({
+      dockerHost: "tcp://docker-socket-proxy:2375",
+      containerName: "gateway",
+      fetch: fetchImpl,
+    });
+
+    const started = await runtime.startDeviceCodeLogin("openai");
+    expect(started.ok).toBe(true);
+    if (!started.ok) {
+      throw started.error;
+    }
+    await runtime.stopDeviceCodeLogin(started.value.execId, started.value.logPath);
+
+    const execBodies = requests
+      .filter((request) => request.url.endsWith("/containers/gateway/exec"))
+      .map((request) => request.body);
+    const startShell = execBodies[0]?.["Cmd"];
+    expect(Array.isArray(startShell) ? startShell[2] : null).toEqual(expect.any(String));
+    const startCommand = Array.isArray(startShell) ? String(startShell[2]) : "";
+    expect(started.value.logPath).toMatch(/^\/tmp\/opzava-df-[^/]+\/device\.log$/);
+    expect(startCommand).toContain("mkdir -m 700 '/tmp/opzava-df-");
+    expect(startCommand).toContain("umask 077");
+    expect(startCommand).toContain("/usr/bin/script -qfc");
+    expect(startCommand).toContain("/dev/null | sed");
+    expect(startCommand).toContain(">> '/tmp/opzava-df-");
+    expect(startCommand).not.toContain("secret");
+
+    const cleanupCommand = execBodies
+      .map((body) => (Array.isArray(body?.["Cmd"]) ? String(body["Cmd"][2]) : ""))
+      .find((command) => command.includes("shred -u"));
+    expect(cleanupCommand).toContain("rm -f");
+    expect(cleanupCommand).toContain("rmdir");
+    expect(cleanupCommand).not.toContain("secret");
+  });
+
+  it("returns a structured Docker timeout error instead of hanging an exec request", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl: typeof fetch = async (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+      const runtime = new DockerOpenClawGatewayRuntime({
+        dockerHost: "tcp://docker-socket-proxy:2375",
+        containerName: "gateway",
+        fetch: fetchImpl,
+      });
+
+      const resultPromise = runtime.listAuthChoices();
+      await vi.advanceTimersByTimeAsync(15_001);
+      const result = await resultPromise;
+
+      expect(result.ok).toBe(false);
+      expect(result.ok ? null : result.error).toMatchObject({
+        code: "provisioning.docker.requestTimeout",
+        message: "Docker API request timed out.",
+        details: { timeoutMs: 15_000 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("runs GitHub OAuth device flow against fetch and stores the token in the vault", async () => {

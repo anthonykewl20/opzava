@@ -1,16 +1,20 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { LocalFileSecretsVault } from "@opzava/adapters";
+
 import {
   ASK_ADMIN_FORBIDDEN_OPERATOR_SCOPES,
   ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES,
   ASK_ADMIN_PLATFORM_TENANT_ID,
+  ASK_ADMIN_WORKER_ADMIN_OPERATOR_SCOPES,
   createAskAdminProvisioningReceipt,
   expectedAskAdminDeviceTokenRef,
+  expectedAskAdminWorkerAdminDeviceTokenRef,
   renderAskAdminAgentArtifacts,
   renderAskAdminAgentConfigFragment,
   renderAskAdminToolPolicy,
@@ -30,12 +34,28 @@ const fakeBootstrapRawPublicKey = Buffer.from(
 );
 const fakeBootstrapPublicKey = fakeBootstrapRawPublicKey.toString("base64url");
 const fakeBootstrapDeviceId = createHash("sha256").update(fakeBootstrapRawPublicKey).digest("hex");
+const fakeWorkerAdminRawPublicKey = Buffer.from(
+  "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+  "hex",
+);
+const fakeWorkerAdminPublicKey = fakeWorkerAdminRawPublicKey.toString("base64url");
+const fakeWorkerAdminDeviceId = createHash("sha256")
+  .update(fakeWorkerAdminRawPublicKey)
+  .digest("hex");
 
 const fakeDeviceKeypair: BootstrapDeviceKeypair = {
   deviceId: fakeBootstrapDeviceId,
   publicKey: fakeBootstrapPublicKey,
   async sign() {
     return "fake-signature";
+  },
+};
+
+const fakeWorkerAdminDeviceKeypair: BootstrapDeviceKeypair = {
+  deviceId: fakeWorkerAdminDeviceId,
+  publicKey: fakeWorkerAdminPublicKey,
+  async sign() {
+    return "fake-worker-admin-signature";
   },
 };
 
@@ -69,14 +89,21 @@ function fakeGatewaySocketFactory(input: {
           const frame = JSON.parse(data) as Record<string, unknown>;
           sentFrames.push(frame);
           queueMicrotask(() => {
+            const frameId = String(frame["id"]);
             const params = frame["params"] as Record<string, unknown> | undefined;
             const auth = params?.["auth"] as Record<string, unknown> | undefined;
+            const requestedScopes = Array.isArray(params?.["scopes"])
+              ? params["scopes"].filter((scope): scope is string => typeof scope === "string")
+              : [];
+            const validatedScopes = requestedScopes.includes("operator.admin")
+              ? ["operator.read", "operator.admin"]
+              : ["operator.write", "operator.approvals", "operator.read"];
 
             if (input.mode === "pending_approval") {
               messageListener?.(
                 JSON.stringify({
                   type: "res",
-                  id: "connect:ask-admin-opzava-bootstrap",
+                  id: frameId,
                   ok: false,
                   error: {
                     code: "PAIRING_REQUIRED",
@@ -92,12 +119,12 @@ function fakeGatewaySocketFactory(input: {
             }
 
             if (input.mode === "issuance_then_validated") {
-              const issuedDeviceToken = input.issuedDeviceToken ?? "issued-device-token";
-              if (connectionCount === 1 && auth?.["token"] === input.gatewayToken) {
+              const issuedDeviceToken = `${input.issuedDeviceToken ?? "issued-device-token"}-${connectionCount}`;
+              if (auth?.["token"] === input.gatewayToken) {
                 messageListener?.(
                   JSON.stringify({
                     type: "res",
-                    id: "connect:ask-admin-opzava-bootstrap",
+                    id: frameId,
                     ok: true,
                     payload: {
                       type: "hello-ok",
@@ -107,12 +134,14 @@ function fakeGatewaySocketFactory(input: {
                       snapshot: {},
                       auth: {
                         role: "operator",
-                        scopes: [
-                          "operator.write",
-                          "operator.approvals",
-                          "operator.read",
-                          "operator.admin",
-                        ],
+                        scopes: requestedScopes.includes("operator.admin")
+                          ? ["operator.read", "operator.admin"]
+                          : [
+                              "operator.write",
+                              "operator.approvals",
+                              "operator.read",
+                              "operator.admin",
+                            ],
                         deviceToken: issuedDeviceToken,
                         issuedAtMs: 1737264000001,
                       },
@@ -127,11 +156,11 @@ function fakeGatewaySocketFactory(input: {
                 return;
               }
 
-              if (connectionCount === 2 && auth?.["deviceToken"] === issuedDeviceToken) {
+              if (typeof auth?.["deviceToken"] === "string") {
                 messageListener?.(
                   JSON.stringify({
                     type: "res",
-                    id: "connect:ask-admin-opzava-bootstrap",
+                    id: frameId,
                     ok: true,
                     payload: {
                       type: "hello-ok",
@@ -141,7 +170,7 @@ function fakeGatewaySocketFactory(input: {
                       snapshot: {},
                       auth: {
                         role: "operator",
-                        scopes: ["operator.write", "operator.approvals", "operator.read"],
+                        scopes: validatedScopes,
                       },
                       policy: {
                         maxPayload: 262144,
@@ -157,7 +186,7 @@ function fakeGatewaySocketFactory(input: {
               messageListener?.(
                 JSON.stringify({
                   type: "res",
-                  id: "connect:ask-admin-opzava-bootstrap",
+                  id: frameId,
                   ok: false,
                   error: {
                     code: "AUTH_TOKEN_MISMATCH",
@@ -172,7 +201,7 @@ function fakeGatewaySocketFactory(input: {
             messageListener?.(
               JSON.stringify({
                 type: "res",
-                id: "connect:ask-admin-opzava-bootstrap",
+                id: frameId,
                 ok: true,
                 payload: {
                   type: "hello-ok",
@@ -182,11 +211,7 @@ function fakeGatewaySocketFactory(input: {
                   snapshot: {},
                   auth: {
                     role: "operator",
-                    scopes: input.scopes ?? [
-                      "operator.write",
-                      "operator.approvals",
-                      "operator.read",
-                    ],
+                    scopes: input.scopes ?? validatedScopes,
                   },
                   policy: {
                     maxPayload: 262144,
@@ -447,6 +472,7 @@ Required behavior:
     expect(ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES).not.toContain("operator.admin");
     expect(ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES).not.toContain("operator.pairing");
     expect(ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES).not.toContain("operator.talk.secrets");
+    expect(ASK_ADMIN_WORKER_ADMIN_OPERATOR_SCOPES).toEqual(["operator.read", "operator.admin"]);
     expect(ASK_ADMIN_FORBIDDEN_OPERATOR_SCOPES).toEqual([
       "operator.admin",
       "operator.pairing",
@@ -468,6 +494,9 @@ Required behavior:
       label: "platform-operator-device-token",
       version: "2026-07-04.slice3-crm-read",
     });
+    expect(receipt.workerAdminDeviceTokenRef).toEqual(
+      expectedAskAdminWorkerAdminDeviceTokenRef(ASK_ADMIN_PLATFORM_TENANT_ID),
+    );
     expect(receipt.version).toBe("2026-07-04.slice3-crm-read");
     expect(receipt.toolPolicy.sha256).toBe(
       "c03919cf3e063f2a2195f2de9273dbc5df737afbffac3684d82eef6361dd3453",
@@ -518,6 +547,7 @@ describe("bootstrapPlatformGateway", () => {
       },
       logger: null,
       deviceKeypair: fakeDeviceKeypair,
+      workerAdminDeviceKeypair: fakeWorkerAdminDeviceKeypair,
       socketFactory: fakeGateway.socketFactory,
       now: () => 1737264000000,
     });
@@ -566,6 +596,7 @@ describe("bootstrapPlatformGateway", () => {
       },
       logger: null,
       deviceKeypair: fakeDeviceKeypair,
+      workerAdminDeviceKeypair: fakeWorkerAdminDeviceKeypair,
       socketFactory: fakeGateway.socketFactory,
       now: () => 1737264000000,
     });
@@ -602,6 +633,7 @@ describe("bootstrapPlatformGateway", () => {
         },
       },
       deviceKeypair: fakeDeviceKeypair,
+      workerAdminDeviceKeypair: fakeWorkerAdminDeviceKeypair,
       socketFactory: fakeGateway.socketFactory,
       now: () => 1737264000000,
     });
@@ -619,7 +651,7 @@ describe("bootstrapPlatformGateway", () => {
       "local-dev:platform:openclaw:platform-operator-device-token",
     );
     expect(receipt.manualSteps.join("\n")).toContain(
-      "Paired operator device token validated with protocol 4.",
+      "Paired broker hot-path operator device token validated with protocol 4.",
     );
     expect(JSON.stringify(receipt)).not.toContain(suppliedDeviceToken);
     expect(logs.join("\n")).not.toContain(suppliedDeviceToken);
@@ -627,6 +659,59 @@ describe("bootstrapPlatformGateway", () => {
     const connectParams = fakeGateway.sentFrames[0]?.["params"] as
       Record<string, unknown> | undefined;
     expect(connectParams?.["auth"]).toEqual({ deviceToken: suppliedDeviceToken });
+  });
+
+  it("reuses broker and worker admin device tokens from the vault on rerun", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "opzava-openclaw-bootstrap-"));
+    tempDirectories.push(directory);
+
+    const vaultFile = join(directory, "openclaw-secrets.json");
+    const brokerDeviceToken = `broker-token-${randomUUID()}`;
+    const workerAdminDeviceToken = `worker-admin-token-${randomUUID()}`;
+    const vault = new LocalFileSecretsVault({ filePath: vaultFile });
+    const brokerStored = await vault.putSecret({
+      tenantId: ASK_ADMIN_PLATFORM_TENANT_ID,
+      purpose: "openclaw",
+      label: "platform-operator-device-token",
+      value: brokerDeviceToken,
+      version: "2026-07-04.slice3-crm-read",
+    });
+    const workerStored = await vault.putSecret({
+      tenantId: ASK_ADMIN_PLATFORM_TENANT_ID,
+      purpose: "openclaw",
+      label: "platform-worker-admin-device-token",
+      value: workerAdminDeviceToken,
+      version: "2026-07-04.slice3-crm-read",
+    });
+    if (!brokerStored.ok) {
+      throw brokerStored.error;
+    }
+    if (!workerStored.ok) {
+      throw workerStored.error;
+    }
+
+    const fakeGateway = fakeGatewaySocketFactory({ mode: "validated" });
+    const receipt = await bootstrapPlatformGateway({
+      env: {
+        OPENCLAW_GATEWAY_URL: "ws://127.0.0.1:18789",
+        OPENCLAW_DEV_SECRETS_FILE: vaultFile,
+      },
+      logger: null,
+      deviceKeypair: fakeDeviceKeypair,
+      workerAdminDeviceKeypair: fakeWorkerAdminDeviceKeypair,
+      socketFactory: fakeGateway.socketFactory,
+      now: () => 1737264000000,
+    });
+
+    expect(receipt.deviceTokenStored).toBe(false);
+    expect(receipt.workerAdminDeviceTokenStored).toBe(false);
+    expect(receipt.workerAdminPairing).toMatchObject({
+      status: "validated",
+      scopes: ["operator.read", "operator.admin"],
+    });
+    expect(
+      fakeGateway.sentFrames.map((frame) => (frame["params"] as Record<string, unknown>)["auth"]),
+    ).toEqual([{ deviceToken: brokerDeviceToken }, { deviceToken: workerAdminDeviceToken }]);
   });
 
   it("issues a device token with the shared Gateway token, stores only the vault ref, then validates it", async () => {
@@ -654,6 +739,7 @@ describe("bootstrapPlatformGateway", () => {
         },
       },
       deviceKeypair: fakeDeviceKeypair,
+      workerAdminDeviceKeypair: fakeWorkerAdminDeviceKeypair,
       socketFactory: fakeGateway.socketFactory,
       now: () => 1737264000000,
     });
@@ -694,7 +780,97 @@ describe("bootstrapPlatformGateway", () => {
     const validationParams = fakeGateway.sentFrames[1]?.["params"] as
       Record<string, unknown> | undefined;
     expect(issuanceParams?.["auth"]).toEqual({ token: gatewayToken });
-    expect(validationParams?.["auth"]).toEqual({ deviceToken: issuedDeviceToken });
+    expect(validationParams?.["auth"]).toEqual({
+      deviceToken: expect.stringContaining(issuedDeviceToken),
+    });
+  });
+
+  it("stores the worker admin issued token alongside the broker token in the configured vault", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "opzava-openclaw-bootstrap-"));
+    tempDirectories.push(directory);
+
+    const vaultFile = join(directory, "openclaw-secrets.json");
+    const vaultFileFromWorkspace = relative(resolve(process.cwd(), "../.."), vaultFile);
+    const brokerDeviceToken = `broker-token-${randomUUID()}`;
+    const issuedWorkerDeviceToken = `issued-worker-device-token-${randomUUID()}`;
+    const gatewayToken = `gateway-token-${randomUUID()}`;
+    const vault = new LocalFileSecretsVault({ filePath: vaultFile });
+    const brokerStored = await vault.putSecret({
+      tenantId: ASK_ADMIN_PLATFORM_TENANT_ID,
+      purpose: "openclaw",
+      label: "platform-operator-device-token",
+      value: brokerDeviceToken,
+      version: "2026-07-04.slice3-crm-read",
+    });
+    if (!brokerStored.ok) {
+      throw brokerStored.error;
+    }
+
+    const issuingGateway = fakeGatewaySocketFactory({
+      mode: "issuance_then_validated",
+      gatewayToken,
+      issuedDeviceToken: issuedWorkerDeviceToken,
+    });
+    const receipt = await bootstrapPlatformGateway({
+      env: {
+        OPENCLAW_GATEWAY_URL: "ws://127.0.0.1:18789",
+        OPENCLAW_DEV_SECRETS_FILE: vaultFileFromWorkspace,
+        OPENCLAW_GATEWAY_TOKEN: gatewayToken,
+      },
+      logger: null,
+      deviceKeypair: fakeDeviceKeypair,
+      workerAdminDeviceKeypair: fakeWorkerAdminDeviceKeypair,
+      socketFactory: issuingGateway.socketFactory,
+      now: () => 1737264000000,
+    });
+
+    expect(receipt.deviceTokenStored).toBe(false);
+    expect(receipt.workerAdminDeviceTokenStored).toBe(true);
+    expect(receipt.workerAdminPhases).toEqual([
+      expect.objectContaining({ status: "validated", issuedDeviceToken: true }),
+      expect.objectContaining({ status: "validated", scopes: ["operator.read", "operator.admin"] }),
+    ]);
+
+    const brokerResolved = await vault.resolveSecretValue({
+      ref: expectedAskAdminDeviceTokenRef(ASK_ADMIN_PLATFORM_TENANT_ID),
+      requestedBy: "bootstrap-platform-gateway-test",
+      reason: "verify broker token remains distinct",
+    });
+    const workerResolved = await vault.resolveSecretValue({
+      ref: expectedAskAdminWorkerAdminDeviceTokenRef(ASK_ADMIN_PLATFORM_TENANT_ID),
+      requestedBy: "bootstrap-platform-gateway-test",
+      reason: "verify worker token was stored distinctly",
+    });
+    expect(brokerResolved).toEqual({ ok: true, value: brokerDeviceToken });
+    expect(workerResolved).toEqual({
+      ok: true,
+      value: `${issuedWorkerDeviceToken}-2`,
+    });
+    expect(workerResolved.ok && brokerResolved.ok && workerResolved.value).not.toBe(
+      brokerResolved.ok ? brokerResolved.value : undefined,
+    );
+
+    const validatingGateway = fakeGatewaySocketFactory({ mode: "validated" });
+    await bootstrapPlatformGateway({
+      env: {
+        OPENCLAW_GATEWAY_URL: "ws://127.0.0.1:18789",
+        OPENCLAW_DEV_SECRETS_FILE: vaultFileFromWorkspace,
+      },
+      logger: null,
+      deviceKeypair: fakeDeviceKeypair,
+      workerAdminDeviceKeypair: fakeWorkerAdminDeviceKeypair,
+      socketFactory: validatingGateway.socketFactory,
+      now: () => 1737264000000,
+    });
+
+    expect(
+      validatingGateway.sentFrames.map(
+        (frame) => (frame["params"] as Record<string, unknown>)["auth"],
+      ),
+    ).toEqual([
+      { deviceToken: brokerDeviceToken },
+      { deviceToken: `${issuedWorkerDeviceToken}-2` },
+    ]);
   });
 
   it("rejects a provided token when hello-ok scopes are not exact", async () => {
@@ -712,6 +888,7 @@ describe("bootstrapPlatformGateway", () => {
         },
         logger: null,
         deviceKeypair: fakeDeviceKeypair,
+        workerAdminDeviceKeypair: fakeWorkerAdminDeviceKeypair,
         socketFactory: fakeGateway.socketFactory,
       }),
     ).rejects.toMatchObject({

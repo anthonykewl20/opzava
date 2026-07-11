@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/ui/button";
 import {
   deviceFlowPollSchedule,
   deviceFlowReducer,
@@ -51,6 +52,7 @@ export function DeviceFlowPoller({
     ...(initialUserCode === undefined ? {} : { userCode: initialUserCode }),
     codePending: initialCodePending,
   });
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,12 +186,34 @@ export function DeviceFlowPoller({
 
   const hasCode =
     state.codePending !== true && present(state.verificationUri) && present(state.userCode);
-  const expiresLabel = new Date(expiresAt).toLocaleTimeString();
+  const expiresLabel = new Date(expiresAt).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  const copyCode = () => {
+    if (!present(state.userCode)) {
+      return;
+    }
+    void navigator.clipboard
+      ?.writeText(state.userCode)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => undefined);
+  };
 
   if (state.status === "connected") {
     return (
-      <div className="connections-device-flow" aria-live="polite">
-        <div className="col-span-full">
+      <div className="connections-device-flow connections-device-flow--done" aria-live="polite">
+        <span
+          className="connections-device-flow__badge connections-device-flow__badge--ok"
+          aria-hidden="true"
+        >
+          ✓
+        </span>
+        <div>
           <div className="label">Connected</div>
           <p className="hint">{state.message}</p>
         </div>
@@ -199,12 +223,37 @@ export function DeviceFlowPoller({
 
   if (state.status === "expired" || state.status === "failed") {
     return (
-      <div className="connections-device-flow" aria-live="polite">
-        <div className="col-span-full">
+      <div
+        className="connections-device-flow connections-device-flow--error"
+        aria-live="assertive"
+      >
+        <span
+          className="connections-device-flow__badge connections-device-flow__badge--err"
+          aria-hidden="true"
+        >
+          !
+        </span>
+        <div>
           <div className="label">
-            {state.status === "expired" ? "Device code expired" : "Device authorization failed"}
+            {state.status === "expired" ? "Device code expired" : "Authorization failed"}
           </div>
           <p className="hint">{state.message}</p>
+          <p className="hint">Close this dialog and start the device flow again.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasCode) {
+    return (
+      <div
+        className="connections-device-flow connections-device-flow--pending"
+        aria-live="polite"
+      >
+        <span className="sb-spinner sb-spinner--sm" aria-hidden="true" />
+        <div>
+          <div className="label">Generating your device code</div>
+          <p className="hint">This usually takes a few seconds.</p>
         </div>
       </div>
     );
@@ -212,31 +261,40 @@ export function DeviceFlowPoller({
 
   return (
     <div className="connections-device-flow" aria-live="polite">
-      {hasCode ? (
-        <>
-          <div>
-            <div className="label">Authorize in browser</div>
-            <a href={state.verificationUri} target="_blank" rel="noopener noreferrer">
-              {state.verificationUri}
-            </a>
+      <ol className="connections-device-steps">
+        <li className="connections-device-steps__item">
+          <span className="connections-device-steps__n" aria-hidden="true">
+            1
+          </span>
+          <div className="connections-device-steps__body">
+            <div className="label">Copy your one-time code</div>
+            <div className="connections-device-coderow">
+              <span className="connections-device-code u-mono">{state.userCode}</span>
+              <Button type="button" variant="secondary" size="sm" onClick={copyCode}>
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            </div>
           </div>
-          <div>
-            <div className="label">Code</div>
-            <span className="connections-device-code u-mono">{state.userCode}</span>
+        </li>
+        <li className="connections-device-steps__item">
+          <span className="connections-device-steps__n" aria-hidden="true">
+            2
+          </span>
+          <div className="connections-device-steps__body">
+            <div className="label">Open the sign-in page and enter the code</div>
+            <Button asChild size="sm">
+              <a href={state.verificationUri} target="_blank" rel="noopener noreferrer">
+                Open sign-in page
+                <span aria-hidden="true"> ↗</span>
+              </a>
+            </Button>
           </div>
-        </>
-      ) : (
-        <div className="col-span-full flex items-center gap-3">
-          <span className="sb-spinner sb-spinner--sm" aria-hidden="true" />
-          <div>
-            <div className="label">Authorize in browser</div>
-            <p className="hint">Requesting device code...</p>
-          </div>
-        </div>
-      )}
-      <p className="hint col-span-full">
-        {hasCode ? state.message : "Requesting device code..."} Expires {expiresLabel}.
-      </p>
+        </li>
+      </ol>
+      <div className="connections-device-flow__status">
+        <span className="sb-spinner sb-spinner--sm" aria-hidden="true" />
+        <p className="hint">Waiting for you to approve in the browser. Expires {expiresLabel}.</p>
+      </div>
     </div>
   );
 }

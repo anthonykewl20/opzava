@@ -2,7 +2,7 @@ import "dotenv/config";
 
 import { createHash, createPrivateKey, createPublicKey, sign as signData } from "node:crypto";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { expectedLocalFileSecretReference, LocalFileSecretsVault } from "@opzava/adapters";
 import type { SecretReference } from "@opzava/ports";
@@ -13,6 +13,8 @@ import {
   ASK_ADMIN_DEVICE_TOKEN_LABEL,
   ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES,
   ASK_ADMIN_PLATFORM_TENANT_ID,
+  ASK_ADMIN_WORKER_ADMIN_DEVICE_TOKEN_LABEL,
+  ASK_ADMIN_WORKER_ADMIN_OPERATOR_SCOPES,
   prepareAskAdminProvisioning,
   type AskAdminProvisioningReceipt,
 } from "./ask-admin-agent.js";
@@ -25,6 +27,7 @@ export interface BootstrapPlatformGatewayOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly logger?: BootstrapPlatformGatewayLogger | null;
   readonly deviceKeypair?: BootstrapDeviceKeypair;
+  readonly workerAdminDeviceKeypair?: BootstrapDeviceKeypair;
   readonly socketFactory?: BootstrapWebSocketFactory;
   readonly now?: () => number;
 }
@@ -32,8 +35,11 @@ export interface BootstrapPlatformGatewayOptions {
 export interface BootstrapPlatformGatewayReceipt {
   readonly gatewayUrl: string;
   readonly deviceTokenStored: boolean;
+  readonly workerAdminDeviceTokenStored: boolean;
   readonly pairing: BootstrapOpenClawHandshakeResult;
+  readonly workerAdminPairing: BootstrapOpenClawHandshakeResult;
   readonly phases: readonly BootstrapOpenClawHandshakeResult[];
+  readonly workerAdminPhases: readonly BootstrapOpenClawHandshakeResult[];
   readonly provisioningReceipt: AskAdminProvisioningReceipt;
   readonly manualSteps: readonly string[];
 }
@@ -102,6 +108,16 @@ interface BootstrapOpenClawDialResult {
   readonly issuedDeviceToken?: string;
 }
 
+interface BootstrapDeviceProfile {
+  readonly name: string;
+  readonly tokenLabel: string;
+  readonly tokenEnvName: string;
+  readonly requestedScopes: readonly string[];
+  readonly allowedGrantedScopes: readonly string[];
+  readonly connectId: string;
+  readonly userAgent: string;
+}
+
 interface OpenClawFrame {
   readonly type: string;
   readonly event?: string;
@@ -120,12 +136,37 @@ interface OpenClawFrame {
 const openClawClientId = "cli";
 const openClawClientMode = "cli";
 const ed25519SpkiPrefix = Buffer.from("302a300506032b6570032100", "hex");
+const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+const brokerHotPathProfile: BootstrapDeviceProfile = {
+  name: "broker hot-path",
+  tokenLabel: ASK_ADMIN_DEVICE_TOKEN_LABEL,
+  tokenEnvName: "OPENCLAW_OPERATOR_DEVICE_TOKEN",
+  requestedScopes: ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES,
+  allowedGrantedScopes: [...ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES, "operator.read"],
+  connectId: "connect:ask-admin-opzava-bootstrap:broker",
+  userAgent: `opzava-gateway-broker/${ASK_ADMIN_AGENT_VERSION}`,
+};
+const workerAdminProfile: BootstrapDeviceProfile = {
+  name: "worker admin",
+  tokenLabel: ASK_ADMIN_WORKER_ADMIN_DEVICE_TOKEN_LABEL,
+  tokenEnvName: "WORKER_OPENCLAW_OPERATOR_DEVICE_TOKEN",
+  requestedScopes: ASK_ADMIN_WORKER_ADMIN_OPERATOR_SCOPES,
+  // The Gateway materializes operator.write alongside operator.admin (as it
+  // materializes operator.read alongside operator.write for the hot path).
+  allowedGrantedScopes: [...ASK_ADMIN_WORKER_ADMIN_OPERATOR_SCOPES, "operator.write"],
+  connectId: "connect:ask-admin-opzava-bootstrap:worker-admin",
+  userAgent: `opzava-connections-provisioning/${ASK_ADMIN_AGENT_VERSION}`,
+};
 
 function domainError(code: string, message: string): DomainError {
   return new DomainError({
     code,
     message,
   });
+}
+
+function resolveDevSecretsFilePath(filePath: string): string {
+  return path.isAbsolute(filePath) ? filePath : path.resolve(workspaceRoot, filePath);
 }
 
 function bootstrapError(code: string, message: string, cause?: unknown): DomainError {
@@ -157,19 +198,15 @@ function serializeOpenClawFrame(frame: OpenClawFrame): string {
   return JSON.stringify(frame);
 }
 
-const IMPLIED_OPERATOR_SCOPES = ["operator.read"] as const;
-
-function hasExactExpectedScopes(scopes: readonly string[]): boolean {
-  // The live Gateway materializes operator.read alongside operator.write
-  // ("write implies read"); tolerate only that addition, fail-closed otherwise.
-  const allowed = new Set<string>([
-    ...ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES,
-    ...IMPLIED_OPERATOR_SCOPES,
-  ]);
+function hasExactExpectedScopes(
+  profile: BootstrapDeviceProfile,
+  scopes: readonly string[],
+): boolean {
+  const allowed = new Set<string>(profile.allowedGrantedScopes);
   const unique = new Set(scopes);
   return (
     unique.size === scopes.length &&
-    ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES.every((scope) => scopes.includes(scope)) &&
+    profile.requestedScopes.every((scope) => scopes.includes(scope)) &&
     scopes.every((scope) => allowed.has(scope))
   );
 }
@@ -266,33 +303,41 @@ class Ed25519DeviceKeypair implements BootstrapDeviceKeypair {
   }
 }
 
-function readPrivateKeyPem(env: NodeJS.ProcessEnv): string {
-  const base64Value = optionalEnv(env, "OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64");
+function envName(prefix: string | undefined, name: string): string {
+  return prefix === undefined ? name : `${prefix}_${name}`;
+}
+
+function readPrivateKeyPem(env: NodeJS.ProcessEnv, prefix?: string): string {
+  const base64Name = envName(prefix, "OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64");
+  const base64Value = optionalEnv(env, base64Name);
   if (base64Value !== undefined) {
     return Buffer.from(base64Value, "base64").toString("utf8");
   }
 
-  const pemValue = optionalEnv(env, "OPENCLAW_DEVICE_PRIVATE_KEY_PEM");
+  const pemName = envName(prefix, "OPENCLAW_DEVICE_PRIVATE_KEY_PEM");
+  const pemValue = optionalEnv(env, pemName);
   if (pemValue !== undefined) {
     return pemValue.replaceAll("\\n", "\n");
   }
 
   throw domainError(
     "workers.openclawBootstrap.missingEnv",
-    "OPENCLAW_DEVICE_PRIVATE_KEY_PEM_BASE64 or OPENCLAW_DEVICE_PRIVATE_KEY_PEM is required.",
+    `${base64Name} or ${pemName} is required.`,
   );
 }
 
-function readDeviceKeypair(env: NodeJS.ProcessEnv): BootstrapDeviceKeypair {
-  const privateKeyPem = readPrivateKeyPem(env);
+function readDeviceKeypair(env: NodeJS.ProcessEnv, prefix?: string): BootstrapDeviceKeypair {
+  const privateKeyPem = readPrivateKeyPem(env, prefix);
   const derived = deriveOpenClawDeviceIdentity(privateKeyPem);
-  const explicitDeviceId = optionalEnv(env, "OPENCLAW_DEVICE_ID");
-  const explicitPublicKey = optionalEnv(env, "OPENCLAW_DEVICE_PUBLIC_KEY");
+  const deviceIdName = envName(prefix, "OPENCLAW_DEVICE_ID");
+  const publicKeyName = envName(prefix, "OPENCLAW_DEVICE_PUBLIC_KEY");
+  const explicitDeviceId = optionalEnv(env, deviceIdName);
+  const explicitPublicKey = optionalEnv(env, publicKeyName);
 
   if (explicitDeviceId !== undefined && explicitDeviceId !== derived.deviceId) {
     throw domainError(
       "workers.openclawBootstrap.deviceIdentityMismatch",
-      "OPENCLAW_DEVICE_ID does not match the Ed25519 private key.",
+      `${deviceIdName} does not match the Ed25519 private key.`,
     );
   }
 
@@ -303,7 +348,7 @@ function readDeviceKeypair(env: NodeJS.ProcessEnv): BootstrapDeviceKeypair {
     if (explicitDeviceIdFromPublicKey !== derived.deviceId) {
       throw domainError(
         "workers.openclawBootstrap.deviceIdentityMismatch",
-        "OPENCLAW_DEVICE_PUBLIC_KEY does not match the Ed25519 private key.",
+        `${publicKeyName} does not match the Ed25519 private key.`,
       );
     }
   }
@@ -406,25 +451,26 @@ function approvalCommand(url: string, requestId?: string): string {
 
 function manualPairingSteps(
   url: string,
+  profile: BootstrapDeviceProfile,
   pairing: BootstrapOpenClawHandshakeResult,
 ): readonly string[] {
-  const scopes = ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES.map((scope) => `--scope ${scope}`).join(" ");
+  const scopes = profile.requestedScopes.map((scope) => `--scope ${scope}`).join(" ");
 
   if (pairing.status === "validated") {
     return [
-      `Paired operator device token validated with protocol ${pairing.negotiatedProtocol}.`,
+      `Paired ${profile.name} operator device token validated with protocol ${pairing.negotiatedProtocol}.`,
       `Validated scopes: ${pairing.scopes.join(", ")}.`,
       `Future self-token rotation only: openclaw devices rotate --device <deviceId> --role operator ${scopes} --json --url ${url} --token "$OPENCLAW_OPERATOR_DEVICE_TOKEN"`,
     ];
   }
 
   return [
-    "The bootstrap connected with the broker device identity and no paired operator token so the Gateway can record a pending pairing request.",
+    `The bootstrap connected with the ${profile.name} device identity and no paired operator token so the Gateway can record a pending pairing request.`,
     `Approve the exact verified request: ${pairing.approvalCommand}`,
     `Preview pending device requests: openclaw devices approve --latest --url ${url} --token "$OPENCLAW_GATEWAY_TOKEN"`,
     `List paired devices: openclaw devices list --json --url ${url} --token "$OPENCLAW_GATEWAY_TOKEN"`,
-    `If the CLI returns an operator device token for the approved device, rerun this command with OPENCLAW_OPERATOR_DEVICE_TOKEN set; the token will be stored in the dev vault and never printed.`,
-    `Approved hot-path scopes must be exactly: ${ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES.join(", ")}.`,
+    `If the CLI returns an operator device token for the approved device, rerun this command with ${profile.tokenEnvName} set; the token will be stored in the dev vault and never printed.`,
+    `Approved ${profile.name} scopes must be exactly: ${profile.requestedScopes.join(", ")}.`,
     `For already paired self-token rotation only: openclaw devices rotate --device <deviceId> --role operator ${scopes} --json --url ${url} --token "$OPENCLAW_OPERATOR_DEVICE_TOKEN"`,
   ];
 }
@@ -470,6 +516,7 @@ function pendingPairingResult(
 }
 
 function buildConnectFrame(input: {
+  readonly profile: BootstrapDeviceProfile;
   readonly keypair: BootstrapDeviceKeypair;
   readonly nonce: string;
   readonly credential?: BootstrapAuthCredential;
@@ -494,14 +541,14 @@ function buildConnectFrame(input: {
       deviceId: input.keypair.deviceId,
       publicKey: input.keypair.publicKey,
       role: "operator",
-      scopes: ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES,
+      scopes: input.profile.requestedScopes,
       token,
       nonce: input.nonce,
       signedAt,
     })
     .then((signature) => ({
       type: "req",
-      id: "connect:ask-admin-opzava-bootstrap",
+      id: input.profile.connectId,
       method: "connect",
       params: {
         minProtocol: 4,
@@ -513,7 +560,7 @@ function buildConnectFrame(input: {
           mode: openClawClientMode,
         },
         role: "operator",
-        scopes: ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES,
+        scopes: input.profile.requestedScopes,
         caps: [],
         commands: [],
         permissions: {},
@@ -521,7 +568,7 @@ function buildConnectFrame(input: {
         // compared against the shared gateway token by the live Gateway.
         auth,
         locale: "en-US",
-        userAgent: `opzava-gateway-broker/${ASK_ADMIN_AGENT_VERSION}`,
+        userAgent: input.profile.userAgent,
         device: {
           id: input.keypair.deviceId,
           publicKey: input.keypair.publicKey,
@@ -536,7 +583,8 @@ function buildConnectFrame(input: {
 function validatedHandshakeResult(
   payload: unknown,
   options: {
-    readonly requireNarrowScopes: boolean;
+    readonly profile: BootstrapDeviceProfile;
+    readonly requireExpectedScopes: boolean;
     readonly requireIssuedDeviceToken?: boolean;
   },
 ): Result<BootstrapOpenClawDialResult> {
@@ -570,7 +618,7 @@ function validatedHandshakeResult(
     protocol !== 4 ||
     !isRecord(auth) ||
     auth["role"] !== "operator" ||
-    (options.requireNarrowScopes && !hasExactExpectedScopes(scopes)) ||
+    (options.requireExpectedScopes && !hasExactExpectedScopes(options.profile, scopes)) ||
     !isRecord(server) ||
     typeof serverVersion !== "string" ||
     typeof connectionId !== "string"
@@ -612,10 +660,11 @@ function validatedHandshakeResult(
 }
 
 async function dialOpenClawGateway(input: {
+  readonly profile: BootstrapDeviceProfile;
   readonly url: string;
   readonly keypair: BootstrapDeviceKeypair;
   readonly credential?: BootstrapAuthCredential;
-  readonly requireNarrowScopes: boolean;
+  readonly requireExpectedScopes: boolean;
   readonly requireIssuedDeviceToken?: boolean;
   readonly allowPairingRequired: boolean;
   readonly socketFactory: BootstrapWebSocketFactory;
@@ -687,6 +736,7 @@ async function dialOpenClawGateway(input: {
         }
 
         void buildConnectFrame({
+          profile: input.profile,
           keypair: input.keypair,
           nonce,
           ...(input.credential === undefined ? {} : { credential: input.credential }),
@@ -709,7 +759,7 @@ async function dialOpenClawGateway(input: {
         return;
       }
 
-      if (frame.type !== "res" || frame.id !== "connect:ask-admin-opzava-bootstrap") {
+      if (frame.type !== "res" || frame.id !== input.profile.connectId) {
         settle({
           ok: false,
           error: bootstrapError(
@@ -723,7 +773,8 @@ async function dialOpenClawGateway(input: {
       if (frame.ok === true) {
         settle(
           validatedHandshakeResult(frame.payload, {
-            requireNarrowScopes: input.requireNarrowScopes,
+            profile: input.profile,
+            requireExpectedScopes: input.requireExpectedScopes,
             ...(input.requireIssuedDeviceToken === undefined
               ? {}
               : { requireIssuedDeviceToken: input.requireIssuedDeviceToken }),
@@ -776,12 +827,13 @@ async function dialOpenClawGateway(input: {
 
 async function storeProvidedDeviceToken(input: {
   readonly env: NodeJS.ProcessEnv;
+  readonly profile: BootstrapDeviceProfile;
   readonly token?: string;
 }): Promise<{ readonly stored: boolean; readonly ref: SecretReference }> {
   const expectedRef = expectedLocalFileSecretReference({
     tenantId: ASK_ADMIN_PLATFORM_TENANT_ID,
     purpose: "openclaw",
-    label: ASK_ADMIN_DEVICE_TOKEN_LABEL,
+    label: input.profile.tokenLabel,
     version: ASK_ADMIN_AGENT_VERSION,
   });
 
@@ -789,13 +841,13 @@ async function storeProvidedDeviceToken(input: {
     return { stored: false, ref: expectedRef };
   }
 
-  const vaultFile = requireEnv(input.env, "OPENCLAW_DEV_SECRETS_FILE");
+  const vaultFile = resolveDevSecretsFilePath(requireEnv(input.env, "OPENCLAW_DEV_SECRETS_FILE"));
   const vault = new LocalFileSecretsVault({ filePath: vaultFile });
   const stored = unwrap(
     await vault.putSecret({
       tenantId: ASK_ADMIN_PLATFORM_TENANT_ID,
       purpose: "openclaw",
-      label: ASK_ADMIN_DEVICE_TOKEN_LABEL,
+      label: input.profile.tokenLabel,
       value: input.token,
       version: ASK_ADMIN_AGENT_VERSION,
     }),
@@ -804,51 +856,83 @@ async function storeProvidedDeviceToken(input: {
   return { stored: true, ref: stored };
 }
 
-export async function bootstrapPlatformGateway(
-  options: BootstrapPlatformGatewayOptions = {},
-): Promise<BootstrapPlatformGatewayReceipt> {
-  const env = options.env ?? process.env;
-  const logger = options.logger === undefined ? console : options.logger;
-  const url = gatewayUrl(env);
-  const providedDeviceToken = optionalEnv(env, "OPENCLAW_OPERATOR_DEVICE_TOKEN");
-  const gatewayToken = optionalEnv(env, "OPENCLAW_GATEWAY_TOKEN");
-  const keypair = options.deviceKeypair ?? readDeviceKeypair(env);
-  const socketFactory = options.socketFactory ?? defaultSocketFactory;
-  const now = options.now ?? Date.now;
+async function readStoredDeviceToken(input: {
+  readonly env: NodeJS.ProcessEnv;
+  readonly profile: BootstrapDeviceProfile;
+}): Promise<string | undefined> {
+  const vaultFileFromEnv = optionalEnv(input.env, "OPENCLAW_DEV_SECRETS_FILE");
+  const vaultFile =
+    vaultFileFromEnv === undefined ? undefined : resolveDevSecretsFilePath(vaultFileFromEnv);
+  if (vaultFile === undefined) {
+    return undefined;
+  }
 
+  const ref = expectedLocalFileSecretReference({
+    tenantId: ASK_ADMIN_PLATFORM_TENANT_ID,
+    purpose: "openclaw",
+    label: input.profile.tokenLabel,
+    version: ASK_ADMIN_AGENT_VERSION,
+  });
+  const token = await new LocalFileSecretsVault({ filePath: vaultFile }).resolveSecretValue({
+    ref,
+    requestedBy: "platform-gateway-bootstrap",
+    reason: `${input.profile.name}-operator-device-token`,
+  });
+
+  return token.ok ? token.value : undefined;
+}
+
+async function provisionOperatorDevice(input: {
+  readonly env: NodeJS.ProcessEnv;
+  readonly profile: BootstrapDeviceProfile;
+  readonly url: string;
+  readonly keypair: BootstrapDeviceKeypair;
+  readonly gatewayToken?: string;
+  readonly socketFactory: BootstrapWebSocketFactory;
+  readonly now: () => number;
+}): Promise<{
+  readonly pairing: BootstrapOpenClawHandshakeResult;
+  readonly phases: readonly BootstrapOpenClawHandshakeResult[];
+  readonly tokenStorage: { readonly stored: boolean; readonly ref: SecretReference };
+}> {
+  const tokenFromEnv = optionalEnv(input.env, input.profile.tokenEnvName);
+  const providedDeviceToken =
+    tokenFromEnv ?? (await readStoredDeviceToken({ env: input.env, profile: input.profile }));
   let pairing: BootstrapOpenClawHandshakeResult;
   let phases: BootstrapOpenClawHandshakeResult[];
   let tokenToStore: string | undefined;
-  let deviceTokenStorage:
-    | { readonly stored: boolean; readonly ref: SecretReference }
-    | undefined;
+  let deviceTokenStorage: { readonly stored: boolean; readonly ref: SecretReference } | undefined;
 
   if (providedDeviceToken !== undefined) {
     const validation = unwrap(
       await dialOpenClawGateway({
-        url,
-        keypair,
+        profile: input.profile,
+        url: input.url,
+        keypair: input.keypair,
         credential: { field: "deviceToken", value: providedDeviceToken },
-        requireNarrowScopes: true,
+        requireExpectedScopes: true,
         allowPairingRequired: false,
-        socketFactory,
-        now,
+        socketFactory: input.socketFactory,
+        now: input.now,
       }),
     );
     pairing = validation.handshake;
     phases = [validation.handshake];
-    tokenToStore = providedDeviceToken;
-  } else if (gatewayToken !== undefined) {
+    if (tokenFromEnv !== undefined) {
+      tokenToStore = providedDeviceToken;
+    }
+  } else if (input.gatewayToken !== undefined) {
     const issuance = unwrap(
       await dialOpenClawGateway({
-        url,
-        keypair,
-        credential: { field: "token", value: gatewayToken },
-        requireNarrowScopes: false,
+        profile: input.profile,
+        url: input.url,
+        keypair: input.keypair,
+        credential: { field: "token", value: input.gatewayToken },
+        requireExpectedScopes: false,
         requireIssuedDeviceToken: true,
         allowPairingRequired: true,
-        socketFactory,
-        now,
+        socketFactory: input.socketFactory,
+        now: input.now,
       }),
     );
 
@@ -866,18 +950,20 @@ export async function bootstrapPlatformGateway(
 
       tokenToStore = issuedDeviceToken;
       deviceTokenStorage = await storeProvidedDeviceToken({
-        env,
+        env: input.env,
+        profile: input.profile,
         token: issuedDeviceToken,
       });
       const validation = unwrap(
         await dialOpenClawGateway({
-          url,
-          keypair,
+          profile: input.profile,
+          url: input.url,
+          keypair: input.keypair,
           credential: { field: "deviceToken", value: issuedDeviceToken },
-          requireNarrowScopes: true,
+          requireExpectedScopes: true,
           allowPairingRequired: false,
-          socketFactory,
-          now,
+          socketFactory: input.socketFactory,
+          now: input.now,
         }),
       );
       pairing = validation.handshake;
@@ -886,34 +972,77 @@ export async function bootstrapPlatformGateway(
   } else {
     const pending = unwrap(
       await dialOpenClawGateway({
-        url,
-        keypair,
-        requireNarrowScopes: false,
+        profile: input.profile,
+        url: input.url,
+        keypair: input.keypair,
+        requireExpectedScopes: false,
         allowPairingRequired: true,
-        socketFactory,
-        now,
+        socketFactory: input.socketFactory,
+        now: input.now,
       }),
     );
     pairing = pending.handshake;
     phases = [pending.handshake];
   }
 
-  const deviceToken =
+  const tokenStorage =
     deviceTokenStorage ??
     (await storeProvidedDeviceToken({
-      env,
+      env: input.env,
+      profile: input.profile,
       ...(tokenToStore === undefined ? {} : { token: tokenToStore }),
     }));
+
+  return { pairing, phases, tokenStorage };
+}
+
+export async function bootstrapPlatformGateway(
+  options: BootstrapPlatformGatewayOptions = {},
+): Promise<BootstrapPlatformGatewayReceipt> {
+  const env = options.env ?? process.env;
+  const logger = options.logger === undefined ? console : options.logger;
+  const url = gatewayUrl(env);
+  const gatewayToken = optionalEnv(env, "OPENCLAW_GATEWAY_TOKEN");
+  const keypair = options.deviceKeypair ?? readDeviceKeypair(env);
+  const workerAdminKeypair = options.workerAdminDeviceKeypair ?? readDeviceKeypair(env, "WORKER");
+  const socketFactory = options.socketFactory ?? defaultSocketFactory;
+  const now = options.now ?? Date.now;
+
+  const brokerDevice = await provisionOperatorDevice({
+    env,
+    profile: brokerHotPathProfile,
+    url,
+    keypair,
+    ...(gatewayToken === undefined ? {} : { gatewayToken }),
+    socketFactory,
+    now,
+  });
+  const workerAdminDevice = await provisionOperatorDevice({
+    env,
+    profile: workerAdminProfile,
+    url,
+    keypair: workerAdminKeypair,
+    ...(gatewayToken === undefined ? {} : { gatewayToken }),
+    socketFactory,
+    now,
+  });
   const provisioning = prepareAskAdminProvisioning({
-    deviceTokenRef: deviceToken.ref,
+    deviceTokenRef: brokerDevice.tokenStorage.ref,
+    workerAdminDeviceTokenRef: workerAdminDevice.tokenStorage.ref,
   });
   const receipt: BootstrapPlatformGatewayReceipt = {
     gatewayUrl: url,
-    deviceTokenStored: deviceToken.stored,
-    pairing,
-    phases,
+    deviceTokenStored: brokerDevice.tokenStorage.stored,
+    workerAdminDeviceTokenStored: workerAdminDevice.tokenStorage.stored,
+    pairing: brokerDevice.pairing,
+    workerAdminPairing: workerAdminDevice.pairing,
+    phases: brokerDevice.phases,
+    workerAdminPhases: workerAdminDevice.phases,
     provisioningReceipt: provisioning.receipt,
-    manualSteps: manualPairingSteps(url, pairing),
+    manualSteps: [
+      ...manualPairingSteps(url, brokerHotPathProfile, brokerDevice.pairing),
+      ...manualPairingSteps(url, workerAdminProfile, workerAdminDevice.pairing),
+    ],
   };
 
   logger?.log(JSON.stringify(receipt, null, 2));

@@ -1,19 +1,20 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
-import { useFormStatus } from "react-dom";
+import { useCallback, useId, useMemo, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import type {
+  DeviceFlowChallenge,
+  ModelProviderApiKeyConnectStart,
+  ModelProviderAuthChoice,
+  ProviderConnectionState,
+} from "@opzava/ports";
 
-import {
-  connectModelProviderApiKeyStateAction,
-  disconnectModelProviderAction,
-  startModelProviderDeviceFlowStateAction,
-} from "@/app/(app)/connections/actions";
+import { ApiKeyConnectPoller } from "@/components/connections/api-key-connect-poller";
 import { DeviceFlowPoller } from "@/components/connections/device-flow-poller";
+import { SetupTokenConnect } from "@/components/connections/setup-token-connect";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -23,7 +24,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardAction,
@@ -55,16 +56,14 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ConnectionsPageData } from "@/lib/connections";
-import {
-  initialConnectionActionState,
-  type ConnectionActionState,
-} from "@/lib/connections-action-state";
+import { postConnectionsMutation } from "@/lib/connections-mutation-client";
 import { groupProviderConnectionsByTier } from "@/lib/connections-state";
 import { cn } from "@/lib/utils";
 
 type ProviderRow = ConnectionsPageData["providers"][number];
 
 interface ModelProvidersPanelProps {
+  readonly gatewayStatus: ConnectionsPageData["snapshot"]["gateway"]["status"];
   readonly providers: readonly ProviderRow[];
   readonly summary: ConnectionsPageData["providerSummary"];
 }
@@ -75,13 +74,52 @@ const TABLE_CAPTION =
 function providerSort(left: ProviderRow, right: ProviderRow): number {
   const leftConnected = left.status === "connected" ? 0 : 1;
   const rightConnected = right.status === "connected" ? 0 : 1;
-  return leftConnected === rightConnected
-    ? left.label.localeCompare(right.label)
-    : leftConnected - rightConnected;
+  if (leftConnected !== rightConnected) {
+    return leftConnected - rightConnected;
+  }
+
+  const leftKey = left.label.toLowerCase();
+  const rightKey = right.label.toLowerCase();
+  if (leftKey !== rightKey) {
+    return leftKey < rightKey ? -1 : 1;
+  }
+
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 }
 
 function connectChoice(provider: ProviderRow) {
+  const setupTokenChoice = provider.apiKeyChoices.find((choice) =>
+    `${choice.id} ${choice.label}`.toLowerCase().includes("setup-token"),
+  );
+  if (setupTokenChoice !== undefined) {
+    return setupTokenChoice;
+  }
+
   return provider.deviceFlowChoices[0] ?? provider.apiKeyChoices[0] ?? null;
+}
+
+function credentialFormChoice(provider: ProviderRow) {
+  return (
+    provider.apiKeyChoices.find((choice) =>
+      `${choice.id} ${choice.label}`.toLowerCase().includes("setup-token"),
+    ) ??
+    provider.apiKeyChoices[0] ??
+    null
+  );
+}
+
+function credentialInputLabel(choice: ModelProviderAuthChoice): string {
+  return `${choice.id} ${choice.label}`.toLowerCase().includes("setup-token")
+    ? "Setup token"
+    : "API key";
+}
+
+function isSetupTokenChoice(choice: ModelProviderAuthChoice | null): boolean {
+  return choice !== null && `${choice.id} ${choice.label}`.toLowerCase().includes("setup-token");
+}
+
+function authMethodTypeLabel(choice: ModelProviderAuthChoice): string {
+  return choice.mode === "device-flow" ? "OAuth device-flow" : credentialInputLabel(choice);
 }
 
 function filterProviders(providers: readonly ProviderRow[], query: string): readonly ProviderRow[] {
@@ -165,6 +203,75 @@ function activeModelLabel(provider: ProviderRow): string {
   return provider.model ?? "No configured model";
 }
 
+function actionLabel(provider: ProviderRow): string {
+  if (provider.status === "connected") {
+    return "Manage";
+  }
+
+  return provider.status === "needs_attention" ? "Fix" : "Connect";
+}
+
+function displayStatusLabel(provider: ProviderRow): string {
+  return provider.status === "not_connected" ? "Available" : provider.statusLabel;
+}
+
+function statusBadgeVariant(provider: ProviderRow): "success" | "warning" | "muted" | "outline" {
+  if (provider.status === "connected") {
+    return "success";
+  }
+
+  if (provider.status === "needs_attention" || provider.status === "pending") {
+    return "warning";
+  }
+
+  return "muted";
+}
+
+function authHealthLabel(provider: ProviderRow): string | null {
+  if (provider.authHealth === null) {
+    return null;
+  }
+
+  const labels: Record<NonNullable<ProviderRow["authHealth"]>, string> = {
+    ok: "Auth OK",
+    expiring: "Auth expiring",
+    expired: "Auth expired",
+    missing: "Auth missing",
+    static: "Static key",
+  };
+  return labels[provider.authHealth];
+}
+
+function statusGuidance(provider: ProviderRow): string | null {
+  if (provider.status === "needs_attention") {
+    return `${provider.message ?? "Gateway reported this credential needs attention."} Fix: reconnect the account or rotate the credential.`;
+  }
+
+  if (provider.status === "pending") {
+    return "Authorization is in progress. Complete the device flow or wait for the next poll.";
+  }
+
+  if (provider.status === "not_connected") {
+    return "Available to connect.";
+  }
+
+  if (provider.authHealth === "expiring") {
+    return "Credential is still usable, but it should be refreshed soon.";
+  }
+
+  if (provider.authHealth === "expired" || provider.authHealth === "missing") {
+    return "Credential cannot route models until it is reconnected.";
+  }
+
+  return null;
+}
+
+function actionMessage(message: string): string {
+  return /^exit code \d+\.?$/i.test(message.trim())
+    ? `Gateway command failed after returning ${message.trim()}. Check provisioning worker logs for the sanitized command output.`
+    : message;
+}
+
 // Provider sub-line: the live gateway `vendor` (when it adds information beyond the label) plus any
 // folded CLI runtime hint — keeps `vendor` live data on-screen and mirrors the mockup sub-line
 // ("Gemini · incl. Gemini CLI runtime"). Null when there is nothing meaningful to add.
@@ -245,52 +352,22 @@ function DialogNotice({
   );
 }
 
-function DialogSubmitButton({
-  pendingLabel,
-  children,
+/** Actionable failure notice for a mutation; role denials get the admin-device guidance tone. */
+function MutationErrorNotice({
+  failure,
+  title = "Connection failed",
 }: {
-  readonly pendingLabel: string;
-  readonly children: ReactNode;
+  readonly failure: { readonly message: string; readonly code: string | null };
+  readonly title?: string;
 }) {
-  const { pending } = useFormStatus();
-
-  return (
-    <Button type="submit" disabled={pending} aria-busy={pending}>
-      {pending ? pendingLabel : children}
-    </Button>
-  );
-}
-
-function ProviderActionResult({
-  state,
-  provider,
-  matchProviderId,
-}: {
-  readonly state: ConnectionActionState;
-  readonly provider: ProviderRow;
-  readonly matchProviderId?: string;
-}) {
-  const expected = matchProviderId ?? provider.id;
-  if (state.status === "idle" || state.providerId !== expected || state.message === null) {
-    return null;
-  }
-
-  const adminRequired = state.code === "provisioning.openclawAdmin.operatorAdminRequired";
-  const success = state.status === "success";
-
+  const adminRequired = failure.code === "provisioning.openclawAdmin.operatorAdminRequired";
   return (
     <DialogNotice
-      tone={success ? "success" : adminRequired ? "warning" : "destructive"}
-      role={success ? "status" : "alert"}
-      title={
-        success
-          ? "Connection updated"
-          : adminRequired
-            ? "Admin device required"
-            : "Connection failed"
-      }
+      tone={adminRequired ? "warning" : "destructive"}
+      role="alert"
+      title={adminRequired ? "Admin device required" : title}
     >
-      {state.message}
+      {actionMessage(failure.message)}
     </DialogNotice>
   );
 }
@@ -306,32 +383,140 @@ function DisconnectConfirm({
   readonly size?: "sm" | "default";
   readonly triggerVariant?: "ghost" | "destructive";
 }) {
+  const router = useRouter();
+  const formId = useId();
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [formVersion, setFormVersion] = useState(0);
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (pending) {
+        return;
+      }
+
+      if (nextOpen) {
+        setFormVersion((current) => current + 1);
+      }
+      setOpen(nextOpen);
+    },
+    [pending],
+  );
+  const handleSuccess = useCallback(() => {
+    setPending(false);
+    setOpen(false);
+    router.refresh();
+  }, [router]);
+
   return (
-    <AlertDialog>
+    <AlertDialog open={open} onOpenChange={handleOpenChange}>
       <AlertDialogTrigger asChild>
         <Button type="button" variant={triggerVariant} size={size}>
           Disconnect
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Disconnect {provider.label}?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This logs the gateway out of {provider.label} and stops routing its models. Reconnecting
-            requires re-authenticating this provider. This can&apos;t be undone from here.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <form action={disconnectModelProviderAction}>
-            <input type="hidden" name="providerId" value={provider.connectionProviderId} />
-            <AlertDialogAction type="submit" className={buttonVariants({ variant: "destructive" })}>
-              Disconnect {provider.label}
-            </AlertDialogAction>
-          </form>
-        </AlertDialogFooter>
+        <DisconnectConfirmForm
+          key={`${provider.connectionProviderId}-${formVersion}`}
+          formId={formId}
+          provider={provider}
+          onPendingChange={setPending}
+          onSuccess={handleSuccess}
+        />
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+type DisconnectPhase =
+  | { readonly step: "idle" }
+  | { readonly step: "pending" }
+  | { readonly step: "verifying" }
+  | { readonly step: "failed"; readonly message: string; readonly code: string | null };
+
+function DisconnectConfirmForm({
+  formId,
+  provider,
+  onPendingChange,
+  onSuccess,
+}: {
+  readonly formId: string;
+  readonly provider: ProviderRow;
+  readonly onPendingChange: (pending: boolean) => void;
+  readonly onSuccess: () => void;
+}) {
+  const [phase, setPhase] = useState<DisconnectPhase>({ step: "idle" });
+  const isPending = phase.step === "pending" || phase.step === "verifying";
+
+  const runDisconnect = useCallback(async () => {
+    const disconnectOnce = () =>
+      postConnectionsMutation<ProviderConnectionState>("/api/connections/model/disconnect", {
+        providerId: provider.connectionProviderId,
+      });
+
+    setPhase({ step: "pending" });
+    onPendingChange(true);
+    let result = await disconnectOnce();
+    if (!result.ok && (result.kind === "timeout" || result.kind === "network")) {
+      // Sad path: the request died in flight but the disconnect may still have completed
+      // server-side. Disconnect is idempotent, so ONE verify retry converges to the truth
+      // (already-disconnected re-runs return the disconnected state).
+      setPhase({ step: "verifying" });
+      result = await disconnectOnce();
+    }
+    onPendingChange(false);
+    if (result.ok) {
+      setPhase({ step: "idle" });
+      onSuccess();
+      return;
+    }
+    setPhase({ step: "failed", message: result.message, code: result.code });
+  }, [onPendingChange, onSuccess, provider.connectionProviderId]);
+
+  const handleSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (isPending) {
+        return;
+      }
+      void runDisconnect();
+    },
+    [isPending, runDisconnect],
+  );
+
+  return (
+    <form id={formId} onSubmit={handleSubmit} className="grid gap-4">
+      <AlertDialogHeader>
+        <AlertDialogTitle>Disconnect {provider.label}?</AlertDialogTitle>
+        <AlertDialogDescription>
+          This logs the gateway out of {provider.label} and stops routing its models. Reconnecting
+          requires re-authenticating this provider. This can&apos;t be undone from here.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      {phase.step === "verifying" ? (
+        <DialogNotice tone="neutral" role="status" title="Verifying disconnect">
+          The first attempt did not answer in time; confirming the provider state with the gateway.
+        </DialogNotice>
+      ) : null}
+      {phase.step === "failed" ? (
+        <MutationErrorNotice failure={phase} title="Disconnect failed" />
+      ) : null}
+      <AlertDialogFooter>
+        <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+        <Button
+          type="submit"
+          form={formId}
+          variant="destructive"
+          disabled={isPending}
+          aria-busy={isPending}
+        >
+          {isPending
+            ? "Disconnecting..."
+            : phase.step === "failed"
+              ? `Retry disconnect`
+              : `Disconnect ${provider.label}`}
+        </Button>
+      </AlertDialogFooter>
+    </form>
   );
 }
 
@@ -349,17 +534,29 @@ function ProviderBacks({ provider }: { readonly provider: ProviderRow }) {
         <span aria-hidden="true" className="text-[var(--accent)]">
           ✦
         </span>
-        Orchestrator
+        LEAD ORCHESTRATOR
       </Badge>
     );
   }
 
-  return <Badge variant="outline">Subagent</Badge>;
+  return <Badge variant="outline">SUBAGENT</Badge>;
 }
 
+type ApiKeyConnectPhase =
+  | { readonly step: "idle" }
+  | { readonly step: "starting" }
+  | { readonly step: "polling"; readonly opId: string }
+  | { readonly step: "connected"; readonly message: string }
+  | { readonly step: "failed"; readonly message: string; readonly code: string | null };
+
+type DeviceFlowStartPhase =
+  | { readonly step: "idle" }
+  | { readonly step: "starting" }
+  | { readonly step: "started"; readonly challenge: DeviceFlowChallenge }
+  | { readonly step: "failed"; readonly message: string; readonly code: string | null };
+
 function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow }) {
-  const router = useRouter();
-  const apiKeyChoice = provider.apiKeyChoices[0] ?? null;
+  const apiKeyChoice = credentialFormChoice(provider);
   const choice =
     provider.status === "connected" && provider.connectedAuthMode === "api_key"
       ? apiKeyChoice
@@ -372,21 +569,57 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
   const showApiKeyForm =
     provider.status === "connected"
       ? provider.connectedAuthMode === "api_key" && apiKeyChoice !== null
-      : choice?.mode === "api-key";
-  const [apiKeyState, apiKeyAction] = useActionState(
-    connectModelProviderApiKeyStateAction,
-    initialConnectionActionState,
-  );
-  const [deviceFlowState, deviceAction] = useActionState(
-    startModelProviderDeviceFlowStateAction,
-    initialConnectionActionState,
+      : choice?.mode === "api-key" && !isSetupTokenChoice(choice);
+  const router = useRouter();
+  const [apiKeyPhase, setApiKeyPhase] = useState<ApiKeyConnectPhase>({ step: "idle" });
+  const [devicePhase, setDevicePhase] = useState<DeviceFlowStartPhase>({ step: "idle" });
+
+  const apiKeyBusy = apiKeyPhase.step === "starting" || apiKeyPhase.step === "polling";
+  const handleApiKeySubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (apiKeyBusy || apiKeyChoice === null) {
+        return;
+      }
+      const form = event.currentTarget;
+      const apiKey = new FormData(form).get("apiKey");
+      if (typeof apiKey !== "string" || apiKey.trim() === "") {
+        return;
+      }
+      setApiKeyPhase({ step: "starting" });
+      const result = await postConnectionsMutation<ModelProviderApiKeyConnectStart>(
+        "/api/connections/model/api-key",
+        { providerId: apiKeyChoice.providerId, authChoiceId: apiKeyChoice.id, apiKey },
+      );
+      if (!result.ok) {
+        setApiKeyPhase({ step: "failed", message: result.message, code: result.code });
+        return;
+      }
+      // Never retain the raw key in the DOM once the worker owns the operation.
+      form.reset();
+      setApiKeyPhase({ step: "polling", opId: result.data.opId });
+    },
+    [apiKeyBusy, apiKeyChoice],
   );
 
-  useEffect(() => {
-    if (apiKeyState.status === "success") {
-      router.refresh();
+  const deviceBusy = devicePhase.step === "starting";
+  const handleDeviceStart = useCallback(async () => {
+    if (deviceBusy || choice === null) {
+      return;
     }
-  }, [apiKeyState.status, router]);
+    setDevicePhase({ step: "starting" });
+    const result = await postConnectionsMutation<DeviceFlowChallenge>(
+      "/api/connections/model/device-flow",
+      { providerId: choice.providerId, authChoiceId: choice.id },
+    );
+    if (!result.ok) {
+      // Sad path: no automatic retry here - each start spawns a fresh provider device-code
+      // request and providers rate-limit that endpoint. The user retries deliberately.
+      setDevicePhase({ step: "failed", message: result.message, code: result.code });
+      return;
+    }
+    setDevicePhase({ step: "started", challenge: result.data });
+  }, [choice, deviceBusy]);
 
   if (choice === null && provider.status !== "connected") {
     return (
@@ -404,22 +637,22 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
           size="sm"
           variant={provider.status === "connected" ? "secondary" : "default"}
         >
-          {provider.status === "connected" ? "Manage" : "Connect"}
+          {actionLabel(provider)}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {provider.status === "connected" ? "Manage" : "Connect"} {provider.label}
+            {actionLabel(provider)} {provider.label}
           </DialogTitle>
           <DialogDescription>
             {provider.status === "connected"
               ? `Connected via ${connectedAuthLabel(provider)}.`
               : choice === null
                 ? "No live auth method is available for this provider."
-                : `Auth method from the live gateway catalog: ${choice.label} (${
-                    choice.mode === "api-key" ? "API key" : "OAuth device-flow"
-                  }).`}
+                : `Auth method from the live gateway catalog: ${choice.label} (${authMethodTypeLabel(
+                    choice,
+                  )}).`}
           </DialogDescription>
         </DialogHeader>
 
@@ -450,67 +683,139 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
                 />
               </DialogFooter>
             </div>
+          ) : isSetupTokenChoice(choice) ? (
+            <div className="grid gap-4">
+              <SetupTokenConnect providerId={provider.connectionProviderId} />
+              {apiKeyChoice !== null ? (
+                <details className="rounded-lg border border-border bg-muted p-3 text-sm">
+                  <summary className="cursor-pointer font-medium text-foreground">
+                    Already have a setup token?
+                  </summary>
+                  <form onSubmit={handleApiKeySubmit} className="mt-3 grid gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor={`${provider.id}-${apiKeyChoice.id}-dialog-key`}>
+                        {credentialInputLabel(apiKeyChoice)}
+                      </Label>
+                      <Input
+                        id={`${provider.id}-${apiKeyChoice.id}-dialog-key`}
+                        name="apiKey"
+                        type="password"
+                        autoComplete="off"
+                        required
+                        disabled={apiKeyBusy}
+                        placeholder="Paste setup token once"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        The token is sent to the provisioning worker and written inside Opzava
+                        Gateway. It is masked here and never echoed back.
+                      </p>
+                    </div>
+                    {apiKeyPhase.step === "failed" ? (
+                      <MutationErrorNotice failure={apiKeyPhase} />
+                    ) : null}
+                    {apiKeyPhase.step === "connected" ? (
+                      <DialogNotice tone="success" role="status" title="Connection updated">
+                        {apiKeyPhase.message}
+                      </DialogNotice>
+                    ) : null}
+                    {apiKeyPhase.step === "polling" ? (
+                      <ApiKeyConnectPoller
+                        opId={apiKeyPhase.opId}
+                        onConnected={(message) => {
+                          setApiKeyPhase({ step: "connected", message });
+                          router.refresh();
+                        }}
+                        onFailed={(message, code) => {
+                          setApiKeyPhase({ step: "failed", message, code });
+                        }}
+                      />
+                    ) : null}
+                    <Button type="submit" disabled={apiKeyBusy} aria-busy={apiKeyBusy}>
+                      {apiKeyBusy
+                        ? "Connecting..."
+                        : apiKeyPhase.step === "failed"
+                          ? "Retry token"
+                          : "Connect setup token"}
+                    </Button>
+                  </form>
+                </details>
+              ) : null}
+            </div>
           ) : showApiKeyForm && apiKeyChoice !== null ? (
-            <form action={apiKeyAction} className="grid gap-4">
-              <input type="hidden" name="providerId" value={apiKeyChoice.providerId} />
-              <input type="hidden" name="authChoiceId" value={apiKeyChoice.id} />
+            <form onSubmit={handleApiKeySubmit} className="grid gap-4">
               <div className="grid gap-2">
-                <Label htmlFor={`${provider.id}-${apiKeyChoice.id}-dialog-key`}>API key</Label>
+                <Label htmlFor={`${provider.id}-${apiKeyChoice.id}-dialog-key`}>
+                  {credentialInputLabel(apiKeyChoice)}
+                </Label>
                 <Input
                   id={`${provider.id}-${apiKeyChoice.id}-dialog-key`}
                   name="apiKey"
                   type="password"
                   autoComplete="off"
                   required
-                  placeholder="Paste key once"
+                  disabled={apiKeyBusy}
+                  placeholder={`Paste ${credentialInputLabel(apiKeyChoice).toLowerCase()} once`}
                 />
                 <p className="text-xs text-muted-foreground">
-                  The key is sent to the provisioning worker and written inside Opzava Gateway.
+                  The credential is sent to the provisioning worker and written inside Opzava
+                  Gateway. It is masked here and never echoed back.
                 </p>
               </div>
-              <ProviderActionResult
-                state={apiKeyState}
-                provider={provider}
-                matchProviderId={apiKeyChoice.providerId}
-              />
+              {apiKeyPhase.step === "failed" ? <MutationErrorNotice failure={apiKeyPhase} /> : null}
+              {apiKeyPhase.step === "connected" ? (
+                <DialogNotice tone="success" role="status" title="Connection updated">
+                  {apiKeyPhase.message}
+                </DialogNotice>
+              ) : null}
+              {apiKeyPhase.step === "polling" ? (
+                <ApiKeyConnectPoller
+                  opId={apiKeyPhase.opId}
+                  onConnected={(message) => {
+                    setApiKeyPhase({ step: "connected", message });
+                    router.refresh();
+                  }}
+                  onFailed={(message, code) => {
+                    setApiKeyPhase({ step: "failed", message, code });
+                  }}
+                />
+              ) : null}
               <DialogFooter>
                 <DialogClose asChild>
                   <Button type="button" variant="secondary">
                     Close
                   </Button>
                 </DialogClose>
-                <DialogSubmitButton pendingLabel="Connecting...">
-                  {provider.status === "connected" ? "Rotate key" : "Connect provider"}
-                </DialogSubmitButton>
+                <Button type="submit" disabled={apiKeyBusy} aria-busy={apiKeyBusy}>
+                  {apiKeyBusy
+                    ? "Connecting..."
+                    : apiKeyPhase.step === "failed"
+                      ? "Retry connect"
+                      : provider.status === "connected"
+                        ? "Rotate key"
+                        : "Connect provider"}
+                </Button>
               </DialogFooter>
             </form>
           ) : choice?.mode === "device-flow" ? (
-            <form action={deviceAction} className="grid gap-4">
-              <input type="hidden" name="providerId" value={choice.providerId} />
-              <input type="hidden" name="authChoiceId" value={choice.id} />
-              {deviceFlowState.status === "success" &&
-              deviceFlowState.deviceFlowChallenge !== null ? (
+            <div className="grid gap-4">
+              {devicePhase.step === "started" ? (
                 <DeviceFlowPoller
-                  flowId={deviceFlowState.deviceFlowChallenge.flowId}
-                  verificationUri={deviceFlowState.deviceFlowChallenge.verificationUri}
-                  userCode={deviceFlowState.deviceFlowChallenge.userCode}
-                  codePending={deviceFlowState.deviceFlowChallenge.codePending}
-                  intervalSeconds={deviceFlowState.deviceFlowChallenge.intervalSeconds}
-                  expiresAt={deviceFlowState.deviceFlowChallenge.expiresAt}
+                  flowId={devicePhase.challenge.flowId}
+                  verificationUri={devicePhase.challenge.verificationUri}
+                  userCode={devicePhase.challenge.userCode}
+                  codePending={devicePhase.challenge.codePending}
+                  intervalSeconds={devicePhase.challenge.intervalSeconds}
+                  expiresAt={devicePhase.challenge.expiresAt}
                 />
               ) : (
                 <DialogNotice tone="neutral" title="Browser device sign-in">
                   Start the device flow, then authorize {provider.label} with the verification code.
                 </DialogNotice>
               )}
-              {deviceFlowState.status === "error" ? (
-                <ProviderActionResult
-                  state={deviceFlowState}
-                  provider={provider}
-                  matchProviderId={choice.providerId}
-                />
+              {devicePhase.step === "failed" ? (
+                <MutationErrorNotice failure={devicePhase} title="Device flow failed" />
               ) : null}
-              {deviceFlowState.status === "error" ? (
+              {devicePhase.step === "failed" ? (
                 <pre className="overflow-x-auto rounded-md border border-border bg-muted p-3 text-xs">
                   <code>openclaw onboard --auth-choice {choice.id}</code>
                 </pre>
@@ -521,14 +826,22 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
                     Close
                   </Button>
                 </DialogClose>
-                {deviceFlowState.status === "success" &&
-                deviceFlowState.deviceFlowChallenge !== null ? null : (
-                  <DialogSubmitButton pendingLabel="Starting...">
-                    Start device flow
-                  </DialogSubmitButton>
+                {devicePhase.step === "started" ? null : (
+                  <Button
+                    type="button"
+                    onClick={() => void handleDeviceStart()}
+                    disabled={deviceBusy}
+                    aria-busy={deviceBusy}
+                  >
+                    {deviceBusy
+                      ? "Starting..."
+                      : devicePhase.step === "failed"
+                        ? "Retry device flow"
+                        : "Start device flow"}
+                  </Button>
                 )}
               </DialogFooter>
-            </form>
+            </div>
           ) : (
             <DialogNotice tone="warning" title="No live auth method">
               Refresh the gateway catalog after enabling this provider&apos;s auth choice.
@@ -545,6 +858,8 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
   const meta = statusMeta(provider);
   const subLine = providerSubLine(provider);
   const authBadges = providerAuthBadges(provider);
+  const healthLabel = authHealthLabel(provider);
+  const guidance = statusGuidance(provider);
 
   return (
     <TableRow data-provider-id={provider.id}>
@@ -590,14 +905,12 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
         )}
       </TableCell>
       <TableCell data-label="Status" className="align-top">
-        <span
-          className={cn(
-            "inline-flex items-center gap-2",
-            provider.status === "not_connected" && "text-muted-foreground",
-          )}
-        >
+        <span className="inline-flex flex-wrap items-center gap-2">
           <StatusDot status={provider.status} />
-          <span>{provider.statusLabel}</span>
+          <Badge variant={statusBadgeVariant(provider)} data-provider-status={provider.status}>
+            {displayStatusLabel(provider)}
+          </Badge>
+          {healthLabel === null ? null : <Badge variant="outline">{healthLabel}</Badge>}
           {meta.length === 0 ? null : (
             <span className="text-xs text-muted-foreground">· {meta.join(" · ")}</span>
           )}
@@ -605,8 +918,8 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
         {provider.accountLabel === null ? null : (
           <div className="mt-0.5 text-xs text-muted-foreground">{provider.accountLabel}</div>
         )}
-        {provider.message === null ? null : (
-          <div className="mt-0.5 text-xs text-muted-foreground">{provider.message}</div>
+        {guidance === null ? null : (
+          <div className="mt-0.5 text-xs text-muted-foreground">{guidance}</div>
         )}
       </TableCell>
       <TableCell data-label="Actions" className="align-top text-right">
@@ -666,7 +979,11 @@ function ProviderTable({ providers }: { readonly providers: readonly ProviderRow
   );
 }
 
-export function ModelProvidersPanel({ providers, summary }: ModelProvidersPanelProps) {
+export function ModelProvidersPanel({
+  gatewayStatus,
+  providers,
+  summary,
+}: ModelProvidersPanelProps) {
   const [query, setQuery] = useState("");
   const sortedProviders = useMemo(() => [...providers].sort(providerSort), [providers]);
   const filteredProviders = useMemo(
@@ -698,9 +1015,15 @@ export function ModelProvidersPanel({ providers, summary }: ModelProvidersPanelP
       <CardContent className="grid gap-4">
         {providers.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border p-8 text-center">
-            <p className="font-medium">Provider catalog unavailable</p>
+            <p className="font-medium">
+              {gatewayStatus === "unavailable"
+                ? "Gateway unavailable - retrying automatically"
+                : "No model providers in the live catalog"}
+            </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Configure the provisioning worker to read the live Opzava Gateway auth-choice catalog.
+              {gatewayStatus === "unavailable"
+                ? "The backend reconnects on its own. This is not a zero-provider configuration."
+                : "Refresh after adding provider auth choices to the gateway catalog."}
             </p>
           </div>
         ) : (

@@ -1,4 +1,4 @@
--- Slice 2.5 verify-deep issue hardening.
+-- Slice 2.5 deep-verification issue hardening.
 -- Adds active-close claim leases/dead-lettering and an issue-create idempotency guard.
 
 set lock_timeout = '3s';

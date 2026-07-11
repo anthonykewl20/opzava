@@ -15,9 +15,11 @@ export const ASK_ADMIN_AGENT_DIR = "/home/node/.openclaw/agents/ask-admin-opzava
 export const ASK_ADMIN_AGENT_MODEL = "openai/gpt-5.5";
 export const ASK_ADMIN_TOOL_POLICY_ID = "ask-admin-opzava-tool-policy";
 export const ASK_ADMIN_DEVICE_TOKEN_LABEL = "platform-operator-device-token";
+export const ASK_ADMIN_WORKER_ADMIN_DEVICE_TOKEN_LABEL = "platform-worker-admin-device-token";
 export const ASK_ADMIN_PLATFORM_TENANT_ID = makeTenantId("platform");
 
 export const ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES = ["operator.write", "operator.approvals"] as const;
+export const ASK_ADMIN_WORKER_ADMIN_OPERATOR_SCOPES = ["operator.read", "operator.admin"] as const;
 
 export const ASK_ADMIN_FORBIDDEN_OPERATOR_SCOPES = [
   "operator.admin",
@@ -111,12 +113,15 @@ export interface AskAdminProvisioningReceipt {
     readonly denyWins: true;
   };
   readonly deviceTokenRef: SecretReference;
+  readonly workerAdminDeviceTokenRef: SecretReference;
   readonly hotPathOperatorScopes: typeof ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES;
+  readonly workerAdminOperatorScopes: typeof ASK_ADMIN_WORKER_ADMIN_OPERATOR_SCOPES;
   readonly forbiddenOperatorScopes: typeof ASK_ADMIN_FORBIDDEN_OPERATOR_SCOPES;
 }
 
 export interface CreateAskAdminProvisioningReceiptInput {
   readonly deviceTokenRef: SecretReference;
+  readonly workerAdminDeviceTokenRef?: SecretReference;
   readonly generatedAt?: Date;
 }
 
@@ -304,6 +309,16 @@ export function expectedAskAdminDeviceTokenRef(tenantId: TenantId): SecretRefere
   } as SecretReference;
 }
 
+export function expectedAskAdminWorkerAdminDeviceTokenRef(tenantId: TenantId): SecretReference {
+  return {
+    id: `local-dev:${tenantId}:openclaw:${ASK_ADMIN_WORKER_ADMIN_DEVICE_TOKEN_LABEL}`,
+    tenantId,
+    purpose: "openclaw",
+    label: ASK_ADMIN_WORKER_ADMIN_DEVICE_TOKEN_LABEL,
+    version: ASK_ADMIN_AGENT_VERSION,
+  } as SecretReference;
+}
+
 export function createAskAdminProvisioningReceipt(
   input: CreateAskAdminProvisioningReceiptInput,
 ): AskAdminProvisioningReceipt {
@@ -336,7 +351,11 @@ export function createAskAdminProvisioningReceipt(
       denyWins: true,
     },
     deviceTokenRef: input.deviceTokenRef,
+    workerAdminDeviceTokenRef:
+      input.workerAdminDeviceTokenRef ??
+      expectedAskAdminWorkerAdminDeviceTokenRef(ASK_ADMIN_PLATFORM_TENANT_ID),
     hotPathOperatorScopes: ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES,
+    workerAdminOperatorScopes: ASK_ADMIN_WORKER_ADMIN_OPERATOR_SCOPES,
     forbiddenOperatorScopes: ASK_ADMIN_FORBIDDEN_OPERATOR_SCOPES,
   };
 }

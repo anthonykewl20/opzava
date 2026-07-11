@@ -165,11 +165,11 @@ async function readDeviceTokenFromVault(source: NodeJS.ProcessEnv): Promise<stri
     reason: "openclaw-hot-path-device-token",
   });
   if (!token.ok) {
-    throw runtimeEnvError(
-      "gatewayBroker.deviceTokenUnavailable",
-      "OpenClaw paired operator device token was not found in the configured SecretsVault.",
-      token.error,
-    );
+    const message =
+      token.error.code === "adapters.localSecrets.notFound"
+        ? "OpenClaw paired operator device token was not found in the configured SecretsVault."
+        : "OpenClaw paired operator device token could not be read from the configured SecretsVault.";
+    throw runtimeEnvError("gatewayBroker.deviceTokenUnavailable", message, token.error);
   }
 
   return token.value;

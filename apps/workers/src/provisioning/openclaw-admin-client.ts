@@ -35,11 +35,28 @@ export interface OpenClawAdminWebSocket {
   send(data: string): void;
   close(): void;
   onMessage(listener: (data: string) => void): void;
-  onClose(listener: () => void): void;
+  onClose(listener: (event?: OpenClawAdminCloseEvent) => void): void;
   onError(listener: (error: unknown) => void): void;
 }
 
 export type OpenClawAdminWebSocketFactory = (url: string) => OpenClawAdminWebSocket;
+
+type OpenClawAdminTimer = ReturnType<typeof setTimeout>;
+
+export interface OpenClawAdminClock {
+  now(): number;
+  setTimeout(callback: () => void, ms: number): OpenClawAdminTimer;
+  clearTimeout(timer: OpenClawAdminTimer): void;
+}
+
+export interface OpenClawAdminCloseEvent {
+  readonly code?: number;
+  readonly reason?: string;
+}
+
+export interface OpenClawAdminLogger {
+  error(message: string, details: Record<string, unknown>): void;
+}
 
 export interface OpenClawAdminDeviceSignatureInput {
   readonly clientId: string;
@@ -68,6 +85,16 @@ export interface OpenClawAdminRpcClientOptions {
   readonly requestTimeoutMs?: number;
   readonly connectTimeoutMs?: number;
   readonly now?: () => number;
+  readonly clock?: OpenClawAdminClock;
+  readonly random?: () => number;
+  readonly reconnectInitialBackoffMs?: number;
+  readonly reconnectMaxBackoffMs?: number;
+  readonly reconnectMaxAttempts?: number;
+  readonly reconnectJitterRatio?: number;
+  readonly circuitBreakerFailureThreshold?: number;
+  readonly circuitBreakerCooldownMs?: number;
+  readonly idleTimeoutMs?: number;
+  readonly logger?: OpenClawAdminLogger | null;
 }
 
 interface OpenClawAdminFrame {
@@ -88,7 +115,7 @@ interface OpenClawAdminFrame {
 interface PendingRequest {
   readonly method: string;
   readonly resolve: (result: Result<unknown>) => void;
-  readonly timeout: NodeJS.Timeout;
+  readonly timeout: OpenClawAdminTimer;
 }
 
 interface OpenClawAdminHello {
@@ -100,6 +127,40 @@ interface OpenClawAdminAuthCredential {
   readonly token: string;
   readonly auth: { readonly token: string } | { readonly deviceToken: string };
 }
+
+interface OpenClawAdminFailureDetails {
+  readonly cause:
+    | "missing_token"
+    | "pairing_not_approved"
+    | "scope_rejected"
+    | "auth_rejected"
+    | "close_before_connect";
+  readonly gatewayCode?: string;
+  readonly closeCode?: number;
+  readonly closeReason?: string;
+  readonly requestedScopes?: readonly OpenClawOperatorScope[];
+  readonly grantedScopes?: readonly OpenClawOperatorScope[];
+}
+
+type CircuitBreakerState = "closed" | "open" | "half_open";
+
+const defaultClock: OpenClawAdminClock = {
+  now: Date.now,
+  setTimeout(callback, ms) {
+    return setTimeout(callback, ms);
+  },
+  clearTimeout(timer) {
+    clearTimeout(timer);
+  },
+};
+
+const retryableReadMethods = new Set([
+  "config.get",
+  "health",
+  "last-heartbeat",
+  "models.authStatus",
+  "models.list",
+]);
 
 function adminError(code: string, message: string, cause?: unknown): DomainError {
   return new DomainError({
@@ -200,7 +261,11 @@ function defaultSocketFactory(url: string): OpenClawAdminWebSocket {
         close(): void;
         addEventListener(
           type: string,
-          listener: (event: { readonly data?: unknown }) => void,
+          listener: (event: {
+            readonly data?: unknown;
+            readonly code?: unknown;
+            readonly reason?: unknown;
+          }) => void,
         ): void;
       };
     }
@@ -225,7 +290,12 @@ function defaultSocketFactory(url: string): OpenClawAdminWebSocket {
       socket.addEventListener("message", (event) => listener(String(event.data ?? "")));
     },
     onClose(listener) {
-      socket.addEventListener("close", listener);
+      socket.addEventListener("close", (event) =>
+        listener({
+          ...(typeof event.code === "number" ? { code: event.code } : {}),
+          ...(typeof event.reason === "string" ? { reason: event.reason } : {}),
+        }),
+      );
     },
     onError(listener) {
       socket.addEventListener("error", listener);
@@ -400,17 +470,62 @@ function authCredentialFromOptions(
   );
 }
 
+function connectFailureDetails(frame: OpenClawAdminFrame): OpenClawAdminFailureDetails {
+  const gatewayCode = frame.error?.code;
+  const rawDetails = isRecord(frame.error?.details) ? frame.error.details : {};
+  const rejectedScope =
+    typeof rawDetails["requiredScope"] === "string" ? rawDetails["requiredScope"] : undefined;
+  if (gatewayCode === "PAIRING_REQUIRED") {
+    return { cause: "pairing_not_approved", ...(gatewayCode === undefined ? {} : { gatewayCode }) };
+  }
+
+  if (
+    gatewayCode === "SCOPE_REQUIRED" ||
+    gatewayCode === "INSUFFICIENT_SCOPE" ||
+    rejectedScope?.startsWith("operator.") === true
+  ) {
+    return { cause: "scope_rejected", ...(gatewayCode === undefined ? {} : { gatewayCode }) };
+  }
+
+  return { cause: "auth_rejected", ...(gatewayCode === undefined ? {} : { gatewayCode }) };
+}
+
+function sanitizeCloseReason(value: string): string {
+  return value
+    .replace(
+      /\b(token|key|secret|signature|authorization|bearer)\b\s*[:=]\s*\S+/gi,
+      "$1=[redacted]",
+    )
+    .replace(/\bsk-[a-z0-9_-]{8,}\b/gi, "[redacted]")
+    .replace(/\b[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b/g, "[redacted]")
+    .slice(0, 240);
+}
+
 export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
   private readonly authCredential: OpenClawAdminAuthCredential;
   private readonly requestedScopes: readonly OpenClawOperatorScope[];
   private readonly socketFactory: OpenClawAdminWebSocketFactory;
   private readonly requestTimeoutMs: number;
   private readonly connectTimeoutMs: number;
-  private readonly now: () => number;
+  private readonly clock: OpenClawAdminClock;
+  private readonly random: () => number;
+  private readonly reconnectInitialBackoffMs: number;
+  private readonly reconnectMaxBackoffMs: number;
+  private readonly reconnectMaxAttempts: number;
+  private readonly reconnectJitterRatio: number;
+  private readonly circuitBreakerFailureThreshold: number;
+  private readonly circuitBreakerCooldownMs: number;
+  private readonly idleTimeoutMs: number;
+  private readonly logger: OpenClawAdminLogger | null;
   private socket: OpenClawAdminWebSocket | null = null;
   private connectPromise: Promise<Result<OpenClawAdminHello>> | null = null;
   private connectedScopes: readonly OpenClawOperatorScope[] | null = null;
   private readonly pendingRequests = new Map<string, PendingRequest>();
+  private consecutiveConnectFailures = 0;
+  private circuitBreakerState: CircuitBreakerState = "closed";
+  private circuitBreakerOpenedAt: number | null = null;
+  private idleTimer: OpenClawAdminTimer | null = null;
+  private lastSocketActivityAt: number | null = null;
 
   public constructor(private readonly options: OpenClawAdminRpcClientOptions) {
     this.authCredential = authCredentialFromOptions(options);
@@ -418,7 +533,18 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
     this.socketFactory = options.socketFactory ?? defaultSocketFactory;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 15_000;
     this.connectTimeoutMs = options.connectTimeoutMs ?? 15_000;
-    this.now = options.now ?? Date.now;
+    this.clock =
+      options.clock ??
+      (options.now === undefined ? defaultClock : { ...defaultClock, now: options.now });
+    this.random = options.random ?? Math.random;
+    this.reconnectInitialBackoffMs = Math.max(0, options.reconnectInitialBackoffMs ?? 100);
+    this.reconnectMaxBackoffMs = Math.max(0, options.reconnectMaxBackoffMs ?? 2_000);
+    this.reconnectMaxAttempts = Math.max(1, options.reconnectMaxAttempts ?? 4);
+    this.reconnectJitterRatio = Math.max(0, options.reconnectJitterRatio ?? 0.2);
+    this.circuitBreakerFailureThreshold = Math.max(1, options.circuitBreakerFailureThreshold ?? 4);
+    this.circuitBreakerCooldownMs = Math.max(0, options.circuitBreakerCooldownMs ?? 5_000);
+    this.idleTimeoutMs = Math.max(0, options.idleTimeoutMs ?? 30_000);
+    this.logger = options.logger ?? null;
   }
 
   public async request(
@@ -429,6 +555,27 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
       readonly requiredScope?: OpenClawOperatorScope;
     } = {},
   ): Promise<Result<unknown>> {
+    const firstAttempt = await this.sendOnce(method, params, options);
+    if (firstAttempt.ok || !this.shouldRetryRequest(method, firstAttempt.error)) {
+      return firstAttempt;
+    }
+
+    const reconnected = await this.connect();
+    if (!reconnected.ok) {
+      return err(reconnected.error);
+    }
+
+    return await this.sendOnce(method, params, options);
+  }
+
+  private async sendOnce(
+    method: string,
+    params: Record<string, unknown>,
+    options: {
+      readonly idempotencyKey?: string;
+      readonly requiredScope?: OpenClawOperatorScope;
+    },
+  ): Promise<Result<unknown>> {
     const connected = await this.connect();
     if (!connected.ok) {
       return err(connected.error);
@@ -438,6 +585,11 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
       options.requiredScope !== undefined &&
       !openClawOperatorScopeGranted(connected.value.scopes, options.requiredScope)
     ) {
+      this.logConnectFailure({
+        cause: "scope_rejected",
+        requestedScopes: this.requestedScopes,
+        grantedScopes: connected.value.scopes,
+      });
       return err(scopeError(options.requiredScope, connected.value.scopes));
     }
 
@@ -458,7 +610,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
         : { ...params, idempotencyKey: options.idempotencyKey };
 
     return await new Promise<Result<unknown>>((resolve) => {
-      const timeout = setTimeout(() => {
+      const timeout = this.clock.setTimeout(() => {
         this.pendingRequests.delete(id);
         resolve(
           err(
@@ -471,24 +623,178 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
       }, this.requestTimeoutMs);
 
       this.pendingRequests.set(id, { method, resolve, timeout });
-      socket.send(
-        serializeFrame({
-          type: "req",
-          id,
-          method,
-          params: requestParams,
-        }),
-      );
+      try {
+        socket.send(
+          serializeFrame({
+            type: "req",
+            id,
+            method,
+            params: requestParams,
+          }),
+        );
+        this.touchSocketActivity(socket);
+      } catch (error) {
+        this.pendingRequests.delete(id);
+        this.clock.clearTimeout(timeout);
+        this.handleSocketClosed(socket);
+        socket.close();
+        resolve(
+          err(
+            adminError(
+              "provisioning.openclawAdmin.connectionClosed",
+              `OpenClaw admin RPC ${method} could not be sent because the socket is closed.`,
+              error,
+            ),
+          ),
+        );
+      }
     });
   }
 
   public close(): void {
     const socket = this.socket;
+    this.handleSocketClosed(socket);
+    socket?.close();
+  }
+
+  public grantedScopes(): readonly OpenClawOperatorScope[] | null {
+    return this.connectedScopes;
+  }
+
+  private shouldRetryRequest(method: string, error: DomainError): boolean {
+    return (
+      retryableReadMethods.has(method) &&
+      (error.code === "provisioning.openclawAdmin.connectionClosed" ||
+        error.code === "provisioning.openclawAdmin.notConnected")
+    );
+  }
+
+  private logConnectFailure(details: OpenClawAdminFailureDetails): void {
+    this.logger?.error("provisioning.openclawAdmin.operatorWsHandshakeFailed", {
+      code: "provisioning.openclawAdmin.operatorWsHandshakeFailed",
+      ...details,
+      requestedScopes: details.requestedScopes ?? this.requestedScopes,
+    });
+  }
+
+  private connect(): Promise<Result<OpenClawAdminHello>> {
+    if (this.socket !== null && this.connectedScopes !== null) {
+      return Promise.resolve(
+        ok({ protocol: openClawProtocolVersion, scopes: this.connectedScopes }),
+      );
+    }
+
+    this.connectPromise ??= this.connectWithPolicy().finally(() => {
+      this.connectPromise = null;
+    });
+    return this.connectPromise;
+  }
+
+  private async connectWithPolicy(): Promise<Result<OpenClawAdminHello>> {
+    for (let attempt = 1; attempt <= this.reconnectMaxAttempts; attempt += 1) {
+      const breaker = this.prepareCircuitBreakerAttempt();
+      if (!breaker.ok) {
+        return err(breaker.error);
+      }
+
+      const connected = await this.openConnection();
+      if (connected.ok) {
+        this.recordConnectSuccess();
+        return connected;
+      }
+
+      this.recordConnectFailure();
+      if (this.circuitBreakerState === "open") {
+        return err(this.circuitBreakerOpenError());
+      }
+
+      if (attempt === this.reconnectMaxAttempts) {
+        return err(connected.error);
+      }
+
+      await this.sleep(this.nextBackoffDelayMs());
+    }
+
+    return err(
+      adminError(
+        "provisioning.openclawAdmin.gatewayUnavailable",
+        "Opzava Gateway admin WebSocket could not be reached.",
+      ),
+    );
+  }
+
+  private prepareCircuitBreakerAttempt(): Result<void> {
+    if (this.circuitBreakerState !== "open" || this.circuitBreakerOpenedAt === null) {
+      return ok(undefined);
+    }
+
+    const elapsedMs = this.clock.now() - this.circuitBreakerOpenedAt;
+    if (elapsedMs < this.circuitBreakerCooldownMs) {
+      return err(this.circuitBreakerOpenError());
+    }
+
+    this.circuitBreakerState = "half_open";
+    return ok(undefined);
+  }
+
+  private recordConnectSuccess(): void {
+    this.consecutiveConnectFailures = 0;
+    this.circuitBreakerState = "closed";
+    this.circuitBreakerOpenedAt = null;
+  }
+
+  private recordConnectFailure(): void {
+    this.consecutiveConnectFailures += 1;
+    if (this.consecutiveConnectFailures >= this.circuitBreakerFailureThreshold) {
+      this.circuitBreakerState = "open";
+      this.circuitBreakerOpenedAt = this.clock.now();
+    }
+  }
+
+  private circuitBreakerOpenError(): DomainError {
+    const openedAt = this.circuitBreakerOpenedAt ?? this.clock.now();
+    return new DomainError({
+      code: "provisioning.openclawAdmin.gatewayCircuitOpen",
+      message: "OpenClaw gateway unreachable; retrying after circuit-breaker cooldown.",
+      details: {
+        reason: "gateway_unreachable_retrying",
+        breakerState: "open",
+        consecutiveFailures: this.consecutiveConnectFailures,
+        retryAfterMs: Math.max(0, openedAt + this.circuitBreakerCooldownMs - this.clock.now()),
+      },
+    });
+  }
+
+  private nextBackoffDelayMs(): number {
+    const exponential = this.reconnectInitialBackoffMs * 2 ** (this.consecutiveConnectFailures - 1);
+    const capped = Math.min(this.reconnectMaxBackoffMs, exponential);
+    const jitterRatio = Math.max(0, this.reconnectJitterRatio);
+    const jitterMultiplier = 1 + (this.random() * 2 - 1) * jitterRatio;
+    return Math.min(this.reconnectMaxBackoffMs, Math.max(0, Math.round(capped * jitterMultiplier)));
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    if (ms <= 0) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      this.clock.setTimeout(() => resolve(), ms);
+    });
+  }
+
+  private handleSocketClosed(socket: OpenClawAdminWebSocket | null): void {
+    if (socket !== null && this.socket !== socket) {
+      return;
+    }
+
     this.socket = null;
     this.connectPromise = null;
     this.connectedScopes = null;
+    this.lastSocketActivityAt = null;
+    this.clearIdleTimer();
     for (const [id, pending] of this.pendingRequests) {
-      clearTimeout(pending.timeout);
+      this.clock.clearTimeout(pending.timeout);
       pending.resolve(
         err(
           adminError(
@@ -499,16 +805,50 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
       );
       this.pendingRequests.delete(id);
     }
-    socket?.close();
   }
 
-  public grantedScopes(): readonly OpenClawOperatorScope[] | null {
-    return this.connectedScopes;
+  private touchSocketActivity(socket: OpenClawAdminWebSocket): void {
+    if (this.socket !== socket) {
+      return;
+    }
+
+    this.lastSocketActivityAt = this.clock.now();
+    this.scheduleIdleTimer(socket);
   }
 
-  private connect(): Promise<Result<OpenClawAdminHello>> {
-    this.connectPromise ??= this.openConnection();
-    return this.connectPromise;
+  private scheduleIdleTimer(socket: OpenClawAdminWebSocket): void {
+    this.clearIdleTimer();
+    if (this.idleTimeoutMs <= 0) {
+      return;
+    }
+
+    this.idleTimer = this.clock.setTimeout(() => {
+      if (this.socket !== socket || this.lastSocketActivityAt === null) {
+        return;
+      }
+
+      if (this.clock.now() - this.lastSocketActivityAt < this.idleTimeoutMs) {
+        this.scheduleIdleTimer(socket);
+        return;
+      }
+
+      if (this.pendingRequests.size > 0) {
+        this.scheduleIdleTimer(socket);
+        return;
+      }
+
+      this.handleSocketClosed(socket);
+      socket.close();
+    }, this.idleTimeoutMs);
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimer === null) {
+      return;
+    }
+
+    this.clock.clearTimeout(this.idleTimer);
+    this.idleTimer = null;
   }
 
   private async openConnection(): Promise<Result<OpenClawAdminHello>> {
@@ -537,13 +877,16 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
           return;
         }
         settled = true;
-        clearTimeout(timeout);
+        this.clock.clearTimeout(timeout);
         if (!result.ok) {
-          this.close();
+          this.handleSocketClosed(socket);
+          socket.close();
+        } else {
+          this.touchSocketActivity(socket);
         }
         resolve(result);
       };
-      const timeout = setTimeout(() => {
+      const timeout = this.clock.setTimeout(() => {
         settle(
           err(
             adminError(
@@ -555,6 +898,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
       }, this.connectTimeoutMs);
 
       socket.onMessage((raw) => {
+        this.touchSocketActivity(socket);
         const frame = parseFrame(raw);
         if (frame === null) {
           settle(
@@ -603,6 +947,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
 
         if (!settled && frame.type === "res" && frame.id === connectId) {
           if (frame.ok !== true) {
+            this.logConnectFailure(connectFailureDetails(frame));
             settle(
               err(
                 adminError(
@@ -617,6 +962,15 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
           const hello = helloPayload(frame.payload);
           if (hello.ok) {
             this.connectedScopes = hello.value.scopes;
+          } else if (hello.error.code === "provisioning.openclawAdmin.readScopeMissing") {
+            this.logConnectFailure({
+              cause: "scope_rejected",
+              grantedScopes: isRecord(frame.payload)
+                ? operatorScopes(
+                    isRecord(frame.payload["auth"]) ? frame.payload["auth"]["scopes"] : [],
+                  )
+                : [],
+            });
           }
           settle(hello);
           return;
@@ -629,7 +983,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
           }
 
           this.pendingRequests.delete(frame.id);
-          clearTimeout(pending.timeout);
+          this.clock.clearTimeout(pending.timeout);
           pending.resolve(
             frame.ok === true
               ? ok(frame.payload)
@@ -643,8 +997,15 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
         }
       });
 
-      socket.onClose(() => {
+      socket.onClose((event) => {
         if (!settled) {
+          this.logConnectFailure({
+            cause: "close_before_connect",
+            ...(event?.code === undefined ? {} : { closeCode: event.code }),
+            ...(event?.reason === undefined || event.reason === ""
+              ? {}
+              : { closeReason: sanitizeCloseReason(event.reason) }),
+          });
           settle(
             err(
               adminError(
@@ -656,7 +1017,8 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
           return;
         }
 
-        this.close();
+        this.handleSocketClosed(socket);
+        socket.close();
       });
 
       socket.onError((error) => {
@@ -670,13 +1032,17 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
               ),
             ),
           );
+          return;
         }
+
+        this.handleSocketClosed(socket);
+        socket.close();
       });
     });
   }
 
   private async buildConnectFrame(id: string, nonce: string): Promise<OpenClawAdminFrame> {
-    const signedAt = this.now();
+    const signedAt = this.clock.now();
     const signature = await this.options.keypair.sign({
       clientId: openClawClientId,
       clientMode: openClawClientMode,

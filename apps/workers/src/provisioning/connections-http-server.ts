@@ -168,11 +168,109 @@ async function handleConnectionsRequest(
       return;
     }
 
-    const result = await options.provisioningPort.connectModelProviderApiKey({
+    const result = await options.provisioningPort.startModelProviderApiKeyConnect({
       ...principal,
       providerId,
       authChoiceId,
       apiKey,
+    });
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
+    return;
+  }
+
+  if (route === "/internal/connections/model/api-key/poll") {
+    if (!isRecord(body)) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const opId = stringValue(body["opId"]);
+    if (opId === null) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const result = await options.provisioningPort.pollModelProviderApiKeyConnect({
+      ...principal,
+      opId,
+    });
+    writeJson(
+      response,
+      result.ok ? 200 : 404,
+      result.ok ? result.value : errorPayload(result.error),
+    );
+    return;
+  }
+
+  if (route === "/internal/connections/model/setup-token") {
+    if (!isRecord(body)) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const providerId = stringValue(body["providerId"]);
+    if (providerId === null) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const result = await options.provisioningPort.startModelProviderSetupTokenFlow({
+      ...principal,
+      providerId,
+    });
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
+    return;
+  }
+
+  if (route === "/internal/connections/model/setup-token/poll") {
+    if (!isRecord(body)) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const flowId = stringValue(body["flowId"]);
+    if (flowId === null) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const result = await options.provisioningPort.pollModelProviderSetupTokenFlow({
+      ...principal,
+      flowId,
+    });
+    writeJson(
+      response,
+      result.ok ? 200 : 404,
+      result.ok ? result.value : errorPayload(result.error),
+    );
+    return;
+  }
+
+  if (route === "/internal/connections/model/setup-token/code") {
+    if (!isRecord(body)) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const flowId = stringValue(body["flowId"]);
+    const code = typeof body["code"] === "string" ? body["code"] : null;
+    if (flowId === null || code === null) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const result = await options.provisioningPort.submitModelProviderSetupTokenCode({
+      ...principal,
+      flowId,
+      code,
     });
     writeJson(
       response,

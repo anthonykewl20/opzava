@@ -135,6 +135,15 @@ export function statusClassName(status: ConnectionStatus): string {
   return "dot";
 }
 
+function normalizedModelId(value: string | null): string {
+  return (value ?? "").toLowerCase().replace(/[\s_]+/g, "-");
+}
+
+export function isLeadOrchestratorModel(model: string | null): boolean {
+  const normalized = normalizedModelId(model);
+  return normalized.includes("gpt-5.5") || normalized.includes("claude-opus-4.8");
+}
+
 export function authBranchForChoice(choice: ModelProviderAuthChoice): "api-key" | "device-flow" {
   return choice.mode;
 }
@@ -143,6 +152,9 @@ export function preferredAuthChoice(
   provider: ModelProviderCatalogEntry,
 ): ModelProviderAuthChoice | null {
   return (
+    provider.authChoices.find((choice) =>
+      `${choice.id} ${choice.label}`.toLowerCase().includes("setup-token"),
+    ) ??
     provider.authChoices.find((choice) => choice.mode === "device-flow") ??
     provider.authChoices.find((choice) => choice.mode === "api-key") ??
     null
@@ -394,7 +406,7 @@ export function projectModelProviders(
         primaryAuthChoice: preferredAuthChoice(provider),
         apiKeyChoices,
         deviceFlowChoices,
-        roleLabel: group.id === "openai" ? "Lead orchestrator" : "Subagent",
+        roleLabel: isLeadOrchestratorModel(model) ? "Lead orchestrator" : "Subagent",
         model,
         runtimeLabels: [...group.runtimeLabels].sort((left, right) => left.localeCompare(right)),
         models,

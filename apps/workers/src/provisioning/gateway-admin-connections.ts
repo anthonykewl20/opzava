@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { LocalFileSecretsVault } from "@opzava/adapters";
+import { expectedLocalFileSecretReference, LocalFileSecretsVault } from "@opzava/adapters";
 import {
   CANONICAL_LLM_PROVIDER_IDS,
   CANONICAL_PROVIDER_LABELS,
@@ -18,11 +18,15 @@ import {
   type DisconnectModelProviderInput,
   type GetSecretRefInput,
   type GitHubConnectionState,
+  type ModelProviderApiKeyConnectPollState,
+  type ModelProviderApiKeyConnectStart,
   type ModelSummary,
   type ModelProviderAuthChoice,
   type ModelProviderCatalogEntry,
   type OrchestratorDelegationState,
   type OrchestratorSubagentRole,
+  type PollModelProviderApiKeyConnectInput,
+  type PollModelProviderSetupTokenFlowInput,
   type ProviderAuthHealth,
   type ProviderConnectionState,
   type ResolveSecretInput,
@@ -30,14 +34,32 @@ import {
   type SecretsVaultPort,
   type StartGitHubDeviceFlowInput,
   type StartModelProviderDeviceFlowInput,
+  type StartModelProviderSetupTokenFlowInput,
+  type SetupTokenFlowPollState,
+  type SetupTokenFlowStart,
+  type SubmitModelProviderSetupTokenCodeInput,
 } from "@opzava/ports";
-import { DomainError, err, ok, type Result, type TenantId } from "@opzava/shared-kernel";
+import {
+  DomainError,
+  err,
+  makeTenantId,
+  ok,
+  type Result,
+  type TenantId,
+} from "@opzava/shared-kernel";
 
-import { ASK_ADMIN_AGENT_ID, ASK_ADMIN_AGENT_MODEL } from "./ask-admin-agent.js";
+import {
+  ASK_ADMIN_AGENT_ID,
+  ASK_ADMIN_AGENT_MODEL,
+  ASK_ADMIN_PLATFORM_TENANT_ID,
+  ASK_ADMIN_WORKER_ADMIN_DEVICE_TOKEN_LABEL,
+  ASK_ADMIN_WORKER_ADMIN_OPERATOR_SCOPES,
+} from "./ask-admin-agent.js";
 import { buildDelegationProvisioningReceipt, buildOrchestratorAgentConfig } from "./connections.js";
 import {
   Ed25519OpenClawAdminDeviceKeypair,
   OpenClawAdminRpcClient,
+  type OpenClawAdminLogger,
   type OpenClawOperatorScope,
   type OpenClawAdminRpcPort,
 } from "./openclaw-admin-client.js";
@@ -84,6 +106,12 @@ interface GatewayRuntimeDeviceCodeLogin {
   readonly logPath: string;
 }
 
+interface GatewayRuntimeSetupTokenLogin {
+  readonly execId: string;
+  readonly logPath: string;
+  readonly stdinPath: string;
+}
+
 interface GatewayRuntimePort {
   listAuthChoices(): Promise<Result<readonly GatewayRuntimeAuthChoice[]>>;
   modelStatus(): Promise<Result<unknown>>;
@@ -96,6 +124,10 @@ interface GatewayRuntimePort {
   startDeviceCodeLogin(providerId: string): Promise<Result<GatewayRuntimeDeviceCodeLogin>>;
   readDeviceCodeLog(logPath: string): Promise<Result<string>>;
   stopDeviceCodeLogin(execId: string, logPath: string): Promise<void>;
+  startSetupTokenLogin(): Promise<Result<GatewayRuntimeSetupTokenLogin>>;
+  readSetupTokenLog(logPath: string): Promise<Result<string>>;
+  writeSetupTokenInput(stdinPath: string, value: string): Promise<Result<void>>;
+  stopSetupTokenLogin(execId: string, logPath: string): Promise<void>;
 }
 
 interface PendingGitHubDeviceFlow {
@@ -119,6 +151,34 @@ interface PendingModelProviderDeviceFlow {
   readonly intervalSeconds: number;
   readonly execId: string;
   readonly logPath: string;
+  readonly timeout: ReturnType<typeof setTimeout>;
+}
+
+interface PendingModelProviderApiKeyConnect {
+  readonly opId: string;
+  readonly orgId: string;
+  readonly providerId: string;
+  readonly authChoiceId: string;
+  readonly startedAt: Date;
+  readonly expiresAt: Date;
+  readonly timeout: ReturnType<typeof setTimeout>;
+  outcome?: ModelProviderApiKeyConnectPollState;
+}
+
+interface PendingModelProviderSetupTokenFlow {
+  readonly flowId: string;
+  readonly orgId: string;
+  readonly providerId: string;
+  readonly authChoiceId: "setup-token";
+  readonly execId: string;
+  readonly logPath: string;
+  readonly stdinPath: string;
+  readonly expiresAt: Date;
+  readonly timeout: ReturnType<typeof setTimeout>;
+  phase: "starting" | "awaiting_code" | "completing";
+  authorizeUrl?: string;
+  codeSubmittedAt?: Date;
+  outcome?: SetupTokenFlowPollState;
 }
 
 const modelDeviceFlowRequiredMessage =
@@ -127,6 +187,18 @@ const modelDeviceFlowStartPollDelayMs = 1_500;
 const modelDeviceFlowStartMaxAttempts = 4;
 const modelDeviceFlowExpiresMs = 15 * 60 * 1000;
 const modelDeviceFlowPollIntervalSeconds = 5;
+const modelApiKeyConnectExpiresMs = 120 * 1000;
+const modelSetupTokenFlowExpiresMs = 10 * 60 * 1000;
+const setupTokenCodeExchangeTimeoutMs = 30_000;
+const modelApiKeyPostCheckMaxWaitMs = 30 * 1000;
+const modelApiKeyPostCheckDelayMs = 500;
+const dockerRequestTimeoutMs = 15_000;
+const disconnectTransientMaxAttempts = 3;
+const disconnectTransientMaxTotalWaitMs = 150_000;
+const disconnectAuthLogoutInterCallDelayMs = 20_000;
+const disconnectAuthLogoutUnpacedLimit = 3;
+const disconnectClosedBeforeResponseRetryDelayMs = 500;
+const disconnectPostCheckRetryDelayMs = 1_000;
 
 function provisioningError(
   code: string,
@@ -201,12 +273,98 @@ function parseDeviceCodeLog(value: string): {
 }
 
 function deviceCodeLogTerminalFailure(logValue: string): boolean {
+  const stripped = stripAnsi(logValue);
+  // The device-code CLI prints a distinct failure headline when the provider blocks,
+  // rate-limits, or errors the request (e.g. "OpenAI device code failed", "device code
+  // request failed: HTTP 429", "Trouble with device code login?"). None of these appear in
+  // a healthy prompt, so scan the WHOLE log: a provider Cloudflare/429 block pushes the
+  // headline before ~4KB of trailing challenge HTML, out of the recent-tail window below.
+  // Without this the poller stalls on "Requesting device code..." until flow expiry.
+  if (
+    /\bdevice[_ ]code(?:[_ ]request)?[_ ]failed\b|\btrouble with device[_ ]code login\b/i.test(
+      stripped,
+    )
+  ) {
+    return true;
+  }
   // Deliberately narrow: connected + expiry are the reliable terminals, so match only
   // unambiguous OAuth-denial signals absent from normal prompter output (a broad
   // /error|expired|invalid/ would false-kill valid flows: the "Code expires in N minutes"
   // countdown, stray "error" in the spinner UI, etc.).
   return /\b(access[_ ]denied|authorization[_ ](denied|declined)|expired[_ ]token|invalid[_ ]grant|invalid[_ ]client|denied by (the )?user|sign[- ]?in (failed|was denied|declined))\b/i.test(
-    stripAnsi(logValue).slice(-4096),
+    stripped.slice(-4096),
+  );
+}
+
+function setupTokenFromLog(logValue: string): string | null {
+  // The script PTY wraps long lines, splitting a setup-token across \r\n; strip line endings
+  // (after ANSI) so the full token is contiguous. Otherwise the match stops at the wrap and
+  // onboard rejects the truncated token, which must be >= 80 chars (a wrapped extract is short).
+  const unwrapped = stripAnsi(logValue).replace(/[\r\n]+/g, "");
+  return unwrapped.match(/\bsk-ant-oat01-[A-Za-z0-9_-]{40,}\b/)?.[0] ?? null;
+}
+
+function setupTokenAuthorizeUrl(logValue: string): string | null {
+  const stripped = stripAnsi(logValue);
+  for (const line of stripped.split(/\r?\n/)) {
+    const urls = line.match(/https?:\/\/[^\s"'<>)]+/gi) ?? [];
+    for (const url of urls) {
+      const haystack = `${line} ${url}`.toLowerCase();
+      if (
+        haystack.includes("oauth") ||
+        haystack.includes("claude.ai") ||
+        haystack.includes("anthropic.com")
+      ) {
+        return url;
+      }
+    }
+  }
+  return null;
+}
+
+function setupTokenTerminalFailure(logValue: string): boolean {
+  const stripped = stripAnsi(logValue);
+  return (
+    /setup[- ]token.*(failed|error|denied)/i.test(stripped) ||
+    /\binvalid[ _](authorization[ _])?(code|grant|request)\b/i.test(stripped) ||
+    /login failed/i.test(stripped)
+  );
+}
+
+function redactDeviceCodeLog(value: string): string {
+  return value
+    .replace(
+      /(["']?(?:refresh_token|access_token|id_token|api[_-]?key|token)["']?\s*:\s*)["'][^"']+["']/gi,
+      '$1"[redacted]"',
+    )
+    .replace(
+      /\b(refresh_token|access_token|id_token|api[_-]?key|token)\s*[:=]\s*\S+/gi,
+      "$1=[redacted]",
+    )
+    .replace(/\bsk-[a-z0-9_-]{8,}\b/gi, "[redacted]")
+    .replace(/\b[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b/g, "[redacted]");
+}
+
+function secureDeleteCommand(logPath: string): string {
+  const quotedLogPath = shellQuote(logPath);
+  return [
+    `if [ -f ${quotedLogPath} ]; then`,
+    `if command -v shred >/dev/null 2>&1; then shred -u ${quotedLogPath};`,
+    "else",
+    `size=$(wc -c < ${quotedLogPath} 2>/dev/null || echo 0);`,
+    `if [ "$size" -gt 0 ] 2>/dev/null; then dd if=/dev/zero of=${quotedLogPath} bs=4096 count=$(( (size + 4095) / 4096 )) conv=notrunc status=none 2>/dev/null || true; fi;`,
+    `rm -f ${quotedLogPath};`,
+    "fi;",
+    "fi;",
+    `rmdir "$(dirname ${quotedLogPath})" 2>/dev/null || true`,
+  ].join(" ");
+}
+
+function deviceCodeLogReadError(providerId: string): DomainError {
+  return provisioningError(
+    "provisioning.connections.deviceFlowLogUnavailable",
+    "Gateway device-code log could not be read.",
+    { providerId },
   );
 }
 
@@ -284,10 +442,42 @@ function agentsList(config: Record<string, unknown>): readonly Record<string, un
   return arrayValue(agents?.["list"]).filter(isRecord);
 }
 
+function configuredLogoutAgentIds(config: Record<string, unknown>): readonly string[] {
+  const seen = new Set<string>();
+  const agentIds: string[] = [];
+
+  for (const agent of agentsList(config)) {
+    const agentId = stringValue(agent["id"]);
+    if (agentId === null || agentId === "main" || seen.has(agentId)) {
+      continue;
+    }
+    seen.add(agentId);
+    agentIds.push(agentId);
+  }
+
+  return agentIds;
+}
+
+function logoutTarget(params: { readonly provider: string; readonly agent?: string }): string {
+  return typeof params.agent === "string" && params.agent.trim() !== "" ? params.agent : "default";
+}
+
+function authLogoutSuccessSummary(payload: unknown): {
+  readonly removedProfilesCount: number;
+  readonly abortedRunIdsCount: number;
+} {
+  const root = recordValue(payload);
+  return {
+    removedProfilesCount: arrayValue(root?.["removedProfiles"]).length,
+    abortedRunIdsCount: arrayValue(root?.["abortedRunIds"]).length,
+  };
+}
+
 function providerIdFromProfile(id: string, profile: Record<string, unknown>): string | null {
   return (
     stringValue(profile["providerId"]) ??
     stringValue(profile["provider"]) ??
+    (id.includes(":") ? (id.split(":", 1)[0] ?? null) : null) ??
     (id.includes("-") ? (id.split("-", 1)[0] ?? null) : null)
   );
 }
@@ -304,6 +494,10 @@ function authChoiceIdFromProfile(id: string, profile: Record<string, unknown>): 
 function authModeFromChoiceId(choiceId: string): "api-key" | "device-flow" {
   const normalized = choiceId.toLowerCase();
   return normalized.includes("oauth") || normalized.includes("device") ? "device-flow" : "api-key";
+}
+
+function setupTokenKeyFlag(choiceId: string): string | null {
+  return choiceId.toLowerCase() === "setup-token" ? "token" : null;
 }
 
 function authChoiceFromUnknown(value: unknown, providerId: string): ModelProviderAuthChoice | null {
@@ -328,10 +522,8 @@ function authChoiceFromUnknown(value: unknown, providerId: string): ModelProvide
 
   const modeValue = stringValue(value["mode"]) ?? stringValue(value["type"]);
   const mode =
-    modeValue === "device-flow" || modeValue === "oauth" || modeValue === "token"
-      ? "device-flow"
-      : authModeFromChoiceId(id);
-  const keyFlag = stringValue(value["keyFlag"]);
+    modeValue === "device-flow" || modeValue === "oauth" ? "device-flow" : authModeFromChoiceId(id);
+  const keyFlag = stringValue(value["keyFlag"]) ?? setupTokenKeyFlag(id);
   const docsPath = stringValue(value["docsPath"]);
   return {
     id,
@@ -684,16 +876,19 @@ function providerConnectionFromConfig(input: {
     };
   }
 
+  const hasRoutableModel = model !== null;
   return {
     providerId: input.provider.id,
-    status: "connected",
+    status: hasRoutableModel ? "connected" : "needs_attention",
     authChoiceId: authChoiceIdFromProfile(id, profile),
     accountLabel: stringValue(profile["accountLabel"]) ?? stringValue(profile["label"]),
     scopes: stringArrayValue(profile["scopes"]),
     model,
     usageLabel: stringValue(profile["usageLabel"]),
     lastCheckedAt: input.now.toISOString(),
-    message: "Opzava Gateway auth profile is present.",
+    message: hasRoutableModel
+      ? "Opzava Gateway auth profile is present."
+      : "Provider has credentials but no routable Gateway model.",
     // The config profile records its own auth mode (e.g. {mode:"api_key"}); surface it so Manage
     // renders the right form (rotate key vs subscription) instead of a dead "no auth method" state.
     connectedAuthMode: connectedAuthMode(profile["mode"]) ?? connectedAuthMode(profile["type"]),
@@ -830,6 +1025,123 @@ function readGatewayContainerName(env: NodeJS.ProcessEnv): string | null {
   return value === undefined || value === "" ? null : value;
 }
 
+function consoleAdminLogger(): OpenClawAdminLogger {
+  return {
+    error(message, details) {
+      console.error(JSON.stringify({ message, ...details }));
+    },
+  };
+}
+
+function vaultTokenRef(env: NodeJS.ProcessEnv): SecretReference {
+  return expectedLocalFileSecretReference({
+    tenantId: makeTenantId(
+      env["OPENCLAW_DEVICE_TOKEN_VAULT_TENANT_ID"]?.trim() || ASK_ADMIN_PLATFORM_TENANT_ID,
+    ),
+    purpose: "openclaw",
+    label:
+      env["OPENCLAW_DEVICE_TOKEN_VAULT_LABEL"]?.trim() || ASK_ADMIN_WORKER_ADMIN_DEVICE_TOKEN_LABEL,
+    ...(env["OPENCLAW_DEVICE_TOKEN_VAULT_VERSION"]?.trim()
+      ? { version: env["OPENCLAW_DEVICE_TOKEN_VAULT_VERSION"]!.trim() }
+      : {}),
+  });
+}
+
+class VaultBackedOpenClawAdminRpcClient implements OpenClawAdminRpcPort {
+  private readonly logger: OpenClawAdminLogger;
+  private inner: OpenClawAdminRpcClient | null = null;
+
+  public constructor(
+    private readonly input: {
+      readonly env: NodeJS.ProcessEnv;
+      readonly url: string;
+      readonly gatewayToken?: string;
+      readonly requestedScopes: readonly OpenClawOperatorScope[];
+      readonly keypair: Ed25519OpenClawAdminDeviceKeypair;
+      readonly vault: LocalFileSecretsVault;
+      readonly logger?: OpenClawAdminLogger;
+    },
+  ) {
+    this.logger = input.logger ?? consoleAdminLogger();
+  }
+
+  public async request(
+    method: string,
+    params: Record<string, unknown>,
+    options?: {
+      readonly idempotencyKey?: string;
+      readonly requiredScope?: OpenClawOperatorScope;
+    },
+  ): Promise<Result<unknown>> {
+    const client = await this.client();
+    if (!client.ok) {
+      return err(client.error);
+    }
+
+    return client.value.request(method, params, options);
+  }
+
+  public grantedScopes(): readonly OpenClawOperatorScope[] | null {
+    return this.inner?.grantedScopes() ?? null;
+  }
+
+  public close(): void {
+    this.inner?.close();
+    this.inner = null;
+  }
+
+  private async client(): Promise<Result<OpenClawAdminRpcClient>> {
+    if (this.inner !== null) {
+      return ok(this.inner);
+    }
+
+    const directToken = this.input.env["OPENCLAW_OPERATOR_DEVICE_TOKEN"]?.trim();
+    let operatorDeviceToken =
+      directToken === undefined || directToken === "" ? undefined : directToken;
+    if (operatorDeviceToken === undefined) {
+      const resolved = await this.input.vault.resolveSecretValue({
+        ref: vaultTokenRef(this.input.env),
+        requestedBy: "provisioning-worker",
+        reason: "openclaw-worker-admin-device-token",
+      });
+      if (resolved.ok) {
+        operatorDeviceToken = resolved.value;
+      } else if (this.input.gatewayToken === undefined) {
+        this.logger.error("provisioning.openclawAdmin.operatorWsHandshakeFailed", {
+          code: "provisioning.openclawAdmin.operatorWsHandshakeFailed",
+          cause: "missing_token",
+          requestedScopes: this.input.requestedScopes,
+          vaultLabel:
+            this.input.env["OPENCLAW_DEVICE_TOKEN_VAULT_LABEL"]?.trim() ||
+            ASK_ADMIN_WORKER_ADMIN_DEVICE_TOKEN_LABEL,
+        });
+        return err(
+          provisioningError(
+            "provisioning.openclawAdmin.deviceTokenUnavailable",
+            "OpenClaw worker admin device token was not found in the configured SecretsVault.",
+            {
+              vaultLabel:
+                this.input.env["OPENCLAW_DEVICE_TOKEN_VAULT_LABEL"]?.trim() ||
+                ASK_ADMIN_WORKER_ADMIN_DEVICE_TOKEN_LABEL,
+            },
+          ),
+        );
+      }
+    }
+
+    this.inner = new OpenClawAdminRpcClient({
+      url: this.input.url,
+      ...(this.input.gatewayToken === undefined ? {} : { gatewayToken: this.input.gatewayToken }),
+      ...(operatorDeviceToken === undefined ? {} : { operatorDeviceToken }),
+      requestedScopes: this.input.requestedScopes,
+      keypair: this.input.keypair,
+      logger: this.logger,
+    });
+
+    return ok(this.inner);
+  }
+}
+
 function dockerHttpBaseUrl(dockerHost: string): Result<string> {
   if (!dockerHost.startsWith("tcp://")) {
     return err(
@@ -903,6 +1215,10 @@ function authChoiceMode(choiceId: string, keyFlag: string | null): "api-key" | "
 }
 
 function authChoiceLabel(choiceId: string, mode: "api-key" | "device-flow"): string {
+  if (choiceId === "setup-token") {
+    return "Anthropic setup-token";
+  }
+
   if (mode === "api-key") {
     return "API key";
   }
@@ -967,6 +1283,10 @@ function choiceMatchesProvider(input: {
   readonly choiceId: string;
   readonly keyFlag: string | null;
 }): boolean {
+  if (input.providerId === "anthropic" && input.choiceId === "setup-token") {
+    return true;
+  }
+
   const roots = providerChoiceRoots(input.providerId);
   return roots.some(
     (root) =>
@@ -1099,7 +1419,9 @@ function parseOnboardAuthChoices(helpText: string): readonly GatewayRuntimeAuthC
 
   for (const choiceId of choiceIds) {
     const keyFlag =
-      keyFlags.find((flag) => flag === choiceId || flag === `${choiceId}-api-key`) ?? null;
+      setupTokenKeyFlag(choiceId) ??
+      keyFlags.find((flag) => flag === choiceId || flag === `${choiceId}-api-key`) ??
+      null;
     const mode = authChoiceMode(choiceId, keyFlag);
     byId.set(choiceId, {
       id: choiceId,
@@ -1152,7 +1474,14 @@ function providerIdFromModel(providerId: string): string {
 function modelStatusProfileCount(provider: Record<string, unknown> | null): number {
   const profiles = recordValue(provider?.["profiles"]);
   const count = profiles?.["count"];
-  return typeof count === "number" && Number.isFinite(count) ? count : 0;
+  if (typeof count === "number" && Number.isFinite(count)) {
+    return count;
+  }
+
+  const typedCount = ["oauth", "token", "apiKey", "api_key", "api-key"]
+    .map((key) => numberValue(profiles?.[key]) ?? 0)
+    .reduce((sum, value) => sum + value, 0);
+  return typedCount > 0 ? typedCount : modelStatusProfileLabels(provider).length;
 }
 
 function modelStatusProfileLabels(provider: Record<string, unknown> | null): readonly string[] {
@@ -1175,7 +1504,11 @@ function connectedAuthModeFromModelStatus(
   if ((numberValue(profiles["token"]) ?? 0) > 0) {
     return "token";
   }
-  if ((numberValue(profiles["apiKey"]) ?? 0) > 0) {
+  if (
+    (numberValue(profiles["apiKey"]) ?? 0) > 0 ||
+    (numberValue(profiles["api_key"]) ?? 0) > 0 ||
+    (numberValue(profiles["api-key"]) ?? 0) > 0
+  ) {
     return "api_key";
   }
   return null;
@@ -1199,23 +1532,25 @@ function providerConnectionFromModelStatus(input: {
   const firstLabel = labels[0] ?? null;
   const id = firstProfileIdForProvider(input.provider.id, input.config);
   const profile = id === null ? null : recordValue(authProfiles(input.config)[id]);
+  const model = configuredModelForProvider({
+    providerId: input.provider.id,
+    config: input.config,
+    models: input.provider.models,
+  });
+  const hasRoutableModel = providerAllowed || model !== null;
 
   return {
     providerId: input.provider.id,
-    status: providerAllowed ? "connected" : "needs_attention",
+    status: hasRoutableModel ? "connected" : "needs_attention",
     authChoiceId: id === null || profile === null ? null : authChoiceIdFromProfile(id, profile),
     accountLabel: firstLabel === null ? stringValue(statusProvider?.["provider"]) : firstLabel,
     scopes: [],
-    model: configuredModelForProvider({
-      providerId: input.provider.id,
-      config: input.config,
-      models: input.provider.models,
-    }),
+    model,
     usageLabel: profileCount === 1 ? "1 auth profile" : `${profileCount} auth profiles`,
     lastCheckedAt: input.now.toISOString(),
-    message: providerAllowed
+    message: hasRoutableModel
       ? "Gateway model auth profile is usable."
-      : "Provider has credentials but no allowed model in the Gateway model allowlist.",
+      : "Provider has credentials but no routable Gateway model.",
     connectedAuthMode: connectedAuthModeFromModelStatus(statusProvider),
   };
 }
@@ -1388,34 +1723,81 @@ function commandFailureError(input: {
   readonly providerId: string;
   readonly authChoiceId: string;
   readonly result: GatewayRuntimeCommandResult;
+  readonly submittedCredential?: string;
 }): DomainError {
-  // SECURITY (codex review HIGH): `onboard` is a credential-bearing command — its stderr/stdout can
-  // echo the SUBMITTED API key (e.g. "invalid key sk-live-..."). Classify from the raw output
-  // internally, but NEVER surface it: the returned message reaches the browser via action state.
-  // Only code-derived, metadata-safe copy leaves this function.
-  const normalized = `${input.result.stderr}\n${input.result.stdout}`.toLowerCase();
+  // SECURITY: `onboard` is credential-bearing and can echo the submitted key/token. Classify from
+  // raw output internally, but only surface a bounded, redacted reason to the browser.
+  const rawOutput = `${input.result.stderr}\n${input.result.stdout}`;
+  const normalized = rawOutput.toLowerCase();
   const code =
     normalized.includes("allow") && normalized.includes("plugin")
       ? "provisioning.connections.providerBlockedByAllowlist"
-      : normalized.includes("invalid") ||
-          normalized.includes("unauthorized") ||
-          normalized.includes("401") ||
-          normalized.includes("403")
-        ? "provisioning.connections.invalidProviderCredential"
-        : "provisioning.connections.gatewayOnboardFailed";
+      : normalized.includes("auth choice") ||
+          normalized.includes("auth method") ||
+          normalized.includes("not matched") ||
+          normalized.includes("unsupported")
+        ? "provisioning.connections.authMethodMismatch"
+        : normalized.includes("invalid") ||
+            normalized.includes("unauthorized") ||
+            normalized.includes("401") ||
+            normalized.includes("403")
+          ? "provisioning.connections.invalidProviderCredential"
+          : "provisioning.connections.gatewayOnboardFailed";
 
+  const sanitizedReason = sanitizedCommandFailureReason(rawOutput, input.submittedCredential);
   const message =
     code === "provisioning.connections.providerBlockedByAllowlist"
       ? `Gateway blocked ${input.providerId} on the plugin allowlist.`
-      : code === "provisioning.connections.invalidProviderCredential"
-        ? `Gateway rejected the ${input.providerId} credential (invalid or unauthorized).`
-        : `Gateway onboard failed for ${input.providerId} with exit code ${input.result.exitCode}.`;
+      : code === "provisioning.connections.authMethodMismatch"
+        ? `Gateway rejected the ${input.providerId} auth method: ${sanitizedReason}.`
+        : code === "provisioning.connections.invalidProviderCredential"
+          ? `Gateway rejected the ${input.providerId} credential: ${sanitizedReason}.`
+          : `Gateway onboard failed for ${input.providerId}: ${sanitizedReason}.`;
 
   return provisioningError(code, message, {
     providerId: input.providerId,
     authChoiceId: input.authChoiceId,
     exitCode: input.result.exitCode,
   });
+}
+
+function sanitizedCommandFailureReason(rawOutput: string, submittedCredential?: string): string {
+  const withoutAnsi = stripAnsi(rawOutput)
+    .replaceAll("\r", "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line !== "");
+  const fallback = "command exited non-zero";
+  let reason = withoutAnsi ?? fallback;
+  if (submittedCredential !== undefined && submittedCredential.trim() !== "") {
+    reason = reason.replaceAll(submittedCredential, "[redacted]");
+  }
+  reason = reason
+    .replace(/\bsk-[a-z0-9_-]{8,}\b/gi, "[redacted]")
+    .replace(/\b[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b/g, "[redacted]")
+    .replace(/(--(?:api-)?key|--token)\s+\S+/gi, "$1 [redacted]")
+    .replace(/\s+/g, " ")
+    .slice(0, 240)
+    .trim();
+
+  return reason === "" ? fallback : reason;
+}
+
+function disconnectPostCheckTransient(error: DomainError): boolean {
+  // The disconnect config.patch triggers an in-process gateway restart (auth config change), so
+  // post-check reads that land inside the restart window fail with handshake/timeout/closed
+  // transport errors and succeed on retry once the gateway is back.
+  const text = `${error.code} ${error.message}`.toLowerCase();
+  return (
+    text.includes("operatorwshandshakefailed") ||
+    text.includes("requesttimeout") ||
+    text.includes("closed before") ||
+    text.includes("connection closed") ||
+    text.includes("socket closed") ||
+    text.includes("service restart") ||
+    text.includes("econnrefused") ||
+    text.includes("circuitopen")
+  );
 }
 
 function authLogoutUnavailable(error: DomainError): boolean {
@@ -1428,19 +1810,150 @@ function authLogoutUnavailable(error: DomainError): boolean {
   );
 }
 
-function profileUsesApiKeyAuth(profileIdValue: string, profile: Record<string, unknown>): boolean {
-  const mode =
-    stringValue(profile["type"]) ?? stringValue(profile["mode"]) ?? stringValue(profile["auth"]);
-  if (mode === "oauth" || mode === "token") {
+function authLogoutNonFatal(error: DomainError): boolean {
+  const text = `${error.code} ${error.message}`.toLowerCase();
+  if (
+    rateLimitRetryAfterMs(error, "models.authLogout") !== null ||
+    closedBeforeResponseError(error, "models.authLogout")
+  ) {
     return false;
   }
 
-  if (mode === "api_key" || mode === "api-key") {
+  return (
+    authLogoutUnavailable(error) ||
+    text.includes("notfound") ||
+    text.includes("not found") ||
+    text.includes("not-found") ||
+    text.includes("not_found") ||
+    text.includes("unavailable") ||
+    text.includes("no profiles") ||
+    text.includes("no profile")
+  );
+}
+
+function rateLimitRetryAfterMs(error: DomainError, method: string): number | null {
+  const text = `${error.code} ${error.message}`;
+  const rateLimitMatch = text.match(/rate limit exceeded for\s+([^;]+);\s*retry after\s+(\d+)s/i);
+  if (rateLimitMatch === null || rateLimitMatch[1] !== method) {
+    return null;
+  }
+
+  const retryAfterMs = error.details?.["retryAfterMs"];
+  if (typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
+    return Math.ceil(retryAfterMs);
+  }
+
+  return Number.parseInt(rateLimitMatch[2] ?? "0", 10) * 1000;
+}
+
+function closedBeforeResponseError(error: DomainError, method: string): boolean {
+  const text = `${error.code} ${error.message}`.toLowerCase();
+  return text.includes(method.toLowerCase()) && text.includes("closed before a response");
+}
+
+function redactedDetailValue(key: string, value: unknown): unknown {
+  if (/api[_-]?key|token|secret|credential|password/i.test(key)) {
+    return "[redacted]";
+  }
+  if (typeof value === "string") {
+    return redactDeviceCodeLog(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactedDetailValue(key, entry));
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([entryKey, entryValue]) => [
+        entryKey,
+        redactedDetailValue(entryKey, entryValue),
+      ]),
+    );
+  }
+
+  return value;
+}
+
+function redactedDomainError(error: DomainError): DomainError {
+  return new DomainError({
+    code: error.code,
+    message: redactDeviceCodeLog(error.message),
+    cause: error.cause,
+    ...(error.details === undefined
+      ? {}
+      : {
+          details: Object.fromEntries(
+            Object.entries(error.details).map(([key, value]) => [
+              key,
+              redactedDetailValue(key, value),
+            ]),
+          ),
+        }),
+  });
+}
+
+function profileUsesGatewayCredentialAuth(
+  profileIdValue: string,
+  profile: Record<string, unknown>,
+): boolean {
+  const mode =
+    stringValue(profile["type"]) ?? stringValue(profile["mode"]) ?? stringValue(profile["auth"]);
+  if (mode === "oauth" || mode === "token" || mode === "api_key" || mode === "api-key") {
     return true;
   }
 
   const authChoiceId = authChoiceIdFromProfile(profileIdValue, profile);
   return authChoiceId === null ? false : authModeFromChoiceId(authChoiceId) === "api-key";
+}
+
+function configCredentialProfileIdsForProvider(
+  config: Record<string, unknown>,
+  providerId: string,
+): readonly string[] {
+  return Object.entries(authProfiles(config))
+    .filter(
+      ([id, profile]) =>
+        isRecord(profile) &&
+        providerIdFromProfile(id, profile) === providerId &&
+        profileUsesGatewayCredentialAuth(id, profile),
+    )
+    .map(([id]) => id);
+}
+
+function providerStillHasCredentials(input: {
+  readonly providerId: string;
+  readonly authStatus: ReadonlyMap<string, ModelAuthStatusConnection> | null;
+  readonly config: Record<string, unknown>;
+  readonly modelStatus: unknown | null;
+}): { readonly stores: readonly string[]; readonly connectedAuthMode: ConnectedAuthMode | null } {
+  const stores: string[] = [];
+  let connectedAuthMode: ConnectedAuthMode | null = null;
+  const authStatusProvider = input.authStatus?.get(input.providerId) ?? null;
+  const managedCredentialSurvived =
+    authStatusProvider !== null &&
+    (authStatusProvider.connectedAuthMode === "oauth" ||
+      authStatusProvider.connectedAuthMode === "token" ||
+      (authStatusProvider.authHealth !== "missing" &&
+        authStatusProvider.status !== "not_connected"));
+  if (managedCredentialSurvived) {
+    stores.push("models.authStatus");
+    connectedAuthMode = authStatusProvider.connectedAuthMode;
+  }
+
+  if (configCredentialProfileIdsForProvider(input.config, input.providerId).length > 0) {
+    stores.push("config.auth.profiles");
+  }
+
+  if (
+    input.modelStatus !== null &&
+    modelStatusProfileCount(modelStatusProvider(input.modelStatus, input.providerId)) > 0
+  ) {
+    stores.push("models.status");
+    connectedAuthMode ??= connectedAuthModeFromModelStatus(
+      modelStatusProvider(input.modelStatus, input.providerId),
+    );
+  }
+
+  return { stores, connectedAuthMode };
 }
 
 function disconnectedProviderState(input: {
@@ -1462,7 +1975,7 @@ function disconnectedProviderState(input: {
   };
 }
 
-class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
+export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
   private readonly baseUrlResult: Result<string>;
 
   public constructor(
@@ -1534,6 +2047,7 @@ class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     console.log(
       `provisioning-worker running gateway onboard for provider ${input.providerId} authChoice ${input.authChoiceId}`,
     );
+    const providerArgs = input.keyFlag === "token" ? ["--token-provider", input.providerId] : [];
     return this.exec([
       "node",
       "openclaw.mjs",
@@ -1544,6 +2058,7 @@ class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       "manual",
       "--auth-choice",
       input.authChoiceId,
+      ...providerArgs,
       `--${input.keyFlag}`,
       input.apiKey,
       "--json",
@@ -1553,11 +2068,27 @@ class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
   public async startDeviceCodeLogin(
     providerId: string,
   ): Promise<Result<GatewayRuntimeDeviceCodeLogin>> {
-    const logPath = `/tmp/opzava-df-${randomUUID()}.log`;
+    const flowDir = `/tmp/opzava-df-${randomUUID()}`;
+    const logPath = `${flowDir}/device.log`;
     const command = `node openclaw.mjs models auth login --provider ${shellQuote(
       providerId,
     )} --device-code`;
-    const shellCommand = `/usr/bin/script -qfc ${shellQuote(command)} ${shellQuote(logPath)}`;
+    const redactor =
+      "sed -u -E " +
+      shellQuote(
+        [
+          's/(["\']?)(refresh_token|access_token|id_token|api[_-]?key|token)(["\']?)[[:space:]]*:[[:space:]]*["\'][^"\']+["\']/\\1\\2\\3:"[redacted]"/Ig',
+          "s/\\b(refresh_token|access_token|id_token|api[_-]?key|token)[[:space:]]*[:=][[:space:]]*[^[:space:]]+/\\1=[redacted]/Ig",
+          "s/\\bsk-[A-Za-z0-9_-]{8,}\\b/[redacted]/g",
+          "s/\\b[A-Za-z0-9_-]{24,}\\.[A-Za-z0-9_-]{12,}\\.[A-Za-z0-9_-]{12,}\\b/[redacted]/g",
+        ].join("; "),
+      );
+    const shellCommand = [
+      "set -eu",
+      `mkdir -m 700 ${shellQuote(flowDir)}`,
+      `umask 077; : > ${shellQuote(logPath)}`,
+      `/usr/bin/script -qfc ${shellQuote(command)} /dev/null | ${redactor} >> ${shellQuote(logPath)}`,
+    ].join("; ");
     const containerId = await this.resolveContainerId();
     if (!containerId.ok) {
       return err(containerId.error);
@@ -1610,11 +2141,146 @@ class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       return err(result.error);
     }
 
+    return ok(redactDeviceCodeLog(result.value.stdout));
+  }
+
+  public async readSetupTokenLog(logPath: string): Promise<Result<string>> {
+    const result = await this.exec(["sh", "-lc", `cat ${shellQuote(logPath)} 2>/dev/null || true`]);
+    if (!result.ok) {
+      return err(result.error);
+    }
+
     return ok(result.value.stdout);
   }
 
-  public async stopDeviceCodeLogin(_execId: string, logPath: string): Promise<void> {
-    await this.exec(["sh", "-lc", `rm -f ${shellQuote(logPath)}`]).catch(() => undefined);
+  public async startSetupTokenLogin(): Promise<Result<GatewayRuntimeSetupTokenLogin>> {
+    const flowDir = `/tmp/opzava-st-${randomUUID()}`;
+    const logPath = `${flowDir}/setup.log`;
+    const stdinPath = `${flowDir}/stdin`;
+    const shellCommand = [
+      "set -eu",
+      `mkdir -m 700 ${shellQuote(flowDir)}`,
+      `mkfifo -m 600 ${shellQuote(stdinPath)}`,
+      `umask 077; : > ${shellQuote(logPath)}`,
+      `exec 3<>${shellQuote(stdinPath)}; /usr/bin/script -qfc ${shellQuote(
+        "claude setup-token",
+      )} /dev/null <&3 >> ${shellQuote(logPath)} 2>&1`,
+    ].join("; ");
+    const containerId = await this.resolveContainerId();
+    if (!containerId.ok) {
+      return err(containerId.error);
+    }
+
+    const created = await this.dockerRequest<{ readonly Id?: unknown }>(
+      `/containers/${encodeURIComponent(containerId.value)}/exec`,
+      {
+        method: "POST",
+        body: {
+          AttachStdout: false,
+          AttachStderr: false,
+          Tty: false,
+          Cmd: ["sh", "-lc", shellCommand],
+        },
+      },
+    );
+    if (!created.ok) {
+      return err(created.error);
+    }
+
+    const execId = stringValue(created.value["Id"]);
+    if (execId === null) {
+      return err(
+        provisioningError(
+          "provisioning.docker.execCreateInvalid",
+          "Docker exec create did not return an exec id.",
+        ),
+      );
+    }
+
+    const started = await this.dockerRawRequest(`/exec/${encodeURIComponent(execId)}/start`, {
+      method: "POST",
+      body: {
+        Detach: true,
+        Tty: false,
+      },
+    });
+    if (!started.ok) {
+      await this.stopSetupTokenLogin(execId, logPath);
+      return err(started.error);
+    }
+
+    return ok({ execId, logPath, stdinPath });
+  }
+
+  public async writeSetupTokenInput(stdinPath: string, value: string): Promise<Result<void>> {
+    const containerId = await this.resolveContainerId();
+    if (!containerId.ok) {
+      return err(containerId.error);
+    }
+    const created = await this.dockerRequest<{ readonly Id?: unknown }>(
+      `/containers/${encodeURIComponent(containerId.value)}/exec`,
+      {
+        method: "POST",
+        body: {
+          AttachStdout: false,
+          AttachStderr: false,
+          Tty: false,
+          Env: [`OPZAVA_INPUT=${value}`],
+          Cmd: [
+            "sh",
+            "-c",
+            // The code is passed via exec env for a short-lived write; docker exec inspect can see
+            // it during that window, but the socket proxy is admin-only and the code is one-use.
+            // Write the code, pause, THEN CR. claude's masked "Paste code" reader echoes each char
+            // before it honors Enter; a single burst of code+CR loses the CR for longer codes (the
+            // chars are still echoing when Enter arrives) and the flow hangs. Pacing the CR after the
+            // echo settles makes codes of any length submit reliably. CR (\r) is the Enter byte.
+            `{ printf "%s" "$OPZAVA_INPUT"; sleep 1; printf "\\r"; } > ${shellQuote(stdinPath)}`,
+          ],
+        },
+      },
+    );
+    if (!created.ok) {
+      return err(created.error);
+    }
+    const execId = stringValue(created.value["Id"]);
+    if (execId === null) {
+      return err(
+        provisioningError(
+          "provisioning.docker.execCreateInvalid",
+          "Docker exec create did not return an exec id.",
+        ),
+      );
+    }
+    const started = await this.dockerRawRequest(`/exec/${encodeURIComponent(execId)}/start`, {
+      method: "POST",
+      body: { Detach: true, Tty: false },
+    });
+    return started.ok ? ok(undefined) : err(started.error);
+  }
+
+  public async stopDeviceCodeLogin(execId: string, logPath: string): Promise<void> {
+    const inspected = await this.dockerRequest<{
+      readonly Pid?: unknown;
+      readonly Running?: unknown;
+    }>(`/exec/${encodeURIComponent(execId)}/json`, { method: "GET" });
+    const pid =
+      inspected.ok && typeof inspected.value.Pid === "number" ? inspected.value.Pid : null;
+    if (pid !== null && pid > 0 && inspected.ok && inspected.value.Running === true) {
+      await this.exec([
+        "sh",
+        "-lc",
+        `kill -TERM -${pid} 2>/dev/null || kill -TERM ${pid} 2>/dev/null || true`,
+      ]).catch(() => undefined);
+    }
+    await this.exec(["sh", "-lc", secureDeleteCommand(logPath)]).catch(() => undefined);
+  }
+
+  public async stopSetupTokenLogin(execId: string, logPath: string): Promise<void> {
+    await this.stopDeviceCodeLogin(execId, logPath);
+    await this.exec(["sh", "-lc", `rm -rf "$(dirname ${shellQuote(logPath)})"`]).catch(
+      () => undefined,
+    );
   }
 
   private async exec(cmd: readonly string[]): Promise<Result<GatewayRuntimeCommandResult>> {
@@ -1712,13 +2378,13 @@ class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     path: string,
     init: { readonly method: "GET" | "POST"; readonly body?: unknown },
   ): Promise<Result<T>> {
-    const response = await this.dockerRawResponse(path, init);
+    const response = await this.dockerTextRequest(path, init);
     if (!response.ok) {
       return err(response.error);
     }
 
     try {
-      return ok((await response.value.json()) as T);
+      return ok(JSON.parse(response.value) as T);
     } catch (error) {
       return err(
         provisioningError("provisioning.docker.invalidJson", "Docker API returned invalid JSON.", {
@@ -1732,26 +2398,37 @@ class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     path: string,
     init: { readonly method: "GET" | "POST"; readonly body?: unknown },
   ): Promise<Result<Buffer>> {
-    const response = await this.dockerRawResponse(path, init);
-    if (!response.ok) {
-      return err(response.error);
-    }
-
-    return ok(Buffer.from(await response.value.arrayBuffer()));
+    return this.dockerConsume(path, init, async (response) =>
+      Buffer.from(await response.arrayBuffer()),
+    );
   }
 
-  private async dockerRawResponse(
+  private async dockerTextRequest(
     path: string,
     init: { readonly method: "GET" | "POST"; readonly body?: unknown },
-  ): Promise<Result<Response>> {
+  ): Promise<Result<string>> {
+    return this.dockerConsume(path, init, async (response) => response.text());
+  }
+
+  private async dockerConsume<T>(
+    path: string,
+    init: { readonly method: "GET" | "POST"; readonly body?: unknown },
+    consume: (response: Response) => Promise<T>,
+  ): Promise<Result<T>> {
     if (!this.baseUrlResult.ok) {
       return err(this.baseUrlResult.error);
     }
 
-    let response: Response;
+    const controller = new AbortController();
+    let didTimeout = false;
+    const timeout = setTimeout(() => {
+      didTimeout = true;
+      controller.abort();
+    }, dockerRequestTimeoutMs);
     try {
       const requestInit: RequestInit = {
         method: init.method,
+        signal: controller.signal,
         ...(init.body === undefined
           ? {}
           : {
@@ -1759,30 +2436,36 @@ class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
               body: JSON.stringify(init.body),
             }),
       };
-      response = await (this.options.fetch ?? fetch)(
+      const response = await (this.options.fetch ?? fetch)(
         `${this.baseUrlResult.value}${path}`,
         requestInit,
       );
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        return err(
+          provisioningError(
+            "provisioning.docker.requestRejected",
+            `Docker API request failed with HTTP ${response.status}.`,
+            { bodyLength: body.length },
+          ),
+        );
+      }
+
+      return ok(await consume(response));
     } catch (error) {
+      const code = didTimeout
+        ? "provisioning.docker.requestTimeout"
+        : "provisioning.docker.requestFailed";
+      const message = didTimeout ? "Docker API request timed out." : "Docker API request failed.";
       return err(
-        provisioningError("provisioning.docker.requestFailed", "Docker API request failed.", {
+        provisioningError(code, message, {
           error: String(error),
+          timeoutMs: dockerRequestTimeoutMs,
         }),
       );
+    } finally {
+      clearTimeout(timeout);
     }
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      return err(
-        provisioningError(
-          "provisioning.docker.requestRejected",
-          `Docker API request failed with HTTP ${response.status}.`,
-          { body },
-        ),
-      );
-    }
-
-    return ok(response);
   }
 }
 
@@ -1935,6 +2618,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private readonly now: () => Date;
   private readonly githubFlows = new Map<string, PendingGitHubDeviceFlow>();
   private readonly modelDeviceFlows = new Map<string, PendingModelProviderDeviceFlow>();
+  private readonly modelApiKeyConnects = new Map<string, PendingModelProviderApiKeyConnect>();
+  private readonly modelSetupTokenFlows = new Map<string, PendingModelProviderSetupTokenFlow>();
 
   public constructor(private readonly options: GatewayAdminConnectionsOptions) {
     this.fetchImpl = options.fetch ?? fetch;
@@ -1962,10 +2647,14 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     });
   }
 
-  private async modelAuthStatus(): Promise<ReadonlyMap<string, ModelAuthStatusConnection> | null> {
+  private async modelAuthStatus(
+    input: {
+      readonly refresh: boolean;
+    } = { refresh: false },
+  ): Promise<ReadonlyMap<string, ModelAuthStatusConnection> | null> {
     try {
       const result = await this.options.adminClient.request("models.authStatus", {
-        refresh: false,
+        refresh: input.refresh,
       });
       if (!result.ok) {
         console.warn("connections.authStatus.fallback");
@@ -1985,6 +2674,130 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       console.warn("connections.authStatus.fallback");
       return null;
     }
+  }
+
+  private async modelAuthStatusPostCheck(
+    providerId: string,
+  ): Promise<Result<ReadonlyMap<string, ModelAuthStatusConnection>>> {
+    try {
+      const result = await this.options.adminClient.request("models.authStatus", {
+        refresh: true,
+      });
+      if (!result.ok) {
+        return err(result.error);
+      }
+
+      const root = recordValue(result.value);
+      if (root === null || !Array.isArray(root["providers"])) {
+        return err(
+          provisioningError(
+            "provisioning.connections.providerPostCheckUnavailable",
+            "Gateway provider credential post-check returned an unexpected payload.",
+          ),
+        );
+      }
+      const targetProvider = root["providers"].find(
+        (provider) =>
+          isRecord(provider) &&
+          (stringValue(provider["provider"]) ?? stringValue(provider["providerId"])) === providerId,
+      );
+      if (targetProvider !== undefined && providerAuthHealth(targetProvider["status"]) === null) {
+        return err(
+          provisioningError(
+            "provisioning.connections.providerPostCheckUnavailable",
+            "Gateway provider credential post-check returned an unexpected provider entry.",
+          ),
+        );
+      }
+
+      return ok(modelAuthStatusMap(result.value));
+    } catch (error) {
+      return err(
+        provisioningError(
+          "provisioning.connections.providerPostCheckUnavailable",
+          "Gateway provider credential post-check failed.",
+          { error: String(error) },
+        ),
+      );
+    }
+  }
+
+  private async requestDisconnectIdempotentRpc(input: {
+    readonly method: string;
+    readonly params: Record<string, unknown>;
+    readonly options?: {
+      readonly idempotencyKey?: string;
+      readonly requiredScope?: OpenClawOperatorScope;
+    };
+    readonly retryClosedBeforeResponse: boolean;
+    readonly waitForTransient: (delayMs: number) => Promise<boolean>;
+  }): Promise<{
+    readonly result: Result<unknown>;
+    readonly attempts: number;
+    readonly closedBeforeResponse: boolean;
+  }> {
+    let closedBeforeResponse = false;
+
+    for (let attempt = 1; attempt <= disconnectTransientMaxAttempts; attempt += 1) {
+      const result = await this.options.adminClient.request(
+        input.method,
+        input.params,
+        input.options,
+      );
+      if (result.ok) {
+        return { result, attempts: attempt, closedBeforeResponse };
+      }
+
+      const retryAfterMs = rateLimitRetryAfterMs(result.error, input.method);
+      if (retryAfterMs !== null) {
+        if (
+          attempt < disconnectTransientMaxAttempts &&
+          (await input.waitForTransient(retryAfterMs))
+        ) {
+          continue;
+        }
+
+        return {
+          result: err(redactedDomainError(result.error)),
+          attempts: attempt,
+          closedBeforeResponse,
+        };
+      }
+
+      if (closedBeforeResponseError(result.error, input.method)) {
+        closedBeforeResponse = true;
+        if (
+          input.retryClosedBeforeResponse &&
+          attempt < disconnectTransientMaxAttempts &&
+          (await input.waitForTransient(disconnectClosedBeforeResponseRetryDelayMs))
+        ) {
+          continue;
+        }
+
+        return {
+          result: err(redactedDomainError(result.error)),
+          attempts: attempt,
+          closedBeforeResponse,
+        };
+      }
+
+      return {
+        result: err(redactedDomainError(result.error)),
+        attempts: attempt,
+        closedBeforeResponse,
+      };
+    }
+
+    return {
+      result: err(
+        provisioningError(
+          "provisioning.connections.disconnectRetryExhausted",
+          "Disconnect write retry attempts were exhausted.",
+        ),
+      ),
+      attempts: disconnectTransientMaxAttempts,
+      closedBeforeResponse,
+    };
   }
 
   public async getConnectionsSnapshot(
@@ -2045,21 +2858,23 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         return baseConnection;
       }
 
-      // authStatus ENRICHES (expiry/plan/usage/authMode) but does not get to demote a provider the
-      // profile stores show as connected — except on a hard `expired` (a real re-auth signal). Its
-      // `missing` is a store-visibility gap (openai/Codex), never a disconnect.
-      const connectedByProfiles = baseConnection.status === "connected";
-      const status: ProviderConnectionState["status"] = connectedByProfiles
-        ? authState.authHealth === "expired"
-          ? "needs_attention"
-          : "connected"
-        : authState.status;
+      // authStatus ENRICHES (expiry/plan/usage/authMode), but it is not the connected gate. It only
+      // changes status on hard `expired`; `missing` is a store-visibility gap, never a disconnect.
+      const status: ProviderConnectionState["status"] =
+        authState.authHealth === "missing"
+          ? baseConnection.status
+          : authState.authHealth === "expired"
+            ? "needs_attention"
+            : baseConnection.status;
 
       return {
         ...baseConnection,
         status,
         authHealth: authState.authHealth,
-        connectedAuthMode: authState.connectedAuthMode ?? baseConnection.connectedAuthMode ?? null,
+        connectedAuthMode:
+          status === "not_connected"
+            ? (baseConnection.connectedAuthMode ?? null)
+            : (authState.connectedAuthMode ?? baseConnection.connectedAuthMode ?? null),
         expiryLabel: authState.expiryLabel,
         planLabel: authState.planLabel,
         usageLabel: authState.usageLabel ?? baseConnection.usageLabel,
@@ -2083,7 +2898,6 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       providerCatalog: catalog,
       providerConnections,
       pendingDeviceFlows: [
-        ...[...this.modelDeviceFlows.values()].map((flow) => this.challengeFromModelFlow(flow)),
         ...[...this.githubFlows.values()].map((flow) => this.challengeFromGitHubFlow(flow)),
       ],
       github,
@@ -2096,12 +2910,12 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     });
   }
 
-  public async connectModelProviderApiKey(
+  public async startModelProviderApiKeyConnect(
     input: ConnectModelProviderApiKeyInput,
-  ): Promise<Result<ProviderConnectionState>> {
+  ): Promise<Result<ModelProviderApiKeyConnectStart>> {
     if (input.apiKey.trim() === "") {
       return err(
-        provisioningError("provisioning.connections.emptyKey", "Provider API key is required."),
+        provisioningError("provisioning.connections.emptyKey", "Provider credential is required."),
       );
     }
 
@@ -2139,13 +2953,290 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
+    const opId = `model-api-key:${randomUUID()}`;
+    const op: PendingModelProviderApiKeyConnect = {
+      opId,
+      orgId: input.orgId,
+      providerId: input.providerId,
+      authChoiceId: input.authChoiceId,
+      startedAt: this.now(),
+      expiresAt: new Date(this.now().getTime() + modelApiKeyConnectExpiresMs),
+      timeout: setTimeout(() => {
+        this.modelApiKeyConnects.delete(opId);
+      }, modelApiKeyConnectExpiresMs),
+    };
+    this.modelApiKeyConnects.set(opId, op);
+    void this.runModelProviderApiKeyConnect({
+      op,
+      apiKey: input.apiKey,
+      authChoice,
+      authChoices: authChoices.value,
+    });
+
+    return ok({ opId, status: "pending" });
+  }
+
+  public async pollModelProviderApiKeyConnect(
+    input: PollModelProviderApiKeyConnectInput,
+  ): Promise<Result<ModelProviderApiKeyConnectPollState>> {
+    const op = this.modelApiKeyConnects.get(input.opId);
+    if (op === undefined || op.orgId !== input.orgId) {
+      return err(
+        provisioningError(
+          "provisioning.connections.apiKeyConnectNotFound",
+          "API-key connection operation was not found.",
+        ),
+      );
+    }
+
+    if (this.now().getTime() >= op.expiresAt.getTime()) {
+      this.modelApiKeyConnects.delete(op.opId);
+      clearTimeout(op.timeout);
+      return ok({
+        status: "expired",
+        message: "API-key connection operation expired.",
+        code: "provisioning.connections.apiKeyConnectExpired",
+      });
+    }
+
+    if (op.outcome === undefined) {
+      return ok({ status: "pending" });
+    }
+
+    this.modelApiKeyConnects.delete(op.opId);
+    clearTimeout(op.timeout);
+    return ok(op.outcome);
+  }
+
+  public async startModelProviderSetupTokenFlow(
+    input: StartModelProviderSetupTokenFlowInput,
+  ): Promise<Result<SetupTokenFlowStart>> {
+    const gatewayRuntime = this.options.gatewayRuntime;
+    if (gatewayRuntime === undefined) {
+      return err(gatewayRuntimeUnavailableError());
+    }
+
+    const authChoices = await gatewayRuntime.listAuthChoices();
+    if (!authChoices.ok) {
+      return err(authChoices.error);
+    }
+    const authChoice = authChoicesForProvider({
+      providerId: input.providerId,
+      choices: authChoices.value,
+    }).find((choice) => choice.id === "setup-token");
+    if (authChoice === undefined) {
+      return err(
+        provisioningError(
+          "provisioning.connections.authChoiceUnavailable",
+          "The live Opzava Gateway auth-choice catalog does not expose setup-token for that provider.",
+          { providerId: input.providerId, authChoiceId: "setup-token" },
+        ),
+      );
+    }
+
+    await this.cleanupSetupTokenFlowsForProvider(input.providerId, input.orgId);
+    const login = await gatewayRuntime.startSetupTokenLogin();
+    if (!login.ok) {
+      return err(login.error);
+    }
+
+    const flowId = `setup:${randomUUID()}`;
+    const flow: PendingModelProviderSetupTokenFlow = {
+      flowId,
+      orgId: input.orgId,
+      providerId: input.providerId,
+      authChoiceId: "setup-token",
+      execId: login.value.execId,
+      logPath: login.value.logPath,
+      stdinPath: login.value.stdinPath,
+      expiresAt: new Date(this.now().getTime() + modelSetupTokenFlowExpiresMs),
+      timeout: setTimeout(() => {
+        const current = this.modelSetupTokenFlows.get(flowId);
+        if (current !== undefined) {
+          void this.cleanupSetupTokenFlow(current);
+        }
+      }, modelSetupTokenFlowExpiresMs),
+      phase: "starting",
+    };
+    this.modelSetupTokenFlows.set(flowId, flow);
+    return ok({ flowId, status: "pending" });
+  }
+
+  public async pollModelProviderSetupTokenFlow(
+    input: PollModelProviderSetupTokenFlowInput,
+  ): Promise<Result<SetupTokenFlowPollState>> {
+    const flow = this.modelSetupTokenFlows.get(input.flowId);
+    if (flow === undefined || flow.orgId !== input.orgId) {
+      return err(
+        provisioningError(
+          "provisioning.connections.setupTokenFlowNotFound",
+          "Setup-token connection flow was not found.",
+        ),
+      );
+    }
+    if (this.now().getTime() >= flow.expiresAt.getTime()) {
+      await this.cleanupSetupTokenFlow(flow);
+      return ok({
+        status: "expired",
+        message: "Claude setup-token sign-in expired. Start again and approve the browser prompt.",
+        code: "provisioning.connections.setupTokenFlowExpired",
+      });
+    }
+    if (flow.outcome !== undefined) {
+      const outcome = flow.outcome;
+      await this.cleanupSetupTokenFlow(flow);
+      return ok(outcome);
+    }
+
+    const log = await this.options.gatewayRuntime?.readSetupTokenLog(flow.logPath);
+    if (log === undefined || !log.ok) {
+      await this.cleanupSetupTokenFlow(flow);
+      return err(deviceCodeLogReadError(flow.providerId));
+    }
+
+    const mintedToken = setupTokenFromLog(log.value);
+    if (mintedToken !== null) {
+      flow.phase = "completing";
+      const result = await this.completeModelProviderApiKeyConnect({
+        op: {
+          opId: flow.flowId,
+          orgId: flow.orgId,
+          providerId: flow.providerId,
+          authChoiceId: flow.authChoiceId,
+          startedAt: this.now(),
+          expiresAt: flow.expiresAt,
+          timeout: flow.timeout,
+        },
+        apiKey: mintedToken,
+        authChoice: {
+          id: "setup-token",
+          label: "Anthropic setup-token",
+          mode: "api-key",
+          providerId: flow.providerId,
+          keyFlag: "token",
+        },
+        authChoices: [
+          { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+        ],
+      });
+      flow.outcome = result.ok
+        ? { status: "connected", connection: result.value }
+        : {
+            status: "failed",
+            message: redactedDomainError(result.error).message,
+            code: redactedDomainError(result.error).code,
+          };
+      const outcome = flow.outcome;
+      await this.cleanupSetupTokenFlow(flow);
+      return ok(outcome);
+    }
+
+    if (setupTokenTerminalFailure(log.value)) {
+      await this.cleanupSetupTokenFlow(flow);
+      return ok({
+        status: "failed",
+        message:
+          "Claude setup-token sign-in was denied or the authorization code was invalid. Start again and paste the newest code.",
+        code: "provisioning.connections.setupTokenLoginFailed",
+      });
+    }
+
+    const authorizeUrl = setupTokenAuthorizeUrl(log.value);
+    if (authorizeUrl !== null && flow.phase !== "completing") {
+      flow.phase = "awaiting_code";
+      flow.authorizeUrl = authorizeUrl;
+      return ok({ status: "awaiting_code", authorizeUrl });
+    }
+    if (flow.phase === "completing") {
+      // A code was already written to the CLI. Never return awaiting_code here: the authorize URL
+      // still sits in the append-only log, and awaiting_code would silently reset the browser form
+      // to empty with no error (the original "nothing happens" symptom). Stay pending while the
+      // CLI has a chance to mint a token, then surface a real failure once the exchange window
+      // elapses so the user sees the rejection instead of a dead form.
+      const submittedAtMs = flow.codeSubmittedAt?.getTime() ?? 0;
+      if (this.now().getTime() - submittedAtMs < setupTokenCodeExchangeTimeoutMs) {
+        return ok({ status: "pending" });
+      }
+      await this.cleanupSetupTokenFlow(flow);
+      return ok({
+        status: "failed",
+        message: "Claude did not accept the authorization code. Copy a fresh code from Claude and retry.",
+        code: "provisioning.connections.setupTokenLoginFailed",
+      });
+    }
+
+    return ok({ status: "pending" });
+  }
+
+  public async submitModelProviderSetupTokenCode(
+    input: SubmitModelProviderSetupTokenCodeInput,
+  ): Promise<Result<{ readonly status: "pending" }>> {
+    const flow = this.modelSetupTokenFlows.get(input.flowId);
+    if (flow === undefined || flow.orgId !== input.orgId) {
+      return err(
+        provisioningError(
+          "provisioning.connections.setupTokenFlowNotFound",
+          "Setup-token connection flow was not found.",
+        ),
+      );
+    }
+    const code = input.code.trim();
+    if (code.length === 0 || code.length > 512) {
+      return err(
+        provisioningError(
+          "provisioning.connections.invalidSetupTokenCode",
+          "Paste the authorization code Claude shows after browser approval.",
+        ),
+      );
+    }
+    const written = await this.options.gatewayRuntime?.writeSetupTokenInput(flow.stdinPath, code);
+    if (written === undefined || !written.ok) {
+      return written === undefined ? err(gatewayRuntimeUnavailableError()) : err(written.error);
+    }
+    flow.phase = "completing";
+    flow.codeSubmittedAt = this.now();
+    return ok({ status: "pending" });
+  }
+
+  private async runModelProviderApiKeyConnect(input: {
+    readonly op: PendingModelProviderApiKeyConnect;
+    readonly apiKey: string;
+    readonly authChoice: ModelProviderAuthChoice;
+    readonly authChoices: readonly GatewayRuntimeAuthChoice[];
+  }): Promise<void> {
+    const result = await this.completeModelProviderApiKeyConnect(input);
+    const current = this.modelApiKeyConnects.get(input.op.opId);
+    if (current === undefined || current.outcome !== undefined) {
+      return;
+    }
+
+    current.outcome = result.ok
+      ? { status: "connected", connection: result.value }
+      : {
+          status: "failed",
+          message: redactedDomainError(result.error).message,
+          code: redactedDomainError(result.error).code,
+        };
+  }
+
+  private async completeModelProviderApiKeyConnect(input: {
+    readonly op: PendingModelProviderApiKeyConnect;
+    readonly apiKey: string;
+    readonly authChoice: ModelProviderAuthChoice;
+    readonly authChoices: readonly GatewayRuntimeAuthChoice[];
+  }): Promise<Result<ProviderConnectionState>> {
+    const gatewayRuntime = this.options.gatewayRuntime;
+    if (gatewayRuntime === undefined) {
+      return err(gatewayRuntimeUnavailableError());
+    }
+
     const configResult = await this.options.adminClient.request("config.get", {});
     if (!configResult.ok) {
       return err(configResult.error);
     }
 
     const allowPatch = pluginAllowPatch({
-      providerId: input.providerId,
+      providerId: input.op.providerId,
       configGetPayload: configResult.value,
     });
     if (allowPatch !== null) {
@@ -2171,9 +3262,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     }
 
     const onboard = await gatewayRuntime.connectApiKey({
-      providerId: input.providerId,
-      authChoiceId: input.authChoiceId,
-      keyFlag: authChoice.keyFlag,
+      providerId: input.op.providerId,
+      authChoiceId: input.op.authChoiceId,
+      keyFlag: input.authChoice.keyFlag!,
       apiKey: input.apiKey,
     });
     if (!onboard.ok) {
@@ -2182,50 +3273,96 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     if (onboard.value.exitCode !== 0) {
       return err(
         commandFailureError({
-          providerId: input.providerId,
-          authChoiceId: input.authChoiceId,
+          providerId: input.op.providerId,
+          authChoiceId: input.op.authChoiceId,
           result: onboard.value,
+          submittedCredential: input.apiKey,
         }),
       );
     }
 
-    const status = await gatewayRuntime.modelStatus();
-    if (!status.ok) {
-      return err(status.error);
+    const connection = await this.modelStatusPostCheckAfterApiKeyConnect(input);
+    if (!connection.ok) {
+      return err(connection.error);
     }
 
-    const config = configPayload(configResult.value);
-    const catalogProvider =
-      mergeRuntimeAuthChoices({
-        catalog: providerCatalogFromModels({}, config),
-        choices: authChoices.value,
-      }).find((provider) => provider.id === input.providerId) ??
-      ({
-        id: input.providerId,
-        label: input.providerId,
-        vendor: input.providerId,
-        authChoices: [authChoice],
-        suggestedModel: input.providerId,
-        roleStrength: "Gateway-advertised provider",
-        whenToUse: "Use when this connected model is appropriate.",
-      } satisfies ModelProviderCatalogEntry);
-    const connection = providerConnectionFromModelStatus({
-      provider: catalogProvider,
-      config,
-      modelStatus: status.value,
-      now: this.now(),
-    });
-    if (connection === null || connection.status !== "connected") {
+    return ok(connection.value);
+  }
+
+  private async modelStatusPostCheckAfterApiKeyConnect(input: {
+    readonly op: PendingModelProviderApiKeyConnect;
+    readonly authChoice: ModelProviderAuthChoice;
+    readonly authChoices: readonly GatewayRuntimeAuthChoice[];
+  }): Promise<Result<ProviderConnectionState>> {
+    const gatewayRuntime = this.options.gatewayRuntime;
+    if (gatewayRuntime === undefined) {
+      return err(gatewayRuntimeUnavailableError());
+    }
+
+    let waitedMs = 0;
+    let lastError: DomainError | null = null;
+    let sawModelStatus = false;
+    while (waitedMs <= modelApiKeyPostCheckMaxWaitMs) {
+      const status = await gatewayRuntime.modelStatus();
+      if (status.ok) {
+        sawModelStatus = true;
+
+        // Onboard can be the writer of agents.defaults.model.primary, so the pre-onboard
+        // config snapshot is stale for routability classification.
+        const configResult = await this.options.adminClient.request("config.get", {});
+        if (!configResult.ok) {
+          return err(configResult.error);
+        }
+
+        const config = configPayload(configResult.value);
+        const catalogProvider =
+          mergeRuntimeAuthChoices({
+            catalog: providerCatalogFromModels({}, config),
+            choices: input.authChoices,
+          }).find((provider) => provider.id === input.op.providerId) ??
+          ({
+            id: input.op.providerId,
+            label: input.op.providerId,
+            vendor: input.op.providerId,
+            authChoices: [input.authChoice],
+            suggestedModel: input.op.providerId,
+            roleStrength: "Gateway-advertised provider",
+            whenToUse: "Use when this connected model is appropriate.",
+          } satisfies ModelProviderCatalogEntry);
+        const connection = providerConnectionFromModelStatus({
+          provider: catalogProvider,
+          config,
+          modelStatus: status.value,
+          now: this.now(),
+        });
+        if (connection !== null && connection.status === "connected") {
+          return ok({ ...connection, authChoiceId: input.op.authChoiceId });
+        }
+      } else {
+        lastError = redactedDomainError(status.error);
+      }
+
+      await sleep(modelApiKeyPostCheckDelayMs);
+      waitedMs += modelApiKeyPostCheckDelayMs;
+    }
+
+    if (sawModelStatus) {
       return err(
         provisioningError(
           "provisioning.connections.providerStatusNotConnected",
           "Gateway onboard completed, but models status did not report a usable provider credential.",
-          { providerId: input.providerId, authChoiceId: input.authChoiceId },
+          { providerId: input.op.providerId, authChoiceId: input.op.authChoiceId },
         ),
       );
     }
 
-    return ok({ ...connection, authChoiceId: input.authChoiceId });
+    return err(
+      provisioningError(
+        "provisioning.connections.providerPostCheckUnavailable",
+        "Gateway provider credential post-check failed after retrying the gateway restart window.",
+        { providerId: input.op.providerId, lastError: lastError?.code ?? null },
+      ),
+    );
   }
 
   public async startModelProviderDeviceFlow(
@@ -2265,6 +3402,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
+    await this.cleanupModelProviderFlowsForProvider(input.providerId, input.orgId);
     const login = await gatewayRuntime.startDeviceCodeLogin(
       deviceCodeProviderArg({
         providerId: input.providerId,
@@ -2275,8 +3413,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(login.error);
     }
 
+    const flowId = `model:${randomUUID()}`;
     const baseFlow: PendingModelProviderDeviceFlow = {
-      flowId: `model:${randomUUID()}`,
+      flowId,
       orgId: input.orgId,
       providerId: input.providerId,
       authChoiceId: input.authChoiceId,
@@ -2284,13 +3423,29 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       intervalSeconds: modelDeviceFlowPollIntervalSeconds,
       execId: login.value.execId,
       logPath: login.value.logPath,
+      timeout: setTimeout(() => {
+        const flow = this.modelDeviceFlows.get(flowId);
+        if (flow !== undefined) {
+          void this.cleanupModelProviderFlow(flow);
+        }
+      }, modelDeviceFlowExpiresMs),
     };
+    this.modelDeviceFlows.set(baseFlow.flowId, baseFlow);
 
     for (let attempt = 0; attempt < modelDeviceFlowStartMaxAttempts; attempt += 1) {
       const log = await gatewayRuntime.readDeviceCodeLog(login.value.logPath);
       if (!log.ok) {
-        await gatewayRuntime.stopDeviceCodeLogin(login.value.execId, login.value.logPath);
-        return err(log.error);
+        await this.cleanupModelProviderFlow(baseFlow);
+        return err(deviceCodeLogReadError(input.providerId));
+      }
+      if (!this.modelDeviceFlows.has(baseFlow.flowId)) {
+        return err(
+          provisioningError(
+            "provisioning.connections.deviceFlowCancelled",
+            "Device-code sign-in was cancelled before it completed.",
+            { providerId: input.providerId, authChoiceId: input.authChoiceId },
+          ),
+        );
       }
 
       const parsed = parseDeviceCodeLog(log.value);
@@ -2307,7 +3462,15 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       await sleep(modelDeviceFlowStartPollDelayMs);
     }
 
-    this.modelDeviceFlows.set(baseFlow.flowId, baseFlow);
+    if (!this.modelDeviceFlows.has(baseFlow.flowId)) {
+      return err(
+        provisioningError(
+          "provisioning.connections.deviceFlowCancelled",
+          "Device-code sign-in was cancelled before it completed.",
+          { providerId: input.providerId, authChoiceId: input.authChoiceId },
+        ),
+      );
+    }
     return ok(this.challengeFromModelFlow(baseFlow));
   }
 
@@ -2340,70 +3503,234 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async disconnectModelProvider(
     input: DisconnectModelProviderInput,
   ): Promise<Result<ProviderConnectionState>> {
+    console.info("connections.modelProviderDisconnect.start", { providerId: input.providerId });
+    await this.cleanupModelProviderFlowsForProvider(input.providerId, input.orgId);
+    await this.cleanupSetupTokenFlowsForProvider(input.providerId, input.orgId);
+    const configResult = await this.options.adminClient.request("config.get", {});
+    if (!configResult.ok) {
+      return err(configResult.error);
+    }
+    const config = configPayload(configResult.value);
     // A provider's credential can live in EITHER store, so disconnect must clear BOTH:
     //  (1) models.authLogout — the OAuth/token/managed store (e.g. openai/Codex OAuth).
     //  (2) config.auth.profiles — config-file api-key profiles (e.g. zai). authLogout returns ok
     //      but removes 0 profiles for a config api-key, so clearing only via authLogout leaves the
     //      key in place and the provider still "connected" (the zai disconnect-does-nothing bug).
-    const logout = await this.options.adminClient.request(
-      "models.authLogout",
+    const profileIds = configCredentialProfileIdsForProvider(config, input.providerId);
+    const isConfigCredentialProvider = profileIds.length > 0;
+    const logoutParams = [
       { provider: input.providerId },
-      { requiredScope: "operator.admin" },
-    );
-    if (!logout.ok && !authLogoutUnavailable(logout.error)) {
-      return err(logout.error);
+      ...(isConfigCredentialProvider
+        ? []
+        : configuredLogoutAgentIds(config).map((agent) => ({ provider: input.providerId, agent }))),
+    ];
+    let disconnectTransientWaitMs = 0;
+    const waitForDisconnectTransient = async (delayMs: number): Promise<boolean> => {
+      const boundedDelayMs = Math.max(0, Math.ceil(delayMs));
+      if (disconnectTransientWaitMs + boundedDelayMs > disconnectTransientMaxTotalWaitMs) {
+        return false;
+      }
+
+      disconnectTransientWaitMs += boundedDelayMs;
+      await sleep(boundedDelayMs);
+      return true;
+    };
+    console.info("connections.modelProviderDisconnect.logout.attempt", {
+      providerId: input.providerId,
+      targets: logoutParams.map(logoutTarget),
+    });
+    const logoutResults: Record<string, unknown>[] = [];
+    const paceAuthLogout = logoutParams.length > disconnectAuthLogoutUnpacedLimit;
+    for (const [index, params] of logoutParams.entries()) {
+      if (
+        paceAuthLogout &&
+        index > 0 &&
+        !(await waitForDisconnectTransient(disconnectAuthLogoutInterCallDelayMs))
+      ) {
+        return err(
+          provisioningError(
+            "provisioning.connections.disconnectRetryExhausted",
+            "Disconnect retry wait budget was exhausted before all provider logout targets were attempted.",
+            { providerId: input.providerId },
+          ),
+        );
+      }
+      // No secret material is sent here. Let the gateway authoritatively accept or reject this
+      // mutation so a disconnect cannot be hidden by the client's cached scope preflight.
+      const logout = await this.requestDisconnectIdempotentRpc({
+        method: "models.authLogout",
+        params,
+        retryClosedBeforeResponse: true,
+        waitForTransient: waitForDisconnectTransient,
+      });
+      const logoutResult = logout.result;
+      if (logoutResult.ok) {
+        logoutResults.push({
+          target: logoutTarget(params),
+          ok: true,
+          attempts: logout.attempts,
+          ...authLogoutSuccessSummary(logoutResult.value),
+        });
+        continue;
+      }
+
+      const nonFatal = logout.closedBeforeResponse || authLogoutNonFatal(logoutResult.error);
+      logoutResults.push({
+        target: logoutTarget(params),
+        ok: false,
+        nonFatal,
+        attempts: logout.attempts,
+        code: logoutResult.error.code,
+        message: logoutResult.error.message,
+      });
+      if (!nonFatal) {
+        console.warn("connections.modelProviderDisconnect.logout.results", {
+          providerId: input.providerId,
+          results: logoutResults,
+        });
+        console.warn("connections.modelProviderDisconnect.failClosed", {
+          providerId: input.providerId,
+          reason: "authLogoutFailed",
+          code: logoutResult.error.code,
+        });
+        return err(logoutResult.error);
+      }
     }
+    console.info("connections.modelProviderDisconnect.logout.results", {
+      providerId: input.providerId,
+      results: logoutResults,
+    });
 
-    const configResult = await this.options.adminClient.request("config.get", {});
-    if (!configResult.ok) {
-      return err(configResult.error);
-    }
+    const orderValue = authOrder(config)[input.providerId];
+    const orderHasProviderEntries =
+      (Array.isArray(orderValue) && orderValue.length > 0) ||
+      (typeof orderValue === "string" && orderValue.trim() !== "");
 
-    const config = configPayload(configResult.value);
-    const apiKeyProfileIds = Object.entries(authProfiles(config))
-      .filter(
-        ([id, profile]) =>
-          isRecord(profile) &&
-          providerIdFromProfile(id, profile) === input.providerId &&
-          profileUsesApiKeyAuth(id, profile),
-      )
-      .map(([id]) => id);
-
-    if (apiKeyProfileIds.length > 0) {
+    if (profileIds.length > 0 || orderHasProviderEntries) {
       const patchParams = configPatchParams({
         configGetPayload: configResult.value,
         patch: {
           auth: {
-            profiles: Object.fromEntries(apiKeyProfileIds.map((id) => [id, null])),
+            profiles: Object.fromEntries(profileIds.map((id) => [id, null])),
             order: { [input.providerId]: [] },
           },
         },
+        replacePaths: [`auth.order.${input.providerId}`],
       });
       if (!patchParams.ok) {
         return err(patchParams.error);
       }
-      const result = await this.options.adminClient.request("config.patch", patchParams.value, {
-        requiredScope: "operator.admin",
+      const result = await this.requestDisconnectIdempotentRpc({
+        method: "config.patch",
+        params: patchParams.value,
+        options: {
+          requiredScope: "operator.admin",
+        },
+        retryClosedBeforeResponse: false,
+        waitForTransient: waitForDisconnectTransient,
       });
-      if (!result.ok) {
-        return err(result.error);
+      if (!result.result.ok) {
+        if (result.closedBeforeResponse) {
+          console.warn("connections.modelProviderDisconnect.configPatch.transient", {
+            providerId: input.providerId,
+            reason: "closedBeforeResponse",
+            attempts: result.attempts,
+          });
+        } else {
+          return err(result.result.error);
+        }
       }
     }
 
-    // If neither store held anything, authLogout was genuinely unavailable AND there was no config
-    // profile — surface that rather than pretending we disconnected.
-    if (!logout.ok && apiKeyProfileIds.length === 0) {
+    // The config.patch above restarts the gateway when auth config changed, so post-check reads
+    // retry transient restart-window failures within the shared disconnect wait budget.
+    const disconnectPostCheckRead = async <T>(
+      read: () => Promise<Result<T>>,
+    ): Promise<Result<T>> => {
+      let result = await read();
+      while (
+        !result.ok &&
+        disconnectPostCheckTransient(result.error) &&
+        (await waitForDisconnectTransient(disconnectPostCheckRetryDelayMs))
+      ) {
+        result = await read();
+      }
+      return result;
+    };
+
+    const refreshedAuth = await disconnectPostCheckRead(() =>
+      this.modelAuthStatusPostCheck(input.providerId),
+    );
+    if (!refreshedAuth.ok) {
+      console.warn("connections.modelProviderDisconnect.failClosed", {
+        providerId: input.providerId,
+        reason: "postCheckUnavailable",
+        code: refreshedAuth.error.code,
+      });
       return err(
         provisioningError(
-          "provisioning.connections.authLogoutUnavailable",
-          "Gateway models.authLogout is unavailable and no API-key config profile was found to remove.",
+          "provisioning.connections.providerPostCheckUnavailable",
+          "Gateway provider credential post-check failed.",
           { providerId: input.providerId },
+        ),
+      );
+    }
+    const refreshedConfigResult = await disconnectPostCheckRead(() =>
+      this.options.adminClient.request("config.get", {}),
+    );
+    if (!refreshedConfigResult.ok) {
+      console.warn("connections.modelProviderDisconnect.failClosed", {
+        providerId: input.providerId,
+        reason: "configPostCheckUnavailable",
+        code: refreshedConfigResult.error.code,
+      });
+      return err(refreshedConfigResult.error);
+    }
+    const disconnectGatewayRuntime = this.options.gatewayRuntime;
+    const refreshedModelStatus =
+      disconnectGatewayRuntime === undefined
+        ? undefined
+        : await disconnectPostCheckRead(() => disconnectGatewayRuntime.modelStatus());
+    if (refreshedModelStatus !== undefined && !refreshedModelStatus.ok) {
+      console.warn("connections.modelProviderDisconnect.failClosed", {
+        providerId: input.providerId,
+        reason: "modelsStatusPostCheckUnavailable",
+        code: refreshedModelStatus.error.code,
+      });
+      return err(refreshedModelStatus.error);
+    }
+    const lingering = providerStillHasCredentials({
+      providerId: input.providerId,
+      authStatus: refreshedAuth.value,
+      config: configPayload(refreshedConfigResult.value),
+      modelStatus: refreshedModelStatus?.value ?? null,
+    });
+    if (lingering.stores.length > 0) {
+      console.warn("connections.modelProviderDisconnect.failClosed", {
+        providerId: input.providerId,
+        reason: "credentialSurvived",
+        credentialStores: lingering.stores,
+        connectedAuthMode: lingering.connectedAuthMode,
+      });
+      return err(
+        provisioningError(
+          "provisioning.connections.providerStillConnected",
+          "Disconnect failed: Gateway still reports provider credentials.",
+          {
+            providerId: input.providerId,
+            credentialStores: lingering.stores,
+            connectedAuthMode: lingering.connectedAuthMode,
+          },
         ),
       );
     }
 
     return ok(
-      await this.refreshedProviderConnection(input, "Opzava Gateway provider credentials removed."),
+      disconnectedProviderState({
+        providerId: input.providerId,
+        now: this.now(),
+        message: "Opzava Gateway provider credentials removed.",
+      }),
     );
   }
 
@@ -2708,7 +4035,34 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
 
   private async cleanupModelProviderFlow(flow: PendingModelProviderDeviceFlow): Promise<void> {
     this.modelDeviceFlows.delete(flow.flowId);
+    clearTimeout(flow.timeout);
     await this.options.gatewayRuntime?.stopDeviceCodeLogin(flow.execId, flow.logPath);
+  }
+
+  private async cleanupModelProviderFlowsForProvider(
+    providerId: string,
+    orgId?: string,
+  ): Promise<void> {
+    const flows = [...this.modelDeviceFlows.values()].filter(
+      (flow) => flow.providerId === providerId && (orgId === undefined || flow.orgId === orgId),
+    );
+    await Promise.all(flows.map((flow) => this.cleanupModelProviderFlow(flow)));
+  }
+
+  private async cleanupSetupTokenFlow(flow: PendingModelProviderSetupTokenFlow): Promise<void> {
+    this.modelSetupTokenFlows.delete(flow.flowId);
+    clearTimeout(flow.timeout);
+    await this.options.gatewayRuntime?.stopSetupTokenLogin(flow.execId, flow.logPath);
+  }
+
+  private async cleanupSetupTokenFlowsForProvider(
+    providerId: string,
+    orgId?: string,
+  ): Promise<void> {
+    const flows = [...this.modelSetupTokenFlows.values()].filter(
+      (flow) => flow.providerId === providerId && (orgId === undefined || flow.orgId === orgId),
+    );
+    await Promise.all(flows.map((flow) => this.cleanupSetupTokenFlow(flow)));
   }
 
   private async pollModelProviderFlow(
@@ -2749,7 +4103,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     let currentFlow = flow;
     const log = await this.options.gatewayRuntime?.readDeviceCodeLog(flow.logPath);
     if (log !== undefined && !log.ok) {
-      return err(log.error);
+      await this.cleanupModelProviderFlow(flow);
+      return err(deviceCodeLogReadError(flow.providerId));
     }
     if (
       log !== undefined &&
@@ -2769,7 +4124,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       await this.cleanupModelProviderFlow(currentFlow);
       return ok({
         status: "failed",
-        message: "Gateway device-code authorization failed or was denied.",
+        message:
+          "The provider blocked, rate-limited, or denied the device-code request. Wait a minute and retry, or connect with an API key.",
       });
     }
 
@@ -2921,7 +4277,27 @@ export class UnavailableConnectionsProvisioningPort implements ConnectionsProvis
     );
   }
 
-  public async connectModelProviderApiKey(): Promise<Result<ProviderConnectionState>> {
+  public async startModelProviderApiKeyConnect(): Promise<Result<ModelProviderApiKeyConnectStart>> {
+    return err(this.error());
+  }
+
+  public async pollModelProviderApiKeyConnect(): Promise<
+    Result<ModelProviderApiKeyConnectPollState>
+  > {
+    return err(this.error());
+  }
+
+  public async startModelProviderSetupTokenFlow(): Promise<Result<SetupTokenFlowStart>> {
+    return err(this.error());
+  }
+
+  public async pollModelProviderSetupTokenFlow(): Promise<Result<SetupTokenFlowPollState>> {
+    return err(this.error());
+  }
+
+  public async submitModelProviderSetupTokenCode(): Promise<
+    Result<{ readonly status: "pending" }>
+  > {
     return err(this.error());
   }
 
@@ -2933,7 +4309,13 @@ export class UnavailableConnectionsProvisioningPort implements ConnectionsProvis
     return err(this.error());
   }
 
-  public async disconnectModelProvider(): Promise<Result<ProviderConnectionState>> {
+  public async disconnectModelProvider(
+    input: DisconnectModelProviderInput,
+  ): Promise<Result<ProviderConnectionState>> {
+    console.warn("connections.modelProviderDisconnect.unavailable", {
+      providerId: input.providerId,
+      reason: this.reason,
+    });
     return err(this.error());
   }
 
@@ -2961,11 +4343,13 @@ export function createDefaultConnectionsProvisioningPort(
   const gatewayUrl = env["OPENCLAW_GATEWAY_URL"]?.trim();
   const gatewayToken = env["OPENCLAW_GATEWAY_TOKEN"]?.trim();
   const operatorDeviceToken = env["OPENCLAW_OPERATOR_DEVICE_TOKEN"]?.trim();
-  const requestedScopes = readRequestedOperatorScopes(env);
+  const requestedScopes =
+    readRequestedOperatorScopes(env) ?? ASK_ADMIN_WORKER_ADMIN_OPERATOR_SCOPES;
   const privateKeyPem = readPrivateKeyPem(env);
   const hasAdminCredential =
     (operatorDeviceToken !== undefined && operatorDeviceToken !== "") ||
-    (gatewayToken !== undefined && gatewayToken !== "");
+    (gatewayToken !== undefined && gatewayToken !== "") ||
+    (env["OPENCLAW_DEV_SECRETS_FILE"]?.trim() ?? "") !== "";
 
   if (
     gatewayUrl === undefined ||
@@ -2974,7 +4358,7 @@ export function createDefaultConnectionsProvisioningPort(
     privateKeyPem === null
   ) {
     return new UnavailableConnectionsProvisioningPort(
-      "OPENCLAW_GATEWAY_URL, OPENCLAW_OPERATOR_DEVICE_TOKEN or OPENCLAW_GATEWAY_TOKEN, and OPENCLAW_DEVICE_PRIVATE_KEY_PEM(_BASE64) are required for Connections provisioning.",
+      "OPENCLAW_GATEWAY_URL, an OpenClaw worker admin token source, and OPENCLAW_DEVICE_PRIVATE_KEY_PEM(_BASE64) are required for Connections provisioning.",
       repository,
     );
   }
@@ -2998,14 +4382,13 @@ export function createDefaultConnectionsProvisioningPort(
   });
 
   return new GatewayAdminConnectionsProvisioningPort({
-    adminClient: new OpenClawAdminRpcClient({
+    adminClient: new VaultBackedOpenClawAdminRpcClient({
+      env,
       url: gatewayUrl,
       ...(gatewayToken === undefined || gatewayToken === "" ? {} : { gatewayToken }),
-      ...(operatorDeviceToken === undefined || operatorDeviceToken === ""
-        ? {}
-        : { operatorDeviceToken }),
-      ...(requestedScopes === undefined ? {} : { requestedScopes }),
+      requestedScopes,
       keypair,
+      vault,
     }),
     secretsVault: vault,
     githubRepository: repository,

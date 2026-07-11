@@ -2,7 +2,7 @@
 // usage windows, cleanup actions, and auth-state refreshes.
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
-import { resolveDefaultAgentDir } from "../../agents/agent-scope.js";
+import { resolveAgentDir, resolveDefaultAgentDir } from "../../agents/agent-scope.js";
 import {
   type AuthHealthSummary,
   type AuthProfileHealthStatus,
@@ -38,6 +38,7 @@ import type {
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { refreshActiveSecretsRuntimeSnapshot } from "../../secrets/runtime.js";
 import { asDateTimestampMs } from "../../shared/number-coercion.js";
+import { isValidAgentId, normalizeAgentId } from "../../routing/session-key.js";
 import { abortChatRunsForProvider, type ChatAbortOps } from "../chat-abort.js";
 import { formatForLog } from "../ws-log.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "./types.js";
@@ -92,6 +93,7 @@ export type ModelAuthStatusResult = {
 
 export type ModelAuthLogoutResult = {
   provider: string;
+  agentId?: string;
   removedProfiles: string[];
   abortedRunIds: string[];
 };
@@ -137,6 +139,21 @@ function readProviderParam(params: Record<string, unknown>): string | null {
   }
   const provider = normalizeProviderId(raw);
   return provider || null;
+}
+
+function readAgentParam(params: Record<string, unknown>): string | undefined | null {
+  const raw = typeof params.agent === "string" ? params.agent : params.agentId;
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (!isValidAgentId(trimmed)) {
+    return null;
+  }
+  return normalizeAgentId(trimmed);
 }
 
 function createAuthLogoutAbortOps(context: GatewayRequestContext): ChatAbortOps {
@@ -407,9 +424,14 @@ export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "provider is required"));
       return;
     }
+    const agentId = readAgentParam(params);
+    if (agentId === null) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "agent is invalid"));
+      return;
+    }
     try {
       const cfg = context.getRuntimeConfig();
-      const agentDir = resolveDefaultAgentDir(cfg);
+      const agentDir = agentId ? resolveAgentDir(cfg, agentId) : resolveDefaultAgentDir(cfg);
       const authProvider = resolveProviderIdForAuth(provider, { config: cfg });
       const store = ensureAuthProfileStoreWithoutExternalProfiles(agentDir);
       const removedProfiles = listProfilesForProvider(store, provider);
@@ -446,6 +468,7 @@ export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
       );
       const result: ModelAuthLogoutResult = {
         provider,
+        ...(agentId ? { agentId } : {}),
         removedProfiles,
         abortedRunIds,
       };
