@@ -70,6 +70,8 @@ interface ModelProvidersPanelProps {
 
 const TABLE_CAPTION =
   "LLM model providers the gateway can route to, with folded CLI runtimes, authentication methods, current models, live connection status, and actions.";
+const UNSAFE_ACCOUNT_LABEL_PATTERN = /token:|sk-[a-z]|:default=|api[-_]?key/i;
+const MAX_VISIBLE_AUTH_BADGES = 2;
 
 function providerSort(left: ProviderRow, right: ProviderRow): number {
   const leftConnected = left.status === "connected" ? 0 : 1;
@@ -305,6 +307,26 @@ function statusMeta(provider: ProviderRow): readonly string[] {
     provider.planLabel === null ? null : `plan ${provider.planLabel}`,
     provider.usageLabel,
   ].filter((label): label is string => label !== null);
+}
+
+function safeAccountLabel(label: string | null): string | null {
+  const trimmed = label?.trim() ?? "";
+  if (trimmed === "" || UNSAFE_ACCOUNT_LABEL_PATTERN.test(trimmed)) {
+    return null;
+  }
+
+  // Gateway profile labels look like "provider:<account>=<mode> (<account>)". Surface only a clean
+  // human account (an email or a real name), never the raw "provider:x=mode" wire format.
+  const email = trimmed.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+  if (email !== null) {
+    return email[0];
+  }
+  const account = trimmed.match(/^[a-z0-9-]+:([^=]+)=/i)?.[1]?.trim();
+  if (account !== undefined && account !== "" && account.toLowerCase() !== "default") {
+    return account;
+  }
+  // A plain label with no wire-format markers is safe to show as-is; otherwise drop it.
+  return /[:=]/.test(trimmed) ? null : trimmed;
 }
 
 // One canonical status dot rendered with theme tokens (mockup-parity look, shadcn-native styling).
@@ -858,85 +880,95 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
   const meta = statusMeta(provider);
   const subLine = providerSubLine(provider);
   const authBadges = providerAuthBadges(provider);
+  const visibleAuthBadges = authBadges.slice(0, MAX_VISIBLE_AUTH_BADGES);
+  const overflowAuthBadges = authBadges.slice(MAX_VISIBLE_AUTH_BADGES);
   const healthLabel = authHealthLabel(provider);
   const guidance = statusGuidance(provider);
+  const accountLabel = safeAccountLabel(provider.accountLabel);
+  const modelOverflowCount = models.rest.length + models.more;
+  const statusDetails = [healthLabel, accountLabel, ...meta, guidance].filter(
+    (detail): detail is string => detail !== null,
+  );
 
   return (
     <TableRow data-provider-id={provider.id}>
-      <TableCell data-label="Provider" className="align-top">
-        <div className="flex flex-wrap items-center gap-2 font-medium">
-          <span>{provider.label}</span>
-          <ProviderBacks provider={provider} />
+      <TableCell data-label="Provider" className="min-w-0 align-middle py-4">
+        <div className="grid min-w-0 gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 font-medium leading-tight">
+            <span>{provider.label}</span>
+            <ProviderBacks provider={provider} />
+          </div>
+          {subLine === null ? null : (
+            <div className="text-xs leading-snug text-muted-foreground">{subLine}</div>
+          )}
         </div>
-        {subLine === null ? null : (
-          <div className="mt-0.5 text-xs text-muted-foreground">{subLine}</div>
-        )}
       </TableCell>
-      <TableCell data-label="Auth" className="align-top">
-        <div className="flex flex-wrap gap-1.5">
-          {authBadges.map((label) => (
+      <TableCell data-label="Auth" className="min-w-0 align-middle py-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {visibleAuthBadges.map((label) => (
             <Badge
               key={`${provider.id}-${label}`}
               variant={label === "No live auth method" ? "muted" : "outline"}
+              className={label === "No live auth method" ? undefined : "text-muted-foreground"}
             >
               {label}
             </Badge>
           ))}
+          {overflowAuthBadges.length === 0 ? null : (
+            <Badge variant="muted" title={overflowAuthBadges.join(", ")}>
+              +{overflowAuthBadges.length}
+            </Badge>
+          )}
         </div>
       </TableCell>
-      <TableCell data-label="Models" className="align-top">
+      <TableCell data-label="Models" className="min-w-0 align-middle py-4">
         {models.first === null ? (
           <span className="text-muted-foreground">
             {provider.id === "openrouter" ? "Routes many" : "—"}
           </span>
         ) : (
-          <span>
-            <span className="font-mono text-[13px]" data-model>
+          <div className="grid min-w-0 gap-1">
+            <span className="break-words font-mono text-sm leading-tight" data-model>
               {models.first}
             </span>
-            {models.rest.length === 0 && models.more === 0 ? null : (
-              <span className="text-muted-foreground">
-                {" · "}
-                {models.rest.join(" · ")}
-                {models.more > 0 ? ` · +${models.more} more` : ""}
-              </span>
+            {modelOverflowCount === 0 ? null : (
+              <span className="text-xs text-muted-foreground">+{modelOverflowCount} more</span>
             )}
+          </div>
+        )}
+      </TableCell>
+      <TableCell data-label="Status" className="min-w-0 align-middle py-4">
+        <div className="grid min-w-0 gap-1">
+          <span className="inline-flex min-w-0 items-center gap-2">
+            <StatusDot status={provider.status} />
+            <Badge variant={statusBadgeVariant(provider)} data-provider-status={provider.status}>
+              {displayStatusLabel(provider)}
+            </Badge>
           </span>
-        )}
-      </TableCell>
-      <TableCell data-label="Status" className="align-top">
-        <span className="inline-flex flex-wrap items-center gap-2">
-          <StatusDot status={provider.status} />
-          <Badge variant={statusBadgeVariant(provider)} data-provider-status={provider.status}>
-            {displayStatusLabel(provider)}
-          </Badge>
-          {healthLabel === null ? null : <Badge variant="outline">{healthLabel}</Badge>}
-          {meta.length === 0 ? null : (
-            <span className="text-xs text-muted-foreground">· {meta.join(" · ")}</span>
+          {statusDetails.length === 0 ? null : (
+            <div className="text-xs leading-snug text-muted-foreground">
+              {statusDetails.join(" · ")}
+            </div>
           )}
-        </span>
-        {provider.accountLabel === null ? null : (
-          <div className="mt-0.5 text-xs text-muted-foreground">{provider.accountLabel}</div>
-        )}
-        {guidance === null ? null : (
-          <div className="mt-0.5 text-xs text-muted-foreground">{guidance}</div>
-        )}
-      </TableCell>
-      <TableCell data-label="Actions" className="align-top text-right">
-        <div className="flex items-center justify-end gap-2">
-          <ProviderConnectDialog provider={provider} />
-          {provider.status === "connected" ? <DisconnectConfirm provider={provider} /> : null}
         </div>
-        {provider.pendingFlow === null ? null : (
-          <DeviceFlowPoller
-            flowId={provider.pendingFlow.flowId}
-            verificationUri={provider.pendingFlow.verificationUri}
-            userCode={provider.pendingFlow.userCode}
-            codePending={provider.pendingFlow.codePending}
-            intervalSeconds={provider.pendingFlow.intervalSeconds}
-            expiresAt={provider.pendingFlow.expiresAt}
-          />
-        )}
+      </TableCell>
+      <TableCell data-label="Actions" className="align-middle py-4 text-right">
+        <div className="grid justify-items-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <ProviderConnectDialog provider={provider} />
+            {provider.status === "connected" ? <DisconnectConfirm provider={provider} /> : null}
+          </div>
+          {provider.pendingFlow === null ? null : (
+            <DeviceFlowPoller
+              flowId={provider.pendingFlow.flowId}
+              verificationUri={provider.pendingFlow.verificationUri}
+              userCode={provider.pendingFlow.userCode}
+              codePending={provider.pendingFlow.codePending}
+              intervalSeconds={provider.pendingFlow.intervalSeconds}
+              expiresAt={provider.pendingFlow.expiresAt}
+            />
+          )}
+        </div>
       </TableCell>
     </TableRow>
   );
@@ -956,15 +988,15 @@ function ProviderTable({ providers }: { readonly providers: readonly ProviderRow
 
   return (
     <div className="rounded-lg border border-border">
-      <Table>
+      <Table className="table table-cards">
         <TableCaption className="sr-only">{TABLE_CAPTION}</TableCaption>
         <TableHeader>
           <TableRow>
-            <TableHead>Provider</TableHead>
-            <TableHead>Auth</TableHead>
-            <TableHead>Models</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">
+            <TableHead className="w-1/4">Provider</TableHead>
+            <TableHead className="w-1/6">Auth</TableHead>
+            <TableHead className="w-1/5">Models</TableHead>
+            <TableHead className="w-1/4">Status</TableHead>
+            <TableHead className="text-right whitespace-nowrap">
               <span className="sr-only">Actions</span>
             </TableHead>
           </TableRow>

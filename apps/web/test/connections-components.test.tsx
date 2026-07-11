@@ -115,6 +115,41 @@ describe("Connections components", () => {
     expect(html).toContain("Available to connect.");
   });
 
+  it("hides credential-looking provider account labels", () => {
+    const html = renderToStaticMarkup(
+      createElement(ModelProvidersPanel, {
+        gatewayStatus: "active",
+        providers: [
+          provider({
+            id: "anthropic",
+            label: "Anthropic",
+            status: "connected",
+            statusLabel: "Connected",
+            accountLabel: "anthropic:default=token:sk-ant-o...securely",
+          }),
+          provider({
+            id: "claude",
+            label: "Claude",
+            status: "connected",
+            statusLabel: "Connected",
+            accountLabel: "Claude Max",
+          }),
+        ],
+        summary: {
+          total: 2,
+          available: 0,
+          connected: 2,
+          needsAttention: 0,
+          pending: 0,
+          notConnected: 0,
+        },
+      }),
+    );
+
+    expect(html).not.toContain("anthropic:default=token:sk-ant-o...securely");
+    expect(html).toContain("Claude Max");
+  });
+
   it("renders distinct empty copy for active and unavailable gateways", () => {
     const activeHtml = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {
