@@ -44,6 +44,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -399,18 +407,25 @@ function MutationErrorNotice({
 // (UX error-prevention) — an accidental click on the row button should never sever a live connection.
 function DisconnectConfirm({
   provider,
+  open: controlledOpen,
+  onOpenChange,
+  trigger,
   size = "sm",
   triggerVariant = "ghost",
 }: {
   readonly provider: ProviderRow;
+  readonly open?: boolean;
+  readonly onOpenChange?: (open: boolean) => void;
+  readonly trigger?: ReactNode | null;
   readonly size?: "sm" | "default";
   readonly triggerVariant?: "ghost" | "destructive";
 }) {
   const router = useRouter();
   const formId = useId();
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [formVersion, setFormVersion] = useState(0);
+  const open = controlledOpen ?? uncontrolledOpen;
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (pending) {
@@ -420,23 +435,33 @@ function DisconnectConfirm({
       if (nextOpen) {
         setFormVersion((current) => current + 1);
       }
-      setOpen(nextOpen);
+      if (controlledOpen === undefined) {
+        setUncontrolledOpen(nextOpen);
+      }
+      onOpenChange?.(nextOpen);
     },
-    [pending],
+    [controlledOpen, onOpenChange, pending],
   );
   const handleSuccess = useCallback(() => {
     setPending(false);
-    setOpen(false);
+    if (controlledOpen === undefined) {
+      setUncontrolledOpen(false);
+    }
+    onOpenChange?.(false);
     router.refresh();
-  }, [router]);
+  }, [controlledOpen, onOpenChange, router]);
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogTrigger asChild>
-        <Button type="button" variant={triggerVariant} size={size}>
-          Disconnect
-        </Button>
-      </AlertDialogTrigger>
+      {trigger === null ? null : (
+        <AlertDialogTrigger asChild>
+          {trigger ?? (
+            <Button type="button" variant={triggerVariant} size={size}>
+              Disconnect
+            </Button>
+          )}
+        </AlertDialogTrigger>
+      )}
       <AlertDialogContent>
         <DisconnectConfirmForm
           key={`${provider.connectionProviderId}-${formVersion}`}
@@ -543,12 +568,23 @@ function DisconnectConfirmForm({
   );
 }
 
-function SetMainOrchestratorConfirm({ provider }: { readonly provider: ProviderRow }) {
+function SetMainOrchestratorConfirm({
+  provider,
+  open: controlledOpen,
+  onOpenChange,
+  trigger,
+}: {
+  readonly provider: ProviderRow;
+  readonly open?: boolean;
+  readonly onOpenChange?: (open: boolean) => void;
+  readonly trigger?: ReactNode | null;
+}) {
   const router = useRouter();
   const formId = useId();
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [formVersion, setFormVersion] = useState(0);
+  const open = controlledOpen ?? uncontrolledOpen;
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (pending) {
@@ -558,23 +594,33 @@ function SetMainOrchestratorConfirm({ provider }: { readonly provider: ProviderR
       if (nextOpen) {
         setFormVersion((current) => current + 1);
       }
-      setOpen(nextOpen);
+      if (controlledOpen === undefined) {
+        setUncontrolledOpen(nextOpen);
+      }
+      onOpenChange?.(nextOpen);
     },
-    [pending],
+    [controlledOpen, onOpenChange, pending],
   );
   const handleSuccess = useCallback(() => {
     setPending(false);
-    setOpen(false);
+    if (controlledOpen === undefined) {
+      setUncontrolledOpen(false);
+    }
+    onOpenChange?.(false);
     router.refresh();
-  }, [router]);
+  }, [controlledOpen, onOpenChange, router]);
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogTrigger asChild>
-        <Button type="button" variant="secondary" size="sm">
-          Set as main orchestrator
-        </Button>
-      </AlertDialogTrigger>
+      {trigger === null ? null : (
+        <AlertDialogTrigger asChild>
+          {trigger ?? (
+            <Button type="button" variant="secondary" size="sm">
+              Set as main orchestrator
+            </Button>
+          )}
+        </AlertDialogTrigger>
+      )}
       <AlertDialogContent>
         <SetMainOrchestratorForm
           key={`${provider.connectionProviderId}-${formVersion}`}
@@ -714,7 +760,17 @@ type DeviceFlowStartPhase =
   | { readonly step: "started"; readonly challenge: DeviceFlowChallenge }
   | { readonly step: "failed"; readonly message: string; readonly code: string | null };
 
-function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow }) {
+function ProviderConnectDialog({
+  provider,
+  open,
+  onOpenChange,
+  trigger,
+}: {
+  readonly provider: ProviderRow;
+  readonly open?: boolean;
+  readonly onOpenChange?: (open: boolean) => void;
+  readonly trigger?: ReactNode | null;
+}) {
   const apiKeyChoice = credentialFormChoice(provider);
   const choice =
     provider.status === "connected" && provider.connectedAuthMode === "api_key"
@@ -789,16 +845,23 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
   }
 
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button
-          type="button"
-          size="sm"
-          variant={provider.status === "connected" ? "secondary" : "default"}
-        >
-          {actionLabel(provider)}
-        </Button>
-      </DialogTrigger>
+    <Dialog
+      {...(open === undefined ? {} : { open })}
+      {...(onOpenChange === undefined ? {} : { onOpenChange })}
+    >
+      {trigger === null ? null : (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button
+              type="button"
+              size="sm"
+              variant={provider.status === "connected" ? "secondary" : "default"}
+            >
+              {actionLabel(provider)}
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
@@ -1012,6 +1075,90 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
   );
 }
 
+function ProviderConnectedActions({
+  provider,
+  canSetMainOrchestrator,
+  isLeadOrchestrator,
+}: {
+  readonly provider: ProviderRow;
+  readonly canSetMainOrchestrator: boolean;
+  readonly isLeadOrchestrator: boolean;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [setMainOpen, setSetMainOpen] = useState(false);
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const openDialogFromMenu = useCallback((event: Event, openDialog: () => void) => {
+    event.preventDefault();
+    openDialog();
+    setMenuOpen(false);
+  }, []);
+
+  return (
+    <>
+      <div className="inline-flex items-center justify-end gap-2">
+        {isLeadOrchestrator ? <Badge variant="secondary">Main orchestrator</Badge> : null}
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={`Row actions for ${provider.label}`}
+            >
+              <span aria-hidden="true" className="text-lg leading-none">
+                ⋮
+              </span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+            <DropdownMenuItem
+              onSelect={(event) => openDialogFromMenu(event, () => setManageOpen(true))}
+            >
+              Manage
+            </DropdownMenuItem>
+            {canSetMainOrchestrator ? (
+              <DropdownMenuItem
+                onSelect={(event) => openDialogFromMenu(event, () => setSetMainOpen(true))}
+              >
+                Set as main orchestrator
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={(event) => openDialogFromMenu(event, () => setDisconnectOpen(true))}
+            >
+              Disconnect
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <ProviderConnectDialog
+        provider={provider}
+        open={manageOpen}
+        onOpenChange={setManageOpen}
+        trigger={null}
+      />
+      {canSetMainOrchestrator ? (
+        <SetMainOrchestratorConfirm
+          provider={provider}
+          open={setMainOpen}
+          onOpenChange={setSetMainOpen}
+          trigger={null}
+        />
+      ) : null}
+      <DisconnectConfirm
+        provider={provider}
+        open={disconnectOpen}
+        onOpenChange={setDisconnectOpen}
+        trigger={null}
+      />
+    </>
+  );
+}
+
 function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
   const models = providerModelParts(provider);
   const meta = statusMeta(provider);
@@ -1093,14 +1240,15 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
       </TableCell>
       <TableCell data-label="Actions" className="align-middle py-4 text-right">
         <div className="grid justify-items-end gap-2">
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          {provider.status === "connected" ? (
+            <ProviderConnectedActions
+              provider={provider}
+              canSetMainOrchestrator={canSetMainOrchestrator}
+              isLeadOrchestrator={isLeadOrchestrator}
+            />
+          ) : (
             <ProviderConnectDialog provider={provider} />
-            {canSetMainOrchestrator ? <SetMainOrchestratorConfirm provider={provider} /> : null}
-            {provider.status === "connected" && isLeadOrchestrator ? (
-              <Badge variant="secondary">Main orchestrator</Badge>
-            ) : null}
-            {provider.status === "connected" ? <DisconnectConfirm provider={provider} /> : null}
-          </div>
+          )}
           {provider.pendingFlow === null ? null : (
             <DeviceFlowPoller
               flowId={provider.pendingFlow.flowId}

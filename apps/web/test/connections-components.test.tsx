@@ -150,7 +150,7 @@ describe("Connections components", () => {
     expect(html).toContain("Claude Max");
   });
 
-  it("lets connected subagents be set as main orchestrator while the lead shows an indicator", () => {
+  it("renders connected row actions as a menu while keeping available connect visible", () => {
     const html = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {
         gatewayStatus: "active",
@@ -171,11 +171,44 @@ describe("Connections components", () => {
             roleLabel: "Subagent",
             connectedAuthMode: "api_key",
           }),
+          provider({ id: "qwen", label: "Alibaba / Qwen" }),
         ],
         summary: {
-          total: 2,
-          available: 2,
+          total: 3,
+          available: 3,
           connected: 2,
+          needsAttention: 0,
+          pending: 0,
+          notConnected: 1,
+        },
+      }),
+    );
+
+    expect(html).toContain('aria-label="Row actions for OpenAI / Codex"');
+    expect(html).toContain('aria-label="Row actions for z.ai / GLM"');
+    expect(html).not.toContain('aria-label="Row actions for Alibaba / Qwen"');
+    expect(html).toContain("Main orchestrator");
+    expect(html).toMatch(/<button[^>]*>Connect<\/button>/);
+  });
+
+  it("does not expose set-main copy for the current lead row", () => {
+    const html = renderToStaticMarkup(
+      createElement(ModelProvidersPanel, {
+        gatewayStatus: "active",
+        providers: [
+          provider({
+            id: "openai",
+            label: "OpenAI / Codex",
+            status: "connected",
+            statusLabel: "Connected",
+            roleLabel: "Lead orchestrator",
+            connectedAuthMode: "oauth",
+          }),
+        ],
+        summary: {
+          total: 1,
+          available: 1,
+          connected: 1,
           needsAttention: 0,
           pending: 0,
           notConnected: 0,
@@ -183,9 +216,8 @@ describe("Connections components", () => {
       }),
     );
 
-    expect(html.match(/Set as main orchestrator/g)).toHaveLength(1);
     expect(html).toContain("Main orchestrator");
-    expect(html).toContain("Exactly one connected provider is the main orchestrator.");
+    expect(html).not.toContain("Set as main orchestrator");
   });
 
   it("renders distinct empty copy for active and unavailable gateways", () => {
