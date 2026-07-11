@@ -370,7 +370,7 @@ Opzava tracks its own build); roadmap P1–P8 remain the phase-detail reference,
 Consensus trail: `docs/plan/consensus/q15-mvp-roadmap.mmx.md`.
 
 ## Q16 — Platform orchestrator runtime + local coding harness — LOCKED (2026-07-03)
-- **Orchestrator model:** ChatGPT/Codex **subscription OAuth** (operator's GPT Pro account) drives `openai/gpt-5.5` through
+- **Initial orchestrator model:** ChatGPT/Codex **subscription OAuth** (operator's GPT Pro account) drives `openai/gpt-5.5` through
   OpenClaw's **native Codex app-server runtime** on the platform Gateway, powering **Ask Admin Opzava / Ask Opzava** (the
   orchestrator chat services). `auth.order.openai` places a direct **API-key profile as automatic fallback**; OpenClaw
   auth-monitoring surfaces any silent fallback as an admin-observability event ("running on metered API billing").
@@ -395,10 +395,11 @@ Consensus trail: `docs/plan/consensus/q15-mvp-roadmap.mmx.md`.
 - → **Slice 2.5** (after Slice 2, before Slice 3 CRM): Opzava MCP server + link tokens + Claude Code connect recipe +
   audit attribution. Acceptance: a local Claude Code session lists/creates/moves a Task and it appears live on the admin
   board; a revoked token fails with a clean auth error; task activity shows actor-via-claude-code.
-- **Orchestrator + subagents (clarified 2026-07-03):** GPT-Pro/Codex (`openai/gpt-5.5`) is the MAIN ORCHESTRATOR
-  (the ask-admin-opzava/Ask Opzava coordinator agent). The other connected providers (z.ai/GLM, OpenCode, Kimi/Moonshot,
-  Alibaba/Qwen, OpenRouter, ...) are SUBAGENT specialist models the orchestrator DELEGATES to by strength, to offload work
-  and save orchestrator tokens. This is DELEGATION, not `auth.order` failover (a separate, secondary mechanism: same task,
+- **Orchestrator + subagents (clarified 2026-07-03; updated 2026-07-12):** exactly one connected provider is the MAIN ORCHESTRATOR, derived from the Gateway primary model at `agents.defaults.model.primary`.
+  GPT-Pro/Codex (`openai/gpt-5.5`) is the initial default, not a hardcoded invariant.
+  The other connected providers (z.ai/GLM, Claude, OpenCode, Kimi/Moonshot, Alibaba/Qwen, OpenRouter, ...) are SUBAGENT specialist models the orchestrator DELEGATES to by strength, to offload work and save orchestrator tokens.
+  The Connections GUI can move the main role to another connected provider with a routable model, and the previous lead remains a subagent.
+  This is DELEGATION, not `auth.order` failover (a separate, secondary mechanism: same task,
   cheaper/next provider only when the primary is unavailable). Harnessed via OpenClaw NATIVE capability (verified in the live
   config schema + `docs/openclaw/gateway/config-tools.md`): `agents.list[].subagents.delegationMode: "prefer"` (docs:
   "coordinator agents that should stay responsive and push non-trivial work into spawned sub-agents"), `subagents.allowAgents`,
