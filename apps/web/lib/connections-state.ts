@@ -135,15 +135,6 @@ export function statusClassName(status: ConnectionStatus): string {
   return "dot";
 }
 
-function normalizedModelId(value: string | null): string {
-  return (value ?? "").toLowerCase().replace(/[\s_]+/g, "-");
-}
-
-export function isLeadOrchestratorModel(model: string | null): boolean {
-  const normalized = normalizedModelId(model);
-  return normalized.includes("gpt-5.5") || normalized.includes("claude-opus-4.8");
-}
-
 export function authBranchForChoice(choice: ModelProviderAuthChoice): "api-key" | "device-flow" {
   return choice.mode;
 }
@@ -198,7 +189,7 @@ export function projectProviderConnections(
   snapshot: Pick<
     ConnectionsSnapshot,
     "providerCatalog" | "providerConnections" | "pendingDeviceFlows"
-  >,
+  > & { readonly orchestrator?: Pick<OrchestratorDelegationState, "orchestratorProviderId"> },
 ): readonly ProviderConnectionView[] {
   return projectModelProviders(snapshot);
 }
@@ -338,8 +329,9 @@ export function projectModelProviders(
   snapshot: Pick<
     ConnectionsSnapshot,
     "providerCatalog" | "providerConnections" | "pendingDeviceFlows"
-  >,
+  > & { readonly orchestrator?: Pick<OrchestratorDelegationState, "orchestratorProviderId"> },
 ): readonly ProviderConnectionView[] {
+  const orchestratorProviderId = snapshot.orchestrator?.orchestratorProviderId ?? null;
   const classifications = new Map(
     snapshot.providerCatalog.map((provider) => [provider.id, providerClassification(provider)]),
   );
@@ -393,10 +385,11 @@ export function projectModelProviders(
         .slice(0, 6);
       const model = state?.model ?? models[0]?.id ?? null;
       const tier = providerTier(group.id);
+      const connectionProviderId = state?.providerId ?? group.id;
 
       return {
         id: group.id,
-        connectionProviderId: state?.providerId ?? group.id,
+        connectionProviderId,
         label: group.label,
         vendor: group.vendor,
         status,
@@ -406,7 +399,10 @@ export function projectModelProviders(
         primaryAuthChoice: preferredAuthChoice(provider),
         apiKeyChoices,
         deviceFlowChoices,
-        roleLabel: isLeadOrchestratorModel(model) ? "Lead orchestrator" : "Subagent",
+        roleLabel:
+          orchestratorProviderId !== null && connectionProviderId === orchestratorProviderId
+            ? "Lead orchestrator"
+            : "Subagent",
         model,
         runtimeLabels: [...group.runtimeLabels].sort((left, right) => left.localeCompare(right)),
         models,
@@ -473,12 +469,25 @@ export function buildOrchestratorConfigPlan(input: {
   readonly providers: readonly ProviderConnectionView[];
   readonly current?: OrchestratorDelegationState;
 }): OrchestratorConfigPlan {
-  const orchestrator = input.providers.find((provider) => provider.id === "openai");
+  const orchestratorProviderId =
+    input.current?.orchestratorProviderId ??
+    input.providers.find((provider) => provider.roleLabel === "Lead orchestrator")
+      ?.connectionProviderId ??
+    null;
+  const orchestrator = input.providers.find(
+    (provider) =>
+      orchestratorProviderId !== null && provider.connectionProviderId === orchestratorProviderId,
+  );
   const subagents: OrchestratorSubagentRole[] = input.providers
-    .filter((provider) => provider.id !== "openai" && provider.status === "connected")
+    .filter(
+      (provider) =>
+        provider.status === "connected" &&
+        (orchestratorProviderId === null ||
+          provider.connectionProviderId !== orchestratorProviderId),
+    )
     .map((provider) => ({
-      agentId: `subagent-${provider.id}`,
-      providerId: provider.id,
+      agentId: `subagent-${provider.connectionProviderId}`,
+      providerId: provider.connectionProviderId,
       providerLabel: provider.label,
       model: provider.model ?? provider.models[0]?.id ?? provider.id,
       strength: provider.strength,

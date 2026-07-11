@@ -135,6 +135,7 @@ function connectionsSnapshot(): ConnectionsSnapshot {
     orchestrator: {
       orchestratorAgentId: "ask-admin-opzava",
       orchestratorModel: "openai/gpt-5.5",
+      orchestratorProviderId: "openai",
       delegationMode: "prefer",
       allowAgents: ["subagent-zai"],
       subagents: [],
@@ -166,12 +167,27 @@ function fakeProvisioningPort(): ConnectionsProvisioningPort {
       ok({
         orchestratorAgentId: "ask-admin-opzava",
         orchestratorModel: "openai/gpt-5.5",
+        orchestratorProviderId: "openai",
         delegationMode: "prefer",
         allowAgents: ["subagent-zai"],
         subagents: [],
         toolPolicyExpansion: {
           allow: ["sessions_spawn", "subagents", "group:sessions"],
           receiptId: "receipt-2",
+        },
+        updatedAt: "2026-07-03T00:00:00.000Z",
+      } satisfies OrchestratorDelegationState),
+    setMainOrchestrator: async (input) =>
+      ok({
+        orchestratorAgentId: "ask-admin-opzava",
+        orchestratorModel: `${input.providerId}/default`,
+        orchestratorProviderId: input.providerId,
+        delegationMode: "prefer",
+        allowAgents: [],
+        subagents: [],
+        toolPolicyExpansion: {
+          allow: ["sessions_spawn", "subagents", "group:sessions"],
+          receiptId: "receipt-3",
         },
         updatedAt: "2026-07-03T00:00:00.000Z",
       } satisfies OrchestratorDelegationState),
@@ -1716,6 +1732,10 @@ describe("Connections provisioning helpers", () => {
     });
     expect(admin.calls.find((call) => call.method === "models.authStatus")?.params).toEqual({
       refresh: false,
+    });
+    expect(snapshot.value.orchestrator).toMatchObject({
+      orchestratorModel: "zai/glm-5.2",
+      orchestratorProviderId: "zai",
     });
   });
 
@@ -3846,6 +3866,207 @@ describe("Connections provisioning helpers", () => {
     expect(patchCall?.params).not.toHaveProperty("patch");
     expect(patchCall?.params).not.toHaveProperty("receipt");
     expect(patchCall?.idempotencyKey).toBeUndefined();
+  });
+
+  it("applies orchestrator delegation from the gateway primary provider", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        hash: "config-hash-primary",
+        auth: {
+          profiles: {
+            "openai-device": {
+              providerId: "openai",
+              authChoiceId: "openai-device-code",
+            },
+            "zai-zai-api-key": {
+              providerId: "zai",
+              authChoiceId: "zai-api-key",
+              model: "zai/glm-5.2",
+            },
+          },
+          order: { openai: ["openai-device"], zai: ["zai-zai-api-key"] },
+        },
+        agents: {
+          defaults: {
+            model: { primary: "zai/glm-5.2" },
+            models: { "openai/gpt-5.5": {} },
+          },
+          list: [],
+        },
+      }),
+      "models.list": ok({
+        providers: [
+          {
+            id: "openai",
+            label: "OpenAI",
+            suggestedModel: "openai/gpt-5.5",
+            authChoices: [
+              apiKeyChoice({
+                id: "openai-device-code",
+                providerId: "openai",
+                keyFlag: "openai-api-key",
+              }),
+            ],
+          },
+          {
+            id: "zai",
+            label: "z.ai / GLM",
+            suggestedModel: "zai/glm-5.2",
+            authChoices: [apiKeyChoice()],
+          },
+        ],
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.applyOrchestratorDelegation({
+      ...principal(),
+      connectedProviderIds: ["openai", "zai"],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.ok ? result.value : null).toMatchObject({
+      orchestratorModel: "zai/glm-5.2",
+      orchestratorProviderId: "zai",
+      allowAgents: ["subagent-openai"],
+    });
+    const patchCall = admin.calls.find((call) => call.method === "config.patch");
+    expect(rawPatch(patchCall!.params)).toMatchObject({
+      agents: {
+        list: expect.arrayContaining([
+          expect.objectContaining({ id: "ask-admin-opzava", model: "zai/glm-5.2" }),
+          expect.objectContaining({ id: "subagent-openai", model: "openai/gpt-5.5" }),
+        ]),
+      },
+    });
+    expect(JSON.stringify(rawPatch(patchCall!.params))).not.toContain("subagent-zai");
+  });
+
+  it("sets the main orchestrator by patching the gateway primary model", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        hash: "config-hash-set-main",
+        auth: {
+          profiles: {
+            "openai-device": {
+              providerId: "openai",
+              authChoiceId: "openai-device-code",
+            },
+            "zai-zai-api-key": {
+              providerId: "zai",
+              authChoiceId: "zai-api-key",
+              model: "zai/glm-5.2",
+            },
+          },
+          order: { openai: ["openai-device"], zai: ["zai-zai-api-key"] },
+        },
+        agents: {
+          defaults: {
+            model: { primary: "openai/gpt-5.5" },
+            models: { "openai/gpt-5.5": {} },
+          },
+          list: [{ id: "other-agent", model: "noop/model" }],
+        },
+      }),
+      "models.list": ok({
+        providers: [
+          {
+            id: "openai",
+            label: "OpenAI",
+            suggestedModel: "openai/gpt-5.5",
+            authChoices: [
+              apiKeyChoice({
+                id: "openai-device-code",
+                providerId: "openai",
+                keyFlag: "openai-api-key",
+              }),
+            ],
+          },
+          {
+            id: "zai",
+            label: "z.ai / GLM",
+            suggestedModel: "zai/glm-5.2",
+            authChoices: [apiKeyChoice()],
+          },
+        ],
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.setMainOrchestrator({ ...principal(), providerId: "zai" });
+
+    expect(result.ok).toBe(true);
+    expect(result.ok ? result.value : null).toMatchObject({
+      orchestratorModel: "zai/glm-5.2",
+      orchestratorProviderId: "zai",
+      allowAgents: ["subagent-openai"],
+    });
+    const patchCall = admin.calls.find((call) => call.method === "config.patch");
+    expect(patchCall?.params).toMatchObject({
+      baseHash: "config-hash-set-main",
+      replacePaths: ["agents.list"],
+    });
+    expect(rawPatch(patchCall!.params)).toMatchObject({
+      agents: {
+        defaults: { model: { primary: "zai/glm-5.2" } },
+        list: expect.arrayContaining([
+          expect.objectContaining({ id: "other-agent" }),
+          expect.objectContaining({ id: "ask-admin-opzava", model: "zai/glm-5.2" }),
+          expect.objectContaining({ id: "subagent-openai", model: "openai/gpt-5.5" }),
+        ]),
+      },
+    });
+  });
+
+  it("rejects setting the main orchestrator to an unconnected provider", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        hash: "config-hash-unconnected",
+        auth: { profiles: {}, order: {} },
+        agents: {
+          defaults: { model: { primary: "openai/gpt-5.5" } },
+          list: [],
+        },
+      }),
+      "models.list": ok({
+        providers: [
+          {
+            id: "zai",
+            label: "z.ai / GLM",
+            suggestedModel: "zai/glm-5.2",
+            authChoices: [apiKeyChoice()],
+          },
+        ],
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.setMainOrchestrator({ ...principal(), providerId: "zai" });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error).toMatchObject({
+      code: "provisioning.connections.orchestratorProviderNotConnected",
+      details: { providerId: "zai" },
+    });
+    expect(admin.calls.some((call) => call.method === "config.patch")).toBe(false);
   });
 
   it("starts model-provider device flow by parsing the gateway device-code log", async () => {

@@ -93,6 +93,7 @@ function snapshot(overrides: Partial<ConnectionsSnapshot> = {}): ConnectionsSnap
     orchestrator: {
       orchestratorAgentId: "ask-admin-opzava",
       orchestratorModel: "openai/gpt-5.5",
+      orchestratorProviderId: "openai",
       delegationMode: "prefer",
       allowAgents: [],
       subagents: [],
