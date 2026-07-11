@@ -483,6 +483,10 @@ function principal(): {
   };
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function pollApiKeyConnectUntilTerminal(
   port: GatewayAdminConnectionsProvisioningPort,
   opId: string,
@@ -2516,22 +2520,145 @@ describe("Connections provisioning helpers", () => {
       providerId: "anthropic",
     });
 
-    const poll = await port.pollModelProviderSetupTokenFlow({
+    const firstPoll = await port.pollModelProviderSetupTokenFlow({
       ...principal(),
       flowId: start.ok ? start.value.flowId : "",
     });
 
-    expect(poll.ok ? poll.value : null).toMatchObject({
+    expect(firstPoll).toMatchObject({ ok: true, value: { status: "pending" } });
+    await delay(0);
+    const terminalPoll = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    expect(terminalPoll.ok ? terminalPoll.value : null).toMatchObject({
       status: "connected",
       connection: { providerId: "anthropic", authChoiceId: "setup-token" },
     });
     expect(gatewayRuntime.connectCalls).toEqual([
       { providerId: "anthropic", authChoiceId: "setup-token", keyFlag: "token", apiKey: token },
     ]);
-    expect(JSON.stringify(poll)).not.toContain("sk-ant-oat01");
+    expect(JSON.stringify([firstPoll, terminalPoll])).not.toContain("sk-ant-oat01");
     expect(gatewayRuntime.setupTokenStops).toEqual([
       { execId: "exec-setup-1", logPath: "/tmp/opzava-st-test/setup.log" },
     ]);
+  });
+
+  it("does not double-submit setup-token completion under overlapping polls", async () => {
+    const token = `sk-ant-oat01-${"c".repeat(80)}`;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      connectDelayMs: 25,
+      setupTokenLog: `Done ${token}\n`,
+      status: {
+        allowed: ["anthropic/claude-sonnet-5"],
+        auth: {
+          providers: [
+            {
+              provider: "anthropic",
+              profiles: { count: 1, token: 1, labels: ["anthropic:manual=Setup token"] },
+            },
+          ],
+        },
+      },
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+    await port.submitModelProviderSetupTokenCode({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+      code: "oauth-code-123",
+    });
+
+    const firstPoll = port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+    const inFlightPoll = port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    const first = await firstPoll;
+    const inFlight = await inFlightPoll;
+    expect(first).toMatchObject({ ok: true, value: { status: "pending" } });
+    expect(inFlight).toMatchObject({ ok: true, value: { status: "pending" } });
+    expect(gatewayRuntime.connectCalls).toHaveLength(1);
+    expect(gatewayRuntime.setupTokenStops).toEqual([]);
+
+    await delay(30);
+    const terminal = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+    expect(terminal.ok ? terminal.value : null).toMatchObject({
+      status: "connected",
+      connection: { providerId: "anthropic", authChoiceId: "setup-token" },
+    });
+    expect(gatewayRuntime.connectCalls).toEqual([
+      { providerId: "anthropic", authChoiceId: "setup-token", keyFlag: "token", apiKey: token },
+    ]);
+    expect(gatewayRuntime.setupTokenStops).toEqual([
+      { execId: "exec-setup-1", logPath: "/tmp/opzava-st-test/setup.log" },
+    ]);
+    expect(JSON.stringify([inFlight, terminal])).not.toContain("sk-ant-oat01");
+  });
+
+  it("delivers setup-token completion outcome from a later poll", async () => {
+    const token = `sk-ant-oat01-${"d".repeat(80)}`;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      connectDelayMs: 25,
+      setupTokenLog: `Done ${token}\n`,
+      status: {
+        allowed: ["anthropic/claude-sonnet-5"],
+        auth: {
+          providers: [
+            {
+              provider: "anthropic",
+              profiles: { count: 1, token: 1, labels: ["anthropic:manual=Setup token"] },
+            },
+          ],
+        },
+      },
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    const firstPoll = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    expect(firstPoll).toMatchObject({ ok: true, value: { status: "pending" } });
+    await delay(30);
+    const terminalPoll = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    expect(terminalPoll.ok ? terminalPoll.value : null).toMatchObject({
+      status: "connected",
+      connection: { providerId: "anthropic", status: "connected" },
+    });
+    expect(gatewayRuntime.connectCalls).toEqual([
+      { providerId: "anthropic", authChoiceId: "setup-token", keyFlag: "token", apiKey: token },
+    ]);
+    expect(gatewayRuntime.setupTokenStops).toEqual([
+      { execId: "exec-setup-1", logPath: "/tmp/opzava-st-test/setup.log" },
+    ]);
+    expect(JSON.stringify([firstPoll, terminalPoll])).not.toContain("sk-ant-oat01");
   });
 
   it("completes setup-token when the minted token is wrapped across PTY line breaks", async () => {
@@ -2562,12 +2689,19 @@ describe("Connections provisioning helpers", () => {
       providerId: "anthropic",
     });
 
-    const poll = await port.pollModelProviderSetupTokenFlow({
+    const firstPoll = await port.pollModelProviderSetupTokenFlow({
       ...principal(),
       flowId: start.ok ? start.value.flowId : "",
     });
 
-    expect(poll.ok ? poll.value : null).toMatchObject({
+    expect(firstPoll).toMatchObject({ ok: true, value: { status: "pending" } });
+    await delay(0);
+    const terminalPoll = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    expect(terminalPoll.ok ? terminalPoll.value : null).toMatchObject({
       status: "connected",
       connection: { providerId: "anthropic", authChoiceId: "setup-token" },
     });

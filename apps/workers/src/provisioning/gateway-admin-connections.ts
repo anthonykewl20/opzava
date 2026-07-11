@@ -178,6 +178,7 @@ interface PendingModelProviderSetupTokenFlow {
   phase: "starting" | "awaiting_code" | "completing";
   authorizeUrl?: string;
   codeSubmittedAt?: Date;
+  completionInFlight?: boolean;
   outcome?: SetupTokenFlowPollState;
 }
 
@@ -3093,42 +3094,18 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       await this.cleanupSetupTokenFlow(flow);
       return err(deviceCodeLogReadError(flow.providerId));
     }
+    // Re-check AFTER the async log read: a concurrent poll may have set completionInFlight
+    // during the await, so a pre-await guard alone would double-submit the onboard.
+    if (flow.completionInFlight === true) {
+      return ok({ status: "pending" });
+    }
 
     const mintedToken = setupTokenFromLog(log.value);
     if (mintedToken !== null) {
       flow.phase = "completing";
-      const result = await this.completeModelProviderApiKeyConnect({
-        op: {
-          opId: flow.flowId,
-          orgId: flow.orgId,
-          providerId: flow.providerId,
-          authChoiceId: flow.authChoiceId,
-          startedAt: this.now(),
-          expiresAt: flow.expiresAt,
-          timeout: flow.timeout,
-        },
-        apiKey: mintedToken,
-        authChoice: {
-          id: "setup-token",
-          label: "Anthropic setup-token",
-          mode: "api-key",
-          providerId: flow.providerId,
-          keyFlag: "token",
-        },
-        authChoices: [
-          { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
-        ],
-      });
-      flow.outcome = result.ok
-        ? { status: "connected", connection: result.value }
-        : {
-            status: "failed",
-            message: redactedDomainError(result.error).message,
-            code: redactedDomainError(result.error).code,
-          };
-      const outcome = flow.outcome;
-      await this.cleanupSetupTokenFlow(flow);
-      return ok(outcome);
+      flow.completionInFlight = true;
+      void this.runSetupTokenCompletion(flow, mintedToken);
+      return ok({ status: "pending" });
     }
 
     if (setupTokenTerminalFailure(log.value)) {
@@ -3206,6 +3183,46 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }): Promise<void> {
     const result = await this.completeModelProviderApiKeyConnect(input);
     const current = this.modelApiKeyConnects.get(input.op.opId);
+    if (current === undefined || current.outcome !== undefined) {
+      return;
+    }
+
+    current.outcome = result.ok
+      ? { status: "connected", connection: result.value }
+      : {
+          status: "failed",
+          message: redactedDomainError(result.error).message,
+          code: redactedDomainError(result.error).code,
+        };
+  }
+
+  private async runSetupTokenCompletion(
+    flow: PendingModelProviderSetupTokenFlow,
+    mintedToken: string,
+  ): Promise<void> {
+    const result = await this.completeModelProviderApiKeyConnect({
+      op: {
+        opId: flow.flowId,
+        orgId: flow.orgId,
+        providerId: flow.providerId,
+        authChoiceId: flow.authChoiceId,
+        startedAt: this.now(),
+        expiresAt: flow.expiresAt,
+        timeout: flow.timeout,
+      },
+      apiKey: mintedToken,
+      authChoice: {
+        id: "setup-token",
+        label: "Anthropic setup-token",
+        mode: "api-key",
+        providerId: flow.providerId,
+        keyFlag: "token",
+      },
+      authChoices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+    });
+    const current = this.modelSetupTokenFlows.get(flow.flowId);
     if (current === undefined || current.outcome !== undefined) {
       return;
     }
