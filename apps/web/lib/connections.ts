@@ -158,6 +158,7 @@ function unavailableSnapshot(input: {
     orchestrator: {
       orchestratorAgentId: "ask-admin-opzava",
       orchestratorModel: "openai/gpt-5.5",
+      orchestratorProviderId: null,
       delegationMode: "prefer",
       allowAgents: [],
       subagents: [],
@@ -215,6 +216,10 @@ class UnavailableConnectionsProvisioningPort implements ConnectionsProvisioningP
   }
 
   public async applyOrchestratorDelegation(): Promise<Result<OrchestratorDelegationState>> {
+    return err(this.error());
+  }
+
+  public async setMainOrchestrator(): Promise<Result<OrchestratorDelegationState>> {
     return err(this.error());
   }
 
@@ -327,6 +332,15 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
   }): Promise<Result<OrchestratorDelegationState>> {
     return this.request<OrchestratorDelegationState>(
       "/internal/connections/orchestrator/apply",
+      input,
+    );
+  }
+
+  public async setMainOrchestrator(
+    input: ConnectionProvisioningPrincipal & { readonly providerId: string },
+  ): Promise<Result<OrchestratorDelegationState>> {
+    return this.request<OrchestratorDelegationState>(
+      "/internal/connections/orchestrator/set-main",
       input,
     );
   }
@@ -625,6 +639,22 @@ export async function applyOrchestratorRolesForContext(
   return dependencies.provisioningPort.applyOrchestratorDelegation({
     ...principalFromContext(context),
     connectedProviderIds: connectedProviderIds(snapshot.value),
+  });
+}
+
+export async function setMainOrchestratorForContext(
+  context: AppSessionContext,
+  providerId: string,
+  dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
+): Promise<Result<OrchestratorDelegationState>> {
+  const allowed = requireConnectionMutationRole(context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
+  return dependencies.provisioningPort.setMainOrchestrator({
+    ...principalFromContext(context),
+    providerId,
   });
 }
 

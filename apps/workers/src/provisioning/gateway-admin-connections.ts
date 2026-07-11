@@ -32,6 +32,7 @@ import {
   type ResolveSecretInput,
   type SecretReference,
   type SecretsVaultPort,
+  type SetMainOrchestratorInput,
   type StartGitHubDeviceFlowInput,
   type StartModelProviderDeviceFlowInput,
   type StartModelProviderSetupTokenFlowInput,
@@ -554,6 +555,11 @@ function modelSelectorPrimary(value: unknown): string | null {
   return record === null ? null : stringValue(record["primary"]);
 }
 
+function gatewayPrimaryModel(config: Record<string, unknown>): string | null {
+  const defaults = recordValue(recordValue(config["agents"])?.["defaults"]);
+  return modelSelectorPrimary(defaults?.["model"]);
+}
+
 function providerModelRef(providerId: string, modelId: string): string {
   return modelId.includes("/") ? modelId : `${providerId}/${modelId}`;
 }
@@ -655,8 +661,7 @@ function configuredModelForProvider(input: {
     return providerModelRef(input.providerId, configured[0].id);
   }
 
-  const defaults = recordValue(recordValue(input.config["agents"])?.["defaults"]);
-  const primary = modelSelectorPrimary(defaults?.["model"]);
+  const primary = gatewayPrimaryModel(input.config);
   if (primary !== null && modelRefMatchesProvider(primary, input.providerId)) {
     return primary;
   }
@@ -901,6 +906,7 @@ function currentOrchestratorState(input: {
   readonly catalog: readonly ModelProviderCatalogEntry[];
   readonly now: Date;
 }): OrchestratorDelegationState {
+  const primaryModel = gatewayPrimaryModel(input.config);
   const askAdmin = agentsList(input.config).find(
     (agent) => stringValue(agent["id"]) === ASK_ADMIN_AGENT_ID,
   );
@@ -929,7 +935,8 @@ function currentOrchestratorState(input: {
 
   return {
     orchestratorAgentId: ASK_ADMIN_AGENT_ID,
-    orchestratorModel: stringValue(askAdmin?.["model"]) ?? ASK_ADMIN_AGENT_MODEL,
+    orchestratorModel: primaryModel ?? ASK_ADMIN_AGENT_MODEL,
+    orchestratorProviderId: primaryModel === null ? null : modelProviderId(primaryModel),
     delegationMode: "prefer",
     allowAgents,
     subagents,
@@ -938,6 +945,54 @@ function currentOrchestratorState(input: {
       receiptId: askAdmin === undefined ? null : "openclaw-config",
     },
     updatedAt: askAdmin === undefined ? null : input.now.toISOString(),
+  };
+}
+
+function connectedProviderSubagents(input: {
+  readonly catalog: readonly ModelProviderCatalogEntry[];
+  readonly providerConnections: readonly ProviderConnectionState[];
+  readonly connectedProviderIds: ReadonlySet<string>;
+  readonly orchestratorProviderId: string | null;
+}): readonly OrchestratorSubagentRole[] {
+  return input.providerConnections
+    .filter(
+      (connection) =>
+        connection.status === "connected" &&
+        input.connectedProviderIds.has(connection.providerId) &&
+        connection.providerId !== input.orchestratorProviderId,
+    )
+    .map((connection): OrchestratorSubagentRole => {
+      const provider = input.catalog.find((entry) => entry.id === connection.providerId);
+      return {
+        agentId: `subagent-${connection.providerId}`,
+        providerId: connection.providerId,
+        providerLabel: provider?.label ?? connection.providerId,
+        model: connection.model ?? provider?.suggestedModel ?? connection.providerId,
+        strength: provider?.roleStrength ?? "Connected provider",
+        whenToUse: provider?.whenToUse ?? "Use when this connected model is appropriate.",
+      };
+    });
+}
+
+function orchestratorDelegationState(input: {
+  readonly orchestratorModel: string;
+  readonly orchestratorProviderId: string | null;
+  readonly subagents: readonly OrchestratorSubagentRole[];
+  readonly now: Date;
+}): OrchestratorDelegationState {
+  const receipt = buildDelegationProvisioningReceipt({ subagents: input.subagents });
+  return {
+    orchestratorAgentId: ASK_ADMIN_AGENT_ID,
+    orchestratorModel: input.orchestratorModel,
+    orchestratorProviderId: input.orchestratorProviderId,
+    delegationMode: "prefer",
+    allowAgents: input.subagents.map((subagent) => subagent.agentId),
+    subagents: input.subagents,
+    toolPolicyExpansion: {
+      allow: ["sessions_spawn", "subagents", "group:sessions"],
+      receiptId: receiptId(receipt),
+    },
+    updatedAt: input.now.toISOString(),
   };
 }
 
@@ -972,6 +1027,7 @@ function unavailableSnapshot(input: {
     orchestrator: {
       orchestratorAgentId: ASK_ADMIN_AGENT_ID,
       orchestratorModel: ASK_ADMIN_AGENT_MODEL,
+      orchestratorProviderId: null,
       delegationMode: "prefer",
       allowAgents: [],
       subagents: [],
@@ -3765,31 +3821,20 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     const providerConnections = catalog.map((provider) =>
       providerConnectionFromConfig({ provider, config, now: this.now() }),
     );
+    const primaryModel = gatewayPrimaryModel(config);
+    const orchestratorModel = primaryModel ?? ASK_ADMIN_AGENT_MODEL;
+    const orchestratorProviderId = primaryModel === null ? null : modelProviderId(primaryModel);
     const connectedProviders = new Set(input.connectedProviderIds);
-    const subagents = providerConnections
-      .filter(
-        (connection) =>
-          connection.providerId !== "openai" &&
-          connection.status === "connected" &&
-          connectedProviders.has(connection.providerId),
-      )
-      .map((connection): OrchestratorSubagentRole => {
-        const provider = catalog.find((entry) => entry.id === connection.providerId);
-        return {
-          agentId: `subagent-${connection.providerId}`,
-          providerId: connection.providerId,
-          providerLabel: provider?.label ?? connection.providerId,
-          model: connection.model ?? provider?.suggestedModel ?? connection.providerId,
-          strength: provider?.roleStrength ?? "Connected provider",
-          whenToUse: provider?.whenToUse ?? "Use when this connected model is appropriate.",
-        };
-      });
-    const orchestrator = catalog.find((entry) => entry.id === "openai");
+    const subagents = connectedProviderSubagents({
+      catalog,
+      providerConnections,
+      connectedProviderIds: connectedProviders,
+      orchestratorProviderId,
+    });
     const agentConfig = buildOrchestratorAgentConfig({
       subagents,
-      orchestratorModel: orchestrator?.suggestedModel ?? ASK_ADMIN_AGENT_MODEL,
+      orchestratorModel,
     });
-    const receipt = buildDelegationProvisioningReceipt({ subagents });
     const existingAgents = agentsList(config).filter((agent) => {
       const id = stringValue(agent["id"]);
       return id !== ASK_ADMIN_AGENT_ID && id?.startsWith("subagent-") !== true;
@@ -3813,18 +3858,114 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(result.error);
     }
 
-    return ok({
-      orchestratorAgentId: ASK_ADMIN_AGENT_ID,
-      orchestratorModel: orchestrator?.suggestedModel ?? ASK_ADMIN_AGENT_MODEL,
-      delegationMode: "prefer",
-      allowAgents: subagents.map((subagent) => subagent.agentId),
-      subagents,
-      toolPolicyExpansion: {
-        allow: ["sessions_spawn", "subagents", "group:sessions"],
-        receiptId: receiptId(receipt),
-      },
-      updatedAt: this.now().toISOString(),
+    return ok(
+      orchestratorDelegationState({
+        orchestratorModel,
+        orchestratorProviderId,
+        subagents,
+        now: this.now(),
+      }),
+    );
+  }
+
+  public async setMainOrchestrator(
+    input: SetMainOrchestratorInput,
+  ): Promise<Result<OrchestratorDelegationState>> {
+    const configResult = await this.options.adminClient.request("config.get", {});
+    if (!configResult.ok) {
+      return err(configResult.error);
+    }
+
+    const modelsResult = await this.options.adminClient.request("models.list", { view: "all" });
+    const config = configPayload(configResult.value);
+    const catalog = providerCatalogFromModels(modelsResult.ok ? modelsResult.value : {}, config);
+    const providerConnections = catalog.map((provider) =>
+      providerConnectionFromConfig({ provider, config, now: this.now() }),
+    );
+    const connection = providerConnections.find(
+      (entry) => entry.providerId === input.providerId,
+    );
+    if (connection?.status !== "connected") {
+      return err(
+        provisioningError(
+          "provisioning.connections.orchestratorProviderNotConnected",
+          "The selected main orchestrator provider is not connected.",
+          { providerId: input.providerId },
+        ),
+      );
+    }
+
+    const provider = catalog.find((entry) => entry.id === input.providerId);
+    const configuredModel = configuredModelForProvider({
+      providerId: input.providerId,
+      config,
+      models: provider?.models,
     });
+    const orchestratorModel =
+      configuredModel === null
+        ? provider?.suggestedModel === undefined
+          ? null
+          : providerModelRef(input.providerId, provider.suggestedModel)
+        : providerModelRef(input.providerId, configuredModel);
+    if (orchestratorModel === null) {
+      return err(
+        provisioningError(
+          "provisioning.connections.orchestratorModelUnavailable",
+          "The selected main orchestrator provider has no routable model.",
+          { providerId: input.providerId },
+        ),
+      );
+    }
+
+    const connectedProviders = new Set(
+      providerConnections
+        .filter((entry) => entry.status === "connected")
+        .map((entry) => entry.providerId),
+    );
+    const subagents = connectedProviderSubagents({
+      catalog,
+      providerConnections,
+      connectedProviderIds: connectedProviders,
+      orchestratorProviderId: input.providerId,
+    });
+    const agentConfig = buildOrchestratorAgentConfig({ subagents, orchestratorModel });
+    const existingAgents = agentsList(config).filter((agent) => {
+      const id = stringValue(agent["id"]);
+      return id !== ASK_ADMIN_AGENT_ID && id?.startsWith("subagent-") !== true;
+    });
+    const patchParams = configPatchParams({
+      configGetPayload: configResult.value,
+      patch: {
+        agents: {
+          defaults: {
+            model: {
+              primary: orchestratorModel,
+            },
+          },
+          list: [...existingAgents, ...agentConfig.agents.list],
+        },
+      },
+      replacePaths: ["agents.list"],
+    });
+    if (!patchParams.ok) {
+      return err(patchParams.error);
+    }
+
+    const result = await this.options.adminClient.request("config.patch", patchParams.value, {
+      requiredScope: "operator.admin",
+    });
+    if (!result.ok) {
+      return err(result.error);
+    }
+
+    return ok(
+      orchestratorDelegationState({
+        orchestratorModel,
+        orchestratorProviderId: input.providerId,
+        subagents,
+        now: this.now(),
+      }),
+    );
   }
 
   public async startGitHubDeviceFlow(
@@ -4338,6 +4479,10 @@ export class UnavailableConnectionsProvisioningPort implements ConnectionsProvis
 
   public async applyOrchestratorDelegation(): Promise<Result<OrchestratorDelegationState>> {
     return err(this.error());
+  }
+
+  public async setMainOrchestrator(): Promise<Result<OrchestratorDelegationState>> {
+    return err(gatewayRuntimeUnavailableError());
   }
 
   public async startGitHubDeviceFlow(): Promise<Result<DeviceFlowChallenge>> {

@@ -140,6 +140,7 @@ export interface OrchestratorSubagentRole {
 export interface OrchestratorDelegationState {
   readonly orchestratorAgentId: string;
   readonly orchestratorModel: string;
+  readonly orchestratorProviderId: string | null;
   readonly delegationMode: "prefer";
   readonly allowAgents: readonly string[];
   readonly subagents: readonly OrchestratorSubagentRole[];
@@ -228,6 +229,10 @@ export interface ApplyOrchestratorDelegationInput extends ConnectionProvisioning
   readonly connectedProviderIds: readonly string[];
 }
 
+export interface SetMainOrchestratorInput extends ConnectionProvisioningPrincipal {
+  readonly providerId: string;
+}
+
 export type StartGitHubDeviceFlowInput = ConnectionProvisioningPrincipal;
 export type DisconnectGitHubInput = ConnectionProvisioningPrincipal;
 
@@ -259,6 +264,9 @@ export interface ConnectionsProvisioningPort {
   ): Promise<Result<ProviderConnectionState>>;
   applyOrchestratorDelegation(
     input: ApplyOrchestratorDelegationInput,
+  ): Promise<Result<OrchestratorDelegationState>>;
+  setMainOrchestrator(
+    input: SetMainOrchestratorInput,
   ): Promise<Result<OrchestratorDelegationState>>;
   startGitHubDeviceFlow(input: StartGitHubDeviceFlowInput): Promise<Result<DeviceFlowChallenge>>;
   disconnectGitHub(input: DisconnectGitHubInput): Promise<Result<GitHubConnectionState>>;

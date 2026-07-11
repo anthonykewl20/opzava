@@ -375,6 +375,30 @@ async function handleConnectionsRequest(
     return;
   }
 
+  if (route === "/internal/connections/orchestrator/set-main") {
+    if (!isRecord(body)) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const providerId = stringValue(body["providerId"]);
+    if (providerId === null) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const result = await options.provisioningPort.setMainOrchestrator({
+      ...principal,
+      providerId,
+    });
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
+    return;
+  }
+
   if (route === "/internal/connections/github/device-flow") {
     const result = await options.provisioningPort.startGitHubDeviceFlow(principal);
     writeJson(

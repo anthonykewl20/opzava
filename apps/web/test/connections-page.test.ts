@@ -27,7 +27,6 @@ import {
   deviceFlowPollSchedule,
   deviceFlowReducer,
   groupProviderConnectionsByTier,
-  isLeadOrchestratorModel,
   isTerminalDeviceFlowStatus,
   providerConnectionSummary,
   projectModelProviders,
@@ -340,6 +339,7 @@ function snapshot(overrides: Partial<ConnectionsSnapshot> = {}): ConnectionsSnap
     orchestrator: {
       orchestratorAgentId: "ask-admin-opzava",
       orchestratorModel: "openai/gpt-5.5",
+      orchestratorProviderId: "openai",
       delegationMode: "prefer",
       allowAgents: ["subagent-zai"],
       subagents: [
@@ -391,12 +391,27 @@ function fakePort(): ConnectionsProvisioningPort {
       ok({
         orchestratorAgentId: "ask-admin-opzava",
         orchestratorModel: "openai/gpt-5.5",
+        orchestratorProviderId: "openai",
         delegationMode: "prefer",
         allowAgents: input.connectedProviderIds.map((providerId) => `subagent-${providerId}`),
         subagents: [],
         toolPolicyExpansion: {
           allow: ["sessions_spawn", "subagents", "group:sessions"],
           receiptId: "receipt-2",
+        },
+        updatedAt: "2026-07-03T00:00:00.000Z",
+      } satisfies OrchestratorDelegationState),
+    setMainOrchestrator: async (input) =>
+      ok({
+        orchestratorAgentId: "ask-admin-opzava",
+        orchestratorModel: `${input.providerId}/default`,
+        orchestratorProviderId: input.providerId,
+        delegationMode: "prefer",
+        allowAgents: [],
+        subagents: [],
+        toolPolicyExpansion: {
+          allow: ["sessions_spawn", "subagents", "group:sessions"],
+          receiptId: "receipt-3",
         },
         updatedAt: "2026-07-03T00:00:00.000Z",
       } satisfies OrchestratorDelegationState),
@@ -448,9 +463,14 @@ describe("Connections page state", () => {
     );
   });
 
-  it("derives host role labels from orchestrator model ids", () => {
+  it("marks exactly one provider as the lead orchestrator from the snapshot provider id", () => {
     const views = projectModelProviders(
       snapshot({
+        orchestrator: {
+          ...snapshot().orchestrator,
+          orchestratorModel: "anthropic/claude-opus-4-8",
+          orchestratorProviderId: "anthropic",
+        },
         providerConnections: [
           providerState(),
           providerState({
@@ -471,9 +491,8 @@ describe("Connections page state", () => {
       }),
     );
 
-    expect(isLeadOrchestratorModel("openai/gpt-5.5")).toBe(true);
-    expect(isLeadOrchestratorModel("anthropic/claude-opus-4.8")).toBe(true);
-    expect(views.find((view) => view.id === "openai")?.roleLabel).toBe("Lead orchestrator");
+    expect(views.filter((view) => view.roleLabel === "Lead orchestrator")).toHaveLength(1);
+    expect(views.find((view) => view.id === "openai")?.roleLabel).toBe("Subagent");
     expect(views.find((view) => view.id === "anthropic")?.roleLabel).toBe("Lead orchestrator");
     expect(views.find((view) => view.id === "zai")?.roleLabel).toBe("Subagent");
   });
@@ -884,7 +903,7 @@ describe("Connections page state", () => {
     expect(providersPanel).toContain("@/components/ui/table");
     expect(providersPanel).toContain("@/components/ui/tabs");
     expect(providersPanel).toContain("@/components/ui/card");
-    expect(providersPanel).toContain("<TableHead>Models</TableHead>");
+    expect(providersPanel).toContain(">Models</TableHead>");
     expect(providersPanel).not.toContain("table table-compact table-cards");
     expect(providersPanel).toContain("LLM model providers the gateway can route to");
     expect(providersPanel).not.toContain("connections-provider-list");
