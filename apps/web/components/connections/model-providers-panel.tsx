@@ -1085,14 +1085,34 @@ export function ModelProvidersPanel({
             ) : (
               <Tabs defaultValue={defaultTier} className="gap-4">
                 <TabsList className="flex-wrap">
-                  {tiers.map((tier) => (
-                    <TabsTrigger key={tier.id} value={tier.id} className="gap-1.5">
-                      {tier.label}
-                      <Badge variant="muted" className="h-5 px-1.5">
-                        {tier.providers.length}
-                      </Badge>
-                    </TabsTrigger>
-                  ))}
+                  {tiers.map((tier) => {
+                    const connected = tier.providers.filter(
+                      (candidate) => candidate.status === "connected",
+                    ).length;
+                    const total = tier.providers.length;
+                    return (
+                      <TabsTrigger key={tier.id} value={tier.id} className="gap-1.5">
+                        {tier.label}
+                        {connected > 0 ? (
+                          <Badge
+                            variant="success"
+                            className="h-5 px-1.5"
+                            aria-label={`${connected} of ${total} connected`}
+                          >
+                            {connected}/{total}
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="muted"
+                            className="h-5 px-1.5"
+                            aria-label={`${total} providers, none connected`}
+                          >
+                            {total}
+                          </Badge>
+                        )}
+                      </TabsTrigger>
+                    );
+                  })}
                 </TabsList>
                 {tiers.map((tier) => (
                   <TabsContent key={tier.id} value={tier.id} data-provider-tier={tier.id}>
