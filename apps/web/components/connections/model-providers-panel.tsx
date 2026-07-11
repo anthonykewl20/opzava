@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type {
@@ -1088,6 +1088,37 @@ function ProviderConnectedActions({
   const [manageOpen, setManageOpen] = useState(false);
   const [setMainOpen, setSetMainOpen] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const restoreRowActionTriggerFocus = useCallback(() => {
+    window.setTimeout(() => triggerRef.current?.focus(), 0);
+  }, []);
+  const handleManageOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setManageOpen(nextOpen);
+      if (!nextOpen) {
+        restoreRowActionTriggerFocus();
+      }
+    },
+    [restoreRowActionTriggerFocus],
+  );
+  const handleSetMainOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setSetMainOpen(nextOpen);
+      if (!nextOpen) {
+        restoreRowActionTriggerFocus();
+      }
+    },
+    [restoreRowActionTriggerFocus],
+  );
+  const handleDisconnectOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setDisconnectOpen(nextOpen);
+      if (!nextOpen) {
+        restoreRowActionTriggerFocus();
+      }
+    },
+    [restoreRowActionTriggerFocus],
+  );
   const openDialogFromMenu = useCallback((event: Event, openDialog: () => void) => {
     event.preventDefault();
     openDialog();
@@ -1101,6 +1132,7 @@ function ProviderConnectedActions({
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <Button
+              ref={triggerRef}
               type="button"
               variant="ghost"
               size="icon"
@@ -1138,21 +1170,21 @@ function ProviderConnectedActions({
       <ProviderConnectDialog
         provider={provider}
         open={manageOpen}
-        onOpenChange={setManageOpen}
+        onOpenChange={handleManageOpenChange}
         trigger={null}
       />
       {canSetMainOrchestrator ? (
         <SetMainOrchestratorConfirm
           provider={provider}
           open={setMainOpen}
-          onOpenChange={setSetMainOpen}
+          onOpenChange={handleSetMainOpenChange}
           trigger={null}
         />
       ) : null}
       <DisconnectConfirm
         provider={provider}
         open={disconnectOpen}
-        onOpenChange={setDisconnectOpen}
+        onOpenChange={handleDisconnectOpenChange}
         trigger={null}
       />
     </>
