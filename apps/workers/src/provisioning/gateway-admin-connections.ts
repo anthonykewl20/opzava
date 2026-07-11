@@ -3232,7 +3232,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       await this.cleanupSetupTokenFlow(flow);
       return ok({
         status: "failed",
-        message: "Claude did not accept the authorization code. Copy a fresh code from Claude and retry.",
+        message:
+          "Claude did not accept the authorization code. Copy a fresh code from Claude and retry.",
         code: "provisioning.connections.setupTokenLoginFailed",
       });
     }
@@ -3946,9 +3947,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         now: this.now(),
       }),
     );
-    const connection = providerConnections.find(
-      (entry) => entry.providerId === input.providerId,
-    );
+    const connection = providerConnections.find((entry) => entry.providerId === input.providerId);
     if (connection?.status !== "connected") {
       return err(
         provisioningError(

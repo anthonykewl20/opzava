@@ -25,7 +25,9 @@ const emptySummary: ConnectionsPageData["providerSummary"] = {
   notConnected: 0,
 };
 
-function provider(overrides: Partial<ProviderRow> & Pick<ProviderRow, "id" | "label">): ProviderRow {
+function provider(
+  overrides: Partial<ProviderRow> & Pick<ProviderRow, "id" | "label">,
+): ProviderRow {
   return {
     connectionProviderId: overrides.id,
     vendor: overrides.label,
@@ -111,7 +113,9 @@ describe("Connections components", () => {
     expect(html).toContain("LEAD ORCHESTRATOR");
     expect(html).toContain("SUBAGENT");
     expect(html).toContain("Needs attention");
-    expect(html).toContain("Credential expired. Fix: reconnect the account or rotate the credential.");
+    expect(html).toContain(
+      "Credential expired. Fix: reconnect the account or rotate the credential.",
+    );
     expect(html).toContain("Available to connect.");
   });
 

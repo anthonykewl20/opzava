@@ -13,7 +13,10 @@ interface SetMainOrchestratorBody {
 export async function POST(request: Request): Promise<NextResponse> {
   const context = await getAppSessionContext();
   if (context === null) {
-    return NextResponse.json({ message: "Unauthorized", code: "web.unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { message: "Unauthorized", code: "web.unauthorized" },
+      { status: 401 },
+    );
   }
 
   const body = (await request.json().catch(() => null)) as SetMainOrchestratorBody | null;
