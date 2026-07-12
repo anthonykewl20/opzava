@@ -14,13 +14,26 @@ import {
   uuid
 } from "drizzle-orm/pg-core";
 
-import { taskPriorities, taskStatuses } from "../../../domain/task.js";
+import {
+  taskChangeTypes,
+  taskCiStates,
+  taskLanes,
+  taskMergeStates,
+  taskPriorities,
+  taskReviewStates,
+  taskStatuses
+} from "../../../domain/task.js";
 
 export const appRole = pgRole("opzava_app").existing();
 export const ownerRole = pgRole("opzava_owner").existing();
 
 export const taskStatus = pgEnum("task_status", taskStatuses);
+export const taskLane = pgEnum("task_lane", taskLanes);
 export const taskPriority = pgEnum("task_priority", taskPriorities);
+export const taskChangeType = pgEnum("task_change_type", taskChangeTypes);
+export const taskReviewState = pgEnum("task_review_state", taskReviewStates);
+export const taskMergeState = pgEnum("task_merge_state", taskMergeStates);
+export const taskCiState = pgEnum("task_ci_state", taskCiStates);
 export const taskCommentAuthorKind = pgEnum("task_comment_author_kind", [
   "human",
   "assistant"
@@ -36,8 +49,28 @@ export const tasks = pgTable(
     title: text("title").notNull(),
     description: text("description").notNull().default(""),
     status: taskStatus("status").notNull().default("todo"),
+    lane: taskLane("lane").notNull().default("todo"),
+    blocked: boolean("blocked").notNull().default(false),
+    blockedReason: text("blocked_reason"),
     priority: taskPriority("priority").notNull().default("normal"),
     assigneeUserId: text("assignee_user_id"),
+    overview: text("overview"),
+    assignedAgentIdentityId: uuid("assigned_agent_identity_id"),
+    primaryIssueRef: text("primary_issue_ref"),
+    primaryPrRef: text("primary_pr_ref"),
+    branchName: text("branch_name"),
+    changeType: taskChangeType("change_type"),
+    reviewState: taskReviewState("review_state").notNull().default("not_requested"),
+    reviewRequestedAt: timestamp("review_requested_at", { withTimezone: true }),
+    reviewRequestedByAgentIdentityId: uuid("review_requested_by_agent_identity_id"),
+    reviewPassedAt: timestamp("review_passed_at", { withTimezone: true }),
+    reviewPassedByOrchestratorIdentityId: uuid(
+      "review_passed_by_orchestrator_identity_id"
+    ),
+    doneRequestedAt: timestamp("done_requested_at", { withTimezone: true }),
+    doneByUserId: text("done_by_user_id"),
+    mergeState: taskMergeState("merge_state").notNull().default("none"),
+    ciState: taskCiState("ci_state").notNull().default("unknown"),
     labels: text("labels").array().notNull().default(sql`'{}'::text[]`),
     position: integer("position").notNull().default(0),
     dueAt: timestamp("due_at", { withTimezone: true }),
@@ -65,6 +98,12 @@ export const tasks = pgTable(
       table.organizationId,
       table.workspaceId,
       table.status,
+      table.position
+    ),
+    index("tasks_org_ws_lane_position_idx").on(
+      table.organizationId,
+      table.workspaceId,
+      table.lane,
       table.position
     ),
     pgPolicy("tasks_tenant_isolation", {

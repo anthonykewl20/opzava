@@ -236,6 +236,8 @@ describe("slice 1e tasks", () => {
 
     expect(created.value.title).toBe("Write the first admin tasks slice");
     expect(created.value.status).toBe("todo");
+    expect(created.value.lane).toBe("todo");
+    expect(created.value.blocked).toBe(false);
     expect(created.value.priority).toBe("high");
     expect(created.value.labels).toEqual(["slice 1e", "tasks"]);
 
@@ -272,6 +274,8 @@ describe("slice 1e tasks", () => {
       throw moved.error;
     }
     expect(moved.value.status).toBe("done");
+    expect(moved.value.lane).toBe("done");
+    expect(moved.value.blocked).toBe(false);
 
     const loaded = await getTask({
       orgId: tenant.organizationId,
@@ -287,6 +291,42 @@ describe("slice 1e tasks", () => {
       actor: actor(tenant.userId),
     });
     expect(listed).toMatchObject({ ok: true, value: [{ title: "Ship the admin Tasks board" }] });
+  });
+
+  it("maps a legacy blocked status fixture to a blocked flag and non-blocked lane", async () => {
+    const tenant = await adminCreateTenant("legacy-blocked");
+    const taskId = randomUUID();
+
+    await adminPool.query(
+      `insert into public.tasks (
+        id,
+        organization_id,
+        workspace_id,
+        card_number,
+        title,
+        description,
+        status,
+        lane,
+        blocked,
+        priority,
+        labels,
+        position
+      )
+      values ($1, $2, $3, 99, 'Legacy blocked task', '', 'blocked', 'in_progress', true, 'normal', '{}'::text[], 1)`,
+      [taskId, tenant.organizationId, tenant.workspaceId],
+    );
+
+    const loaded = await getTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId,
+    });
+
+    expect(loaded).toMatchObject({
+      ok: true,
+      value: { status: "blocked", lane: "in_progress", blocked: true },
+    });
   });
 
   it("allocates human-readable card numbers per workspace without consuming replays", async () => {

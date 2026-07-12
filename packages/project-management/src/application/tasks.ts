@@ -22,9 +22,17 @@ import {
   normalizeTaskDescription,
   normalizeTaskLabels,
   normalizeTaskTitle,
+  laneFromLegacyStatus,
+  legacyStatusFromLane,
+  parseTaskLane,
   parseTaskPriority,
   parseTaskStatus,
+  type TaskChangeType,
+  type TaskCiState,
+  type TaskLane,
+  type TaskMergeState,
   type TaskPriority,
+  type TaskReviewState,
   type TaskStatus,
 } from "../domain/task.js";
 
@@ -46,10 +54,28 @@ export interface TaskDto {
   readonly cardNumber: number;
   readonly title: string;
   readonly description: string;
+  readonly lane?: TaskLane;
+  readonly blocked?: boolean;
+  readonly blockedReason?: string | null;
   readonly status: TaskStatus;
   readonly priority: TaskPriority;
   readonly assigneeUserId: string | null;
   readonly assigneeName: string | null;
+  readonly overview?: string | null;
+  readonly assignedAgentIdentityId?: string | null;
+  readonly primaryIssueRef?: string | null;
+  readonly primaryPrRef?: string | null;
+  readonly branchName?: string | null;
+  readonly changeType?: TaskChangeType | null;
+  readonly reviewState?: TaskReviewState | null;
+  readonly reviewRequestedAt?: string | null;
+  readonly reviewRequestedByAgentIdentityId?: string | null;
+  readonly reviewPassedAt?: string | null;
+  readonly reviewPassedByOrchestratorIdentityId?: string | null;
+  readonly doneRequestedAt?: string | null;
+  readonly doneByUserId?: string | null;
+  readonly mergeState?: TaskMergeState | null;
+  readonly ciState?: TaskCiState | null;
   readonly labels: readonly string[];
   readonly position: number;
   readonly dueAt: string | null;
@@ -421,11 +447,11 @@ function stringArray(value: unknown): readonly string[] {
 }
 
 function rowToTaskDto(row: QueryRow): TaskDto {
-  const status = parseTaskStatus(row["status"]);
+  const lane = parseTaskLane(row["lane"]);
   const priority = parseTaskPriority(row["priority"]);
 
-  if (!status.ok) {
-    throw status.error;
+  if (!lane.ok) {
+    throw lane.error;
   }
 
   if (!priority.ok) {
@@ -433,6 +459,7 @@ function rowToTaskDto(row: QueryRow): TaskDto {
   }
 
   const labels = row["labels"];
+  const blocked = row["blocked"] === true;
 
   return {
     id: String(row["id"]),
@@ -441,10 +468,30 @@ function rowToTaskDto(row: QueryRow): TaskDto {
     cardNumber: Number(row["card_number"]),
     title: String(row["title"]),
     description: String(row["description"] ?? ""),
-    status: status.value,
+    lane: lane.value,
+    blocked,
+    blockedReason: stringOrNull(row["blocked_reason"]),
+    status: legacyStatusFromLane(lane.value, blocked),
     priority: priority.value,
     assigneeUserId: stringOrNull(row["assignee_user_id"]),
     assigneeName: stringOrNull(row["assignee_name"]),
+    overview: stringOrNull(row["overview"]),
+    assignedAgentIdentityId: stringOrNull(row["assigned_agent_identity_id"]),
+    primaryIssueRef: stringOrNull(row["primary_issue_ref"]),
+    primaryPrRef: stringOrNull(row["primary_pr_ref"]),
+    branchName: stringOrNull(row["branch_name"]),
+    changeType: stringOrNull(row["change_type"]) as TaskChangeType | null,
+    reviewState: String(row["review_state"] ?? "not_requested") as TaskReviewState,
+    reviewRequestedAt: parseNullableDate(row["review_requested_at"]),
+    reviewRequestedByAgentIdentityId: stringOrNull(row["review_requested_by_agent_identity_id"]),
+    reviewPassedAt: parseNullableDate(row["review_passed_at"]),
+    reviewPassedByOrchestratorIdentityId: stringOrNull(
+      row["review_passed_by_orchestrator_identity_id"],
+    ),
+    doneRequestedAt: parseNullableDate(row["done_requested_at"]),
+    doneByUserId: stringOrNull(row["done_by_user_id"]),
+    mergeState: String(row["merge_state"] ?? "none") as TaskMergeState,
+    ciState: String(row["ci_state"] ?? "unknown") as TaskCiState,
     labels: stringArray(labels),
     position: Number(row["position"]),
     dueAt: parseNullableDate(row["due_at"]),
@@ -1046,9 +1093,27 @@ async function selectTaskRows(
       t.title,
       t.description,
       t.status,
+      t.lane,
+      t.blocked,
+      t.blocked_reason,
       t.priority,
       t.assignee_user_id,
       u.name as assignee_name,
+      t.overview,
+      t.assigned_agent_identity_id,
+      t.primary_issue_ref,
+      t.primary_pr_ref,
+      t.branch_name,
+      t.change_type,
+      t.review_state,
+      t.review_requested_at,
+      t.review_requested_by_agent_identity_id,
+      t.review_passed_at,
+      t.review_passed_by_orchestrator_identity_id,
+      t.done_requested_at,
+      t.done_by_user_id,
+      t.merge_state,
+      t.ci_state,
       t.labels,
       t.position,
       t.card_number,
@@ -1061,10 +1126,11 @@ async function selectTaskRows(
     left join public.auth_users u on u.id = t.assignee_user_id
     where t.workspace_id = ${workspaceId}
     order by
-      case t.status
+      case t.lane
+        when 'backlog' then 0
         when 'todo' then 1
         when 'in_progress' then 2
-        when 'blocked' then 3
+        when 'review' then 3
         when 'done' then 4
         else 5
       end,
@@ -1088,9 +1154,27 @@ async function selectTaskById(
       t.title,
       t.description,
       t.status,
+      t.lane,
+      t.blocked,
+      t.blocked_reason,
       t.priority,
       t.assignee_user_id,
       u.name as assignee_name,
+      t.overview,
+      t.assigned_agent_identity_id,
+      t.primary_issue_ref,
+      t.primary_pr_ref,
+      t.branch_name,
+      t.change_type,
+      t.review_state,
+      t.review_requested_at,
+      t.review_requested_by_agent_identity_id,
+      t.review_passed_at,
+      t.review_passed_by_orchestrator_identity_id,
+      t.done_requested_at,
+      t.done_by_user_id,
+      t.merge_state,
+      t.ci_state,
       t.labels,
       t.position,
       t.card_number,
@@ -1123,9 +1207,27 @@ async function selectTaskByIdempotencyKey(
       t.title,
       t.description,
       t.status,
+      t.lane,
+      t.blocked,
+      t.blocked_reason,
       t.priority,
       t.assignee_user_id,
       u.name as assignee_name,
+      t.overview,
+      t.assigned_agent_identity_id,
+      t.primary_issue_ref,
+      t.primary_pr_ref,
+      t.branch_name,
+      t.change_type,
+      t.review_state,
+      t.review_requested_at,
+      t.review_requested_by_agent_identity_id,
+      t.review_passed_at,
+      t.review_passed_by_orchestrator_identity_id,
+      t.done_requested_at,
+      t.done_by_user_id,
+      t.merge_state,
+      t.ci_state,
       t.labels,
       t.position,
       t.card_number,
@@ -1457,6 +1559,8 @@ async function createTaskOnce(
   fields: PreparedTaskFields,
   idempotencyKey: string | null,
 ): Promise<Result<TaskDto>> {
+  const lanePlacement = laneFromLegacyStatus(status);
+
   try {
     return await withTenant(input.orgId, async (tx) => {
       if (idempotencyKey !== null) {
@@ -1482,7 +1586,7 @@ async function createTaskOnce(
           select coalesce(max(position), 0) + 1 as value
           from public.tasks
           where workspace_id = ${input.workspaceId}
-            and status = ${status}::public.task_status
+            and lane = ${lanePlacement.lane}::public.task_lane
         )
         insert into public.tasks (
           organization_id,
@@ -1491,6 +1595,8 @@ async function createTaskOnce(
           title,
           description,
           status,
+          lane,
+          blocked,
           priority,
           assignee_user_id,
           labels,
@@ -1507,6 +1613,8 @@ async function createTaskOnce(
           ${fields.title},
           ${fields.description},
           ${status}::public.task_status,
+          ${lanePlacement.lane}::public.task_lane,
+          ${lanePlacement.blocked},
           ${fields.priority}::public.task_priority,
           ${fields.assigneeUserId},
           ${sql.param(fields.labels)}::text[],
@@ -1527,9 +1635,27 @@ async function createTaskOnce(
           title,
           description,
           status,
+          lane,
+          blocked,
+          blocked_reason,
           priority,
           assignee_user_id,
           null::text as assignee_name,
+          overview,
+          assigned_agent_identity_id,
+          primary_issue_ref,
+          primary_pr_ref,
+          branch_name,
+          change_type,
+          review_state,
+          review_requested_at,
+          review_requested_by_agent_identity_id,
+          review_passed_at,
+          review_passed_by_orchestrator_identity_id,
+          done_requested_at,
+          done_by_user_id,
+          merge_state,
+          ci_state,
           labels,
           position,
           due_at,
@@ -1620,9 +1746,27 @@ export async function getTask(
           t.title,
           t.description,
           t.status,
+          t.lane,
+          t.blocked,
+          t.blocked_reason,
           t.priority,
           t.assignee_user_id,
           u.name as assignee_name,
+          t.overview,
+          t.assigned_agent_identity_id,
+          t.primary_issue_ref,
+          t.primary_pr_ref,
+          t.branch_name,
+          t.change_type,
+          t.review_state,
+          t.review_requested_at,
+          t.review_requested_by_agent_identity_id,
+          t.review_passed_at,
+          t.review_passed_by_orchestrator_identity_id,
+          t.done_requested_at,
+          t.done_by_user_id,
+          t.merge_state,
+          t.ci_state,
           t.labels,
           t.position,
           t.card_number,
@@ -1711,9 +1855,27 @@ export async function updateTask(
           title,
           description,
           status,
+          lane,
+          blocked,
+          blocked_reason,
           priority,
           assignee_user_id,
           null::text as assignee_name,
+          overview,
+          assigned_agent_identity_id,
+          primary_issue_ref,
+          primary_pr_ref,
+          branch_name,
+          change_type,
+          review_state,
+          review_requested_at,
+          review_requested_by_agent_identity_id,
+          review_passed_at,
+          review_passed_by_orchestrator_identity_id,
+          done_requested_at,
+          done_by_user_id,
+          merge_state,
+          ci_state,
           labels,
           position,
           card_number,
@@ -1760,6 +1922,7 @@ export async function moveTask(
   if (!status.ok) {
     return err(status.error);
   }
+  const lanePlacement = laneFromLegacyStatus(status.value);
 
   if (!Number.isInteger(input.position) || input.position < 0) {
     return err(
@@ -1782,6 +1945,8 @@ export async function moveTask(
         update public.tasks
         set
           status = ${status.value}::public.task_status,
+          lane = ${lanePlacement.lane}::public.task_lane,
+          blocked = ${lanePlacement.blocked},
           position = ${input.position},
           updated_at = now()
         where id = ${input.taskId}
@@ -1793,9 +1958,27 @@ export async function moveTask(
           title,
           description,
           status,
+          lane,
+          blocked,
+          blocked_reason,
           priority,
           assignee_user_id,
           null::text as assignee_name,
+          overview,
+          assigned_agent_identity_id,
+          primary_issue_ref,
+          primary_pr_ref,
+          branch_name,
+          change_type,
+          review_state,
+          review_requested_at,
+          review_requested_by_agent_identity_id,
+          review_passed_at,
+          review_passed_by_orchestrator_identity_id,
+          done_requested_at,
+          done_by_user_id,
+          merge_state,
+          ci_state,
           labels,
           position,
           card_number,
@@ -2216,9 +2399,27 @@ export async function setDue(
           title,
           description,
           status,
+          lane,
+          blocked,
+          blocked_reason,
           priority,
           assignee_user_id,
           null::text as assignee_name,
+          overview,
+          assigned_agent_identity_id,
+          primary_issue_ref,
+          primary_pr_ref,
+          branch_name,
+          change_type,
+          review_state,
+          review_requested_at,
+          review_requested_by_agent_identity_id,
+          review_passed_at,
+          review_passed_by_orchestrator_identity_id,
+          done_requested_at,
+          done_by_user_id,
+          merge_state,
+          ci_state,
           labels,
           position,
           due_at,

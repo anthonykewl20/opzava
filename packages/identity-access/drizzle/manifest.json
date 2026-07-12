@@ -35,7 +35,7 @@
     },
     {
       "path": "0008_slice25_issue_outbox_hardening.sql",
-      "sha256": "3f984b22c04ef3a30f43dad91f9c29c8ccdf9a2fd754e33d09b796fa66ac94b5"
+      "sha256": "2ca71db207a94ee5462c16da13b51a3d79eb04a91e12678dae6ba216277197d7"
     },
     {
       "path": "0009_slice25_outbox_claim_token.sql",
@@ -60,6 +60,10 @@
     {
       "path": "0014_slice3_deal_stage_coherence.sql",
       "sha256": "0ffc43614b0be6aab46d3c99d5c458436115d287431c07f91a4caf34db50ef28"
+    },
+    {
+      "path": "0015_s1a_task_lane.sql",
+      "sha256": "a4ca67fb8a1b407521f86c5480f0e57733f8820799555c206bce2826382591bf"
     }
   ]
 }
