@@ -1,0 +1,50 @@
+name: CI
+
+# Minimal, cost-conscious gate for a PRIVATE repo (GitHub Actions minutes are metered).
+# Runs the fast, reliable checks on every PR into development/main and on pushes to
+# development. Heavier integration / RLS / E2E coverage stays in the SeniorQA
+# real-world-validate gate (which needs the full docker-compose stack), not here.
+on:
+  pull_request:
+    branches: [development, main]
+  push:
+    branches: [development]
+
+# One in-flight run per ref; cancel superseded runs so stacked pushes don't burn minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm version comes from package.json "packageManager" (pnpm@11.9.0).
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Separate steps (not a single `turbo run typecheck lint`) so a failure names
+      # the exact check in the CI log.
+      - name: Typecheck (all packages)
+        run: pnpm turbo run typecheck
+
+      - name: Lint (all packages)
+        run: pnpm turbo run lint
+
+      - name: Web unit tests
+        run: pnpm --filter @opzava/web test
