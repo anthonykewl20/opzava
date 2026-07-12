@@ -140,7 +140,6 @@ export interface OrchestratorSubagentRole {
 export interface OrchestratorDelegationState {
   readonly orchestratorAgentId: string;
   readonly orchestratorModel: string;
-  /** Raw connected provider id whose model backs the single main orchestrator. */
   readonly orchestratorProviderId: string | null;
   readonly delegationMode: "prefer";
   readonly allowAgents: readonly string[];
@@ -231,7 +230,6 @@ export interface ApplyOrchestratorDelegationInput extends ConnectionProvisioning
 }
 
 export interface SetMainOrchestratorInput extends ConnectionProvisioningPrincipal {
-  /** Raw connected provider id to promote to the Gateway primary model. */
   readonly providerId: string;
 }
 
@@ -267,7 +265,6 @@ export interface ConnectionsProvisioningPort {
   applyOrchestratorDelegation(
     input: ApplyOrchestratorDelegationInput,
   ): Promise<Result<OrchestratorDelegationState>>;
-  /** Promote one connected provider to the single main orchestrator and rebuild subagents. */
   setMainOrchestrator(
     input: SetMainOrchestratorInput,
   ): Promise<Result<OrchestratorDelegationState>>;

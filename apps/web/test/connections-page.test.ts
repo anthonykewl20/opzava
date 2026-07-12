@@ -997,6 +997,17 @@ describe("Connections page state", () => {
     expect(disconnectRoute).toContain("getAppSessionContext");
   });
 
+  it("restores connected row-action focus after triggerless dialogs close", async () => {
+    const providersPanel = await readRepoFile("components/connections/model-providers-panel.tsx");
+
+    expect(providersPanel).toContain("const triggerRef = useRef<HTMLButtonElement>(null);");
+    expect(providersPanel).toContain("ref={triggerRef}");
+    expect(providersPanel).toContain("triggerRef.current?.focus()");
+    expect(providersPanel).toContain("onOpenChange={handleManageOpenChange}");
+    expect(providersPanel).toContain("onOpenChange={handleSetMainOpenChange}");
+    expect(providersPanel).toContain("onOpenChange={handleDisconnectOpenChange}");
+  });
+
   it("names the production provisioning-worker env boundary", async () => {
     const connections = await readRepoFile("lib/connections.ts");
 
