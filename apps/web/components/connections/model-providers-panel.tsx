@@ -1389,6 +1389,7 @@ export function ModelProvidersPanel({
 }: ModelProvidersPanelProps) {
   const [query, setQuery] = useState("");
   const [optimisticLeadProviderId, setOptimisticLeadProviderId] = useState<string | null>(null);
+  const providersAtOptimisticSetRef = useRef<readonly ProviderRow[] | null>(null);
   const sortedProviders = useMemo(() => [...providers].sort(providerSort), [providers]);
   const filteredProviders = useMemo(
     () => filterProviders(sortedProviders, query),
@@ -1400,6 +1401,13 @@ export function ModelProvidersPanel({
   );
   const searchActive = query.trim() !== "";
   const defaultTier = tiers[0]?.id ?? "frontier";
+  const handleSetMainOrchestratorSuccess = useCallback(
+    (providerId: string) => {
+      providersAtOptimisticSetRef.current = providers;
+      setOptimisticLeadProviderId(providerId);
+    },
+    [providers],
+  );
   useEffect(() => {
     if (optimisticLeadProviderId === null) {
       return;
@@ -1407,16 +1415,12 @@ export function ModelProvidersPanel({
     const optimisticProvider = providers.find(
       (provider) => provider.id === optimisticLeadProviderId,
     );
-    const hasDifferentConfirmedLeadProvider = providers.some(
-      (provider) =>
-        provider.roleLabel === "Lead orchestrator" && provider.id !== optimisticLeadProviderId,
-    );
     if (
+      providers !== providersAtOptimisticSetRef.current ||
       optimisticProvider === undefined ||
-      optimisticProvider.status !== "connected" ||
-      optimisticProvider.roleLabel === "Lead orchestrator" ||
-      hasDifferentConfirmedLeadProvider
+      optimisticProvider.status !== "connected"
     ) {
+      providersAtOptimisticSetRef.current = null;
       setOptimisticLeadProviderId(null);
     }
   }, [optimisticLeadProviderId, providers]);
@@ -1478,13 +1482,13 @@ export function ModelProvidersPanel({
               <ProviderTable
                 providers={filteredProviders}
                 optimisticLeadProviderId={optimisticLeadProviderId}
-                onSetMainOrchestratorSuccess={setOptimisticLeadProviderId}
+                onSetMainOrchestratorSuccess={handleSetMainOrchestratorSuccess}
               />
             ) : tiers.length === 0 ? (
               <ProviderTable
                 providers={[]}
                 optimisticLeadProviderId={optimisticLeadProviderId}
-                onSetMainOrchestratorSuccess={setOptimisticLeadProviderId}
+                onSetMainOrchestratorSuccess={handleSetMainOrchestratorSuccess}
               />
             ) : (
               <Tabs defaultValue={defaultTier} className="gap-4">
@@ -1523,7 +1527,7 @@ export function ModelProvidersPanel({
                     <ProviderTable
                       providers={tier.providers}
                       optimisticLeadProviderId={optimisticLeadProviderId}
-                      onSetMainOrchestratorSuccess={setOptimisticLeadProviderId}
+                      onSetMainOrchestratorSuccess={handleSetMainOrchestratorSuccess}
                     />
                   </TabsContent>
                 ))}
