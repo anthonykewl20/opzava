@@ -14,6 +14,15 @@ import {
 import { appRole, ownerRole } from "./tasks.js";
 
 export const taskEvidenceKind = pgEnum("task_evidence_kind", ["file", "link"]);
+export const taskEvidenceType = pgEnum("task_evidence_type", [
+  "screenshot",
+  "e2e",
+  "smoke",
+  "real_world",
+  "mutation",
+  "verify_deep",
+  "pr",
+]);
 export const taskQualityReviewStatus = pgEnum("task_quality_review_status", [
   "open",
   "approved",
@@ -39,6 +48,7 @@ export const taskEvidence = pgTable(
     workspaceId: uuid("workspace_id").notNull(),
     taskId: uuid("task_id").notNull(),
     kind: taskEvidenceKind("kind").notNull(),
+    evidenceType: taskEvidenceType("evidence_type"),
     objectRef: text("object_ref"),
     url: text("url"),
     filename: text("filename").notNull(),
@@ -87,6 +97,16 @@ export const taskQualityReview = pgTable(
     status: taskQualityReviewStatus("status").notNull().default("open"),
     approvedByUserId: text("approved_by_user_id"),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
+    reviewerOrchestratorIdentityId: uuid("reviewer_orchestrator_identity_id"),
+    requiredNote: text("required_note"),
+    rerunRefs: text("rerun_refs")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    screenshotVerificationRefs: text("screenshot_verification_refs")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -23,6 +23,8 @@ export {
   parseTaskRunStepState,
   taskRunStepStates,
 } from "./ai-workforce.js";
+export type { TaskEvidenceType } from "./evidence.js";
+export { parseTaskEvidenceType, taskEvidenceTypes } from "./evidence.js";
 export type { Task, TaskPriority, TaskStatus } from "./task.js";
 export {
   normalizeTaskDescription,

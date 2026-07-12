@@ -797,6 +797,7 @@ describe("slice 1e tasks", () => {
       contentType: "text/plain",
       sizeBytes: 12,
       provenance: "Attached from upload",
+      evidenceType: "screenshot",
     });
     const link = await addTaskEvidenceLink({
       orgId: tenant.organizationId,
@@ -807,8 +808,8 @@ describe("slice 1e tasks", () => {
       title: "Evidence link",
       provenance: "Attached from link",
     });
-    expect(file).toMatchObject({ ok: true, value: { kind: "file" } });
-    expect(link).toMatchObject({ ok: true, value: { kind: "link" } });
+    expect(file).toMatchObject({ ok: true, value: { kind: "file", evidenceType: "screenshot" } });
+    expect(link).toMatchObject({ ok: true, value: { kind: "link", evidenceType: null } });
 
     const evidence = await listTaskEvidence({
       orgId: tenant.organizationId,
@@ -821,6 +822,9 @@ describe("slice 1e tasks", () => {
       throw evidence.error;
     }
     expect(evidence.value.map((item) => item.kind).sort()).toEqual(["file", "link"]);
+    expect(evidence.value.find((item) => item.kind === "file")).toMatchObject({
+      evidenceType: "screenshot",
+    });
 
     const ensured = await ensureTaskQualityReview({
       orgId: tenant.organizationId,
@@ -828,7 +832,16 @@ describe("slice 1e tasks", () => {
       actor: actor(tenant.userId),
       taskId: task.value.id,
     });
-    expect(ensured).toMatchObject({ ok: true, value: { status: "open" } });
+    expect(ensured).toMatchObject({
+      ok: true,
+      value: {
+        status: "open",
+        reviewerOrchestratorIdentityId: null,
+        requiredNote: null,
+        rerunRefs: [],
+        screenshotVerificationRefs: [],
+      },
+    });
 
     const addedCheck = await addQualityCheck({
       orgId: tenant.organizationId,
@@ -894,10 +907,16 @@ describe("slice 1e tasks", () => {
       ok: true,
       value: {
         evidence: expect.arrayContaining([
-          expect.objectContaining({ filename: "trace.txt" }),
-          expect.objectContaining({ filename: "Evidence link" }),
+          expect.objectContaining({ filename: "trace.txt", evidenceType: "screenshot" }),
+          expect.objectContaining({ filename: "Evidence link", evidenceType: null }),
         ]),
-        qualityReview: expect.objectContaining({ status: "approved" }),
+        qualityReview: expect.objectContaining({
+          status: "approved",
+          reviewerOrchestratorIdentityId: null,
+          requiredNote: null,
+          rerunRefs: [],
+          screenshotVerificationRefs: [],
+        }),
       },
     });
   });

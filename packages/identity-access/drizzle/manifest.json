@@ -68,6 +68,10 @@
     {
       "path": "0016_s1b_ai_workforce.sql",
       "sha256": "29842278f324adf2a4c909c136819aae1a1dc6602f5cfc6bdd535fd937f67f44"
+    },
+    {
+      "path": "0017_s1c_evidence_quality_ext.sql",
+      "sha256": "2e8c20889d4195cbaf440f0f0c58cb2374788c8fba9d14117c19671e500f61f7"
     }
   ]
 }

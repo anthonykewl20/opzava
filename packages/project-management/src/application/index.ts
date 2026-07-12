@@ -23,6 +23,7 @@ export type {
   TaskCommentDto,
   TaskEvidenceDto,
   TaskEvidenceKind,
+  TaskEvidenceType,
   TaskQualityCheckDto,
   TaskQualityCheckKind,
   TaskQualityCheckState,

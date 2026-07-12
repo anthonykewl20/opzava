@@ -1,9 +1,4 @@
-import {
-  mapDatabaseError,
-  sql,
-  withTenant,
-  type TenantTransaction,
-} from "@opzava/adapters";
+import { mapDatabaseError, sql, withTenant, type TenantTransaction } from "@opzava/adapters";
 import type { AuthorizationPort, AuthorizationSubject } from "@opzava/ports";
 import {
   DomainError,
@@ -35,6 +30,9 @@ import {
   type TaskReviewState,
   type TaskStatus,
 } from "../domain/task.js";
+import { parseTaskEvidenceType, type TaskEvidenceType } from "../domain/evidence.js";
+
+export type { TaskEvidenceType } from "../domain/evidence.js";
 
 export interface TaskActor {
   readonly userId: string;
@@ -164,6 +162,7 @@ export interface TaskEvidenceDto {
   readonly organizationId: string;
   readonly workspaceId: string;
   readonly kind: TaskEvidenceKind;
+  readonly evidenceType?: TaskEvidenceType | null;
   readonly objectRef: string | null;
   readonly url: string | null;
   readonly filename: string;
@@ -213,6 +212,10 @@ export interface TaskQualityReviewDto {
   readonly status: TaskQualityReviewStatus;
   readonly approvedByUserId: string | null;
   readonly approvedAt: string | null;
+  readonly reviewerOrchestratorIdentityId?: string | null;
+  readonly requiredNote?: string | null;
+  readonly rerunRefs?: readonly string[];
+  readonly screenshotVerificationRefs?: readonly string[];
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly checks: readonly TaskQualityCheckDto[];
@@ -280,6 +283,7 @@ export interface AddTaskEvidenceFileInput extends TaskApplicationContext {
   readonly contentType: string;
   readonly sizeBytes: number;
   readonly provenance?: string;
+  readonly evidenceType?: TaskEvidenceType;
 }
 
 export interface AddTaskEvidenceLinkInput extends TaskApplicationContext {
@@ -287,6 +291,7 @@ export interface AddTaskEvidenceLinkInput extends TaskApplicationContext {
   readonly url: string;
   readonly title?: string;
   readonly provenance?: string;
+  readonly evidenceType?: TaskEvidenceType;
 }
 
 export interface ListTaskEvidenceInput extends TaskApplicationContext {
@@ -550,12 +555,21 @@ function evidenceKind(value: unknown): TaskEvidenceKind {
 }
 
 function rowToEvidenceDto(row: QueryRow): TaskEvidenceDto {
+  const evidenceType =
+    row["evidence_type"] === null || row["evidence_type"] === undefined
+      ? null
+      : parseTaskEvidenceType(row["evidence_type"]);
+  if (evidenceType !== null && !evidenceType.ok) {
+    throw evidenceType.error;
+  }
+
   return {
     id: String(row["id"]),
     taskId: String(row["task_id"]),
     organizationId: String(row["organization_id"]),
     workspaceId: String(row["workspace_id"]),
     kind: evidenceKind(row["kind"]),
+    evidenceType: evidenceType === null ? null : evidenceType.value,
     objectRef: stringOrNull(row["object_ref"]),
     url: stringOrNull(row["url"]),
     filename: String(row["filename"]),
@@ -604,6 +618,10 @@ function rowToQualityReviewBase(row: QueryRow): Omit<TaskQualityReviewDto, "chec
     status: qualityReviewStatus(row["status"]),
     approvedByUserId: stringOrNull(row["approved_by_user_id"]),
     approvedAt: parseNullableDate(row["approved_at"]),
+    reviewerOrchestratorIdentityId: stringOrNull(row["reviewer_orchestrator_identity_id"]),
+    requiredNote: stringOrNull(row["required_note"]),
+    rerunRefs: stringArray(row["rerun_refs"]),
+    screenshotVerificationRefs: stringArray(row["screenshot_verification_refs"]),
     createdAt: parseDate(row["created_at"]),
     updatedAt: parseDate(row["updated_at"]),
   };
@@ -1340,6 +1358,7 @@ async function selectEvidence(
       organization_id,
       workspace_id,
       kind,
+      evidence_type,
       object_ref,
       url,
       filename,
@@ -1369,6 +1388,10 @@ async function ensureQualityReview(
       status,
       approved_by_user_id,
       approved_at,
+      reviewer_orchestrator_identity_id,
+      required_note,
+      rerun_refs,
+      screenshot_verification_refs,
       created_at,
       updated_at
     from public.task_quality_review
@@ -1404,6 +1427,10 @@ async function ensureQualityReview(
       status,
       approved_by_user_id,
       approved_at,
+      reviewer_orchestrator_identity_id,
+      required_note,
+      rerun_refs,
+      screenshot_verification_refs,
       created_at,
       updated_at
   `);
@@ -1432,6 +1459,10 @@ async function selectQualityReview(
       status,
       approved_by_user_id,
       approved_at,
+      reviewer_orchestrator_identity_id,
+      required_note,
+      rerun_refs,
+      screenshot_verification_refs,
       created_at,
       updated_at
     from public.task_quality_review
@@ -2610,6 +2641,8 @@ export async function addTaskEvidenceFile(
   const contentType = normalizeEvidenceContentType(input.contentType);
   const sizeBytes = normalizeEvidenceSize(input.sizeBytes);
   const provenance = normalizeEvidenceProvenance(input.provenance, "Attached from upload");
+  const evidenceType =
+    input.evidenceType === undefined ? null : parseTaskEvidenceType(input.evidenceType);
   if (!objectRef.ok) {
     return err(objectRef.error);
   }
@@ -2624,6 +2657,9 @@ export async function addTaskEvidenceFile(
   }
   if (!provenance.ok) {
     return err(provenance.error);
+  }
+  if (evidenceType !== null && !evidenceType.ok) {
+    return err(evidenceType.error);
   }
 
   const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
@@ -2645,6 +2681,7 @@ export async function addTaskEvidenceFile(
           organization_id,
           workspace_id,
           kind,
+          evidence_type,
           object_ref,
           filename,
           content_type,
@@ -2657,6 +2694,7 @@ export async function addTaskEvidenceFile(
           ${input.orgId},
           ${input.workspaceId},
           'file'::public.task_evidence_kind,
+          ${evidenceType === null ? null : evidenceType.value}::public.task_evidence_type,
           ${objectRef.value},
           ${filename.value},
           ${contentType.value},
@@ -2670,6 +2708,7 @@ export async function addTaskEvidenceFile(
           organization_id,
           workspace_id,
           kind,
+          evidence_type,
           object_ref,
           url,
           filename,
@@ -2686,7 +2725,13 @@ export async function addTaskEvidenceFile(
         : ok(rowToEvidenceDto(row));
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 
@@ -2707,6 +2752,8 @@ export async function addTaskEvidenceLink(
   const url = normalizeEvidenceUrl(input.url);
   const filename = normalizeEvidenceFilename(input.title ?? input.url);
   const provenance = normalizeEvidenceProvenance(input.provenance, "Attached from link");
+  const evidenceType =
+    input.evidenceType === undefined ? null : parseTaskEvidenceType(input.evidenceType);
   if (!url.ok) {
     return err(url.error);
   }
@@ -2715,6 +2762,9 @@ export async function addTaskEvidenceLink(
   }
   if (!provenance.ok) {
     return err(provenance.error);
+  }
+  if (evidenceType !== null && !evidenceType.ok) {
+    return err(evidenceType.error);
   }
 
   const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
@@ -2736,6 +2786,7 @@ export async function addTaskEvidenceLink(
           organization_id,
           workspace_id,
           kind,
+          evidence_type,
           url,
           filename,
           provenance,
@@ -2746,6 +2797,7 @@ export async function addTaskEvidenceLink(
           ${input.orgId},
           ${input.workspaceId},
           'link'::public.task_evidence_kind,
+          ${evidenceType === null ? null : evidenceType.value}::public.task_evidence_type,
           ${url.value},
           ${filename.value},
           ${provenance.value},
@@ -2757,6 +2809,7 @@ export async function addTaskEvidenceLink(
           organization_id,
           workspace_id,
           kind,
+          evidence_type,
           object_ref,
           url,
           filename,
@@ -2778,7 +2831,13 @@ export async function addTaskEvidenceLink(
         : ok(rowToEvidenceDto(row));
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 
@@ -2812,7 +2871,13 @@ export async function listTaskEvidence(
       return ok(await selectEvidence(tx, input.taskId));
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 
@@ -2859,7 +2924,13 @@ export async function ensureTaskQualityReview(
         : ok(review);
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 
@@ -2993,7 +3064,13 @@ export async function addQualityCheck(
         : ok(loaded);
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 
@@ -3101,7 +3178,13 @@ export async function toggleQualityCheck(
         : ok(loaded);
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 
@@ -3226,7 +3309,13 @@ export async function approveQualityReview(
         : ok(loaded);
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 

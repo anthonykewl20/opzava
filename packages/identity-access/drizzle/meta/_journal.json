@@ -120,6 +120,13 @@
       "when": 1782951900000,
       "tag": "0016_s1b_ai_workforce",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1782952000000,
+      "tag": "0017_s1c_evidence_quality_ext",
+      "breakpoints": true
     }
   ]
 }
