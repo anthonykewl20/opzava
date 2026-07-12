@@ -7,6 +7,31 @@ It is derived from the per-module docs in [modules/](modules/) and the [seam map
 Vocabulary is fixed from codebase-design: Module, Interface, Depth, Seam, Adapter, Leverage, Locality.
 A candidate must pass the deletion test (deleting the status quo moves complexity; the proposed change concentrates it) and must not re-litigate any item in the do-not-re-litigate list.
 
+## Status (applied on branch `worktree-arch-deepen`)
+
+| # | Candidate | Outcome |
+| --- | --- | --- |
+| 1 | Split the `gateway-admin-connections.ts` god-module | APPLIED (`c1f4fc75`) - 4633 LOC split into docker-runtime + connections-provisioning + config-mutation + thin entry; 88-test suite green. |
+| 2 | Relocate `OpenClawAdminRpcPort`/`GatewayRuntimePort` into `packages/ports` | APPLIED (`54402488`). |
+| 3 | Promote `resolveSecretValue`/`putSecret` onto `SecretsVaultPort` | APPLIED (`53cf4de4`). |
+| 4 | Split `OpenClawStreamEvent` chunk/final | NOT NEEDED - verified the terminal invariant (`sessionRef`/`runRef` only on `final`) is ALREADY structural: a typecheck probe reading `sessionRef` off a non-final event errors TS2339. The discriminated union enforces it; named sub-unions would add only ergonomics. |
+| 5 | Shared `AuthorizationPort` contract test across all 3 adapters | APPLIED (`49647797`). |
+| 6 | Extract shared tool-execution harness | APPLIED (`fc652c93`). |
+| 7 | `AuthPort.signIn` MFA-hooks gap | APPLIED (`cd16e9ee`) - verified NO caller passes hooks, so narrowed the port (removed the dead `hooks` param) rather than wiring unused plumbing. |
+| 8 | Split `ConnectionsProvisioningPort` into cohesive sub-ports | APPLIED (`62aaab37`) - safe backward-compatible realization: 3 sub-interfaces composed into the unchanged combined port. Full consumer migration (the grilling-gated part) deferred for incremental adoption. |
+| 9 | Real `ErrorCapturePort` adapter in web | APPLIED (`5d108345`). |
+| 10 | Move `GITHUB_ISSUES_TOKEN_SECRET_LABEL` out of the port | APPLIED (`2c1f3fce`). |
+| 11 | `Money.parse` factory | APPLIED (`4dbe43bf`). |
+| 12 | Derive eslint boundaries from the workspace catalog | APPLIED (`e53651ac`) - verified lint-equivalent (forced `pnpm lint` identical zero-violation output before/after). |
+| 13 | Split `assistant-conversations.ts` | APPLIED (`9543bd87`). |
+| 14 | Centralize the link-token scope whitelist | APPLIED (`125119c2`). |
+| 15 | Narrow `IssueTrackerProvider` to `"github"` | DEFERRED - product decision: depends on whether a second issue-tracker provider is planned. Do not remove the generality without that input. |
+| 16 | Collapse the two `canMutate` predicates | NOT APPLICABLE - no `canMutate` predicate exists in `packages/runtime-control` (verified by grep); the genuine duplication is the executor skeleton, covered by candidate 6. |
+| 17 | Hide `model-provider-taxonomy` data behind accessors | APPLIED (`4c8ea3d6`). |
+| gaps | ObjectStore contract, lazy pg client, migration-gate tests | APPLIED (`df42bb49`). |
+
+Summary: 14 of 17 applied, 2 verified already-satisfied/not-applicable (4, 16), 1 deferred for a product decision (15).
+
 Strength badges:
 
 - STRONG: clear depth or correctness win, respects all ADRs, the change is well-scoped.
