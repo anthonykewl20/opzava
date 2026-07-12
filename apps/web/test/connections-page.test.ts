@@ -898,6 +898,12 @@ describe("Connections page state", () => {
     expect(page).toContain('href="/connections/add"');
     expect(page).toContain("Opzava Gateway");
     expect(gatewayPage).toContain("Gateway health");
+    expect(gatewayPage.match(/Gateway health/g)).toHaveLength(1);
+    expect(gatewayPage).toContain("Status &amp; diagnostics");
+    expect(gatewayPage).toContain("platform-managed infrastructure");
+    expect(gatewayPage).toContain("not connect/disconnectable");
+    expect(gatewayPage).toContain("data.snapshot.gateway.message?.trim()");
+    expect(gatewayPage).toContain("<dt>Message</dt>");
     expect(providersPage).toContain("ModelProvidersPanel");
     expect(githubPage).toContain("startGitHubDeviceFlowAction");
     expect(addPage).toContain("Integration catalog");

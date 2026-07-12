@@ -17,6 +17,7 @@ export default async function GatewayConnectionsPage() {
   const gatewayActive = data.snapshot.gateway.status === "active";
   const gatewayCopy = gatewayActive ? null : gatewayUnavailableCopy(data.snapshot.gateway);
   const gatewayHeartbeat = relativeTime(data.snapshot.gateway.lastHeartbeatAt);
+  const gatewayMessage = data.snapshot.gateway.message?.trim() ?? "";
   const refreshedAt = relativeTime(data.snapshot.refreshedAt);
 
   return (
@@ -24,7 +25,10 @@ export default async function GatewayConnectionsPage() {
       <div className="page-header connections-header">
         <div>
           <h1>Gateway health</h1>
-          <p className="page-sub">Opzava Gateway status, auth, and routing inventory.</p>
+          <p className="page-sub">
+            Opzava Gateway is platform-managed infrastructure. It is not connect/disconnectable
+            here; use Run health check to refresh status.
+          </p>
         </div>
         <div className="connections-header-actions">
           <form action={refreshConnectionsAction}>
@@ -41,9 +45,9 @@ export default async function GatewayConnectionsPage() {
           <div className="card-header">
             <div>
               <h2 className="card-title" id="gw-heading">
-                Gateway health
+                Status &amp; diagnostics
               </h2>
-              <p className="hint">Opzava Gateway status, auth, and routing inventory.</p>
+              <p className="hint">Status, auth, catalog, heartbeat, region, and routing hosts.</p>
             </div>
             <span className={gatewayActive ? "badge badge-success" : "badge badge-warning"}>
               {gatewayActive ? "Connected" : "Unavailable"}
@@ -86,6 +90,12 @@ export default async function GatewayConnectionsPage() {
               </dd>
               <dt>Last heartbeat</dt>
               <dd className="u-mono">{gatewayHeartbeat}</dd>
+              {gatewayMessage === "" ? null : (
+                <>
+                  <dt>Message</dt>
+                  <dd>{gatewayMessage}</dd>
+                </>
+              )}
               {data.snapshot.gateway.region === null ? null : (
                 <>
                   <dt>Region</dt>
