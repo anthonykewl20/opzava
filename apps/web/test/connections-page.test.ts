@@ -907,6 +907,14 @@ describe("Connections page state", () => {
     expect(providersPage).toContain("ModelProvidersPanel");
     expect(githubPage).toContain("startGitHubDeviceFlowAction");
     expect(addPage).toContain("Integration catalog");
+    expect(addPage).toContain("startGitHubDeviceFlowAction");
+    expect(addPage).toContain("DeviceFlowPoller");
+    expect(addPage).toContain("flow.kind === \"github\"");
+    expect(addPage).toContain("Connect GitHub");
+    expect(addPage).toContain("All available integrations are connected");
+    expect(addPage).toContain('href="/connections/github"');
+    expect(addPage).not.toMatch(/coming soon/i);
+    expect(addPage).not.toMatch(/placeholder/i);
     expect(loading).toContain("ConnectionsLoading");
     expect(loading).toContain("aria-busy");
     expect(loading).toContain("Skeleton");
