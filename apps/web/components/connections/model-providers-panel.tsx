@@ -1407,10 +1407,15 @@ export function ModelProvidersPanel({
     const optimisticProvider = providers.find(
       (provider) => provider.id === optimisticLeadProviderId,
     );
+    const hasDifferentConfirmedLeadProvider = providers.some(
+      (provider) =>
+        provider.roleLabel === "Lead orchestrator" && provider.id !== optimisticLeadProviderId,
+    );
     if (
       optimisticProvider === undefined ||
       optimisticProvider.status !== "connected" ||
-      optimisticProvider.roleLabel === "Lead orchestrator"
+      optimisticProvider.roleLabel === "Lead orchestrator" ||
+      hasDifferentConfirmedLeadProvider
     ) {
       setOptimisticLeadProviderId(null);
     }
