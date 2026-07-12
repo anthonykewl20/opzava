@@ -1,2 +1,10 @@
 # Generated lockfile - owned by pnpm's own canonical format, never Prettier-formatted.
 pnpm-lock.yaml
+
+# Large hand-authored planning/spec prose. Prettier's markdown reformatting
+# (prose-wrap + table/list rewrapping) produces huge, semantically-empty diffs
+# that bury real changes and fight the one-sentence-per-line convention.
+# Left to authors; content, not formatting, is what matters here.
+docs/plan/EXECUTION.md
+docs/prd/PRD-013-connections-tools.md
+docs/plan/consensus/
