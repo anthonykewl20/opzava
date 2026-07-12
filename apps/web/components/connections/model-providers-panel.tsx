@@ -1401,6 +1401,8 @@ export function ModelProvidersPanel({
   );
   const searchActive = query.trim() !== "";
   const defaultTier = tiers[0]?.id ?? "frontier";
+  // Keep the lead badge deterministic after a successful set-main mutation while the
+  // transitioned router refresh catches the rest of the Connections snapshot up.
   const handleSetMainOrchestratorSuccess = useCallback(
     (providerId: string) => {
       providersAtOptimisticSetRef.current = providers;

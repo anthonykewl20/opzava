@@ -72,7 +72,7 @@ The solution is a Connections and Tools product slice that separates customer ch
 16. As an owner, I want raw JSON5 config to remain an escape hatch, so that normal users use schema-backed forms by default.
 17. As an owner, I want Deployment settings to show that the OpenClaw Gateway stays private behind the backend, so that I do not accidentally expose it.
 18. As an owner, I want deployment checks to confirm the public app and private Gateway, so that releases do not break runtime routing.
-19. As an owner, I want model providers listed with provider name, auth type, what they back, plan/usage, and live status, so that model routing is understandable.
+19. As an owner, I want model providers listed with provider name, auth type, current models, lead/subagent role, live status, and row actions, so that model routing is understandable.
 20. As an owner, I want providers such as OpenAI/GPT Plus, Anthropic/Claude Max, GLM, KIMI, MiniMax, and OpenRouter to appear as provider catalog entries, so that multiple model sources can be governed consistently.
 21. As an owner, I want provider auth order to prefer OAuth where available and fall back to SecretRef API keys where policy allows, so that safer auth paths are first.
 22. As an owner, I want provider credentials to stay server-side, so that raw keys never reach browser state, generated setup commands, logs, or exports.
@@ -162,7 +162,7 @@ The solution is a Connections and Tools product slice that separates customer ch
 
 | Mockup | Required UX mapping |
 | --- | --- |
-| `connections.html` | Full/admin shell page titled `Connections` with subtitle `Gateways, providers, channels & tools`, Run health check, Add connection, health summary cards for Connected, Needs attention, and Gateway, Gateway & models group, prominent OpenClaw gateway card with status/auth/hosts/heartbeat/region, Model providers table with Provider/Auth/Backs/Plan or usage/Status, Gateway configuration disclosure with exposure/auth/reload/bind/TLS/endpoints/change queue, Provider policy & catalogs disclosure with auth order/credential store/catalogs/pricing/actions, Agent tools & MCP group with Agent tools table, MCP & tool policy disclosure, Channels & services group with service/use/status/last sync, and footer health cadence. Statuses must use text or glyph plus label, never color alone. Secrets and raw Gateway config values must not be shown. |
+| `connections.html` | Full/admin shell page titled `Connections` with subtitle `Gateways, providers, channels & tools`, Run health check, Add connection, health summary cards for Connected, Needs attention, and Gateway, Gateway & models group, prominent OpenClaw gateway card with status/auth/hosts/heartbeat/region, Model providers table with Provider/Auth/Models/Status/Actions, lead/subagent role badges, a connected-row action menu for Manage, Set as main orchestrator, and Disconnect, Gateway configuration disclosure with exposure/auth/reload/bind/TLS/endpoints/change queue, Provider policy & catalogs disclosure with auth order/credential store/catalogs/pricing/actions, Agent tools & MCP group with Agent tools table, MCP & tool policy disclosure, Channels & services group with service/use/status/last sync, and footer health cadence. Statuses must use text or glyph plus label, never color alone. Secrets and raw Gateway config values must not be shown. |
 | `essential-connect-wizard.html` | Single modal wizard rendered as four steps: Step 1 Pick a tool with Claude Code, OpenCode, Codex CLI, Codex Desktop, and Claude Desktop choices; Step 2 Method with MCP recommended and Live agent options where available; Step 3 Copy command with Run it yourself and Let the assistant wire itself tabs, a generated copyable setup command, plain explanation, and no long-lived raw secrets; Step 4 Verify with live waiting state, connected outcome, manual MCP confirmation guidance, and troubleshooting disclosure. Closing or expiring the wizard revokes unused setup tokens. |
 | `essential-tools.html` | Essential shell page titled `Your tools` with breadcrumb, Connect another, subtitle explaining terminal/desktop tools linked to the account, health pill such as `5 of 5 local tools` with reconnect note, linked tool list for Claude Code, OpenCode, Codex CLI, Codex Desktop, and Claude Desktop, statuses Active/Connected/Degraded/Disconnected with reason text, Reconnect action for disconnected tools, Technical details disclosure with copyable reconnect command, action feedback live region, and legend for glyph meanings. |
 | `essential-tools-empty.html` | Empty `Your tools` page with title/subtitle, primary empty hero `Connect your first tool`, explanation that Claude Code, Codex, OpenCode, or another tool can run tasks and be watched by Opzava, primary Connect a tool action to the wizard, effort hint, and ghost preview of future linked tools such as Claude Code, Claude Desktop, and a Gateway-backed fleet tool. |
@@ -210,13 +210,14 @@ Net-new screens to design:
 ### Provider and model settings
 
 - Provider/model settings must be represented as Gateway-owned runtime configuration and Opzava-owned metadata/projections.
-- Provider inventory must show provider, auth method, what it backs, plan/usage, status, last check, and policy/routing state.
+- Provider inventory must show provider, auth method, current models, lead/subagent role, status, row actions, last check, and policy/routing state.
 - Supported provider catalog entries must include at least OpenAI/GPT Plus, Anthropic/Claude Max, GLM, KIMI, MiniMax, and OpenRouter as product catalog labels where configured.
 - Provider auth methods must support OAuth, SecretRef API key, disabled/unconfigured, and policy-denied states.
 - Provider credentials, OAuth tokens, API keys, refresh tokens, and provider SDK payloads must never be stored in Opzava product tables or sent to browser clients.
 - Opzava may store opaque provider refs, SecretRef names or health labels, catalog ids, status, routing policy, usage summaries, and audit receipts.
 - Provider auth order must prefer OAuth where available and allow API-key SecretRef fallback only where tenant/admin policy permits.
 - Provider routing must support defaults for lead orchestrator, content workers, research workers, local CLI workers, and future model classes without hardcoding provider-specific behavior into product code.
+- Setting a connected provider as main orchestrator must move the visible lead/subagent badges immediately after the successful mutation response, reconcile from the next Gateway snapshot, and leave the badges unchanged when the mutation fails.
 - Default model choices in Settings General and Agents must validate against provider availability, entitlement, tenant policy, and model catalog compatibility.
 - Provider usage states must consume ADR-014 metering and plan limit projections where available, and Gateway/provider runtime status where required.
 - Near-limit or quota-exceeded provider states must block or degrade new work according to plan/routing policy and explain the affected provider/model in Opzava terms.
@@ -373,7 +374,7 @@ Net-new screens to design:
 - Suspended tenants can view safe connection metadata but cannot start runtime, send channels, run tool calls, apply Gateway config, or provision skills.
 - Gateway configuration changes that need admin authority create audited provisioning/platform-ops jobs and do not run from browser code or the hot-path broker token.
 - Config drafts block on stale base hash, schema error, forbidden field, unresolved SecretRef, or restart/approval requirement.
-- Provider/model table shows provider, auth, backs, plan/usage, and status for configured providers.
+- Provider/model table shows provider, auth, models, status, actions, lead/subagent role, and realtime main-orchestrator badge movement after a successful set-main mutation.
 - Provider credentials and OAuth material are represented only by opaque refs, SecretRef labels/health, auth status, and audit metadata.
 - Default model settings validate against enabled provider catalogs, tenant policy, and plan entitlement.
 - Provider near-limit/quota-exceeded/auth-failed states block or degrade new work with clear Opzava terms.

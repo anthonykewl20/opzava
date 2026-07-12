@@ -61,6 +61,7 @@ The Connections page reads the live provider catalog through Gateway admin RPC
 API-key provider connects call `config.patch` and store the key inside the Gateway auth profile.
 GitHub connects use GitHub device flow and store the access token in `SecretsVaultPort`; status is
 validated against `GET https://api.github.com/user` and the OAuth scopes response header.
+Main-orchestrator selection calls the worker's `/internal/connections/orchestrator/set-main` route, writes the Gateway primary model through the same admin boundary, moves the browser lead badge only after a successful mutation response, and reconciles the UI from the next Connections snapshot.
 
 Snapshot, health, catalog, and config-read paths need only `operator.read`; the Gateway also reports
 `operator.read` when a connected token holds `operator.write`. `config.patch` mutations are locally
