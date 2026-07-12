@@ -1,4 +1,5 @@
 export * from "./auth.js";
+export * from "./authorization-contract.js";
 export * from "./authorization.js";
 export * from "./connections-provisioning.js";
 export * from "./error-capture.js";
