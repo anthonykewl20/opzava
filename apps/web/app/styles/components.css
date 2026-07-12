@@ -1283,6 +1283,17 @@ hr {
   text-align: center;
 }
 
+.rail-subitems {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rail-subitem {
+  min-height: 32px;
+  padding-left: calc(var(--space-3) + 18px);
+}
+
 .main-col {
   display: flex;
   min-width: 0;

@@ -29,6 +29,12 @@ export interface AdminNavState {
   readonly openIssuesCount: number | null;
   readonly askOpzavaActive: boolean;
   readonly connectionsConnected: boolean;
+  readonly connections: {
+    readonly gatewayActive: boolean;
+    readonly providersConnected: number;
+    readonly providersTotal: number;
+    readonly githubConnected: boolean;
+  };
 }
 
 export type CommandPaletteItemKind = "destination" | "task" | "issue";
@@ -230,6 +236,26 @@ function gatewayReachableFromConnectionsPageData(
   return result !== null && result.ok && result.value.snapshot.gateway.status === "active";
 }
 
+function connectionsNavStateFromPageData(
+  result: Awaited<ReturnType<typeof loadConnectionsPageData>> | null,
+): AdminNavState["connections"] {
+  if (result?.ok !== true) {
+    return {
+      gatewayActive: false,
+      providersConnected: 0,
+      providersTotal: 0,
+      githubConnected: false,
+    };
+  }
+
+  return {
+    gatewayActive: result.value.snapshot.gateway.status === "active",
+    providersConnected: result.value.providerSummary.connected,
+    providersTotal: result.value.providerSummary.total,
+    githubConnected: result.value.snapshot.github.status === "connected",
+  };
+}
+
 function taskCommandItems(
   tasks: readonly TaskDto[],
   workspaceName: string,
@@ -304,6 +330,7 @@ export async function loadAdminShellState(
   const tasks = tasksResult.ok ? tasksResult.value : [];
   const issues = issuesResult?.ok === true ? issuesResult.value : [];
   const gatewayReachable = gatewayReachableFromConnectionsPageData(connectionsResult);
+  const connections = connectionsNavStateFromPageData(connectionsResult);
 
   return {
     nav: {
@@ -313,6 +340,7 @@ export async function loadAdminShellState(
       connectionsConnected:
         connectionsResult?.ok === true &&
         hasConnectedProviderOrGitHub(connectionsResult.value.snapshot),
+      connections,
     },
     health: shellHealthView({
       databaseReachable,

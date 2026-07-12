@@ -4,6 +4,7 @@ import { ok } from "@opzava/shared-kernel";
 import { describe, expect, it } from "vitest";
 
 import type { ConnectionsPageData } from "../lib/connections";
+import { providerConnectionSummary } from "../lib/connections-state";
 import {
   buildCommandPaletteItems,
   loadAdminShellState,
@@ -109,6 +110,8 @@ function snapshot(overrides: Partial<ConnectionsSnapshot> = {}): ConnectionsSnap
 }
 
 function connectionsPageData(current: ConnectionsSnapshot): ConnectionsPageData {
+  const providerSummary = providerConnectionSummary(current);
+
   return {
     snapshot: current,
     health: {
@@ -117,14 +120,7 @@ function connectionsPageData(current: ConnectionsSnapshot): ConnectionsPageData 
       needsAttention: 0,
       pending: 0,
     },
-    providerSummary: {
-      total: 0,
-      available: 0,
-      connected: 0,
-      needsAttention: 0,
-      pending: 0,
-      notConnected: 0,
-    },
+    providerSummary,
     providers: [],
     orchestratorPlan: {
       agents: { list: [] },
@@ -235,6 +231,12 @@ describe("Admin shell state", () => {
       openIssuesCount: 1,
       askOpzavaActive: true,
       connectionsConnected: true,
+      connections: {
+        gatewayActive: true,
+        providersConnected: 0,
+        providersTotal: 0,
+        githubConnected: false,
+      },
     });
     expect(state.health.status).toBe("healthy");
     expect(state.health.text).toBe("All systems healthy");
@@ -271,6 +273,74 @@ describe("Admin shell state", () => {
     expect(state.health.gatewayReachable).toBe(false);
   });
 
+  it("derives the rail connections sub-tree status from the loaded snapshot", async () => {
+    const dependencies = {
+      listTasks: async () => ok([]),
+      listIssueProjections: async () => ok([]),
+      loadConnectionsPageData: async () =>
+        ok(
+          connectionsPageData(
+            snapshot({
+              providerCatalog: [
+                {
+                  id: "openai",
+                  label: "OpenAI",
+                  vendor: "OpenAI",
+                  authChoices: [],
+                  suggestedModel: "openai/gpt-5.5",
+                  models: [],
+                  roleStrength: "orchestration",
+                  whenToUse: "front-door chat",
+                },
+                {
+                  id: "zai",
+                  label: "z.ai",
+                  vendor: "z.ai",
+                  authChoices: [],
+                  suggestedModel: "zai/glm-5.2",
+                  models: [],
+                  roleStrength: "implementation",
+                  whenToUse: "coding tasks",
+                },
+              ],
+              providerConnections: [
+                {
+                  providerId: "openai",
+                  status: "connected",
+                  authChoiceId: "openai-device-code",
+                  accountLabel: "GPT Pro",
+                  scopes: ["chatgpt"],
+                  model: "openai/gpt-5.5",
+                  usageLabel: "within limits",
+                  lastCheckedAt: "2026-07-03T00:00:00.000Z",
+                  message: null,
+                },
+              ],
+              github: {
+                status: "connected",
+                accountLabel: "anthonykewl20",
+                scopes: ["repo"],
+                repository: "anthonykewl20/opzava",
+                lastCheckedAt: "2026-07-03T00:00:00.000Z",
+                message: null,
+              },
+            }),
+          ),
+        ),
+      countActiveAskOpzavaTurns: async () => 0,
+      checkDatabaseHealth: async () => true,
+    } satisfies AdminShellStateDependencies;
+
+    const state = await loadAdminShellState(context(), dependencies);
+
+    expect(state.nav.connections).toEqual({
+      gatewayActive: true,
+      providersConnected: 1,
+      providersTotal: 2,
+      githubConnected: true,
+    });
+  });
+
   it("degrades shell health when the connections snapshot cannot be loaded", async () => {
     const dependencies = {
       listTasks: async () => ok([]),
@@ -286,6 +356,12 @@ describe("Admin shell state", () => {
 
     expect(state.health.status).toBe("degraded");
     expect(state.health.gatewayReachable).toBe(false);
+    expect(state.nav.connections).toEqual({
+      gatewayActive: false,
+      providersConnected: 0,
+      providersTotal: 0,
+      githubConnected: false,
+    });
   });
 
   it("degrades shell health when the database is unreachable", async () => {

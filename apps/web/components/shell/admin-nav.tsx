@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 import { RailCommandSearch } from "@/components/shell/command-palette";
 
@@ -10,6 +10,12 @@ interface AdminNavState {
   readonly openIssuesCount: number | null;
   readonly askOpzavaActive: boolean;
   readonly connectionsConnected: boolean;
+  readonly connections: {
+    readonly gatewayActive: boolean;
+    readonly providersConnected: number;
+    readonly providersTotal: number;
+    readonly githubConnected: boolean;
+  };
 }
 
 interface NavItem {
@@ -44,14 +50,6 @@ const crmItems: readonly NavItem[] = [
   { label: "Accounts", href: "/crm/accounts", icon: "accounts" },
   { label: "Deals", href: "/crm/deals", icon: "deals" },
   { label: "Tickets", href: "/crm/tickets", icon: "tickets" },
-] as const;
-
-const automateItems: readonly NavItem[] = [
-  {
-    label: "Connections",
-    href: "/connections",
-    icon: "connections",
-  },
 ] as const;
 
 function countBadge(count: number | null): string | undefined {
@@ -203,6 +201,100 @@ function RailSection({
   );
 }
 
+function ConnectionsRailGroup({
+  connectionsConnected,
+  connections,
+  pathname,
+}: {
+  readonly connectionsConnected: boolean;
+  readonly connections: AdminNavState["connections"];
+  readonly pathname: string;
+}) {
+  const inConnections = pathname.startsWith("/connections");
+  const [expanded, setExpanded] = useState(inConnections);
+
+  useEffect(() => {
+    if (inConnections) {
+      setExpanded(true);
+    }
+  }, [inConnections]);
+
+  const subItems: readonly (NavItem & { readonly statusLabel?: string })[] = [
+    { label: "Overview", href: "/connections", icon: "connections" },
+    {
+      label: "Gateway",
+      href: "/connections/gateway",
+      icon: "connections",
+      status: connections.gatewayActive ? "success" : "warning",
+      statusLabel: connections.gatewayActive ? "Gateway active" : "Gateway unavailable",
+    },
+    {
+      label: "Model Providers",
+      href: "/connections/providers",
+      icon: "connections",
+      count: `${connections.providersConnected}/${connections.providersTotal}`,
+    },
+    ...(connections.githubConnected
+      ? [
+          {
+            label: "GitHub",
+            href: "/connections/github",
+            icon: "connections" as const,
+            status: "success" as const,
+            statusLabel: "GitHub connected",
+          },
+        ]
+      : []),
+    { label: "+ Add integration", href: "/connections/add", icon: "connections" },
+  ];
+
+  return (
+    <div className="rail-disclosure">
+      <button
+        type="button"
+        className={`rail-item${inConnections ? " active" : ""}`}
+        aria-expanded={expanded}
+        aria-controls="connections-rail-subtree"
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <NavIcon icon="connections" /> Connections
+        {connectionsConnected ? (
+          <span
+            className="dot dot-success dot-beat"
+            style={{ marginLeft: "auto" }}
+            aria-label="Connected provider or GitHub account available"
+          />
+        ) : null}
+      </button>
+      {expanded ? (
+        <div id="connections-rail-subtree" className="rail-subitems">
+          {subItems.map((item) => {
+            const active = pathname === item.href;
+            return (
+              <a
+                key={item.href}
+                href={item.href}
+                className="rail-item rail-subitem"
+                aria-current={active ? "page" : undefined}
+              >
+                {item.label}
+                {item.count !== undefined ? <span className="count">{item.count}</span> : null}
+                {item.status !== undefined ? (
+                  <span
+                    className={`dot dot-${item.status} dot-beat`}
+                    style={{ marginLeft: "auto" }}
+                    aria-label={item.statusLabel}
+                  />
+                ) : null}
+              </a>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function AdminNav({ state }: { readonly state: AdminNavState }) {
   const pathname = usePathname();
   const liveOperateItems = operateItems.map((item) => {
@@ -218,15 +310,6 @@ export function AdminNav({ state }: { readonly state: AdminNavState }) {
 
     return item;
   });
-  const liveAutomateItems = automateItems.map((item) =>
-    item.href === "/connections" && state.connectionsConnected
-      ? {
-          ...item,
-          status: "success" as const,
-          statusLabel: "Connected provider or GitHub account available",
-        }
-      : item,
-  );
   const askOpzavaItem: NavItem = {
     label: "Ask Admin Opzava",
     href: "/ask-opzava",
@@ -277,7 +360,12 @@ export function AdminNav({ state }: { readonly state: AdminNavState }) {
         ))}
 
         <RailSection label="CRM" items={crmItems} pathname={pathname} />
-        <RailSection label="Automate" items={liveAutomateItems} pathname={pathname} />
+        <div className="section-label nav-section-gap">Automate</div>
+        <ConnectionsRailGroup
+          connectionsConnected={state.connectionsConnected}
+          connections={state.connections}
+          pathname={pathname}
+        />
       </nav>
 
       <div className="rail-foot">

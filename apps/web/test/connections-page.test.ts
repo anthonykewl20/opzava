@@ -999,6 +999,15 @@ describe("Connections page state", () => {
     expect(deviceStartRoute).toContain("startModelProviderDeviceFlowForContext");
     expect(route).toContain("pollConnectionDeviceFlowForContext");
     expect(nav).toContain('href: "/connections"');
+    expect(nav).toContain('href: "/connections/gateway"');
+    expect(nav).toContain('href: "/connections/providers"');
+    expect(nav).toContain('href: "/connections/github"');
+    expect(nav).toContain('href: "/connections/add"');
+    expect(nav).toContain('aria-expanded={expanded}');
+    expect(nav).toContain('aria-current={active ? "page" : undefined}');
+    expect(nav).toContain('pathname === item.href');
+    expect(nav).toContain('connections.githubConnected');
+    expect(nav).toContain("${connections.providersConnected}/${connections.providersTotal}");
   });
 
   it("keeps model-provider disconnect on the fetch mutation client with sad paths", async () => {
