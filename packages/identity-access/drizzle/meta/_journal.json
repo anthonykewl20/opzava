@@ -113,6 +113,13 @@
       "when": 1782951800000,
       "tag": "0015_s1a_task_lane",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1782951900000,
+      "tag": "0016_s1b_ai_workforce",
+      "breakpoints": true
     }
   ]
 }

@@ -64,6 +64,10 @@
     {
       "path": "0015_s1a_task_lane.sql",
       "sha256": "a4ca67fb8a1b407521f86c5480f0e57733f8820799555c206bce2826382591bf"
+    },
+    {
+      "path": "0016_s1b_ai_workforce.sql",
+      "sha256": "29842278f324adf2a4c909c136819aae1a1dc6602f5cfc6bdd535fd937f67f44"
     }
   ]
 }

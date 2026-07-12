@@ -80,8 +80,35 @@ export {
   processIssueCloseOutbox,
   syncIssueProjection,
 } from "./application/index.js";
-export type { TaskPriority, TaskStatus } from "./domain/index.js";
-export { taskPriorities, taskStatuses } from "./domain/index.js";
+export type {
+  AgentDispatch,
+  AgentDispatchChannel,
+  AgentDispatchState,
+  AgentIdentity,
+  AgentIdentityKind,
+  AgentIdentityStatus,
+  TaskAgentAssignment,
+  TaskPrLink,
+  TaskPriority,
+  TaskPullQueue,
+  TaskRunStep,
+  TaskRunStepState,
+  TaskStatus,
+} from "./domain/index.js";
+export {
+  agentDispatchChannels,
+  agentDispatchStates,
+  agentIdentityKinds,
+  agentIdentityStatuses,
+  parseAgentDispatchChannel,
+  parseAgentDispatchState,
+  parseAgentIdentityKind,
+  parseAgentIdentityStatus,
+  parseTaskRunStepState,
+  taskPriorities,
+  taskRunStepStates,
+  taskStatuses,
+} from "./domain/index.js";
 export type {
   TaskCreatedEvent,
   TaskDomainEvent,
