@@ -6,8 +6,7 @@ import {
   LocalFileSecretsVault,
 } from "@opzava/adapters";
 import {
-  CANONICAL_LLM_PROVIDER_IDS,
-  CANONICAL_PROVIDER_LABELS,
+  canonicalProviderLabel,
   type ApplyOrchestratorDelegationInput,
   classifyModelProvider,
   type ConnectModelProviderApiKeyInput,
@@ -23,6 +22,7 @@ import {
   type GitHubConnectionState,
   type ModelProviderApiKeyConnectPollState,
   type ModelProviderApiKeyConnectStart,
+  listCanonicalLlmProviderIds,
   type ModelSummary,
   type ModelProviderAuthChoice,
   type ModelProviderCatalogEntry,
@@ -1456,7 +1456,7 @@ function ensureCanonicalLlmProviders(input: {
   const present = new Set(input.catalog.map((provider) => provider.id.toLowerCase()));
   const additions: ModelProviderCatalogEntry[] = [];
 
-  for (const rootId of CANONICAL_LLM_PROVIDER_IDS) {
+  for (const rootId of listCanonicalLlmProviderIds()) {
     if (present.has(rootId.toLowerCase())) {
       continue;
     }
@@ -1473,7 +1473,7 @@ function ensureCanonicalLlmProviders(input: {
       continue;
     }
 
-    const label = CANONICAL_PROVIDER_LABELS[rootId] ?? rootId;
+    const label = canonicalProviderLabel(rootId);
     additions.push({
       id: rootId,
       label,
