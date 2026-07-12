@@ -867,8 +867,14 @@ describe("Connections page state", () => {
     expect(calls).toBe(0);
   });
 
-  it("wires /connections page, actions, API poll route, and sidebar without JSX imports", async () => {
+  it("wires /connections routes, actions, API poll route, and sidebar without JSX imports", async () => {
+    const layout = await readRepoFile("app/(app)/connections/layout.tsx");
     const page = await readRepoFile("app/(app)/connections/page.tsx");
+    const pageData = await readRepoFile("app/(app)/connections/_lib/page-data.ts");
+    const gatewayPage = await readRepoFile("app/(app)/connections/gateway/page.tsx");
+    const providersPage = await readRepoFile("app/(app)/connections/providers/page.tsx");
+    const githubPage = await readRepoFile("app/(app)/connections/github/page.tsx");
+    const addPage = await readRepoFile("app/(app)/connections/add/page.tsx");
     const loading = await readRepoFile("app/(app)/connections/loading.tsx");
     const errorBoundary = await readRepoFile("app/(app)/connections/error.tsx");
     const actions = await readRepoFile("app/(app)/connections/actions.ts");
@@ -878,10 +884,23 @@ describe("Connections page state", () => {
     const route = await readRepoFile("app/api/connections/device-flow/route.ts");
     const nav = await readRepoFile("components/shell/admin-nav.tsx");
 
+    expect(layout).toContain('export const dynamic = "force-dynamic"');
+    expect(layout).toContain("connectionsPageStyles");
+    expect(layout).toContain('className="page connections-page"');
+    expect(pageData).toContain("loadConnectionsPageData(context)");
+    expect(pageData).toContain('redirect("/login")');
+    expect(pageData).toContain('redirect("/")');
     expect(providersPanel).toContain("Model providers");
     expect(providersPanel).toContain("Provider connection status");
+    expect(page).toContain('href="/connections/gateway"');
+    expect(page).toContain('href="/connections/providers"');
+    expect(page).toContain('href="/connections/github"');
+    expect(page).toContain('href="/connections/add"');
     expect(page).toContain("Opzava Gateway");
-    expect(page).toContain("Gateway health");
+    expect(gatewayPage).toContain("Gateway health");
+    expect(providersPage).toContain("ModelProvidersPanel");
+    expect(githubPage).toContain("startGitHubDeviceFlowAction");
+    expect(addPage).toContain("Integration catalog");
     expect(loading).toContain("ConnectionsLoading");
     expect(loading).toContain("aria-busy");
     expect(loading).toContain("Skeleton");
@@ -889,16 +908,18 @@ describe("Connections page state", () => {
     expect(errorBoundary).toContain("Connections could not load");
     expect(errorBoundary).toContain("Fetch failed");
     expect(errorBoundary).toContain("Retry");
-    expect(page).toContain("Gateway unavailable - retrying automatically");
-    expect(page).toContain("Gateway unavailable - still retrying automatically");
-    expect(page).toContain("{provider.label} · SUBAGENT");
+    expect(pageData).toContain("Gateway unavailable - retrying automatically");
+    expect(pageData).toContain("Gateway unavailable - still retrying automatically");
+    expect(gatewayPage).toContain("{provider.label} · SUBAGENT");
     expect(providersPanel).toContain("Gateway unavailable - retrying automatically");
     expect(providersPanel).toContain("No model providers in the live catalog");
     expect(page).not.toContain("OpenClaw gateway");
+    expect(gatewayPage).not.toContain("OpenClaw gateway");
     expect(page).not.toContain("OpenClaw ·");
-    expect(page).not.toContain("Gateway catalog unavailable");
-    expect(page).not.toContain('?? "unknown"');
-    expect(page).not.toContain("Region: unknown");
+    expect(gatewayPage).not.toContain("OpenClaw ·");
+    expect(gatewayPage).not.toContain("Gateway catalog unavailable");
+    expect(gatewayPage).not.toContain('?? "unknown"');
+    expect(gatewayPage).not.toContain("Region: unknown");
     // Full shadcn: the panel is driven by the centralized components/ui primitives, not mockup CSS.
     expect(providersPanel).toContain("@/components/ui/table");
     expect(providersPanel).toContain("@/components/ui/tabs");
@@ -909,7 +930,10 @@ describe("Connections page state", () => {
     expect(providersPanel).not.toContain("connections-provider-list");
     expect(page).toContain("modelProviderCountLabel");
     expect(page).toContain("Counts only model providers from the live gateway catalog");
+    expect(page).not.toContain("ModelProvidersPanel");
     expect(page).not.toContain("Connect provider");
+    expect(gatewayPage).not.toContain("ModelProvidersPanel");
+    expect(githubPage).not.toContain("ModelProvidersPanel");
     expect(providersPanel).toContain("Dialog");
     expect(providersPanel).toContain("Search providers");
     expect(providersPanel).toContain("Connect provider");
@@ -940,12 +964,12 @@ describe("Connections page state", () => {
     expect(providersPanel).toContain("LEAD ORCHESTRATOR");
     expect(providersPanel).toContain("SUBAGENT");
     expect(providersPanel).toContain("Admin device required");
-    expect(page).toContain("HealthCheckSubmitButton");
+    expect(gatewayPage).toContain("HealthCheckSubmitButton");
     expect(healthCheckButton).toContain("Checking...");
     expect(actions).toContain("operator-admin-required");
     expect(actions).toContain("health-check-complete");
-    expect(page).toContain("GitHub");
-    expect(page).toContain("startGitHubDeviceFlowAction");
+    expect(githubPage).toContain("GitHub");
+    expect(githubPage).toContain("startGitHubDeviceFlowAction");
     const apiKeyRoute = await readRepoFile("app/api/connections/model/api-key/route.ts");
     const apiKeyPollRoute = await readRepoFile("app/api/connections/model/api-key/poll/route.ts");
     const setupTokenComponent = await readRepoFile(
@@ -1007,11 +1031,14 @@ describe("Connections page state", () => {
 
   it("omits unbacked Connections mockup surfaces behind P8 PRD-013 DESCOPE markers", async () => {
     const page = await readRepoFile("app/(app)/connections/page.tsx");
+    const gatewayPage = await readRepoFile("app/(app)/connections/gateway/page.tsx");
+    const providersPage = await readRepoFile("app/(app)/connections/providers/page.tsx");
+    const addPage = await readRepoFile("app/(app)/connections/add/page.tsx");
 
-    expect(page).toContain("DESCOPE(gateway-configuration): P8 PRD-013");
-    expect(page).toContain("DESCOPE(provider-policy-catalogs): P8 PRD-013");
-    expect(page).toContain("DESCOPE(agent-tools-mcp): P8 PRD-013");
-    expect(page).toContain("DESCOPE(channels-services): P8 PRD-013");
+    expect(gatewayPage).toContain("DESCOPE(gateway-configuration): P8 PRD-013");
+    expect(providersPage).toContain("DESCOPE(provider-policy-catalogs): P8 PRD-013");
+    expect(addPage).toContain("DESCOPE(agent-tools-mcp): P8 PRD-013");
+    expect(addPage).toContain("DESCOPE(channels-services): P8 PRD-013");
     expect(page).not.toContain("Orchestrator and subagents");
     expect(page).not.toContain("Agent tools & MCP");
     expect(page).not.toContain("Channels & services");

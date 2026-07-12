@@ -84,7 +84,7 @@ const findings = [];
 
 try {
   const page = await realLogin(context);
-  await page.goto(`${BASE}/connections`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/connections/providers`, { waitUntil: "networkidle" });
   await page.waitForTimeout(700);
 
   if ((await page.getByRole("table", { name: /llm model providers/i }).count()) === 0) {
