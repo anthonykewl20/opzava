@@ -3,10 +3,9 @@ import type {
   IssueTrackerPort,
   IssueTrackerRef,
   SecretReference,
+  SecretsVaultPort,
 } from "@opzava/ports";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
-
-import type { LocalFileSecretsVault } from "../secrets/local-file-secrets-vault.js";
 
 type Fetch = typeof fetch;
 
@@ -37,7 +36,7 @@ export interface GitHubIssueTrackerAdapterOptions {
   readonly tokenEnvName?: string;
   readonly apiBaseUrl?: string;
   readonly fetch?: Fetch;
-  readonly vault?: LocalFileSecretsVault;
+  readonly vault?: SecretsVaultPort;
   readonly tokenRef?: SecretReference;
   readonly requestedBy?: string;
 }

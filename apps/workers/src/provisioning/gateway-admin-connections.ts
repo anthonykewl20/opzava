@@ -32,7 +32,6 @@ import {
   type PollModelProviderSetupTokenFlowInput,
   type ProviderAuthHealth,
   type ProviderConnectionState,
-  type ResolveSecretInput,
   type SecretReference,
   type SecretsVaultPort,
   type SetMainOrchestratorInput,
@@ -71,14 +70,6 @@ import {
 type Fetch = typeof fetch;
 
 interface MutableSecretsVault extends SecretsVaultPort {
-  resolveSecretValue?(input: ResolveSecretInput): Promise<Result<string>>;
-  putSecret(input: {
-    readonly tenantId: TenantId;
-    readonly purpose: SecretReference["purpose"];
-    readonly label: string;
-    readonly value: string;
-    readonly version?: string;
-  }): Promise<Result<SecretReference>>;
   deleteSecret(input: GetSecretRefInput): Promise<Result<void>>;
 }
 
@@ -1138,7 +1129,7 @@ class VaultBackedOpenClawAdminRpcClient implements OpenClawAdminRpcPort {
       readonly gatewayToken?: string;
       readonly requestedScopes: readonly OpenClawOperatorScope[];
       readonly keypair: Ed25519OpenClawAdminDeviceKeypair;
-      readonly vault: LocalFileSecretsVault;
+      readonly vault: SecretsVaultPort;
       readonly logger?: OpenClawAdminLogger;
     },
   ) {
@@ -4606,7 +4597,7 @@ export function createDefaultConnectionsProvisioningPort(
       ? {}
       : { publicKey: explicitPublicKey }),
   });
-  const vault = new LocalFileSecretsVault({
+  const vault: MutableSecretsVault = new LocalFileSecretsVault({
     filePath: env["OPENCLAW_DEV_SECRETS_FILE"]?.trim() || "/tmp/opzava-openclaw-dev-secrets.json",
   });
 
