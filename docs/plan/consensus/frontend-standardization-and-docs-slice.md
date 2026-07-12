@@ -36,11 +36,10 @@ A1. TOKEN SINGLE-SOURCE. Consolidate the 4 CSS files into ONE documented, layere
       by not-yet-migrated pages, in ONE clearly-labelled `legacy-mockup.css` marked deprecated + slated for
       migration; everything else is deleted. No orphan/duplicate token declarations.
 
-A2. ONE CANONICAL COMPONENT SYSTEM. shadcn/ui (`components/ui/*`) is THE way; there is one Button, one Card,
-    one Input, one Dialog, one Tabs, one Badge, one Table, etc. Populate the canonical set actually used by
-    the app (button [exists], tabs, dialog, badge, input, label, card, table, select, tooltip, separator,
-    skeleton, sonner/toast) via the shadcn pattern into `components/ui/`, styled by the token single-source.
-    No parallel primitives. Install the matching `@radix-ui/*` deps in `apps/web/package.json`.
+A2. ONE CANONICAL COMPONENT SYSTEM. shadcn/ui (`components/ui/*`) is THE way; there is one Button, one Card, one Input, one Dialog, one DropdownMenu, one Tabs, one Badge, one Table, etc.
+    Populate the canonical set actually used by the app (button [exists], tabs, dialog, dropdown-menu, badge, input, label, card, table, select, tooltip, separator, skeleton, sonner/toast) via the shadcn pattern into `components/ui/`, styled by the token single-source.
+    No parallel primitives.
+    Install the matching `@radix-ui/*` deps in `apps/web/package.json`.
 
 A3. DESIGN-SYSTEM DOC. `docs/frontend/design-system.md`: the token single-source (names, light/dark, how to
     add/change a token), the shadcn-var mapping, the component catalog (each `components/ui/*`: what it is,

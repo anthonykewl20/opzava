@@ -403,7 +403,7 @@ function MutationErrorNotice({
 }
 
 // Destructive-action guard: disconnect logs the gateway out of a provider, so it must be confirmed
-// (UX error-prevention) — an accidental click on the row button should never sever a live connection.
+// (UX error-prevention). A row-menu selection or dialog button should never sever a live connection.
 function DisconnectConfirm({
   provider,
   open: controlledOpen,

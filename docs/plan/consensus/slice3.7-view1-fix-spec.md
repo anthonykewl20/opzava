@@ -3,7 +3,9 @@
 User directive: reuse OpenClaw's (`mainframe/`) real working code/logic so OUR Opzava admin
 dashboard behaves correctly. The current view #1 is flaky. Fix the concrete defects below by
 grounding in OpenClaw's actual gateway RPCs, and re-segment providers. EVERY fix must be verified by
-DRIVING THE REAL INTERACTION live (click Manage / Disconnect), not a route sweep.
+DRIVING THE REAL INTERACTION live (open row actions, then click Manage / Disconnect), not a route sweep.
+
+Current UI note (2026-07-12): open the connected row's `Row actions for <provider>` menu before choosing Manage or Disconnect in live interaction tests.
 
 ## Defect 1 — Disconnect → 404 (OpenAI/Codex OAuth)
 Root cause: `disconnectModelProvider` (apps/workers/src/provisioning/gateway-admin-connections.ts)
@@ -69,12 +71,10 @@ Implementation:
 
 ## Verification (MANDATORY — the reason this slice is being redone)
 Extend `connections-drive.local.mjs` (real login) to CLICK the real interactions:
-1. Open Manage on OpenAI → assert the dialog contains NO `input[name="apiKey"]` (OAuth), and shows a
-   real model string (not "gpt-5.3-chat-latest" unless that is genuinely the configured model).
+1. Open the row-actions menu on OpenAI, choose Manage, and assert the dialog contains NO `input[name="apiKey"]` (OAuth), and shows a real model string (not "gpt-5.3-chat-latest" unless that is genuinely the configured model).
 2. Assert the three section headings render (Frontier / Bundles / Best Subagents) and the named
    providers appear under the correct section (assert via data-provider-id within each section).
-3. Disconnect wiring: assert clicking Disconnect does NOT navigate to a 404 (assert the response is
-   not 404 and the page stays on /connections). Prefer a non-destructive check (intercept/observe
-   the action response status); do not leave OpenAI disconnected.
+3. Disconnect wiring: assert choosing Disconnect from the row-actions menu does NOT navigate to a 404 (assert the response is not 404 and the page stays on /connections).
+   Prefer a non-destructive check (intercept/observe the action response status); do not leave OpenAI disconnected.
 Rebuild web+worker, run the drive, loop until the real interactions pass, THEN the
 real-world-validate gate.
