@@ -7,6 +7,7 @@ import {
 } from "node:crypto";
 
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
+import type { OpenClawAdminRpcPort, OpenClawOperatorScope } from "@opzava/ports";
 
 import { ASK_ADMIN_AGENT_VERSION } from "./ask-admin-agent.js";
 
@@ -15,21 +16,6 @@ const openClawClientMode = "cli";
 const openClawProtocolVersion = 4;
 const ed25519SpkiPrefix = Buffer.from("302a300506032b6570032100", "hex");
 const defaultOperatorScopes = ["operator.read"] as const;
-
-export type OpenClawOperatorScope = `operator.${string}`;
-
-export interface OpenClawAdminRpcPort {
-  request(
-    method: string,
-    params: Record<string, unknown>,
-    options?: {
-      readonly idempotencyKey?: string;
-      readonly requiredScope?: OpenClawOperatorScope;
-    },
-  ): Promise<Result<unknown>>;
-  grantedScopes(): readonly OpenClawOperatorScope[] | null;
-  close(): void;
-}
 
 export interface OpenClawAdminWebSocket {
   send(data: string): void;

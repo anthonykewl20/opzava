@@ -18,6 +18,11 @@ import {
   type DeviceFlowPollState,
   type DisconnectGitHubInput,
   type DisconnectModelProviderInput,
+  type GatewayRuntimeAuthChoice,
+  type GatewayRuntimeCommandResult,
+  type GatewayRuntimeDeviceCodeLogin,
+  type GatewayRuntimePort,
+  type GatewayRuntimeSetupTokenLogin,
   type GetSecretRefInput,
   type GitHubConnectionState,
   type ModelProviderApiKeyConnectPollState,
@@ -41,6 +46,8 @@ import {
   type SetupTokenFlowPollState,
   type SetupTokenFlowStart,
   type SubmitModelProviderSetupTokenCodeInput,
+  type OpenClawOperatorScope,
+  type OpenClawAdminRpcPort,
 } from "@opzava/ports";
 import {
   DomainError,
@@ -63,8 +70,6 @@ import {
   Ed25519OpenClawAdminDeviceKeypair,
   OpenClawAdminRpcClient,
   type OpenClawAdminLogger,
-  type OpenClawOperatorScope,
-  type OpenClawAdminRpcPort,
 } from "./openclaw-admin-client.js";
 
 type Fetch = typeof fetch;
@@ -81,48 +86,6 @@ interface GatewayAdminConnectionsOptions {
   readonly gatewayRuntime?: GatewayRuntimePort;
   readonly fetch?: Fetch;
   readonly now?: () => Date;
-}
-
-interface GatewayRuntimeAuthChoice {
-  readonly id: string;
-  readonly label: string;
-  readonly mode: "api-key" | "device-flow";
-  readonly keyFlag?: string;
-}
-
-interface GatewayRuntimeCommandResult {
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-interface GatewayRuntimeDeviceCodeLogin {
-  readonly execId: string;
-  readonly logPath: string;
-}
-
-interface GatewayRuntimeSetupTokenLogin {
-  readonly execId: string;
-  readonly logPath: string;
-  readonly stdinPath: string;
-}
-
-interface GatewayRuntimePort {
-  listAuthChoices(): Promise<Result<readonly GatewayRuntimeAuthChoice[]>>;
-  modelStatus(): Promise<Result<unknown>>;
-  connectApiKey(input: {
-    readonly providerId: string;
-    readonly authChoiceId: string;
-    readonly keyFlag: string;
-    readonly apiKey: string;
-  }): Promise<Result<GatewayRuntimeCommandResult>>;
-  startDeviceCodeLogin(providerId: string): Promise<Result<GatewayRuntimeDeviceCodeLogin>>;
-  readDeviceCodeLog(logPath: string): Promise<Result<string>>;
-  stopDeviceCodeLogin(execId: string, logPath: string): Promise<void>;
-  startSetupTokenLogin(): Promise<Result<GatewayRuntimeSetupTokenLogin>>;
-  readSetupTokenLog(logPath: string): Promise<Result<string>>;
-  writeSetupTokenInput(stdinPath: string, value: string): Promise<Result<void>>;
-  stopSetupTokenLogin(execId: string, logPath: string): Promise<void>;
 }
 
 interface PendingGitHubDeviceFlow {

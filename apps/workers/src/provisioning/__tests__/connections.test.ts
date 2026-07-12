@@ -11,6 +11,8 @@ import {
   type DeviceFlowChallenge,
   type GitHubConnectionState,
   type ModelProviderAuthChoice,
+  type OpenClawAdminRpcPort,
+  type OpenClawOperatorScope,
   type OrchestratorDelegationState,
   type OrchestratorSubagentRole,
   type ProviderConnectionState,
@@ -37,10 +39,8 @@ import {
   openClawOperatorScopeGranted,
   type OpenClawAdminClock,
   type OpenClawAdminDeviceKeypair,
-  type OpenClawAdminRpcPort,
   type OpenClawAdminWebSocket,
   type OpenClawAdminWebSocketFactory,
-  type OpenClawOperatorScope,
 } from "../openclaw-admin-client.js";
 
 const tempDirectories: string[] = [];
