@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { flushSync } from "react-dom";
 import type {
   DeviceFlowChallenge,
   ModelProviderApiKeyConnectStart,
@@ -571,15 +572,18 @@ function SetMainOrchestratorConfirm({
   provider,
   open: controlledOpen,
   onOpenChange,
+  onSetMainSuccess,
   trigger,
 }: {
   readonly provider: ProviderRow;
   readonly open?: boolean;
   readonly onOpenChange?: (open: boolean) => void;
+  readonly onSetMainSuccess: (providerId: string) => void;
   readonly trigger?: ReactNode | null;
 }) {
   const router = useRouter();
   const formId = useId();
+  const [, startRefreshTransition] = useTransition();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [formVersion, setFormVersion] = useState(0);
@@ -601,13 +605,25 @@ function SetMainOrchestratorConfirm({
     [controlledOpen, onOpenChange, pending],
   );
   const handleSuccess = useCallback(() => {
-    setPending(false);
-    if (controlledOpen === undefined) {
-      setUncontrolledOpen(false);
-    }
-    onOpenChange?.(false);
-    router.refresh();
-  }, [controlledOpen, onOpenChange, router]);
+    flushSync(() => {
+      setPending(false);
+      onSetMainSuccess(provider.id);
+      if (controlledOpen === undefined) {
+        setUncontrolledOpen(false);
+      }
+      onOpenChange?.(false);
+    });
+    startRefreshTransition(() => {
+      router.refresh();
+    });
+  }, [
+    controlledOpen,
+    onOpenChange,
+    onSetMainSuccess,
+    provider.id,
+    router,
+    startRefreshTransition,
+  ]);
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
@@ -724,14 +740,20 @@ function SetMainOrchestratorForm({
   );
 }
 
-function ProviderBacks({ provider }: { readonly provider: ProviderRow }) {
+function ProviderBacks({
+  provider,
+  isLeadOrchestrator,
+}: {
+  readonly provider: ProviderRow;
+  readonly isLeadOrchestrator: boolean;
+}) {
   // Role is only real once a provider is connected (an unconnected provider is not yet a subagent);
   // showing it otherwise is misleading chrome. Matches the mockup (badges only connected rows).
   if (provider.status !== "connected") {
     return null;
   }
 
-  if (provider.roleLabel === "Lead orchestrator") {
+  if (isLeadOrchestrator) {
     return (
       <Badge variant="secondary" title="Coordinator agent">
         <span className="sr-only">AI lead - </span>
@@ -1078,10 +1100,12 @@ function ProviderConnectedActions({
   provider,
   canSetMainOrchestrator,
   isLeadOrchestrator,
+  onSetMainOrchestratorSuccess,
 }: {
   readonly provider: ProviderRow;
   readonly canSetMainOrchestrator: boolean;
   readonly isLeadOrchestrator: boolean;
+  readonly onSetMainOrchestratorSuccess: (providerId: string) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
@@ -1176,6 +1200,7 @@ function ProviderConnectedActions({
           provider={provider}
           open={setMainOpen}
           onOpenChange={handleSetMainOpenChange}
+          onSetMainSuccess={onSetMainOrchestratorSuccess}
           trigger={null}
         />
       ) : null}
@@ -1189,7 +1214,15 @@ function ProviderConnectedActions({
   );
 }
 
-function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
+function ProviderTableRow({
+  provider,
+  optimisticLeadProviderId,
+  onSetMainOrchestratorSuccess,
+}: {
+  readonly provider: ProviderRow;
+  readonly optimisticLeadProviderId: string | null;
+  readonly onSetMainOrchestratorSuccess: (providerId: string) => void;
+}) {
   const models = providerModelParts(provider);
   const meta = statusMeta(provider);
   const subLine = providerSubLine(provider);
@@ -1203,7 +1236,10 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
   const statusDetails = [healthLabel, accountLabel, ...meta, guidance].filter(
     (detail): detail is string => detail !== null,
   );
-  const isLeadOrchestrator = provider.roleLabel === "Lead orchestrator";
+  const isLeadOrchestrator =
+    optimisticLeadProviderId === null
+      ? provider.roleLabel === "Lead orchestrator"
+      : provider.id === optimisticLeadProviderId;
   const canSetMainOrchestrator = provider.status === "connected" && !isLeadOrchestrator;
 
   return (
@@ -1212,7 +1248,7 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
         <div className="grid min-w-0 gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2 font-medium leading-tight">
             <span>{provider.label}</span>
-            <ProviderBacks provider={provider} />
+            <ProviderBacks provider={provider} isLeadOrchestrator={isLeadOrchestrator} />
           </div>
           {subLine === null ? null : (
             <div className="text-xs leading-snug text-muted-foreground">{subLine}</div>
@@ -1275,6 +1311,7 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
               provider={provider}
               canSetMainOrchestrator={canSetMainOrchestrator}
               isLeadOrchestrator={isLeadOrchestrator}
+              onSetMainOrchestratorSuccess={onSetMainOrchestratorSuccess}
             />
           ) : (
             <ProviderConnectDialog provider={provider} />
@@ -1295,7 +1332,15 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
   );
 }
 
-function ProviderTable({ providers }: { readonly providers: readonly ProviderRow[] }) {
+function ProviderTable({
+  providers,
+  optimisticLeadProviderId,
+  onSetMainOrchestratorSuccess,
+}: {
+  readonly providers: readonly ProviderRow[];
+  readonly optimisticLeadProviderId: string | null;
+  readonly onSetMainOrchestratorSuccess: (providerId: string) => void;
+}) {
   if (providers.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border p-8 text-center">
@@ -1324,7 +1369,12 @@ function ProviderTable({ providers }: { readonly providers: readonly ProviderRow
         </TableHeader>
         <TableBody>
           {providers.map((provider) => (
-            <ProviderTableRow provider={provider} key={provider.id} />
+            <ProviderTableRow
+              provider={provider}
+              optimisticLeadProviderId={optimisticLeadProviderId}
+              onSetMainOrchestratorSuccess={onSetMainOrchestratorSuccess}
+              key={provider.id}
+            />
           ))}
         </TableBody>
       </Table>
@@ -1338,6 +1388,7 @@ export function ModelProvidersPanel({
   summary,
 }: ModelProvidersPanelProps) {
   const [query, setQuery] = useState("");
+  const [optimisticLeadProviderId, setOptimisticLeadProviderId] = useState<string | null>(null);
   const sortedProviders = useMemo(() => [...providers].sort(providerSort), [providers]);
   const filteredProviders = useMemo(
     () => filterProviders(sortedProviders, query),
@@ -1349,6 +1400,21 @@ export function ModelProvidersPanel({
   );
   const searchActive = query.trim() !== "";
   const defaultTier = tiers[0]?.id ?? "frontier";
+  useEffect(() => {
+    if (optimisticLeadProviderId === null) {
+      return;
+    }
+    const optimisticProvider = providers.find(
+      (provider) => provider.id === optimisticLeadProviderId,
+    );
+    if (
+      optimisticProvider === undefined ||
+      optimisticProvider.status !== "connected" ||
+      optimisticProvider.roleLabel === "Lead orchestrator"
+    ) {
+      setOptimisticLeadProviderId(null);
+    }
+  }, [optimisticLeadProviderId, providers]);
 
   return (
     <Card aria-labelledby="providers-lbl">
@@ -1404,9 +1470,17 @@ export function ModelProvidersPanel({
             </p>
 
             {searchActive ? (
-              <ProviderTable providers={filteredProviders} />
+              <ProviderTable
+                providers={filteredProviders}
+                optimisticLeadProviderId={optimisticLeadProviderId}
+                onSetMainOrchestratorSuccess={setOptimisticLeadProviderId}
+              />
             ) : tiers.length === 0 ? (
-              <ProviderTable providers={[]} />
+              <ProviderTable
+                providers={[]}
+                optimisticLeadProviderId={optimisticLeadProviderId}
+                onSetMainOrchestratorSuccess={setOptimisticLeadProviderId}
+              />
             ) : (
               <Tabs defaultValue={defaultTier} className="gap-4">
                 <TabsList className="flex-wrap">
@@ -1441,7 +1515,11 @@ export function ModelProvidersPanel({
                 </TabsList>
                 {tiers.map((tier) => (
                   <TabsContent key={tier.id} value={tier.id} data-provider-tier={tier.id}>
-                    <ProviderTable providers={tier.providers} />
+                    <ProviderTable
+                      providers={tier.providers}
+                      optimisticLeadProviderId={optimisticLeadProviderId}
+                      onSetMainOrchestratorSuccess={setOptimisticLeadProviderId}
+                    />
                   </TabsContent>
                 ))}
               </Tabs>
