@@ -120,6 +120,7 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
   const gatewaySummary = gatewayActive
     ? `Heartbeat ${relativeTime(data.snapshot.gateway.lastHeartbeatAt)}`
     : gatewayUnavailableCopy(data.snapshot.gateway);
+  const githubConnected = data.snapshot.github.status === "connected";
 
   return (
     <>
@@ -134,43 +135,150 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
 
       <PageNotice notice={notice} refreshedAt={data.snapshot.refreshedAt} />
 
-      <section className="connections-overview" aria-label="Connection status summary">
-        <Link className="stat" href="/connections/gateway">
-          <div className="stat-label">Opzava Gateway</div>
-          <div className="u-row" style={{ gap: "var(--space-2)", alignItems: "center" }}>
-            <span className="stat-value">{gatewayActive ? "Active" : "Unavailable"}</span>
-            <span
-              className={gatewayActive ? "dot dot-success dot-beat" : "dot dot-warning"}
-              aria-hidden="true"
-            />
+      <section className="card" aria-labelledby="connections-overview-title">
+        <div className="card-header">
+          <div>
+            <h2 className="card-title" id="connections-overview-title">
+              Overview
+            </h2>
+            <p className="page-sub">
+              {data.health.connected} of {data.health.total} connections healthy
+              {data.health.needsAttention > 0
+                ? `, ${data.health.needsAttention} need attention`
+                : ""}
+              {data.health.pending > 0 ? `, ${data.health.pending} pending` : ""}.
+            </p>
           </div>
-          <p className="stat-delta u-subtle">{gatewaySummary}</p>
-        </Link>
+        </div>
+        <div className="card-body" style={{ display: "grid", gap: "var(--space-5)" }}>
+          <div role="list" aria-label="Platform connections">
+            <div
+              role="listitem"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) auto",
+                gap: "var(--space-3)",
+                alignItems: "center",
+                paddingBottom: "var(--space-4)",
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <div>
+                <div className="u-row">
+                  <span
+                    className={gatewayActive ? "dot dot-success dot-beat" : "dot dot-warning"}
+                    aria-hidden="true"
+                  />
+                  <strong>Opzava Gateway</strong>
+                  <span className={gatewayActive ? "badge badge-success" : "badge badge-warning"}>
+                    {gatewayActive ? "Active" : "Unavailable"}
+                  </span>
+                </div>
+                <p className="hint">{gatewaySummary}</p>
+              </div>
+              <Link
+                className="btn btn-sm"
+                href="/connections/gateway"
+                aria-label="Open Opzava Gateway connection"
+              >
+                Open
+              </Link>
+            </div>
 
-        <Link className="stat" href="/connections/providers">
-          <div className="stat-label">Model providers</div>
-          <div className="stat-value u-tnum">{modelProviderCountLabel(data)}</div>
-          <p className="stat-delta u-subtle">
-            Counts only model providers from the live gateway catalog.
-          </p>
-        </Link>
-
-        <Link className="stat" href="/connections/github">
-          <div className="stat-label">GitHub</div>
-          <div className="u-row" style={{ gap: "var(--space-2)", alignItems: "center" }}>
-            <span className="stat-value">
-              {data.snapshot.github.status === "connected" ? "Connected" : "Not connected"}
-            </span>
-            <span className={githubStatusDotClass(data.snapshot.github.status)} aria-hidden="true" />
+            <div
+              role="listitem"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) auto",
+                gap: "var(--space-3)",
+                alignItems: "center",
+                paddingTop: "var(--space-4)",
+              }}
+            >
+              <div>
+                <div className="u-row">
+                  <span
+                    className={
+                      data.providerSummary.connected > 0 ? "dot dot-success dot-beat" : "dot"
+                    }
+                    aria-hidden="true"
+                  />
+                  <strong>Model Providers</strong>
+                  <span className="badge u-tnum">
+                    {data.providerSummary.connected}/{data.providerSummary.total} connected
+                  </span>
+                </div>
+                <p className="hint">{modelProviderCountLabel(data)} in the live gateway catalog.</p>
+              </div>
+              <Link
+                className="btn btn-sm"
+                href="/connections/providers"
+                aria-label="Open model provider connections"
+              >
+                Open
+              </Link>
+            </div>
           </div>
-          <p className="stat-delta u-subtle">{data.githubSummary}</p>
-        </Link>
 
-        <Link className="stat" href="/connections/add">
-          <div className="stat-label">Add integration</div>
-          <div className="stat-value">Catalog</div>
-          <p className="stat-delta u-subtle">Connect another supported integration.</p>
-        </Link>
+          <div>
+            <h3 className="card-title">Integrations</h3>
+            {githubConnected ? (
+              <div
+                role="list"
+                aria-label="Connected integrations"
+                style={{ marginTop: "var(--space-3)" }}
+              >
+                <div
+                  role="listitem"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) auto",
+                    gap: "var(--space-3)",
+                    alignItems: "center",
+                  }}
+                >
+                  <div>
+                    <div className="u-row">
+                      <span
+                        className={githubStatusDotClass(data.snapshot.github.status)}
+                        aria-hidden="true"
+                      />
+                      <strong>GitHub</strong>
+                      <span className="badge badge-success">Connected</span>
+                    </div>
+                    <p className="hint">{data.githubSummary}</p>
+                  </div>
+                  <Link
+                    className="btn btn-sm"
+                    href="/connections/github"
+                    aria-label="Open GitHub integration"
+                  >
+                    Open
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div
+                className="empty"
+                style={{
+                  marginTop: "var(--space-3)",
+                  padding: "var(--space-6)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-md)",
+                }}
+              >
+                <h3 className="empty-title">No third-party integrations connected</h3>
+                <p className="hint">
+                  Add GitHub or another supported integration when this workspace needs external
+                  access.
+                </p>
+                <Link className="btn btn-sm" href="/connections/add">
+                  Add integration
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
       </section>
 
       <p className="connections-footer-note">

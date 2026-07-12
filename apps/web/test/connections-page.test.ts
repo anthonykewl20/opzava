@@ -928,8 +928,18 @@ describe("Connections page state", () => {
     expect(providersPanel).not.toContain("table table-compact table-cards");
     expect(providersPanel).toContain("LLM model providers the gateway can route to");
     expect(providersPanel).not.toContain("connections-provider-list");
+    expect(page).toContain("data.health.connected");
+    expect(page).toContain("data.health.total");
+    expect(page).toContain("connections healthy");
+    expect(page).toContain('aria-label="Platform connections"');
+    expect(page).toContain("No third-party integrations connected");
+    expect(page).toContain("Add GitHub or another supported integration");
     expect(page).toContain("modelProviderCountLabel");
-    expect(page).toContain("Counts only model providers from the live gateway catalog");
+    expect(page).toContain("data.providerSummary.connected");
+    expect(page).toContain("data.providerSummary.total");
+    expect(page).not.toContain('className="stat"');
+    expect(page).not.toContain("stat-value");
+    expect(page).not.toContain("Counts only model providers from the live gateway catalog");
     expect(page).not.toContain("ModelProvidersPanel");
     expect(page).not.toContain("Connect provider");
     expect(gatewayPage).not.toContain("ModelProvidersPanel");
@@ -1003,10 +1013,10 @@ describe("Connections page state", () => {
     expect(nav).toContain('href: "/connections/providers"');
     expect(nav).toContain('href: "/connections/github"');
     expect(nav).toContain('href: "/connections/add"');
-    expect(nav).toContain('aria-expanded={expanded}');
+    expect(nav).toContain("aria-expanded={expanded}");
     expect(nav).toContain('aria-current={active ? "page" : undefined}');
-    expect(nav).toContain('pathname === item.href');
-    expect(nav).toContain('connections.githubConnected');
+    expect(nav).toContain("pathname === item.href");
+    expect(nav).toContain("connections.githubConnected");
     expect(nav).toContain("${connections.providersConnected}/${connections.providersTotal}");
   });
 
