@@ -15,6 +15,84 @@
   );
 }
 
+/* Setup wizard: dark hero background matching /login (scoped via .auth--hero so
+ * the shared /signout screen keeps its light treatment). */
+.auth.auth--hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  --auth-hero-base: color-mix(in oklab, var(--accent) 20%, hsl(240 45% 8%));
+  --auth-hero-deep: color-mix(in oklab, var(--accent) 10%, hsl(240 50% 4%));
+  background:
+    radial-gradient(115% 90% at 82% 108%, color-mix(in oklab, var(--accent) 42%, transparent) 0%, transparent 55%),
+    linear-gradient(155deg, var(--auth-hero-base) 0%, var(--auth-hero-deep) 100%);
+}
+
+.auth--hero .auth-cap {
+  color: color-mix(in oklab, hsl(0 0% 100%) 72%, transparent);
+}
+
+.auth-fx {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.auth-fx-orb {
+  position: absolute;
+  border-radius: var(--radius-full);
+  filter: blur(64px);
+  opacity: 0.5;
+  will-change: transform;
+}
+
+.auth-fx-orb--1 {
+  top: -160px;
+  left: -110px;
+  width: 460px;
+  height: 460px;
+  background: radial-gradient(circle, color-mix(in oklab, var(--accent) 90%, white) 0%, transparent 70%);
+  animation: auth-orb-1 22s var(--ease-standard) infinite alternate;
+}
+
+.auth-fx-orb--2 {
+  right: -90px;
+  bottom: -170px;
+  width: 420px;
+  height: 420px;
+  background: radial-gradient(circle, color-mix(in oklab, var(--accent) 62%, hsl(280 80% 62%)) 0%, transparent 70%);
+  animation: auth-orb-2 27s var(--ease-standard) infinite alternate;
+}
+
+.auth-fx-orb--3 {
+  top: 40%;
+  left: 62%;
+  width: 300px;
+  height: 300px;
+  opacity: 0.26;
+  background: radial-gradient(circle, color-mix(in oklab, var(--accent) 55%, white) 0%, transparent 70%);
+  animation: auth-orb-3 31s var(--ease-standard) infinite alternate;
+}
+
+.auth-fx-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(color-mix(in oklab, hsl(0 0% 100%) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, hsl(0 0% 100%) 6%, transparent) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(115% 115% at 50% 6%, black 0%, transparent 70%);
+  mask-image: radial-gradient(115% 115% at 50% 6%, black 0%, transparent 70%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-fx-orb {
+    animation: none;
+  }
+}
+
 .auth-cap {
   max-width: 440px;
   color: var(--fg-subtle);
@@ -231,11 +309,60 @@
   color: var(--fg);
 }
 
+.auth-step.is-done .num {
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.auth-step.is-done .num svg {
+  width: 14px;
+  height: 14px;
+}
+
+.auth-step.is-done .lbl {
+  color: var(--fg-muted);
+}
+
 .auth-steps .bar {
   width: 22px;
   height: 1px;
   flex: none;
   background: var(--border-strong);
+}
+
+.auth-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+.auth-nav .auth-submit {
+  margin-top: 0;
+  width: auto;
+  flex: 1;
+}
+
+.auth-stepbody {
+  animation: auth-step-in var(--dur-base) var(--ease-standard) both;
+}
+
+.auth-stepbody[hidden] {
+  display: none;
+}
+
+@keyframes auth-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .auth-strength {
@@ -294,6 +421,39 @@
 .auth-strength-hint {
   color: var(--fg-subtle);
   font-size: var(--text-xs);
+}
+
+.auth-reqs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  margin: var(--space-2) 0 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  list-style: none;
+}
+
+.auth-req {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.auth-req svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.auth-req.is-met {
+  color: var(--success);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-stepbody {
+    animation: none;
+  }
 }
 
 @media (max-width: 640px) {
