@@ -46,5 +46,8 @@ jobs:
       - name: Lint (all packages)
         run: pnpm turbo run lint
 
+      # Run via turbo so web's workspace deps are built first (turbo `test`
+      # dependsOn `^build`). The packages export `dist/`, so a direct
+      # `pnpm --filter @opzava/web test` fails on a fresh checkout with unbuilt deps.
       - name: Web unit tests
-        run: pnpm --filter @opzava/web test
+        run: pnpm turbo run test --filter=@opzava/web
