@@ -293,6 +293,53 @@ describe("slice 1e tasks", () => {
     expect(listed).toMatchObject({ ok: true, value: [{ title: "Ship the admin Tasks board" }] });
   });
 
+  it("keeps lane and blocked intact when a field-only updateTask follows a move (no status/lane divergence)", async () => {
+    const tenant = await adminCreateTenant("update-preserves-lane");
+    const created = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Lane preservation task",
+      priority: "normal",
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      throw created.error;
+    }
+
+    const moved = await moveTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: created.value.id,
+      status: "done",
+      position: 1,
+    });
+    expect(moved).toMatchObject({ ok: true, value: { lane: "done", blocked: false, status: "done" } });
+
+    const updated = await updateTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: created.value.id,
+      title: "Lane preservation task (renamed)",
+      priority: "high",
+    });
+    // A field-only update must not touch lane/blocked, and the derived status must stay consistent.
+    expect(updated).toMatchObject({
+      ok: true,
+      value: { title: "Lane preservation task (renamed)", lane: "done", blocked: false, status: "done" },
+    });
+
+    const loaded = await getTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: created.value.id,
+    });
+    expect(loaded).toMatchObject({ ok: true, value: { lane: "done", blocked: false, status: "done" } });
+  });
+
   it("maps a legacy blocked status fixture to a blocked flag and non-blocked lane", async () => {
     const tenant = await adminCreateTenant("legacy-blocked");
     const taskId = randomUUID();
