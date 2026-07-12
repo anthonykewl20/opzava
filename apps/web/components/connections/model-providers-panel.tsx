@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { flushSync } from "react-dom";
@@ -14,6 +14,7 @@ import type {
 
 import { ApiKeyConnectPoller } from "@/components/connections/api-key-connect-poller";
 import { DeviceFlowPoller } from "@/components/connections/device-flow-poller";
+import { useOrchestratorHostsRefresh } from "@/components/connections/gateway-hosts";
 import { SetupTokenConnect } from "@/components/connections/setup-token-connect";
 import {
   AlertDialog,
@@ -581,9 +582,8 @@ function SetMainOrchestratorConfirm({
   readonly onSetMainSuccess: (providerId: string) => void;
   readonly trigger?: ReactNode | null;
 }) {
-  const router = useRouter();
   const formId = useId();
-  const [, startRefreshTransition] = useTransition();
+  const { refreshHosts } = useOrchestratorHostsRefresh();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [formVersion, setFormVersion] = useState(0);
@@ -613,10 +613,8 @@ function SetMainOrchestratorConfirm({
       }
       onOpenChange?.(false);
     });
-    startRefreshTransition(() => {
-      router.refresh();
-    });
-  }, [controlledOpen, onOpenChange, onSetMainSuccess, provider.id, router, startRefreshTransition]);
+    refreshHosts();
+  }, [controlledOpen, onOpenChange, onSetMainSuccess, provider.id, refreshHosts]);
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
@@ -1237,18 +1235,18 @@ function ProviderTableRow({
 
   return (
     <TableRow data-provider-id={provider.id}>
-      <TableCell data-label="Provider" className="min-w-0 align-middle py-4">
-        <div className="grid min-w-0 gap-1">
+      <TableCell data-label="Provider" className="min-w-0 align-middle py-5">
+        <div className="grid min-w-0 gap-1.5">
           <div className="flex min-w-0 flex-wrap items-center gap-2 font-medium leading-tight">
             <span>{provider.label}</span>
             <ProviderBacks provider={provider} isLeadOrchestrator={isLeadOrchestrator} />
           </div>
           {subLine === null ? null : (
-            <div className="text-xs leading-snug text-muted-foreground">{subLine}</div>
+            <div className="text-sm leading-snug text-muted-foreground">{subLine}</div>
           )}
         </div>
       </TableCell>
-      <TableCell data-label="Auth" className="min-w-0 align-middle py-4">
+      <TableCell data-label="Auth" className="min-w-0 align-middle py-5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {visibleAuthBadges.map((label) => (
             <Badge
@@ -1266,14 +1264,14 @@ function ProviderTableRow({
           )}
         </div>
       </TableCell>
-      <TableCell data-label="Models" className="min-w-0 align-middle py-4">
+      <TableCell data-label="Models" className="min-w-0 align-middle py-5">
         {models.first === null ? (
           <span className="text-muted-foreground">
             {provider.id === "openrouter" ? "Routes many" : "—"}
           </span>
         ) : (
-          <div className="grid min-w-0 gap-1">
-            <span className="break-words font-mono text-sm leading-tight" data-model>
+          <div className="grid min-w-0 gap-1.5">
+            <span className="whitespace-nowrap font-mono text-sm leading-tight" data-model>
               {models.first}
             </span>
             {modelOverflowCount === 0 ? null : (
@@ -1282,8 +1280,8 @@ function ProviderTableRow({
           </div>
         )}
       </TableCell>
-      <TableCell data-label="Status" className="min-w-0 align-middle py-4">
-        <div className="grid min-w-0 gap-1">
+      <TableCell data-label="Status" className="min-w-0 align-middle py-5">
+        <div className="grid min-w-0 gap-1.5">
           <span className="inline-flex min-w-0 items-center gap-2">
             <StatusDot status={provider.status} />
             <Badge variant={statusBadgeVariant(provider)} data-provider-status={provider.status}>
@@ -1291,13 +1289,13 @@ function ProviderTableRow({
             </Badge>
           </span>
           {statusDetails.length === 0 ? null : (
-            <div className="text-xs leading-snug text-muted-foreground">
+            <div className="text-sm leading-snug text-muted-foreground">
               {statusDetails.join(" · ")}
             </div>
           )}
         </div>
       </TableCell>
-      <TableCell data-label="Actions" className="align-middle py-4 text-right">
+      <TableCell data-label="Actions" className="align-middle py-5 text-right">
         <div className="grid justify-items-end gap-2">
           {provider.status === "connected" ? (
             <ProviderConnectedActions
@@ -1351,10 +1349,10 @@ function ProviderTable({
         <TableCaption className="sr-only">{TABLE_CAPTION}</TableCaption>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-1/4">Provider</TableHead>
-            <TableHead className="w-1/6">Auth</TableHead>
-            <TableHead className="w-1/5">Models</TableHead>
-            <TableHead className="w-1/4">Status</TableHead>
+            <TableHead className="w-[26%]">Provider</TableHead>
+            <TableHead className="w-[15%]">Auth</TableHead>
+            <TableHead className="w-[22%]">Models</TableHead>
+            <TableHead className="w-[25%]">Status</TableHead>
             <TableHead className="text-right whitespace-nowrap">
               <span className="sr-only">Actions</span>
             </TableHead>

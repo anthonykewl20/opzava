@@ -6,6 +6,10 @@ import {
   startGitHubDeviceFlowAction,
 } from "@/app/(app)/connections/actions";
 import { DeviceFlowPoller } from "@/components/connections/device-flow-poller";
+import {
+  GatewayHostsBadges,
+  OrchestratorHostsRefreshProvider,
+} from "@/components/connections/gateway-hosts";
 import { HealthCheckSubmitButton } from "@/components/connections/health-check-submit";
 import { ModelProvidersPanel } from "@/components/connections/model-providers-panel";
 import { loadConnectionsPageData, type ConnectionsPageData } from "@/lib/connections";
@@ -273,12 +277,6 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
   const notice = noticeFromSearchParams(params);
   const githubPendingFlow =
     data.snapshot.pendingDeviceFlows.find((flow) => flow.kind === "github") ?? null;
-  const connectedLeadProviders = data.providers.filter(
-    (provider) => provider.roleLabel === "Lead orchestrator" && provider.status === "connected",
-  );
-  const connectedSubagentProviders = data.providers.filter(
-    (provider) => provider.roleLabel === "Subagent" && provider.status === "connected",
-  );
   const gatewayActive = data.snapshot.gateway.status === "active";
   const gatewayCopy = gatewayActive ? null : gatewayUnavailableCopy(data.snapshot.gateway);
   const gatewayHeartbeat = relativeTime(data.snapshot.gateway.lastHeartbeatAt);
@@ -332,99 +330,79 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
           </div>
         </section>
 
-        <section aria-labelledby="gw-heading">
-          <div className="card connections-gateway-card">
-            <div className="card-header">
-              <div>
-                <h2 className="card-title" id="gw-heading">
-                  Gateway health
-                </h2>
-                <p className="hint">Opzava Gateway status, auth, and routing inventory.</p>
-              </div>
-              <span className={gatewayActive ? "badge badge-success" : "badge badge-warning"}>
-                {gatewayActive ? "Connected" : "Unavailable"}
-              </span>
-            </div>
-            <div className="card-body">
-              {gatewayCopy === null ? null : (
-                <div className="connections-notice connections-notice-warning" role="status">
-                  <span className="dot dot-warning" aria-hidden="true" />
-                  <div>
-                    <strong>{gatewayCopy}</strong>
-                    <p className="hint">
-                      Last heartbeat {gatewayHeartbeat}. Provider credentials remain stored
-                      server-side while the gateway reconnects.
-                    </p>
-                  </div>
+        <OrchestratorHostsRefreshProvider>
+          <section aria-labelledby="gw-heading">
+            <div className="card connections-gateway-card">
+              <div className="card-header">
+                <div>
+                  <h2 className="card-title" id="gw-heading">
+                    Gateway health
+                  </h2>
+                  <p className="hint">Opzava Gateway status, auth, and routing inventory.</p>
                 </div>
-              )}
-              <p className="connections-card-copy">
-                The gateway stores provider credentials server-side and routes agent turns to the
-                model providers below. Raw provider keys never reach the browser.
-              </p>
-              <dl className="connections-dl">
-                <dt>Status</dt>
-                <dd>
-                  <span className="u-row">
-                    <span
-                      className={gatewayActive ? "dot dot-success dot-beat" : "dot dot-warning"}
-                      aria-hidden="true"
-                    />
-                    {gatewayActive ? "Active" : "Unavailable"}
-                  </span>
-                </dd>
-                <dt>Auth</dt>
-                <dd>{data.snapshot.gateway.authLabel}</dd>
-                <dt>Catalog</dt>
-                <dd>
-                  {data.providerSummary.total} model providers · {data.providerSummary.connected}{" "}
-                  connected
-                </dd>
-                <dt>Last heartbeat</dt>
-                <dd className="u-mono">{gatewayHeartbeat}</dd>
-                {data.snapshot.gateway.region === null ? null : (
-                  <>
-                    <dt>Region</dt>
-                    <dd className="u-mono">{data.snapshot.gateway.region}</dd>
-                  </>
-                )}
-                <dt>Hosts</dt>
-                <dd>
-                  <div className="connections-actions">
-                    {connectedLeadProviders.length === 0 ? (
-                      <span className="badge">No connected lead orchestrator</span>
-                    ) : (
-                      connectedLeadProviders.map((provider) => (
-                        <span className="badge" key={provider.id}>
-                          <span className="u-sr-only">AI lead - </span>
-                          <span className="u-accent" aria-hidden="true">
-                            ✦
-                          </span>
-                          {provider.label} · LEAD ORCHESTRATOR
-                        </span>
-                      ))
-                    )}
-                    {connectedSubagentProviders.length === 0 ? (
-                      <span className="u-subtle">No connected subagent providers yet</span>
-                    ) : (
-                      connectedSubagentProviders.map((provider) => (
-                        <span className="badge" key={provider.id}>
-                          {provider.label} · SUBAGENT
-                        </span>
-                      ))
-                    )}
+                <span className={gatewayActive ? "badge badge-success" : "badge badge-warning"}>
+                  {gatewayActive ? "Connected" : "Unavailable"}
+                </span>
+              </div>
+              <div className="card-body">
+                {gatewayCopy === null ? null : (
+                  <div className="connections-notice connections-notice-warning" role="status">
+                    <span className="dot dot-warning" aria-hidden="true" />
+                    <div>
+                      <strong>{gatewayCopy}</strong>
+                      <p className="hint">
+                        Last heartbeat {gatewayHeartbeat}. Provider credentials remain stored
+                        server-side while the gateway reconnects.
+                      </p>
+                    </div>
                   </div>
-                </dd>
-              </dl>
+                )}
+                <p className="connections-card-copy">
+                  The gateway stores provider credentials server-side and routes agent turns to the
+                  model providers below. Raw provider keys never reach the browser.
+                </p>
+                <dl className="connections-dl">
+                  <dt>Status</dt>
+                  <dd>
+                    <span className="u-row">
+                      <span
+                        className={gatewayActive ? "dot dot-success dot-beat" : "dot dot-warning"}
+                        aria-hidden="true"
+                      />
+                      {gatewayActive ? "Active" : "Unavailable"}
+                    </span>
+                  </dd>
+                  <dt>Auth</dt>
+                  <dd>{data.snapshot.gateway.authLabel}</dd>
+                  <dt>Catalog</dt>
+                  <dd>
+                    {data.providerSummary.total} model providers · {data.providerSummary.connected}{" "}
+                    connected
+                  </dd>
+                  <dt>Last heartbeat</dt>
+                  <dd className="u-mono">{gatewayHeartbeat}</dd>
+                  {data.snapshot.gateway.region === null ? null : (
+                    <>
+                      <dt>Region</dt>
+                      <dd className="u-mono">{data.snapshot.gateway.region}</dd>
+                    </>
+                  )}
+                  <dt>Hosts</dt>
+                  {/* Host badge copy moved into GatewayHostsBadgesView, including {provider.label} · SUBAGENT. */}
+                  <dd>
+                    <GatewayHostsBadges providers={data.providers} />
+                  </dd>
+                </dl>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <ModelProvidersPanel
-          gatewayStatus={data.snapshot.gateway.status}
-          providers={data.providers}
-          summary={data.providerSummary}
-        />
+          <ModelProvidersPanel
+            gatewayStatus={data.snapshot.gateway.status}
+            providers={data.providers}
+            summary={data.providerSummary}
+          />
+        </OrchestratorHostsRefreshProvider>
 
         {/* DESCOPE(gateway-configuration): P8 PRD-013 keeps restart-gated gateway settings out of the shipped thin slice until those controls are backed by live data. */}
         {/* DESCOPE(provider-policy-catalogs): P8 PRD-013 omits catalog policy controls until auth-order editing and model catalog reads are implemented. */}

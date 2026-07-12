@@ -250,6 +250,7 @@ must be honest:
 - If no doer is assigned, the dispatcher asks Ask Admin Opzava to choose one.
 - `Assigned to` shows a named agent identity plus AI badge for agent doers.
 - A changes-requested review returns to the same doer unless a human explicitly reassigns.
+- AMENDMENT (2026-07-12): dispatch is OPT-IN. The bullet "If no doer is assigned, the dispatcher asks Ask Admin Opzava to choose one" is superseded: an unassigned Todo is NOT auto-dispatched. The Lead Orchestrator engages only on explicit `Assign To = Lead Orchestrator` or `@mention`; the default doer is local/manual (the admin's local Claude Code via hosted MCP). See grilling-decisions.md Q17 Amendment A.
 
 ## 7. Governed tool registry
 

@@ -730,6 +730,30 @@ Per slice:
 
 ## Worklog
 
+- 2026-07-12 (orchestrator) - Q17 AI-WORKFORCE ORCHESTRATION GRILLED + RESEARCHED (design-only, no
+  product code). Confirmed OpenClaw natively owns the delegation ENGINE (`sessions_spawn`/`subagents`/
+  `delegationMode`/announce); "proper orchestration" for the admin dev pipeline is the Q17 build, still
+  almost entirely unbuilt. Amended Q17 s6.3 to OPT-IN dispatch (orchestrator engages only on explicit
+  `Assign To = Lead Orchestrator`, never auto-grabs; default = local Claude Code via hosted MCP) - see
+  grilling-decisions.md Q17 Amendment A. Research file
+  `docs/plan/research/ai-workforce-workboard-mcp-expansion.md` maps OpenClaw Workboard as the native Q17
+  prototype (delta table), and corrects the "device auth like GitHub" requirement to STANDARD MCP OAuth
+  2.1 via Better Auth `oauth-provider`+`mcp` plugins (NOT RFC 8628 device grant; all of Claude Code /
+  Codex / OpenCode do browser OAuth) - see grilling-decisions.md Q17 Amendment B. Q17 stays sequenced
+  after live bring-up, before user-side Marketing; frontend/end-user orchestrator UX is a separate later
+  grilling. SPIKE DONE (live docker stack, no code/config change): triggered via
+  `openclaw agent --agent ask-admin-opzava --message ...`. Native delegation loop PROVEN end-to-end -
+  ask-admin (gpt-5.5) called `sessions_spawn`+`sessions_yield` (0 failures), a self-spawned gpt-5.5
+  child ran and its token SPIKE-OK-9Z8 announced back into the parent `agent:ask-admin-opzava:main`
+  session (visible in `openclaw tasks list`, `openclaw sessions --all-agents`, and on-disk trajectory
+  transcripts = the run-trace evidence Q17's AI Run tab will surface). TWO DEFECTS CAUGHT: (1)
+  `subagent-anthropic` (claude-opus-4-8) fails every delegation with `authentication_error: Invalid
+  bearer token` - its Anthropic static token is invalid; needs reconnect. (2) applying delegation left
+  ask-admin `tools.allow` = delegation-only (`sessions_spawn`/`subagents`/`group:sessions`), DROPPING
+  its `opzava_tasks_*`/CRM tools + minimal-profile deny-list (verified in live config; probable cause
+  `buildOrchestratorAgentConfig` replacing rather than merging the agent's tool policy) - orchestrator
+  can spawn but cannot currently do its Tasks/CRM job. The riskiest Q17 unknown (native primitive) is
+  GREEN; remaining Q17 work is lower-risk app plumbing (dispatcher, Assign-To, evidence, MCP OAuth).
 - 2026-07-12 - MAIN-ORCHESTRATOR REALTIME UI FIXED on branch `fix/connections-set-main-realtime`:
   connected provider row actions now live in an accessible dropdown menu, successful
   `Set as main orchestrator` mutations set an optimistic lead provider id with focus-safe

@@ -4,6 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import ConnectionsError from "../app/(app)/connections/error";
 import ConnectionsLoading from "../app/(app)/connections/loading";
+import {
+  GatewayHostsBadges,
+  GatewayHostsBadgesView,
+  OrchestratorHostsRefreshProvider,
+} from "../components/connections/gateway-hosts";
 import { ModelProvidersPanel } from "../components/connections/model-providers-panel";
 import type { ConnectionsPageData } from "../lib/connections";
 
@@ -65,10 +70,18 @@ function provider(
   };
 }
 
+function modelProvidersPanel(props: Parameters<typeof ModelProvidersPanel>[0]) {
+  return createElement(
+    OrchestratorHostsRefreshProvider,
+    null,
+    createElement(ModelProvidersPanel, props),
+  );
+}
+
 describe("Connections components", () => {
   it("renders provider states with host roles and repair guidance", () => {
     const html = renderToStaticMarkup(
-      createElement(ModelProvidersPanel, {
+      modelProvidersPanel({
         gatewayStatus: "active",
         providers: [
           provider({
@@ -121,7 +134,7 @@ describe("Connections components", () => {
 
   it("hides credential-looking provider account labels", () => {
     const html = renderToStaticMarkup(
-      createElement(ModelProvidersPanel, {
+      modelProvidersPanel({
         gatewayStatus: "active",
         providers: [
           provider({
@@ -156,7 +169,7 @@ describe("Connections components", () => {
 
   it("renders connected row actions as a menu while keeping available connect visible", () => {
     const html = renderToStaticMarkup(
-      createElement(ModelProvidersPanel, {
+      modelProvidersPanel({
         gatewayStatus: "active",
         providers: [
           provider({
@@ -197,7 +210,7 @@ describe("Connections components", () => {
 
   it("does not expose set-main copy for the current lead row", () => {
     const html = renderToStaticMarkup(
-      createElement(ModelProvidersPanel, {
+      modelProvidersPanel({
         gatewayStatus: "active",
         providers: [
           provider({
@@ -226,14 +239,14 @@ describe("Connections components", () => {
 
   it("renders distinct empty copy for active and unavailable gateways", () => {
     const activeHtml = renderToStaticMarkup(
-      createElement(ModelProvidersPanel, {
+      modelProvidersPanel({
         gatewayStatus: "active",
         providers: [],
         summary: emptySummary,
       }),
     );
     const unavailableHtml = renderToStaticMarkup(
-      createElement(ModelProvidersPanel, {
+      modelProvidersPanel({
         gatewayStatus: "unavailable",
         providers: [],
         summary: emptySummary,
@@ -261,5 +274,89 @@ describe("Connections components", () => {
     expect(errorHtml).toContain("token=[redacted]");
     expect(errorHtml).not.toContain("secret-value");
     expect(errorHtml).not.toContain("sk-live-secret");
+  });
+
+  it("renders gateway hosts from confirmed provider roles", () => {
+    const html = renderToStaticMarkup(
+      createElement(GatewayHostsBadgesView, {
+        isRefreshing: false,
+        providers: [
+          provider({
+            id: "openai",
+            label: "OpenAI",
+            status: "connected",
+            roleLabel: "Lead orchestrator",
+          }),
+          provider({
+            id: "anthropic",
+            label: "Anthropic",
+            status: "connected",
+            roleLabel: "Subagent",
+          }),
+        ],
+      }),
+    );
+
+    expect(html).toContain("LEAD ORCHESTRATOR");
+    expect(html).toContain("SUBAGENT");
+    expect(html).toContain("OpenAI");
+    expect(html).toContain("Anthropic");
+  });
+
+  it("renders gateway host skeletons while refreshing", () => {
+    const html = renderToStaticMarkup(
+      createElement(GatewayHostsBadgesView, {
+        isRefreshing: true,
+        providers: [
+          provider({
+            id: "openai",
+            label: "OpenAI",
+            status: "connected",
+            roleLabel: "Lead orchestrator",
+          }),
+          provider({
+            id: "anthropic",
+            label: "Anthropic",
+            status: "connected",
+            roleLabel: "Subagent",
+          }),
+        ],
+      }),
+    );
+
+    expect(html).toContain('data-slot="skeleton"');
+    expect(html).not.toContain("LEAD ORCHESTRATOR");
+  });
+
+  it("wires the hosts consumer to the refresh provider without throwing", () => {
+    // GatewayHostsBadges reads useOrchestratorHostsRefresh(); rendering it inside the provider
+    // proves the context wiring (a bare render throws). On the server isRefreshing is false, so it
+    // shows the confirmed split rather than the skeleton.
+    const html = renderToStaticMarkup(
+      createElement(
+        OrchestratorHostsRefreshProvider,
+        null,
+        createElement(GatewayHostsBadges, {
+          providers: [
+            provider({
+              id: "openai",
+              label: "OpenAI",
+              status: "connected",
+              roleLabel: "Lead orchestrator",
+            }),
+            provider({
+              id: "anthropic",
+              label: "Anthropic",
+              status: "connected",
+              roleLabel: "Subagent",
+            }),
+          ],
+        }),
+      ),
+    );
+
+    expect(html).toContain("LEAD ORCHESTRATOR");
+    expect(html).toContain("SUBAGENT");
+    expect(html).not.toContain('data-slot="skeleton"');
   });
 });

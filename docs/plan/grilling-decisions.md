@@ -474,6 +474,17 @@ doers can never touch Backlog, set Done, call reviewer-only tools, or merge; `re
 evidence; Review is adversarial orchestrator verification and still waits for human Done; CI red blocks Done/merge and the
 card stays in Review; named agent identity comes from token/provisioning policy, never from client-supplied text.
 Canonical slice contract: `docs/plan/consensus/tasks-ai-workforce-design.md`.
+**Amendment A (2026-07-12, session grilling):** dispatch is OPT-IN, not auto. The Lead Orchestrator (Ask Admin
+Opzava) engages ONLY on explicit `Assign To = Lead Orchestrator` (or `@mention`); an unassigned Todo is NOT
+auto-dispatched (default = local/manual, most work goes to the admin's local Claude Code via hosted MCP). This
+supersedes the "otherwise the orchestrator auto-dispatches" clause and contract s6.3 "if no doer is assigned, the
+dispatcher asks Ask Admin Opzava to choose one".
+**Amendment B (2026-07-12, session research):** the local-CLI MCP auth is STANDARD MCP OAuth 2.1 (Better Auth
+`oauth-provider` + `mcp` plugins as the authorization server; auth-code + PKCE + RFC 9728 Protected Resource
+Metadata), NOT a bespoke GitHub-style RFC 8628 device grant. Claude Code / Codex / OpenCode all connect to remote
+authenticated MCP via browser OAuth. This fixes Q16's literal "true device-authorization flow" target (Q16 asked to
+validate against current Better Auth docs at the tripwire, which this did). Device grant stays an optional fallback
+only for a browserless box. Grounding: `docs/plan/research/ai-workforce-workboard-mcp-expansion.md`.
 
 ---
 

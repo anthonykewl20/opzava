@@ -2,6 +2,7 @@ node_modules/
 .next/
 .turbo/
 dist/
+dist-runtime/
 build/
 coverage/
 *.tsbuildinfo
@@ -12,6 +13,9 @@ coverage/
 .DS_Store
 secrets/*
 !secrets/*.example
+
+# Agent scratch
+.claude/tmp/
 
 # Playwright
 test-results/
