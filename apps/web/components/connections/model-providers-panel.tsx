@@ -616,14 +616,7 @@ function SetMainOrchestratorConfirm({
     startRefreshTransition(() => {
       router.refresh();
     });
-  }, [
-    controlledOpen,
-    onOpenChange,
-    onSetMainSuccess,
-    provider.id,
-    router,
-    startRefreshTransition,
-  ]);
+  }, [controlledOpen, onOpenChange, onSetMainSuccess, provider.id, router, startRefreshTransition]);
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>

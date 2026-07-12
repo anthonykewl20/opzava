@@ -1,8 +1,10 @@
 # Opzava Execution Control
 
-This is the single living control doc for building Opzava. An active or autonomous agent reads this first, executes the first unchecked slice only, and updates this file as reality changes.
+This is the single living control doc for building Opzava. An active or autonomous agent reads this
+first, executes the first unchecked slice only, and updates this file as reality changes.
 
-This doc supersedes the generic walking-skeleton MVP in `docs/plan/roadmap.md`. The MVP is now the admin-side Tasks board: dogfood Opzava to build Opzava.
+This doc supersedes the generic walking-skeleton MVP in `docs/plan/roadmap.md`. The MVP is now the
+admin-side Tasks board: dogfood Opzava to build Opzava.
 
 ## How To Use This Doc
 
@@ -12,114 +14,168 @@ This doc supersedes the generic walking-skeleton MVP in `docs/plan/roadmap.md`. 
 2. Read `ARCHITECTURE.md` and `CLAUDE.md` before touching code.
 3. Find the first unchecked slice under Current State and The Build. Never skip ahead.
 4. Load that slice's listed Skills before implementation.
-5. If a listed Skill is in Skills To Build and is not yet created, author it first with the `writing-great-skills` skill, then use it for the slice.
-6. Validate APIs against official docs before coding: `docs/plan/official-docs.md`, `docs/openclaw`, and current framework/library docs.
+5. If a listed Skill is in Skills To Build and is not yet created, author it first with the
+   `writing-great-skills` skill, then use it for the slice.
+6. Validate APIs against official docs before coding: `docs/plan/official-docs.md`, `docs/openclaw`,
+   and current framework/library docs.
 7. Implement only that slice. Keep changes inside the slice's bounded contexts and deliverables.
 8. Use `tdd` while implementing and verify thoroughly before marking the slice done.
-9. Run the slice Acceptance / usable-signal exactly as written, THEN the mandatory `senior-qa` GATE (`node real-world-validate.local.mjs` on the real local stack, loop until 2 consecutive clean passes, exit 0). A slice is NEVER Done on mocks, minted sessions, or synthetic data - the gate's exit code is the verdict, not the narrative.
+9. Run the slice Acceptance / usable-signal exactly as written, THEN the mandatory `senior-qa` GATE
+   (`node real-world-validate.local.mjs` on the real local stack, loop until 2 consecutive clean
+   passes, exit 0). A slice is NEVER Done on mocks, minted sessions, or synthetic data - the gate's
+   exit code is the verdict, not the narrative.
 10. Tick deliverable checkboxes only after they match reality.
-11. Set the slice Status, update Current State, append a dated Worklog entry, and keep this doc in sync.
+11. Set the slice Status, update Current State, append a dated Worklog entry, and keep this doc in
+    sync.
 12. Commit after the doc and code match reality.
 13. Stop or continue from the next unchecked slice. Use `handoff` for clean start/stop/resume.
 
-Do not let this document become aspirational. If implementation changes the plan, update this document in the same slice.
+Do not let this document become aspirational. If implementation changes the plan, update this
+document in the same slice.
 
-**Mockup functional parity (user directive, 2026-07-03):** every visible element on a mockup screen a slice implements MUST function live - real data, real interactions; no dead buttons, no decorative chrome, no fake/placeholder data. If an element's backing capability is not yet built, the slice either builds it or the element is explicitly descoped IN THIS DOC with its arrival phase. Silent non-functionality is a bug.
+**Mockup functional parity (user directive, 2026-07-03):** every visible element on a mockup screen
+a slice implements MUST function live - real data, real interactions; no dead buttons, no decorative
+chrome, no fake/placeholder data. If an element's backing capability is not yet built, the slice
+either builds it or the element is explicitly descoped IN THIS DOC with its arrival phase. Silent
+non-functionality is a bug.
 
-**Mockup VISUAL parity (user directive, 2026-07-03, later same day):** the rendered design must be **100% parity with the HTML mockup** - the mockup IS the design. Screens replicate the mockup DOM structure and classes driven by live data, styled by the ported mockup stylesheets (`ux-redesign/mockups/{tokens,app,shadcn}.css`), and are verified by side-by-side screenshots (mockup file vs live page). Tailwind-approximation of a mockup is a bug even when functional. Remediation of already-built screens is tracked in Slice 3 (see worklog).
+**Mockup VISUAL parity (user directive, 2026-07-03, later same day):** the rendered design must be
+**100% parity with the HTML mockup** - the mockup IS the design. Screens replicate the mockup DOM
+structure and classes driven by live data, styled by the ported mockup stylesheets
+(`ux-redesign/mockups/{tokens,app,shadcn}.css`), and are verified by side-by-side screenshots
+(mockup file vs live page). Tailwind-approximation of a mockup is a bug even when functional.
+Remediation of already-built screens is tracked in Slice 3 (see worklog).
 
-**SeniorQA final validation (user directive, 2026-07-04):** slices were falsely reported complete/working/deployed while the live stack was broken (acceptance passed via mocks + minted sessions). Therefore: the FINAL validation of EVERY slice/issue is the `senior-qa` GATE - automated user-level drives of the REAL local docker stack (`http://web.opzava.localhost:18088`) with REAL form login (minted sessions banned), REAL data (mocks/synthetic banned), REAL visual screenshots, and ITERATIVE full sweeps looping until 2 consecutive clean passes (`node real-world-validate.local.mjs`; exit 0 = Done-eligible, anything else = NOT Done; routes auto-discovered from the live nav so gaps cannot hide; findings include console errors, 5xx/404s, error states, empty pages, failed write round-trips, and service-log ground truth). TDD (unit/mock/mutation) gates development only - NEVER final acceptance. Every UI slice ships/extends a `*-drive.local.mjs` exercising its own real flows. SeniorQA PROBE (`node senior-qa-probe.local.mjs`) is exploratory and files findings; it never replaces the gate. These instructions are deliberately executor-agnostic with zero ambiguity: any assigned model (Claude, GPT 5.5 via codex-exec, GLM, ...) follows the same WHAT/HOW-TO-TEST/HOW-TO-VALIDATE and the exit code - not the narrative - is the verdict.
+**SeniorQA final validation (user directive, 2026-07-04):** slices were falsely reported
+complete/working/deployed while the live stack was broken (acceptance passed via mocks + minted
+sessions). Therefore: the FINAL validation of EVERY slice/issue is the `senior-qa` GATE - automated
+user-level drives of the REAL local docker stack (`http://web.opzava.localhost:18088`) with REAL
+form login (minted sessions banned), REAL data (mocks/synthetic banned), REAL visual screenshots,
+and ITERATIVE full sweeps looping until 2 consecutive clean passes
+(`node real-world-validate.local.mjs`; exit 0 = Done-eligible, anything else = NOT Done; routes
+auto-discovered from the live nav so gaps cannot hide; findings include console errors, 5xx/404s,
+error states, empty pages, failed write round-trips, and service-log ground truth). TDD
+(unit/mock/mutation) gates development only - NEVER final acceptance. Every UI slice ships/extends a
+`*-drive.local.mjs` exercising its own real flows. SeniorQA PROBE (`node senior-qa-probe.local.mjs`)
+is exploratory and files findings; it never replaces the gate. These instructions are deliberately
+executor-agnostic with zero ambiguity: any assigned model (Claude, GPT 5.5 via codex-exec, GLM, ...)
+follows the same WHAT/HOW-TO-TEST/HOW-TO-VALIDATE and the exit code - not the narrative - is the
+verdict.
 
-**CRM placement (user directive, 2026-07-04):** CRM is NEVER an admin-dashboard surface. Its permanent home is the user-side dashboard (future surface family). The `/crm/*` routes currently in the admin app are a TEMPORARY Slice-3 parking spot pending relocation; no new CRM surfaces may be added to the admin dashboard, and the Control-UI port program excludes CRM entirely.
+**CRM placement (user directive, 2026-07-04):** CRM is NEVER an admin-dashboard surface. Its
+permanent home is the user-side dashboard (future surface family). The `/crm/*` routes currently in
+the admin app are a TEMPORARY Slice-3 parking spot pending relocation; no new CRM surfaces may be
+added to the admin dashboard, and the Control-UI port program excludes CRM entirely.
 
-**Ask-surface bounds (user directive, 2026-07-04):** "Ask Admin Opzava" is the ADMIN-facing chat (admin dashboard; WebChat-parity port row #14). "Ask Opzava" is the USER-facing assistant (user-dashboard family, with CRM). Bounded strictly by audience - never mix the names or surfaces. This settles the mockup disagreement in favor of orchestrator-chat.html ("Ask Admin Opzava"); task-board.html corrected per mockup-revision-first. Known naming debt: the admin route/components are still named `/ask-opzava` - rename to match at the row-#14 port slice, not before (live sessions + gate reference the current route).
+**Ask-surface bounds (user directive, 2026-07-04):** "Ask Admin Opzava" is the ADMIN-facing chat
+(admin dashboard; WebChat-parity port row #14). "Ask Opzava" is the USER-facing assistant
+(user-dashboard family, with CRM). Bounded strictly by audience - never mix the names or surfaces.
+This settles the mockup disagreement in favor of orchestrator-chat.html ("Ask Admin Opzava");
+task-board.html corrected per mockup-revision-first. Known naming debt: the admin route/components
+are still named `/ask-opzava` - rename to match at the row-#14 port slice, not before (live
+sessions + gate reference the current route).
 
 ## Current State
 
-| Field | Value |
-| --- | --- |
-| Active slice | Slice 3.7 - PORT OpenClaw Control UI -> Opzava admin dashboard (program spec: `docs/plan/consensus/port-openclaw-control-ui-program.md`, amended by Q18; folds in 3.6 standardization) -> THEN Dokploy VPS bring-up (gated on user buying `opzava.app`). Mainframe-move slice (Q18/ADR-016, issue #126) DONE 2026-07-04: gateway builds+runs from `./mainframe`, SeniorQA gate DONE-ELIGIBLE. |
-| Status | in-progress (3.7; move slice done) |
-| Port program (user 2026-07-04) | User cloned OpenClaw into `docs/openclaw/clone`; its Control UI (`ui/`, Lit+Vite; port table = 14 rows: models-providers/overview/agents/sessions/usage/logs/mcp/cron/nodes/skills/channels/config/debug-exec-approval-dreaming + Ask Admin WebChat #14; OpenClaw's workboard view is NOT ported) is the AUTHORITATIVE reference. Re-implement each view in Opzava shadcn/React THROUGH the broker/worker ACL (no direct-to-gateway, no OpenClaw types in web), restyled to our dashboard, verified via real login + real LOGS. View-by-view; do NOT boil the ocean. FIRST slice: #1 Models & Providers (fixes Connections: canonical providers per docs/openclaw/providers, runtimes under parent, z.AI/OpenRouter, real models, real onboard connect). Stop inventing surfaces - mirror OpenClaw's real model/config/auth shape. Q18 amendments (2026-07-04): +row #14 Ask Admin = WebChat parity (`docs/openclaw/web/webchat.md`: chat.history/send/inject/message.get via broker, sessionId continuity, idempotent send coalescing, truncation side-reader, compaction dividers); OpenClaw workboard NOT ported (Opzava Tasks IS the workboard, Q17); design contract = mockup-revision-first (OpenClaw view defines WHAT, mockup defines LOOK; reconcile the mockup to the OpenClaw reference FIRST, then implement to screenshot parity; author missing mockups before implementing; `/senior-frontend` mandatory; bar = calm, user-friendly, optimal UX); Tasks/Issues/Ask-Admin retained as Opzava-native surfaces. |
-| Next concrete action | **2026-07-11 update:** Connections connect/disconnect HARDENED + live-proven this session - async api-key connect (browser-poll, realtime row flip), disconnect replacePaths fix, restart-tolerant post-checks; see the 2026-07-11 worklog entry (uncommitted). **RESUME POINT (paused 2026-07-05 EOD).** Slice 3.7 view #1 (Models & Providers) is FUNCTIONALLY DONE + HARDENED on branch `slice/4-marketing-content-pipeline` — 4 commits: c9d180da (port) → 4102f93d (full-shadcn tabbed rework) → 728a5f7a (agnostic disconnect/manage/models + disconnect confirm) → f8d0b765 (in-browser device-flow OAuth connect, async). Live-verified: grouped/curated LLM catalog in shadcn Tabs (Frontier/Bundles/Best-Subagents/Other), config-driven models (openai gpt-5.5, zai glm-5.2), agnostic Disconnect (both stores + shadcn AlertDialog confirm), and in-browser device-flow connect for GPT/Codex (worker drives OpenClaw's real CLI login via detached `/usr/bin/script` PTY, async browser-poll, glm-max-effort security-reviewed). Local stack is UP. **OPEN for tomorrow (in order):** (a) USER authorizes a real ChatGPT/Codex account through the UI device-flow to prove the full live round-trip flips OpenAI → Connected (mechanism verified, no real account authorized yet — watch worker/gateway logs during); (b) verify/extend **Claude/Anthropic** connect — it uses OpenClaw `setup-token` (subscription), a DIFFERENT auth method than `--device-code`; check if it's device-code-drivable or needs its own path; (c) RE-RUN the `senior-qa` GATE (`node real-world-validate.local.mjs`; last full pass `slice3.7-gate-v2` predates the device-flow commits — re-run to cover them, exit 0); (d) THEN Slice 3.7 view #2 Overview (`overview.ts` + overview-cards/attention/event-log/hints/log-tail via the ACL; reconcile/author a mockup, implement, prove). Design/security/reliability specs: `docs/plan/consensus/slice3.7-*` (spec, reviews, device-flow-{connect-spec,async-redesign,review.glm}). Memory: `opzava-slice37-models-providers`. Dokploy bring-up checklist (later, on user go): buy `opzava.app`, wildcard A -> 5.189.186.18, create Dokploy project from the repo (builds all images on-box; pre-agreed CI->ghcr fallback for the mainframe image), Traefik+LE on 443 + local mkcert TLS parity (compose currently has NO profiles key - see ARCHITECTURE.md deployment topology), verify wss live, rotate the Dokploy API key + panel TLS. |
-| Prior action context (historical, pre-Q18) | Slice 3.5 LIVE BRING-UP largely DONE (this session, on `slice/4-marketing-content-pipeline`; commits 708e7a2/0cc8373/6121d0b/579fcf4): full stack now runs from one `docker compose up` (web+gateway-broker+provisioning-worker+docker-socket-proxy+openclaw-gateway+postgres+minio). LIVE+verified at USER LEVEL: Tasks+CRM (org "Anito" seeded), Issues (GITHUB_TOKEN sync + redesign), Connections "Opzava Gateway" (REAL status/heartbeat/catalog=18 providers/health-check; dedicated worker operator device; operator.admin ESTABLISHED via durable device-store bootstrap; config.patch shape fixed {raw,baseHash}; EXEC=1 on socket-proxy for onboard-exec connect). Ask Admin broker CONNECTED+AUTHORIZED (needs user Codex OAuth sign-in for model replies). Q17 (Tasks-as-AI-Workforce) GRILLED+recorded. IN FLIGHT (codex-exec bm88qgcd4): Connections v2 (shadcn Tabs/Dialog + real onboard-exec provider connect). NOW: user directive = WHOLE-CODEBASE standardization + full documentation (frontend design-system single-source + shadcn catalog; backend service/ports/error standardization; database RLS/migration/data-model standardization; overall-app routes/flows/deps docs) so NO agent is blinded. Let v2 land + fold in, then execute the standardization spec A->D, verify thoroughly, commit. Marketing (Slice 4) still DEFERRED. |
-| Blockers | None for the move slice. Dokploy bring-up is gated on the user buying `opzava.app` (at live-dev push) and rotating the Dokploy API key (`secrets/dokploy.env`, untracked). (Some surfaces gated on user-interactive credentials: Codex OAuth for Ask Admin model, GitHub OAuth-app client_id for Connect-GitHub device flow, real provider API keys for provider connect) |
+| Field                                      | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Active slice                               | Slice 3.7 - PORT OpenClaw Control UI -> Opzava admin dashboard (program spec: `docs/plan/consensus/port-openclaw-control-ui-program.md`, amended by Q18; folds in 3.6 standardization) -> THEN Dokploy VPS bring-up (gated on user buying `opzava.app`). Mainframe-move slice (Q18/ADR-016, issue #126) DONE 2026-07-04: gateway builds+runs from `./mainframe`, SeniorQA gate DONE-ELIGIBLE.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Status                                     | in-progress (3.7; move slice done)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Port program (user 2026-07-04)             | User cloned OpenClaw into `docs/openclaw/clone`; its Control UI (`ui/`, Lit+Vite; port table = 14 rows: models-providers/overview/agents/sessions/usage/logs/mcp/cron/nodes/skills/channels/config/debug-exec-approval-dreaming + Ask Admin WebChat #14; OpenClaw's workboard view is NOT ported) is the AUTHORITATIVE reference. Re-implement each view in Opzava shadcn/React THROUGH the broker/worker ACL (no direct-to-gateway, no OpenClaw types in web), restyled to our dashboard, verified via real login + real LOGS. View-by-view; do NOT boil the ocean. FIRST slice: #1 Models & Providers (fixes Connections: canonical providers per docs/openclaw/providers, runtimes under parent, z.AI/OpenRouter, real models, real onboard connect). Stop inventing surfaces - mirror OpenClaw's real model/config/auth shape. Q18 amendments (2026-07-04): +row #14 Ask Admin = WebChat parity (`docs/openclaw/web/webchat.md`: chat.history/send/inject/message.get via broker, sessionId continuity, idempotent send coalescing, truncation side-reader, compaction dividers); OpenClaw workboard NOT ported (Opzava Tasks IS the workboard, Q17); design contract = mockup-revision-first (OpenClaw view defines WHAT, mockup defines LOOK; reconcile the mockup to the OpenClaw reference FIRST, then implement to screenshot parity; author missing mockups before implementing; `/senior-frontend` mandatory; bar = calm, user-friendly, optimal UX); Tasks/Issues/Ask-Admin retained as Opzava-native surfaces.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Next concrete action                       | **2026-07-11 update:** Connections connect/disconnect HARDENED + live-proven this session - async api-key connect (browser-poll, realtime row flip), disconnect replacePaths fix, restart-tolerant post-checks; see the 2026-07-11 worklog entry (uncommitted). **RESUME POINT (paused 2026-07-05 EOD).** Slice 3.7 view #1 (Models & Providers) is FUNCTIONALLY DONE + HARDENED on branch `slice/4-marketing-content-pipeline` — 4 commits: c9d180da (port) → 4102f93d (full-shadcn tabbed rework) → 728a5f7a (agnostic disconnect/manage/models + disconnect confirm) → f8d0b765 (in-browser device-flow OAuth connect, async). Live-verified: grouped/curated LLM catalog in shadcn Tabs (Frontier/Bundles/Best-Subagents/Other), config-driven models (openai gpt-5.5, zai glm-5.2), agnostic Disconnect (both stores + shadcn AlertDialog confirm), and in-browser device-flow connect for GPT/Codex (worker drives OpenClaw's real CLI login via detached `/usr/bin/script` PTY, async browser-poll, glm-max-effort security-reviewed). Local stack is UP. **OPEN for tomorrow (in order):** (a) USER authorizes a real ChatGPT/Codex account through the UI device-flow to prove the full live round-trip flips OpenAI → Connected (mechanism verified, no real account authorized yet — watch worker/gateway logs during); (b) verify/extend **Claude/Anthropic** connect — it uses OpenClaw `setup-token` (subscription), a DIFFERENT auth method than `--device-code`; check if it's device-code-drivable or needs its own path; (c) RE-RUN the `senior-qa` GATE (`node real-world-validate.local.mjs`; last full pass `slice3.7-gate-v2` predates the device-flow commits — re-run to cover them, exit 0); (d) THEN Slice 3.7 view #2 Overview (`overview.ts` + overview-cards/attention/event-log/hints/log-tail via the ACL; reconcile/author a mockup, implement, prove). Design/security/reliability specs: `docs/plan/consensus/slice3.7-*` (spec, reviews, device-flow-{connect-spec,async-redesign,review.glm}). Memory: `opzava-slice37-models-providers`. Dokploy bring-up checklist (later, on user go): buy `opzava.app`, wildcard A -> 5.189.186.18, create Dokploy project from the repo (builds all images on-box; pre-agreed CI->ghcr fallback for the mainframe image), Traefik+LE on 443 + local mkcert TLS parity (compose currently has NO profiles key - see ARCHITECTURE.md deployment topology), verify wss live, rotate the Dokploy API key + panel TLS. |
+| Prior action context (historical, pre-Q18) | Slice 3.5 LIVE BRING-UP largely DONE (this session, on `slice/4-marketing-content-pipeline`; commits 708e7a2/0cc8373/6121d0b/579fcf4): full stack now runs from one `docker compose up` (web+gateway-broker+provisioning-worker+docker-socket-proxy+openclaw-gateway+postgres+minio). LIVE+verified at USER LEVEL: Tasks+CRM (org "Anito" seeded), Issues (GITHUB_TOKEN sync + redesign), Connections "Opzava Gateway" (REAL status/heartbeat/catalog=18 providers/health-check; dedicated worker operator device; operator.admin ESTABLISHED via durable device-store bootstrap; config.patch shape fixed {raw,baseHash}; EXEC=1 on socket-proxy for onboard-exec connect). Ask Admin broker CONNECTED+AUTHORIZED (needs user Codex OAuth sign-in for model replies). Q17 (Tasks-as-AI-Workforce) GRILLED+recorded. IN FLIGHT (codex-exec bm88qgcd4): Connections v2 (shadcn Tabs/Dialog + real onboard-exec provider connect). NOW: user directive = WHOLE-CODEBASE standardization + full documentation (frontend design-system single-source + shadcn catalog; backend service/ports/error standardization; database RLS/migration/data-model standardization; overall-app routes/flows/deps docs) so NO agent is blinded. Let v2 land + fold in, then execute the standardization spec A->D, verify thoroughly, commit. Marketing (Slice 4) still DEFERRED.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Blockers                                   | None for the move slice. Dokploy bring-up is gated on the user buying `opzava.app` (at live-dev push) and rotating the Dokploy API key (`secrets/dokploy.env`, untracked). (Some surfaces gated on user-interactive credentials: Codex OAuth for Ask Admin model, GitHub OAuth-app client_id for Connect-GitHub device flow, real provider API keys for provider connect)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ## Operating Mode
 
-Opzava runs single-tenant internally first to market and promote Opzava itself. The scale-ready multi-tenant architecture is retained and runs one tenant now; Opzava is not a public multi-tenant SaaS yet. The first business-value build after the admin-Tasks MVP is Marketing + CRM.
+Opzava runs single-tenant internally first to market and promote Opzava itself. The scale-ready
+multi-tenant architecture is retained and runs one tenant now; Opzava is not a public multi-tenant
+SaaS yet. The first business-value build after the admin-Tasks MVP is Marketing + CRM.
 
 ## Reference Map
 
-| Reference | Use |
-| --- | --- |
-| `ARCHITECTURE.md` | System overview: bounded contexts, ports, invariants, deployment topology, ADR index. |
-| `CONTEXT.md` | Canonical glossary (ubiquitous language). Use these terms exactly; on conflict, CONTEXT.md wins. |
-| `docs/plan/roadmap.md` | Phase detail after the admin Tasks MVP; this doc controls execution order. |
-| `docs/plan/grilling-decisions.md` | Locked design record and sad-path invariants from Q1-Q16. |
-| `docs/plan/official-docs.md` | Official documentation registry; validate every API against it before coding. |
-| `docs/adr/` | Accepted architecture decisions ADR-001 through ADR-016. |
-| `docs/prd/` | Product contracts PRD-001 through PRD-018. |
-| `docs/plan/capability-parity.md` | OpenClaw-native vs Opzava-owned vs hybrid capability map. |
-| `docs/openclaw/` | Vendored OpenClaw docs; harness native capabilities, do not reinvent them. |
-| `docs/plan/backlog.md` | Initial ADR/PRD dependency backlog; planning input only — this doc controls order. |
-| `docs/plan/consensus/` | Frozen consensus memos (evidence trail; see its README — never current truth). |
-| `docs/plan/research/` | Frozen research memos incl. locked version pins (see its README). |
-| `docs/plan/audits/` | Dated docs-audit reports. |
-| `docs/runbooks/` | Operational runbooks (platform Gateway bring-up, pairing, model auth). |
-| `docs/ux-law/` | Curated UX reference library for frontend/design work (PRD-017). |
-| `ux-redesign/mockups/` | Canonical screen mockups; UI slices design to these with tokens from `style-guide.html` (PRD-017 contract). |
+| Reference                         | Use                                                                                                         |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `ARCHITECTURE.md`                 | System overview: bounded contexts, ports, invariants, deployment topology, ADR index.                       |
+| `CONTEXT.md`                      | Canonical glossary (ubiquitous language). Use these terms exactly; on conflict, CONTEXT.md wins.            |
+| `docs/plan/roadmap.md`            | Phase detail after the admin Tasks MVP; this doc controls execution order.                                  |
+| `docs/plan/grilling-decisions.md` | Locked design record and sad-path invariants from Q1-Q16.                                                   |
+| `docs/plan/official-docs.md`      | Official documentation registry; validate every API against it before coding.                               |
+| `docs/adr/`                       | Accepted architecture decisions ADR-001 through ADR-016.                                                    |
+| `docs/prd/`                       | Product contracts PRD-001 through PRD-018.                                                                  |
+| `docs/plan/capability-parity.md`  | OpenClaw-native vs Opzava-owned vs hybrid capability map.                                                   |
+| `docs/openclaw/`                  | Vendored OpenClaw docs; harness native capabilities, do not reinvent them.                                  |
+| `docs/plan/backlog.md`            | Initial ADR/PRD dependency backlog; planning input only — this doc controls order.                          |
+| `docs/plan/consensus/`            | Frozen consensus memos (evidence trail; see its README — never current truth).                              |
+| `docs/plan/research/`             | Frozen research memos incl. locked version pins (see its README).                                           |
+| `docs/plan/audits/`               | Dated docs-audit reports.                                                                                   |
+| `docs/runbooks/`                  | Operational runbooks (platform Gateway bring-up, pairing, model auth).                                      |
+| `docs/ux-law/`                    | Curated UX reference library for frontend/design work (PRD-017).                                            |
+| `ux-redesign/mockups/`            | Canonical screen mockups; UI slices design to these with tokens from `style-guide.html` (PRD-017 contract). |
 
 ## Skills
 
 ### Available Skills
 
-| Area | Skills |
-| --- | --- |
-| Frontend | `nextjs`, `senior-frontend`, `frontend` |
-| Backend | `nodejs`, `postgres`, `redis`, `bullmq`, `socketio` |
-| Infra | `docker`, `dokploy` |
-| Design | `codebase-design`, `domain-modeling`, `architecture` |
-| Quality | `tdd`, `verify-dont-assume`, `code-review`, `review`, `senior-qa` (MANDATORY final gate + exploratory probe) |
-| Process | `implement`, `handoff`, `prototype`, `setup-pre-commit`, `to-issues` |
+| Area     | Skills                                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------------------------ |
+| Frontend | `nextjs`, `senior-frontend`, `frontend`                                                                      |
+| Backend  | `nodejs`, `postgres`, `redis`, `bullmq`, `socketio`                                                          |
+| Infra    | `docker`, `dokploy`                                                                                          |
+| Design   | `codebase-design`, `domain-modeling`, `architecture`                                                         |
+| Quality  | `tdd`, `verify-dont-assume`, `code-review`, `review`, `senior-qa` (MANDATORY final gate + exploratory probe) |
+| Process  | `implement`, `handoff`, `prototype`, `setup-pre-commit`, `to-issues`                                         |
 
 ### Skills To Build
 
 Author each skill with `writing-great-skills` before the first slice that needs it.
 
-| Skill | Why | When needed | Status |
-| --- | --- | --- | --- |
-| `openclaw-broker` | Captures the WS operator protocol client, two-token model, stream relay, tenant routing, idempotency, and broker ACL rules. | Slice 0, Slice 2 | [x] created — `.claude/skills/openclaw-broker/` |
-| `openclaw-gateway-provisioning` | Captures docker-socket-proxy usage, `GatewayRuntimePort`, dynamic Gateway containers, Traefik labels, leases, and reaper constraints. | Slice 0 | [x] created — `.claude/skills/openclaw-gateway-provisioning/` |
-| `better-auth` | Captures Better Auth behind `AuthPort`, revocable DB sessions, TOTP/passkeys, disabled cookie cache, and in-transaction invitation re-validation. | Slice 1 | [x] created — `.claude/skills/better-auth/` |
-| `opzava-conventions` | Project skill for `withTenant` RLS wrapper, two-token split, projections-are-cache, tool-policy-first, and other local invariants. | Slice 1 | [x] created — `.claude/skills/opzava-conventions/` |
-| `opzava-task-authoring` | How agents (Ask Admin, local Claude Code via MCP) write task cards humans understand: imperative titles, context/impact/evidence descriptions, verifiable steps with owners, status-forward comments, label/priority semantics. | Slice 2.5 | [x] created — `.claude/skills/opzava-task-authoring/` |
-| `senior-qa` | MANDATORY final GATE (user directive 2026-07-04): automated user-level validation on the real local stack - real login, real data, real visuals, iterative loop-until-clean via `real-world-validate.local.mjs`; plus bounded exploratory PROBE runs via `senior-qa-probe.local.mjs`. Kills the mock-passed false-positive class and captures black-box QA findings. | Every slice, immediately | [x] created - `.claude/skills/senior-qa/` |
-| `glm-exec` | Delegate artifact generation to GLM 5.2 (z.AI) via the user's `claude-glm` setup (stock claude CLI, separate `~/.claude-glm` config dir), same wrapper+digest contract as `codex-exec`, so slices can be assigned to Claude/GPT/GLM interchangeably under the same gated workflow + senior-qa verdict. | Now (multi-executor orchestration) | [x] created + LIVE-verified (doctor READY, real z.AI ping) - `~/.claude/skills/glm-exec/` + `~/.claude/scripts/glm-exec.sh` |
+| Skill                           | Why                                                                                                                                                                                                                                                                                                                                                                  | When needed                        | Status                                                                                                                      |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `openclaw-broker`               | Captures the WS operator protocol client, two-token model, stream relay, tenant routing, idempotency, and broker ACL rules.                                                                                                                                                                                                                                          | Slice 0, Slice 2                   | [x] created — `.claude/skills/openclaw-broker/`                                                                             |
+| `openclaw-gateway-provisioning` | Captures docker-socket-proxy usage, `GatewayRuntimePort`, dynamic Gateway containers, Traefik labels, leases, and reaper constraints.                                                                                                                                                                                                                                | Slice 0                            | [x] created — `.claude/skills/openclaw-gateway-provisioning/`                                                               |
+| `better-auth`                   | Captures Better Auth behind `AuthPort`, revocable DB sessions, TOTP/passkeys, disabled cookie cache, and in-transaction invitation re-validation.                                                                                                                                                                                                                    | Slice 1                            | [x] created — `.claude/skills/better-auth/`                                                                                 |
+| `opzava-conventions`            | Project skill for `withTenant` RLS wrapper, two-token split, projections-are-cache, tool-policy-first, and other local invariants.                                                                                                                                                                                                                                   | Slice 1                            | [x] created — `.claude/skills/opzava-conventions/`                                                                          |
+| `opzava-task-authoring`         | How agents (Ask Admin, local Claude Code via MCP) write task cards humans understand: imperative titles, context/impact/evidence descriptions, verifiable steps with owners, status-forward comments, label/priority semantics.                                                                                                                                      | Slice 2.5                          | [x] created — `.claude/skills/opzava-task-authoring/`                                                                       |
+| `senior-qa`                     | MANDATORY final GATE (user directive 2026-07-04): automated user-level validation on the real local stack - real login, real data, real visuals, iterative loop-until-clean via `real-world-validate.local.mjs`; plus bounded exploratory PROBE runs via `senior-qa-probe.local.mjs`. Kills the mock-passed false-positive class and captures black-box QA findings. | Every slice, immediately           | [x] created - `.claude/skills/senior-qa/`                                                                                   |
+| `glm-exec`                      | Delegate artifact generation to GLM 5.2 (z.AI) via the user's `claude-glm` setup (stock claude CLI, separate `~/.claude-glm` config dir), same wrapper+digest contract as `codex-exec`, so slices can be assigned to Claude/GPT/GLM interchangeably under the same gated workflow + senior-qa verdict.                                                               | Now (multi-executor orchestration) | [x] created + LIVE-verified (doctor READY, real z.AI ping) - `~/.claude/skills/glm-exec/` + `~/.claude/scripts/glm-exec.sh` |
 
 ## The Build
 
-Execute slices in order. Slice 1 is the dogfood MVP. From Slice 1 onward, all phase work is tracked inside the admin Tasks board.
+Execute slices in order. Slice 1 is the dogfood MVP. From Slice 1 onward, all phase work is tracked
+inside the admin Tasks board.
 
-Decided order (2026-07-02, operationalizes the Operating Mode; Slice 2.5 added 2026-07-03 per Q16): Slice 0 -> Slice 1 -> Slice 2 -> Slice 2.5 (local Claude Code on Tasks via MCP) -> Slice 3 (CRM core, thin) -> Slice 4 (Marketing content pipeline, thin) -> P1..P8 remainders. Slice 2 stays first because the broker/AI loop is the keystone both Marketing (agent-drafted content) and CRM (assistant/support drafts) depend on.
+Decided order (2026-07-02, operationalizes the Operating Mode; Slice 2.5 added 2026-07-03 per Q16):
+Slice 0 -> Slice 1 -> Slice 2 -> Slice 2.5 (local Claude Code on Tasks via MCP) -> Slice 3 (CRM
+core, thin) -> Slice 4 (Marketing content pipeline, thin) -> P1..P8 remainders. Slice 2 stays first
+because the broker/AI loop is the keystone both Marketing (agent-drafted content) and CRM
+(assistant/support drafts) depend on.
 
 ### Slice 0 - De-risk spike (throwaway)
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [x] done
 
-Goal: Prove the riskiest local runtime path before product code: provisioning worker -> Docker socket proxy -> dynamic Gateway -> Traefik -> broker WS -> first streamed token.
+Goal: Prove the riskiest local runtime path before product code: provisioning worker -> Docker
+socket proxy -> dynamic Gateway -> Traefik -> broker WS -> first streamed token.
 
 Deliverables:
 
-- [x] Throwaway local Compose spike with Traefik, `docker-socket-proxy`, and `dokploy-network` assumptions.
-- [x] `spike-provisioner` starts exactly one OpenClaw Gateway or fake Gateway container through a `GatewayRuntimePort`-shaped adapter.
-- [x] Gateway container receives generated Traefik labels, `opzava.gateway=true`, tenant/Gateway labels, and attaches to `dokploy-network`.
+- [x] Throwaway local Compose spike with Traefik, `docker-socket-proxy`, and `dokploy-network`
+      assumptions.
+- [x] `spike-provisioner` starts exactly one OpenClaw Gateway or fake Gateway container through a
+      `GatewayRuntimePort`-shaped adapter.
+- [x] Gateway container receives generated Traefik labels, `opzava.gateway=true`, tenant/Gateway
+      labels, and attaches to `dokploy-network`.
 - [x] `spike-broker` dials the Gateway over WS and performs the two-token auth shape.
-- [x] Local script triggers provisioning and prints a final streamed token round-trip receipt with tenant id, route, idempotency key, and policy decision.
+- [x] Local script triggers provisioning and prints a final streamed token round-trip receipt with
+      tenant id, route, idempotency key, and policy decision.
 
-Skills: `docker`, `dokploy`, `nodejs`, `socketio`, `openclaw-broker`*, `openclaw-gateway-provisioning`*
+Skills: `docker`, `dokploy`, `nodejs`, `socketio`, `openclaw-broker`_,
+`openclaw-gateway-provisioning`_
 
-Acceptance / usable-signal: A script triggers provisioning locally; Traefik routes to the dynamically created Gateway container; the broker receives and relays a streamed response token end-to-end through Traefik.
+Acceptance / usable-signal: A script triggers provisioning locally; Traefik routes to the
+dynamically created Gateway container; the broker receives and relays a streamed response token
+end-to-end through Traefik.
 
 ADR refs: ADR-002, ADR-003, ADR-005, ADR-015
 
@@ -129,116 +185,248 @@ Bounded contexts: Tenant Provisioning, Platform-Ops, Runtime-Control, Gateway Ru
 
 Real-implementation de-risk follow-ups:
 
-- [ ] Real OpenClaw operator WS handshake: `connect.challenge` nonce signing, device-token pairing, protocol v4, `operator.write` + `operator.approvals` scopes.
+- [ ] Real OpenClaw operator WS handshake: `connect.challenge` nonce signing, device-token pairing,
+      protocol v4, `operator.write` + `operator.approvals` scopes.
 - [ ] Wildcard TLS issuance/renewal plus `*.localhost` / `*.opzava.app` DNS lifecycle and SNI.
-- [ ] Readiness/health gating plus reconnect/backoff/circuit-breaker behavior under sustained load and idle WS death.
+- [ ] Readiness/health gating plus reconnect/backoff/circuit-breaker behavior under sustained load
+      and idle WS death.
 - [ ] Reaper concurrency with leases/fencing to avoid double-kill and orphan Gateway containers.
 - [ ] Lazy-start/idle-stop cold-start latency versus idle cost.
-- [ ] Secrets lifecycle for device tokens, TLS certs, Gateway keys, rotation, and per-tenant scoping.
+- [ ] Secrets lifecycle for device tokens, TLS certs, Gateway keys, rotation, and per-tenant
+      scoping.
 - [ ] Mapping onto Dokploy's Compose deployer while attaching to Dokploy's existing Traefik.
 
 ### Slice 1 - Admin Tasks MVP (dogfoodable)
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [x] done
 
-Foundation validated: `docs/plan/research/slice1-foundation-stack.md` (codex official-docs research + mmx adversarial consensus). Sub-slices: 1a foundation + parity Compose; 1b Postgres/Drizzle/`withTenant` RLS + migrations; 1c Better Auth admin login behind `AuthPort`; 1d app shell + admin nav; 1e Task aggregate + admin Tasks list/kanban; 1f seed build slices as Tasks + commit.
+Foundation validated: `docs/plan/research/slice1-foundation-stack.md` (codex official-docs
+research + mmx adversarial consensus). Sub-slices: 1a foundation + parity Compose; 1b
+Postgres/Drizzle/`withTenant` RLS + migrations; 1c Better Auth admin login behind `AuthPort`; 1d app
+shell + admin nav; 1e Task aggregate + admin Tasks list/kanban; 1f seed build slices as Tasks +
+commit.
 
-Goal: Ship the smallest real Opzava surface: admins log in and track Opzava's own build slices in an admin Tasks board.
+Goal: Ship the smallest real Opzava surface: admins log in and track Opzava's own build slices in an
+admin Tasks board.
 
 Deliverables:
 
 - [x] `docker-compose up` starts the local parity stack with Traefik and Postgres.
 - [x] Better Auth admin sign-up/login runs behind `AuthPort` with DB-backed revocable sessions.
 - [x] App shell renders admin navigation and tenant/workspace context.
-- [x] Task aggregate persists `title`, `description`, `status`, `priority`, `assignee`, and `labels` in Postgres.
-- [x] Admin Tasks supports list and kanban views, create/edit/move flows, reload persistence, and tenant/workspace RLS through `withTenant`.
-- [x] Seed or create this build's slices as Tasks so Opzava tracks its own execution from here forward.
+- [x] Task aggregate persists `title`, `description`, `status`, `priority`, `assignee`, and `labels`
+      in Postgres.
+- [x] Admin Tasks supports list and kanban views, create/edit/move flows, reload persistence, and
+      tenant/workspace RLS through `withTenant`.
+- [x] Seed or create this build's slices as Tasks so Opzava tracks its own execution from here
+      forward.
 
-Skills: `docker`, `dokploy`, `postgres`, `nextjs`, `senior-frontend`, `domain-modeling`, `codebase-design`, `tdd`, `better-auth`*, `opzava-conventions`*
+Skills: `docker`, `dokploy`, `postgres`, `nextjs`, `senior-frontend`, `domain-modeling`,
+`codebase-design`, `tdd`, `better-auth`_, `opzava-conventions`_
 
-Acceptance / usable-signal: An admin logs in, creates tasks for the build's own slices, moves them across statuses, reloads, and sees state persist. The build is now tracked inside Opzava.
+Acceptance / usable-signal: An admin logs in, creates tasks for the build's own slices, moves them
+across statuses, reloads, and sees state persist. The build is now tracked inside Opzava.
 
 ADR refs: ADR-001, ADR-002, ADR-004, ADR-006, ADR-007, ADR-015
 
 PRD refs: PRD-001, PRD-002, PRD-012
 
-Bounded contexts: Identity & Access, Project Management, Tenant Provisioning, Platform-Ops, Notifications/Admin-Observability
+Bounded contexts: Identity & Access, Project Management, Tenant Provisioning, Platform-Ops,
+Notifications/Admin-Observability
 
 ### Slice 2 - Ask Admin Opzava on Tasks
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [x] done
 
-Goal: Add the first admin assistant loop so Ask Admin Opzava can read, create, and update admin Tasks through streaming chat.
+Goal: Add the first admin assistant loop so Ask Admin Opzava can read, create, and update admin
+Tasks through streaming chat.
 
 Deliverables:
 
-- [x] Provision one platform OpenClaw agent reachable only through the broker. (Live-proven 2026-07-03: agent installed with Q16 model config, Codex subscription OAuth signed in, Control UI disabled, and a full broker-path streamed turn - paired device token -> sessions.create/send -> deltas -> final - returned a real gpt-5.5 reply. Real-agent TASK-tool acceptance completes with the Slice 2.5 MCP projection; fake lane proves that loop today, and the live tool-claim honesty probe is recorded in the memo.)
+- [x] Provision one platform OpenClaw agent reachable only through the broker. (Live-proven
+      2026-07-03: agent installed with Q16 model config, Codex subscription OAuth signed in, Control
+      UI disabled, and a full broker-path streamed turn - paired device token ->
+      sessions.create/send -> deltas -> final - returned a real gpt-5.5 reply. Real-agent TASK-tool
+      acceptance completes with the Slice 2.5 MCP projection; fake lane proves that loop today, and
+      the live tool-claim honesty probe is recorded in the memo.)
 - [x] Add a streaming Ask Admin Opzava chat panel on the admin Tasks board.
-- [x] Expose task read/create/update operations through admitted server-side tools or application commands.
+- [x] Expose task read/create/update operations through admitted server-side tools or application
+      commands.
 - [x] Persist assistant turns and tool outcomes with tenant/workspace authorization and idempotency.
 - [x] Show task updates created by the assistant immediately in list and kanban views.
 
 Skills: `socketio`, `nodejs`, `nextjs`, `openclaw-broker`*
 
-Acceptance / usable-signal: Telling Ask Admin Opzava to add a task creates it, and it can list and update existing tasks. The build is now dogfooding the AI loop too.
+Acceptance / usable-signal: Telling Ask Admin Opzava to add a task creates it, and it can list and
+update existing tasks. The build is now dogfooding the AI loop too.
 
 ADR refs: ADR-003, ADR-008, ADR-009, ADR-013
 
 PRD refs: PRD-005, PRD-018
 
-Bounded contexts: Runtime-Control, AI Workforce, Project Management, Internal Collaboration, Notifications/Admin-Observability
+Bounded contexts: Runtime-Control, AI Workforce, Project Management, Internal Collaboration,
+Notifications/Admin-Observability
 
 ### Slice 2.5 - Local Claude Code on Tasks via MCP + live Task Card (Q16)
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [x] done
 
-Goal: The developer's local Claude Code session controls the admin Tasks board through Opzava's own MCP server (Q16 hybrid on-behalf-of authority), and the Task card detail matches `ux-redesign/mockups/essential-card.html` with every card feature working and live. Agent-written cards read like a human wrote them (task-authoring skill). Ask Admin Opzava RELOCATES to its own page (user correction 2026-07-03): the sidebar "Ask Opzava" entry (currently dead - a mockup-parity violation) navigates to a dedicated chat page per `ux-redesign/mockups/orchestrator-chat.html`, every element functional live; the Slice 2 Tasks-panel placement was interim and is removed once the page ships. Canonical mockups for this slice's surfaces: `orchestrator-chat.html` (Ask Admin Opzava), `task-board.html` (Tasks board), `essential-card.html` (card detail), `issues.html` (Issues). `connections.html` (Gateway Connections) stays P8/PRD-013.
+Goal: The developer's local Claude Code session controls the admin Tasks board through Opzava's own
+MCP server (Q16 hybrid on-behalf-of authority), and the Task card detail matches
+`ux-redesign/mockups/essential-card.html` with every card feature working and live. Agent-written
+cards read like a human wrote them (task-authoring skill). Ask Admin Opzava RELOCATES to its own
+page (user correction 2026-07-03): the sidebar "Ask Opzava" entry (currently dead - a mockup-parity
+violation) navigates to a dedicated chat page per `ux-redesign/mockups/orchestrator-chat.html`,
+every element functional live; the Slice 2 Tasks-panel placement was interim and is removed once the
+page ships. Canonical mockups for this slice's surfaces: `orchestrator-chat.html` (Ask Admin
+Opzava), `task-board.html` (Tasks board), `essential-card.html` (card detail), `issues.html`
+(Issues). `connections.html` (Gateway Connections) stays P8/PRD-013.
 
 Deliverables:
 
-- [x] Task model extension: human-readable card id (per-workspace sequence + copy chip), due date, provenance ("added ... from ..."), watchers, Steps checklist (per-step assignee, done state, counter), Comments (human + AI-attributed, timestamps).
-- [x] Card detail page per the mockup - EVERY element functional live: id chip + copy + "What's this ID?" popover, title, status/label/due chips, assigned-to with AI badge, watching avatars, Mark done, overflow menu actions, Overview tab. AI Run tab: live plain-language run steps from assistant turns/tool receipts (target refs) incl. the live elapsed ticker while streaming. Evidence & Files tab: REAL attachments - upload/list/open via a new `ObjectStorePort` (MinIO added to compose parity stack), files with provenance ("Drafted by <assistant>" / "Attached from ..."), links section, live count badge. Quality Review tab: REAL review mechanism - check items (assistant pre-checks recorded from tool outcomes + human checks), reviewer states (pre-check passed / changes requested), approve action, all audited.
-- [x] AI liveness WITHOUT the P2 hub (derived from runtime-control stream/receipt state over the 2c SSE pattern): "assistant working..." on a step, "assistant is replying..." in comments, "Read by <assistant>" when the agent session consumed a comment; task-activity SSE feed (outbox/task events) so board + card update live on MCP/assistant mutations.
-- [x] Human read receipts + typing indicators, interim-live (per mockup functional parity): comment read markers (per-user read rows -> "Read by X" / "Sent - not read yet") and a lightweight per-card typing hint over the existing SSE feed (in-memory TTL, single web instance). P2 replaces the TRANSPORT with the WS hub + Redis presence; the UI contract ships now and works live across two sessions.
-- [x] @-mention popover in the comment composer; mentioning the assistant creates an assistant reply turn through the existing Slice 2 loop.
-- [x] Opzava-hosted MCP server exposing the governed task tool registry EXTENDED to the card surface (steps/comments/due/watchers CRUD alongside list/create/update) - same validation, outcome-first receipts, forbidden vs not_found; consumer-agnostic so P1 gateway `mcp.servers` registration is pure config.
-- [x] Scoped revocable link token (admin-UI issuance, shown once, hashed, `tasks:read`/`tasks:write`, expiry, dies with membership/session-version) + on-behalf-of `ToolExecutionContext` from the credential (client ids never authority) + `.mcp.json` connect recipe.
-- [x] MODEL-PROVIDER CONNECTIONS GUI - multi-provider (user directive 2026-07-03): the Connections surface lets the admin connect ANY OpenClaw-supported model provider, matching `connections.html` (providers list + `auth.order` OAuth->API-key). The provider catalog is DRIVEN BY THE GATEWAY's own catalog (its `onboard --auth-choice` list / config schema) - NOT a hardcoded list that drifts from OpenClaw. Each provider row connects via ITS supported auth: device-code OAuth (e.g. OpenAI/Codex=GPT Pro `openai-device-code`, OpenRouter `openrouter-oauth`, Qwen `qwen-oauth`) surfaced in the browser (URL+code, poll to connected), OR API-key paste-once (e.g. z.ai/GLM `zai-coding-global`/`zai-api-key`, Moonshot/Kimi `moonshot-api-key`, Alibaba/Qwen `qwen-api-key`, OpenRouter `openrouter-api-key`, OpenCode `opencode-go`/`opencode-zen`). MUST cover the named set: OpenAI/Codex (GPT Pro, primary), z.ai/GLM coding, OpenCode (go/zen), Kimi/Moonshot, Alibaba/Qwen, OpenRouter, Anthropic. ALL connects run through the PROVISIONING/admin path (JIT `operator.admin`, NOT the broker hot path per Q16/ADR-003); keys/tokens land in the Gateway auth-profiles volume (never the browser, never source); the GUI only orchestrates. Each connected provider is assigned a ROLE: GPT-Pro/Codex = the ORCHESTRATOR (coordinator agent), the others = SUBAGENT specialist models the orchestrator DELEGATES to by strength to save orchestrator tokens (OpenClaw-native: `subagents.delegationMode: prefer` + `allowAgents` + per-subagent `model` + `sessions_spawn`; see grilling-decisions Q16 orchestrator/subagent addendum). This is delegation, NOT `auth.order` failover (that stays a secondary per-provider fallback). Each row shows connected state, role, strength/when-to-use, and fallback monitoring; the full delegation ENGINE is P1 AI Workforce - Slice 2.5 wires the orchestrator delegationMode + subagent model connections + role assignment. NOTE: enabling delegation ALLOWS `sessions_spawn`/`subagents` on the orchestrator tool policy (a deliberate, audited expansion beyond the Slice 2 minimal lock-down). Parity: `docs/openclaw/concepts/model-providers.md`, `docs/openclaw/providers/{openai,zai,opencode-go,moonshot,alibaba,qwen,openrouter,anthropic}.md`; runtime source of truth = the live gateway auth-choice catalog. Replaces the in-container `onboard` runbook for the common case (runbook retained as fallback). Full connections.html surface stays P8/PRD-013.
-- [x] GitHub CONNECTION GUI (user directive 2026-07-03): an admin Connections surface (thin slice of `connections.html`; the full page stays P8/PRD-013) with a GitHub connection card where the admin CONNECTS + AUTHORIZES their GitHub account via the GitHub OAuth DEVICE FLOW (headless-friendly, mirrors the Codex device-code sign-in from Q16; no hosted OAuth-App callback needed for the internal phase). The resulting token is stored via `SecretsVaultPort` (the exact vault ref the `IssueTrackerPort` GitHub adapter reads) - never shown in the UI after connect, never in source. Shows connected state (account + scopes + repo), reconnect, and disconnect (revokes the vault entry). Sidebar `Connections` entry wired. Full OAuth-App web flow + the complete connections.html surface deferred to P8/PRD-013.
-- [x] GitHub issue linkage behind an agnostic `IssueTrackerPort` (GitHub adapter; credential via vault ref, never committed): a Task can link to a repo issue (opaque external ref on the card with the `#NN` chip). Issues admin page per `ux-redesign/mockups/issues.html` - EVERY element functional live against the real repo: "Synced with GitHub" header + repo link + real last-sync timestamp, "Sync now" (manual idempotent sync), "New issue" (creates a real GitHub issue through the port), triage-pipeline summary strip with REAL counts (Needs triage -> Ready for agent -> Ready for human -> In progress -> Done this week), working filter tabs (All/Needs triage/Ready for agent/Ready for human/In progress/Closed), issue table with number, title + real triage/area labels, assignee (incl. AI-agent mapping, "You", Unassigned), relative updated time, status, and the "Showing N of M open" footer. Issue rows are a REBUILDABLE PROJECTION - GitHub is the source of truth for issues; divergence is SHOWN, never silently rewritten. ACTIVE CLOSE (user directive 2026-07-03): completing a Task with a linked issue closes that GitHub issue as an explicit, audited write-through action via the port (idempotent - already-closed counts as success; close failure never blocks task completion, it queues a retry and shows divergence; an externally reopened issue shows divergence, never auto-reopens the Task). Internal phase: this repo's issues.
-- [x] `opzava-task-authoring` skill (authored via `writing-great-skills`): how agents write cards humans understand - imperative titles, context/impact/evidence descriptions, verifiable steps with owners, status-forward comments, label/priority semantics. Referenced by the Ask Admin AGENTS.md, the MCP tool descriptions, and local Claude Code.
-- [x] Ask Admin Opzava page per `orchestrator-chat.html`: sidebar "Ask Opzava" entry wired and clickable, dedicated chat page hosting the Slice 2 loop (streaming, history, tool events), every visible mockup element functional live; remove the interim Tasks-board panel.
+- [x] Task model extension: human-readable card id (per-workspace sequence + copy chip), due date,
+      provenance ("added ... from ..."), watchers, Steps checklist (per-step assignee, done state,
+      counter), Comments (human + AI-attributed, timestamps).
+- [x] Card detail page per the mockup - EVERY element functional live: id chip + copy + "What's this
+      ID?" popover, title, status/label/due chips, assigned-to with AI badge, watching avatars, Mark
+      done, overflow menu actions, Overview tab. AI Run tab: live plain-language run steps from
+      assistant turns/tool receipts (target refs) incl. the live elapsed ticker while streaming.
+      Evidence & Files tab: REAL attachments - upload/list/open via a new `ObjectStorePort` (MinIO
+      added to compose parity stack), files with provenance ("Drafted by <assistant>" / "Attached
+      from ..."), links section, live count badge. Quality Review tab: REAL review mechanism - check
+      items (assistant pre-checks recorded from tool outcomes + human checks), reviewer states
+      (pre-check passed / changes requested), approve action, all audited.
+- [x] AI liveness WITHOUT the P2 hub (derived from runtime-control stream/receipt state over the 2c
+      SSE pattern): "assistant working..." on a step, "assistant is replying..." in comments, "Read
+      by <assistant>" when the agent session consumed a comment; task-activity SSE feed (outbox/task
+      events) so board + card update live on MCP/assistant mutations.
+- [x] Human read receipts + typing indicators, interim-live (per mockup functional parity): comment
+      read markers (per-user read rows -> "Read by X" / "Sent - not read yet") and a lightweight
+      per-card typing hint over the existing SSE feed (in-memory TTL, single web instance). P2
+      replaces the TRANSPORT with the WS hub + Redis presence; the UI contract ships now and works
+      live across two sessions.
+- [x] @-mention popover in the comment composer; mentioning the assistant creates an assistant reply
+      turn through the existing Slice 2 loop.
+- [x] Opzava-hosted MCP server exposing the governed task tool registry EXTENDED to the card surface
+      (steps/comments/due/watchers CRUD alongside list/create/update) - same validation,
+      outcome-first receipts, forbidden vs not_found; consumer-agnostic so P1 gateway `mcp.servers`
+      registration is pure config.
+- [x] Scoped revocable link token (admin-UI issuance, shown once, hashed,
+      `tasks:read`/`tasks:write`, expiry, dies with membership/session-version) + on-behalf-of
+      `ToolExecutionContext` from the credential (client ids never authority) + `.mcp.json` connect
+      recipe.
+- [x] MODEL-PROVIDER CONNECTIONS GUI - multi-provider (user directive 2026-07-03): the Connections
+      surface lets the admin connect ANY OpenClaw-supported model provider, matching
+      `connections.html` (providers list + `auth.order` OAuth->API-key). The provider catalog is
+      DRIVEN BY THE GATEWAY's own catalog (its `onboard --auth-choice` list / config schema) - NOT a
+      hardcoded list that drifts from OpenClaw. Each provider row connects via ITS supported auth:
+      device-code OAuth (e.g. OpenAI/Codex=GPT Pro `openai-device-code`, OpenRouter
+      `openrouter-oauth`, Qwen `qwen-oauth`) surfaced in the browser (URL+code, poll to connected),
+      OR API-key paste-once (e.g. z.ai/GLM `zai-coding-global`/`zai-api-key`, Moonshot/Kimi
+      `moonshot-api-key`, Alibaba/Qwen `qwen-api-key`, OpenRouter `openrouter-api-key`, OpenCode
+      `opencode-go`/`opencode-zen`). MUST cover the named set: OpenAI/Codex (GPT Pro, primary),
+      z.ai/GLM coding, OpenCode (go/zen), Kimi/Moonshot, Alibaba/Qwen, OpenRouter, Anthropic. ALL
+      connects run through the PROVISIONING/admin path (JIT `operator.admin`, NOT the broker hot
+      path per Q16/ADR-003); keys/tokens land in the Gateway auth-profiles volume (never the
+      browser, never source); the GUI only orchestrates. Each connected provider is assigned a ROLE:
+      GPT-Pro/Codex = the ORCHESTRATOR (coordinator agent), the others = SUBAGENT specialist models
+      the orchestrator DELEGATES to by strength to save orchestrator tokens (OpenClaw-native:
+      `subagents.delegationMode: prefer` + `allowAgents` + per-subagent `model` + `sessions_spawn`;
+      see grilling-decisions Q16 orchestrator/subagent addendum). This is delegation, NOT
+      `auth.order` failover (that stays a secondary per-provider fallback). Each row shows connected
+      state, role, strength/when-to-use, and fallback monitoring; the full delegation ENGINE is P1
+      AI Workforce - Slice 2.5 wires the orchestrator delegationMode + subagent model connections +
+      role assignment. NOTE: enabling delegation ALLOWS `sessions_spawn`/`subagents` on the
+      orchestrator tool policy (a deliberate, audited expansion beyond the Slice 2 minimal
+      lock-down). Parity: `docs/openclaw/concepts/model-providers.md`,
+      `docs/openclaw/providers/{openai,zai,opencode-go,moonshot,alibaba,qwen,openrouter,anthropic}.md`;
+      runtime source of truth = the live gateway auth-choice catalog. Replaces the in-container
+      `onboard` runbook for the common case (runbook retained as fallback). Full connections.html
+      surface stays P8/PRD-013.
+- [x] GitHub CONNECTION GUI (user directive 2026-07-03): an admin Connections surface (thin slice of
+      `connections.html`; the full page stays P8/PRD-013) with a GitHub connection card where the
+      admin CONNECTS + AUTHORIZES their GitHub account via the GitHub OAuth DEVICE FLOW
+      (headless-friendly, mirrors the Codex device-code sign-in from Q16; no hosted OAuth-App
+      callback needed for the internal phase). The resulting token is stored via `SecretsVaultPort`
+      (the exact vault ref the `IssueTrackerPort` GitHub adapter reads) - never shown in the UI
+      after connect, never in source. Shows connected state (account + scopes + repo), reconnect,
+      and disconnect (revokes the vault entry). Sidebar `Connections` entry wired. Full OAuth-App
+      web flow + the complete connections.html surface deferred to P8/PRD-013.
+- [x] GitHub issue linkage behind an agnostic `IssueTrackerPort` (GitHub adapter; credential via
+      vault ref, never committed): a Task can link to a repo issue (opaque external ref on the card
+      with the `#NN` chip). Issues admin page per `ux-redesign/mockups/issues.html` - EVERY element
+      functional live against the real repo: "Synced with GitHub" header + repo link + real
+      last-sync timestamp, "Sync now" (manual idempotent sync), "New issue" (creates a real GitHub
+      issue through the port), triage-pipeline summary strip with REAL counts (Needs triage -> Ready
+      for agent -> Ready for human -> In progress -> Done this week), working filter tabs (All/Needs
+      triage/Ready for agent/Ready for human/In progress/Closed), issue table with number, title +
+      real triage/area labels, assignee (incl. AI-agent mapping, "You", Unassigned), relative
+      updated time, status, and the "Showing N of M open" footer. Issue rows are a REBUILDABLE
+      PROJECTION - GitHub is the source of truth for issues; divergence is SHOWN, never silently
+      rewritten. ACTIVE CLOSE (user directive 2026-07-03): completing a Task with a linked issue
+      closes that GitHub issue as an explicit, audited write-through action via the port
+      (idempotent - already-closed counts as success; close failure never blocks task completion, it
+      queues a retry and shows divergence; an externally reopened issue shows divergence, never
+      auto-reopens the Task). Internal phase: this repo's issues.
+- [x] `opzava-task-authoring` skill (authored via `writing-great-skills`): how agents write cards
+      humans understand - imperative titles, context/impact/evidence descriptions, verifiable steps
+      with owners, status-forward comments, label/priority semantics. Referenced by the Ask Admin
+      AGENTS.md, the MCP tool descriptions, and local Claude Code.
+- [x] Ask Admin Opzava page per `orchestrator-chat.html`: sidebar "Ask Opzava" entry wired and
+      clickable, dedicated chat page hosting the Slice 2 loop (streaming, history, tool events),
+      every visible mockup element functional live; remove the interim Tasks-board panel.
 - [x] Task activity/audit shows actor-via-client attribution in the admin UI.
 
-Skills: `nodejs`, `nextjs`, `senior-frontend`, `domain-modeling`, `better-auth`*, `opzava-conventions`*, `tdd`, `opzava-task-authoring`* (to build)
+Skills: `nodejs`, `nextjs`, `senior-frontend`, `domain-modeling`, `better-auth`_,
+`opzava-conventions`_, `tdd`, `opzava-task-authoring`* (to build)
 
-Acceptance / usable-signal: From a local Claude Code session: create a task with steps via MCP - the card appears live on the board and reads like a human wrote it; open the card and EVERY visible element on `essential-card.html` works (steps tick with strikethrough + counter + working indicator, comments post with read receipts and typing hints across two sessions, mention the assistant and watch it reply live, attach/open evidence files with provenance, complete a quality-review check + approve, due/labels/watchers edit, Mark done, id copy + popover, menu actions); on `issues.html` every element works against the real repo (sync now, new issue, triage counts, filters, table, footer); revoke the link token and the next MCP call fails clean; activity shows actor-via-claude-code.
+Acceptance / usable-signal: From a local Claude Code session: create a task with steps via MCP - the
+card appears live on the board and reads like a human wrote it; open the card and EVERY visible
+element on `essential-card.html` works (steps tick with strikethrough + counter + working indicator,
+comments post with read receipts and typing hints across two sessions, mention the assistant and
+watch it reply live, attach/open evidence files with provenance, complete a quality-review check +
+approve, due/labels/watchers edit, Mark done, id copy + popover, menu actions); on `issues.html`
+every element works against the real repo (sync now, new issue, triage counts, filters, table,
+footer); revoke the link token and the next MCP call fails clean; activity shows
+actor-via-claude-code.
 
 ADR refs: ADR-004, ADR-005 (on-behalf-of), ADR-007, ADR-009 (degraded one-way path); Q16
 
-PRD refs: PRD-003 (tasks/card), PRD-005 (assistant in threads), PRD-012 (issues page), PRD-013 (local tool link + connections, anticipated), PRD-017 (empty states)
+PRD refs: PRD-003 (tasks/card), PRD-005 (assistant in threads), PRD-012 (issues page), PRD-013
+(local tool link + connections, anticipated), PRD-017 (empty states)
 
-Bounded contexts: Runtime-Control, Project Management, Identity & Access, Internal Collaboration (comments only)
+Bounded contexts: Runtime-Control, Project Management, Identity & Access, Internal Collaboration
+(comments only)
 
-Deferred: presence/read-receipt TRANSPORT upgrade (Redis + WS hub; UI contract ships live in this slice) -> P2; OpenClaw Workboard/AgentDispatch run-trace projections + gateway `mcp.servers` registration + autonomous-agent principal -> P1 (ADR-008). Nothing visible on the two mockup screens is deferred.
+Deferred: presence/read-receipt TRANSPORT upgrade (Redis + WS hub; UI contract ships live in this
+slice) -> P2; OpenClaw Workboard/AgentDispatch run-trace projections + gateway `mcp.servers`
+registration + autonomous-agent principal -> P1 (ADR-008). Nothing visible on the two mockup screens
+is deferred.
 
 ### Slice 3 - CRM core (thin, pulled forward from P4)
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [x] done
 
-Goal: Own customer truth in Postgres with manually managed CRM records so Opzava can track real prospects while promoting itself. No channel ingest yet.
+Goal: Own customer truth in Postgres with manually managed CRM records so Opzava can track real
+prospects while promoting itself. No channel ingest yet.
 
 Deliverables:
 
-- [x] Contact, Account, Deal (pipeline/stage), and Ticket aggregates with tenant/workspace RLS through `withTenant` (same pattern as the Task aggregate). (Versioned Pipeline/Stage reference data; append-only Activity; migrations 0012-0014.)
+- [x] Contact, Account, Deal (pipeline/stage), and Ticket aggregates with tenant/workspace RLS
+      through `withTenant` (same pattern as the Task aggregate). (Versioned Pipeline/Stage reference
+      data; append-only Activity; migrations 0012-0014.)
 - [x] Contacts and Accounts list + detail admin surfaces with manual create/edit.
-- [x] Deal pipeline board and a simple ticket queue (manual creation only; no `SenderSeen`/UnknownContact projection yet).
+- [x] Deal pipeline board and a simple ticket queue (manual creation only; no
+      `SenderSeen`/UnknownContact projection yet).
 - [x] Contact timeline skeleton fed by Opzava-owned activities only.
-- [x] Assistant read access via the Slice 2 loop: list/summarize CRM records through admitted server-side tools (STRICTLY read-only — proven by row-count-invariance tests; SQL-paginated; MCP exposure deferred until a crm scope is grilled).
+- [x] Assistant read access via the Slice 2 loop: list/summarize CRM records through admitted
+      server-side tools (STRICTLY read-only — proven by row-count-invariance tests; SQL-paginated;
+      MCP exposure deferred until a crm scope is grilled).
 
 Skills: `postgres`, `domain-modeling`, `senior-frontend`, `tdd`, `opzava-conventions`*
 
-Acceptance / usable-signal: An admin creates an Account and Contact, opens a Deal, moves it across stages, files a Ticket, reloads, and all state persists under RLS.
+Acceptance / usable-signal: An admin creates an Account and Contact, opens a Deal, moves it across
+stages, files a Ticket, reloads, and all state persists under RLS.
 
 ADR refs: ADR-004, ADR-007, ADR-011
 
@@ -246,41 +434,57 @@ PRD refs: PRD-010 (thin subset)
 
 Bounded contexts: CRM, Project Management, Identity & Access
 
-Deferred to P4 remainder: `SenderSeen` projection, UnknownContact shells, channel ingest, governed ticket replies, Contact merge, GDPR erasure.
+Deferred to P4 remainder: `SenderSeen` projection, UnknownContact shells, channel ingest, governed
+ticket replies, Contact merge, GDPR erasure.
 
 ### Slice 4 - Marketing content pipeline (thin, pulled forward from P5)
 
-Status: [x] DEFERRED (user, 2026-07-04) - user-side Marketing is on hold until the ADMIN dashboard is fully live + polished (Slice 3.5 bring-up + the Q17 Tasks/AI-Workforce slice). Do NOT start until the admin side is complete. Design contract already drafted at `docs/plan/consensus/slice4-marketing-design.md` (kept for when it resumes).
+Status: [x] DEFERRED (user, 2026-07-04) - user-side Marketing is on hold until the ADMIN dashboard
+is fully live + polished (Slice 3.5 bring-up + the Q17 Tasks/AI-Workforce slice). Do NOT start until
+the admin side is complete. Design contract already drafted at
+`docs/plan/consensus/slice4-marketing-design.md` (kept for when it resumes).
 
 Status(legacy): [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: Run Opzava's own marketing inside Opzava: campaigns and a content pipeline with the exact-version approval invariant, using the Slice 2 agent for drafting. Manual publish; no workflow engine yet.
+Goal: Run Opzava's own marketing inside Opzava: campaigns and a content pipeline with the
+exact-version approval invariant, using the Slice 2 agent for drafting. Manual publish; no workflow
+engine yet.
 
 Deliverables:
 
-- [ ] Campaign and ContentItem aggregates (draft -> review -> approved -> published states) with RLS.
+- [ ] Campaign and ContentItem aggregates (draft -> review -> approved -> published states) with
+      RLS.
 - [ ] Campaigns board plus Content Pipeline and Content Calendar views.
-- [ ] Exact-version business approval invariant: no ContentItem reaches Published without an `Approval` matching the exact content version/hash (ADR-012 invariant, enforced from day one).
+- [ ] Exact-version business approval invariant: no ContentItem reaches Published without an
+      `Approval` matching the exact content version/hash (ADR-012 invariant, enforced from day one).
 - [ ] Assistant drafting flow through the Slice 2 loop: drafts land in the pipeline as ContentItems.
-- [ ] Manual publish/mark-published with audit trail; scheduling via cron/TaskFlow deferred to P5 remainder.
+- [ ] Manual publish/mark-published with audit trail; scheduling via cron/TaskFlow deferred to P5
+      remainder.
 
-Skills: `nextjs`, `senior-frontend`, `domain-modeling`, `tdd`, `opzava-conventions`*, `openclaw-broker`*
+Skills: `nextjs`, `senior-frontend`, `domain-modeling`, `tdd`, `opzava-conventions`_,
+`openclaw-broker`_
 
-Acceptance / usable-signal: A campaign is created, the assistant drafts a ContentItem, it goes through review and is approved at an exact version, then published manually with an audit trail; an unapproved or stale-version item cannot publish.
+Acceptance / usable-signal: A campaign is created, the assistant drafts a ContentItem, it goes
+through review and is approved at an exact version, then published manually with an audit trail; an
+unapproved or stale-version item cannot publish.
 
 ADR refs: ADR-004, ADR-007, ADR-012 (approval invariant)
 
 PRD refs: PRD-008, PRD-009 (thin subsets)
 
-Bounded contexts: Marketing, Department Workflows (approval records only), AI Workforce, Project Management
+Bounded contexts: Marketing, Department Workflows (approval records only), AI Workforce, Project
+Management
 
-Deferred to P5 remainder: Department Workflow engine, cron/TaskFlow publish runs, external channels, Automation page, report artifacts.
+Deferred to P5 remainder: Department Workflow engine, cron/TaskFlow publish runs, external channels,
+Automation page, report artifacts.
 
 ### P1 - AI Workforce
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: Turn the one Ask Opzava agent into an operable AI workforce with departments, assignments, policy, automation entry points, and run evidence. See `docs/plan/roadmap.md` P1 for deliverable detail.
+Goal: Turn the one Ask Opzava agent into an operable AI workforce with departments, assignments,
+policy, automation entry points, and run evidence. See `docs/plan/roadmap.md` P1 for deliverable
+detail.
 
 Deliverables:
 
@@ -292,19 +496,23 @@ Deliverables:
 
 Skills: `nodejs`, `socketio`, `openclaw-broker`*, `bullmq`, `tdd`
 
-Acceptance / usable-signal: An admin creates a Marketing or Support AI employee, assigns a PM card from Ask Opzava, watches the AI task board update, opens run trace evidence, and sees the employee-attributed report linked back to the card.
+Acceptance / usable-signal: An admin creates a Marketing or Support AI employee, assigns a PM card
+from Ask Opzava, watches the AI task board update, opens run trace evidence, and sees the
+employee-attributed report linked back to the card.
 
 ADR refs: ADR-008
 
 PRD refs: PRD-005, PRD-006
 
-Bounded contexts: AI Workforce, Runtime-Control, Project Management, Internal Collaboration, Tenant Provisioning, Platform-Ops, Notifications/Admin-Observability
+Bounded contexts: AI Workforce, Runtime-Control, Project Management, Internal Collaboration, Tenant
+Provisioning, Platform-Ops, Notifications/Admin-Observability
 
 ### P2 - Realtime + PWA
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: Make collaboration durable and live, then installable, without making Web Push or Redis an auth or durability boundary. See `docs/plan/roadmap.md` P2 for deliverable detail.
+Goal: Make collaboration durable and live, then installable, without making Web Push or Redis an
+auth or durability boundary. See `docs/plan/roadmap.md` P2 for deliverable detail.
 
 Deliverables:
 
@@ -316,19 +524,23 @@ Deliverables:
 
 Skills: `socketio`, `redis`, `senior-frontend`, `nextjs`
 
-Acceptance / usable-signal: Two users chat live, recover missed messages after reconnect, install the PWA, see only the safe offline shell while offline, and open a safe Web Push mention after session authorization.
+Acceptance / usable-signal: Two users chat live, recover missed messages after reconnect, install
+the PWA, see only the safe offline shell while offline, and open a safe Web Push mention after
+session authorization.
 
 ADR refs: ADR-009
 
 PRD refs: PRD-004, PRD-016, PRD-017
 
-Bounded contexts: Internal Collaboration, Notifications/Admin-Observability, Identity & Access, AI Workforce, Runtime-Control, Project Management
+Bounded contexts: Internal Collaboration, Notifications/Admin-Observability, Identity & Access, AI
+Workforce, Runtime-Control, Project Management
 
 ### P3 - Knowledge
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: Give people and AI employees governed project/org knowledge while keeping OpenClaw memory/wiki/vector state derived. See `docs/plan/roadmap.md` P3 for deliverable detail.
+Goal: Give people and AI employees governed project/org knowledge while keeping OpenClaw
+memory/wiki/vector state derived. See `docs/plan/roadmap.md` P3 for deliverable detail.
 
 Deliverables:
 
@@ -340,23 +552,30 @@ Deliverables:
 
 Skills: `postgres` (pgvector), `nodejs`
 
-Acceptance / usable-signal: A member uploads a document, promotes it to project knowledge, receives an OKF ingestion receipt, asks the assistant a question with a citation, then revokes the source and sees retrieval become stale or scrubbed.
+Acceptance / usable-signal: A member uploads a document, promotes it to project knowledge, receives
+an OKF ingestion receipt, asks the assistant a question with a citation, then revokes the source and
+sees retrieval become stale or scrubbed.
 
 ADR refs: ADR-010
 
 PRD refs: PRD-007
 
-Bounded contexts: Knowledge Management, AI Workforce, Runtime-Control, Project Management, Tenant Provisioning, Platform-Ops, Object Storage adapters
+Bounded contexts: Knowledge Management, AI Workforce, Runtime-Control, Project Management, Tenant
+Provisioning, Platform-Ops, Object Storage adapters
 
 ### P4 - CRM
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: Own customer truth in Opzava while projecting external channel observations through the Gateway ACL. See `docs/plan/roadmap.md` P4 for deliverable detail. Note: the CRM core (records + admin surfaces) was pulled forward as Slice 3 (2026-07-02); this phase covers the remainder (channel ingest, projections, governed replies, merge/erasure).
+Goal: Own customer truth in Opzava while projecting external channel observations through the
+Gateway ACL. See `docs/plan/roadmap.md` P4 for deliverable detail. Note: the CRM core (records +
+admin surfaces) was pulled forward as Slice 3 (2026-07-02); this phase covers the remainder (channel
+ingest, projections, governed replies, merge/erasure).
 
 Deliverables:
 
-- [ ] Ship Contacts, Accounts, Deals, Activities, Tickets, Segments, Consent, and `ChannelIdentity` views.
+- [ ] Ship Contacts, Accounts, Deals, Activities, Tickets, Segments, Consent, and `ChannelIdentity`
+      views.
 - [ ] Implement conservative sender projection and UnknownContact shells.
 - [ ] Ship support ticket queue/board.
 - [ ] Implement governed ticket reply workflow.
@@ -364,19 +583,26 @@ Deliverables:
 
 Skills: `postgres`, `senior-frontend`, `domain-modeling`
 
-Acceptance / usable-signal: An inbound channel observation creates an UnknownContact and Ticket, a human resolves it to a Contact, Support drafts an approved reply, and the Contact timeline remains readable when Gateway transcript detail is unavailable.
+Acceptance / usable-signal: An inbound channel observation creates an UnknownContact and Ticket, a
+human resolves it to a Contact, Support drafts an approved reply, and the Contact timeline remains
+readable when Gateway transcript detail is unavailable.
 
 ADR refs: ADR-011
 
 PRD refs: PRD-010
 
-Bounded contexts: CRM, External Channels, AI Workforce, Runtime-Control, Knowledge Management, Project Management, Internal Collaboration
+Bounded contexts: CRM, External Channels, AI Workforce, Runtime-Control, Knowledge Management,
+Project Management, Internal Collaboration
 
 ### P5 - Dept-Workflows + Marketing
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: Let Opzava define department work while OpenClaw executes native standing orders, cron, TaskFlow, sessions, and channels. See `docs/plan/roadmap.md` P5 for deliverable detail. Note: the Marketing content pipeline (campaigns, content states, exact-version approvals, manual publish) was pulled forward as Slice 4 (2026-07-02); this phase covers the remainder (workflow engine, cron/TaskFlow runs, Automation page, reports).
+Goal: Let Opzava define department work while OpenClaw executes native standing orders, cron,
+TaskFlow, sessions, and channels. See `docs/plan/roadmap.md` P5 for deliverable detail. Note: the
+Marketing content pipeline (campaigns, content states, exact-version approvals, manual publish) was
+pulled forward as Slice 4 (2026-07-02); this phase covers the remainder (workflow engine,
+cron/TaskFlow runs, Automation page, reports).
 
 Deliverables:
 
@@ -388,19 +614,23 @@ Deliverables:
 
 Skills: `bullmq`, `nodejs`
 
-Acceptance / usable-signal: A Marketing user creates a campaign, asks Atlas to draft content, sends the exact version for review, approves it, schedules it, sees the cron/TaskFlow publish run execute once, and opens a report artifact with provenance.
+Acceptance / usable-signal: A Marketing user creates a campaign, asks Atlas to draft content, sends
+the exact version for review, approves it, schedules it, sees the cron/TaskFlow publish run execute
+once, and opens a report artifact with provenance.
 
 ADR refs: ADR-012
 
 PRD refs: PRD-008, PRD-009
 
-Bounded contexts: Department Workflows, Marketing, AI Workforce, Knowledge Management, Runtime-Control, Internal Collaboration, Project Management, External Channels
+Bounded contexts: Department Workflows, Marketing, AI Workforce, Knowledge Management,
+Runtime-Control, Internal Collaboration, Project Management, External Channels
 
 ### P6 - Finance + Billing
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: Add money visibility, money-risk approvals, usage metering, plan limits, and dunning while keeping billing provider state behind a port. See `docs/plan/roadmap.md` P6 for deliverable detail.
+Goal: Add money visibility, money-risk approvals, usage metering, plan limits, and dunning while
+keeping billing provider state behind a port. See `docs/plan/roadmap.md` P6 for deliverable detail.
 
 Deliverables:
 
@@ -412,19 +642,23 @@ Deliverables:
 
 Skills: `nodejs`, `postgres`
 
-Acceptance / usable-signal: An owner sets an active local billing entitlement, sees Gateway cost usage update, hits a configured budget cap that blocks new agent work, approves one Finance money action, and simulates failed payment suspension while safe billing repair pages remain reachable.
+Acceptance / usable-signal: An owner sets an active local billing entitlement, sees Gateway cost
+usage update, hits a configured budget cap that blocks new agent work, approves one Finance money
+action, and simulates failed payment suspension while safe billing repair pages remain reachable.
 
 ADR refs: ADR-014
 
 PRD refs: PRD-011, PRD-014
 
-Bounded contexts: Finance, Billing, Tenant Provisioning, Platform-Ops, Runtime-Control, Department Workflows, Notifications/Admin-Observability, Identity & Access
+Bounded contexts: Finance, Billing, Tenant Provisioning, Platform-Ops, Runtime-Control, Department
+Workflows, Notifications/Admin-Observability, Identity & Access
 
 ### P7 - Notifications + Admin + Error Pipeline
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: Make operational truth visible and repairable with one-tenant blast radius, redaction, and governed Ask Admin Opzava remediation. See `docs/plan/roadmap.md` P7 for deliverable detail.
+Goal: Make operational truth visible and repairable with one-tenant blast radius, redaction, and
+governed Ask Admin Opzava remediation. See `docs/plan/roadmap.md` P7 for deliverable detail.
 
 Deliverables:
 
@@ -436,38 +670,50 @@ Deliverables:
 
 Skills: `bullmq`, `redis`, `socketio`
 
-Acceptance / usable-signal: A simulated Gateway-down or broker error creates or reopens one ADMIN card with redacted evidence, triggers an alert, Ask Admin Opzava proposes one-tenant dry-run remediation, an authorized user approves it, and the resulting audit trail exposes no secrets or cross-tenant data.
+Acceptance / usable-signal: A simulated Gateway-down or broker error creates or reopens one ADMIN
+card with redacted evidence, triggers an alert, Ask Admin Opzava proposes one-tenant dry-run
+remediation, an authorized user approves it, and the resulting audit trail exposes no secrets or
+cross-tenant data.
 
 ADR refs: ADR-013
 
 PRD refs: PRD-012, PRD-018
 
-Bounded contexts: Notifications/Admin-Observability, Platform-Ops, Tenant Provisioning, Runtime-Control, Internal Collaboration, Billing, Identity & Access
+Bounded contexts: Notifications/Admin-Observability, Platform-Ops, Tenant Provisioning,
+Runtime-Control, Internal Collaboration, Billing, Identity & Access
 
 ### P8 - External Channels + Guest + Polish
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: Finish customer-facing and integration edges: governed channels, guest portal access, local tool links, and production polish. See `docs/plan/roadmap.md` P8 for deliverable detail.
+Goal: Finish customer-facing and integration edges: governed channels, guest portal access, local
+tool links, and production polish. See `docs/plan/roadmap.md` P8 for deliverable detail.
 
 Deliverables:
 
-- [ ] Ship Connections and settings touchpoints for Gateway, providers, channels, tools, health, config, deployment, security, and billing.
-- [ ] Implement Slack, WhatsApp, Gmail, and email channel connect/reconnect/pause/remove flows through Gateway/provisioning paths.
-- [ ] Enforce external channel send policy across bindings, consent, autonomy tier, approvals, rate caps, plan limits, and audit.
+- [ ] Ship Connections and settings touchpoints for Gateway, providers, channels, tools, health,
+      config, deployment, security, and billing.
+- [ ] Implement Slack, WhatsApp, Gmail, and email channel connect/reconnect/pause/remove flows
+      through Gateway/provisioning paths.
+- [ ] Enforce external channel send policy across bindings, consent, autonomy tier, approvals, rate
+      caps, plan limits, and audit.
 - [ ] Ship user tool connect wizard without copied long-lived secrets.
 - [ ] Ship Guest-Client magic links and scoped portal.
 - [ ] Complete PRD-017 polish across all screens.
 
 Skills: `nodejs`, `senior-frontend`
 
-Acceptance / usable-signal: A tenant admin connects Gmail or Slack, an external message creates CRM support work, Support sends an approved reply, a project manager creates a Guest-Client link, the customer comments in a scoped portal, and a local operator links Codex CLI without long-lived secrets appearing in UI or source.
+Acceptance / usable-signal: A tenant admin connects Gmail or Slack, an external message creates CRM
+support work, Support sends an approved reply, a project manager creates a Guest-Client link, the
+customer comments in a scoped portal, and a local operator links Codex CLI without long-lived
+secrets appearing in UI or source.
 
 ADR refs: ADR-003 external
 
 PRD refs: PRD-013, PRD-015
 
-Bounded contexts: External Channels, CRM, Identity & Access, Project Management, Runtime-Control, Tenant Provisioning, Platform-Ops, Knowledge Management, Billing, Notifications/Admin-Observability
+Bounded contexts: External Channels, CRM, Identity & Access, Project Management, Runtime-Control,
+Tenant Provisioning, Platform-Ops, Knowledge Management, Billing, Notifications/Admin-Observability
 
 ## Definition Of Done
 
@@ -477,71 +723,768 @@ Per slice:
 - [ ] Acceptance / usable-signal passed exactly as written.
 - [ ] `tdd` tests are present for meaningful behavior.
 - [ ] Lint, typecheck, and relevant test suites are green.
-- [ ] Local and Dokploy parity remain intact: single Compose contract, Traefik labels, stable service names, and parity CI/checks.
+- [ ] Local and Dokploy parity remain intact: single Compose contract, Traefik labels, stable
+      service names, and parity CI/checks.
 - [ ] This document is updated: Current State, slice Status, deliverable boxes, and Worklog.
 - [ ] Changes are committed.
 
 ## Worklog
 
-- 2026-07-12 - MAIN-ORCHESTRATOR REALTIME UI FIXED on branch `fix/connections-set-main-realtime`: connected provider row actions now live in an accessible dropdown menu, successful `Set as main orchestrator` mutations set an optimistic lead provider id with focus-safe triggerless dialogs so the `Main orchestrator` and `LEAD ORCHESTRATOR` badges move immediately without a manual refresh, failed mutations leave the badges unchanged, and `router.refresh()` still reconciles Gateway-backed sections from the fresh Connections snapshot.
-- 2026-07-12 (orchestrator) - MAIN-ORCHESTRATOR SELECTION (issue #129) BUILT + no-mistakes-GATE-VALIDATED on branch slice/orchestrator-selection (PR #130, off development). Single main orchestrator = the SINGLE connected provider whose model is the gateway primary (`agents.defaults.model.primary`); the operator can CHOOSE it. This deletes two prior defects: the ad-hoc `isLeadOrchestratorModel` substring check (marked BOTH gpt-5.5 and claude-opus as lead, and its `claude-opus-4.8` string never matched the real `claude-opus-4-8`), and the hardcoded-OpenAI orchestrator in `applyOrchestratorDelegation`. Provider-agnostic. STAGE 1 (ports+worker+web-data, commit f191ffc2): `OrchestratorDelegationState.orchestratorProviderId`; `setMainOrchestrator(providerId)` port method + `/internal/connections/orchestrator/set-main` worker route + web client/context helper (patches the primary to the chosen provider's model + rebuilds delegation, fails cleanly when not connected / no routable model); `currentOrchestratorState` now reports the gateway primary (not the ask-admin agent model); `roleLabel` marks exactly ONE lead (id === orchestratorProviderId). STAGE 2 (UI, commit c6f7a396): confirmed "Set as main orchestrator" action on connected non-lead providers (mirrors the disconnect mutation: POST route + postConnectionsMutation + router.refresh + typed error/retry/verify-once), a single-main-orchestrator notice, and a non-actionable indicator on the lead. GATE FINDINGS FIXED (commit 074e2c4d): the no-mistakes review caught 2 real correctness bugs - (a) `setMainOrchestrator` decided "connected" from config auth profiles only, unlike `getConnectionsSnapshot` which uses `models status`/`models.authStatus`, so an OAuth/runtime-connected provider could be wrongly rejected -> now uses the same models-status+authStatus truth; (b) deriving `orchestratorProviderId` by splitting the primary MODEL PREFIX loses the raw provider id for folded runtimes (e.g. claude-cli routing an anthropic/... model) -> now derives from the connected provider whose model matches the primary, model-prefix fallback only. VERIFIED: workers 88 (incl. 2 new regression tests + the 2 gate-fix tests), web 30 + 5 component tests, typecheck+lint clean, browser render confirmed (single LEAD badge, "Set as main orchestrator" on the connected non-lead, single-orchestrator notice, 0 console errors). NO-MISTAKES GATE: initialized this repo; ran the gate on the feature branch (correct pre-merge usage this time) - review CLEAN after the fixes (0 error/warning findings), test + lint green. NOTE ON THIS REPO: the gate's CI step stalls forever (no GitHub CI checks configured; `gh pr checks` = "no checks reported") and its document step over-generates docs (~2400 lines into EXECUTION.md/PRD, against this repo's curated-doc convention); both were treated as N/A - the substantive gate is review+test+lint, which passed. PR #130 is ready for the user to merge; connect/disconnect realtime follow-up remains issue #128.
-- 2026-07-12 - CONNECTIONS SLICE FINALIZED + MERGED TO development (clean slate per user). Batch of fixes on slice/4, all gated, live-proven, then fast-forwarded to development. (1) CLAUDE-SUB CONNECT FALSE-NEGATIVE fixed: `completeModelProviderApiKeyConnect` read `config.get` BEFORE the onboard that writes `agents.defaults.model.primary`, then classified routability against that STALE snapshot; for a provider whose only routable signal is the default model (anthropic, absent from `agents.defaults.models`/`models status`.`allowed`), a successful onboard reported "models status did not report a usable provider credential" though the credential was written. FIX: the post-check now re-reads FRESH config + fresh `models status` and polls until the provider is genuinely `connected` (also closes a profile-visibility race), still failing correctly when the credential never becomes usable / config.get fails / models-status stays down. Provider-agnostic; no credential leak. (2) SETUP-TOKEN DOUBLE-SUBMIT + OUTCOME-DELIVERY (found by an independent codex review, BLOCK-MERGE): the 30s poll-until-connected made completion outlast the browser's 10s poll timeout while it was awaited INLINE in the poll request and cleaned up the flow - so the browser aborted the request carrying the outcome and a retry re-entered onboard (double-submit) and later polls got flowNotFound (a successful connect showed as failed). FIX: single-flight guard re-checked AFTER the async log read + BACKGROUND the completion (mirrors the api-key path) so a later poll delivers the stored outcome; regression tests for exactly-once + cross-poll delivery (workers 83/83). (3) DISCONNECT is realtime server-side (timed worker-API probe: credential removed, snapshot `not_connected` at T+0) - the "needs manual refresh" is a CLIENT RSC-refresh gap (no caching/SW/state-seeding), filed as issue #128 (WS-driven realtime deferred to its own slice, user's call; covers connect+disconnect+OAuth). (4) UI (/frontend, browser-verified, before/after screenshots, 0 console errors, no overflow, bbox-checked): provider rows redesigned for calmer hierarchy + `+N` auth overflow; `safeAccountLabel` surfaces only a clean email/name and DROPS credential/PII-looking gateway profile labels (e.g. `anthropic:default=token:sk-ant-o...securely`, `openai:<email>=OAuth`); tier tabs now show a green `connected/total` badge (e.g. Frontier 1/2) so operators can tell which tier holds a connection. GATE: typecheck+lint clean all packages; full test suite green (RLS integration passes with the local DB env, 4/4); live SeniorQA `real-world-validate.local.mjs` = 2 clean passes exit 0 (earlier this batch); Claude Max connect LIVE-PROVEN end-to-end (user connected; UI showed Connected; one clean onboard, no false-negative). FOLLOW-UP (new slice, NOT built): MAIN-ORCHESTRATOR SELECTION - `applyOrchestratorDelegation` HARDCODES the orchestrator to openai (`catalog.find(e=>e.id==="openai")`) while the config primary is `anthropic/claude-opus-4-8`; user wants to CHOOSE the main orchestrator (single-orchestrator rule = provider of the gateway primary model) with a notice/selector. Filed for a clean-slate slice.
-- 2026-07-11 (setup-token fix) - SETUP-TOKEN "NOTHING HAPPENS" ON CONNECT BUG FIXED (root-caused + fixed + regression-tested). Symptom: user pastes a malformed Anthropic auth code into "Connect Claude subscription", clicks, and nothing visible happens. Two root causes. (1) JUNK FORWARDED: client sent the code whitespace-trimmed only and the worker wrote it verbatim into the `claude setup-token` CLI fifo; the reported paste `<code>#<more>https://claude.com/cai/oauth/authorize?code=true` (a `#`, a BEL U+0007, and the trailing authorize URL) corrupted the exchange. (2) SILENT SWALLOW: after submit the worker set phase=completing, but the next poll still saw the STALE authorize URL in the append-only log and returned `awaiting_code`; the client then reset phase completing->awaiting_code and cleared the field, so the form snapped back empty with NO error. FIX: client `sanitizeSetupTokenCode` (new `apps/web/lib/setup-token-code.ts` - strips C0 controls incl. BEL + DEL, strips embedded/trailing URLs, trims; KEEPS `#` which may be a legit code/state separator) wired into `setup-token-connect.tsx` submit with an actionable error when the result is empty/>512 and the sanitized value POSTed; server (`gateway-admin-connections.ts`) gates the `awaiting_code` return on `flow.phase !== "completing"`, adds `codeSubmittedAt` + `setupTokenCodeExchangeTimeoutMs=30_000` so a submitted code stays `pending` within grace then surfaces `failed` (provisioning.connections.setupTokenLoginFailed) instead of silently reverting, and narrowly broadens `setupTokenTerminalFailure` (word-boundaried `invalid[ _](authorization[ _])?(code|grant|request)`) so a rejected code is caught fast without false-killing valid flows. PROVE: web 103/103 (incl. new `setup-token-code.test.ts` using the EXACT reported input), workers setup-token 11/11 incl. 3 new regression tests (post-submit stale-URL -> `pending` NOT `awaiting_code`; post-submit +>30s -> `failed`; bare `invalid authorization code`/`invalid_grant`/`invalid_request` log -> `failed`), typecheck+lint clean; independent cross-family review (ocask qwen3.7-max) APPROVE, no defects. Codex-built to spec on the main tree (the two worker files were already dirty with slice work, so verified by spot-read of the changed functions, not whole-file diff); uncommitted, NOT claimed shipped - no-mistakes/verify-panel pre-commit gate deferred to the user. REMAINING: live senior-qa gate + a REAL Claude Max approval to confirm the sanitized code connects end-to-end (sanitize strips the reported junk; whether the residual `#`-token is the valid code form needs one real approval to confirm - if it still fails, the server now surfaces a clear error instead of swallowing it).
-- 2026-07-11 (night) - IN-BROWSER CLAUDE MAX CONNECT (setup-token) BUILT + MECHANICS LIVE-PROVEN; awaiting user's real approval. GPT device-flow round-trip completed LIVE with the user's real account earlier tonight (resume item (a) DONE), but the credential later vanished - the agent auth store's last write (09:29:58Z) was an empty profile set (offline sqlite+WAL inspection confirmed; cause unknown, FINDING logged; user reconnects in ~2 min). Claude Max slice: rung-3 `OPZAVA_CLAUDE_CODE_VERSION` build arg bakes claude CLI 2.1.207 into the gateway image (PATCHES.md #1, default-off, compose pins it); worker PTY-drives `claude setup-token` (fifo stdin via `exec 3<>` so the paste-back code can be written in; flow dir 700/600, NO redactor on this log - the token is parsed worker-side and fed to the existing onboard setup-token path, dir shredded on terminal); org-scoped start/poll/submit-code ops + worker HTTP + web fetch routes + `setup-token-connect.tsx` guided dialog (authorize link + code paste), manual token paste kept as fallback. Codex-built to my spec (idle 900s fixed the prior kill class; no test slop this time), gated: workers 89/89, web 99/99, typechecks+lint clean, deployed. LIVE probe: start -> awaiting_code at +11.3s with real `https://claude.com/cai/oauth/authorize` URL parsed from the CLI log + code input rendered. REMAINING: user runs the flow with their Claude Max account (approve + paste code), then GPT reconnect, then senior-qa GATE re-run for the whole hardening batch.
+- 2026-07-12 - MAIN-ORCHESTRATOR REALTIME UI FIXED on branch `fix/connections-set-main-realtime`:
+  connected provider row actions now live in an accessible dropdown menu, successful
+  `Set as main orchestrator` mutations set an optimistic lead provider id with focus-safe
+  triggerless dialogs so the `Main orchestrator` and `LEAD ORCHESTRATOR` badges move immediately
+  without a manual refresh, failed mutations leave the badges unchanged, and `router.refresh()`
+  still reconciles Gateway-backed sections from the fresh Connections snapshot.
+- 2026-07-12 (orchestrator) - MAIN-ORCHESTRATOR SELECTION (issue #129) BUILT +
+  no-mistakes-GATE-VALIDATED on branch slice/orchestrator-selection (PR #130, off development).
+  Single main orchestrator = the SINGLE connected provider whose model is the gateway primary
+  (`agents.defaults.model.primary`); the operator can CHOOSE it. This deletes two prior defects: the
+  ad-hoc `isLeadOrchestratorModel` substring check (marked BOTH gpt-5.5 and claude-opus as lead, and
+  its `claude-opus-4.8` string never matched the real `claude-opus-4-8`), and the hardcoded-OpenAI
+  orchestrator in `applyOrchestratorDelegation`. Provider-agnostic. STAGE 1 (ports+worker+web-data,
+  commit f191ffc2): `OrchestratorDelegationState.orchestratorProviderId`;
+  `setMainOrchestrator(providerId)` port method + `/internal/connections/orchestrator/set-main`
+  worker route + web client/context helper (patches the primary to the chosen provider's model +
+  rebuilds delegation, fails cleanly when not connected / no routable model);
+  `currentOrchestratorState` now reports the gateway primary (not the ask-admin agent model);
+  `roleLabel` marks exactly ONE lead (id === orchestratorProviderId). STAGE 2 (UI, commit c6f7a396):
+  confirmed "Set as main orchestrator" action on connected non-lead providers (mirrors the
+  disconnect mutation: POST route + postConnectionsMutation + router.refresh + typed
+  error/retry/verify-once), a single-main-orchestrator notice, and a non-actionable indicator on the
+  lead. GATE FINDINGS FIXED (commit 074e2c4d): the no-mistakes review caught 2 real correctness
+  bugs - (a) `setMainOrchestrator` decided "connected" from config auth profiles only, unlike
+  `getConnectionsSnapshot` which uses `models status`/`models.authStatus`, so an
+  OAuth/runtime-connected provider could be wrongly rejected -> now uses the same
+  models-status+authStatus truth; (b) deriving `orchestratorProviderId` by splitting the primary
+  MODEL PREFIX loses the raw provider id for folded runtimes (e.g. claude-cli routing an
+  anthropic/... model) -> now derives from the connected provider whose model matches the primary,
+  model-prefix fallback only. VERIFIED: workers 88 (incl. 2 new regression tests + the 2 gate-fix
+  tests), web 30 + 5 component tests, typecheck+lint clean, browser render confirmed (single LEAD
+  badge, "Set as main orchestrator" on the connected non-lead, single-orchestrator notice, 0 console
+  errors). NO-MISTAKES GATE: initialized this repo; ran the gate on the feature branch (correct
+  pre-merge usage this time) - review CLEAN after the fixes (0 error/warning findings), test + lint
+  green. NOTE ON THIS REPO: the gate's CI step stalls forever (no GitHub CI checks configured;
+  `gh pr checks` = "no checks reported") and its document step over-generates docs (~2400 lines into
+  EXECUTION.md/PRD, against this repo's curated-doc convention); both were treated as N/A - the
+  substantive gate is review+test+lint, which passed. PR #130 is ready for the user to merge;
+  connect/disconnect realtime follow-up remains issue #128.
+- 2026-07-12 - CONNECTIONS SLICE FINALIZED + MERGED TO development (clean slate per user). Batch of
+  fixes on slice/4, all gated, live-proven, then fast-forwarded to development. (1) CLAUDE-SUB
+  CONNECT FALSE-NEGATIVE fixed: `completeModelProviderApiKeyConnect` read `config.get` BEFORE the
+  onboard that writes `agents.defaults.model.primary`, then classified routability against that
+  STALE snapshot; for a provider whose only routable signal is the default model (anthropic, absent
+  from `agents.defaults.models`/`models status`.`allowed`), a successful onboard reported "models
+  status did not report a usable provider credential" though the credential was written. FIX: the
+  post-check now re-reads FRESH config + fresh `models status` and polls until the provider is
+  genuinely `connected` (also closes a profile-visibility race), still failing correctly when the
+  credential never becomes usable / config.get fails / models-status stays down. Provider-agnostic;
+  no credential leak. (2) SETUP-TOKEN DOUBLE-SUBMIT + OUTCOME-DELIVERY (found by an independent
+  codex review, BLOCK-MERGE): the 30s poll-until-connected made completion outlast the browser's 10s
+  poll timeout while it was awaited INLINE in the poll request and cleaned up the flow - so the
+  browser aborted the request carrying the outcome and a retry re-entered onboard (double-submit)
+  and later polls got flowNotFound (a successful connect showed as failed). FIX: single-flight guard
+  re-checked AFTER the async log read + BACKGROUND the completion (mirrors the api-key path) so a
+  later poll delivers the stored outcome; regression tests for exactly-once + cross-poll delivery
+  (workers 83/83). (3) DISCONNECT is realtime server-side (timed worker-API probe: credential
+  removed, snapshot `not_connected` at T+0) - the "needs manual refresh" is a CLIENT RSC-refresh gap
+  (no caching/SW/state-seeding), filed as issue #128 (WS-driven realtime deferred to its own slice,
+  user's call; covers connect+disconnect+OAuth). (4) UI (/frontend, browser-verified, before/after
+  screenshots, 0 console errors, no overflow, bbox-checked): provider rows redesigned for calmer
+  hierarchy + `+N` auth overflow; `safeAccountLabel` surfaces only a clean email/name and DROPS
+  credential/PII-looking gateway profile labels (e.g. `anthropic:default=token:sk-ant-o...securely`,
+  `openai:<email>=OAuth`); tier tabs now show a green `connected/total` badge (e.g. Frontier 1/2) so
+  operators can tell which tier holds a connection. GATE: typecheck+lint clean all packages; full
+  test suite green (RLS integration passes with the local DB env, 4/4); live SeniorQA
+  `real-world-validate.local.mjs` = 2 clean passes exit 0 (earlier this batch); Claude Max connect
+  LIVE-PROVEN end-to-end (user connected; UI showed Connected; one clean onboard, no
+  false-negative). FOLLOW-UP (new slice, NOT built): MAIN-ORCHESTRATOR SELECTION -
+  `applyOrchestratorDelegation` HARDCODES the orchestrator to openai
+  (`catalog.find(e=>e.id==="openai")`) while the config primary is `anthropic/claude-opus-4-8`; user
+  wants to CHOOSE the main orchestrator (single-orchestrator rule = provider of the gateway primary
+  model) with a notice/selector. Filed for a clean-slate slice.
+- 2026-07-11 (setup-token fix) - SETUP-TOKEN "NOTHING HAPPENS" ON CONNECT BUG FIXED (root-caused +
+  fixed + regression-tested). Symptom: user pastes a malformed Anthropic auth code into "Connect
+  Claude subscription", clicks, and nothing visible happens. Two root causes. (1) JUNK FORWARDED:
+  client sent the code whitespace-trimmed only and the worker wrote it verbatim into the
+  `claude setup-token` CLI fifo; the reported paste
+  `<code>#<more>https://claude.com/cai/oauth/authorize?code=true` (a `#`, a BEL U+0007, and the
+  trailing authorize URL) corrupted the exchange. (2) SILENT SWALLOW: after submit the worker set
+  phase=completing, but the next poll still saw the STALE authorize URL in the append-only log and
+  returned `awaiting_code`; the client then reset phase completing->awaiting_code and cleared the
+  field, so the form snapped back empty with NO error. FIX: client `sanitizeSetupTokenCode` (new
+  `apps/web/lib/setup-token-code.ts` - strips C0 controls incl. BEL + DEL, strips embedded/trailing
+  URLs, trims; KEEPS `#` which may be a legit code/state separator) wired into
+  `setup-token-connect.tsx` submit with an actionable error when the result is empty/>512 and the
+  sanitized value POSTed; server (`gateway-admin-connections.ts`) gates the `awaiting_code` return
+  on `flow.phase !== "completing"`, adds `codeSubmittedAt` +
+  `setupTokenCodeExchangeTimeoutMs=30_000` so a submitted code stays `pending` within grace then
+  surfaces `failed` (provisioning.connections.setupTokenLoginFailed) instead of silently reverting,
+  and narrowly broadens `setupTokenTerminalFailure` (word-boundaried
+  `invalid[ _](authorization[ _])?(code|grant|request)`) so a rejected code is caught fast without
+  false-killing valid flows. PROVE: web 103/103 (incl. new `setup-token-code.test.ts` using the
+  EXACT reported input), workers setup-token 11/11 incl. 3 new regression tests (post-submit
+  stale-URL -> `pending` NOT `awaiting_code`; post-submit +>30s -> `failed`; bare
+  `invalid authorization code`/`invalid_grant`/`invalid_request` log -> `failed`), typecheck+lint
+  clean; independent cross-family review (ocask qwen3.7-max) APPROVE, no defects. Codex-built to
+  spec on the main tree (the two worker files were already dirty with slice work, so verified by
+  spot-read of the changed functions, not whole-file diff); uncommitted, NOT claimed shipped -
+  no-mistakes/verify-panel pre-commit gate deferred to the user. REMAINING: live senior-qa gate + a
+  REAL Claude Max approval to confirm the sanitized code connects end-to-end (sanitize strips the
+  reported junk; whether the residual `#`-token is the valid code form needs one real approval to
+  confirm - if it still fails, the server now surfaces a clear error instead of swallowing it).
+- 2026-07-11 (night) - IN-BROWSER CLAUDE MAX CONNECT (setup-token) BUILT + MECHANICS LIVE-PROVEN;
+  awaiting user's real approval. GPT device-flow round-trip completed LIVE with the user's real
+  account earlier tonight (resume item (a) DONE), but the credential later vanished - the agent auth
+  store's last write (09:29:58Z) was an empty profile set (offline sqlite+WAL inspection confirmed;
+  cause unknown, FINDING logged; user reconnects in ~2 min). Claude Max slice: rung-3
+  `OPZAVA_CLAUDE_CODE_VERSION` build arg bakes claude CLI 2.1.207 into the gateway image (PATCHES.md
+  #1, default-off, compose pins it); worker PTY-drives `claude setup-token` (fifo stdin via
+  `exec 3<>` so the paste-back code can be written in; flow dir 700/600, NO redactor on this log -
+  the token is parsed worker-side and fed to the existing onboard setup-token path, dir shredded on
+  terminal); org-scoped start/poll/submit-code ops + worker HTTP + web fetch routes +
+  `setup-token-connect.tsx` guided dialog (authorize link + code paste), manual token paste kept as
+  fallback. Codex-built to my spec (idle 900s fixed the prior kill class; no test slop this time),
+  gated: workers 89/89, web 99/99, typechecks+lint clean, deployed. LIVE probe: start ->
+  awaiting_code at +11.3s with real `https://claude.com/cai/oauth/authorize` URL parsed from the CLI
+  log + code input rendered. REMAINING: user runs the flow with their Claude Max account (approve +
+  paste code), then GPT reconnect, then senior-qa GATE re-run for the whole hardening batch.
 
-- 2026-07-11 (later) - CONNECTIONS MUTATION LAYER REBUILT ON FETCH+POLL (production-grade sad paths) after the user hit STUCK "Disconnecting..."/"Starting..." on the current build. ROOT CAUSE (deterministic headless repro + streaming replay): disconnect and device-flow start were React form actions whose completion depends on the client settling Next's action-response stream (revalidatePath re-render inside the POST); the server finished in seconds and the HTTP body completed, but the client transition never settled - button pending forever. The api-key connect only worked because its recovery is CLIENT POLLING. FIX (user directive: "frontend needs a reliable production grade... proper sad-paths"): ALL model-provider mutations now ride plain fetch route handlers (`app/api/connections/model/{disconnect,api-key,api-key/poll,device-flow}/route.ts`, session+role enforced, 403/502/400/401 JSON contract via `connections-route-errors.ts`) + a typed browser mutation client (`lib/connections-mutation-client.ts`: AbortSignal timeouts so a request ALWAYS settles, typed failure kinds, `pollUntilTerminal` with bounded backoff for transient blips) + `router.refresh()` as the only UI updater. `useActionState`/`useFormStatus` are REMOVED from the panel and a wiring test enforces the ban. Sad paths designed in and unit-tested: timeout -> disconnect auto-verifies once via idempotent retry ("Verifying disconnect"); worker down -> typed notice + Retry button; poll blips -> bounded backoff; op expiry -> actionable message; 401 -> session-expired; double-click guarded; unmount cancels polling (op continues server-side); device-flow start NEVER auto-retries (provider rate-limits) - retry is a labeled user action. Dead code deleted: 7 model-provider server actions + `connections-action-state.ts`. PROVE: web 97/97 (+ new `connections-mutation-client.test.ts` sad-path suite + disconnect route tests), typecheck+lint clean, container rebuilt+deployed, then all three LIVE oracles green on the deployed build: device-flow red-loop RED->GREEN (start returns ~5.6s, poller renders, real OpenAI code issued ~30s), zai disconnect 5.1s realtime (dialog self-closes, row flips, no reload), full connect/disconnect round-trip ALL PASS (Connected +11.7s, disconnected +16.6s). Gateway left clean (all test credentials removed; user re-enters their real zai key). NOTE: local stack is PROD builds (no hot reload, Dokploy parity) - every change requires `docker compose build web|provisioning-worker && up -d`; a dev-override compose with `next dev` is a recorded option, not implemented. ADDENDUM (same evening): device-flow "Open sign-in page" button text was invisible (cyan-on-cyan) - the ported `components.css` has an UNLAYERED global `a { color: var(--accent) }` which beats Tailwind's LAYERED utilities on component-styled anchors regardless of specificity; fixed by scoping to `a:not([class])` (components.css:648), live-verified via computed styles (classed anchor rgb(9,14,21) on rgb(35,208,231); bare links keep accent). User's first real OpenAI device flow got "Authorization failed" (provider rate-limit, partly from diagnostic runs hammering the endpoint the same day - one flow at a time!) and an OpenAI-side approval AFTER flow death lands nowhere (gateway confirmed 0 OAuth profiles) - a fresh flow is required.
+- 2026-07-11 (later) - CONNECTIONS MUTATION LAYER REBUILT ON FETCH+POLL (production-grade sad paths)
+  after the user hit STUCK "Disconnecting..."/"Starting..." on the current build. ROOT CAUSE
+  (deterministic headless repro + streaming replay): disconnect and device-flow start were React
+  form actions whose completion depends on the client settling Next's action-response stream
+  (revalidatePath re-render inside the POST); the server finished in seconds and the HTTP body
+  completed, but the client transition never settled - button pending forever. The api-key connect
+  only worked because its recovery is CLIENT POLLING. FIX (user directive: "frontend needs a
+  reliable production grade... proper sad-paths"): ALL model-provider mutations now ride plain fetch
+  route handlers
+  (`app/api/connections/model/{disconnect,api-key,api-key/poll,device-flow}/route.ts`, session+role
+  enforced, 403/502/400/401 JSON contract via `connections-route-errors.ts`) + a typed browser
+  mutation client (`lib/connections-mutation-client.ts`: AbortSignal timeouts so a request ALWAYS
+  settles, typed failure kinds, `pollUntilTerminal` with bounded backoff for transient blips) +
+  `router.refresh()` as the only UI updater. `useActionState`/`useFormStatus` are REMOVED from the
+  panel and a wiring test enforces the ban. Sad paths designed in and unit-tested: timeout ->
+  disconnect auto-verifies once via idempotent retry ("Verifying disconnect"); worker down -> typed
+  notice + Retry button; poll blips -> bounded backoff; op expiry -> actionable message; 401 ->
+  session-expired; double-click guarded; unmount cancels polling (op continues server-side);
+  device-flow start NEVER auto-retries (provider rate-limits) - retry is a labeled user action. Dead
+  code deleted: 7 model-provider server actions + `connections-action-state.ts`. PROVE: web 97/97 (+
+  new `connections-mutation-client.test.ts` sad-path suite + disconnect route tests), typecheck+lint
+  clean, container rebuilt+deployed, then all three LIVE oracles green on the deployed build:
+  device-flow red-loop RED->GREEN (start returns ~5.6s, poller renders, real OpenAI code issued
+  ~30s), zai disconnect 5.1s realtime (dialog self-closes, row flips, no reload), full
+  connect/disconnect round-trip ALL PASS (Connected +11.7s, disconnected +16.6s). Gateway left clean
+  (all test credentials removed; user re-enters their real zai key). NOTE: local stack is PROD
+  builds (no hot reload, Dokploy parity) - every change requires
+  `docker compose build web|provisioning-worker && up -d`; a dev-override compose with `next dev` is
+  a recorded option, not implemented. ADDENDUM (same evening): device-flow "Open sign-in page"
+  button text was invisible (cyan-on-cyan) - the ported `components.css` has an UNLAYERED global
+  `a { color: var(--accent) }` which beats Tailwind's LAYERED utilities on component-styled anchors
+  regardless of specificity; fixed by scoping to `a:not([class])` (components.css:648),
+  live-verified via computed styles (classed anchor rgb(9,14,21) on rgb(35,208,231); bare links keep
+  accent). User's first real OpenAI device flow got "Authorization failed" (provider rate-limit,
+  partly from diagnostic runs hammering the endpoint the same day - one flow at a time!) and an
+  OpenAI-side approval AFTER flow death lands nowhere (gateway confirmed 0 OAuth profiles) - a fresh
+  flow is required.
 
-- 2026-07-11 - CONNECTIONS CONNECT/DISCONNECT HARDENING (async api-key connect + disconnect fixes) DONE + LIVE-PROVEN (uncommitted on slice/4). User-reported: Connect stuck on "Connecting..." (connected only after a manual refresh) + Disconnect failing with `config.patch would remove entries from array path(s): auth.order.opencode-go`. ROOT CAUSES (live gateway-log diagnosis + timed browser repros): (a) a FRESH api-key connect's onboard exec writes auth.profiles+auth.order into config -> gateway file-watcher logs "config change requires gateway restart" -> in-process SIGUSR1 restart (~0.5s) drops every operator WS mid-flow; the fully-sync action raced it (race won = ~8s success, lost = hung/failed dialog while the credential was ALREADY written, hence connected-after-refresh). (b) The disconnect patch emptied `auth.order.<id>` WITHOUT `replacePaths` (documented guard, docs/openclaw/gateway/configuration.md:637) and is non-atomic (authLogout BEFORE patch), so the rejection left a phantom half-disconnected state. (c) The disconnect post-check was single-shot and lost the same patch-triggered restart race (live: `operatorWsHandshakeFailed cause=auth_rejected gatewayCode=UNAVAILABLE`). FIXES: `replacePaths: ["auth.order.<providerId>"]` on the disconnect patch (+ regression test asserting the captured patch params); api-key connect made ASYNC mirroring the accepted device-flow architecture (worker start returns {opId, pending} immediately, org-scoped poll, 120s op expiry + cleanup, restart-tolerant ~30s connect post-check, new worker HTTP start/poll routes, ports start/poll pair replacing the dead sync method, web `ApiKeyConnectPoller` at 1.75s with revalidatePath+router.refresh so the row flips realtime, 20s abort timeout on the web->worker fetch); disconnect post-check reads now retry restart-window transients via a NARROW classifier (handshake-failed/timeout/closed/econnrefused/circuit-open; deliberately NOT "unavailable" which substring-matches the PERMANENT providerPostCheckUnavailable code) inside the shared bounded disconnect budget (+ regression test replaying the live handshake error). METHOD: codex Job 1 (replacePaths) gated green; codex Job 2 idle-timed-out mid-run leaving 500 `expect(true)` placeholder tests + one clobbered test header in connections.test.ts - excised with 0 real tests lost (verified vs HEAD test-name inventory), remainder completed by Claude per user instruction. PROVE: workers 82/82 + web 84/84 + both typechecks green; LIVE round-trip drive (real login, dummy key, scratchpad live-roundtrip-proof.mjs): pending 6.4s -> Connected 11.8s -> row flips with NO reload -> disconnect straight through the restart window in 4.3s, 0 failClosed, gateway end-state verified clean (only the user's real zai:default remains); cross-family verify-panel dispatched at --risk high. PARITY FINDINGS RECORDED: OpenClaw's own Control UI has NO provider-connect flow (CLI-only; polling only for nodes/logs/debug tabs; WS auto-reconnect = its liveness), so browser-poll-through-the-worker is the ACL-compliant analogue; the /connections health card IS official-health-backed (`health` + `last-heartbeat` RPCs; compose healthcheck /healthz is canonical alongside /health). FOLLOW-UPS (recorded, not built): twin-profile alias hygiene (onboard writes `opencode:default` alongside `opencode-go:default`; disconnect is exact-id by design, symmetric with the row projection - alias clearing needs a deliberate design via providerChoiceRoots), "Run health check" -> `health {probe:true}` for a true live probe, SecretRef migration for provider keys (gateway/secrets.md), Anthropic connect via sanctioned claude-cli reuse (gateway/cli-backends.md).
+- 2026-07-11 - CONNECTIONS CONNECT/DISCONNECT HARDENING (async api-key connect + disconnect fixes)
+  DONE + LIVE-PROVEN (uncommitted on slice/4). User-reported: Connect stuck on "Connecting..."
+  (connected only after a manual refresh) + Disconnect failing with
+  `config.patch would remove entries from array path(s): auth.order.opencode-go`. ROOT CAUSES (live
+  gateway-log diagnosis + timed browser repros): (a) a FRESH api-key connect's onboard exec writes
+  auth.profiles+auth.order into config -> gateway file-watcher logs "config change requires gateway
+  restart" -> in-process SIGUSR1 restart (~0.5s) drops every operator WS mid-flow; the fully-sync
+  action raced it (race won = ~8s success, lost = hung/failed dialog while the credential was
+  ALREADY written, hence connected-after-refresh). (b) The disconnect patch emptied
+  `auth.order.<id>` WITHOUT `replacePaths` (documented guard,
+  docs/openclaw/gateway/configuration.md:637) and is non-atomic (authLogout BEFORE patch), so the
+  rejection left a phantom half-disconnected state. (c) The disconnect post-check was single-shot
+  and lost the same patch-triggered restart race (live:
+  `operatorWsHandshakeFailed cause=auth_rejected gatewayCode=UNAVAILABLE`). FIXES:
+  `replacePaths: ["auth.order.<providerId>"]` on the disconnect patch (+ regression test asserting
+  the captured patch params); api-key connect made ASYNC mirroring the accepted device-flow
+  architecture (worker start returns {opId, pending} immediately, org-scoped poll, 120s op expiry +
+  cleanup, restart-tolerant ~30s connect post-check, new worker HTTP start/poll routes, ports
+  start/poll pair replacing the dead sync method, web `ApiKeyConnectPoller` at 1.75s with
+  revalidatePath+router.refresh so the row flips realtime, 20s abort timeout on the web->worker
+  fetch); disconnect post-check reads now retry restart-window transients via a NARROW classifier
+  (handshake-failed/timeout/closed/econnrefused/circuit-open; deliberately NOT "unavailable" which
+  substring-matches the PERMANENT providerPostCheckUnavailable code) inside the shared bounded
+  disconnect budget (+ regression test replaying the live handshake error). METHOD: codex Job 1
+  (replacePaths) gated green; codex Job 2 idle-timed-out mid-run leaving 500 `expect(true)`
+  placeholder tests + one clobbered test header in connections.test.ts - excised with 0 real tests
+  lost (verified vs HEAD test-name inventory), remainder completed by Claude per user instruction.
+  PROVE: workers 82/82 + web 84/84 + both typechecks green; LIVE round-trip drive (real login, dummy
+  key, scratchpad live-roundtrip-proof.mjs): pending 6.4s -> Connected 11.8s -> row flips with NO
+  reload -> disconnect straight through the restart window in 4.3s, 0 failClosed, gateway end-state
+  verified clean (only the user's real zai:default remains); cross-family verify-panel dispatched at
+  --risk high. PARITY FINDINGS RECORDED: OpenClaw's own Control UI has NO provider-connect flow
+  (CLI-only; polling only for nodes/logs/debug tabs; WS auto-reconnect = its liveness), so
+  browser-poll-through-the-worker is the ACL-compliant analogue; the /connections health card IS
+  official-health-backed (`health` + `last-heartbeat` RPCs; compose healthcheck /healthz is
+  canonical alongside /health). FOLLOW-UPS (recorded, not built): twin-profile alias hygiene
+  (onboard writes `opencode:default` alongside `opencode-go:default`; disconnect is exact-id by
+  design, symmetric with the row projection - alias clearing needs a deliberate design via
+  providerChoiceRoots), "Run health check" -> `health {probe:true}` for a true live probe, SecretRef
+  migration for provider keys (gateway/secrets.md), Anthropic connect via sanctioned claude-cli
+  reuse (gateway/cli-backends.md).
 
-- 2026-07-06 - SENIORQA SKILL UPGRADE (in progress, UNCOMMITTED on slice/4) + GATE re-run GREEN. Session recovery after a PC reset: reconstructed the prior hung session from its transcript. The `real-world-validation` skill was renamed + hardened into `senior-qa` with two modes - GATE (deterministic Done gate, behaviour-identical to `real-world-validate.local.mjs`) and PROBE (exploratory black-box QA via a thin helper harness `senior-qa-probe.local.mjs`, codex-driven, three lenses: A functional-adversarial, B NNG usability goal-not-clicks, C log/output-signature). On disk but NOT yet committed: `.claude/skills/senior-qa/SKILL.md`, `senior-qa-probe.local.mjs`, `senior-qa-gateway-drive.local.mjs` (throwaway codex driver - decide keep/drop), 1-line `real-world-validate.local.mjs`, doc renames in CLAUDE.md/EXECUTION.md/consensus, old `real-world-validation/SKILL.md` deleted. GATE re-run (resume item c - prior pass `slice3.7-gate-v2` predated the device-flow commits): `node real-world-validate.local.mjs` BARE -> verdict DONE-ELIGIBLE, exit 0, 2 consecutive CLEAN passes, 9 routes (/,/tasks,/issues,/connections,/ask-opzava,/crm/{accounts,contacts,deals,tickets}), 0 findings, 0 warnings, preflight 9/9 healthy (`real-validate-artifacts/2026-07-06T11-36-19.656Z/`). HONEST /connections read (eyeballed p2 screenshot): the page degrades TRUTHFULLY - "Systems degraded", Gateway "Unavailable" (amber, not green), "0 model providers", and on-screen guidance "Configure the provisioning worker to read the live gateway auth-choice catalog"; so the prior PROBE probe-002 "dishonest green" characterization is STALE for this build (its heuristic matched a "connected" substring; the actual status label is Unavailable). Real remaining functional gap (confirmed live with container-level evidence, NOT fixed this run): the provisioning-worker (172.18.0.5) operator device is UNPAIRED (`OPERATOR_DEVICE_TOKEN` unset, requests operator.write+approvals) -> gateway (172.18.0.6:18789) closes the operator WS before handshake (`[ws] closed before connect ... code=1005`) -> BURST retry-storm (~1/sec, fires under /connections load when the page triggers a live catalog/health fetch, quiet when idle) -> admin RPC unavailable -> empty provider catalog (probe-004 CONFIRMED live+current). Open decision = pair the worker device (register->approve->token->restart) vs drop it to read-only scopes. GATE HARDENING FINDING (honest correction): the gate's page-health verdict is accurate (pages render, login + write round-trip real), but its log-ground-truth claim of "0 warnings / CLEAN" is a FALSE-CLEAN - the storm fired ~1/sec THROUGHOUT the gate's own /connections sweeps yet produced 0 gate findings, because `real-world-validate.local.mjs` only blocks on `unhandled|fatal|panic` and never matches `closed before connect`/`code 1005`. This is exactly the PROBE Lens-C log-signature class. HARDENING DONE + PROVEN (user-authorized): `real-world-validate.local.mjs` now counts connection-establishment failures per pass (`CONN_FAIL` regex: `closed before connect`/pairing/handshake-reject; `REAL_STORM_THRESHOLD` default 5) - a storm BLOCKS the pass, a few transient blips only warn (so a single reconnect can't flake it). Proof (same unpaired stack, opposite verdict): BEFORE = "0 warnings / CLEAN / DONE-ELIGIBLE exit 0" (false-green); AFTER = every pass flags `conn-retry-storm` (13 failures/pass, deterministic) -> NOT-DONE exit 1. SKILL.md documents the new check. A live retry-storm can never green the gate again. Findings re-triage vs on-disk evidence: probe-001 REAL (empty catalog), probe-002 STALE (UI honestly shows "Unavailable", not a dishonest green - heuristic matched a "connected" substring), probe-003 UNVERIFIED (needs a live GitHub-connect click), probe-004 REAL+LIVE.
+- 2026-07-06 - SENIORQA SKILL UPGRADE (in progress, UNCOMMITTED on slice/4) + GATE re-run GREEN.
+  Session recovery after a PC reset: reconstructed the prior hung session from its transcript. The
+  `real-world-validation` skill was renamed + hardened into `senior-qa` with two modes - GATE
+  (deterministic Done gate, behaviour-identical to `real-world-validate.local.mjs`) and PROBE
+  (exploratory black-box QA via a thin helper harness `senior-qa-probe.local.mjs`, codex-driven,
+  three lenses: A functional-adversarial, B NNG usability goal-not-clicks, C log/output-signature).
+  On disk but NOT yet committed: `.claude/skills/senior-qa/SKILL.md`, `senior-qa-probe.local.mjs`,
+  `senior-qa-gateway-drive.local.mjs` (throwaway codex driver - decide keep/drop), 1-line
+  `real-world-validate.local.mjs`, doc renames in CLAUDE.md/EXECUTION.md/consensus, old
+  `real-world-validation/SKILL.md` deleted. GATE re-run (resume item c - prior pass
+  `slice3.7-gate-v2` predated the device-flow commits): `node real-world-validate.local.mjs` BARE ->
+  verdict DONE-ELIGIBLE, exit 0, 2 consecutive CLEAN passes, 9 routes
+  (/,/tasks,/issues,/connections,/ask-opzava,/crm/{accounts,contacts,deals,tickets}), 0 findings, 0
+  warnings, preflight 9/9 healthy (`real-validate-artifacts/2026-07-06T11-36-19.656Z/`). HONEST
+  /connections read (eyeballed p2 screenshot): the page degrades TRUTHFULLY - "Systems degraded",
+  Gateway "Unavailable" (amber, not green), "0 model providers", and on-screen guidance "Configure
+  the provisioning worker to read the live gateway auth-choice catalog"; so the prior PROBE
+  probe-002 "dishonest green" characterization is STALE for this build (its heuristic matched a
+  "connected" substring; the actual status label is Unavailable). Real remaining functional gap
+  (confirmed live with container-level evidence, NOT fixed this run): the provisioning-worker
+  (172.18.0.5) operator device is UNPAIRED (`OPERATOR_DEVICE_TOKEN` unset, requests
+  operator.write+approvals) -> gateway (172.18.0.6:18789) closes the operator WS before handshake
+  (`[ws] closed before connect ... code=1005`) -> BURST retry-storm (~1/sec, fires under
+  /connections load when the page triggers a live catalog/health fetch, quiet when idle) -> admin
+  RPC unavailable -> empty provider catalog (probe-004 CONFIRMED live+current). Open decision = pair
+  the worker device (register->approve->token->restart) vs drop it to read-only scopes. GATE
+  HARDENING FINDING (honest correction): the gate's page-health verdict is accurate (pages render,
+  login + write round-trip real), but its log-ground-truth claim of "0 warnings / CLEAN" is a
+  FALSE-CLEAN - the storm fired ~1/sec THROUGHOUT the gate's own /connections sweeps yet produced 0
+  gate findings, because `real-world-validate.local.mjs` only blocks on `unhandled|fatal|panic` and
+  never matches `closed before connect`/`code 1005`. This is exactly the PROBE Lens-C log-signature
+  class. HARDENING DONE + PROVEN (user-authorized): `real-world-validate.local.mjs` now counts
+  connection-establishment failures per pass (`CONN_FAIL` regex:
+  `closed before connect`/pairing/handshake-reject; `REAL_STORM_THRESHOLD` default 5) - a storm
+  BLOCKS the pass, a few transient blips only warn (so a single reconnect can't flake it). Proof
+  (same unpaired stack, opposite verdict): BEFORE = "0 warnings / CLEAN / DONE-ELIGIBLE exit 0"
+  (false-green); AFTER = every pass flags `conn-retry-storm` (13 failures/pass, deterministic) ->
+  NOT-DONE exit 1. SKILL.md documents the new check. A live retry-storm can never green the gate
+  again. Findings re-triage vs on-disk evidence: probe-001 REAL (empty catalog), probe-002 STALE (UI
+  honestly shows "Unavailable", not a dishonest green - heuristic matched a "connected" substring),
+  probe-003 UNVERIFIED (needs a live GitHub-connect click), probe-004 REAL+LIVE.
 
-- 2026-07-05 - IN-BROWSER DEVICE-FLOW OAUTH CONNECT (Claude/GPT) built + live-verified. User wants to self-connect OAuth providers (Codex/GPT, Claude) from the UI. FEASIBILITY PROVEN first: OpenClaw's own Control UI (`mainframe/ui`) has NO in-browser provider OAuth - its only auth RPCs are models.authStatus (read) + models.authLogout + device.pair.* (operator pairing, not provider OAuth); provider login is CLI-only (`openclaw models auth login --provider <id> --device-code`, TTY-required). So this is a NET-NEW Opzava capability that HARNESSES OpenClaw's real CLI login (not reinvented). Mechanism (proven live): worker runs the login as a DETACHED PTY via `/usr/bin/script -qfc ... <logfile>` (docker exec Detach:true through the socket-proxy, same admin channel as the working api-key connect), reads+ANSI-strips the log, parses the verification URL + user code. ASYNC redesign (user pushed for reliable/consistent/efficient after a first sync cut blocked the action ~45s): start returns FAST with a flowId + pending challenge; the browser polls (existing DeviceFlowPoller) which surfaces the URL+code the moment OpenClaw issues them (~30s device-code latency) then drives to Connected via provider-status re-check. Terminals: connected (status), expired (expiresAt), failed (narrow OAuth-denial log match). SECURITY: shell command shell-escaped (providerId+logPath, logPath=server uuid) - no injection; ONLY the verification URL + user code ever leave the worker (never the raw log or tokens - OpenClaw stores tokens in the gateway volume); credential-write is the worker-only docker-exec admin path, not the broker; flows are principal(orgId)-scoped. DOKPLOY: works by parity - same compose (socket-proxy EXEC:1 + gateway mainframe image with /usr/bin/script), same exec mechanism as the working connect, device-code is POLL-based (NO public OAuth callback needed - fits Q18 one-public-WS-surface), gateway egress to auth.openai.com (VPS has it). PROVE: codex-exec built worker+web+ports+tests; glm-exec MAX-EFFORT adversarial review = security SOUND (no injection/leak, correct token boundary) + caught a real reliability defect (broad log-failure regex could false-kill valid flows) + the principal-scope gap - BOTH fixed. Live: Connect OpenAI -> Start -> dialog shows real `https://auth.openai.com/codex/device` + code (async, no block) -> Waiting for authorization. typecheck/lint/build green, worker 28/28 + web 73/73. Remaining: user authorizes a real account to complete; broader real-world gate. Specs: `docs/plan/consensus/slice3.7-device-flow-{connect-spec,async-redesign,review.glm}.md`.
+- 2026-07-05 - IN-BROWSER DEVICE-FLOW OAUTH CONNECT (Claude/GPT) built + live-verified. User wants
+  to self-connect OAuth providers (Codex/GPT, Claude) from the UI. FEASIBILITY PROVEN first:
+  OpenClaw's own Control UI (`mainframe/ui`) has NO in-browser provider OAuth - its only auth RPCs
+  are models.authStatus (read) + models.authLogout + device.pair.* (operator pairing, not provider
+  OAuth); provider login is CLI-only (`openclaw models auth login --provider <id> --device-code`,
+  TTY-required). So this is a NET-NEW Opzava capability that HARNESSES OpenClaw's real CLI login
+  (not reinvented). Mechanism (proven live): worker runs the login as a DETACHED PTY via
+  `/usr/bin/script -qfc ... <logfile>` (docker exec Detach:true through the socket-proxy, same admin
+  channel as the working api-key connect), reads+ANSI-strips the log, parses the verification URL +
+  user code. ASYNC redesign (user pushed for reliable/consistent/efficient after a first sync cut
+  blocked the action ~45s): start returns FAST with a flowId + pending challenge; the browser polls
+  (existing DeviceFlowPoller) which surfaces the URL+code the moment OpenClaw issues them (~30s
+  device-code latency) then drives to Connected via provider-status re-check. Terminals: connected
+  (status), expired (expiresAt), failed (narrow OAuth-denial log match). SECURITY: shell command
+  shell-escaped (providerId+logPath, logPath=server uuid) - no injection; ONLY the verification
+  URL + user code ever leave the worker (never the raw log or tokens - OpenClaw stores tokens in the
+  gateway volume); credential-write is the worker-only docker-exec admin path, not the broker; flows
+  are principal(orgId)-scoped. DOKPLOY: works by parity - same compose (socket-proxy EXEC:1 +
+  gateway mainframe image with /usr/bin/script), same exec mechanism as the working connect,
+  device-code is POLL-based (NO public OAuth callback needed - fits Q18 one-public-WS-surface),
+  gateway egress to auth.openai.com (VPS has it). PROVE: codex-exec built worker+web+ports+tests;
+  glm-exec MAX-EFFORT adversarial review = security SOUND (no injection/leak, correct token
+  boundary) + caught a real reliability defect (broad log-failure regex could false-kill valid
+  flows) + the principal-scope gap - BOTH fixed. Live: Connect OpenAI -> Start -> dialog shows real
+  `https://auth.openai.com/codex/device` + code (async, no block) -> Waiting for authorization.
+  typecheck/lint/build green, worker 28/28 + web 73/73. Remaining: user authorizes a real account to
+  complete; broader real-world gate. Specs:
+  `docs/plan/consensus/slice3.7-device-flow-{connect-spec,async-redesign,review.glm}.md`.
 
-- 2026-07-05 - SLICE 3.7 VIEW #1 HARDENING (user live-QA, agnostic sweep across Disconnect/Connect/Status/Health) + gate GREEN. User found several real defects the earlier gate missed (it swept routes but never clicked the destructive controls). Fixed thinking AGNOSTIC + sad-path + edge-case: (a) **Disconnect regression** - `models.authLogout` returns ok but removes 0 profiles for a config api-key provider (zai), so it left the key in place and the provider "connected". Now disconnect clears BOTH stores (authLogout for OAuth/managed + config.patch for config.auth.profiles), any provider, any credential store; new unit test for the authLogout-ok-but-config-profile-survives case (24/24). (b) **Destructive-action confirmation** - Disconnect had no guard; added a real shadcn **AlertDialog** (new `@radix-ui/react-alert-dialog` + `components/ui/alert-dialog.tsx`) confirmation on every Disconnect (row + Manage), UX error-prevention. (c) **Duplicate Anthropic + Claude Max API Proxy rows** - `ensureCanonicalLlmProviders` added claude-max-api-proxy with parentId:null, overriding the taxonomy alias; removed it from the canonical top-level list (kept the anthropic alias) + guard so no fold-under-parent id can become a top-level row. (d) **Models agnostic + aligned** - Models column now sources ONLY from the gateway CONFIG (agents.defaults.models + agent/default model refs + connected auth-profile model), never the raw `models.list` catalog dump; connected providers show their real configured model (openai gpt-5.5, zai glm-5.2), unconnected show "-". NO model names hardcoded anywhere. (e) **Manage dead-end** - a connected provider with unknown auth mode fell through to a "no auth method" panel with no Close/Disconnect; now any connected+non-api-key provider shows Connected + Disconnect, and config api-key profiles set connectedAuthMode so Manage renders the right form. (f) **OAuth device-flow connect** - HONEST FINDING: OpenClaw 2026.6.11 device-code sign-in is an INTERACTIVE gateway flow (menu + out-of-band auth + poll) with NO remote RPC (verified in mainframe `openai-chatgpt-provider.ts` + onboard menu), so a fully in-browser device-flow connect is NOT achievable with this gateway. Replaced the always-failing "Start device flow" button with honest, actionable guidance (the exact `openclaw onboard --auth-choice <id>` + Re-check), agnostic across all OAuth providers. api-key connect works in-browser; device-flow OAuth is a documented gateway limitation (in-browser drive = future feature / SSH break-glass onboard). PROVE: connections-drive.local.mjs made AGNOSTIC (tests whatever is actually connected, asserts Manage real model + Disconnect-opens-confirmation non-destructively) - live drive exit 0, connectedModels=[glm-5.2], no duplicate row, unconnected="-". deep-verification GREEN (typecheck/lint/build; web 73/73 + worker 24/24). real-world gate BARE -> DONE-ELIGIBLE (`real-validate-artifacts/slice3.7-gate-v2/`). Lesson reinforced: destructive ops need a real live click test + a confirmation guard; never claim an op works without exercising it.
+- 2026-07-05 - SLICE 3.7 VIEW #1 HARDENING (user live-QA, agnostic sweep across
+  Disconnect/Connect/Status/Health) + gate GREEN. User found several real defects the earlier gate
+  missed (it swept routes but never clicked the destructive controls). Fixed thinking AGNOSTIC +
+  sad-path + edge-case: (a) **Disconnect regression** - `models.authLogout` returns ok but removes 0
+  profiles for a config api-key provider (zai), so it left the key in place and the provider
+  "connected". Now disconnect clears BOTH stores (authLogout for OAuth/managed + config.patch for
+  config.auth.profiles), any provider, any credential store; new unit test for the
+  authLogout-ok-but-config-profile-survives case (24/24). (b) **Destructive-action confirmation** -
+  Disconnect had no guard; added a real shadcn **AlertDialog** (new `@radix-ui/react-alert-dialog` +
+  `components/ui/alert-dialog.tsx`) confirmation on every Disconnect (row + Manage), UX
+  error-prevention. (c) **Duplicate Anthropic + Claude Max API Proxy rows** -
+  `ensureCanonicalLlmProviders` added claude-max-api-proxy with parentId:null, overriding the
+  taxonomy alias; removed it from the canonical top-level list (kept the anthropic alias) + guard so
+  no fold-under-parent id can become a top-level row. (d) **Models agnostic + aligned** - Models
+  column now sources ONLY from the gateway CONFIG (agents.defaults.models + agent/default model
+  refs + connected auth-profile model), never the raw `models.list` catalog dump; connected
+  providers show their real configured model (openai gpt-5.5, zai glm-5.2), unconnected show "-". NO
+  model names hardcoded anywhere. (e) **Manage dead-end** - a connected provider with unknown auth
+  mode fell through to a "no auth method" panel with no Close/Disconnect; now any
+  connected+non-api-key provider shows Connected + Disconnect, and config api-key profiles set
+  connectedAuthMode so Manage renders the right form. (f) **OAuth device-flow connect** - HONEST
+  FINDING: OpenClaw 2026.6.11 device-code sign-in is an INTERACTIVE gateway flow (menu + out-of-band
+  auth + poll) with NO remote RPC (verified in mainframe `openai-chatgpt-provider.ts` + onboard
+  menu), so a fully in-browser device-flow connect is NOT achievable with this gateway. Replaced the
+  always-failing "Start device flow" button with honest, actionable guidance (the exact
+  `openclaw onboard --auth-choice <id>` + Re-check), agnostic across all OAuth providers. api-key
+  connect works in-browser; device-flow OAuth is a documented gateway limitation (in-browser drive =
+  future feature / SSH break-glass onboard). PROVE: connections-drive.local.mjs made AGNOSTIC (tests
+  whatever is actually connected, asserts Manage real model + Disconnect-opens-confirmation
+  non-destructively) - live drive exit 0, connectedModels=[glm-5.2], no duplicate row,
+  unconnected="-". deep-verification GREEN (typecheck/lint/build; web 73/73 + worker 24/24).
+  real-world gate BARE -> DONE-ELIGIBLE (`real-validate-artifacts/slice3.7-gate-v2/`). Lesson
+  reinforced: destructive ops need a real live click test + a confirmation guard; never claim an op
+  works without exercising it.
 
-- 2026-07-04 - SLICE 3.7 VIEW #1 REWORK (user live-QA feedback) DONE + gate GREEN. User drove the live surface and found the first cut FLAKY (gate passed but never clicked Manage/Disconnect - a real gap in my validation). Fixed all reported defects grounded in OpenClaw's REAL code (`mainframe/`), and rebuilt the surface to the user's design contract. DEFECTS: (a) Disconnect OpenAI -> 404: our config.patch profile-delete does not touch an OAuth/Codex cred (not in config.auth.profiles) -> switched to OpenClaw's real `models.authLogout {provider}` RPC (JIT operator.admin). (b) Manage showed an API-key field for an OAuth connection: `connectChoice` blindly preferred api-key -> now driven by the REAL connected profile type (`models.authStatus.providers[].profiles[].type` + CLI `models status` oauth/token/apiKey counts) surfaced as `connectedAuthMode`; oauth/token -> NO key field. (c) Wrong/assumed model "gpt-5.3-chat-latest": Models column showed the alphabetical `models.list` catalog -> now sources the CONFIGURED models from the agent config where they live (`agents.defaults.models` keys + agent/default model refs) -> OpenAI **gpt-5.5**, Z.AI **glm-5.2**. (d) Status regression I introduced: authStatus RPC under-reports openai/Codex as "missing" -> demoted OpenAI to needs_attention; fixed by making CLI `models status` the connected-TRUTH (it sees the real profile stores) and authStatus ENRICH-only (downgrades only on hard `expired`, never `missing`). DESIGN (user directives): FULL shadcn - centralized `components/ui/*` (added shadcn Table + Card), panel rebuilt Card+**Tabs**(Frontier/Bundles/Best-Subagents/Other per user segmentation)+Table+Badge/Button/Dialog, mockup = design REFERENCE only (visual parity via theme tokens, senior-frontend + docs/ux-law gates); providers gateway-gated via `ensureCanonicalLlmProviders` + `PROVIDER_TIERS` taxonomy (claude-max-api-proxy/opencode-go/cloudflare-ai-gateway/minimax/xiaomi added). Method: codex-exec backend/logic + Claude-owned shadcn UI rewrite + Claude root-caused the status/model regressions against the LIVE gateway config. PROVE - the validation gap that broke the first cut is CLOSED: `connections-drive.local.mjs` now DRIVES the real interactions (switches tier tabs, opens Manage -> asserts NO api-key input + real model, probes Disconnect for no-404) - live drive exit 0, connectedModels=[gpt-5.5, glm-5.2], all booleans green. deep-verification GREEN (typecheck/lint/build; web 73/73 + worker 23/23). `real-world-validate.local.mjs` BARE -> DONE-ELIGIBLE exit 0, 2 consecutive clean passes (`real-validate-artifacts/slice3.7-gate-final/`). Lesson recorded: a passing route-sweep gate is NOT sufficient for interactive surfaces - the per-slice driver must click the actual controls.
+- 2026-07-04 - SLICE 3.7 VIEW #1 REWORK (user live-QA feedback) DONE + gate GREEN. User drove the
+  live surface and found the first cut FLAKY (gate passed but never clicked Manage/Disconnect - a
+  real gap in my validation). Fixed all reported defects grounded in OpenClaw's REAL code
+  (`mainframe/`), and rebuilt the surface to the user's design contract. DEFECTS: (a) Disconnect
+  OpenAI -> 404: our config.patch profile-delete does not touch an OAuth/Codex cred (not in
+  config.auth.profiles) -> switched to OpenClaw's real `models.authLogout {provider}` RPC (JIT
+  operator.admin). (b) Manage showed an API-key field for an OAuth connection: `connectChoice`
+  blindly preferred api-key -> now driven by the REAL connected profile type
+  (`models.authStatus.providers[].profiles[].type` + CLI `models status` oauth/token/apiKey counts)
+  surfaced as `connectedAuthMode`; oauth/token -> NO key field. (c) Wrong/assumed model
+  "gpt-5.3-chat-latest": Models column showed the alphabetical `models.list` catalog -> now sources
+  the CONFIGURED models from the agent config where they live (`agents.defaults.models` keys +
+  agent/default model refs) -> OpenAI **gpt-5.5**, Z.AI **glm-5.2**. (d) Status regression I
+  introduced: authStatus RPC under-reports openai/Codex as "missing" -> demoted OpenAI to
+  needs_attention; fixed by making CLI `models status` the connected-TRUTH (it sees the real profile
+  stores) and authStatus ENRICH-only (downgrades only on hard `expired`, never `missing`). DESIGN
+  (user directives): FULL shadcn - centralized `components/ui/*` (added shadcn Table + Card), panel
+  rebuilt Card+**Tabs**(Frontier/Bundles/Best-Subagents/Other per user
+  segmentation)+Table+Badge/Button/Dialog, mockup = design REFERENCE only (visual parity via theme
+  tokens, senior-frontend + docs/ux-law gates); providers gateway-gated via
+  `ensureCanonicalLlmProviders` + `PROVIDER_TIERS` taxonomy
+  (claude-max-api-proxy/opencode-go/cloudflare-ai-gateway/minimax/xiaomi added). Method: codex-exec
+  backend/logic + Claude-owned shadcn UI rewrite + Claude root-caused the status/model regressions
+  against the LIVE gateway config. PROVE - the validation gap that broke the first cut is CLOSED:
+  `connections-drive.local.mjs` now DRIVES the real interactions (switches tier tabs, opens Manage
+  -> asserts NO api-key input + real model, probes Disconnect for no-404) - live drive exit 0,
+  connectedModels=[gpt-5.5, glm-5.2], all booleans green. deep-verification GREEN
+  (typecheck/lint/build; web 73/73 + worker 23/23). `real-world-validate.local.mjs` BARE ->
+  DONE-ELIGIBLE exit 0, 2 consecutive clean passes (`real-validate-artifacts/slice3.7-gate-final/`).
+  Lesson recorded: a passing route-sweep gate is NOT sufficient for interactive surfaces - the
+  per-slice driver must click the actual controls.
 
-- 2026-07-04 - SLICE 3.7 VIEW #1 (Models & Providers) DONE + real-world gate GREEN. Ported the Connections "Model providers" surface to OpenClaw's real model/config/auth shape. mockup-revision-first: `connections.html` Section 3 reconciled - DELETED invented "Backs" free-text column + fake "$52/$100" plan amounts; columns now Provider|Auth|Models|Status|action, one row per canonical LLM PARENT with CLI runtimes folded UNDER (Codex→OpenAI, Claude CLI→Anthropic, Gemini CLI→Google), real Models (`models.list`) + 5-state Status (`models.authStatus`). Ports extended (`connections-provisioning.ts`: optional category/parentId/runtimeLabel/models on catalog entry; authHealth/expiryLabel/planLabel on connection state) + NEW `model-provider-taxonomy.ts` (classifyModelProvider + non-LLM denylist + runtime→parent map + CANONICAL_LLM_PROVIDER_IDS). Worker (`gateway-admin-connections.ts`): real per-provider models from models.list; `models.authStatus` RPC PRIMARY with `models status` CLI FALLBACK (agnostic/sad-path - no docker-exec dependency for status; empty-map also falls back); `ensureCanonicalLlmProviders` surfaces well-known LLM connect targets (zai/openrouter/moonshot/qwen/deepseek/groq/xai/google) that have onboard auth-choices but no bundled models yet - presence GATEWAY-GATED (only if `authChoicesForProvider` matches a live onboard choice), NOT a hardcoded catalog. Web projection (`connections-state.ts`): `projectModelProviders` curates (drops non-LLM), folds runtimes into parent rows, parent-authoritative status (a connected runtime can back a parent with no state, but never masks a needs_attention parent), connectionProviderId for correct disconnect targeting. UI (`model-providers-panel.tsx`): reconciled grouped table, honest states, dialogs/DeviceFlowPoller preserved, `data-provider-id` per row. Method: codex-exec files-only codegen → Claude verify+harden. PROVE (heavy iterated): 3 codex-exec review rounds + 1 glm-exec independent second opinion + 2 Claude deep-verification lanes → codex caught a HIGH the Claude lanes missed (onboard-failure error echoed the SUBMITTED api key to the browser → now code-derived generic message only, regression test added); MED fixes (connectedProviderIds parent-id regression → raw scan; folded-child connect submits choice.providerId; driver standalone-runtime check was unfalsifiable "Claude CLI" vs "claude-cli" → deterministic data-provider-id; connected child masking needs_attention parent); glm second-opinion caught a LOW case-insensitive dedupe edge (hardened). Final codex + glm consensus = SHIP-READY, no open findings. deep-verification GREEN: typecheck/lint/build all packages, web 71/71 + worker 22/22 tests. New `connections-drive.local.mjs` (real login, NO minted session) proves live booleans: has-zai ✓ has-openrouter ✓ no-standalone-runtime ✓ no-non-llm ✓ real connected model gpt-5.2 ✓ (28 gateway-driven providers). REAL-WORLD GATE: `node real-world-validate.local.mjs` BARE → verdict DONE-ELIGIBLE, exit 0, 2 consecutive CLEAN passes (9 routes, 0 findings, 0 warnings) - `real-validate-artifacts/slice3.7-gate-1/`. Live parity finding recorded: OpenClaw's own Control UI derives per-provider status from `models.authStatus` RPC (5-state), richer than the prior `models status` CLI exec - Opzava now uses the RPC primary. Evidence: `docs/plan/consensus/slice3.7-view1-{spec,review.codex,rereview.codex,final.codex,second-opinion.claude}.md`. NEXT: Slice 3.7 view #2 (Overview).
+- 2026-07-04 - SLICE 3.7 VIEW #1 (Models & Providers) DONE + real-world gate GREEN. Ported the
+  Connections "Model providers" surface to OpenClaw's real model/config/auth shape.
+  mockup-revision-first: `connections.html` Section 3 reconciled - DELETED invented "Backs"
+  free-text column + fake "$52/$100" plan amounts; columns now Provider|Auth|Models|Status|action,
+  one row per canonical LLM PARENT with CLI runtimes folded UNDER (Codex→OpenAI, Claude
+  CLI→Anthropic, Gemini CLI→Google), real Models (`models.list`) + 5-state Status
+  (`models.authStatus`). Ports extended (`connections-provisioning.ts`: optional
+  category/parentId/runtimeLabel/models on catalog entry; authHealth/expiryLabel/planLabel on
+  connection state) + NEW `model-provider-taxonomy.ts` (classifyModelProvider + non-LLM denylist +
+  runtime→parent map + CANONICAL_LLM_PROVIDER_IDS). Worker (`gateway-admin-connections.ts`): real
+  per-provider models from models.list; `models.authStatus` RPC PRIMARY with `models status` CLI
+  FALLBACK (agnostic/sad-path - no docker-exec dependency for status; empty-map also falls back);
+  `ensureCanonicalLlmProviders` surfaces well-known LLM connect targets
+  (zai/openrouter/moonshot/qwen/deepseek/groq/xai/google) that have onboard auth-choices but no
+  bundled models yet - presence GATEWAY-GATED (only if `authChoicesForProvider` matches a live
+  onboard choice), NOT a hardcoded catalog. Web projection (`connections-state.ts`):
+  `projectModelProviders` curates (drops non-LLM), folds runtimes into parent rows,
+  parent-authoritative status (a connected runtime can back a parent with no state, but never masks
+  a needs_attention parent), connectionProviderId for correct disconnect targeting. UI
+  (`model-providers-panel.tsx`): reconciled grouped table, honest states, dialogs/DeviceFlowPoller
+  preserved, `data-provider-id` per row. Method: codex-exec files-only codegen → Claude
+  verify+harden. PROVE (heavy iterated): 3 codex-exec review rounds + 1 glm-exec independent second
+  opinion + 2 Claude deep-verification lanes → codex caught a HIGH the Claude lanes missed
+  (onboard-failure error echoed the SUBMITTED api key to the browser → now code-derived generic
+  message only, regression test added); MED fixes (connectedProviderIds parent-id regression → raw
+  scan; folded-child connect submits choice.providerId; driver standalone-runtime check was
+  unfalsifiable "Claude CLI" vs "claude-cli" → deterministic data-provider-id; connected child
+  masking needs_attention parent); glm second-opinion caught a LOW case-insensitive dedupe edge
+  (hardened). Final codex + glm consensus = SHIP-READY, no open findings. deep-verification GREEN:
+  typecheck/lint/build all packages, web 71/71 + worker 22/22 tests. New
+  `connections-drive.local.mjs` (real login, NO minted session) proves live booleans: has-zai ✓
+  has-openrouter ✓ no-standalone-runtime ✓ no-non-llm ✓ real connected model gpt-5.2 ✓ (28
+  gateway-driven providers). REAL-WORLD GATE: `node real-world-validate.local.mjs` BARE → verdict
+  DONE-ELIGIBLE, exit 0, 2 consecutive CLEAN passes (9 routes, 0 findings, 0 warnings) -
+  `real-validate-artifacts/slice3.7-gate-1/`. Live parity finding recorded: OpenClaw's own Control
+  UI derives per-provider status from `models.authStatus` RPC (5-state), richer than the prior
+  `models status` CLI exec - Opzava now uses the RPC primary. Evidence:
+  `docs/plan/consensus/slice3.7-view1-{spec,review.codex,rereview.codex,final.codex,second-opinion.claude}.md`.
+  NEXT: Slice 3.7 view #2 (Overview).
 
-- 2026-07-04 - MAINFRAME-MOVE SLICE (issue #126) DONE + gate GREEN. Squash-import landed (commit 0c41ce2: 20,960 files; upstream .git dropped; `mainframe/UPSTREAM.md` pin v2026.6.11/bd2740fedc + `PATCHES.md` ladder; pnpm-lock.yaml FORCE-ADDED past the fork's own gitignore so Dokploy builds keep the locked graph; workspace exclusion holds by construction - globs are apps/*,packages/*). Compose swapped to `build: ./mainframe` + `image: opzava/mainframe-gateway:...`; codex-exec Dockerfile audit = SAFE-SWAP (WORKDIR /app + openclaw.mjs + dist present, tini entrypoint composes with our command, node UID 1000 matches volume ownership, same /healthz). BOOT PROOF: gateway recreated on existing volumes -> running healthy on the mainframe image with persisted config intact (agent model + codex plugin loaded from volume). GATE: first shakedown run found REAL pre-existing bugs stable 5/5 passes - (a) /ask-opzava React #418 hydration mismatch (root cause: Intl.DateTimeFormat without timeZone - server UTC vs browser local; FIXED by codex-exec: UTC baseline for SSR/first render, browser TZ after hydration, no suppressHydrationWarning, 7 new tests green) and (b) dead /notifications nav link 404 (bell anchor advertised a nonexistent route; FIXED: semantic button popover toggle, no dead route). Also caught my own runner bug: piping the gate (`| tail`) masks the exit code - NEVER pipe it (skill updated). FINAL GATE: 2 consecutive CLEAN passes, 9 routes, write round-trip + real login green, verdict DONE-ELIGIBLE exit 0 (`real-validate-artifacts/gate-final/`). glm-exec docs audit (5 findings, all APPLIED: ADR count in Reference Map, stale Current State, compose-has-no-profiles truth fix in ARCHITECTURE.md, port view enumeration, CLAUDE.md tense; report archived at `docs/plan/audits/2026-07-04-q18-docs-audit.md`); glm-exec wrapper hardened en route (headless dontAsk DENIES writes -> exec mode now acceptEdits; raw output preserved to /tmp/glm-exec.last.json; comm locale crash fixed). Ask-surface bounds directive recorded (Ask Admin Opzava = admin-facing, Ask Opzava = user-facing; task-board.html mockup corrected; route rename = row-#14 debt). NEXT: Slice 3.7 view #1 Models & Providers.
+- 2026-07-04 - MAINFRAME-MOVE SLICE (issue #126) DONE + gate GREEN. Squash-import landed (commit
+  0c41ce2: 20,960 files; upstream .git dropped; `mainframe/UPSTREAM.md` pin v2026.6.11/bd2740fedc +
+  `PATCHES.md` ladder; pnpm-lock.yaml FORCE-ADDED past the fork's own gitignore so Dokploy builds
+  keep the locked graph; workspace exclusion holds by construction - globs are apps/_,packages/_).
+  Compose swapped to `build: ./mainframe` + `image: opzava/mainframe-gateway:...`; codex-exec
+  Dockerfile audit = SAFE-SWAP (WORKDIR /app + openclaw.mjs + dist present, tini entrypoint composes
+  with our command, node UID 1000 matches volume ownership, same /healthz). BOOT PROOF: gateway
+  recreated on existing volumes -> running healthy on the mainframe image with persisted config
+  intact (agent model + codex plugin loaded from volume). GATE: first shakedown run found REAL
+  pre-existing bugs stable 5/5 passes - (a) /ask-opzava React #418 hydration mismatch (root cause:
+  Intl.DateTimeFormat without timeZone - server UTC vs browser local; FIXED by codex-exec: UTC
+  baseline for SSR/first render, browser TZ after hydration, no suppressHydrationWarning, 7 new
+  tests green) and (b) dead /notifications nav link 404 (bell anchor advertised a nonexistent route;
+  FIXED: semantic button popover toggle, no dead route). Also caught my own runner bug: piping the
+  gate (`| tail`) masks the exit code - NEVER pipe it (skill updated). FINAL GATE: 2 consecutive
+  CLEAN passes, 9 routes, write round-trip + real login green, verdict DONE-ELIGIBLE exit 0
+  (`real-validate-artifacts/gate-final/`). glm-exec docs audit (5 findings, all APPLIED: ADR count
+  in Reference Map, stale Current State, compose-has-no-profiles truth fix in ARCHITECTURE.md, port
+  view enumeration, CLAUDE.md tense; report archived at
+  `docs/plan/audits/2026-07-04-q18-docs-audit.md`); glm-exec wrapper hardened en route (headless
+  dontAsk DENIES writes -> exec mode now acceptEdits; raw output preserved to
+  /tmp/glm-exec.last.json; comm locale crash fixed). Ask-surface bounds directive recorded (Ask
+  Admin Opzava = admin-facing, Ask Opzava = user-facing; task-board.html mockup corrected; route
+  rename = row-#14 debt). NEXT: Slice 3.7 view #1 Models & Providers.
 
-- 2026-07-04 - Q18 PIVOT DOCS PACKAGE + GITHUB SWEEP executed (user directive: clean/sync/lean ALL docs + issues; kill AI assumption/hallucination/confusion/context-rot). Repo docs: NEW ADR-016 (mainframe tracked fork) + ADR-002/ADR-015 amended in their Status lines; ARCHITECTURE.md truth-synced (Q18 paragraph; AS-BUILT compose services corrected - pgbouncer/redis/worker-projection/worker-metering marked planned-only, static mainframe-built gateway documented; invariant + diagram + ADR index updated); CLAUDE.md doc map (Q1-Q18, 16 ADRs, mainframe/, CONTEXT.md) + Prove gate + per-tenant nuance; NEW root CONTEXT.md canonical glossary (terms win on conflict); port program +row #14 (Ask Admin = WebChat parity) + workboard-NOT-ported rule + mockup-revision-first design contract section; official-docs pins gain the OpenClaw fork pin; capability-parity notes port-program supersession for admin gateway-ops screens; runbook ghcr note. NEW USER DIRECTIVE recorded everywhere it binds: **CRM is NEVER an admin-dashboard surface** - permanent home is the user-side dashboard; current /crm/* admin routes are a TEMPORARY Slice-3 parking spot pending relocation. GitHub sweep (all 33 open issues #88-#120): every Definition-of-Done body patched to include the real-world-validation gate (agents follow issues verbatim - an issue omitting the gate would license a false positive); q18-pivot label created + applied to the 8 affected issues; targeted alignment comments on #88 (workspace carve-out), #89 (ADR-002 deferral), #102 (ADR-015 amendment), #107 (WebChat parity), #108 (agents view + workboard exclusion), #112 (CRM placement), #114 (monitoring->port views 2/5/6/13), #115 (Connections->port view #1). NEW issue #126 = the mainframe-move slice card (full gated workflow + skills + DoD incl. the gate).
+- 2026-07-04 - Q18 PIVOT DOCS PACKAGE + GITHUB SWEEP executed (user directive: clean/sync/lean ALL
+  docs + issues; kill AI assumption/hallucination/confusion/context-rot). Repo docs: NEW ADR-016
+  (mainframe tracked fork) + ADR-002/ADR-015 amended in their Status lines; ARCHITECTURE.md
+  truth-synced (Q18 paragraph; AS-BUILT compose services corrected -
+  pgbouncer/redis/worker-projection/worker-metering marked planned-only, static mainframe-built
+  gateway documented; invariant + diagram + ADR index updated); CLAUDE.md doc map (Q1-Q18, 16 ADRs,
+  mainframe/, CONTEXT.md) + Prove gate + per-tenant nuance; NEW root CONTEXT.md canonical glossary
+  (terms win on conflict); port program +row #14 (Ask Admin = WebChat parity) + workboard-NOT-ported
+  rule + mockup-revision-first design contract section; official-docs pins gain the OpenClaw fork
+  pin; capability-parity notes port-program supersession for admin gateway-ops screens; runbook ghcr
+  note. NEW USER DIRECTIVE recorded everywhere it binds: **CRM is NEVER an admin-dashboard
+  surface** - permanent home is the user-side dashboard; current /crm/* admin routes are a TEMPORARY
+  Slice-3 parking spot pending relocation. GitHub sweep (all 33 open issues #88-#120): every
+  Definition-of-Done body patched to include the real-world-validation gate (agents follow issues
+  verbatim - an issue omitting the gate would license a false positive); q18-pivot label created +
+  applied to the 8 affected issues; targeted alignment comments on #88 (workspace carve-out), #89
+  (ADR-002 deferral), #102 (ADR-015 amendment), #107 (WebChat parity), #108 (agents view + workboard
+  exclusion), #112 (CRM placement), #114 (monitoring->port views 2/5/6/13), #115 (Connections->port
+  view #1). NEW issue #126 = the mainframe-move slice card (full gated workflow + skills + DoD incl.
+  the gate).
 
-- 2026-07-04 - `glm-exec` CREATED + LIVE-VERIFIED (user: GLM runs via the `claude-glm` command - the stock claude CLI in a separate `~/.claude-glm` config dir on z.AI; sonnet/opus -> glm-5.2[1m], haiku -> glm-4.7, key at `~/.config/zai/key`). New `~/.claude/scripts/glm-exec.sh` (doctor + headless exec in --cwd, JSON digest with session_id/changed_files/cost, same contract as codex-exec.sh) + `~/.claude/skills/glm-exec/SKILL.md`. Doctor result: READY - live ping through the real z.AI endpoint replied. Multi-executor orchestration now real: Claude orchestrates/verifies; codex-exec (GPT 5.5) and glm-exec (GLM 5.2) generate; ALL output passes the same gates and the real-world-validation exit code remains the only Done verdict.
+- 2026-07-04 - `glm-exec` CREATED + LIVE-VERIFIED (user: GLM runs via the `claude-glm` command - the
+  stock claude CLI in a separate `~/.claude-glm` config dir on z.AI; sonnet/opus -> glm-5.2[1m],
+  haiku -> glm-4.7, key at `~/.config/zai/key`). New `~/.claude/scripts/glm-exec.sh` (doctor +
+  headless exec in --cwd, JSON digest with session_id/changed_files/cost, same contract as
+  codex-exec.sh) + `~/.claude/skills/glm-exec/SKILL.md`. Doctor result: READY - live ping through
+  the real z.AI endpoint replied. Multi-executor orchestration now real: Claude
+  orchestrates/verifies; codex-exec (GPT 5.5) and glm-exec (GLM 5.2) generate; ALL output passes the
+  same gates and the real-world-validation exit code remains the only Done verdict.
 
-- 2026-07-04 - REAL-WORLD FINAL VALIDATION gate INSTITUTED (user directive, same grilling session as Q18; root cause acknowledged: slices were reported complete/working while the live stack was broken - mocks + minted sessions greened acceptance). Delivered: (1) `real-world-validate.local.mjs` - canonical automated gate: preflight requires ALL compose services up; REAL form login (PARITY_COOKIE explicitly ignored); routes AUTO-DISCOVERED from the live nav + seeds (gaps cannot hide); per-route findings = console errors, pageerrors, 5xx, same-origin 404s, `[role=alert]` error states, auth bounces, empty-main dead pages; real WRITE round-trip (task created through the UI must survive reload); `docker compose logs` ground-truth audit per pass (unhandled/fatal/panic block, other error lines reported as warnings); ITERATIVE - full sweeps loop until 2 consecutive CLEAN passes (max 5); exit 0 = DONE-eligible, else NOT-DONE; artifacts + report.json per run. (2) `.claude/skills/real-world-validation/` - zero-ambiguity model-agnostic procedure (exact commands, pass criteria, on-failure loop, per-slice `*-drive.local.mjs` duty, hard rules: no mocks/synthetic/minted sessions at the gate; TDD gates development only). (3) CLAUDE.md non-negotiable + gate-9 protocol step + directive block here. Multi-executor note (user): docs/gates are deliberately executor-agnostic so slices can be assigned to GLM 5.2 / GPT 5.5 / Opus 4.8 etc.; `codex-exec` exists; `glm-exec` added to Skills-To-Build pending user-provided GLM credentials/CLI (wrapper template = codex-exec.sh). The gate's exit code, not any model's narrative, is the Done verdict.
+- 2026-07-04 - REAL-WORLD FINAL VALIDATION gate INSTITUTED (user directive, same grilling session as
+  Q18; root cause acknowledged: slices were reported complete/working while the live stack was
+  broken - mocks + minted sessions greened acceptance). Delivered: (1)
+  `real-world-validate.local.mjs` - canonical automated gate: preflight requires ALL compose
+  services up; REAL form login (PARITY_COOKIE explicitly ignored); routes AUTO-DISCOVERED from the
+  live nav + seeds (gaps cannot hide); per-route findings = console errors, pageerrors, 5xx,
+  same-origin 404s, `[role=alert]` error states, auth bounces, empty-main dead pages; real WRITE
+  round-trip (task created through the UI must survive reload); `docker compose logs` ground-truth
+  audit per pass (unhandled/fatal/panic block, other error lines reported as warnings); ITERATIVE -
+  full sweeps loop until 2 consecutive CLEAN passes (max 5); exit 0 = DONE-eligible, else NOT-DONE;
+  artifacts + report.json per run. (2) `.claude/skills/real-world-validation/` - zero-ambiguity
+  model-agnostic procedure (exact commands, pass criteria, on-failure loop, per-slice
+  `*-drive.local.mjs` duty, hard rules: no mocks/synthetic/minted sessions at the gate; TDD gates
+  development only). (3) CLAUDE.md non-negotiable + gate-9 protocol step + directive block here.
+  Multi-executor note (user): docs/gates are deliberately executor-agnostic so slices can be
+  assigned to GLM 5.2 / GPT 5.5 / Opus 4.8 etc.; `codex-exec` exists; `glm-exec` added to
+  Skills-To-Build pending user-provided GLM credentials/CLI (wrapper template = codex-exec.sh). The
+  gate's exit code, not any model's narrative, is the Done verdict.
 
-- 2026-07-04 - Q18 GRILLED + LOCKED (grill-with-docs session; full record `docs/plan/grilling-decisions.md` Q18): OWN OpenClaw as a TRACKED FORK - squash-import `docs/openclaw/clone` (v2026.6.11, bd2740fedc, MIT; 1.6GB upstream `.git` dropped) -> `mainframe/`; Platform Gateway becomes `build: ./mainframe` (no more ghcr pull; same version + named volumes = seamless swap). Customization ladder rungs 0-3 (`PATCHES.md`; rung 3 near-empty; blog-gen/FB-ads/email-campaign automations are Opzava Marketing features USING the gateway via broker, NOT fork edits; branding = rung 0/1). Topology UNCHANGED: ADR-002 per-tenant dynamic provisioning deferred-not-deleted (code retained; powers onboard-exec/operator bootstrap); ADR-003 two-token ACL untouched. Production home = VPS Dokploy 5.189.186.18 (6 vCPU/12GB/100GB NVMe; creds captured in gitignored `secrets/dokploy.env` - ROTATE the key, it transited chat; panel needs TLS); LOCAL COMPOSE REMAINS the dev/verify env (parity invariant intact). Domain `opzava.app` purchased at first live-dev push (hard bring-up gate - root cause of historical wss/SSL pain was certs on a bare IP). WS: gateway keeps ZERO public listeners; exactly ONE public WS surface (browser<->app/broker wss via Traefik+LE); internal legs plain ws on dokploy-network; hardening = WS upgrade + long idle timeouts, heartbeat, reconnect backoff+jitter, session-bound sockets, drain on deploy; reconnect = re-snapshot. Dashboard: mockup-revision-first contract (OpenClaw Control UI = WHAT, mockup = LOOK, reconcile mockup FIRST, screenshot parity; `/senior-frontend`; calm/user-friendly/optimal UX); Tasks/Issues/Ask-Admin RETAINED; OpenClaw workboard NOT ported (Tasks IS the workboard, Q17); port program +row #14 Ask Admin = WebChat parity (chat.* RPCs via broker per `docs/openclaw/web/webchat.md`). Break-glass = fork's Control UI internal-only via SSH tunnel (never Traefik-routed). Build path = Dokploy builds ALL images from the repo (parity by construction); pre-agreed fallback = GH Actions -> private ghcr for the mainframe image, both envs pull. Docs = TARGETED AMENDMENTS bundled into the move slice (new ADR-016; amend ADR-002/015; CLAUDE.md; port-program; GH issues sweep; PRDs lazily; consensus memos stay frozen) - NOT a mass rewrite. NEW ORDER: mainframe-move slice -> Slice 3.7 port program -> Dokploy bring-up. Gitignore guard added on `docs/openclaw/clone/` until the move lands.
+- 2026-07-04 - Q18 GRILLED + LOCKED (grill-with-docs session; full record
+  `docs/plan/grilling-decisions.md` Q18): OWN OpenClaw as a TRACKED FORK - squash-import
+  `docs/openclaw/clone` (v2026.6.11, bd2740fedc, MIT; 1.6GB upstream `.git` dropped) ->
+  `mainframe/`; Platform Gateway becomes `build: ./mainframe` (no more ghcr pull; same version +
+  named volumes = seamless swap). Customization ladder rungs 0-3 (`PATCHES.md`; rung 3 near-empty;
+  blog-gen/FB-ads/email-campaign automations are Opzava Marketing features USING the gateway via
+  broker, NOT fork edits; branding = rung 0/1). Topology UNCHANGED: ADR-002 per-tenant dynamic
+  provisioning deferred-not-deleted (code retained; powers onboard-exec/operator bootstrap); ADR-003
+  two-token ACL untouched. Production home = VPS Dokploy 5.189.186.18 (6 vCPU/12GB/100GB NVMe; creds
+  captured in gitignored `secrets/dokploy.env` - ROTATE the key, it transited chat; panel needs
+  TLS); LOCAL COMPOSE REMAINS the dev/verify env (parity invariant intact). Domain `opzava.app`
+  purchased at first live-dev push (hard bring-up gate - root cause of historical wss/SSL pain was
+  certs on a bare IP). WS: gateway keeps ZERO public listeners; exactly ONE public WS surface
+  (browser<->app/broker wss via Traefik+LE); internal legs plain ws on dokploy-network; hardening =
+  WS upgrade + long idle timeouts, heartbeat, reconnect backoff+jitter, session-bound sockets, drain
+  on deploy; reconnect = re-snapshot. Dashboard: mockup-revision-first contract (OpenClaw Control UI
+  = WHAT, mockup = LOOK, reconcile mockup FIRST, screenshot parity; `/senior-frontend`;
+  calm/user-friendly/optimal UX); Tasks/Issues/Ask-Admin RETAINED; OpenClaw workboard NOT ported
+  (Tasks IS the workboard, Q17); port program +row #14 Ask Admin = WebChat parity (chat.* RPCs via
+  broker per `docs/openclaw/web/webchat.md`). Break-glass = fork's Control UI internal-only via SSH
+  tunnel (never Traefik-routed). Build path = Dokploy builds ALL images from the repo (parity by
+  construction); pre-agreed fallback = GH Actions -> private ghcr for the mainframe image, both envs
+  pull. Docs = TARGETED AMENDMENTS bundled into the move slice (new ADR-016; amend ADR-002/015;
+  CLAUDE.md; port-program; GH issues sweep; PRDs lazily; consensus memos stay frozen) - NOT a mass
+  rewrite. NEW ORDER: mainframe-move slice -> Slice 3.7 port program -> Dokploy bring-up. Gitignore
+  guard added on `docs/openclaw/clone/` until the move lands.
 
-- 2026-07-04 - WHOLE-CODEBASE STANDARDIZATION + DOCUMENTATION slice (3.6) OPENED (user directive: shadcn/tokens standardized global + well-architected FRONTEND, and the SAME for BACKEND, DATABASE, and the OVERALL APP; "no hand-waving - all codes/routes/paths/processes/functions/dependencies fully documented + standardized so no AI agent is blinded"). Spec: `docs/plan/consensus/frontend-standardization-and-docs-slice.md` (Part A frontend design-system single-source + shadcn catalog; Part B backend service/ports/error standardization; Part C database RLS/migration/data-model standardization; Part D overall-app routes/flows/deps docs; grep-verifiable acceptance). Multi-pass programme. Grounded frontend state: shadcn IS set up (components.json new-york + Tailwind v4 CSS-based + cn util + button.tsx) but tokens are SPREAD across 4 CSS files (mockup/{tokens,app,shadcn}.css + legacy-globals.css) and TWO styling systems coexist (mockup .btn/.card classes vs shadcn/Tailwind) - consolidate to ONE. Connections v2 (codex-exec bm88qgcd4: shadcn Tabs/Dialog + real onboard-exec connect) is the reference frontend migration; lands first, folded in.
+- 2026-07-04 - WHOLE-CODEBASE STANDARDIZATION + DOCUMENTATION slice (3.6) OPENED (user directive:
+  shadcn/tokens standardized global + well-architected FRONTEND, and the SAME for BACKEND, DATABASE,
+  and the OVERALL APP; "no hand-waving - all codes/routes/paths/processes/functions/dependencies
+  fully documented + standardized so no AI agent is blinded"). Spec:
+  `docs/plan/consensus/frontend-standardization-and-docs-slice.md` (Part A frontend design-system
+  single-source + shadcn catalog; Part B backend service/ports/error standardization; Part C
+  database RLS/migration/data-model standardization; Part D overall-app routes/flows/deps docs;
+  grep-verifiable acceptance). Multi-pass programme. Grounded frontend state: shadcn IS set up
+  (components.json new-york + Tailwind v4 CSS-based + cn util + button.tsx) but tokens are SPREAD
+  across 4 CSS files (mockup/{tokens,app,shadcn}.css + legacy-globals.css) and TWO styling systems
+  coexist (mockup .btn/.card classes vs shadcn/Tailwind) - consolidate to ONE. Connections v2
+  (codex-exec bm88qgcd4: shadcn Tabs/Dialog + real onboard-exec connect) is the reference frontend
+  migration; lands first, folded in.
 
-- 2026-07-04 - LIVE FUNCTIONAL-PARITY BRING-UP (Slice 3.5) - major session. Root cause of "nothing works live": slices 1-3 passed acceptance via MOCKS but the runnable docker-compose never contained gateway-broker/provisioning-worker/mcp-server + web had no integration env. FIXED: whole stack now runs from one `docker compose up`. Delivered + USER-LEVEL verified (authenticated Playwright + DB ground-truth + log tailing): org "Anito" seeded (Tasks+CRM live); Issues (GITHUB_TOKEN sync + senior-frontend redesign - compact triage, grouped, paginated); Connections rebranded "Opzava Gateway" with REAL data (status active, heartbeat, 18-provider catalog, working health check) - required: containerizing the provisioning-worker + docker-socket-proxy, a DEDICATED worker operator device (two-token boundary), ESTABLISHING operator.admin via durable device-store bootstrap (gateway was skip-onboarded, no admin operator, rotate denied - bootstrapped in paired.json), fixing config.patch RPC shape to {raw:JSON.stringify(patch),baseHash}, and EXEC=1 on the socket-proxy so the worker can onboard-exec provider connects; least-privilege operator scopes. gateway-broker CONTAINERIZED - Ask Admin CONNECTED+AUTHORIZED over the v4 two-token handshake (needs user Codex OAuth device-code sign-in for model replies). Q17 GRILLED+recorded (admin Tasks board = AI-Workforce dev pipeline; `docs/plan/consensus/tasks-ai-workforce-design.md` + grilling-decisions Q17). PARITY-HONEST findings (documented, not faked): OpenClaw 2026.6.11 has no remote provider-credential-write RPC (connect = gateway onboard) nor a provider device-flow-OAuth admin RPC. Commits on `slice/4-marketing-content-pipeline`: 708e7a2, 0cc8373, 6121d0b, 579fcf4. Method: codex-exec files-only codegen + Claude live-verify each step; heavy real-world user-level tests (mint auth_sessions row, cookie opzava.session_token, @playwright/test via NODE_PATH). Interactive creds still pending (user): Codex OAuth sign-in, GitHub OAuth-app client_id, real provider API keys.
+- 2026-07-04 - LIVE FUNCTIONAL-PARITY BRING-UP (Slice 3.5) - major session. Root cause of "nothing
+  works live": slices 1-3 passed acceptance via MOCKS but the runnable docker-compose never
+  contained gateway-broker/provisioning-worker/mcp-server + web had no integration env. FIXED: whole
+  stack now runs from one `docker compose up`. Delivered + USER-LEVEL verified (authenticated
+  Playwright + DB ground-truth + log tailing): org "Anito" seeded (Tasks+CRM live); Issues
+  (GITHUB_TOKEN sync + senior-frontend redesign - compact triage, grouped, paginated); Connections
+  rebranded "Opzava Gateway" with REAL data (status active, heartbeat, 18-provider catalog, working
+  health check) - required: containerizing the provisioning-worker + docker-socket-proxy, a
+  DEDICATED worker operator device (two-token boundary), ESTABLISHING operator.admin via durable
+  device-store bootstrap (gateway was skip-onboarded, no admin operator, rotate denied -
+  bootstrapped in paired.json), fixing config.patch RPC shape to
+  {raw:JSON.stringify(patch),baseHash}, and EXEC=1 on the socket-proxy so the worker can
+  onboard-exec provider connects; least-privilege operator scopes. gateway-broker CONTAINERIZED -
+  Ask Admin CONNECTED+AUTHORIZED over the v4 two-token handshake (needs user Codex OAuth device-code
+  sign-in for model replies). Q17 GRILLED+recorded (admin Tasks board = AI-Workforce dev pipeline;
+  `docs/plan/consensus/tasks-ai-workforce-design.md` + grilling-decisions Q17). PARITY-HONEST
+  findings (documented, not faked): OpenClaw 2026.6.11 has no remote provider-credential-write RPC
+  (connect = gateway onboard) nor a provider device-flow-OAuth admin RPC. Commits on
+  `slice/4-marketing-content-pipeline`: 708e7a2, 0cc8373, 6121d0b, 579fcf4. Method: codex-exec
+  files-only codegen + Claude live-verify each step; heavy real-world user-level tests (mint
+  auth_sessions row, cookie opzava.session_token, @playwright/test via NODE_PATH). Interactive creds
+  still pending (user): Codex OAuth sign-in, GitHub OAuth-app client_id, real provider API keys.
 
-- 2026-07-04 - PR #125 (Slice 3) MERGED to development. Then user pivot: live in-browser usage revealed slices 1-3 passed acceptance via MOCKS but the runnable stack never contained gateway-broker/provisioning-worker/mcp-server (no Dockerfiles/services) + web had no integration env, so Ask Admin ("broker env undefined"), Connections ("provisioning worker unavailable"), Issues ("GITHUB_TOKEN required"), and the MCP ("stdio, not hosted") were all dead live; Tasks/CRM only looked dead because org "Anito" was empty. Started a LIVE FUNCTIONAL-PARITY BRING-UP (Slice 3.5). Landed: org Anito seeded via the RLS service layer (9 tasks/3 accts/5 contacts/4 deals/3 tickets, verified); sidebar label -> "Ask Admin Opzava"; Issues lit via GITHUB_TOKEN (gh token, .env gitignored); gateway-broker CONTAINERIZED into compose via codex-exec (Dockerfile + service + web BROKER_INTERNAL_* + runbook; typecheck/build/lint/38 tests/`docker compose config`/image build all green). Device-token finding: Slice-2 paired operator token lives in a LocalFileSecretsVault JSON - broker container reads it at mounted `.dev-secrets/openclaw-secrets.json` or re-pair; Codex OAuth persists in the gateway named volume. User directives: nav label "Ask Admin Opzava"; rebrand Connections "OpenClaw gateway"->"Opzava Gateway"; Connections must show REAL status/catalog + production-grade model + GitHub device-flow connect; GitHub card real status; TOTAL PARITY with docs/openclaw on all bring-up code; CRM->user-dashboard DEFERRED; Slice 4 Marketing DEFERRED. Q16.5/Q17 GRILLED + recorded (grilling-decisions.md Q17 + `docs/plan/consensus/tasks-ai-workforce-design.md`): the admin Tasks board becomes an AI-Workforce dev pipeline (5-lane Backlog/Todo/In-Progress/Review/Done, human owns Backlog->Todo + Review->Done, orchestrator dispatches gateway-side subagents + owns Quality Review with a hard evidence gate, doers via consumer-agnostic governed tools over hosted-HTTP MCP, PR/CI dimension, dispatcher = P1 AgentDispatch pulled forward). NEW SPINE: (A) live bring-up -> (B) Q17 Tasks/AI-Workforce slice -> (C) admin polish -> (D) then Slice 4 Marketing.
+- 2026-07-04 - PR #125 (Slice 3) MERGED to development. Then user pivot: live in-browser usage
+  revealed slices 1-3 passed acceptance via MOCKS but the runnable stack never contained
+  gateway-broker/provisioning-worker/mcp-server (no Dockerfiles/services) + web had no integration
+  env, so Ask Admin ("broker env undefined"), Connections ("provisioning worker unavailable"),
+  Issues ("GITHUB_TOKEN required"), and the MCP ("stdio, not hosted") were all dead live; Tasks/CRM
+  only looked dead because org "Anito" was empty. Started a LIVE FUNCTIONAL-PARITY BRING-UP (Slice
+  3.5). Landed: org Anito seeded via the RLS service layer (9 tasks/3 accts/5 contacts/4 deals/3
+  tickets, verified); sidebar label -> "Ask Admin Opzava"; Issues lit via GITHUB_TOKEN (gh token,
+  .env gitignored); gateway-broker CONTAINERIZED into compose via codex-exec (Dockerfile + service +
+  web BROKER_INTERNAL_* + runbook; typecheck/build/lint/38 tests/`docker compose config`/image build
+  all green). Device-token finding: Slice-2 paired operator token lives in a LocalFileSecretsVault
+  JSON - broker container reads it at mounted `.dev-secrets/openclaw-secrets.json` or re-pair; Codex
+  OAuth persists in the gateway named volume. User directives: nav label "Ask Admin Opzava"; rebrand
+  Connections "OpenClaw gateway"->"Opzava Gateway"; Connections must show REAL status/catalog +
+  production-grade model + GitHub device-flow connect; GitHub card real status; TOTAL PARITY with
+  docs/openclaw on all bring-up code; CRM->user-dashboard DEFERRED; Slice 4 Marketing DEFERRED.
+  Q16.5/Q17 GRILLED + recorded (grilling-decisions.md Q17 +
+  `docs/plan/consensus/tasks-ai-workforce-design.md`): the admin Tasks board becomes an AI-Workforce
+  dev pipeline (5-lane Backlog/Todo/In-Progress/Review/Done, human owns Backlog->Todo +
+  Review->Done, orchestrator dispatches gateway-side subagents + owns Quality Review with a hard
+  evidence gate, doers via consumer-agnostic governed tools over hosted-HTTP MCP, PR/CI dimension,
+  dispatcher = P1 AgentDispatch pulled forward). NEW SPINE: (A) live bring-up -> (B) Q17
+  Tasks/AI-Workforce slice -> (C) admin polish -> (D) then Slice 4 Marketing.
 
-- 2026-07-04 - Slice 3 (thin CRM core) COMPLETE on `slice/3-crm-core-thin`. Data layer `@opzava/crm` (Contact/Account/Deal + VERSIONED Pipeline/Stage/Ticket/append-only Activity; migrations 0012-0014; RLS trio + FORCE verified in pg_catalog), admin surfaces in the canonical design system, per-workspace human-readable card numbers (0013 - fixed the global-sequence deviation from the 2.5 deliverable), strictly read-only assistant CRM tools admitted end-to-end (registry/web dispatch/provisioning allowlist/fake gateway). PROVE: deep-verification + 3-lane adversarial codex review (data/web+security/tools+docker) found 15 findings (3 HIGH: transition lost-updates, moveDealStage TOCTOU + missing DB coherence FK, read-tool-that-writes ensureDefaultPipeline) -> all fixed -> convergence re-review 14 PASS + 2 MEDIUM -> fixed -> 0. Clean checks held throughout: authority session-derived, no server-only leakage into client bundles, XSS-safe rendering, docker image secret-free + self-contained. ACCEPTANCE (live UI, DB ground-truth verified): Account -> Contact -> Deal -> stage moves (activities 'Lead in -> Qualified -> Proposal' appended in-tx) -> Ticket -> reload persists under RLS. Full chain TC/TEST/LINT/BUILD 0 forced. Evidence: docs/plan/consensus/slice3-review-{data,web,tools}.codex.md + slice3-rereview.codex.md.
+- 2026-07-04 - Slice 3 (thin CRM core) COMPLETE on `slice/3-crm-core-thin`. Data layer `@opzava/crm`
+  (Contact/Account/Deal + VERSIONED Pipeline/Stage/Ticket/append-only Activity; migrations
+  0012-0014; RLS trio + FORCE verified in pg_catalog), admin surfaces in the canonical design
+  system, per-workspace human-readable card numbers (0013 - fixed the global-sequence deviation from
+  the 2.5 deliverable), strictly read-only assistant CRM tools admitted end-to-end (registry/web
+  dispatch/provisioning allowlist/fake gateway). PROVE: deep-verification + 3-lane adversarial codex
+  review (data/web+security/tools+docker) found 15 findings (3 HIGH: transition lost-updates,
+  moveDealStage TOCTOU + missing DB coherence FK, read-tool-that-writes ensureDefaultPipeline) ->
+  all fixed -> convergence re-review 14 PASS + 2 MEDIUM -> fixed -> 0. Clean checks held throughout:
+  authority session-derived, no server-only leakage into client bundles, XSS-safe rendering, docker
+  image secret-free + self-contained. ACCEPTANCE (live UI, DB ground-truth verified): Account ->
+  Contact -> Deal -> stage moves (activities 'Lead in -> Qualified -> Proposal' appended in-tx) ->
+  Ticket -> reload persists under RLS. Full chain TC/TEST/LINT/BUILD 0 forced. Evidence:
+  docs/plan/consensus/slice3-review-{data,web,tools}.codex.md + slice3-rereview.codex.md.
 
-- 2026-07-04 - MOCKUP VISUAL PARITY remediation (user directive: 100% parity with the HTML mockups; recorded as a non-negotiable in CLAUDE.md + this doc). Root-cause: 2.5 screens implemented mockup ELEMENTS live but styled with Tailwind approximations. Remediation on `slice/3-crm-core-thin`: ported `ux-redesign/mockups/{tokens,app,shadcn}.css` VERBATIM as the canonical app stylesheet layer; screen-by-screen DOM ports keeping all live wiring - shell/nav+topbar (admin-nav.js contract: theme toggle, health pill, account menu, sidebar collapse), tasks board (task-board.html), task card (essential-card.html), Ask Opzava (orchestrator-chat.html), issues (issues.html), connections thin slice (connections.html), CRM pages as design-system siblings (essential-card-table idioms; net-new per PRD-010). Screenshot-audit fix pack: hardcoded mockup badge counts (fake data) -> real counts; extra filter chrome not in mockup -> removed; health pill -> real DB+gateway checks (new broker internal health endpoint); Cmd+K search/jump -> working command palette; login page purged of mockup annotation caption, social buttons explicitly descoped (DESCOPE(social-login) -> P8 SSO); ask page: annotation block removed, breadcrumb + real online pill, empty-turn honest fallback. Verification lane: authenticated side-by-side headless screenshots (live vs mockup file; session minted via direct auth_sessions insert - custom cookie `opzava.session_token` holds the raw token) + E2E driver for real flows. NOTE: nav label follows task-board.html ("Ask Opzava") where mockups disagree (orchestrator-chat.html says "Ask Admin Opzava"). ALSO FIXED (real-world stack): web Docker image was silently broken since 2.5 (missing crm/mcp-server package.json COPYs; image only ever built via host-artifact leakage - now builds dep graph in-image via turbo and .dockerignore **/-globs prevent leakage; local stack at web.opzava.localhost:18088 now serves current builds).
+- 2026-07-04 - MOCKUP VISUAL PARITY remediation (user directive: 100% parity with the HTML mockups;
+  recorded as a non-negotiable in CLAUDE.md + this doc). Root-cause: 2.5 screens implemented mockup
+  ELEMENTS live but styled with Tailwind approximations. Remediation on `slice/3-crm-core-thin`:
+  ported `ux-redesign/mockups/{tokens,app,shadcn}.css` VERBATIM as the canonical app stylesheet
+  layer; screen-by-screen DOM ports keeping all live wiring - shell/nav+topbar (admin-nav.js
+  contract: theme toggle, health pill, account menu, sidebar collapse), tasks board
+  (task-board.html), task card (essential-card.html), Ask Opzava (orchestrator-chat.html), issues
+  (issues.html), connections thin slice (connections.html), CRM pages as design-system siblings
+  (essential-card-table idioms; net-new per PRD-010). Screenshot-audit fix pack: hardcoded mockup
+  badge counts (fake data) -> real counts; extra filter chrome not in mockup -> removed; health pill
+  -> real DB+gateway checks (new broker internal health endpoint); Cmd+K search/jump -> working
+  command palette; login page purged of mockup annotation caption, social buttons explicitly
+  descoped (DESCOPE(social-login) -> P8 SSO); ask page: annotation block removed, breadcrumb + real
+  online pill, empty-turn honest fallback. Verification lane: authenticated side-by-side headless
+  screenshots (live vs mockup file; session minted via direct auth_sessions insert - custom cookie
+  `opzava.session_token` holds the raw token) + E2E driver for real flows. NOTE: nav label follows
+  task-board.html ("Ask Opzava") where mockups disagree (orchestrator-chat.html says "Ask Admin
+  Opzava"). ALSO FIXED (real-world stack): web Docker image was silently broken since 2.5 (missing
+  crm/mcp-server package.json COPYs; image only ever built via host-artifact leakage - now builds
+  dep graph in-image via turbo and .dockerignore **/-globs prevent leakage; local stack at
+  web.opzava.localhost:18088 now serves current builds).
 
-- 2026-07-03 - Slice 2.5 DONE + MERGED (PR #124 -> development). Iterated deep-verification converged to zero: 4 adversarial lanes (8 must-fixes incl. assignee data-loss + live-trace fragility) -> re-review caught a fencing race in the outbox fix (claim-token fence, 0009) -> correctness follow-ups caught a reorder-breaking position unique index (reverted 0011) and an idempotency-vs-approved-gate ordering [HIGH] in addQualityCheck (fixed + regression test). Migrations 0004-0011 applied; TC/TEST/LINT/BUILD all green forced. Evidence: `docs/plan/consensus/slice2.5-verify.codex.md`. Slice 3 (thin CRM core) STARTED on `slice/3-crm-core-thin`: spec surface validated (PRD-010 thin subset + ADR-011); thin shape locked - Contact/Account/Deal aggregates + VERSIONED Pipeline/Stage reference data (historical stage meaning stable from day one), append-only Activity (deal stage changes append in-transaction), manual-only Ticket queue; ChannelIdentity/SenderSeen/UnknownContact/consent/merge/erasure all stay P4. CRM screens are net-new design (no mockup binds them; PRD-010 confirms) - built with existing visual language + style-guide tokens, so the mockup-parity directive is satisfied by construction.
+- 2026-07-03 - Slice 2.5 DONE + MERGED (PR #124 -> development). Iterated deep-verification
+  converged to zero: 4 adversarial lanes (8 must-fixes incl. assignee data-loss + live-trace
+  fragility) -> re-review caught a fencing race in the outbox fix (claim-token fence, 0009) ->
+  correctness follow-ups caught a reorder-breaking position unique index (reverted 0011) and an
+  idempotency-vs-approved-gate ordering [HIGH] in addQualityCheck (fixed + regression test).
+  Migrations 0004-0011 applied; TC/TEST/LINT/BUILD all green forced. Evidence:
+  `docs/plan/consensus/slice2.5-verify.codex.md`. Slice 3 (thin CRM core) STARTED on
+  `slice/3-crm-core-thin`: spec surface validated (PRD-010 thin subset + ADR-011); thin shape
+  locked - Contact/Account/Deal aggregates + VERSIONED Pipeline/Stage reference data (historical
+  stage meaning stable from day one), append-only Activity (deal stage changes append
+  in-transaction), manual-only Ticket queue;
+  ChannelIdentity/SenderSeen/UnknownContact/consent/merge/erasure all stay P4. CRM screens are
+  net-new design (no mockup binds them; PRD-010 confirms) - built with existing visual language +
+  style-guide tokens, so the mockup-parity directive is satisfied by construction.
 
-- 2026-07-03 - Slice 2.5 BUILD COMPLETE (2.5a-2.5g) on `slice/2.5-cc-mcp-live-card`; codegen files-only + Claude full-chain verification (typecheck/test/lint/build forced) each sub-slice. Delivered: @opzava/runtime-control card data layer + 0004; @opzava/mcp-server stdio + scoped link tokens (0005); live Task card (0004+0007) - Overview/comments/AI-Run/Evidence(MinIO ObjectStorePort)/Quality all functional per essential-card.html; Ask Admin relocated to its own /ask-opzava page (dead sidebar entry fixed, Tasks-panel removed); GitHub issues page + IssueTrackerPort + active-close outbox (0006); Connections surface - catalog-driven multi-provider connect (device-flow + API-key, orchestrator/subagent roles per Q16) + GitHub connect, all through the provisioning/admin path. Verify-loop caught real defects generation missed: server/client pg-in-bundle leak, inconsistent RLS error mapping, Traefik router-name collision, broker dev-script NodeNext crash. Method note: codex self-verification tripped the background-task timeout (kills during test/build) - switched to codex-writes-files-only + Claude-verifies, which is stable. mmx removed (quota+fabrication); consensus now codex profile diversity + Claude adjudication. REMAINING for slice-done: final deep-verification + PR; provider device-flow browser polling is implemented + fake-lane tested but not yet runtime-proven against every real provider (GPT-Pro/Codex proven live in Slice 2).
+- 2026-07-03 - Slice 2.5 BUILD COMPLETE (2.5a-2.5g) on `slice/2.5-cc-mcp-live-card`; codegen
+  files-only + Claude full-chain verification (typecheck/test/lint/build forced) each sub-slice.
+  Delivered: @opzava/runtime-control card data layer + 0004; @opzava/mcp-server stdio + scoped link
+  tokens (0005); live Task card (0004+0007) - Overview/comments/AI-Run/Evidence(MinIO
+  ObjectStorePort)/Quality all functional per essential-card.html; Ask Admin relocated to its own
+  /ask-opzava page (dead sidebar entry fixed, Tasks-panel removed); GitHub issues page +
+  IssueTrackerPort + active-close outbox (0006); Connections surface - catalog-driven multi-provider
+  connect (device-flow + API-key, orchestrator/subagent roles per Q16) + GitHub connect, all through
+  the provisioning/admin path. Verify-loop caught real defects generation missed: server/client
+  pg-in-bundle leak, inconsistent RLS error mapping, Traefik router-name collision, broker
+  dev-script NodeNext crash. Method note: codex self-verification tripped the background-task
+  timeout (kills during test/build) - switched to codex-writes-files-only + Claude-verifies, which
+  is stable. mmx removed (quota+fabrication); consensus now codex profile diversity + Claude
+  adjudication. REMAINING for slice-done: final deep-verification + PR; provider device-flow browser
+  polling is implemented + fake-lane tested but not yet runtime-proven against every real provider
+  (GPT-Pro/Codex proven live in Slice 2).
 
-- 2026-07-03 - Slice 2 LIVE ACCEPTANCE PASSED; slice DONE (pending deep-verification + PR). Full broker-path streamed turn against the real Gateway: paired device token -> sessions.create -> sessions.send -> chat deltas -> final ("I'm Codex, and I help administer the ask-admin-opzava board"). Wire contract aligned to the LIVE binary (docs were stale/incomplete): sessions.send param `key` vs tools.effective `sessionKey` (real inconsistency, preserved); create-before-send with bounded retry; canonical `agent:<id>:<name>` session keys carry event correlation; terminal chat event reuses the last delta's seq (dedup deltas only); unknown event families dropped fail-closed instead of killing connections (live gateway interleaves agent/tick/health). Fake gateway mirrors all of it (29/29). SAD-PATH EVIDENCE: with an empty effective toolset the agent claimed task creation with zero tool calls - "SOUL can lie" observed live, contained by architecture (no receipt -> no write-through). Real-agent task-tool acceptance = Slice 2.5 MCP projection. Codex OAuth signed in (per-env, runbook); Control UI disabled; plugins.allow pinned.
-- 2026-07-03 - Ask Admin agent INSTALLED on the live platform Gateway with dual-model consensus validation. Applied agents.list[ask-admin-opzava]: model `openai/gpt-5.5`, per-agent tools (profile minimal + opzava_tasks_* allow + runtime/fs deny), persona files hash-verified against the provisioning receipt, `contextInjection: continuation-skip`. Consensus: mmx red-team (31 findings) adjudicated against vendored docs + the LIVE config schema - tool-family and config-knob findings REFUTED (minimal = session_status only; on_session_start/maxTurns/dailyBudgetUSD do not exist), 3 evidence-backed items ACTIONED (continuation-skip applied; tools.effective fail-close covers unregistered-name risk; OAuth colocation posture documented) - `slice2-agent-install-redteam.mmx.md` + codex grounded sibling review `slice2e-agent-config-review.codex.md` (SOUND-WITH-FIXES). Provisioning source re-aligned to the applied shape; rendered artifact == live config verified byte-equal. New `docs/runbooks/platform-gateway.md` (bring-up, pairing, model auth, sad-path table). REMAINING: operator's interactive Codex device-code sign-in, real-agent acceptance, deep-verification, PR.
-- 2026-07-03 - Q16 GRILLED + LOCKED (orchestrator runtime + local coding harness): ChatGPT/Codex subscription OAuth drives `openai/gpt-5.5` via OpenClaw's native Codex runtime on the platform Gateway (shared personal GPT Pro accepted for the internal phase; `auth.order.openai` API-key fallback + auth-monitoring; tripwire to dedicated account before external users/P5 automation); per-environment interactive sign-in (OAuth non-portable); broker streaming verified runtime-agnostic; local Claude Code connects via an Opzava-hosted MCP server exposing the 2d task-tool registry (NOT ACP - that spawns the harness on the gateway host; ACP revisited in P1); hybrid on-behalf-of authority (human's RBAC/RLS + client attribution); scoped revocable link token now, device-authorization flow at the multi-user tripwire. New Slice 2.5 inserted before Slice 3. Slice 2's remaining credential step is now the Codex OAuth sign-in, not an API key.
-- 2026-07-03 - Slice 2 sub-slices 2a-2f GREEN + committed; live real-Gateway proof COMPLETE. 2a `@opzava/runtime-control` (turn state machine, outcome-first receipts, 0003 RLS with composite tenant FKs, withTenant role assert) after a spark red-team of the design memo (UNSOUND -> 9 findings resolved). 2b broker operator client + adversarial fake Gateway (found: ws success callback passes null not undefined). 2c internal-token SSE endpoint + OpenClawGatewayPort adapter + chat panel (broker env lazy; stream-state logic pure-TS for vitest). 2d governed task tools through PM services (UUID-shaped taskId rule; forbidden vs not_found split). 2e agent artifacts + provisioning receipts + compose profile `openclaw`; real image pinned 2026.6.11 and brought up healthy. 2f seed reorder (18 tasks, decided order) + protocol alignment to the LIVE gateway (client id/mode enums, sha256-raw device id, v2 signature payload, auth.deviceToken vs auth.token, metadata-bound approvals, implied operator.read) — vendored docs were stale on several of these; every fact verified in the running container and the fake tightened to match. Live loop proven: pairing request -> devices approve -> fresh device token vaulted by ref -> validation handshake protocol 4, scopes exactly write+approvals+read. Test-infra hardenings en route: slice1c suite parks/restores the first_owner_setup singleton; roadmap seed test self-heals leftovers; run-unique identifiers across suites. Remaining for slice-done: agent config install into the Gateway, model-provider credential (user), real-agent acceptance, deep-verification, PR.
-- 2026-07-02 - Execution order DECIDED (user; resolves audit S1-2): Slice 2 stays next (the broker/AI loop is the keystone Marketing and CRM both need), then business value pulls forward — new Slice 3 (CRM core, thin P4 subset) and Slice 4 (Marketing content pipeline, thin P5 subset) inserted before P1-P3; P4/P5 sections now carry the remainders. Follow-up owned by Slice 2: re-order the dogfood Tasks board seed to the new slice order.
-- 2026-07-02 - Docs deep-audit + sync fixes (codex-exec audit -> `docs/plan/audits/2026-07-02-docs-audit.md`, 21 findings, all applied except S1-2 which is a user decision). Fixed: roadmap.md superseded banner + historical P0/P0.5 markers; grilling-decisions.md Q13/Q15 recorded, Drizzle locked (was `Prisma|Drizzle TBD`), stale "Next Q13" queue removed, status now Q1-Q15; ADR-014/PRD-014 billing language recast as deferred null-adapter now / Stripe future design; official-docs.md gained missing registry rows + a "Current locked pins" section; new `docs/plan/consensus/README.md` + `docs/plan/research/README.md` frozen-evidence indexes; HISTORICAL banners on q13/q15 memos; TS 6.0.3 raw pin marked superseded; backlog.md marked planning-input with partial-chain note; CLAUDE.md doc map + this doc's Reference Map now cover backlog/consensus/research/audits/ux-law. Open decision (audit S1-2): operationalize "Marketing + CRM first" vs current Slice 2 -> P1..P8 order.
-- 2026-07-02 - Slice 1f dogfood seed + deep-verification GREEN; **Slice 1 (Admin Tasks MVP) COMPLETE**. `apps/workers` `seed:roadmap` idempotently populates the admin Tasks board with the 16 remaining roadmap items (Slice 2, P1-P8, 7 de-risk follow-ups) via the PM services; smoke test proves idempotency as `opzava_app`. deep-verification across the workspace: typecheck 8/8, build 8/8, lint 9/9, all tests 13/13, seed 16 tasks, e2e loop pass. Fixes: workers `vitest.config` include src-only (the compiled `dist/**/*.test.js` double-ran and raced the `first_owner_setup` singleton), workers `tsconfig.build` excludes tests, `eslint.config.mjs` imports `@opzava/config` by relative path (repo root is not a workspace package), empty interface -> type alias. Note: `pnpm lint` can OOM/segfault at full parallelism on a constrained host; use `turbo run lint --concurrency=1`. Slice 1 = 1a..1f, all green + committed on `slice/1-admin-tasks-mvp`.
-- 2026-07-02 - Slice 1e admin Tasks board GREEN. New `@opzava/project-management` bounded context: Task aggregate (title/description/status/priority/assignee/labels/position) + `0002` migration copying the 1b RLS pattern (FORCE RLS, current_org isolation, restrictive no-context, explicit grants, a composite `(workspace_id, organization_id)` FK preventing cross-org workspace assignment); application command/query services through `withTenant` + `AuthorizationPort`; admin Tasks board (list + kanban, create/edit/move) in the `(app)` shell reading via the 1d session context. Tasks RLS integration test 2/2 as `opzava_app` (create + cross-tenant isolation); board e2e passes. codex-spark PASS; the authz subject is session-grounded (documented contract) with RLS as the DB backstop. Fix en route: Drizzle spread `${array}::text[]` into a row expression -> use `sql.param()` for single-array binding. Build + typecheck 8/8.
-- 2026-07-02 - Slice 1d admin app shell + auth UI GREEN. First-owner setup / login / signout pages (server actions -> FirstOwnerSetupService + AuthPort), the protected app shell + nav matched to the Essential mockups (design tokens from style-guide.html), Next 16 `proxy.ts` + `(app)` layout fail-closed guards, and the session->tenant resolver. Playwright e2e passes the full loop: first-owner setup signs in -> shell resolves tenant context -> signout revokes -> login restores. codex-spark fixes applied: fail-closed session context (removed the raw-cookie fallback that bypassed membership_version revocation), domain password policy (12+ chars + 3 classes), `sql` re-exported from `@opzava/adapters` (keeps web off a direct drizzle dep). Build + typecheck 7/7; 1c regression green.
-- 2026-07-02 - Slice 1c auth boundary GREEN. Better Auth core (1.6.23) behind `AuthPort` with DB-backed revocable sessions (cookie cache disabled), a custom scrypt hasher shared with an ATOMIC first-owner setup (advisory lock + singleton guard, all writes in one `opzava_app` tx), the `app.current_user` identity read-path for pre-tenant membership discovery, and the 0001 migration (global auth tables + membership/role_grants RLS). Design: codex memo + mmx auth/RLS red-team (`docs/plan/consensus/slice1c-auth-redteam.mmx.md`, 6 hardenings folded in); codex-spark review SOUND (0 findings). Acceptance test passes (40 assertions: atomic setup + forced-rollback, DB session + revoke, run-once guard, identity-path isolation, tenant denial) as non-owner `opzava_app`. Build + typecheck 7/7. Fixes en route: scrypt promisify overload, drizzle `_journal` 0001 entry, flat `dist` (`rootDir: src`) so packages resolve by name, lazy pg client (no import side-effects), `BETTER_AUTH_URL` turbo passthrough. Pins: better-auth 1.6.23, @better-auth/drizzle-adapter 1.6.23.
-- 2026-07-02 - Slice 1b tenant-isolation data layer GREEN. `@opzava/identity-access` (canonical organizations/workspaces + hand-written RLS migration) + `@opzava/adapters` (pg client, `withTenant`, sanitized errors, one-shot migrate runner, SHA-256 migration gate). Design: codex memo + mmx RLS red-team (`docs/plan/consensus/slice1b-rls-redteam.mmx.md`); codex-spark review returned SOUND (`docs/plan/consensus/slice1b-review.spark.md`). RLS integration test passes 3/3 as non-owner `opzava_app`: cross-tenant read invisible, cross-tenant write 403, missing-context 403. Hardenings: RESTRICTIVE no-context policy, `set_config()` instead of interpolated SET LOCAL, explicit per-table grants (no blanket default privileges), error-mapper walks Drizzle's `cause` chain for SQLSTATE, test asserts it runs as `opzava_app`. Fixes en route: pnpm `allowBuilds` esbuild, `tsx` migrate runner, `TenantTransaction` type extraction. Pins: drizzle-orm 0.45.2, drizzle-kit 0.31.10, pg 8.22.0.
-- 2026-07-02 - Slice 1a foundation GREEN. Monorepo scaffolded (codex-exec gpt-5.5 codegen) + adversarially reviewed (codex-spark, `docs/plan/consensus/slice1a-review.spark.md`) + fixed. `pnpm install` clean, typecheck 5/5, test 6/6, `next build` production build passes; `docker compose up` brings up Traefik (18088/18448) + Postgres 18.4 (healthy). Key fixes: `turbo@^2.10.2` (no v3 exists), pnpm 11.9 build gate is `allowBuilds: {sharp: true}` (not `onlyBuiltDependencies`), Traefik host ports remapped 18088/18448/18089 off the local-Dokploy collision, Vitest 4 oxc needs relative tsconfig `extends` (not the `@opzava/config` package specifier), `NODE_ENV` is read-only under @types/node 24, Traefik dashboard moved to a local-only `docker-compose.override.yml`, `DATABASE_URL` deferred to 1b.
-- 2026-07-02 - Slice 1 foundation validated: codex-exec deep-researched official docs -> `docs/plan/research/slice1-foundation-stack.md` (Node 24.18, pnpm 11.9, Next 16.2.9, React 19.2.7, Drizzle 0.45.2 stable, Postgres 18.4, Better Auth 1.6 org/2FA/passkey, Tailwind v4.3, Traefik v3.6.1). mmx adversarial consensus locked TS 5.9.x over 6.0.3, a PgBouncer-transaction RLS client with prepared statements off, boundaries lint, Vitest, migration gating, and env-schema fail-fast. Next: scaffold sub-slice 1a.
-- 2026-07-02 - Slice 0 spike PASS: validated Traefik routing to dynamic Gateway containers, broker WS route, worker-only Docker mutation through socket-proxy, Docker API pinning need, and denied endpoint behavior; findings recorded in ADR-015 and the provisioning skill.
-- 2026-07-02 - codex+mmx review confirmed genuine infra proof, not a fake pass; real OpenClaw handshake, wildcard TLS/DNS, readiness/backoff, reaper concurrency, lazy-start cost, secrets lifecycle, and Dokploy mapping gaps captured as follow-ups.
-- 2026-07-02 - Governance updated: official-docs validation rule and registry added; BillingPort deferred as a null adapter until external monetization; operating mode clarified as internal single-tenant first, then Marketing + CRM after the admin-Tasks MVP.
-- 2026-07-02 - Authored the 4 build skills (openclaw-broker, openclaw-gateway-provisioning, better-auth, opzava-conventions) in `.claude/skills/`; Slice 0 ready to implement.
-- 2026-07-02 - EXECUTION.md created; design complete (15 ADRs + 18 PRDs verified); next action = Slice 0 de-risk spike.
+- 2026-07-03 - Slice 2 LIVE ACCEPTANCE PASSED; slice DONE (pending deep-verification + PR). Full
+  broker-path streamed turn against the real Gateway: paired device token -> sessions.create ->
+  sessions.send -> chat deltas -> final ("I'm Codex, and I help administer the ask-admin-opzava
+  board"). Wire contract aligned to the LIVE binary (docs were stale/incomplete): sessions.send
+  param `key` vs tools.effective `sessionKey` (real inconsistency, preserved); create-before-send
+  with bounded retry; canonical `agent:<id>:<name>` session keys carry event correlation; terminal
+  chat event reuses the last delta's seq (dedup deltas only); unknown event families dropped
+  fail-closed instead of killing connections (live gateway interleaves agent/tick/health). Fake
+  gateway mirrors all of it (29/29). SAD-PATH EVIDENCE: with an empty effective toolset the agent
+  claimed task creation with zero tool calls - "SOUL can lie" observed live, contained by
+  architecture (no receipt -> no write-through). Real-agent task-tool acceptance = Slice 2.5 MCP
+  projection. Codex OAuth signed in (per-env, runbook); Control UI disabled; plugins.allow pinned.
+- 2026-07-03 - Ask Admin agent INSTALLED on the live platform Gateway with dual-model consensus
+  validation. Applied agents.list[ask-admin-opzava]: model `openai/gpt-5.5`, per-agent tools
+  (profile minimal + opzava_tasks_* allow + runtime/fs deny), persona files hash-verified against
+  the provisioning receipt, `contextInjection: continuation-skip`. Consensus: mmx red-team (31
+  findings) adjudicated against vendored docs + the LIVE config schema - tool-family and config-knob
+  findings REFUTED (minimal = session_status only; on_session_start/maxTurns/dailyBudgetUSD do not
+  exist), 3 evidence-backed items ACTIONED (continuation-skip applied; tools.effective fail-close
+  covers unregistered-name risk; OAuth colocation posture documented) -
+  `slice2-agent-install-redteam.mmx.md` + codex grounded sibling review
+  `slice2e-agent-config-review.codex.md` (SOUND-WITH-FIXES). Provisioning source re-aligned to the
+  applied shape; rendered artifact == live config verified byte-equal. New
+  `docs/runbooks/platform-gateway.md` (bring-up, pairing, model auth, sad-path table). REMAINING:
+  operator's interactive Codex device-code sign-in, real-agent acceptance, deep-verification, PR.
+- 2026-07-03 - Q16 GRILLED + LOCKED (orchestrator runtime + local coding harness): ChatGPT/Codex
+  subscription OAuth drives `openai/gpt-5.5` via OpenClaw's native Codex runtime on the platform
+  Gateway (shared personal GPT Pro accepted for the internal phase; `auth.order.openai` API-key
+  fallback + auth-monitoring; tripwire to dedicated account before external users/P5 automation);
+  per-environment interactive sign-in (OAuth non-portable); broker streaming verified
+  runtime-agnostic; local Claude Code connects via an Opzava-hosted MCP server exposing the 2d
+  task-tool registry (NOT ACP - that spawns the harness on the gateway host; ACP revisited in P1);
+  hybrid on-behalf-of authority (human's RBAC/RLS + client attribution); scoped revocable link token
+  now, device-authorization flow at the multi-user tripwire. New Slice 2.5 inserted before Slice 3.
+  Slice 2's remaining credential step is now the Codex OAuth sign-in, not an API key.
+- 2026-07-03 - Slice 2 sub-slices 2a-2f GREEN + committed; live real-Gateway proof COMPLETE. 2a
+  `@opzava/runtime-control` (turn state machine, outcome-first receipts, 0003 RLS with composite
+  tenant FKs, withTenant role assert) after a spark red-team of the design memo (UNSOUND -> 9
+  findings resolved). 2b broker operator client + adversarial fake Gateway (found: ws success
+  callback passes null not undefined). 2c internal-token SSE endpoint + OpenClawGatewayPort
+  adapter + chat panel (broker env lazy; stream-state logic pure-TS for vitest). 2d governed task
+  tools through PM services (UUID-shaped taskId rule; forbidden vs not_found split). 2e agent
+  artifacts + provisioning receipts + compose profile `openclaw`; real image pinned 2026.6.11 and
+  brought up healthy. 2f seed reorder (18 tasks, decided order) + protocol alignment to the LIVE
+  gateway (client id/mode enums, sha256-raw device id, v2 signature payload, auth.deviceToken vs
+  auth.token, metadata-bound approvals, implied operator.read) — vendored docs were stale on several
+  of these; every fact verified in the running container and the fake tightened to match. Live loop
+  proven: pairing request -> devices approve -> fresh device token vaulted by ref -> validation
+  handshake protocol 4, scopes exactly write+approvals+read. Test-infra hardenings en route: slice1c
+  suite parks/restores the first_owner_setup singleton; roadmap seed test self-heals leftovers;
+  run-unique identifiers across suites. Remaining for slice-done: agent config install into the
+  Gateway, model-provider credential (user), real-agent acceptance, deep-verification, PR.
+- 2026-07-02 - Execution order DECIDED (user; resolves audit S1-2): Slice 2 stays next (the
+  broker/AI loop is the keystone Marketing and CRM both need), then business value pulls forward —
+  new Slice 3 (CRM core, thin P4 subset) and Slice 4 (Marketing content pipeline, thin P5 subset)
+  inserted before P1-P3; P4/P5 sections now carry the remainders. Follow-up owned by Slice 2:
+  re-order the dogfood Tasks board seed to the new slice order.
+- 2026-07-02 - Docs deep-audit + sync fixes (codex-exec audit ->
+  `docs/plan/audits/2026-07-02-docs-audit.md`, 21 findings, all applied except S1-2 which is a user
+  decision). Fixed: roadmap.md superseded banner + historical P0/P0.5 markers; grilling-decisions.md
+  Q13/Q15 recorded, Drizzle locked (was `Prisma|Drizzle TBD`), stale "Next Q13" queue removed,
+  status now Q1-Q15; ADR-014/PRD-014 billing language recast as deferred null-adapter now / Stripe
+  future design; official-docs.md gained missing registry rows + a "Current locked pins" section;
+  new `docs/plan/consensus/README.md` + `docs/plan/research/README.md` frozen-evidence indexes;
+  HISTORICAL banners on q13/q15 memos; TS 6.0.3 raw pin marked superseded; backlog.md marked
+  planning-input with partial-chain note; CLAUDE.md doc map + this doc's Reference Map now cover
+  backlog/consensus/research/audits/ux-law. Open decision (audit S1-2): operationalize "Marketing +
+  CRM first" vs current Slice 2 -> P1..P8 order.
+- 2026-07-02 - Slice 1f dogfood seed + deep-verification GREEN; **Slice 1 (Admin Tasks MVP)
+  COMPLETE**. `apps/workers` `seed:roadmap` idempotently populates the admin Tasks board with the 16
+  remaining roadmap items (Slice 2, P1-P8, 7 de-risk follow-ups) via the PM services; smoke test
+  proves idempotency as `opzava_app`. deep-verification across the workspace: typecheck 8/8, build
+  8/8, lint 9/9, all tests 13/13, seed 16 tasks, e2e loop pass. Fixes: workers `vitest.config`
+  include src-only (the compiled `dist/**/*.test.js` double-ran and raced the `first_owner_setup`
+  singleton), workers `tsconfig.build` excludes tests, `eslint.config.mjs` imports `@opzava/config`
+  by relative path (repo root is not a workspace package), empty interface -> type alias. Note:
+  `pnpm lint` can OOM/segfault at full parallelism on a constrained host; use
+  `turbo run lint --concurrency=1`. Slice 1 = 1a..1f, all green + committed on
+  `slice/1-admin-tasks-mvp`.
+- 2026-07-02 - Slice 1e admin Tasks board GREEN. New `@opzava/project-management` bounded context:
+  Task aggregate (title/description/status/priority/assignee/labels/position) + `0002` migration
+  copying the 1b RLS pattern (FORCE RLS, current_org isolation, restrictive no-context, explicit
+  grants, a composite `(workspace_id, organization_id)` FK preventing cross-org workspace
+  assignment); application command/query services through `withTenant` + `AuthorizationPort`; admin
+  Tasks board (list + kanban, create/edit/move) in the `(app)` shell reading via the 1d session
+  context. Tasks RLS integration test 2/2 as `opzava_app` (create + cross-tenant isolation); board
+  e2e passes. codex-spark PASS; the authz subject is session-grounded (documented contract) with RLS
+  as the DB backstop. Fix en route: Drizzle spread `${array}::text[]` into a row expression -> use
+  `sql.param()` for single-array binding. Build + typecheck 8/8.
+- 2026-07-02 - Slice 1d admin app shell + auth UI GREEN. First-owner setup / login / signout pages
+  (server actions -> FirstOwnerSetupService + AuthPort), the protected app shell + nav matched to
+  the Essential mockups (design tokens from style-guide.html), Next 16 `proxy.ts` + `(app)` layout
+  fail-closed guards, and the session->tenant resolver. Playwright e2e passes the full loop:
+  first-owner setup signs in -> shell resolves tenant context -> signout revokes -> login restores.
+  codex-spark fixes applied: fail-closed session context (removed the raw-cookie fallback that
+  bypassed membership_version revocation), domain password policy (12+ chars + 3 classes), `sql`
+  re-exported from `@opzava/adapters` (keeps web off a direct drizzle dep). Build + typecheck 7/7;
+  1c regression green.
+- 2026-07-02 - Slice 1c auth boundary GREEN. Better Auth core (1.6.23) behind `AuthPort` with
+  DB-backed revocable sessions (cookie cache disabled), a custom scrypt hasher shared with an ATOMIC
+  first-owner setup (advisory lock + singleton guard, all writes in one `opzava_app` tx), the
+  `app.current_user` identity read-path for pre-tenant membership discovery, and the 0001 migration
+  (global auth tables + membership/role_grants RLS). Design: codex memo + mmx auth/RLS red-team
+  (`docs/plan/consensus/slice1c-auth-redteam.mmx.md`, 6 hardenings folded in); codex-spark review
+  SOUND (0 findings). Acceptance test passes (40 assertions: atomic setup + forced-rollback, DB
+  session + revoke, run-once guard, identity-path isolation, tenant denial) as non-owner
+  `opzava_app`. Build + typecheck 7/7. Fixes en route: scrypt promisify overload, drizzle `_journal`
+  0001 entry, flat `dist` (`rootDir: src`) so packages resolve by name, lazy pg client (no import
+  side-effects), `BETTER_AUTH_URL` turbo passthrough. Pins: better-auth 1.6.23,
+  @better-auth/drizzle-adapter 1.6.23.
+- 2026-07-02 - Slice 1b tenant-isolation data layer GREEN. `@opzava/identity-access` (canonical
+  organizations/workspaces + hand-written RLS migration) + `@opzava/adapters` (pg client,
+  `withTenant`, sanitized errors, one-shot migrate runner, SHA-256 migration gate). Design: codex
+  memo + mmx RLS red-team (`docs/plan/consensus/slice1b-rls-redteam.mmx.md`); codex-spark review
+  returned SOUND (`docs/plan/consensus/slice1b-review.spark.md`). RLS integration test passes 3/3 as
+  non-owner `opzava_app`: cross-tenant read invisible, cross-tenant write 403, missing-context 403.
+  Hardenings: RESTRICTIVE no-context policy, `set_config()` instead of interpolated SET LOCAL,
+  explicit per-table grants (no blanket default privileges), error-mapper walks Drizzle's `cause`
+  chain for SQLSTATE, test asserts it runs as `opzava_app`. Fixes en route: pnpm `allowBuilds`
+  esbuild, `tsx` migrate runner, `TenantTransaction` type extraction. Pins: drizzle-orm 0.45.2,
+  drizzle-kit 0.31.10, pg 8.22.0.
+- 2026-07-02 - Slice 1a foundation GREEN. Monorepo scaffolded (codex-exec gpt-5.5 codegen) +
+  adversarially reviewed (codex-spark, `docs/plan/consensus/slice1a-review.spark.md`) + fixed.
+  `pnpm install` clean, typecheck 5/5, test 6/6, `next build` production build passes;
+  `docker compose up` brings up Traefik (18088/18448) + Postgres 18.4 (healthy). Key fixes:
+  `turbo@^2.10.2` (no v3 exists), pnpm 11.9 build gate is `allowBuilds: {sharp: true}` (not
+  `onlyBuiltDependencies`), Traefik host ports remapped 18088/18448/18089 off the local-Dokploy
+  collision, Vitest 4 oxc needs relative tsconfig `extends` (not the `@opzava/config` package
+  specifier), `NODE_ENV` is read-only under @types/node 24, Traefik dashboard moved to a local-only
+  `docker-compose.override.yml`, `DATABASE_URL` deferred to 1b.
+- 2026-07-02 - Slice 1 foundation validated: codex-exec deep-researched official docs ->
+  `docs/plan/research/slice1-foundation-stack.md` (Node 24.18, pnpm 11.9, Next 16.2.9, React 19.2.7,
+  Drizzle 0.45.2 stable, Postgres 18.4, Better Auth 1.6 org/2FA/passkey, Tailwind v4.3, Traefik
+  v3.6.1). mmx adversarial consensus locked TS 5.9.x over 6.0.3, a PgBouncer-transaction RLS client
+  with prepared statements off, boundaries lint, Vitest, migration gating, and env-schema fail-fast.
+  Next: scaffold sub-slice 1a.
+- 2026-07-02 - Slice 0 spike PASS: validated Traefik routing to dynamic Gateway containers, broker
+  WS route, worker-only Docker mutation through socket-proxy, Docker API pinning need, and denied
+  endpoint behavior; findings recorded in ADR-015 and the provisioning skill.
+- 2026-07-02 - codex+mmx review confirmed genuine infra proof, not a fake pass; real OpenClaw
+  handshake, wildcard TLS/DNS, readiness/backoff, reaper concurrency, lazy-start cost, secrets
+  lifecycle, and Dokploy mapping gaps captured as follow-ups.
+- 2026-07-02 - Governance updated: official-docs validation rule and registry added; BillingPort
+  deferred as a null adapter until external monetization; operating mode clarified as internal
+  single-tenant first, then Marketing + CRM after the admin-Tasks MVP.
+- 2026-07-02 - Authored the 4 build skills (openclaw-broker, openclaw-gateway-provisioning,
+  better-auth, opzava-conventions) in `.claude/skills/`; Slice 0 ready to implement.
+- 2026-07-02 - EXECUTION.md created; design complete (15 ADRs + 18 PRDs verified); next action =
+  Slice 0 de-risk spike.
