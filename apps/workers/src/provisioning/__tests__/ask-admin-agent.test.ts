@@ -6,6 +6,11 @@ import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { LocalFileSecretsVault } from "@opzava/adapters";
+import {
+  ASK_ADMIN_TOOL_POLICY_ALLOW,
+  ASK_ADMIN_TOOL_POLICY_DENY,
+  ASK_ADMIN_TOOL_PROFILE,
+} from "@opzava/ports";
 
 import {
   ASK_ADMIN_FORBIDDEN_OPERATOR_SCOPES,
@@ -375,45 +380,34 @@ Required behavior:
 
   it("renders the live per-agent config fragment with no inherited skills and deny-wins tools", () => {
     const config = renderAskAdminAgentConfigFragment();
-
-    expect(config).toBe(`{
-  "agents": {
-    "list": [
+    const expectedConfig = `${JSON.stringify(
       {
-        "id": "ask-admin-opzava",
-        "name": "Ask Admin Opzava",
-        "workspace": "/home/node/.openclaw/workspace/ask-admin-opzava",
-        "agentDir": "/home/node/.openclaw/agents/ask-admin-opzava/agent",
-        "skills": [],
-        "contextInjection": "continuation-skip",
-        "bootstrapMaxChars": 20000,
-        "default": true,
-        "model": "openai/gpt-5.5",
-        "tools": {
-          "profile": "minimal",
-          "allow": [
-            "opzava_tasks_list",
-            "opzava_tasks_create",
-            "opzava_tasks_update",
-            "opzava_crm_list_accounts",
-            "opzava_crm_list_contacts",
-            "opzava_crm_list_deals",
-            "opzava_crm_list_tickets",
-            "opzava_crm_get_contact_timeline"
+        agents: {
+          list: [
+            {
+              id: "ask-admin-opzava",
+              name: "Ask Admin Opzava",
+              workspace: "/home/node/.openclaw/workspace/ask-admin-opzava",
+              agentDir: "/home/node/.openclaw/agents/ask-admin-opzava/agent",
+              skills: [],
+              contextInjection: "continuation-skip",
+              bootstrapMaxChars: 20000,
+              default: true,
+              model: "openai/gpt-5.5",
+              tools: {
+                profile: ASK_ADMIN_TOOL_PROFILE,
+                allow: ASK_ADMIN_TOOL_POLICY_ALLOW,
+                deny: ASK_ADMIN_TOOL_POLICY_DENY,
+              },
+            },
           ],
-          "deny": [
-            "group:runtime",
-            "write",
-            "edit",
-            "apply_patch",
-            "group:fs"
-          ]
-        }
-      }
-    ]
-  }
-}
-`);
+        },
+      },
+      null,
+      2,
+    )}\n`;
+
+    expect(config).toBe(expectedConfig);
     expect(sha256Hex(config)).toBe(
       "498a09d143bc330b9f5e5f8198432acb9ef7f2bb3824d705daee36a5ebfcf66a",
     );
@@ -431,18 +425,9 @@ Required behavior:
             default: true,
             model: "openai/gpt-5.5",
             tools: {
-              profile: "minimal",
-              allow: [
-                "opzava_tasks_list",
-                "opzava_tasks_create",
-                "opzava_tasks_update",
-                "opzava_crm_list_accounts",
-                "opzava_crm_list_contacts",
-                "opzava_crm_list_deals",
-                "opzava_crm_list_tickets",
-                "opzava_crm_get_contact_timeline",
-              ],
-              deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
+              profile: ASK_ADMIN_TOOL_PROFILE,
+              allow: ASK_ADMIN_TOOL_POLICY_ALLOW,
+              deny: ASK_ADMIN_TOOL_POLICY_DENY,
             },
           },
         ],
@@ -453,17 +438,8 @@ Required behavior:
       id: "ask-admin-opzava-tool-policy",
       version: "2026-07-04.slice3-crm-read",
       mode: "deny-wins",
-      allow: [
-        "opzava_tasks_list",
-        "opzava_tasks_create",
-        "opzava_tasks_update",
-        "opzava_crm_list_accounts",
-        "opzava_crm_list_contacts",
-        "opzava_crm_list_deals",
-        "opzava_crm_list_tickets",
-        "opzava_crm_get_contact_timeline",
-      ],
-      deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
+      allow: ASK_ADMIN_TOOL_POLICY_ALLOW,
+      deny: ASK_ADMIN_TOOL_POLICY_DENY,
     });
   });
 

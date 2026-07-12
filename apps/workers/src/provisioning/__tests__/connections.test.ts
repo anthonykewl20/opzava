@@ -962,7 +962,11 @@ describe("Connections provisioning helpers", () => {
     expect(config.agents.list[0]).toMatchObject({
       id: "ask-admin-opzava",
       subagents: { delegationMode: "prefer", allowAgents: ["subagent-zai"] },
-      tools: { allow: ["sessions_spawn", "subagents", "group:sessions"] },
+      tools: {
+        profile: "minimal",
+        allow: expect.arrayContaining(["opzava_tasks_list", "sessions_spawn"]),
+        deny: expect.arrayContaining(["group:runtime"]),
+      },
     });
   });
 
@@ -3942,7 +3946,11 @@ describe("Connections provisioning helpers", () => {
               delegationMode: "prefer",
               allowAgents: ["subagent-zai"],
             },
-            tools: { allow: ["sessions_spawn", "subagents", "group:sessions"] },
+            tools: {
+              profile: "minimal",
+              allow: expect.arrayContaining(["opzava_tasks_list", "sessions_spawn"]),
+              deny: expect.arrayContaining(["group:runtime"]),
+            },
           }),
           expect.objectContaining({ id: "subagent-zai", model: "zai/glm-5.2" }),
         ]),

@@ -1,4 +1,8 @@
 import {
+  ASK_ADMIN_TOOL_POLICY_ALLOW,
+  ASK_ADMIN_TOOL_POLICY_DENY,
+  ASK_ADMIN_TOOL_PROFILE,
+  ORCHESTRATOR_DELEGATION_TOOL_EXPANSION,
   classifyModelProvider,
   listProviderTierIds,
   providerTierLabel,
@@ -96,14 +100,16 @@ export interface OrchestratorConfigPlan {
         readonly allowAgents: readonly string[];
       };
       readonly tools?: {
+        readonly profile?: string;
         readonly allow: readonly string[];
+        readonly deny?: readonly string[];
       };
     }[];
   };
   readonly receipt: {
     readonly delegationMode: "prefer";
     readonly allowAgents: readonly string[];
-    readonly toolPolicyExpansion: readonly ["sessions_spawn", "subagents", "group:sessions"];
+    readonly toolPolicyExpansion: typeof ORCHESTRATOR_DELEGATION_TOOL_EXPANSION;
   };
 }
 
@@ -511,7 +517,9 @@ export function buildOrchestratorConfigPlan(input: {
             allowAgents,
           },
           tools: {
-            allow: ["sessions_spawn", "subagents", "group:sessions"],
+            profile: ASK_ADMIN_TOOL_PROFILE,
+            allow: [...ASK_ADMIN_TOOL_POLICY_ALLOW, ...ORCHESTRATOR_DELEGATION_TOOL_EXPANSION],
+            deny: ASK_ADMIN_TOOL_POLICY_DENY,
           },
         },
         ...subagents.map((subagent) => ({
@@ -523,7 +531,7 @@ export function buildOrchestratorConfigPlan(input: {
     receipt: {
       delegationMode: "prefer",
       allowAgents,
-      toolPolicyExpansion: ["sessions_spawn", "subagents", "group:sessions"],
+      toolPolicyExpansion: ORCHESTRATOR_DELEGATION_TOOL_EXPANSION,
     },
   };
 }

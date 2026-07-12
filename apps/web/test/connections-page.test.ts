@@ -710,6 +710,11 @@ describe("Connections page state", () => {
       id: "ask-admin-opzava",
       model: "openai/gpt-5.5",
       subagents: { delegationMode: "prefer", allowAgents: ["subagent-zai"] },
+      tools: {
+        profile: "minimal",
+        allow: expect.arrayContaining(["opzava_tasks_list", "sessions_spawn"]),
+        deny: expect.arrayContaining(["group:runtime"]),
+      },
     });
   });
 

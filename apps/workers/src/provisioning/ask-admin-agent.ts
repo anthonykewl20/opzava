@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
 
-import type { SecretReference } from "@opzava/ports";
+import {
+  ASK_ADMIN_TOOL_POLICY_ALLOW,
+  ASK_ADMIN_TOOL_POLICY_DENY,
+  ASK_ADMIN_TOOL_PROFILE,
+  type SecretReference,
+} from "@opzava/ports";
 import { makeTenantId, type TenantId } from "@opzava/shared-kernel";
+
+export { ASK_ADMIN_TOOL_POLICY_ALLOW, ASK_ADMIN_TOOL_POLICY_DENY } from "@opzava/ports";
 
 export const ASK_ADMIN_AGENT_ID = "ask-admin-opzava";
 // Live config alignment from consensus:
@@ -25,25 +32,6 @@ export const ASK_ADMIN_FORBIDDEN_OPERATOR_SCOPES = [
   "operator.admin",
   "operator.pairing",
   "operator.talk.secrets",
-] as const;
-
-export const ASK_ADMIN_TOOL_POLICY_DENY = [
-  "group:runtime",
-  "write",
-  "edit",
-  "apply_patch",
-  "group:fs",
-] as const;
-
-export const ASK_ADMIN_TOOL_POLICY_ALLOW = [
-  "opzava_tasks_list",
-  "opzava_tasks_create",
-  "opzava_tasks_update",
-  "opzava_crm_list_accounts",
-  "opzava_crm_list_contacts",
-  "opzava_crm_list_deals",
-  "opzava_crm_list_tickets",
-  "opzava_crm_get_contact_timeline",
 ] as const;
 
 export interface AskAdminArtifactTemplate {
@@ -79,7 +67,7 @@ export interface AskAdminAgentConfigFragment {
         readonly default: true;
         readonly model: typeof ASK_ADMIN_AGENT_MODEL;
         readonly tools: {
-          readonly profile: "minimal";
+          readonly profile: typeof ASK_ADMIN_TOOL_PROFILE;
           readonly allow: typeof ASK_ADMIN_TOOL_POLICY_ALLOW;
           readonly deny: typeof ASK_ADMIN_TOOL_POLICY_DENY;
         };
@@ -256,7 +244,7 @@ export const ASK_ADMIN_AGENT_CONFIG_FRAGMENT: AskAdminAgentConfigFragment = {
         default: true,
         model: ASK_ADMIN_AGENT_MODEL,
         tools: {
-          profile: "minimal",
+          profile: ASK_ADMIN_TOOL_PROFILE,
           allow: ASK_ADMIN_TOOL_POLICY_ALLOW,
           deny: ASK_ADMIN_TOOL_POLICY_DENY,
         },

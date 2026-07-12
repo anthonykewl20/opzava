@@ -1,5 +1,12 @@
 import { GITHUB_ISSUES_TOKEN_SECRET_LABEL } from "@opzava/adapters";
-import { type ModelProviderAuthChoice, type OrchestratorSubagentRole } from "@opzava/ports";
+import {
+  ASK_ADMIN_TOOL_POLICY_ALLOW,
+  ASK_ADMIN_TOOL_POLICY_DENY,
+  ASK_ADMIN_TOOL_PROFILE,
+  ORCHESTRATOR_DELEGATION_TOOL_EXPANSION,
+  type ModelProviderAuthChoice,
+  type OrchestratorSubagentRole,
+} from "@opzava/ports";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import { ASK_ADMIN_AGENT_ID, ASK_ADMIN_AGENT_MODEL } from "./ask-admin-agent.js";
@@ -18,7 +25,7 @@ export interface DelegationProvisioningReceipt {
   readonly delegationMode: "prefer";
   readonly allowAgents: readonly string[];
   readonly subagents: readonly OrchestratorSubagentRole[];
-  readonly toolPolicyExpansion: readonly ["sessions_spawn", "subagents", "group:sessions"];
+  readonly toolPolicyExpansion: typeof ORCHESTRATOR_DELEGATION_TOOL_EXPANSION;
   readonly note: "delegation-engine-deferred-to-p1";
 }
 
@@ -111,7 +118,7 @@ export function buildDelegationProvisioningReceipt(input: {
     delegationMode: "prefer",
     allowAgents: input.subagents.map((subagent) => subagent.agentId),
     subagents: input.subagents,
-    toolPolicyExpansion: ["sessions_spawn", "subagents", "group:sessions"],
+    toolPolicyExpansion: ORCHESTRATOR_DELEGATION_TOOL_EXPANSION,
     note: "delegation-engine-deferred-to-p1",
   };
 }
@@ -145,7 +152,9 @@ export function buildOrchestratorAgentConfig(input: {
             allowAgents: receipt.allowAgents,
           },
           tools: {
-            allow: receipt.toolPolicyExpansion,
+            profile: ASK_ADMIN_TOOL_PROFILE,
+            allow: [...ASK_ADMIN_TOOL_POLICY_ALLOW, ...receipt.toolPolicyExpansion],
+            deny: ASK_ADMIN_TOOL_POLICY_DENY,
           },
         },
         ...input.subagents.map((subagent) => ({
