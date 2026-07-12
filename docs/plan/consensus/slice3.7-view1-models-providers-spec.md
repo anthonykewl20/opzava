@@ -32,12 +32,6 @@ CLASSIFICATION overlay only.
   `RUNTIME_PARENTS`, `PROVIDER_PARENT_ALIASES`, `NON_LLM_PROVIDER_IDS`, `CANONICAL_PROVIDER_LABELS`.
 - Mockup Section 3 reconciled (grouped table; columns Provider/Auth/Models/Status/action).
 
-## Current implementation amendment (2026-07-12)
-
-Connected rows expose a single row-actions menu rather than inline Manage, Set as main orchestrator, and Disconnect buttons.
-The menu contains Manage, Set as main orchestrator only for connected non-lead rows, a separator, and Disconnect.
-The menu intentionally has no non-interactive `Actions` label because the trigger already names row actions for the provider.
-
 ## Reference truth (verified against mainframe v2026.6.11)
 - `models.list {view:"all"}` → `{models: [{id,name,provider,alias?,contextWindow?,available?}]}`.
   (Worker already calls this at gateway-admin-connections.ts ~:1392,:1671.) `view:"all"` includes
@@ -112,10 +106,10 @@ Re-render as the reconciled mockup's **grouped table** (`table table-compact tab
 - Models cell: first N model ids as `u-mono`, "+K more"; honest "—"/"Routes many" when empty.
 - Status cell: dot + `statusLabel`; append `expiryLabel`/`planLabel`/`usageLabel` as `u-subtle`
   when present. 5-state honest.
-- Action: Connect (opens the existing `ProviderConnectDialog`) when not connected; connected rows use a row-actions menu with Manage, eligible Set as main orchestrator, a separator, and Disconnect.
-  Keep the search box + Connect/Available split IF it survives grouping, else a single grouped table is fine (mockup is one table).
-  Preserve the existing dialogs, forms, server actions, and `DeviceFlowPoller`.
-  Keep the "Provider catalog unavailable" empty state.
+- Action: Connect (opens the existing `ProviderConnectDialog`) when not connected; Manage +
+  Disconnect when connected. Keep the search box + Connect/Available split IF it survives grouping,
+  else a single grouped table is fine (mockup is one table). Preserve the existing dialogs, forms,
+  server actions, and `DeviceFlowPoller`. Keep the "Provider catalog unavailable" empty state.
 - Keep a11y AA: table caption, `scope="col"`, `data-label` on cells, `u-sr-only` for icon-only.
 
 ### D. Tests (red→green; this is the tdd gate)
