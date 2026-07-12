@@ -4,14 +4,15 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { LocalFileSecretsVault } from "@opzava/adapters";
+import { GITHUB_ISSUES_TOKEN_SECRET_LABEL, LocalFileSecretsVault } from "@opzava/adapters";
 import {
-  GITHUB_ISSUES_TOKEN_SECRET_LABEL,
   type ConnectionsProvisioningPort,
   type ConnectionsSnapshot,
   type DeviceFlowChallenge,
   type GitHubConnectionState,
   type ModelProviderAuthChoice,
+  type OpenClawAdminRpcPort,
+  type OpenClawOperatorScope,
   type OrchestratorDelegationState,
   type OrchestratorSubagentRole,
   type ProviderConnectionState,
@@ -38,10 +39,8 @@ import {
   openClawOperatorScopeGranted,
   type OpenClawAdminClock,
   type OpenClawAdminDeviceKeypair,
-  type OpenClawAdminRpcPort,
   type OpenClawAdminWebSocket,
   type OpenClawAdminWebSocketFactory,
-  type OpenClawOperatorScope,
 } from "../openclaw-admin-client.js";
 
 const tempDirectories: string[] = [];

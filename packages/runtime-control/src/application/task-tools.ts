@@ -14,12 +14,17 @@ import {
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import {
-  recordStartedToolOutcome,
-  recordToolOutcome,
   type RuntimeControlDependencies,
   type StartedToolOutcomeReceipt,
   type ToolExecutionContext
 } from "./assistant-conversations.js";
+import {
+  errorStatus,
+  failureFromMalformedArgs,
+  malformedRequestSummary,
+  runToolExecution,
+  type ToolFailure
+} from "./tool-execution-harness.js";
 import type { AssistantToolOutcome } from "../domain/assistant.js";
 
 export const runtimeControlTaskToolNames = [
@@ -135,11 +140,6 @@ type ParsedToolArgs =
       };
       readonly requestSummary: Readonly<Record<string, unknown>>;
     };
-
-interface ToolFailure {
-  readonly code: string;
-  readonly message: string;
-}
 
 const taskStatusSet = new Set<string>(taskStatuses);
 const taskPrioritySet = new Set<string>(taskPriorities);
@@ -510,60 +510,6 @@ function parseArgs(
   return parseUpdateArgs(value);
 }
 
-function sanitizeValue(value: unknown, depth = 0): unknown {
-  if (depth > 3) {
-    return "[truncated]";
-  }
-
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.slice(0, 20).map((entry) => sanitizeValue(entry, depth + 1));
-  }
-
-  if (!isRecord(value)) {
-    return String(value);
-  }
-
-  return Object.keys(value)
-    .sort()
-    .slice(0, 20)
-    .reduce<Record<string, unknown>>((accumulator, key) => {
-      accumulator[key] = sanitizeValue(value[key], depth + 1);
-      return accumulator;
-    }, {});
-}
-
-function malformedRequestSummary(
-  toolName: RuntimeControlTaskToolName,
-  args: unknown,
-  error: DomainError
-): Readonly<Record<string, unknown>> {
-  return {
-    toolName,
-    malformedArgs: sanitizeValue(args),
-    errorCode: error.code
-  };
-}
-
-function errorStatus(error: unknown, depth = 0): number | undefined {
-  if (depth > 5 || typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const status = (error as { readonly status?: unknown }).status;
-  return typeof status === "number"
-    ? status
-    : errorStatus((error as { readonly cause?: unknown }).cause, depth + 1);
-}
-
 function failureFromError(error: DomainError): ToolFailure {
   if (error.code === "projectManagement.taskNotFound") {
     return {
@@ -592,13 +538,6 @@ function failureFromError(error: DomainError): ToolFailure {
   };
 }
 
-function failureFromMalformedArgs(error: DomainError): ToolFailure {
-  return {
-    code: "malformed_args",
-    message: error.message
-  };
-}
-
 function taskContext(context: ToolExecutionContext) {
   return {
     orgId: context.orgId,
@@ -614,10 +553,6 @@ function taskDependencies(dependencies: RuntimeControlTaskToolDependencies) {
 
 function resultSummary(output: RuntimeControlTaskToolOutput): Readonly<Record<string, unknown>> {
   return { ok: true, ...output };
-}
-
-function failureSummary(failure: ToolFailure): Readonly<Record<string, unknown>> {
-  return { ok: false, code: failure.code, message: failure.message };
 }
 
 function targetRef(output: RuntimeControlTaskToolOutput): string | null {
@@ -699,43 +634,6 @@ function completedExecutionFromOutcome(
     toolCallId,
     output,
     outcome: receipt.outcome
-  });
-}
-
-async function finishFailure(
-  input: {
-    readonly context: ToolExecutionContext;
-    readonly toolName: RuntimeControlTaskToolName;
-    readonly toolCallId: string;
-    readonly requestSummary: Readonly<Record<string, unknown>>;
-    readonly failure: ToolFailure;
-  },
-  dependencies: RuntimeControlTaskToolDependencies
-): Promise<Result<RuntimeControlTaskToolExecution>> {
-  const outcome = await recordToolOutcome(
-    {
-      ...taskContext(input.context),
-      turnId: input.context.assistantTurnId,
-      toolName: input.toolName,
-      toolCallId: input.toolCallId,
-      idempotencyKey: input.context.commandIdempotencyKey,
-      status: "failed",
-      requestSummary: input.requestSummary,
-      resultSummary: failureSummary(input.failure)
-    },
-    dependencies
-  );
-  if (!outcome.ok) {
-    return err(outcome.error);
-  }
-
-  return ok({
-    status: "failed",
-    toolName: input.toolName,
-    toolCallId: input.toolCallId,
-    code: input.failure.code,
-    message: input.failure.message,
-    outcome: outcome.value
   });
 }
 
@@ -842,97 +740,18 @@ export async function executeRuntimeControlTaskTool(
   input: ExecuteRuntimeControlTaskToolInput,
   dependencies: RuntimeControlTaskToolDependencies = {}
 ): Promise<Result<RuntimeControlTaskToolExecution>> {
-  const toolName = parseToolName(input.toolName);
-  if (!toolName.ok) {
-    return err(toolName.error);
-  }
-
-  const toolCallId =
-    typeof input.toolCallId === "string" && input.toolCallId.trim() !== ""
-      ? input.toolCallId.trim()
-      : null;
-  if (toolCallId === null) {
-    return err(
-      toolError("runtimeControl.invalidToolCallId", "Tool call id is required.")
-    );
-  }
-
-  const parsed = parseArgs(toolName.value, input.args);
-  const requestSummary = parsed.ok
-    ? parsed.value.requestSummary
-    : malformedRequestSummary(toolName.value, input.args, parsed.error);
-
-  const started = await recordStartedToolOutcome(
-    {
-      ...taskContext(input.context),
-      turnId: input.context.assistantTurnId,
-      toolName: toolName.value,
-      toolCallId,
-      idempotencyKey: input.context.commandIdempotencyKey,
-      status: "started",
-      requestSummary
-    },
-    dependencies
-  );
-  if (!started.ok) {
-    return err(started.error);
-  }
-
-  if (!started.value.inserted) {
-    return completedExecutionFromOutcome(toolName.value, toolCallId, started.value);
-  }
-
-  if (!parsed.ok) {
-    return finishFailure(
-      {
-        context: input.context,
-        toolName: toolName.value,
-        toolCallId,
-        requestSummary,
-        failure: failureFromMalformedArgs(parsed.error)
-      },
-      dependencies
-    );
-  }
-
-  const performed = await performTool(parsed.value, input.context, dependencies);
-  if (!performed.ok) {
-    return finishFailure(
-      {
-        context: input.context,
-        toolName: toolName.value,
-        toolCallId,
-        requestSummary,
-        failure: failureFromError(performed.error)
-      },
-      dependencies
-    );
-  }
-
-  const output = performed.value;
-  const outcome = await recordToolOutcome(
-    {
-      ...taskContext(input.context),
-      turnId: input.context.assistantTurnId,
-      toolName: toolName.value,
-      toolCallId,
-      idempotencyKey: input.context.commandIdempotencyKey,
-      status: "succeeded",
-      requestSummary,
-      resultSummary: resultSummary(output),
-      targetRef: targetRef(output)
-    },
-    dependencies
-  );
-  if (!outcome.ok) {
-    return err(outcome.error);
-  }
-
-  return ok({
-    status: "succeeded",
-    toolName: toolName.value,
-    toolCallId,
-    output,
-    outcome: outcome.value
+  return runToolExecution({
+    input,
+    dependencies,
+    parseToolName,
+    parseArgs,
+    malformedRequestSummary,
+    contextForOutcome: taskContext,
+    completedExecutionFromOutcome,
+    performTool,
+    failureFromMalformedArgs,
+    failureFromError,
+    resultSummary,
+    targetRef
   });
 }

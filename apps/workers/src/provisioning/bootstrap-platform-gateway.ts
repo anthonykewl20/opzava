@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { expectedLocalFileSecretReference, LocalFileSecretsVault } from "@opzava/adapters";
-import type { SecretReference } from "@opzava/ports";
+import type { SecretReference, SecretsVaultPort } from "@opzava/ports";
 import { DomainError, type Result } from "@opzava/shared-kernel";
 
 import {
@@ -842,7 +842,7 @@ async function storeProvidedDeviceToken(input: {
   }
 
   const vaultFile = resolveDevSecretsFilePath(requireEnv(input.env, "OPENCLAW_DEV_SECRETS_FILE"));
-  const vault = new LocalFileSecretsVault({ filePath: vaultFile });
+  const vault: SecretsVaultPort = new LocalFileSecretsVault({ filePath: vaultFile });
   const stored = unwrap(
     await vault.putSecret({
       tenantId: ASK_ADMIN_PLATFORM_TENANT_ID,
@@ -873,7 +873,8 @@ async function readStoredDeviceToken(input: {
     label: input.profile.tokenLabel,
     version: ASK_ADMIN_AGENT_VERSION,
   });
-  const token = await new LocalFileSecretsVault({ filePath: vaultFile }).resolveSecretValue({
+  const vault: SecretsVaultPort = new LocalFileSecretsVault({ filePath: vaultFile });
+  const token = await vault.resolveSecretValue({
     ref,
     requestedBy: "platform-gateway-bootstrap",
     reason: `${input.profile.name}-operator-device-token`,

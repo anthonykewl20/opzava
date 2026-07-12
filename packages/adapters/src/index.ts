@@ -1,5 +1,6 @@
 export { createPostgresDatabase, createPostgresPool, db, pool } from "./postgres/client.js";
 export {
+  GITHUB_ISSUES_TOKEN_SECRET_LABEL,
   GitHubIssueTrackerAdapter,
   type GitHubIssueTrackerAdapterOptions,
 } from "./github/issues.js";

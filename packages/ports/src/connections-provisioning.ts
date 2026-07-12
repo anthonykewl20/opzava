@@ -236,10 +236,13 @@ export interface SetMainOrchestratorInput extends ConnectionProvisioningPrincipa
 export type StartGitHubDeviceFlowInput = ConnectionProvisioningPrincipal;
 export type DisconnectGitHubInput = ConnectionProvisioningPrincipal;
 
-export interface ConnectionsProvisioningPort {
+export interface ConnectionsReadPort {
   getConnectionsSnapshot(
     input: ConnectionProvisioningPrincipal,
   ): Promise<Result<ConnectionsSnapshot>>;
+}
+
+export interface ModelProviderConnectFlowsPort {
   startModelProviderApiKeyConnect(
     input: ConnectModelProviderApiKeyInput,
   ): Promise<Result<ModelProviderApiKeyConnectStart>>;
@@ -262,12 +265,20 @@ export interface ConnectionsProvisioningPort {
   disconnectModelProvider(
     input: DisconnectModelProviderInput,
   ): Promise<Result<ProviderConnectionState>>;
+  startGitHubDeviceFlow(input: StartGitHubDeviceFlowInput): Promise<Result<DeviceFlowChallenge>>;
+  disconnectGitHub(input: DisconnectGitHubInput): Promise<Result<GitHubConnectionState>>;
+}
+
+export interface OrchestratorDelegationPort {
   applyOrchestratorDelegation(
     input: ApplyOrchestratorDelegationInput,
   ): Promise<Result<OrchestratorDelegationState>>;
   setMainOrchestrator(
     input: SetMainOrchestratorInput,
   ): Promise<Result<OrchestratorDelegationState>>;
-  startGitHubDeviceFlow(input: StartGitHubDeviceFlowInput): Promise<Result<DeviceFlowChallenge>>;
-  disconnectGitHub(input: DisconnectGitHubInput): Promise<Result<GitHubConnectionState>>;
 }
+
+export interface ConnectionsProvisioningPort
+  extends ConnectionsReadPort,
+    ModelProviderConnectFlowsPort,
+    OrchestratorDelegationPort {}

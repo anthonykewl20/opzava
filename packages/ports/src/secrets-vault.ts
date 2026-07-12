@@ -23,6 +23,14 @@ export interface ResolveSecretInput {
   readonly reason: string;
 }
 
+export interface PutSecretInput {
+  readonly tenantId: TenantId;
+  readonly purpose: SecretReference["purpose"];
+  readonly label: string;
+  readonly value: string;
+  readonly version?: string;
+}
+
 export interface ResolvedSecret {
   readonly ref: SecretReference;
   readonly fingerprint: string;
@@ -33,4 +41,6 @@ export interface ResolvedSecret {
 export interface SecretsVaultPort {
   getRef(input: GetSecretRefInput): Promise<Result<SecretReference | null>>;
   resolve(input: ResolveSecretInput): Promise<Result<ResolvedSecret>>;
+  resolveSecretValue(input: ResolveSecretInput): Promise<Result<string>>;
+  putSecret(input: PutSecretInput): Promise<Result<SecretReference>>;
 }

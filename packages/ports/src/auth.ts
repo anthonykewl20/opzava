@@ -75,15 +75,8 @@ export interface MfaVerificationResult {
   readonly verifiedAt: Date;
 }
 
-export interface MfaHooks {
-  readonly createChallenge: (identity: AuthIdentity) => Promise<Result<MfaChallenge>>;
-  readonly verifyChallenge: (
-    input: MfaVerificationInput
-  ) => Promise<Result<MfaVerificationResult>>;
-}
-
 export interface AuthPort {
-  signIn(input: SignInInput, hooks?: MfaHooks): Promise<Result<AuthSession | MfaChallenge>>;
+  signIn(input: SignInInput): Promise<Result<AuthSession | MfaChallenge>>;
   getSession(input: GetSessionInput): Promise<Result<AuthSession | null>>;
   revokeSession(input: RevokeSessionInput): Promise<Result<void>>;
   listSessions(input: ListSessionsInput): Promise<Result<readonly AuthSession[]>>;

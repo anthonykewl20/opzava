@@ -23,13 +23,14 @@ import {
   startAssistantTurn,
   toolExecutionContextFromSessionPrincipal,
 } from "@opzava/runtime-control";
-import { makeOrgId, makeTenantId, makeUserId, makeWorkspaceId, ok } from "@opzava/shared-kernel";
+import { makeOrgId, makeTenantId, makeUserId, makeWorkspaceId } from "@opzava/shared-kernel";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { askAdminAssistantKey, askAdminRouteId } from "@/lib/ask-admin-history";
 import type { AskAdminClientStreamEvent } from "@/lib/ask-admin-stream";
 import { readBrokerInternalEnv } from "@/lib/broker-internal-env";
+import { defaultErrorCapturePort } from "@/lib/error-capture";
 import { createBrokerOpenClawGatewayPort } from "@/lib/openclaw-gateway-broker";
 import { getAppSessionContext, type AppSessionContext } from "@/lib/session";
 
@@ -75,12 +76,6 @@ const runtimeControlServices: RuntimeControlServices = {
   toolExecutionContextFromSessionPrincipal,
 };
 
-const noopErrorCapturePort: ErrorCapturePort = {
-  async capture() {
-    return ok(undefined);
-  },
-};
-
 function defaultDependencies(): AskAdminTurnPostDependencies {
   return {
     getSessionContext: getAppSessionContext,
@@ -94,7 +89,7 @@ function defaultDependencies(): AskAdminTurnPostDependencies {
       });
     },
     runtime: runtimeControlServices,
-    errorCapture: noopErrorCapturePort,
+    errorCapture: defaultErrorCapturePort,
     revalidateTasks: () => revalidatePath("/tasks"),
   };
 }
