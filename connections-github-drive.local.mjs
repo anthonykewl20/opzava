@@ -92,12 +92,30 @@ try {
   } else {
     await connect.click();
     await page.waitForLoadState("networkidle").catch(() => {});
-    await page.waitForTimeout(1_000);
+    // Wait for the server-action redirect + render to settle: either a device-flow marker
+    // or the not-configured notice becomes visible (a fixed short delay races the round-trip).
+    await page
+      .locator(".connections-device-code, .connections-notice")
+      .first()
+      .waitFor({ state: "visible", timeout: 8_000 })
+      .catch(() => {});
+    await page.waitForTimeout(500);
     const hasUserCode = await hasVisible(page.locator(".connections-device-code"));
     const hasVerificationLink = await hasVisible(page.getByRole("link", { name: /sign-in page/i }));
     const hasPendingCode = await hasVisible(page.getByText(/Generating your device code/i));
+    const hasGitHubNotConfiguredNotice =
+      (await hasVisible(page.getByText(/GitHub connect isn.?t available/i))) ||
+      (await hasVisible(page.getByText(/no GitHub OAuth app configured/i)));
     if (!hasUserCode && !hasVerificationLink && !hasPendingCode) {
-      findings.push("github-device-flow-visible=false");
+      if (hasGitHubNotConfiguredNotice) {
+        skipped.push("github-device-flow:no-oauth-client-id-in-env");
+        await page.screenshot({
+          path: `${OUT}/github-device-flow-not-configured.png`,
+          fullPage: true,
+        });
+      } else {
+        findings.push("github-device-flow-visible=false");
+      }
     } else {
       exercised.push("catalog-started-github-device-flow");
       await page.screenshot({ path: `${OUT}/github-device-flow.png`, fullPage: true });

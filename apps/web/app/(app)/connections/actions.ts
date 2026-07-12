@@ -62,6 +62,14 @@ function handleConnectionMutationError(
     });
   }
 
+  if (connectionActionErrorCode(error) === "provisioning.githubOAuth.notConfigured") {
+    redirectToConnectionsNotice({
+      notice: "github-not-configured",
+      basePath,
+      ...(providerId === undefined ? {} : { providerId }),
+    });
+  }
+
   throwConnectionActionError(error);
 }
 

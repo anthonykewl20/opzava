@@ -1034,6 +1034,8 @@ describe("Connections page state", () => {
     expect(gatewayPage).toContain("HealthCheckSubmitButton");
     expect(healthCheckButton).toContain("Checking...");
     expect(actions).toContain("operator-admin-required");
+    expect(actions).toContain("provisioning.githubOAuth.notConfigured");
+    expect(actions).toContain("github-not-configured");
     expect(actions).toContain("health-check-complete");
     expect(actions).toContain("readonly basePath?: string");
     expect(actions).toContain(
@@ -1047,6 +1049,9 @@ describe("Connections page state", () => {
     expect(pageNotice).toContain("export type ConnectionsNotice");
     expect(pageNotice).toContain("export function noticeFromSearchParams");
     expect(pageNotice).toContain("export function PageNotice");
+    expect(pageNotice).toContain('"github-not-configured"');
+    expect(pageNotice).toContain("GitHub connect isn't available");
+    expect(pageNotice).toContain("no GitHub OAuth app configured");
     expect(page).not.toContain("function PageNotice");
     expect(page).not.toContain("function noticeFromSearchParams");
     expect(githubPage).toContain("GitHub");

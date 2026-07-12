@@ -4,6 +4,7 @@ export type ConnectionsNotice =
   | { readonly kind: "health-check-complete" }
   | { readonly kind: "health-check-error" }
   | { readonly kind: "connection-action-error"; readonly providerId?: string }
+  | { readonly kind: "github-not-configured" }
   | { readonly kind: "operator-admin-required"; readonly providerId?: string };
 
 export function noticeFromSearchParams(
@@ -27,6 +28,10 @@ export function noticeFromSearchParams(
       kind: "operator-admin-required",
       ...(params.provider === undefined ? {} : { providerId: params.provider }),
     };
+  }
+
+  if (params?.notice === "github-not-configured") {
+    return { kind: "github-not-configured" };
   }
 
   if (params?.notice === "connection-action-error") {
@@ -59,6 +64,21 @@ export function PageNotice({
           <p className="hint">
             Pair or upgrade an operator.admin device before changing provider credentials
             {notice.providerId === undefined ? "." : ` for ${notice.providerId}.`}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (notice.kind === "github-not-configured") {
+    return (
+      <div className="connections-notice connections-notice-warning" role="alert">
+        <span className="dot dot-warning" aria-hidden="true" />
+        <div>
+          <strong>GitHub connect isn't available.</strong>
+          <p className="hint">
+            This environment has no GitHub OAuth app configured, so the device-flow connect can't
+            start. Set GITHUB_OAUTH_CLIENT_ID to enable it.
           </p>
         </div>
       </div>
