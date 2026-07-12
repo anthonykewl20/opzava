@@ -1,10 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { expectedLocalFileSecretReference, LocalFileSecretsVault } from "@opzava/adapters";
+import {
+  expectedLocalFileSecretReference,
+  GITHUB_ISSUES_TOKEN_SECRET_LABEL,
+  LocalFileSecretsVault,
+} from "@opzava/adapters";
 import {
   CANONICAL_LLM_PROVIDER_IDS,
   CANONICAL_PROVIDER_LABELS,
-  GITHUB_ISSUES_TOKEN_SECRET_LABEL,
   type ApplyOrchestratorDelegationInput,
   classifyModelProvider,
   type ConnectModelProviderApiKeyInput,

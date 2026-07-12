@@ -10,6 +10,8 @@ import type { LocalFileSecretsVault } from "../secrets/local-file-secrets-vault.
 
 type Fetch = typeof fetch;
 
+export const GITHUB_ISSUES_TOKEN_SECRET_LABEL = "github-issues-token";
+
 interface GitHubUserShape {
   readonly login?: unknown;
 }

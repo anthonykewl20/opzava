@@ -4,9 +4,8 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { LocalFileSecretsVault } from "@opzava/adapters";
+import { GITHUB_ISSUES_TOKEN_SECRET_LABEL, LocalFileSecretsVault } from "@opzava/adapters";
 import {
-  GITHUB_ISSUES_TOKEN_SECRET_LABEL,
   type ConnectionsProvisioningPort,
   type ConnectionsSnapshot,
   type DeviceFlowChallenge,

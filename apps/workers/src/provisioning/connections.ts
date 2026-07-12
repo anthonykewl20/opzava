@@ -1,8 +1,5 @@
-import {
-  GITHUB_ISSUES_TOKEN_SECRET_LABEL,
-  type ModelProviderAuthChoice,
-  type OrchestratorSubagentRole,
-} from "@opzava/ports";
+import { GITHUB_ISSUES_TOKEN_SECRET_LABEL } from "@opzava/adapters";
+import { type ModelProviderAuthChoice, type OrchestratorSubagentRole } from "@opzava/ports";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import { ASK_ADMIN_AGENT_ID, ASK_ADMIN_AGENT_MODEL } from "./ask-admin-agent.js";
