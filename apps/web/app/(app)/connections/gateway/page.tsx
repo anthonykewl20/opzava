@@ -1,13 +1,28 @@
 import { refreshConnectionsAction } from "@/app/(app)/connections/actions";
 import {
+  PageNotice,
+  noticeFromSearchParams,
+} from "@/app/(app)/connections/_components/page-notice";
+import {
   gatewayUnavailableCopy,
   relativeTime,
   requireConnectionsPageData,
 } from "@/app/(app)/connections/_lib/page-data";
 import { HealthCheckSubmitButton } from "@/components/connections/health-check-submit";
 
-export default async function GatewayConnectionsPage() {
-  const data = await requireConnectionsPageData();
+interface GatewayConnectionsPageProps {
+  readonly searchParams?: Promise<{
+    readonly notice?: string;
+    readonly provider?: string;
+  }>;
+}
+
+export default async function GatewayConnectionsPage({
+  searchParams,
+}: GatewayConnectionsPageProps) {
+  const [params, data] = await Promise.all([searchParams, requireConnectionsPageData()]);
+  const notice = noticeFromSearchParams(params);
+  const refreshGatewayAction = refreshConnectionsAction.bind(null, "/connections/gateway");
   const connectedLeadProviders = data.providers.filter(
     (provider) => provider.roleLabel === "Lead orchestrator" && provider.status === "connected",
   );
@@ -31,7 +46,7 @@ export default async function GatewayConnectionsPage() {
           </p>
         </div>
         <div className="connections-header-actions">
-          <form action={refreshConnectionsAction}>
+          <form action={refreshGatewayAction}>
             <HealthCheckSubmitButton describedBy="connections-refresh-status" />
           </form>
           <p className="connections-refresh-status" id="connections-refresh-status">
@@ -39,6 +54,8 @@ export default async function GatewayConnectionsPage() {
           </p>
         </div>
       </div>
+
+      <PageNotice notice={notice} refreshedAt={data.snapshot.refreshedAt} />
 
       <section aria-labelledby="gw-heading">
         <div className="card connections-gateway-card">

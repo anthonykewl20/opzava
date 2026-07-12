@@ -1,8 +1,22 @@
+import {
+  PageNotice,
+  noticeFromSearchParams,
+} from "@/app/(app)/connections/_components/page-notice";
 import { requireConnectionsPageData } from "@/app/(app)/connections/_lib/page-data";
 import { ModelProvidersPanel } from "@/components/connections/model-providers-panel";
 
-export default async function ModelProviderConnectionsPage() {
-  const data = await requireConnectionsPageData();
+interface ModelProviderConnectionsPageProps {
+  readonly searchParams?: Promise<{
+    readonly notice?: string;
+    readonly provider?: string;
+  }>;
+}
+
+export default async function ModelProviderConnectionsPage({
+  searchParams,
+}: ModelProviderConnectionsPageProps) {
+  const [params, data] = await Promise.all([searchParams, requireConnectionsPageData()]);
+  const notice = noticeFromSearchParams(params);
 
   return (
     <>
@@ -12,6 +26,8 @@ export default async function ModelProviderConnectionsPage() {
           <p className="page-sub">LLM credentials the gateway can route to.</p>
         </div>
       </div>
+
+      <PageNotice notice={notice} refreshedAt={data.snapshot.refreshedAt} />
 
       <ModelProvidersPanel
         gatewayStatus={data.snapshot.gateway.status}

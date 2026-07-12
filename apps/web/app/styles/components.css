@@ -680,6 +680,14 @@ hr {
   outline-offset: 2px;
 }
 
+.rail-item:focus-visible,
+.btn:focus-visible,
+.connections-page a:focus-visible,
+.connections-page [role="listitem"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
 ::selection {
   background: var(--accent-soft);
   color: var(--fg);

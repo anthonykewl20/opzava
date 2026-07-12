@@ -38,6 +38,7 @@ function connectionActionErrorCode(error: unknown, depth = 0): string | undefine
 
 function redirectToConnectionsNotice(input: {
   readonly notice: string;
+  readonly basePath?: string;
   readonly providerId?: string;
 }): never {
   const params = new URLSearchParams({ notice: input.notice });
@@ -45,13 +46,18 @@ function redirectToConnectionsNotice(input: {
     params.set("provider", input.providerId);
   }
 
-  redirect(`/connections?${params.toString()}`);
+  redirect(`${input.basePath ?? "/connections"}?${params.toString()}`);
 }
 
-function handleConnectionMutationError(error: unknown, providerId?: string): never {
+function handleConnectionMutationError(
+  error: unknown,
+  providerId?: string,
+  basePath = "/connections",
+): never {
   if (connectionActionErrorCode(error) === "provisioning.openclawAdmin.operatorAdminRequired") {
     redirectToConnectionsNotice({
       notice: "operator-admin-required",
+      basePath,
       ...(providerId === undefined ? {} : { providerId }),
     });
   }
@@ -79,33 +85,35 @@ export async function applyOrchestratorRolesAction(): Promise<void> {
   revalidatePath("/connections");
 }
 
-export async function startGitHubDeviceFlowAction(): Promise<void> {
+export async function startGitHubDeviceFlowAction(basePath = "/connections"): Promise<void> {
   const context = await requireConnectionsMutationContext();
   const result = await startGitHubDeviceFlowForContext(context);
   if (!result.ok) {
-    handleConnectionMutationError(result.error);
+    handleConnectionMutationError(result.error, undefined, basePath);
   }
 
-  revalidatePath("/connections");
+  revalidatePath(basePath);
 }
 
-export async function disconnectGitHubAction(): Promise<void> {
+export async function disconnectGitHubAction(basePath = "/connections/github"): Promise<void> {
   const context = await requireConnectionsMutationContext();
   const result = await disconnectGitHubForContext(context);
   if (!result.ok) {
-    handleConnectionMutationError(result.error);
+    handleConnectionMutationError(result.error, undefined, basePath);
   }
 
-  revalidatePath("/connections");
+  revalidatePath(basePath);
+  revalidatePath("/connections/add");
+  redirect("/connections/add");
 }
 
-export async function refreshConnectionsAction(): Promise<void> {
+export async function refreshConnectionsAction(basePath = "/connections"): Promise<void> {
   const context = await requireConnectionsContext();
   const result = await loadConnectionsPageData(context);
   if (!result.ok) {
-    redirectToConnectionsNotice({ notice: "health-check-error" });
+    redirectToConnectionsNotice({ notice: "health-check-error", basePath });
   }
 
-  revalidatePath("/connections");
-  redirectToConnectionsNotice({ notice: "health-check-complete" });
+  revalidatePath(basePath);
+  redirectToConnectionsNotice({ notice: "health-check-complete", basePath });
 }

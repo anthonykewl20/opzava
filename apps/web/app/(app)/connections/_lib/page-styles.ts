@@ -7,7 +7,6 @@ export const connectionsPageStyles = `
     .connections-notice { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); align-items: start; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius-md); background: var(--surface); }
     .connections-notice-warning { border-left-color: var(--warning); }
     .connections-notice-danger { border-left-color: var(--danger); }
-    .connections-overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-4); align-items: stretch; }
     .connections-gateway-card .card-body, .connections-github-card .card-body { display: flex; flex-direction: column; gap: var(--space-4); }
     .connections-card-copy { color: var(--fg-muted); font-size: var(--text-sm); max-width: 72ch; }
     .connections-provider-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-3); }

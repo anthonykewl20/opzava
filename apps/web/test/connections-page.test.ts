@@ -871,22 +871,38 @@ describe("Connections page state", () => {
     const layout = await readRepoFile("app/(app)/connections/layout.tsx");
     const page = await readRepoFile("app/(app)/connections/page.tsx");
     const pageData = await readRepoFile("app/(app)/connections/_lib/page-data.ts");
+    const pageStyles = await readRepoFile("app/(app)/connections/_lib/page-styles.ts");
     const gatewayPage = await readRepoFile("app/(app)/connections/gateway/page.tsx");
     const providersPage = await readRepoFile("app/(app)/connections/providers/page.tsx");
     const githubPage = await readRepoFile("app/(app)/connections/github/page.tsx");
     const addPage = await readRepoFile("app/(app)/connections/add/page.tsx");
     const loading = await readRepoFile("app/(app)/connections/loading.tsx");
+    const gatewayLoading = await readRepoFile("app/(app)/connections/gateway/loading.tsx");
+    const providersLoading = await readRepoFile("app/(app)/connections/providers/loading.tsx");
+    const githubLoading = await readRepoFile("app/(app)/connections/github/loading.tsx");
+    const addLoading = await readRepoFile("app/(app)/connections/add/loading.tsx");
     const errorBoundary = await readRepoFile("app/(app)/connections/error.tsx");
     const actions = await readRepoFile("app/(app)/connections/actions.ts");
+    const pageNotice = await readRepoFile("app/(app)/connections/_components/page-notice.tsx");
+    const focusDetailHeading = await readRepoFile(
+      "app/(app)/connections/_components/focus-detail-heading.tsx",
+    );
     const healthCheckButton = await readRepoFile("components/connections/health-check-submit.tsx");
     const providersPanel = await readRepoFile("components/connections/model-providers-panel.tsx");
     const skeleton = await readRepoFile("components/ui/skeleton.tsx");
     const route = await readRepoFile("app/api/connections/device-flow/route.ts");
     const nav = await readRepoFile("components/shell/admin-nav.tsx");
+    const componentsCss = await readRepoFile("app/styles/components.css");
 
     expect(layout).toContain('export const dynamic = "force-dynamic"');
     expect(layout).toContain("connectionsPageStyles");
+    expect(layout).toContain("FocusDetailHeading");
+    expect(layout).toContain("data-connections-detail");
     expect(layout).toContain('className="page connections-page"');
+    expect(focusDetailHeading).toContain('"use client"');
+    expect(focusDetailHeading).toContain("usePathname");
+    expect(focusDetailHeading).toContain("[data-connections-detail] h1");
+    expect(focusDetailHeading).toContain("preventScroll: false");
     expect(pageData).toContain("loadConnectionsPageData(context)");
     expect(pageData).toContain('redirect("/login")');
     expect(pageData).toContain('redirect("/")');
@@ -899,17 +915,31 @@ describe("Connections page state", () => {
     expect(page).toContain("Opzava Gateway");
     expect(gatewayPage).toContain("Gateway health");
     expect(gatewayPage.match(/Gateway health/g)).toHaveLength(1);
+    expect(gatewayPage).toContain("PageNotice");
+    expect(gatewayPage).toContain("noticeFromSearchParams");
+    expect(gatewayPage).toContain('refreshConnectionsAction.bind(null, "/connections/gateway")');
     expect(gatewayPage).toContain("Status &amp; diagnostics");
     expect(gatewayPage).toContain("platform-managed infrastructure");
     expect(gatewayPage).toContain("not connect/disconnectable");
     expect(gatewayPage).toContain("data.snapshot.gateway.message?.trim()");
     expect(gatewayPage).toContain("<dt>Message</dt>");
     expect(providersPage).toContain("ModelProvidersPanel");
+    expect(providersPage).toContain("PageNotice");
+    expect(providersPage).toContain("noticeFromSearchParams");
     expect(githubPage).toContain("startGitHubDeviceFlowAction");
+    expect(githubPage).toContain("PageNotice");
+    expect(githubPage).toContain("noticeFromSearchParams");
+    expect(githubPage).toContain('startGitHubDeviceFlowAction.bind(null, "/connections/github")');
+    expect(githubPage).toContain('disconnectGitHubAction.bind(null, "/connections/github")');
+    expect(githubPage).toContain("gatewayUnavailableCopy");
     expect(addPage).toContain("Integration catalog");
     expect(addPage).toContain("startGitHubDeviceFlowAction");
+    expect(addPage).toContain("PageNotice");
+    expect(addPage).toContain("noticeFromSearchParams");
+    expect(addPage).toContain('startGitHubDeviceFlowAction.bind(null, "/connections/add")');
+    expect(addPage).toContain("gatewayUnavailableCopy");
     expect(addPage).toContain("DeviceFlowPoller");
-    expect(addPage).toContain("flow.kind === \"github\"");
+    expect(addPage).toContain('flow.kind === "github"');
     expect(addPage).toContain("Connect GitHub");
     expect(addPage).toContain("All available integrations are connected");
     expect(addPage).toContain('href="/connections/github"');
@@ -918,12 +948,25 @@ describe("Connections page state", () => {
     expect(loading).toContain("ConnectionsLoading");
     expect(loading).toContain("aria-busy");
     expect(loading).toContain("Skeleton");
+    expect(loading).toContain("connections-overview-loading-title");
+    expect(gatewayLoading).toContain("GatewayConnectionsLoading");
+    expect(gatewayLoading).toContain("aria-busy");
+    expect(providersLoading).toContain("ModelProviderConnectionsLoading");
+    expect(providersLoading).toContain("Provider connection status");
+    expect(githubLoading).toContain("GitHubConnectionsLoading");
+    expect(githubLoading).toContain("Loading GitHub connection status");
+    expect(addLoading).toContain("AddConnectionLoading");
+    expect(addLoading).toContain("Integration catalog");
     expect(skeleton).toContain('data-slot="skeleton"');
     expect(errorBoundary).toContain("Connections could not load");
     expect(errorBoundary).toContain("Fetch failed");
     expect(errorBoundary).toContain("Retry");
     expect(pageData).toContain("Gateway unavailable - retrying automatically");
     expect(pageData).toContain("Gateway unavailable - still retrying automatically");
+    expect(pageStyles).not.toContain(".connections-overview");
+    expect(componentsCss).toContain(".rail-item:focus-visible");
+    expect(componentsCss).toContain(".btn:focus-visible");
+    expect(componentsCss).toContain(".connections-page a:focus-visible");
     expect(gatewayPage).toContain("{provider.label} · SUBAGENT");
     expect(providersPanel).toContain("Gateway unavailable - retrying automatically");
     expect(providersPanel).toContain("No model providers in the live catalog");
@@ -992,6 +1035,20 @@ describe("Connections page state", () => {
     expect(healthCheckButton).toContain("Checking...");
     expect(actions).toContain("operator-admin-required");
     expect(actions).toContain("health-check-complete");
+    expect(actions).toContain("readonly basePath?: string");
+    expect(actions).toContain(
+      'redirect(`${input.basePath ?? "/connections"}?${params.toString()}`)',
+    );
+    expect(actions).toContain(
+      'export async function refreshConnectionsAction(basePath = "/connections")',
+    );
+    expect(actions).toContain("revalidatePath(basePath)");
+    expect(actions).toContain('redirect("/connections/add")');
+    expect(pageNotice).toContain("export type ConnectionsNotice");
+    expect(pageNotice).toContain("export function noticeFromSearchParams");
+    expect(pageNotice).toContain("export function PageNotice");
+    expect(page).not.toContain("function PageNotice");
+    expect(page).not.toContain("function noticeFromSearchParams");
     expect(githubPage).toContain("GitHub");
     expect(githubPage).toContain("startGitHubDeviceFlowAction");
     const apiKeyRoute = await readRepoFile("app/api/connections/model/api-key/route.ts");
