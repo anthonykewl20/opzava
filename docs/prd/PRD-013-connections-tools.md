@@ -72,7 +72,7 @@ The solution is a Connections and Tools product slice that separates customer ch
 16. As an owner, I want raw JSON5 config to remain an escape hatch, so that normal users use schema-backed forms by default.
 17. As an owner, I want Deployment settings to show that the OpenClaw Gateway stays private behind the backend, so that I do not accidentally expose it.
 18. As an owner, I want deployment checks to confirm the public app and private Gateway, so that releases do not break runtime routing.
-19. As an owner, I want model providers listed with provider name, auth type, what they back, plan/usage, and live status, so that model routing is understandable.
+19. As an owner, I want model providers listed with provider name, auth type, backed role, plan/usage, live status, and row actions, so that model routing and provider operations are understandable.
 20. As an owner, I want providers such as OpenAI/GPT Plus, Anthropic/Claude Max, GLM, KIMI, MiniMax, and OpenRouter to appear as provider catalog entries, so that multiple model sources can be governed consistently.
 21. As an owner, I want provider auth order to prefer OAuth where available and fall back to SecretRef API keys where policy allows, so that safer auth paths are first.
 22. As an owner, I want provider credentials to stay server-side, so that raw keys never reach browser state, generated setup commands, logs, or exports.
