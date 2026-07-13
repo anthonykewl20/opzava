@@ -8,46 +8,40 @@ export default function ConnectionsLoading() {
         <div className="page-header connections-header">
           <div>
             <h1>Connections</h1>
-            <p className="page-sub">Loading live gateway and provider status...</p>
+            <p className="page-sub">Loading connection summary...</p>
           </div>
-          <Skeleton className="h-9 w-32" />
         </div>
 
-        <section className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Model providers</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3">
-              <Skeleton className="h-8 w-48" />
-              <Skeleton className="h-4 w-full max-w-md" />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Opzava Gateway</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3">
-              <Skeleton className="h-8 w-28" />
-              <Skeleton className="h-4 w-full max-w-sm" />
-            </CardContent>
-          </Card>
-        </section>
-
-        <Card aria-labelledby="providers-loading-title">
+        <Card aria-labelledby="connections-overview-loading-title">
           <CardHeader>
-            <CardTitle id="providers-loading-title">Provider connection status</CardTitle>
+            <CardTitle id="connections-overview-loading-title">Overview</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3">
-            {["openai", "anthropic", "zai"].map((id) => (
-              <div className="grid gap-2 rounded-lg border border-border p-4" key={id}>
+          <CardContent className="grid gap-5">
+            <div role="list" aria-label="Loading platform connections">
+              {["gateway", "providers"].map((id) => (
+                <div
+                  className="grid gap-3 border-b border-border py-4 first:pt-0 last:border-b-0 last:pb-0"
+                  key={id}
+                  role="listitem"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <Skeleton className="h-5 w-40" />
+                    <Skeleton className="h-8 w-16" />
+                  </div>
+                  <Skeleton className="h-4 w-full max-w-lg" />
+                </div>
+              ))}
+            </div>
+            <div className="grid gap-3">
+              <Skeleton className="h-5 w-28" />
+              <div className="grid gap-2 rounded-lg border border-border p-4">
                 <div className="flex items-center justify-between gap-3">
                   <Skeleton className="h-5 w-36" />
-                  <Skeleton className="h-8 w-24" />
+                  <Skeleton className="h-8 w-16" />
                 </div>
-                <Skeleton className="h-4 w-full max-w-lg" />
+                <Skeleton className="h-4 w-full max-w-md" />
               </div>
-            ))}
+            </div>
           </CardContent>
         </Card>
       </div>

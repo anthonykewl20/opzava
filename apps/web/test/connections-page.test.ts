@@ -872,38 +872,116 @@ describe("Connections page state", () => {
     expect(calls).toBe(0);
   });
 
-  it("wires /connections page, actions, API poll route, and sidebar without JSX imports", async () => {
+  it("wires /connections routes, actions, API poll route, and sidebar without JSX imports", async () => {
+    const layout = await readRepoFile("app/(app)/connections/layout.tsx");
     const page = await readRepoFile("app/(app)/connections/page.tsx");
+    const pageData = await readRepoFile("app/(app)/connections/_lib/page-data.ts");
+    const pageStyles = await readRepoFile("app/(app)/connections/_lib/page-styles.ts");
+    const gatewayPage = await readRepoFile("app/(app)/connections/gateway/page.tsx");
+    const providersPage = await readRepoFile("app/(app)/connections/providers/page.tsx");
+    const githubPage = await readRepoFile("app/(app)/connections/github/page.tsx");
+    const addPage = await readRepoFile("app/(app)/connections/add/page.tsx");
     const loading = await readRepoFile("app/(app)/connections/loading.tsx");
+    const gatewayLoading = await readRepoFile("app/(app)/connections/gateway/loading.tsx");
+    const providersLoading = await readRepoFile("app/(app)/connections/providers/loading.tsx");
+    const githubLoading = await readRepoFile("app/(app)/connections/github/loading.tsx");
+    const addLoading = await readRepoFile("app/(app)/connections/add/loading.tsx");
     const errorBoundary = await readRepoFile("app/(app)/connections/error.tsx");
     const actions = await readRepoFile("app/(app)/connections/actions.ts");
+    const pageNotice = await readRepoFile("app/(app)/connections/_components/page-notice.tsx");
+    const focusDetailHeading = await readRepoFile(
+      "app/(app)/connections/_components/focus-detail-heading.tsx",
+    );
     const healthCheckButton = await readRepoFile("components/connections/health-check-submit.tsx");
     const providersPanel = await readRepoFile("components/connections/model-providers-panel.tsx");
     const skeleton = await readRepoFile("components/ui/skeleton.tsx");
     const route = await readRepoFile("app/api/connections/device-flow/route.ts");
     const nav = await readRepoFile("components/shell/admin-nav.tsx");
+    const componentsCss = await readRepoFile("app/styles/components.css");
 
+    expect(layout).toContain('export const dynamic = "force-dynamic"');
+    expect(layout).toContain("connectionsPageStyles");
+    expect(layout).toContain("FocusDetailHeading");
+    expect(layout).toContain("data-connections-detail");
+    expect(layout).toContain('className="page connections-page"');
+    expect(focusDetailHeading).toContain('"use client"');
+    expect(focusDetailHeading).toContain("usePathname");
+    expect(focusDetailHeading).toContain("[data-connections-detail] h1");
+    expect(focusDetailHeading).toContain("preventScroll: false");
+    expect(pageData).toContain("loadConnectionsPageData(context)");
+    expect(pageData).toContain('redirect("/login")');
+    expect(pageData).toContain('redirect("/")');
     expect(providersPanel).toContain("Model providers");
     expect(providersPanel).toContain("Provider connection status");
+    expect(page).toContain('href="/connections/gateway"');
+    expect(page).toContain('href="/connections/providers"');
+    expect(page).toContain('href="/connections/github"');
+    expect(page).toContain('href="/connections/add"');
     expect(page).toContain("Opzava Gateway");
-    expect(page).toContain("Gateway health");
+    expect(gatewayPage).toContain("Gateway health");
+    expect(gatewayPage.match(/Gateway health/g)).toHaveLength(1);
+    expect(gatewayPage).toContain("PageNotice");
+    expect(gatewayPage).toContain("noticeFromSearchParams");
+    expect(gatewayPage).toContain('refreshConnectionsAction.bind(null, "/connections/gateway")');
+    expect(gatewayPage).toContain("Status &amp; diagnostics");
+    expect(gatewayPage).toContain("platform-managed infrastructure");
+    expect(gatewayPage).toContain("not connect/disconnectable");
+    expect(gatewayPage).toContain("data.snapshot.gateway.message?.trim()");
+    expect(gatewayPage).toContain("<dt>Message</dt>");
+    expect(providersPage).toContain("ModelProvidersPanel");
+    expect(providersPage).toContain("PageNotice");
+    expect(providersPage).toContain("noticeFromSearchParams");
+    expect(githubPage).toContain("startGitHubDeviceFlowAction");
+    expect(githubPage).toContain("PageNotice");
+    expect(githubPage).toContain("noticeFromSearchParams");
+    expect(githubPage).toContain('startGitHubDeviceFlowAction.bind(null, "/connections/github")');
+    expect(githubPage).toContain('disconnectGitHubAction.bind(null, "/connections/github")');
+    expect(githubPage).toContain("gatewayUnavailableCopy");
+    expect(addPage).toContain("Integration catalog");
+    expect(addPage).toContain("startGitHubDeviceFlowAction");
+    expect(addPage).toContain("PageNotice");
+    expect(addPage).toContain("noticeFromSearchParams");
+    expect(addPage).toContain('startGitHubDeviceFlowAction.bind(null, "/connections/add")');
+    expect(addPage).toContain("gatewayUnavailableCopy");
+    expect(addPage).toContain("DeviceFlowPoller");
+    expect(addPage).toContain('flow.kind === "github"');
+    expect(addPage).toContain("Connect GitHub");
+    expect(addPage).toContain("All available integrations are connected");
+    expect(addPage).toContain('href="/connections/github"');
+    expect(addPage).not.toMatch(/coming soon/i);
+    expect(addPage).not.toMatch(/placeholder/i);
     expect(loading).toContain("ConnectionsLoading");
     expect(loading).toContain("aria-busy");
     expect(loading).toContain("Skeleton");
+    expect(loading).toContain("connections-overview-loading-title");
+    expect(gatewayLoading).toContain("GatewayConnectionsLoading");
+    expect(gatewayLoading).toContain("aria-busy");
+    expect(providersLoading).toContain("ModelProviderConnectionsLoading");
+    expect(providersLoading).toContain("Provider connection status");
+    expect(githubLoading).toContain("GitHubConnectionsLoading");
+    expect(githubLoading).toContain("Loading GitHub connection status");
+    expect(addLoading).toContain("AddConnectionLoading");
+    expect(addLoading).toContain("Integration catalog");
     expect(skeleton).toContain('data-slot="skeleton"');
     expect(errorBoundary).toContain("Connections could not load");
     expect(errorBoundary).toContain("Fetch failed");
     expect(errorBoundary).toContain("Retry");
-    expect(page).toContain("Gateway unavailable - retrying automatically");
-    expect(page).toContain("Gateway unavailable - still retrying automatically");
-    expect(page).toContain("{provider.label} · SUBAGENT");
+    expect(pageData).toContain("Gateway unavailable - retrying automatically");
+    expect(pageData).toContain("Gateway unavailable - still retrying automatically");
+    expect(pageStyles).not.toContain(".connections-overview");
+    expect(componentsCss).toContain(".rail-item:focus-visible");
+    expect(componentsCss).toContain(".btn:focus-visible");
+    expect(componentsCss).toContain(".connections-page a:focus-visible");
+    expect(gatewayPage).toContain("{provider.label} · SUBAGENT");
     expect(providersPanel).toContain("Gateway unavailable - retrying automatically");
     expect(providersPanel).toContain("No model providers in the live catalog");
     expect(page).not.toContain("OpenClaw gateway");
+    expect(gatewayPage).not.toContain("OpenClaw gateway");
     expect(page).not.toContain("OpenClaw ·");
-    expect(page).not.toContain("Gateway catalog unavailable");
-    expect(page).not.toContain('?? "unknown"');
-    expect(page).not.toContain("Region: unknown");
+    expect(gatewayPage).not.toContain("OpenClaw ·");
+    expect(gatewayPage).not.toContain("Gateway catalog unavailable");
+    expect(gatewayPage).not.toContain('?? "unknown"');
+    expect(gatewayPage).not.toContain("Region: unknown");
     // Full shadcn: the panel is driven by the centralized components/ui primitives, not mockup CSS.
     expect(providersPanel).toContain("@/components/ui/table");
     expect(providersPanel).toContain("@/components/ui/tabs");
@@ -912,9 +990,22 @@ describe("Connections page state", () => {
     expect(providersPanel).not.toContain("table table-compact table-cards");
     expect(providersPanel).toContain("LLM model providers the gateway can route to");
     expect(providersPanel).not.toContain("connections-provider-list");
+    expect(page).toContain("data.health.connected");
+    expect(page).toContain("data.health.total");
+    expect(page).toContain("connections healthy");
+    expect(page).toContain('aria-label="Platform connections"');
+    expect(page).toContain("No third-party integrations connected");
+    expect(page).toContain("Add GitHub or another supported integration");
     expect(page).toContain("modelProviderCountLabel");
-    expect(page).toContain("Counts only model providers from the live gateway catalog");
+    expect(page).toContain("data.providerSummary.connected");
+    expect(page).toContain("data.providerSummary.total");
+    expect(page).not.toContain('className="stat"');
+    expect(page).not.toContain("stat-value");
+    expect(page).not.toContain("Counts only model providers from the live gateway catalog");
+    expect(page).not.toContain("ModelProvidersPanel");
     expect(page).not.toContain("Connect provider");
+    expect(gatewayPage).not.toContain("ModelProvidersPanel");
+    expect(githubPage).not.toContain("ModelProvidersPanel");
     expect(providersPanel).toContain("Dialog");
     expect(providersPanel).toContain("Search providers");
     expect(providersPanel).toContain("Connect provider");
@@ -945,12 +1036,31 @@ describe("Connections page state", () => {
     expect(providersPanel).toContain("LEAD ORCHESTRATOR");
     expect(providersPanel).toContain("SUBAGENT");
     expect(providersPanel).toContain("Admin device required");
-    expect(page).toContain("HealthCheckSubmitButton");
+    expect(gatewayPage).toContain("HealthCheckSubmitButton");
     expect(healthCheckButton).toContain("Checking...");
     expect(actions).toContain("operator-admin-required");
+    expect(actions).toContain("provisioning.githubOAuth.notConfigured");
+    expect(actions).toContain("github-not-configured");
     expect(actions).toContain("health-check-complete");
-    expect(page).toContain("GitHub");
-    expect(page).toContain("startGitHubDeviceFlowAction");
+    expect(actions).toContain("readonly basePath?: string");
+    expect(actions).toContain(
+      'redirect(`${input.basePath ?? "/connections"}?${params.toString()}`)',
+    );
+    expect(actions).toContain(
+      'export async function refreshConnectionsAction(basePath = "/connections")',
+    );
+    expect(actions).toContain("revalidatePath(basePath)");
+    expect(actions).toContain('redirect("/connections/add")');
+    expect(pageNotice).toContain("export type ConnectionsNotice");
+    expect(pageNotice).toContain("export function noticeFromSearchParams");
+    expect(pageNotice).toContain("export function PageNotice");
+    expect(pageNotice).toContain('"github-not-configured"');
+    expect(pageNotice).toContain("GitHub connect isn't available");
+    expect(pageNotice).toContain("no GitHub OAuth app configured");
+    expect(page).not.toContain("function PageNotice");
+    expect(page).not.toContain("function noticeFromSearchParams");
+    expect(githubPage).toContain("GitHub");
+    expect(githubPage).toContain("startGitHubDeviceFlowAction");
     const apiKeyRoute = await readRepoFile("app/api/connections/model/api-key/route.ts");
     const apiKeyPollRoute = await readRepoFile("app/api/connections/model/api-key/poll/route.ts");
     const setupTokenComponent = await readRepoFile(
@@ -980,6 +1090,15 @@ describe("Connections page state", () => {
     expect(deviceStartRoute).toContain("startModelProviderDeviceFlowForContext");
     expect(route).toContain("pollConnectionDeviceFlowForContext");
     expect(nav).toContain('href: "/connections"');
+    expect(nav).toContain('href: "/connections/gateway"');
+    expect(nav).toContain('href: "/connections/providers"');
+    expect(nav).toContain('href: "/connections/github"');
+    expect(nav).toContain('href: "/connections/add"');
+    expect(nav).toContain("aria-expanded={expanded}");
+    expect(nav).toContain('aria-current={active ? "page" : undefined}');
+    expect(nav).toContain("pathname === item.href");
+    expect(nav).toContain("connections.githubConnected");
+    expect(nav).toContain("${connections.providersConnected}/${connections.providersTotal}");
   });
 
   it("keeps model-provider disconnect on the fetch mutation client with sad paths", async () => {
@@ -1032,11 +1151,14 @@ describe("Connections page state", () => {
 
   it("omits unbacked Connections mockup surfaces behind P8 PRD-013 DESCOPE markers", async () => {
     const page = await readRepoFile("app/(app)/connections/page.tsx");
+    const gatewayPage = await readRepoFile("app/(app)/connections/gateway/page.tsx");
+    const providersPage = await readRepoFile("app/(app)/connections/providers/page.tsx");
+    const addPage = await readRepoFile("app/(app)/connections/add/page.tsx");
 
-    expect(page).toContain("DESCOPE(gateway-configuration): P8 PRD-013");
-    expect(page).toContain("DESCOPE(provider-policy-catalogs): P8 PRD-013");
-    expect(page).toContain("DESCOPE(agent-tools-mcp): P8 PRD-013");
-    expect(page).toContain("DESCOPE(channels-services): P8 PRD-013");
+    expect(gatewayPage).toContain("DESCOPE(gateway-configuration): P8 PRD-013");
+    expect(providersPage).toContain("DESCOPE(provider-policy-catalogs): P8 PRD-013");
+    expect(addPage).toContain("DESCOPE(agent-tools-mcp): P8 PRD-013");
+    expect(addPage).toContain("DESCOPE(channels-services): P8 PRD-013");
     expect(page).not.toContain("Orchestrator and subagents");
     expect(page).not.toContain("Agent tools & MCP");
     expect(page).not.toContain("Channels & services");
