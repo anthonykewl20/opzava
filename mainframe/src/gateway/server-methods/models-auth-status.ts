@@ -150,15 +150,28 @@ function readProviderParam(params: Record<string, unknown>): string | null {
   return provider || null;
 }
 
-/** Optional `profileIds` narrowing for logout. Null = not supplied → revoke the whole provider. */
-function readProfileIdsParam(params: Record<string, unknown>): string[] | null {
+/**
+ * Optional `profileIds` narrowing for logout.
+ *
+ * Absent -> `{ profileIds: null }`, meaning revoke the whole provider. Present but empty or
+ * malformed is REJECTED rather than coerced: a caller that meant to narrow, and instead silently
+ * revoked everything (or nothing, and was told "revoked"), is exactly the class of bug this
+ * parameter exists to prevent.
+ */
+function readProfileIdsParam(
+  params: Record<string, unknown>,
+): { profileIds: string[] | null } | null {
   const raw = params.profileIds;
-  if (!Array.isArray(raw)) {
+  if (raw === undefined || raw === null) {
+    return { profileIds: null };
+  }
+  if (!Array.isArray(raw) || raw.length === 0) {
     return null;
   }
-  const profileIds = raw.filter((value): value is string => typeof value === "string" && value !== "");
-  // An explicitly empty/garbage list must not silently widen into "remove everything".
-  return profileIds;
+  const profileIds = raw.filter(
+    (value): value is string => typeof value === "string" && value.trim() !== "",
+  );
+  return profileIds.length === raw.length ? { profileIds } : null;
 }
 
 function readAgentParam(params: Record<string, unknown>): string | undefined | null {
@@ -196,6 +209,8 @@ async function removeProviderAuthProfilesAcrossOwnerStores(params: {
   provider: string;
   agentDir: string;
   profileIds: string[];
+  /** When set, remove only these ids of the provider — see removeProviderAuthProfilesWithLock. */
+  onlyProfileIds: readonly string[] | null;
 }): Promise<boolean> {
   const ownerAgentDirs = new Set<string | undefined>([params.agentDir]);
   for (const profileId of params.profileIds) {
@@ -210,6 +225,9 @@ async function removeProviderAuthProfilesAcrossOwnerStores(params: {
     const updatedStore = await removeProviderAuthProfilesWithLock({
       provider: params.provider,
       agentDir: ownerAgentDir,
+      // Must be forwarded: the lower-level remover recomputes the provider's profile list, so an
+      // unnarrowed call there would delete the provider's other credentials as collateral.
+      ...(params.onlyProfileIds === null ? {} : { profileIds: params.onlyProfileIds }),
     });
     if (!updatedStore) {
       return false;
@@ -484,7 +502,19 @@ export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
     // credentials in place. A caller clearing a SHARED profile off a sibling provider (one key,
     // several catalogs) must not wipe that sibling's unrelated profiles as collateral. Omitted =
     // full provider logout, the original behavior.
-    const onlyProfileIds = readProfileIdsParam(params);
+    const profileIdsParam = readProfileIdsParam(params);
+    if (profileIdsParam === null) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "profileIds must be a non-empty array of profile ids",
+        ),
+      );
+      return;
+    }
+    const onlyProfileIds = profileIdsParam.profileIds;
     try {
       const cfg = context.getRuntimeConfig();
       const agentDir = agentId ? resolveAgentDir(cfg, agentId) : resolveDefaultAgentDir(cfg);
@@ -499,6 +529,7 @@ export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
         provider,
         agentDir,
         profileIds: removedProfiles,
+        onlyProfileIds,
       });
       if (!removed) {
         respond(

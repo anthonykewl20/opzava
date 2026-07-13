@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "configs": {
+    "test/vitest/vitest.unit-fast.config.ts#include-1-a0a488c629b3": {
+      "averageMs": 6541,
+      "lastMs": 6541,
+      "sampleCount": 1,
+      "updatedAt": "2026-07-13T10:32:27.529Z",
+      "baseConfig": "test/vitest/vitest.unit-fast.config.ts",
+      "includePatternCount": 1
+    },
+    "test/vitest/vitest.gateway.config.ts#include-1-bb02fdc18844": {
+      "averageMs": 221512,
+      "lastMs": 216530,
+      "sampleCount": 4,
+      "updatedAt": "2026-07-13T10:52:47.953Z",
+      "baseConfig": "test/vitest/vitest.gateway.config.ts",
+      "includePatternCount": 1
+    }
+  }
+}

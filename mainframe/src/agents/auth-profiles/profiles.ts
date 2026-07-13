@@ -192,48 +192,93 @@ export async function upsertAuthProfileWithLock(params: {
   });
 }
 
-/** Removes all auth profiles and related state for a provider. */
+/**
+ * Removes auth profiles and related state for a provider.
+ *
+ * `profileIds` optionally narrows removal to those ids, leaving the provider's OTHER credentials
+ * intact. A caller revoking a SHARED profile (one key registered under several provider ids) needs
+ * this: a provider-wide wipe would take that provider's unrelated credentials with it. Omitted =
+ * remove everything for the provider, the original behavior.
+ */
 export async function removeProviderAuthProfilesWithLock(params: {
   provider: string;
   agentDir?: string;
+  profileIds?: readonly string[];
 }): Promise<AuthProfileStore | null> {
-  const providerKey = resolveProviderIdForAuth(params.provider);
-  const storeOrderKey = normalizeProviderId(params.provider);
   return await updateAuthProfileStoreWithLock({
     agentDir: params.agentDir,
-    updater: (store) => {
-      const profileIds = listProfilesForProvider(store, params.provider);
-      let changed = false;
-      for (const profileId of profileIds) {
-        if (store.profiles[profileId]) {
-          delete store.profiles[profileId];
-          changed = true;
-        }
-        if (store.usageStats?.[profileId]) {
-          delete store.usageStats[profileId];
-          changed = true;
-        }
-      }
-      if (store.order?.[storeOrderKey]) {
-        delete store.order[storeOrderKey];
-        changed = true;
-        if (Object.keys(store.order).length === 0) {
-          store.order = undefined;
-        }
-      }
-      if (store.lastGood?.[providerKey]) {
-        delete store.lastGood[providerKey];
-        changed = true;
-        if (Object.keys(store.lastGood).length === 0) {
-          store.lastGood = undefined;
-        }
-      }
-      if (store.usageStats && Object.keys(store.usageStats).length === 0) {
-        store.usageStats = undefined;
-      }
-      return changed;
-    },
+    updater: (store) =>
+      removeProviderAuthProfilesFromStore(store, {
+        provider: params.provider,
+        ...(params.profileIds === undefined ? {} : { profileIds: params.profileIds }),
+      }),
   });
+}
+
+/**
+ * In-place removal of a provider's auth profiles from a store. Returns whether anything changed.
+ *
+ * Split out of the locked writer so the narrowing rules are directly testable: this is the code
+ * that decides whether a credential the operator did NOT ask to revoke survives.
+ */
+export function removeProviderAuthProfilesFromStore(
+  store: AuthProfileStore,
+  params: { provider: string; profileIds?: readonly string[] },
+): boolean {
+  const providerKey = resolveProviderIdForAuth(params.provider);
+  const storeOrderKey = normalizeProviderId(params.provider);
+  const allowlist = params.profileIds === undefined ? null : new Set(params.profileIds);
+  const providerProfileIds = listProfilesForProvider(store, params.provider);
+  const removed = new Set(
+    allowlist === null
+      ? providerProfileIds
+      : providerProfileIds.filter((profileId) => allowlist.has(profileId)),
+  );
+  const providerHasRemainingProfiles = providerProfileIds.some(
+    (profileId) => !removed.has(profileId),
+  );
+  let changed = false;
+  for (const profileId of removed) {
+    if (store.profiles[profileId]) {
+      delete store.profiles[profileId];
+      changed = true;
+    }
+    if (store.usageStats?.[profileId]) {
+      delete store.usageStats[profileId];
+      changed = true;
+    }
+  }
+  const storedOrder = store.order?.[storeOrderKey];
+  if (store.order && storedOrder) {
+    if (providerHasRemainingProfiles) {
+      // Drop only the removed ids so a surviving credential keeps its place in the order.
+      const nextOrder = storedOrder.filter((profileId) => !removed.has(profileId));
+      if (nextOrder.length !== storedOrder.length) {
+        store.order[storeOrderKey] = nextOrder;
+        changed = true;
+      }
+    } else {
+      delete store.order[storeOrderKey];
+      changed = true;
+      if (Object.keys(store.order).length === 0) {
+        store.order = undefined;
+      }
+    }
+  }
+  // lastGood points at the provider, not a profile, so it may only be cleared once the provider has
+  // no credential left — clearing it while one survives would strand a working profile.
+  if (store.lastGood?.[providerKey] && !providerHasRemainingProfiles) {
+    delete store.lastGood[providerKey];
+    changed = true;
+    if (Object.keys(store.lastGood).length === 0) {
+      store.lastGood = undefined;
+    }
+  }
+  if (store.usageStats && Object.keys(store.usageStats).length === 0) {
+    store.usageStats = undefined;
+  }
+
+  return changed;
 }
 
 /** Clear the last-good profile pointer for a provider under the store lock. */
