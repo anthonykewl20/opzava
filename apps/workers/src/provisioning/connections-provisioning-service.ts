@@ -248,12 +248,36 @@ function stripAnsi(value: string): string {
   /* eslint-enable no-control-regex */
 }
 
+/**
+ * The URLs the CLI prints are OSC-8 hyperlinks: `ESC]8;id=..;<URL>BEL <label> ESC]8;;BEL`.
+ *
+ * The escape payload carries the URL WHOLE. The visible label next to it is ordinary text, so the
+ * terminal WRAPS it at the window width -- which means the rendered URL is broken across lines and
+ * any line-oriented reader truncates it (a sign-in link cut off mid-query-string is worse than no
+ * link: it looks usable and is not). Read the hyperlink target and the wrapping never applies.
+ *
+ * Escapes are zero-width, so they are never themselves wrapped.
+ */
+function hyperlinkTargets(value: string): readonly string[] {
+  const targets: string[] = [];
+  // eslint-disable-next-line no-control-regex
+  const pattern = /\x1B\]8;[^;]*;([^\x07\x1B]+)(?:\x07|\x1B\\)/g;
+  let match = pattern.exec(value);
+  while (match !== null) {
+    const target = match[1]?.trim();
+    if (target !== undefined && target !== "" && !targets.includes(target)) {
+      targets.push(target);
+    }
+    match = pattern.exec(value);
+  }
+
+  return targets;
+}
+
 function terminalLines(value: string): readonly string[] {
   // A lone CR returns the cursor to column 0 (spinner repaint), so it separates renders just as a
   // newline does. Normalising both keeps the line-oriented parsers below from fusing two lines.
-  return stripAnsi(value)
-    .replace(/\r\n?/g, "\n")
-    .split("\n");
+  return stripAnsi(value).replace(/\r\n?/g, "\n").split("\n");
 }
 
 function parseDeviceCodeLog(value: string): {
@@ -261,7 +285,12 @@ function parseDeviceCodeLog(value: string): {
   readonly userCode: string;
 } | null {
   const stripped = stripAnsi(value);
+  // Prefer the hyperlink target: the printed URL is wrapped at the window width, so reading it from
+  // the visible text truncates it mid-query-string.
+  const linked = hyperlinkTargets(value);
   const verificationUri =
+    linked.find((target) => /device/i.test(target)) ??
+    linked.find((target) => /^https?:\/\/auth\./i.test(target)) ??
     stripped.match(/https?:\/\/[^\s"']*device[^\s"']*/i)?.[0] ??
     stripped.match(/https?:\/\/auth\.[^\s"']+/i)?.[0] ??
     null;
@@ -338,7 +367,19 @@ function setupTokenFromLog(logValue: string): string | null {
   return null;
 }
 
+const authorizeUrlHost = /oauth|claude\.ai|claude\.com|anthropic\.com/i;
+
 function setupTokenAuthorizeUrl(logValue: string): string | null {
+  // The hyperlink target FIRST: this URL is ~300 characters, so the copy the CLI renders is wrapped
+  // across terminal lines and reading it from the visible text yields a link cut off mid-query-string
+  // (no code_challenge -> the sign-in cannot complete). The escape payload is never wrapped (#127).
+  const linked = hyperlinkTargets(logValue).find(
+    (target) => /^https?:\/\//i.test(target) && authorizeUrlHost.test(target),
+  );
+  if (linked !== undefined) {
+    return linked;
+  }
+
   for (const line of terminalLines(logValue)) {
     const urls = line.match(/https?:\/\/[^\s"'<>)]+/gi) ?? [];
     for (const url of urls) {
@@ -1901,9 +1942,7 @@ function providerStillHasCredentials(input: {
   // The profile-id check is what catches an orphaned SIBLING: it survives under a provider id that
   // is not in `providerIds`, so a provider-scoped read alone reports "clean" while the key lives on.
   const profiles = authProfiles(input.config);
-  const survivingProfileIds = input.profileIds.filter((profileId) =>
-    isRecord(profiles[profileId]),
-  );
+  const survivingProfileIds = input.profileIds.filter((profileId) => isRecord(profiles[profileId]));
   const idMatchedSurvives = input.providerIds.some(
     (providerId) => configCredentialProfileIdsForProvider(input.config, providerId).length > 0,
   );

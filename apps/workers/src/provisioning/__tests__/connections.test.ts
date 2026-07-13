@@ -2550,6 +2550,41 @@ describe("Connections provisioning helpers", () => {
     expect(gatewayRuntime.setupTokenStarts).toEqual(["start"]);
   });
 
+  it("reads the authorize URL from the OSC-8 hyperlink, not the wrapped copy (#127)", async () => {
+    // Taken from a REAL `claude setup-token` capture. The CLI prints the URL as an OSC-8 hyperlink
+    // (ESC]8;id=..;<URL>BEL <label> ESC]8;;BEL). The escape payload holds the URL whole; the visible
+    // label is ordinary text and the terminal WRAPS it, so a line-oriented reader truncates it
+    // mid-query-string -- and a sign-in link without its code_challenge looks usable and is not.
+    const full =
+      "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e" +
+      "&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback" +
+      "&scope=user%3Ainference&code_challenge=YxO2qn16VcBh7S94u2qKKDKxGYAzZA0ZW9ie-XTa8Qw" +
+      "&code_challenge_method=S256&state=QhjQlN3QG1nCCVyvJogj42xu58toIS63iMFyMwBJ6CM";
+    const wrapped = `${full.slice(0, 120)}\r\n${full.slice(120, 240)}\r\n${full.slice(240)}`;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: `Browser\u001b[8Gdidn't\u001b[15Gopen?\r\n\u001b]8;id=1atjmpz;${full}\u0007${wrapped}\u001b]8;;\u0007\r\n`,
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    const poll = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    const authorizeUrl = poll.ok && "authorizeUrl" in poll.value ? poll.value.authorizeUrl : null;
+    expect(authorizeUrl).toBe(full);
+    // The failure this guards: a link truncated at the wrap, with no code_challenge.
+    expect(authorizeUrl).toContain("code_challenge=");
+    expect(authorizeUrl).not.toContain("\u0007");
+  });
+
   it("polls setup-token authorize URLs from ANSI logs", async () => {
     const gatewayRuntime = new RecordingGatewayRuntime({
       choices: [
