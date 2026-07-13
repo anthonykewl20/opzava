@@ -169,7 +169,10 @@ const disconnectTransientMaxAttempts = 3;
 // doing so made any tenant with 8+ agents fail with disconnectRetryExhausted (#168).
 const disconnectTransientMaxTotalWaitMs = 150_000;
 const disconnectAuthLogoutInterCallDelayMs = 20_000;
-const disconnectAuthLogoutUnpacedLimit = 3;
+// Raised by exactly one because disconnect now always carries one extra target — the shared `main`
+// store that connect writes the credential into. Shifting the threshold in step keeps the pacing
+// behaviour identical at every fleet size rather than silently adding 20s to ordinary disconnects.
+const disconnectAuthLogoutUnpacedLimit = 4;
 // The paced logouts run 60-120s+, so the operation is polled rather than awaited in one request.
 // Keep the worker's TTL above the browser's poll window so a slow disconnect still lands.
 const modelProviderDisconnectExpiresMs = 15 * 60 * 1000;
@@ -362,13 +365,25 @@ function agentsList(config: Record<string, unknown>): readonly Record<string, un
   return arrayValue(agents?.["list"]).filter(isRecord);
 }
 
+// Every agent read-through-inherits auth profiles from ONE store, and OpenClaw resolves that store
+// from an EMPTY config — so it is literally the `main` agent dir, never the configured default
+// agent. Onboard writes to the *configured default* agent, which for Opzava is the orchestrator.
+// The two disagree, so a credential onboard stores is invisible to every other agent, and Q17
+// delegation dies with `No API key found` while the UI reports Connected (issue #169). Connect must
+// therefore place the credential in `main` explicitly; nothing else is inherited.
+const sharedCredentialAgentId = "main";
+
 function configuredLogoutAgentIds(config: Record<string, unknown>): readonly string[] {
   const seen = new Set<string>();
   const agentIds: string[] = [];
 
+  // `main` is NOT skipped. It used to be, on the assumption that the un-agented logout (which
+  // targets the *default* agent) already covered it — true only while default === main, which
+  // Opzava is not. Now that connect writes the shared credential into `main`, a disconnect that
+  // skipped it would leave a live credential behind: disconnected-but-still-usable.
   for (const agent of agentsList(config)) {
     const agentId = stringValue(agent["id"]);
-    if (agentId === null || agentId === "main" || seen.has(agentId)) {
+    if (agentId === null || seen.has(agentId)) {
       continue;
     }
     seen.add(agentId);
@@ -2553,12 +2568,179 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
+    const shared = await this.storeSharedProviderCredential({
+      providerId: input.op.providerId,
+      keyFlag: input.authChoice.keyFlag!,
+      apiKey: input.apiKey,
+    });
+    if (!shared.ok) {
+      return err(shared.error);
+    }
+
     const connection = await this.modelStatusPostCheckAfterApiKeyConnect(input);
     if (!connection.ok) {
       return err(connection.error);
     }
 
+    // `models status` reports the ORCHESTRATOR's effective store, so it says "connected" even when
+    // no other agent can resolve the credential — that is exactly how #169 stayed invisible. A
+    // provider is only really connected once the agents that will use it can resolve it.
+    if (shared.value) {
+      const resolvable = await this.assertProviderResolvableByAgents(input.op.providerId);
+      if (!resolvable.ok) {
+        return err(resolvable.error);
+      }
+    }
+
     return ok(connection.value);
+  }
+
+  /**
+   * Places the credential in the shared `main` store so every agent inherits it. Resolves to `true`
+   * when a shared copy was needed and written.
+   *
+   * Whether a provider needs one is settled by ASKING the gateway, not by reading the config's
+   * shape. The obvious-looking shortcut — "skip providers that have a `config.auth.profiles` entry,
+   * their credential is global anyway" — is wrong: an Anthropic setup-token writes a `mode: "token"`
+   * profile entry into the config while the token itself lives in an agent store, so that test
+   * would skip the one provider #169 is actually about. A resolvability probe cannot be fooled by
+   * the entry's shape.
+   */
+  private async storeSharedProviderCredential(input: {
+    readonly providerId: string;
+    readonly keyFlag: string;
+    readonly apiKey: string;
+  }): Promise<Result<boolean>> {
+    const gatewayRuntime = this.options.gatewayRuntime;
+    if (gatewayRuntime === undefined) {
+      return err(gatewayRuntimeUnavailableError());
+    }
+
+    // Re-read: onboard is the writer that decides where this provider's credential landed.
+    const configResult = await this.options.adminClient.request("config.get", {});
+    if (!configResult.ok) {
+      return err(configResult.error);
+    }
+
+    const sharedAgent = await this.ensureSharedCredentialAgent(configResult.value);
+    if (!sharedAgent.ok) {
+      return err(sharedAgent.error);
+    }
+
+    // `main` holds no credential of its own here, so if it can already resolve the provider the
+    // credential must be reachable from the config for every agent (a genuine config api-key, e.g.
+    // zai). Nothing to share, and no second copy to have to revoke later.
+    const shared = await gatewayRuntime.listAgentProviderProfiles({
+      agentId: sharedCredentialAgentId,
+      providerId: input.providerId,
+    });
+    if (!shared.ok) {
+      return err(shared.error);
+    }
+    if (shared.value.length > 0) {
+      return ok(false);
+    }
+
+    const written = await gatewayRuntime.writeAgentCredential({
+      agentId: sharedCredentialAgentId,
+      providerId: input.providerId,
+      keyFlag: input.keyFlag,
+      apiKey: input.apiKey,
+    });
+    if (!written.ok) {
+      return err(written.error);
+    }
+    if (written.value.exitCode !== 0) {
+      return err(
+        commandFailureError({
+          providerId: input.providerId,
+          authChoiceId: "shared-credential-write",
+          result: written.value,
+          submittedCredential: input.apiKey,
+        }),
+      );
+    }
+
+    return ok(true);
+  }
+
+  /**
+   * `--agent main` is rejected unless `main` is a configured agent, so the shared store is only
+   * addressable once the entry exists. It is added non-default: the orchestrator keeps `default:
+   * true`, so this does not move the agent that un-agented gateway calls resolve to.
+   */
+  private async ensureSharedCredentialAgent(configGetPayload: unknown): Promise<Result<void>> {
+    const config = configPayload(configGetPayload);
+    const agents = agentsList(config);
+    if (agents.some((agent) => stringValue(agent["id"]) === sharedCredentialAgentId)) {
+      return ok(undefined);
+    }
+
+    const patchParams = configPatchParams({
+      configGetPayload,
+      patch: {
+        agents: {
+          list: [...agents, { id: sharedCredentialAgentId }],
+        },
+      },
+      replacePaths: ["agents.list"],
+    });
+    if (!patchParams.ok) {
+      return err(patchParams.error);
+    }
+
+    const result = await this.options.adminClient.request("config.patch", patchParams.value, {
+      requiredScope: "operator.admin",
+    });
+    if (!result.ok) {
+      return err(result.error);
+    }
+
+    return ok(undefined);
+  }
+
+  private async assertProviderResolvableByAgents(providerId: string): Promise<Result<void>> {
+    const gatewayRuntime = this.options.gatewayRuntime;
+    if (gatewayRuntime === undefined) {
+      return err(gatewayRuntimeUnavailableError());
+    }
+
+    const configResult = await this.options.adminClient.request("config.get", {});
+    if (!configResult.ok) {
+      return err(configResult.error);
+    }
+
+    const configuredAgentIds = new Set(
+      agentsList(configPayload(configResult.value))
+        .map((agent) => stringValue(agent["id"]))
+        .filter((agentId): agentId is string => agentId !== null),
+    );
+    // `main` is the load-bearing one: proving it resolves proves every present AND future agent
+    // inherits the credential. The orchestrator and any already-provisioned subagent for this
+    // provider are checked too, since those are the agents that run the delegation today.
+    const requiredAgentIds = [
+      sharedCredentialAgentId,
+      ASK_ADMIN_AGENT_ID,
+      `subagent-${providerId}`,
+    ].filter((agentId) => configuredAgentIds.has(agentId));
+
+    for (const agentId of requiredAgentIds) {
+      const profiles = await gatewayRuntime.listAgentProviderProfiles({ agentId, providerId });
+      if (!profiles.ok) {
+        return err(profiles.error);
+      }
+      if (profiles.value.length === 0) {
+        return err(
+          provisioningError(
+            "provisioning.connections.providerCredentialUnresolvable",
+            "The provider credential was stored but the agents that run this provider cannot resolve it, so delegation would fail. The provider was not marked connected.",
+            { providerId, agentId },
+          ),
+        );
+      }
+    }
+
+    return ok(undefined);
   }
 
   private async modelStatusPostCheckAfterApiKeyConnect(input: {
@@ -2674,12 +2856,25 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
+    // The device-code login writes the OAuth profile itself when the user finishes authorizing, so
+    // the shared store has to exist and be named BEFORE the flow starts — there is no later hook to
+    // move the credential from wherever the CLI decided to put it.
+    const configResult = await this.options.adminClient.request("config.get", {});
+    if (!configResult.ok) {
+      return err(configResult.error);
+    }
+    const sharedAgent = await this.ensureSharedCredentialAgent(configResult.value);
+    if (!sharedAgent.ok) {
+      return err(sharedAgent.error);
+    }
+
     await this.cleanupModelProviderFlowsForProvider(input.providerId, input.orgId);
     const login = await gatewayRuntime.startDeviceCodeLogin(
       deviceCodeProviderArg({
         providerId: input.providerId,
         authChoiceId: input.authChoiceId,
       }),
+      sharedCredentialAgentId,
     );
     if (!login.ok) {
       return err(login.error);
@@ -2876,12 +3071,15 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     //      but removes 0 profiles for a config api-key, so clearing only via authLogout leaves the
     //      key in place and the provider still "connected" (the zai disconnect-does-nothing bug).
     const profileIds = configCredentialProfileIdsForProvider(config, input.providerId);
-    const isConfigCredentialProvider = profileIds.length > 0;
+    // Every configured agent is logged out, including `main` and including providers that have a
+    // config profile entry. That entry does NOT prove the credential lives in the config: an
+    // Anthropic setup-token has one while its token sits in an agent store, so the old
+    // "config profile => skip the per-agent logout" shortcut left the token behind in every agent
+    // store and only removed the routing entry. An agent that holds no profile for the provider
+    // just removes 0 of them, which is why fanning out unconditionally is safe.
     const logoutParams = [
       { provider: input.providerId },
-      ...(isConfigCredentialProvider
-        ? []
-        : configuredLogoutAgentIds(config).map((agent) => ({ provider: input.providerId, agent }))),
+      ...configuredLogoutAgentIds(config).map((agent) => ({ provider: input.providerId, agent })),
     ];
     let disconnectTransientWaitMs = 0;
     const waitForDisconnectTransient = async (delayMs: number): Promise<boolean> => {
