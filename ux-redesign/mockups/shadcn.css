@@ -250,4 +250,25 @@
   .sb-copy-btn { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border: 1px solid hsl(240 16% 28%); border-radius: var(--radius-md); background: hsl(240 22% 15%); color: hsl(220 14% 84%); font-size: var(--text-xs); font-weight: var(--fw-medium); cursor: pointer; }
   .sb-copy-btn:hover { background: hsl(240 22% 20%); color: #fff; }
   .sb-copy-btn[data-copied="true"] { color: hsl(142 62% 70%); border-color: hsl(142 40% 38%); }
+
+  /* ── Separator ───────────────────────────────────────────────────────────── */
+  .sb-separator { height: 1px; background: var(--border); border: 0; margin: var(--space-4) 0; }
+  .sb-separator--vertical { width: 1px; height: auto; align-self: stretch; margin: 0 var(--space-4); }
+
+  /* ── Progress (multi-segment) ────────────────────────────────────────────────
+   * Segments sit side by side inside one track, so a single bar carries the
+   * healthy / attention / not-checked split without three separate meters.
+   * `not-checked` is deliberately grey, never red: we could not probe it, which
+   * is NOT the same as knowing it is broken. */
+  .sb-progress { display: flex; height: 8px; gap: 2px; overflow: hidden; background: var(--surface-3); border-radius: var(--radius-full); }
+  .sb-progress-seg { height: 100%; min-width: 0; border-radius: var(--radius-full); transition: width var(--dur-base) var(--ease-standard); }
+  .sb-progress-seg--healthy { background: var(--success); }
+  .sb-progress-seg--attention { background: var(--warning); }
+  .sb-progress-seg--danger { background: var(--danger); }
+  .sb-progress-seg--unknown { background: var(--border-strong); }
+
+  /* Legend under the bar: dot + count per segment. */
+  .sb-progress-legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); margin-top: var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); }
+  .sb-progress-legend-item { display: inline-flex; align-items: center; gap: var(--space-2); }
+  .sb-progress-legend-swatch { width: 8px; height: 8px; flex: none; border-radius: var(--radius-full); }
 }
