@@ -249,6 +249,14 @@ function parseOnboardApiKeyFlags(helpText: string): readonly string[] {
   return [...flags].sort((left, right) => left.localeCompare(right));
 }
 
+// `claude setup-token` renders with Ink, so it lays its output out to the PTY's width. The docker
+// exec has no TTY, so the pty `script` allocates has no window size and the CLI wraps at ~zero
+// columns: every prose word lands on its own line and the ~108-char token is split across many.
+// A reader that un-wraps that log by deleting line endings silently glues the trailing "Store this
+// token securely." notice onto the token (issue #145: a 130-char token that always 401s). Sizing
+// the pty keeps the token on ONE line, which is what setupTokenFromLog requires.
+const setupTokenPtyColumns = 200;
+
 function setupTokenKeyFlag(choiceId: string): string | null {
   return choiceId.toLowerCase() === "setup-token" ? "token" : null;
 }
@@ -393,7 +401,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       "sed -u -E " +
       shellQuote(
         [
-          "s/(\"?)(refresh_token|access_token|id_token|api[_-]?key|token)(\"?)[[:space:]]*:[[:space:]]*[\"']?[^\"']+[\"']?/\\1\\2\\3:\\\"[redacted]\\\"/Ig",
+          's/("?)(refresh_token|access_token|id_token|api[_-]?key|token)("?)[[:space:]]*:[[:space:]]*["\']?[^"\']+["\']?/\\1\\2\\3:\\"[redacted]\\"/Ig',
           "s/\\b(refresh_token|access_token|id_token|api[_-]?key|token)[[:space:]]*[:=][[:space:]]*[^[:space:]]+/\\1=[redacted]/Ig",
           "s/\\bsk-[A-Za-z0-9_-]{8,}\\b/[redacted]/g",
           "s/\\b[A-Za-z0-9_-]{24,}\\.[A-Za-z0-9_-]{12,}\\.[A-Za-z0-9_-]{12,}\\b/[redacted]/g",
@@ -479,7 +487,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       `mkfifo -m 600 ${shellQuote(stdinPath)}`,
       `umask 077; : > ${shellQuote(logPath)}`,
       `exec 3<>${shellQuote(stdinPath)}; /usr/bin/script -qfc ${shellQuote(
-        "claude setup-token",
+        `stty cols ${setupTokenPtyColumns} rows 50 2>/dev/null || true; claude setup-token`,
       )} /dev/null <&3 >> ${shellQuote(logPath)} 2>&1`,
     ].join("; ");
     const containerId = await this.resolveContainerId();

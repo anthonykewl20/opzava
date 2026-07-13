@@ -45,12 +45,7 @@ import {
   type OpenClawOperatorScope,
   type OpenClawAdminRpcPort,
 } from "@opzava/ports";
-import {
-  DomainError,
-  err,
-  ok,
-  type Result,
-} from "@opzava/shared-kernel";
+import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import {
   ASK_ADMIN_AGENT_ID,
@@ -257,12 +252,28 @@ function deviceCodeLogTerminalFailure(logValue: string): boolean {
   );
 }
 
+// The CLI prints the token on a line of its own, followed by "Store this token securely." Both the
+// notice and the token are plain [A-Za-z0-9_-] runs, so once line endings are gone there is NOTHING
+// left to tell them apart: the previous reader deleted every \r\n to un-wrap the token and glued the
+// notice onto it, minting a 130-char token that always 401s (issue #145). We therefore never join
+// lines. startSetupTokenLogin sizes the pty so the token is not wrapped, and a line is accepted only
+// if the WHOLE of it is a well-formed token; anything else is refused rather than guessed at, and
+// the result is still liveness-probed before it is stored.
+const setupTokenPattern = /\bsk-ant-oat01-[A-Za-z0-9_-]{40,}\b/;
+const anthropicApiVersion = "2023-06-01";
+const anthropicOAuthBeta = "oauth-2025-04-20";
+const setupTokenProbeModel = "claude-haiku-4-5-20251001";
+const claudeCodeSystemPrompt = "You are Claude Code, Anthropic's official CLI for Claude.";
+
 function setupTokenFromLog(logValue: string): string | null {
-  // The script PTY wraps long lines, splitting a setup-token across \r\n; strip line endings
-  // (after ANSI) so the full token is contiguous. Otherwise the match stops at the wrap and
-  // onboard rejects the truncated token, which must be >= 80 chars (a wrapped extract is short).
-  const unwrapped = stripAnsi(logValue).replace(/[\r\n]+/g, "");
-  return unwrapped.match(/\bsk-ant-oat01-[A-Za-z0-9_-]{40,}\b/)?.[0] ?? null;
+  for (const line of stripAnsi(logValue).split(/[\r\n]+/)) {
+    const match = line.match(setupTokenPattern);
+    if (match !== null) {
+      return match[0];
+    }
+  }
+
+  return null;
 }
 
 function setupTokenAuthorizeUrl(logValue: string): string | null {
@@ -313,7 +324,6 @@ function deviceCodeLogReadError(providerId: string): DomainError {
     { providerId },
   );
 }
-
 
 function splitScope(value: unknown): readonly string[] {
   if (typeof value === "string") {
@@ -927,8 +937,6 @@ function orchestratorDelegationState(input: {
 function receiptId(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 24);
 }
-
-
 
 class VaultBackedOpenClawAdminRpcClient implements OpenClawAdminRpcPort {
   private readonly logger: OpenClawAdminLogger;
@@ -1744,7 +1752,6 @@ function disconnectedProviderState(input: {
   };
 }
 
-
 function githubTokenScopes(value: unknown): readonly string[] {
   return splitScope(value);
 }
@@ -2383,7 +2390,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       await this.cleanupSetupTokenFlow(flow);
       return ok({
         status: "failed",
-        message: "Claude did not accept the authorization code. Copy a fresh code from Claude and retry.",
+        message:
+          "Claude did not accept the authorization code. Copy a fresh code from Claude and retry.",
         code: "provisioning.connections.setupTokenLoginFailed",
       });
     }
@@ -2442,10 +2450,69 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         };
   }
 
+  // A minted token is a value we SCRAPED off a terminal rendering, so "we parsed something that
+  // looks like a token" is not evidence that it IS one. Ask the provider before storing it: the
+  // credential that broke #145 was well-formed, stored clean-looking, reported "connected", and
+  // 401'd on every use for weeks. One call here turns any future capture drift into a connect-time
+  // failure the user can see instead of a silent poison pill in the auth store.
+  private async probeSetupToken(token: string): Promise<Result<void>> {
+    let response: Response;
+    try {
+      response = await this.fetchImpl("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "anthropic-version": anthropicApiVersion,
+          "anthropic-beta": anthropicOAuthBeta,
+          "content-type": "application/json",
+        },
+        // Anthropic only honours a setup-token (an OAuth credential) when the caller identifies as
+        // Claude Code; without this system prompt a VALID token is rejected and we would fail the
+        // connect of a perfectly good credential.
+        body: JSON.stringify({
+          model: setupTokenProbeModel,
+          max_tokens: 1,
+          system: claudeCodeSystemPrompt,
+          messages: [{ role: "user", content: "ping" }],
+        }),
+      });
+    } catch {
+      // Unreachable provider is NOT evidence the token is bad. Fail open: a stored-but-unverified
+      // token is recoverable (the user sees it fail and reconnects), whereas refusing every connect
+      // whenever egress hiccups is a self-inflicted outage. Only an explicit rejection is fatal.
+      return ok(undefined);
+    }
+
+    if (response.status !== 401 && response.status !== 403) {
+      return ok(undefined);
+    }
+
+    return err(
+      provisioningError(
+        "provisioning.connections.invalidProviderCredential",
+        "Claude minted a setup-token that the Anthropic API rejected, so it was not stored. Start the sign-in again.",
+      ),
+    );
+  }
+
   private async runSetupTokenCompletion(
     flow: PendingModelProviderSetupTokenFlow,
     mintedToken: string,
   ): Promise<void> {
+    const probe = await this.probeSetupToken(mintedToken);
+    if (!probe.ok) {
+      const current = this.modelSetupTokenFlows.get(flow.flowId);
+      if (current === undefined || current.outcome !== undefined) {
+        return;
+      }
+      current.outcome = {
+        status: "failed",
+        message: redactedDomainError(probe.error).message,
+        code: redactedDomainError(probe.error).code,
+      };
+      return;
+    }
+
     const result = await this.completeModelProviderApiKeyConnect({
       op: {
         opId: flow.flowId,
@@ -3097,9 +3164,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         now: this.now(),
       }),
     );
-    const connection = providerConnections.find(
-      (entry) => entry.providerId === input.providerId,
-    );
+    const connection = providerConnections.find((entry) => entry.providerId === input.providerId);
     if (connection?.status !== "connected") {
       return err(
         provisioningError(

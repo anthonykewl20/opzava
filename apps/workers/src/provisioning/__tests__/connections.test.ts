@@ -17,6 +17,7 @@ import {
   type OrchestratorSubagentRole,
   type ProviderConnectionState,
   type SecretReference,
+  type SetupTokenFlowPollState,
 } from "@opzava/ports";
 import { DomainError, err, ok, type Result, type TenantId } from "@opzava/shared-kernel";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -520,6 +521,7 @@ async function pollApiKeyConnectUntilTerminal(
 function setupTokenPort(input: {
   readonly gatewayRuntime: RecordingGatewayRuntime;
   readonly now?: () => Date;
+  readonly fetch?: typeof fetch;
 }): GatewayAdminConnectionsProvisioningPort {
   return new GatewayAdminConnectionsProvisioningPort({
     adminClient: new RecordingAdminClient({
@@ -529,7 +531,52 @@ function setupTokenPort(input: {
     githubRepository: "anthonykewl20/opzava",
     gatewayRuntime: input.gatewayRuntime,
     now: input.now ?? (() => new Date("2026-07-03T00:00:00.000Z")),
+    // The minted token is liveness-probed before it is stored; keep that off the real network.
+    fetch: input.fetch ?? (async () => new Response("{}", { status: 200 })),
   });
+}
+
+// The shape `claude setup-token` actually prints (Ink): the token on a line of its own, followed by
+// the notice that the reader in #145 glued onto it.
+function setupTokenCliLog(token: string): string {
+  return [
+    "Login successful. Press Enter to continue…",
+    "Your OAuth token (valid for 1 year):",
+    `[33m${token}[0m`,
+    "Store this token securely. You won't be able to see it again.",
+    "Use this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>",
+  ].join("\r\n");
+}
+
+// The same output as rendered into a ZERO-WIDTH pty (the pre-fix production shape): the token is
+// hard-wrapped across lines and every prose word lands on its own line.
+function zeroWidthSetupTokenCliLog(token: string): string {
+  const wrapped = (token.match(/.{1,12}/g) ?? []).join("\r\n");
+  return [
+    "Your\rOAuth\rtoken\r(valid\rfor\r1\ryear):",
+    wrapped,
+    "Store\rthis\rtoken\rsecurely.\rYou\rwon't\rbe\rable\rto\rsee\rit\ragain.",
+  ].join("\r\n");
+}
+
+async function drainSetupTokenFlow(
+  port: GatewayAdminConnectionsProvisioningPort,
+  flowId: string,
+): Promise<SetupTokenFlowPollState> {
+  let state: SetupTokenFlowPollState = { status: "pending" };
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const poll = await port.pollModelProviderSetupTokenFlow({ ...principal(), flowId });
+    if (!poll.ok) {
+      throw new Error("setup-token poll failed");
+    }
+    state = poll.value;
+    if (state.status !== "pending") {
+      return state;
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  return state;
 }
 
 function fakeAdminSocketFactory(
@@ -2500,6 +2547,82 @@ describe("Connections provisioning helpers", () => {
     ]);
   });
 
+  // Regression: issue #145. The reader un-wrapped the CLI log by deleting line endings, which glued
+  // the trailing "Store this token securely." notice onto the token. Onboard stored the 130-char
+  // result, /connections reported Connected, and every Anthropic call 401'd for weeks.
+  it("mints the setup-token without the trailing CLI notice glued onto it", async () => {
+    const token = `sk-ant-oat01-${"A".repeat(95)}`;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: setupTokenCliLog(token),
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    await drainSetupTokenFlow(port, start.ok ? start.value.flowId : "");
+
+    const minted = gatewayRuntime.connectCalls.at(0)?.apiKey;
+    expect(minted).toBe(token);
+    expect(minted).not.toMatch(/Store/i);
+    expect(minted?.length).toBe(108);
+  });
+
+  // The pre-fix pty had no window size, so the CLI wrapped the token across lines. We now size the
+  // pty; if that ever regresses we must REFUSE the mangled log, never reconstruct a token by gluing
+  // lines back together -- that is precisely what minted the poisoned credential.
+  it("refuses to mint a token from a zero-width pty log rather than gluing lines", async () => {
+    const token = `sk-ant-oat01-${"A".repeat(95)}`;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: zeroWidthSetupTokenCliLog(token),
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    await drainSetupTokenFlow(port, start.ok ? start.value.flowId : "");
+
+    expect(gatewayRuntime.connectCalls).toEqual([]);
+  });
+
+  it("never stores a minted setup-token the Anthropic API rejects", async () => {
+    const token = `sk-ant-oat01-${"A".repeat(95)}`;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: setupTokenCliLog(token),
+    });
+    const port = setupTokenPort({
+      gatewayRuntime,
+      fetch: async () =>
+        new Response(JSON.stringify({ error: { message: "Invalid bearer token" } }), {
+          status: 401,
+        }),
+    });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    const state = await drainSetupTokenFlow(port, start.ok ? start.value.flowId : "");
+
+    expect(state).toMatchObject({
+      status: "failed",
+      code: "provisioning.connections.invalidProviderCredential",
+    });
+    expect(gatewayRuntime.connectCalls).toEqual([]);
+  });
+
   it("keeps setup-token submitted-code exchanges pending while stale authorize URLs remain", async () => {
     const gatewayRuntime = new RecordingGatewayRuntime({
       choices: [
@@ -2698,7 +2821,12 @@ describe("Connections provisioning helpers", () => {
     const inFlight = await inFlightPoll;
     expect(first).toMatchObject({ ok: true, value: { status: "pending" } });
     expect(inFlight).toMatchObject({ ok: true, value: { status: "pending" } });
-    expect(gatewayRuntime.connectCalls).toHaveLength(1);
+    // The minted token is liveness-probed before it is stored, so the connect lands an async hop
+    // after the polls settle. Single-flight is still the invariant under test: BOTH overlapping
+    // polls must produce exactly one connect between them, never two.
+    await vi.waitFor(() => {
+      expect(gatewayRuntime.connectCalls).toHaveLength(1);
+    });
     expect(gatewayRuntime.setupTokenStops).toEqual([]);
 
     await delay(30);
@@ -2770,27 +2898,17 @@ describe("Connections provisioning helpers", () => {
     expect(JSON.stringify([firstPoll, terminalPoll])).not.toContain("sk-ant-oat01");
   });
 
-  it("completes setup-token when the minted token is wrapped across PTY line breaks", async () => {
-    // The script PTY wraps long tokens across \r\n. setupTokenFromLog must strip the line breaks
-    // or it extracts only the first (short) segment; onboard then rejects it (the token must be
-    // >= 80 chars) and a valid token fails. Each line below is < 80 chars; the full token is not.
-    const token = `sk-ant-oat01-${"b".repeat(120)}`;
+  // This test used to assert the OPPOSITE: that a token wrapped across PTY line breaks was
+  // reassembled by deleting the line endings. That is what shipped #145 -- the fixture had no prose
+  // after the token, so gluing looked correct here while it silently ate the CLI's "Store this token
+  // securely." notice in production. A wrapped log is now a log we cannot read: refuse it, and let
+  // the sized pty (startSetupTokenLogin) keep the token on one line instead.
+  it("refuses to reassemble a setup-token wrapped across PTY line breaks", async () => {
     const gatewayRuntime = new RecordingGatewayRuntime({
       choices: [
         { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
       ],
-      setupTokenLog: `Done sk-ant-oat01-${"b".repeat(60)}\r\n${"b".repeat(60)}\n`,
-      status: {
-        allowed: ["anthropic/claude-sonnet-5"],
-        auth: {
-          providers: [
-            {
-              provider: "anthropic",
-              profiles: { count: 1, token: 1, labels: ["anthropic:manual=Setup token"] },
-            },
-          ],
-        },
-      },
+      setupTokenLog: `Your OAuth token (valid for 1 year):\r\nsk-ant-oat01-${"b".repeat(20)}\r\n${"b".repeat(60)}\r\nStore this token securely.\n`,
     });
     const port = setupTokenPort({ gatewayRuntime });
     const start = await port.startModelProviderSetupTokenFlow({
@@ -2798,25 +2916,9 @@ describe("Connections provisioning helpers", () => {
       providerId: "anthropic",
     });
 
-    const firstPoll = await port.pollModelProviderSetupTokenFlow({
-      ...principal(),
-      flowId: start.ok ? start.value.flowId : "",
-    });
+    await drainSetupTokenFlow(port, start.ok ? start.value.flowId : "");
 
-    expect(firstPoll).toMatchObject({ ok: true, value: { status: "pending" } });
-    await delay(0);
-    const terminalPoll = await port.pollModelProviderSetupTokenFlow({
-      ...principal(),
-      flowId: start.ok ? start.value.flowId : "",
-    });
-
-    expect(terminalPoll.ok ? terminalPoll.value : null).toMatchObject({
-      status: "connected",
-      connection: { providerId: "anthropic", authChoiceId: "setup-token" },
-    });
-    expect(gatewayRuntime.connectCalls).toEqual([
-      { providerId: "anthropic", authChoiceId: "setup-token", keyFlag: "token", apiKey: token },
-    ]);
+    expect(gatewayRuntime.connectCalls).toEqual([]);
   });
 
   it("redacts terminal setup-token failures", async () => {
