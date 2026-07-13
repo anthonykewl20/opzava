@@ -409,12 +409,14 @@ export function projectModelProviders(
 export function groupProviderConnectionsByTier(
   providers: readonly ProviderConnectionView[],
 ): readonly ProviderConnectionTierView[] {
-  return listProviderTierIds().map((id): ProviderConnectionTierView => ({
-    id,
-    label: providerTierLabel(id),
-    collapsed: id === "other",
-    providers: providers.filter((provider) => provider.tier === id),
-  })).filter((group) => group.providers.length > 0);
+  return listProviderTierIds()
+    .map((id): ProviderConnectionTierView => ({
+      id,
+      label: providerTierLabel(id),
+      collapsed: id === "other",
+      providers: providers.filter((provider) => provider.tier === id),
+    }))
+    .filter((group) => group.providers.length > 0);
 }
 
 export function connectedProviderIds(snapshot: ConnectionsSnapshot): readonly string[] {

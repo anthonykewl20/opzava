@@ -487,7 +487,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       "sed -u -E " +
       shellQuote(
         [
-          "s/(\"?)(refresh_token|access_token|id_token|api[_-]?key|token)(\"?)[[:space:]]*:[[:space:]]*[\"']?[^\"']+[\"']?/\\1\\2\\3:\\\"[redacted]\\\"/Ig",
+          's/("?)(refresh_token|access_token|id_token|api[_-]?key|token)("?)[[:space:]]*:[[:space:]]*["\']?[^"\']+["\']?/\\1\\2\\3:\\"[redacted]\\"/Ig',
           "s/\\b(refresh_token|access_token|id_token|api[_-]?key|token)[[:space:]]*[:=][[:space:]]*[^[:space:]]+/\\1=[redacted]/Ig",
           "s/\\bsk-[A-Za-z0-9_-]{8,}\\b/[redacted]/g",
           "s/\\b[A-Za-z0-9_-]{24,}\\.[A-Za-z0-9_-]{12,}\\.[A-Za-z0-9_-]{12,}\\b/[redacted]/g",

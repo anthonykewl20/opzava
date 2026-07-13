@@ -3754,7 +3754,9 @@ describe("Connections provisioning helpers", () => {
           auth: {
             // The id-matched profile goes; the shared sibling survives — the exact orphan.
             profiles: {
-              ...(patched ? {} : { "opencode-go:default": { provider: "opencode-go", mode: "api_key" } }),
+              ...(patched
+                ? {}
+                : { "opencode-go:default": { provider: "opencode-go", mode: "api_key" } }),
               "opencode:default": { provider: "opencode", mode: "api_key" },
             },
             order: { "opencode-go": patched ? [] : ["opencode-go:default"] },
@@ -4835,7 +4837,12 @@ describe("Connections provisioning helpers", () => {
               }),
             ],
           },
-          { id: "zai", label: "z.ai / GLM", suggestedModel: "zai/glm-5.2", authChoices: [apiKeyChoice()] },
+          {
+            id: "zai",
+            label: "z.ai / GLM",
+            suggestedModel: "zai/glm-5.2",
+            authChoices: [apiKeyChoice()],
+          },
         ],
       }),
       "config.patch": ok({ ok: true }),
