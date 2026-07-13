@@ -26,6 +26,8 @@ interface NavItem {
   readonly status?: "warning" | "success";
   readonly itemStyle?: CSSProperties;
   readonly statusLabel?: string;
+  /** Renders as the group's action row (accent) rather than another destination. */
+  readonly action?: boolean;
 }
 
 type IconName =
@@ -37,7 +39,11 @@ type IconName =
   | "accounts"
   | "deals"
   | "tickets"
-  | "connections";
+  | "connections"
+  | "gateway"
+  | "providers"
+  | "github"
+  | "add";
 
 const operateItems: readonly NavItem[] = [
   { label: "Overview", href: "/", icon: "overview" },
@@ -150,11 +156,83 @@ function NavIcon({ icon }: { readonly icon: IconName }) {
     );
   }
 
+  if (icon === "gateway") {
+    return (
+      <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M2.5 9h13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <ellipse cx="9" cy="9" rx="3.1" ry="6.5" stroke="currentColor" strokeWidth="1.5" />
+      </svg>
+    );
+  }
+
+  if (icon === "providers") {
+    return (
+      <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+        <path
+          d="M7.5 2.5V5M10.5 2.5V5M7.5 13v2.5M10.5 13v2.5M2.5 7.5H5M2.5 10.5H5M13 7.5h2.5M13 10.5h2.5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+
+  if (icon === "github") {
+    return (
+      <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <circle cx="5" cy="4.5" r="2" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="5" cy="13.5" r="2" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="13" cy="6.5" r="2" stroke="currentColor" strokeWidth="1.5" />
+        <path
+          d="M5 6.5v5M13 8.5c0 2-1.7 3-4 3"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+
+  if (icon === "add") {
+    return (
+      <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <path
+          d="M9 3.5v11M3.5 9h11"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+
   return (
     <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
       <circle cx="5" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.5" />
       <circle cx="13" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.5" />
       <path d="M7.3 9h3.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ expanded }: { readonly expanded: boolean }) {
+  return (
+    <svg
+      className={`rail-chevron${expanded ? " is-expanded" : ""}`}
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M4.5 2.5 8 6l-3.5 3.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -169,14 +247,11 @@ function RailItem({ item, pathname }: { readonly item: NavItem; readonly pathnam
       style={item.itemStyle}
       aria-current={active ? "page" : undefined}
     >
-      <NavIcon icon={item.icon} /> {item.label}
+      <NavIcon icon={item.icon} />
+      <span className="rail-label">{item.label}</span>
       {item.count !== undefined ? <span className="count">{item.count}</span> : null}
       {item.status !== undefined ? (
-        <span
-          className={`dot dot-${item.status} dot-beat`}
-          style={{ marginLeft: "auto" }}
-          aria-label={item.statusLabel}
-        />
+        <span className={`dot dot-${item.status} dot-beat`} aria-label={item.statusLabel} />
       ) : null}
     </a>
   );
@@ -219,19 +294,22 @@ function ConnectionsRailGroup({
     }
   }, [inConnections]);
 
-  const subItems: readonly (NavItem & { readonly statusLabel?: string })[] = [
-    { label: "Overview", href: "/connections", icon: "connections" },
+  const subItems: readonly NavItem[] = [
+    { label: "Overview", href: "/connections", icon: "overview" },
     {
       label: "Gateway",
       href: "/connections/gateway",
-      icon: "connections",
+      icon: "gateway",
       status: connections.gatewayActive ? "success" : "warning",
       statusLabel: connections.gatewayActive ? "Gateway active" : "Gateway unavailable",
     },
     {
-      label: "Model Providers",
+      // "Model Providers" in full cannot fit the 232px rail alongside its icon and
+      // a 5-char count ("12/29"); under the Connections header "Providers" is
+      // unambiguous. The route and its page heading stay "Model Providers".
+      label: "Providers",
       href: "/connections/providers",
-      icon: "connections",
+      icon: "providers",
       count: `${connections.providersConnected}/${connections.providersTotal}`,
     },
     ...(connections.githubConnected
@@ -239,32 +317,34 @@ function ConnectionsRailGroup({
           {
             label: "GitHub",
             href: "/connections/github",
-            icon: "connections" as const,
+            icon: "github" as const,
             status: "success" as const,
             statusLabel: "GitHub connected",
           },
         ]
       : []),
-    { label: "+ Add integration", href: "/connections/add", icon: "connections" },
+    { label: "Add integration", href: "/connections/add", icon: "add", action: true },
   ];
 
   return (
-    <div className="rail-disclosure">
+    <div className="rail-group">
       <button
         type="button"
-        className={`rail-item${inConnections ? " active" : ""}`}
+        className={`rail-item rail-group-toggle${inConnections ? " is-current" : ""}`}
         aria-expanded={expanded}
         aria-controls="connections-rail-subtree"
         onClick={() => setExpanded((current) => !current)}
       >
-        <NavIcon icon="connections" /> Connections
-        {connectionsConnected ? (
+        <NavIcon icon="connections" />
+        <span className="rail-label">Connections</span>
+        {/* Collapsed, the header carries the group's status; expanded, each sub-item carries its own. */}
+        {connectionsConnected && !expanded ? (
           <span
             className="dot dot-success dot-beat"
-            style={{ marginLeft: "auto" }}
             aria-label="Connected provider or GitHub account available"
           />
         ) : null}
+        <ChevronIcon expanded={expanded} />
       </button>
       {expanded ? (
         <div id="connections-rail-subtree" className="rail-subitems">
@@ -274,15 +354,15 @@ function ConnectionsRailGroup({
               <a
                 key={item.href}
                 href={item.href}
-                className="rail-item rail-subitem"
+                className={`rail-item rail-subitem${item.action === true ? " rail-action" : ""}`}
                 aria-current={active ? "page" : undefined}
               >
-                {item.label}
+                <NavIcon icon={item.icon} />
+                <span className="rail-label">{item.label}</span>
                 {item.count !== undefined ? <span className="count">{item.count}</span> : null}
                 {item.status !== undefined ? (
                   <span
                     className={`dot dot-${item.status} dot-beat`}
-                    style={{ marginLeft: "auto" }}
                     aria-label={item.statusLabel}
                   />
                 ) : null}
@@ -360,7 +440,6 @@ export function AdminNav({ state }: { readonly state: AdminNavState }) {
         ))}
 
         <RailSection label="CRM" items={crmItems} pathname={pathname} />
-        <div className="section-label nav-section-gap">Automate</div>
         <ConnectionsRailGroup
           connectionsConnected={state.connectionsConnected}
           connections={state.connections}
