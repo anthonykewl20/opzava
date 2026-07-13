@@ -1,63 +1,78 @@
-# Opzava - AI agent guide
+# Opzava
 
-Concise, project-specific, scannable. Claude treats this as guidance, not enforcement; use hooks or scripts for hard guarantees.
+AI-workforce PM/CRM SaaS built on top of OpenClaw. Opzava owns the product system of record (tenants, policy, billing, approvals, audit, UI); OpenClaw owns runtime execution (sessions, channels, skills, memory, Workboard, cron, logs) and is reached only through the `gateway-broker` anti-corruption layer.
 
-## Start Here
-- `docs/plan/EXECUTION.md` (hereafter `EXECUTION.md`) is the living control doc: current phase, slice, next action, required skills, acceptance signal. Read it before any work.
-- Work one slice or issue at a time; never skip ahead.
-- Keep `EXECUTION.md` in sync with reality: tick deliverables, set status, append a dated worklog, then commit.
-- Use the `handoff` skill for clean stop, resume, and transfer.
+## Commands
 
-## Source Map
-- `ARCHITECTURE.md`: system overview, bounded contexts, ports, invariants, deployment, ADR index.
-- `CONTEXT.md`: canonical glossary; use these terms exactly.
-- `docs/adr/`, `docs/prd/`: architecture decisions and product specs.
-- `docs/plan/official-docs.md`: official docs registry; validate APIs here before coding.
-- `docs/plan/roadmap.md`: post-MVP product roadmap.
-- `docs/plan/grilling-decisions.md`: design record Q1-Q18.
-- `docs/plan/capability-parity.md`: screen ownership and parity map.
-- `docs/plan/backlog.md`: planning input only; `EXECUTION.md` controls work order.
-- `docs/plan/consensus/`, `docs/plan/research/`: frozen evidence, not current truth.
-- `docs/plan/audits/`, `docs/runbooks/`: audits and ops runbooks.
-- `docs/openclaw/`: vendored OpenClaw docs; design to these.
-- `docs/ux-law/`, `ux-redesign/mockups/`: UX reference library and canonical mockups/tokens.
-- `mainframe/`: Opzava-owned OpenClaw fork; customize only via `mainframe/PATCHES.md` rung 0-3.
-- `docs/agents/`: issue-tracker, triage-label, and domain-doc conventions for the engineering skills.
+Node 24 and pnpm 11 (see `.node-version` / `packageManager`). Turborepo drives the workspace scripts.
 
-## Non-Negotiables
-- OpenClaw parity: harness OpenClaw's real capabilities; do not reinvent.
-- Official-docs: verify current official docs for OpenClaw, frameworks, languages, libraries, and APIs before coding.
-- Gateway: one static per-tenant `openclaw-platform-gateway`; dynamic provisioning waits for multi-tenant.
-- Token: hot path uses `write` + `approvals`; JIT path uses `admin`.
-- ACL: `gateway-broker` is the only ACL to OpenClaw.
-- Data: Postgres is truth; projections are rebuildable caches; RPC snapshots are truth, WS events are hints.
-- Security: tool policy beats SOUL claims; RLS denial is a hard 403, never an empty result.
-- Ops: local docker-compose stays in parity with live Dokploy; no routable orphan Gateway.
-- Architecture: scale-ready modular DDD, agnostic ports, sad-path-first behavior, lean VPS ops.
-- Mockup parity: corrected mockups are the design contract. Match structure, classes, and tokens (visual), and make every implemented element work live with real data and interactions (functional); prove with side-by-side screenshots.
+```bash
+make up          # docker compose up -d (creates dokploy-network + local postgres secret first)
+make down        # stop the stack
+make logs        # follow compose logs
+make db-shell    # psql into the local Postgres
+pnpm dev         # turbo run dev across apps
 
-## Repo Hygiene
-- Keep files clean, clearly named, and easy to delete or reuse.
-- Contain scratch work, prototypes, probes, generated artifacts, and disposable scripts in one folder that can be cleaned wholesale; never scatter `.local.*`, screenshot, log, fixture, or validation files across the repo root.
-- Keep E2E scripts, fixtures, helpers, screenshots, and validation flows in the standard test area so they stay available for future slices; promote useful probes into it rather than leaving ad hoc copies, and if no standard location exists, create or document one first.
+pnpm typecheck   # tsc --noEmit everywhere
+pnpm lint        # eslint (incl. eslint-plugin-boundaries layering rules)
+pnpm format      # prettier --write
+pnpm test        # vitest across the workspace
+```
 
-## Workflow
-1. Orient: read this file and `EXECUTION.md`; load `opzava-conventions` and the slice's required skills named in `EXECUTION.md`.
-2. Scope: work only the current slice or issue from `EXECUTION.md`.
-3. Validate docs: check `docs/plan/official-docs.md`, `docs/openclaw`, vendor docs, and validation tools before coding APIs.
-4. Build: implement only the linked ADR or PRD behavior; keep local style and architecture.
-5. Prove: run `tdd`, `code-review`, then the SeniorQA final gate.
-6. Record: update `EXECUTION.md` and the issue, then commit on a branch off `development`.
+Targeted runs use pnpm filters, e.g. `pnpm --filter @opzava/web test`, `pnpm --filter @opzava/adapters test:integration` (Postgres RLS tests, needs the stack up).
 
-**SeniorQA final gate (the Done bar):** `node real-world-validate.local.mjs` against `http://web.opzava.localhost:18088` with real login, real seeded data, and real screenshots, passing 2 consecutive clean runs.
+E2E: `pnpm --filter @opzava/web test:e2e` — Playwright, tests in `apps/web/e2e`, base URL `http://web.opzava.localhost:18088`.
 
-Done means every workflow gate passed. Missing a required skill means authoring it with `writing-great-skills` first.
+Migrations: `pnpm --filter @opzava/adapters db:generate` (drizzle-kit) then `db:migrate`.
+
+## Layout
+
+Monorepo (`apps/*`, `packages/*`), one bounded-context package per domain.
+
+**Apps**
+- `apps/web` — Next.js App Router; both UI and BFF (server actions / route handlers).
+- `apps/gateway-broker` — the only anti-corruption layer to OpenClaw: WS operator client, tenant→Gateway routing, streaming relay, browser WS hub.
+- `apps/workers` — projections, metering, jobs, provisioning, seeds.
+- `apps/mcp-server` — MCP surface over Opzava.
+
+**Packages**
+- `packages/ports` — capability port interfaces. Domain code depends on these, never on vendor SDKs or Gateway DTOs.
+- `packages/adapters` — concrete implementations (Postgres/Drizzle, S3, broker clients).
+- `packages/identity-access`, `project-management`, `crm`, `runtime-control` — bounded contexts.
+- `packages/shared-kernel` — cross-context primitives; `packages/config` — shared lint/ts config.
+
+`mainframe/` is Opzava's tracked fork of OpenClaw; the Platform Gateway image is built from it.
+
+## Architecture invariants
+
+These are enforced by review (and partly by `eslint-plugin-boundaries`); breaking them is a design change, not a fix.
+
+- **Ports, not vendors.** Core domain code imports from `@opzava/ports`. Only `packages/adapters` knows about Drizzle, S3, or OpenClaw DTOs.
+- **`gateway-broker` is the only path to OpenClaw.** Nothing else talks to a Gateway.
+- **Postgres is the system of record.** Projections are rebuildable caches; RPC snapshots are truth, WS events are only hints.
+- **Tenant isolation is RLS-backed.** Queries run inside the tenant wrapper; an RLS denial must surface as a hard 403, never as an empty result set.
+- **Tool policy beats agent claims.** What an agent asserts about itself never widens what it may do.
+- **Local compose mirrors the Dokploy deployment.** Changes to one belong in the other.
+
+## Docs
+
+- `ARCHITECTURE.md` — system overview, bounded contexts, ports, deployment, ADR index.
+- `CONTEXT.md` — canonical glossary; use these terms exactly.
+- `docs/adr/` — architecture decisions. `docs/prd/` — product specs.
+- `docs/openclaw/` — vendored OpenClaw docs; design against these rather than assumptions.
+- `docs/plan/official-docs.md` — registry of official upstream docs. Verify framework/library APIs here before coding; training knowledge is a starting point, not the source of truth.
+- `docs/runbooks/` — ops procedures.
+
+## Conventions
+
+- Branch off `development`; that is the PR target.
+- Keep scratch work, probes, and generated artifacts out of the repo root — E2E scripts, fixtures, and helpers belong in the standard test areas so later work can reuse them.
 
 ## Agent skills
 
 ### Issue tracker
 
-Issues live in GitHub Issues (`anthonykewl20/opzava`) via the `gh` CLI; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues (`anthonykewl20/opzava`), driven by the `gh` CLI; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
