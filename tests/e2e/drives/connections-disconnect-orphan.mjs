@@ -10,7 +10,7 @@
 // This drive runs the REAL worker disconnect against the REAL gateway with a THROWAWAY key and
 // fails if ANY profile created by the connect survives.
 //
-// Usage: node connections-disconnect-orphan-drive.local.mjs
+// Usage: node tests/e2e/drives/connections-disconnect-orphan.mjs
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";

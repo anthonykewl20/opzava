@@ -3,8 +3,8 @@
 Use PROBE for bounded exploratory QA after or alongside implementation. It files findings and never changes the gate verdict. The probe harness is a thin helper module, not a hard-coded test plan; the host or Codex drives it at runtime from one objective and a bounded surface set.
 
 ```bash
-node senior-qa-probe.local.mjs --help          # from repo root
-node senior-qa-probe.local.mjs --selftest /tasks
+node tests/e2e/probes/senior-qa-probe.mjs --help          # from repo root
+node tests/e2e/probes/senior-qa-probe.mjs --selftest /tasks
 ```
 
 `--selftest [surface]` dogfoods the primitives: preflight, real form login, DOM recon, screenshot, log slice, one demo finding; exits 0 when the stack and helpers work.

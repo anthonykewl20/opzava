@@ -1,37 +1,17 @@
 // Connections GitHub catalog real-flow driver.
 // Real login (NO minted session), starts the REAL GitHub device flow from /connections/add.
-// Usage: node connections-github-drive.local.mjs [outDir]
+// Usage: node tests/e2e/drives/connections-github.mjs [outDir]
 
 import { chromium } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 
-const BASE = process.env.REAL_BASE ?? "http://web.opzava.localhost:18088";
-const EMAIL = process.env.REAL_EMAIL ?? "owner@opzava.localhost";
-const PASSWORD = process.env.REAL_PASSWORD ?? "OpzavaLocalDev!2026";
-const OUT =
-  process.argv[2] ??
-  `real-validate-artifacts/connections-github-${new Date().toISOString().replaceAll(":", "-")}`;
+import { BASE, realLogin, artifactDir } from "../lib/session.mjs";
+
+const OUT = process.argv[2] ?? artifactDir("connections-github");
 
 mkdirSync(OUT, { recursive: true });
 
-if (process.env.PARITY_COOKIE) {
-  console.warn("PARITY_COOKIE is ignored: connections-github-drive requires a real login.");
-}
 
-async function realLogin(context) {
-  const page = await context.newPage();
-  await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.locator('input[name="email"]').fill(EMAIL);
-  await page.locator('input[name="password"]').fill(PASSWORD);
-  await page.locator('button[type="submit"]').first().click();
-  await page
-    .waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 15_000 })
-    .catch(() => {
-      throw new Error("REAL LOGIN FAILED - cannot validate Connections GitHub catalog.");
-    });
-  await page.waitForLoadState("networkidle");
-  return page;
-}
 
 async function hasVisible(locator) {
   return (await locator.count()) > 0 && (await locator.first().isVisible().catch(() => false));
@@ -58,7 +38,7 @@ const exercised = [];
 const skipped = [];
 
 try {
-  const page = await realLogin(context);
+  const page = await realLogin(context, { what: "Connections GitHub catalog" });
 
   const initiallyConnected = await detectGitHubConnected(page);
   if (initiallyConnected) {

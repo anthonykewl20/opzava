@@ -5,22 +5,16 @@
 //
 // This starts the flow and stops. It never approves anything, so it needs no Claude account.
 //
-// Usage: node setup-token-url-probe.local.mjs
+// Usage: node tests/e2e/probes/setup-token-url.mjs
 
 import { chromium } from "@playwright/test";
 
-const BASE = process.env.REAL_BASE ?? "http://web.opzava.localhost:18088";
-const EMAIL = process.env.REAL_EMAIL ?? "owner@opzava.localhost";
-const PASSWORD = process.env.REAL_PASSWORD ?? "OpzavaLocalDev!2026";
+import { BASE, realLogin } from "../lib/session.mjs";
+
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1512, height: 950 } });
-
-await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-await page.locator('input[name="email"]').fill(EMAIL);
-await page.locator('input[name="password"]').fill(PASSWORD);
-await page.locator('button[type="submit"]').first().click();
-await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 20_000 });
+const context = await browser.newContext({ viewport: { width: 1512, height: 950 } });
+const page = await realLogin(context, { what: "the setup-token URL", timeoutMs: 20_000 });
 
 await page.goto(`${BASE}/connections/providers`, { waitUntil: "networkidle" });
 await page.locator("tr", { hasText: "Anthropic" }).first().getByRole("button", { name: /^connect$/i }).click();

@@ -4,12 +4,10 @@
 //   real visuals (screenshots), iterative sweeps that LOOP UNTIL CLEAN.
 // A slice is NOT Done until this exits 0. See docs/runbooks/senior-qa-gate.md.
 //
-// Usage:
-//   docker compose up -d --build && node real-world-validate.local.mjs [outDir]
+// Usage (from the repo root — it shells out to `docker compose`):
+//   docker compose up -d --build && node tests/e2e/gate/real-world-validate.mjs [outDir]
 // Env:
-//   REAL_BASE     (default http://web.opzava.localhost:18088)
-//   REAL_EMAIL    (default owner@opzava.localhost)
-//   REAL_PASSWORD (default OpzavaLocalDev!2026)
+//   REAL_BASE / REAL_EMAIL / REAL_PASSWORD (see tests/e2e/lib/session.mjs for defaults)
 //   REAL_MAX_PASSES (default 5)  REAL_CLEAN_STREAK (default 2)
 //   REAL_STORM_THRESHOLD (default 5)  connection-failure log lines in a pass
 //     window that flip a warning into a blocking retry-storm finding.
@@ -19,9 +17,7 @@ import { chromium } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const BASE = process.env.REAL_BASE ?? "http://web.opzava.localhost:18088";
-const EMAIL = process.env.REAL_EMAIL ?? "owner@opzava.localhost";
-const PASSWORD = process.env.REAL_PASSWORD ?? "OpzavaLocalDev!2026";
+import { BASE, realLogin } from "../lib/session.mjs";
 // Positive-integer gate knobs. An invalid or non-positive value must ABORT (exit 2),
 // never false-green: REAL_CLEAN_STREAK=0 would make `streak >= CLEAN_STREAK` true with
 // zero passes run, and REAL_STORM_THRESHOLD=NaN would silently disable storm blocking.
@@ -92,18 +88,6 @@ function makeCollector(page, pass, findings) {
     else if (status === 404 && sameOrigin && ["document", "fetch", "xhr"].includes(r.request().resourceType()))
       findings.push({ pass, kind: "http-404", where: page.url(), detail: r.url() });
   });
-}
-
-async function realLogin(ctx) {
-  const page = await ctx.newPage();
-  await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.locator('input[name="email"]').fill(EMAIL);
-  await page.locator('input[name="password"]').fill(PASSWORD);
-  await page.locator('button[type="submit"]').first().click();
-  await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 15000 })
-    .catch(() => { throw new Error("REAL LOGIN FAILED - cannot validate anything else"); });
-  await page.waitForLoadState("networkidle");
-  return page;
 }
 
 async function discoverRoutes(page) {
@@ -191,7 +175,7 @@ for (let pass = 1; pass <= MAX_PASSES && streak < CLEAN_STREAK; pass++) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 960 }, colorScheme: "dark" });
   let routes = [];
   try {
-    const page = await realLogin(ctx);
+    const page = await realLogin(ctx, { what: "anything else" });
     makeCollector(page, pass, findings);
     routes = await discoverRoutes(page);
     console.log(`pass ${pass}: sweeping ${routes.length} routes (discovered from live nav + seeds)`);

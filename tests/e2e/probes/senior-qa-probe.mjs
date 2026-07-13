@@ -4,7 +4,9 @@ import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const DEFAULT_BASE_URL = "http://web.opzava.localhost:18088";
+import { BASE, EMAIL, PASSWORD } from "../lib/session.mjs";
+
+const DEFAULT_BASE_URL = BASE;
 const DEFAULT_LOG_CMD = "docker compose logs --since {sinceIso} --no-color";
 const DEFAULT_HEALTH_CMD = "docker compose ps -a --format json";
 const DEFAULT_ARTIFACT_DIR = `real-validate-artifacts/senior-qa-probe-${new Date().toISOString().replaceAll(":", "-")}`;
@@ -21,8 +23,8 @@ export const CONFIG = {
   expectedServices: null, healthCheck: null, logFetcher: null,
   login: {
     path: process.env.SENIORQA_LOGIN_PATH ?? "/login",
-    email: process.env.SENIORQA_LOGIN_EMAIL ?? "owner@opzava.localhost",
-    password: process.env.SENIORQA_LOGIN_PASSWORD ?? "OpzavaLocalDev!2026",
+    email: process.env.SENIORQA_LOGIN_EMAIL ?? EMAIL,
+    password: process.env.SENIORQA_LOGIN_PASSWORD ?? PASSWORD,
     emailSelector: 'input[name="email"], input[type="email"]',
     passwordSelector: 'input[name="password"], input[type="password"]',
     submitSelector: 'button[type="submit"], input[type="submit"]',
@@ -187,7 +189,7 @@ async function runSelftest(surface, json) {
       lens: "functional",
       surface,
       objective: "dogfood the SeniorQA helper harness",
-      repro: [`Run node senior-qa-probe.local.mjs --selftest ${surface}`, "Inspect the generated artifact report."],
+      repro: [`Run node tests/e2e/probes/senior-qa-probe.mjs --selftest ${surface}`, "Inspect the generated artifact report."],
       expected: "preflight, realLogin, reconDom, screenshot, logSlice, and writeFinding compose successfully.",
       actual: `Recon found ${dom.forms.length} forms, ${dom.buttons.length} buttons, ${dom.links.length} links, and ${dom.headings.length} headings.`,
       evidence: { screenshot: shot, responseSlice: "", logSlice: `${logs.text}\nunmatched: ${logs.unmatched.join(", ")}`.trim() },
@@ -226,7 +228,7 @@ function parseCli(argv) {
 function printHelp() {
   console.log(`SeniorQA PROBE thin harness
 
-Usage: node senior-qa-probe.local.mjs --selftest [surface] [--out dir] [--json]
+Usage: node tests/e2e/probes/senior-qa-probe.mjs --selftest [surface] [--out dir] [--json]
 
 Exports: preflight, realLogin, reconDom, logSlice, screenshot, writeFinding, setupArtifacts, writeReport, CONFIG, SEVERITY
 

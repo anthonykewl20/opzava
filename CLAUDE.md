@@ -39,7 +39,7 @@ Concise, project-specific, scannable. Claude treats this as guidance, not enforc
 ## Repo Hygiene
 - Keep files clean, clearly named, and easy to delete or reuse.
 - Contain scratch work, prototypes, probes, generated artifacts, and disposable scripts in one folder that can be cleaned wholesale; never scatter `.local.*`, screenshot, log, fixture, or validation files across the repo root.
-- Keep E2E scripts, fixtures, helpers, screenshots, and validation flows in the standard test area so they stay available for future slices; promote useful probes into it rather than leaving ad hoc copies, and if no standard location exists, create or document one first.
+- Keep E2E scripts, fixtures, helpers, screenshots, and validation flows in `tests/e2e/` (gate, drives, probes, shared `lib/session.mjs`; see `tests/e2e/README.md`) so they stay available for future slices; promote useful probes into it rather than leaving ad hoc copies at the repo root.
 
 ## Workflow
 1. Orient: read this file and `EXECUTION.md`; load `opzava-conventions` and the slice's required skills named in `EXECUTION.md`.
@@ -49,7 +49,7 @@ Concise, project-specific, scannable. Claude treats this as guidance, not enforc
 5. Prove: run `tdd`, `code-review`, and `qa`, then the final gate.
 6. Record: update `EXECUTION.md` and the issue, then commit on a branch off `development`.
 
-**Final gate (the Done bar):** `node real-world-validate.local.mjs` against `http://web.opzava.localhost:18088` with real login, real seeded data, and real screenshots, passing 2 consecutive clean runs. Procedure: `docs/runbooks/senior-qa-gate.md`. The gate is a script, not a skill — `code-review` and `qa` do the review and exploratory-QA work, but neither replaces the gate's exit code.
+**Final gate (the Done bar):** `node tests/e2e/gate/real-world-validate.mjs` against `http://web.opzava.localhost:18088` with real login, real seeded data, and real screenshots, passing 2 consecutive clean runs. Procedure: `docs/runbooks/senior-qa-gate.md`. The gate is a script, not a skill — `code-review` and `qa` do the review and exploratory-QA work, but neither replaces the gate's exit code.
 
 Done means every workflow gate passed. Missing a required skill means authoring it with `writing-great-skills` first.
 

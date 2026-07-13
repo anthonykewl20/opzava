@@ -13,7 +13,7 @@ import {
   screenshot,
   writeFinding,
   writeReport,
-} from "./senior-qa-probe.local.mjs";
+} from "../probes/senior-qa-probe.mjs";
 
 const SURFACE = "/connections";
 const SERVICE_LOG_PATTERNS = [

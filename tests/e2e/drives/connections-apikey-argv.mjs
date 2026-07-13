@@ -11,21 +11,18 @@
 //      "the key was not in the process list" would just mean the sampler was looking at nothing.
 //   2. The canary must appear in NO sampled command line, and in no worker log line.
 //
-// Usage: node connections-apikey-argv-drive.local.mjs [outDir]
+// Usage: node tests/e2e/drives/connections-apikey-argv.mjs [outDir]
 
 import { chromium } from "@playwright/test";
 import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
-const BASE = process.env.REAL_BASE ?? "http://web.opzava.localhost:18088";
-const EMAIL = process.env.REAL_EMAIL ?? "owner@opzava.localhost";
-const PASSWORD = process.env.REAL_PASSWORD ?? "OpzavaLocalDev!2026";
+import { BASE, realLogin, artifactDir } from "../lib/session.mjs";
+
 const GATEWAY = process.env.REAL_GATEWAY_CONTAINER ?? "opzava-openclaw-platform-gateway-1";
 const WORKER = process.env.REAL_WORKER_CONTAINER ?? "opzava-provisioning-worker-1";
-const OUT =
-  process.argv[2] ??
-  `real-validate-artifacts/apikey-argv-${new Date().toISOString().replaceAll(":", "-")}`;
+const OUT = process.argv[2] ?? artifactDir("apikey-argv");
 
 mkdirSync(OUT, { recursive: true });
 
@@ -47,20 +44,6 @@ function startProcessListSampler() {
   return child;
 }
 
-async function realLogin(context) {
-  const page = await context.newPage();
-  await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.locator('input[name="email"]').fill(EMAIL);
-  await page.locator('input[name="password"]').fill(PASSWORD);
-  await page.locator('button[type="submit"]').first().click();
-  await page
-    .waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 15_000 })
-    .catch(() => {
-      throw new Error("REAL LOGIN FAILED - cannot validate the api-key connect.");
-    });
-  await page.waitForLoadState("networkidle");
-  return page;
-}
 
 // Providers live under tier tabs, and only the open tab renders its rows.
 const TIERS = [/^frontier/i, /^bundles/i, /^best subagents/i, /^other/i];
@@ -137,7 +120,7 @@ const startedAt = new Date();
 let providerId = null;
 
 try {
-  const page = await realLogin(context);
+  const page = await realLogin(context, { what: "the api-key connect" });
   await page.goto(`${BASE}/connections/providers`, { waitUntil: "networkidle" });
   await page.waitForTimeout(700);
 

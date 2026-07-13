@@ -59,6 +59,6 @@ Evidence: real logged-in screenshot of the current page captured 2026-07-12 (own
 
 ## Verification bar
 
-- Reuse/extend `connections-drive.local.mjs` (real login, real interactions) for the providers route; add drivers for Overview, Gateway, GitHub connect/disconnect, and the Add catalog.
+- Reuse/extend `tests/e2e/drives/connections.mjs` (real login, real interactions) for the providers route; add drivers for Overview, Gateway, GitHub connect/disconnect, and the Add catalog.
 - Frontend reviewer loop (real browser) during build; mechanical gate for shippable.
-- SeniorQA final gate: `node real-world-validate.local.mjs` against `http://web.opzava.localhost:18088`, 2 consecutive clean runs.
+- SeniorQA final gate: `node tests/e2e/gate/real-world-validate.mjs` against `http://web.opzava.localhost:18088`, 2 consecutive clean runs.

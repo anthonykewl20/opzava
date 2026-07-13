@@ -16,23 +16,20 @@
 // gateway reload -> remove profile), not any provider's API. Nothing real is spent or revoked.
 // The drive leaves the gateway as it found it: both providers disconnected.
 //
-// Usage: node connections-oldbugs-drive.local.mjs [outDir]
+// Usage: node tests/e2e/drives/connections-oldbugs.mjs [outDir]
 
 import { chromium } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 
-const BASE = process.env.REAL_BASE ?? "http://web.opzava.localhost:18088";
-const EMAIL = process.env.REAL_EMAIL ?? "owner@opzava.localhost";
-const PASSWORD = process.env.REAL_PASSWORD ?? "OpzavaLocalDev!2026";
+import { BASE, realLogin, artifactDir } from "../lib/session.mjs";
+
 const TIER = /best subagents/i;
 const P1 = "Moonshot";
 // Xiaomi is api-key-only, so its connect dialog opens straight on the key field (MiniMax defaults to
 // its OAuth panel). Z.AI is deliberately NOT used here: it holds a real credential.
 const P2 = "Xiaomi";
 const bogusKey = (tag) => `sk-opzava-drive-${tag}-${"0".repeat(36)}`;
-const OUT =
-  process.argv[2] ??
-  `real-validate-artifacts/oldbugs-${new Date().toISOString().replaceAll(":", "-")}`;
+const OUT = process.argv[2] ?? artifactDir("connections-oldbugs");
 
 mkdirSync(OUT, { recursive: true });
 
@@ -42,15 +39,6 @@ const note = (step, ok, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${step}${detail ? ` — ${detail}` : ""}`);
 };
 
-async function realLogin(context) {
-  const page = await context.newPage();
-  await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.locator('input[name="email"]').fill(EMAIL);
-  await page.locator('input[name="password"]').fill(PASSWORD);
-  await page.locator('button[type="submit"]').first().click();
-  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 20_000 });
-  return page;
-}
 
 const row = (page, provider) => page.locator("tr", { hasText: provider }).first();
 
@@ -110,7 +98,7 @@ async function disconnect(page, provider) {
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1512, height: 950 } });
 const consoleErrors = [];
-const page = await realLogin(context);
+const page = await realLogin(context, { what: "the Connections regressions" });
 page.on("console", (msg) => {
   if (msg.type() === "error") consoleErrors.push(msg.text());
 });

@@ -178,4 +178,4 @@ Extract them from `connections-legacy-pre-ia.html` (which still holds the Model 
 - Side-by-side screenshots (mockup vs live), light + dark, for all three states.
 - Every element functions live with real data - no dead chrome, no placeholder numbers. Any metric on the page maps to a real field in the RPC table above.
 - Anti-regression: hero and `HealthPill` can never disagree.
-- SeniorQA final gate: `node real-world-validate.local.mjs` against `http://web.opzava.localhost:18088`, real form login, real seeded data, **2 consecutive clean runs**, exit 0. The exit code is the verdict, not the narrative.
+- SeniorQA final gate: `node tests/e2e/gate/real-world-validate.mjs` against `http://web.opzava.localhost:18088`, real form login, real seeded data, **2 consecutive clean runs**, exit 0. The exit code is the verdict, not the narrative.

@@ -3,7 +3,7 @@
 The GATE is the only Done gate. Keep the entrypoint stable and behavior-identical.
 
 ```bash
-node real-world-validate.local.mjs [outDir]   # from repo root
+node tests/e2e/gate/real-world-validate.mjs [outDir]   # from repo root
 # artifacts -> real-validate-artifacts/<timestamp>/
 ```
 
@@ -25,15 +25,15 @@ node real-world-validate.local.mjs [outDir]   # from repo root
 docker compose up -d --build
 
 # 2. Run the gate (loops sweeps until 2 consecutive clean passes)
-node real-world-validate.local.mjs            # artifacts -> real-validate-artifacts/<timestamp>/
+node tests/e2e/gate/real-world-validate.mjs            # artifacts -> real-validate-artifacts/<timestamp>/
 
 # 3. Slice-specific real flows (every UI slice ships or extends one - see below)
-node <slice>-drive.local.mjs <outDir>          # existing example: connections-drive.local.mjs
+node tests/e2e/drives/<slice>.mjs <outDir>     # existing example: tests/e2e/drives/connections.mjs
 
 # 4. Eyeball the full-page screenshots for every screen the slice touched, against its mockup
 ```
 
-## Coverage contract (see `real-world-validate.local.mjs`)
+## Coverage contract (see `tests/e2e/gate/real-world-validate.mjs`)
 
 - **Preflight:** all compose services running (one-shot init containers may be exited 0).
 - **Route sweep:** routes are discovered from the live nav (plus seeds), so new screens are swept automatically and gaps cannot hide.
@@ -52,4 +52,4 @@ Fix the defect, re-run the FULL gate from step 1 (never resume mid-loop), repeat
 
 ## Per-slice extension duty
 
-Every slice that adds or changes a user-facing surface MUST ship (or extend) a `<slice>-drive.local.mjs` that exercises its REAL flows (create/edit/move through the actual UI) with real login only. Use `connections-drive.local.mjs` as the working example. Reuse `realLogin` (import it from `senior-qa-probe.local.mjs`); never the minted-cookie pattern.
+Every slice that adds or changes a user-facing surface MUST ship (or extend) a drive in `tests/e2e/drives/` that exercises its REAL flows (create/edit/move through the actual UI) with real login only. Use `tests/e2e/drives/connections.mjs` as the working example. Reuse `realLogin` from `tests/e2e/lib/session.mjs`; never the minted-cookie pattern.

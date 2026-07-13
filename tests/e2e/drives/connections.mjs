@@ -1,23 +1,17 @@
 // Slice 3.7 Models & Providers real-flow driver (full-shadcn tabbed UI).
 // Real login (NO minted session), drives the REAL interactions: switches tier tabs, opens Manage,
 // checks the OAuth dialog has no api-key field + a real model, and that Disconnect never 404s.
-// Usage: node connections-drive.local.mjs [outDir]
+// Usage: node tests/e2e/drives/connections.mjs [outDir]
 
 import { chromium } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 
-const BASE = process.env.REAL_BASE ?? "http://web.opzava.localhost:18088";
-const EMAIL = process.env.REAL_EMAIL ?? "owner@opzava.localhost";
-const PASSWORD = process.env.REAL_PASSWORD ?? "OpzavaLocalDev!2026";
-const OUT =
-  process.argv[2] ??
-  `real-validate-artifacts/connections-${new Date().toISOString().replaceAll(":", "-")}`;
+import { BASE, realLogin, artifactDir } from "../lib/session.mjs";
+
+const OUT = process.argv[2] ?? artifactDir("connections");
 
 mkdirSync(OUT, { recursive: true });
 
-if (process.env.PARITY_COOKIE) {
-  console.warn("PARITY_COOKIE is ignored: connections-drive requires a real login.");
-}
 
 const TIERS = [
   { id: "frontier", tab: /^frontier/i, expect: ["openai", "anthropic"] },
@@ -32,19 +26,16 @@ const NON_LLM_IDS = new Set([
   "deepgram", "elevenlabs", "azure-speech", "senseaudio", "comfy", "fal", "runway", "pixverse",
 ]);
 
-async function realLogin(context) {
-  const page = await context.newPage();
-  await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.locator('input[name="email"]').fill(EMAIL);
-  await page.locator('input[name="password"]').fill(PASSWORD);
-  await page.locator('button[type="submit"]').first().click();
-  await page
-    .waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 15_000 })
-    .catch(() => {
-      throw new Error("REAL LOGIN FAILED - cannot validate Connections.");
-    });
-  await page.waitForLoadState("networkidle");
-  return page;
+
+/** The row-actions (⋮) trigger a CONNECTED provider row carries. Not-connected rows have none. */
+function rowActions(row) {
+  return row.getByRole("button", { name: /^row actions for /i });
+}
+
+/** Opens the row-actions menu and picks one item. Manage and Disconnect both live behind it. */
+async function openRowAction(page, row, name) {
+  await rowActions(row).first().click();
+  await page.getByRole("menuitem", { name }).first().click();
 }
 
 async function openTier(page, tier) {
@@ -83,7 +74,7 @@ const context = await browser.newContext({
 const findings = [];
 
 try {
-  const page = await realLogin(context);
+  const page = await realLogin(context, { what: "Connections" });
   await page.goto(`${BASE}/connections/providers`, { waitUntil: "networkidle" });
   await page.waitForTimeout(700);
 
@@ -134,7 +125,9 @@ try {
     const count = await rows.count();
     for (let i = 0; i < count; i++) {
       const row = rows.nth(i);
-      if ((await row.getByRole("button", { name: /^manage$/i }).count()) > 0) {
+      // A connected row carries its actions in a row-actions menu (Manage / Set as main orchestrator
+      // / Disconnect); a not-connected one just offers Connect. The menu is what marks it connected.
+      if ((await rowActions(row).count()) > 0) {
         connectedRow = row;
         connectedTier = tier.id;
         break;
@@ -147,7 +140,7 @@ try {
     findings.push("no-connected-provider-to-manage=true");
   } else {
     // Manage: dialog opens and shows a REAL configured model (never "No configured model").
-    await connectedRow.getByRole("button", { name: /^manage$/i }).first().click();
+    await openRowAction(page, connectedRow, /^manage$/i);
     const dialog = page.getByRole("dialog");
     await dialog.waitFor({ state: "visible", timeout: 5_000 });
     const model = (await dialog.locator("[data-active-model]").first().textContent())?.trim() ?? "";
@@ -166,7 +159,7 @@ try {
       if (route.request().method() === "POST") postedBeforeConfirm = true;
       await route.continue();
     });
-    await connectedRow.getByRole("button", { name: /^disconnect$/i }).first().click();
+    await openRowAction(page, connectedRow, /^disconnect$/i);
     await page.waitForTimeout(300);
     const confirm = page.getByRole("alertdialog");
     if ((await confirm.count()) === 0) {
