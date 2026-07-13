@@ -10,7 +10,6 @@ import type {
   ModelProviderDisconnectPollState,
   ModelProviderDisconnectStart,
   OrchestratorDelegationState,
-  ProviderConnectionState,
   SetupTokenFlowPollState,
   SetupTokenFlowStart,
 } from "@opzava/ports";

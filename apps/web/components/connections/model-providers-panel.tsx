@@ -10,7 +10,6 @@ import type {
   ModelProviderAuthChoice,
   ModelProviderDisconnectStart,
   OrchestratorDelegationState,
-  ProviderConnectionState,
 } from "@opzava/ports";
 
 import { ApiKeyConnectPoller } from "@/components/connections/api-key-connect-poller";
