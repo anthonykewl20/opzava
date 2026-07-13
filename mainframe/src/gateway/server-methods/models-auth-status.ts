@@ -89,6 +89,15 @@ export type ModelAuthStatusResult = {
   /** Snapshot build time, ms since epoch. 0 = never loaded (UI fallback sentinel). */
   ts: number;
   providers: ModelAuthStatusProvider[];
+  /**
+   * Provider id -> the auth profile ids that provider's auth methods write.
+   *
+   * An auth method may own profiles under OTHER provider ids (OpenCode shares one key
+   * across the Zen and Go catalogs), so a client revoking a credential cannot derive the
+   * full profile set from the provider id. Without this, a disconnect removes the
+   * id-matching profile and orphans the siblings — leaving a live key behind.
+   */
+  ownership?: Record<string, string[]>;
 };
 
 export type ModelAuthLogoutResult = {
@@ -417,6 +426,37 @@ function resolveConfiguredProviders(cfg: OpenClawConfig): {
   return { providers: Array.from(out), expectsOAuth };
 }
 
+/**
+ * Declared profile ownership per provider, read from the provider plugins' auth methods.
+ *
+ * Auxiliary like usage enrichment: a plugin-resolution failure must never fail auth status,
+ * so this degrades to `undefined` and the client falls back to id-matching.
+ */
+async function resolveProviderAuthProfileOwnership(
+  cfg: OpenClawConfig,
+): Promise<Record<string, string[]> | undefined> {
+  try {
+    const { resolvePluginProviders } = await import("../../plugins/providers.runtime.js");
+    const providers = resolvePluginProviders({ config: cfg, mode: "setup" });
+    const ownership: Record<string, string[]> = {};
+    for (const provider of providers) {
+      const owned = new Set<string>();
+      for (const method of provider.auth ?? []) {
+        for (const profileId of method.ownedProfileIds ?? []) {
+          owned.add(profileId);
+        }
+      }
+      if (owned.size > 0) {
+        ownership[provider.id] = [...owned].sort();
+      }
+    }
+    return Object.keys(ownership).length > 0 ? ownership : undefined;
+  } catch (err) {
+    log.debug(`auth profile ownership unavailable (auth status still returned): ${formatForLog(err)}`);
+    return undefined;
+  }
+}
+
 export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
   "models.authLogout": async ({ params, respond, context }) => {
     const provider = readProviderParam(params);
@@ -550,7 +590,12 @@ export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
       const providers = authHealth.providers.map((prov) =>
         mapProvider(prov, usageByProvider, configured.expectsOAuth),
       );
-      const result: ModelAuthStatusResult = { ts: now, providers };
+      const ownership = await resolveProviderAuthProfileOwnership(cfg);
+      const result: ModelAuthStatusResult = {
+        ts: now,
+        providers,
+        ...(ownership ? { ownership } : {}),
+      };
       cached = { ts: now, result };
       respond(true, result, undefined);
     } catch (err) {

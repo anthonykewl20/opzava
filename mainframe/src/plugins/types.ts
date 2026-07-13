@@ -423,6 +423,16 @@ export type ProviderAuthMethod = {
    * method-specific auth choices while keeping the provider id stable.
    */
   wizard?: ProviderPluginWizardSetup;
+  /**
+   * Auth profile ids this method writes when it succeeds.
+   *
+   * A method may own profiles under provider ids other than its own — OpenCode
+   * shares one key across the Zen and Go catalogs — so a consumer that revokes a
+   * credential cannot derive the full set from the provider id alone. Declaring it
+   * here is what lets `models.authStatus` report ownership, so a disconnect removes
+   * every profile the connect created instead of orphaning the siblings.
+   */
+  ownedProfileIds?: readonly string[];
   run: (ctx: ProviderAuthContext) => Promise<ProviderAuthResult>;
   runNonInteractive?: (
     ctx: ProviderAuthMethodNonInteractiveContext,

@@ -1696,41 +1696,141 @@ function configCredentialProfileIdsForProvider(
     .map(([id]) => id);
 }
 
-function providerStillHasCredentials(input: {
+/**
+ * Auth profile ids the gateway's plugins declare per provider (`models.authStatus.ownership`).
+ * Absent on gateways older than the ownership patch — callers must degrade, not fail.
+ */
+type ProviderProfileOwnership = Readonly<Record<string, readonly string[]>>;
+
+/**
+ * Every profile id whose credential a disconnect of `providerId` must remove.
+ *
+ * OpenClaw's onboarding writes a SET of profile ids per auth method and derives each profile's
+ * provider from the profile-id PREFIX, so one connect can create profiles under provider ids that
+ * are not the catalog id — OpenCode deliberately shares one key across the `opencode` (Zen) and
+ * `opencode-go` (Go) catalogs. Matching on provider id alone removes the id-matching profile and
+ * ORPHANS the siblings, leaving a live key the Connections UI can neither see nor revoke (#174).
+ *
+ * The gateway reports the authoritative set; the id-match stays as the floor so a connection made
+ * outside Opzava (gateway CLI) or an older gateway with no ownership block still disconnects.
+ */
+function disconnectProfileIdsForProvider(input: {
+  readonly config: Record<string, unknown>;
   readonly providerId: string;
+  readonly ownership: ProviderProfileOwnership | null;
+}): readonly string[] {
+  const profiles = authProfiles(input.config);
+  const ids = new Set(configCredentialProfileIdsForProvider(input.config, input.providerId));
+  for (const profileId of input.ownership?.[input.providerId] ?? []) {
+    const profile = profiles[profileId];
+    if (isRecord(profile) && profileUsesGatewayCredentialAuth(profileId, profile)) {
+      ids.add(profileId);
+    }
+  }
+
+  return [...ids];
+}
+
+/** Distinct provider ids owning the given profiles — each needs its own authLogout + order clear. */
+function providerIdsForProfiles(
+  config: Record<string, unknown>,
+  profileIds: readonly string[],
+): readonly string[] {
+  const profiles = authProfiles(config);
+  const providerIds = new Set<string>();
+  for (const profileId of profileIds) {
+    const profile = profiles[profileId];
+    if (!isRecord(profile)) {
+      continue;
+    }
+    const providerId = providerIdFromProfile(profileId, profile);
+    if (providerId !== null) {
+      providerIds.add(providerId);
+    }
+  }
+
+  return [...providerIds];
+}
+
+/**
+ * profileId -> masked key label from `models.status` (e.g. `sk-rq6uU...NZBTexJR`).
+ *
+ * Used ONLY to DETECT an orphaned shared credential when the gateway reports no ownership, never
+ * to decide what to delete: a masked label is a display artifact (first/last chars), so two
+ * distinct keys could collide and two providers may legitimately share one key. Deleting on that
+ * evidence risks destroying a credential the operator never asked to revoke.
+ */
+function modelStatusProfileKeyLabels(modelStatus: unknown): ReadonlyMap<string, string> {
+  const labels = new Map<string, string>();
+  const auth = recordValue(recordValue(modelStatus)?.["auth"]);
+  for (const provider of arrayValue(auth?.["providers"]).filter(isRecord)) {
+    const profiles = recordValue(provider["profiles"]);
+    for (const entry of arrayValue(profiles?.["labels"])) {
+      const label = stringValue(entry);
+      const separator = label === null ? -1 : label.indexOf("=");
+      if (label === null || separator <= 0) {
+        continue;
+      }
+      labels.set(label.slice(0, separator), label.slice(separator + 1));
+    }
+  }
+
+  return labels;
+}
+
+function providerStillHasCredentials(input: {
+  readonly providerIds: readonly string[];
+  readonly profileIds: readonly string[];
   readonly authStatus: ReadonlyMap<string, ModelAuthStatusConnection> | null;
   readonly config: Record<string, unknown>;
   readonly modelStatus: unknown | null;
-}): { readonly stores: readonly string[]; readonly connectedAuthMode: ConnectedAuthMode | null } {
+}): {
+  readonly stores: readonly string[];
+  readonly connectedAuthMode: ConnectedAuthMode | null;
+  readonly survivingProfileIds: readonly string[];
+} {
   const stores: string[] = [];
   let connectedAuthMode: ConnectedAuthMode | null = null;
-  const authStatusProvider = input.authStatus?.get(input.providerId) ?? null;
-  const managedCredentialSurvived =
-    authStatusProvider !== null &&
-    (authStatusProvider.connectedAuthMode === "oauth" ||
-      authStatusProvider.connectedAuthMode === "token" ||
-      (authStatusProvider.authHealth !== "missing" &&
-        authStatusProvider.status !== "not_connected"));
-  if (managedCredentialSurvived) {
-    stores.push("models.authStatus");
-    connectedAuthMode = authStatusProvider.connectedAuthMode;
+
+  for (const providerId of input.providerIds) {
+    const authStatusProvider = input.authStatus?.get(providerId) ?? null;
+    const managedCredentialSurvived =
+      authStatusProvider !== null &&
+      (authStatusProvider.connectedAuthMode === "oauth" ||
+        authStatusProvider.connectedAuthMode === "token" ||
+        (authStatusProvider.authHealth !== "missing" &&
+          authStatusProvider.status !== "not_connected"));
+    if (managedCredentialSurvived && !stores.includes("models.authStatus")) {
+      stores.push("models.authStatus");
+      connectedAuthMode = authStatusProvider.connectedAuthMode;
+    }
+
+    if (
+      input.modelStatus !== null &&
+      modelStatusProfileCount(modelStatusProvider(input.modelStatus, providerId)) > 0 &&
+      !stores.includes("models.status")
+    ) {
+      stores.push("models.status");
+      connectedAuthMode ??= connectedAuthModeFromModelStatus(
+        modelStatusProvider(input.modelStatus, providerId),
+      );
+    }
   }
 
-  if (configCredentialProfileIdsForProvider(input.config, input.providerId).length > 0) {
+  // The profile-id check is what catches an orphaned SIBLING: it survives under a provider id that
+  // is not in `providerIds`, so a provider-scoped read alone reports "clean" while the key lives on.
+  const profiles = authProfiles(input.config);
+  const survivingProfileIds = input.profileIds.filter((profileId) =>
+    isRecord(profiles[profileId]),
+  );
+  const idMatchedSurvives = input.providerIds.some(
+    (providerId) => configCredentialProfileIdsForProvider(input.config, providerId).length > 0,
+  );
+  if ((survivingProfileIds.length > 0 || idMatchedSurvives) && !stores.includes("config.auth.profiles")) {
     stores.push("config.auth.profiles");
   }
 
-  if (
-    input.modelStatus !== null &&
-    modelStatusProfileCount(modelStatusProvider(input.modelStatus, input.providerId)) > 0
-  ) {
-    stores.push("models.status");
-    connectedAuthMode ??= connectedAuthModeFromModelStatus(
-      modelStatusProvider(input.modelStatus, input.providerId),
-    );
-  }
-
-  return { stores, connectedAuthMode };
+  return { stores, connectedAuthMode, survivingProfileIds };
 }
 
 function disconnectedProviderState(input: {
@@ -1958,6 +2058,39 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       console.warn("connections.authStatus.fallback");
       return null;
     }
+  }
+
+  /**
+   * The gateway's declaration of which auth profiles each provider's auth methods write.
+   *
+   * Never fatal: a gateway without the ownership block (or a failed read) returns null and the
+   * caller falls back to provider-id matching plus orphan detection, so a disconnect degrades to
+   * the old behavior instead of refusing to run.
+   */
+  private async modelAuthProfileOwnership(): Promise<ProviderProfileOwnership | null> {
+    // No `refresh`: ownership is static plugin metadata, so a cached snapshot is authoritative and
+    // this must not cost the disconnect a forced auth-store rescan.
+    const result = await this.options.adminClient.request("models.authStatus", {});
+    if (!result.ok) {
+      return null;
+    }
+
+    const ownership = recordValue(recordValue(result.value)?.["ownership"]);
+    if (ownership === null) {
+      return null;
+    }
+
+    const parsed: Record<string, readonly string[]> = {};
+    for (const [providerId, profileIds] of Object.entries(ownership)) {
+      const ids = arrayValue(profileIds)
+        .map((value) => stringValue(value))
+        .filter((value): value is string => value !== null);
+      if (ids.length > 0) {
+        parsed[providerId] = ids;
+      }
+    }
+
+    return Object.keys(parsed).length > 0 ? parsed : null;
   }
 
   private async modelAuthStatusPostCheck(
@@ -2875,14 +3008,42 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     //  (2) config.auth.profiles — config-file api-key profiles (e.g. zai). authLogout returns ok
     //      but removes 0 profiles for a config api-key, so clearing only via authLogout leaves the
     //      key in place and the provider still "connected" (the zai disconnect-does-nothing bug).
-    const profileIds = configCredentialProfileIdsForProvider(config, input.providerId);
+    //
+    // And the profiles are NOT all under this provider's id: one connect can write a shared set
+    // spanning several provider ids, so removal is driven by the gateway's ownership declaration
+    // rather than by id equality (#174).
+    const ownership = await this.modelAuthProfileOwnership();
+    const profileIds = disconnectProfileIdsForProvider({
+      config,
+      providerId: input.providerId,
+      ownership,
+    });
     const isConfigCredentialProvider = profileIds.length > 0;
+    // Every provider owning one of those profiles needs its own authLogout: the gateway removes
+    // stored secrets by provider id, so logging out only the catalog id leaves the siblings' keys
+    // in the auth store even after their config entries are nulled.
+    const credentialProviderIds = [
+      ...new Set([input.providerId, ...providerIdsForProfiles(config, profileIds)]),
+    ];
     const logoutParams = [
-      { provider: input.providerId },
+      ...credentialProviderIds.map((provider) => ({ provider })),
       ...(isConfigCredentialProvider
         ? []
         : configuredLogoutAgentIds(config).map((agent) => ({ provider: input.providerId, agent }))),
     ];
+    // Masked labels snapshotted BEFORE the mutation, so the post-check can still recognise an
+    // orphaned sibling on a gateway that reports no ownership.
+    const preDisconnectModelStatus =
+      ownership === null ? await this.options.gatewayRuntime?.modelStatus() : undefined;
+    const preDisconnectKeyLabels = modelStatusProfileKeyLabels(
+      preDisconnectModelStatus?.ok === true ? preDisconnectModelStatus.value : null,
+    );
+    console.info("connections.modelProviderDisconnect.plan", {
+      providerId: input.providerId,
+      profileIds,
+      credentialProviderIds,
+      ownershipReported: ownership !== null,
+    });
     let disconnectTransientWaitMs = 0;
     const waitForDisconnectTransient = async (delayMs: number): Promise<boolean> => {
       const boundedDelayMs = Math.max(0, Math.ceil(delayMs));
@@ -2953,10 +3114,17 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       results: logoutResults,
     });
 
-    const orderValue = authOrder(config)[input.providerId];
-    const orderHasProviderEntries =
-      (Array.isArray(orderValue) && orderValue.length > 0) ||
-      (typeof orderValue === "string" && orderValue.trim() !== "");
+    // Clear the auth order of every provider that owned one of the removed profiles — a sibling's
+    // order entry left pointing at a nulled profile is exactly the half-disconnected state that
+    // makes the surface lie about what is connected.
+    const orderProviderIds = [...new Set([input.providerId, ...credentialProviderIds])];
+    const orderHasProviderEntries = orderProviderIds.some((providerId) => {
+      const orderValue = authOrder(config)[providerId];
+      return (
+        (Array.isArray(orderValue) && orderValue.length > 0) ||
+        (typeof orderValue === "string" && orderValue.trim() !== "")
+      );
+    });
 
     if (profileIds.length > 0 || orderHasProviderEntries) {
       const patchParams = configPatchParams({
@@ -2964,10 +3132,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         patch: {
           auth: {
             profiles: Object.fromEntries(profileIds.map((id) => [id, null])),
-            order: { [input.providerId]: [] },
+            order: Object.fromEntries(orderProviderIds.map((providerId) => [providerId, []])),
           },
         },
-        replacePaths: [`auth.order.${input.providerId}`],
+        replacePaths: orderProviderIds.map((providerId) => `auth.order.${providerId}`),
       });
       if (!patchParams.ok) {
         return err(patchParams.error);
@@ -3051,10 +3219,12 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       });
       return err(refreshedModelStatus.error);
     }
+    const refreshedConfig = configPayload(refreshedConfigResult.value);
     const lingering = providerStillHasCredentials({
-      providerId: input.providerId,
+      providerIds: credentialProviderIds,
+      profileIds,
       authStatus: refreshedAuth.value,
-      config: configPayload(refreshedConfigResult.value),
+      config: refreshedConfig,
       modelStatus: refreshedModelStatus?.value ?? null,
     });
     if (lingering.stores.length > 0) {
@@ -3063,6 +3233,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         reason: "credentialSurvived",
         credentialStores: lingering.stores,
         connectedAuthMode: lingering.connectedAuthMode,
+        survivingProfileIds: lingering.survivingProfileIds,
       });
       return err(
         provisioningError(
@@ -3073,6 +3244,35 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
             credentialStores: lingering.stores,
             connectedAuthMode: lingering.connectedAuthMode,
           },
+        ),
+      );
+    }
+
+    // Backstop for a gateway that reports no ownership: a profile still holding the SAME masked key
+    // as one we just removed is the shared sibling this bug orphans. We cannot safely delete on that
+    // evidence (a masked label is not a credential identity, and two providers may legitimately
+    // share a key), so fail closed and tell the operator — never report a revoked key as gone.
+    const orphanedProfileIds =
+      ownership !== null || preDisconnectKeyLabels.size === 0
+        ? []
+        : Object.keys(authProfiles(refreshedConfig)).filter((survivingProfileId) => {
+            const survivingKey = preDisconnectKeyLabels.get(survivingProfileId);
+            return (
+              survivingKey !== undefined &&
+              profileIds.some((removed) => preDisconnectKeyLabels.get(removed) === survivingKey)
+            );
+          });
+    if (orphanedProfileIds.length > 0) {
+      console.warn("connections.modelProviderDisconnect.failClosed", {
+        providerId: input.providerId,
+        reason: "sharedCredentialOrphaned",
+        orphanedProfileIds,
+      });
+      return err(
+        provisioningError(
+          "provisioning.connections.providerCredentialOrphaned",
+          "Disconnect incomplete: the Gateway still holds this credential under another provider.",
+          { providerId: input.providerId, orphanedProfileIds },
         ),
       );
     }

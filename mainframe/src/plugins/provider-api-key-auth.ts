@@ -101,6 +101,9 @@ export function createProviderApiKeyAuthMethod(
     hint: params.hint,
     kind: "api_key",
     wizard: params.wizard,
+    // Same resolver the write path uses below, so the declared set cannot drift from
+    // the profiles actually written.
+    ownedProfileIds: resolveProfileIds(params),
     run: async (ctx) => {
       const opts = ctx.opts as Record<string, unknown> | undefined;
       const flagValue = resolveStringOption(opts, params.optionKey);

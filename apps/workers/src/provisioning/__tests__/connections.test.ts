@@ -3249,8 +3249,13 @@ describe("Connections provisioning helpers", () => {
     const result = await port.disconnectModelProvider({ ...principal(), providerId: "openai" });
 
     expect(result.ok).toBe(false);
-    expect(admin.calls.map((call) => call.method)).toEqual(["config.get", "models.authLogout"]);
-    expect(admin.calls[1]).toMatchObject({
+    // models.authStatus reads the gateway's profile-ownership declaration before any mutation (#174).
+    expect(admin.calls.map((call) => call.method)).toEqual([
+      "config.get",
+      "models.authStatus",
+      "models.authLogout",
+    ]);
+    expect(admin.calls[2]).toMatchObject({
       method: "models.authLogout",
       params: { provider: "openai" },
     });
@@ -3306,6 +3311,165 @@ describe("Connections provisioning helpers", () => {
     expect(
       admin.calls.filter((call) => call.method === "models.authLogout").map((call) => call.params),
     ).toEqual([{ provider: "openai" }, { provider: "openai", agent: "ask-admin-opzava" }]);
+  });
+
+  // #174: OpenClaw writes a SET of profiles per auth method and derives each profile's provider from
+  // the profile-id prefix, so one connect to `opencode-go` also writes `opencode:default`. Matching on
+  // provider id removed only the id-matching profile and left the same key live under `opencode` — a
+  // provider absent from the catalog, so the orphan was invisible AND unremovable from the UI.
+  it("removes every profile a shared-credential connect created, not just the id-matching one", async () => {
+    const sharedProfiles = {
+      "opencode-go:default": { provider: "opencode-go", mode: "api_key" },
+      "opencode:default": { provider: "opencode", mode: "api_key" },
+    };
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "opencode-go", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": () => {
+        const patched = admin.calls.some((call) => call.method === "config.patch");
+        return ok({
+          hash: "config-hash-opencode",
+          auth: {
+            profiles: patched ? {} : sharedProfiles,
+            order: patched
+              ? {}
+              : { "opencode-go": ["opencode-go:default"], opencode: ["opencode:default"] },
+          },
+        });
+      },
+      "models.authStatus": ok({
+        providers: [],
+        ownership: { "opencode-go": ["opencode:default", "opencode-go:default"] },
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-13T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({
+      ...principal(),
+      providerId: "opencode-go",
+    });
+
+    expect(result.ok).toBe(true);
+
+    // The stored secret leaves the auth store per provider id, so BOTH owners need a logout.
+    expect(
+      admin.calls.filter((call) => call.method === "models.authLogout").map((call) => call.params),
+    ).toEqual([{ provider: "opencode-go" }, { provider: "opencode" }]);
+
+    const patch = admin.calls.find((call) => call.method === "config.patch");
+    expect(patch).toBeDefined();
+    expect(JSON.parse(String(patch?.params["raw"]))).toEqual({
+      auth: {
+        profiles: { "opencode-go:default": null, "opencode:default": null },
+        order: { "opencode-go": [], opencode: [] },
+      },
+    });
+  });
+
+  it("does not remove profiles the gateway does not attribute to the disconnected provider", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "zai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": () => {
+        const patched = admin.calls.some((call) => call.method === "config.patch");
+        return ok({
+          hash: "config-hash-zai",
+          auth: {
+            profiles: {
+              ...(patched ? {} : { "zai:default": { provider: "zai", mode: "api_key" } }),
+              "anthropic:default": { provider: "anthropic", mode: "api_key" },
+            },
+            order: { zai: patched ? [] : ["zai:default"], anthropic: ["anthropic:default"] },
+          },
+        });
+      },
+      "models.authStatus": ok({
+        providers: [],
+        ownership: { zai: ["zai:default"], anthropic: ["anthropic:default"] },
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-13T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "zai" });
+
+    expect(result.ok).toBe(true);
+    expect(
+      admin.calls.filter((call) => call.method === "models.authLogout").map((call) => call.params),
+    ).toEqual([{ provider: "zai" }]);
+
+    // A neighbour's credential must survive: over-deleting here destroys a key the operator never
+    // asked to revoke, which is strictly worse than the orphan bug we are fixing.
+    const patch = admin.calls.find((call) => call.method === "config.patch");
+    expect(JSON.parse(String(patch?.params["raw"])).auth.profiles).toEqual({ "zai:default": null });
+  });
+
+  it("fails closed when a gateway without ownership metadata orphans a shared credential", async () => {
+    const openCodeGoProvider = {
+      provider: "opencode-go",
+      profiles: { count: 1, apiKey: 1, labels: ["opencode-go:default=sk-abc...xyz"] },
+    };
+    // Same masked key under both ids — one shared credential, exactly as OpenCode writes it.
+    const openCodeProvider = {
+      provider: "opencode",
+      profiles: { count: 1, apiKey: 1, labels: ["opencode:default=sk-abc...xyz"] },
+    };
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      // Before the patch both are live; after it, only the orphaned sibling remains.
+      status: () => ({
+        agentDir: "/home/node/.openclaw/agents/main/agent",
+        auth: {
+          providers: admin.calls.some((call) => call.method === "config.patch")
+            ? [openCodeProvider]
+            : [openCodeProvider, openCodeGoProvider],
+        },
+      }),
+    });
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "opencode-go", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": () => {
+        const patched = admin.calls.some((call) => call.method === "config.patch");
+        return ok({
+          hash: "config-hash-legacy",
+          auth: {
+            // The id-matched profile goes; the shared sibling survives — the exact orphan.
+            profiles: {
+              ...(patched ? {} : { "opencode-go:default": { provider: "opencode-go", mode: "api_key" } }),
+              "opencode:default": { provider: "opencode", mode: "api_key" },
+            },
+            order: { "opencode-go": patched ? [] : ["opencode-go:default"] },
+          },
+        });
+      },
+      // Old gateway: no `ownership` block, so Opzava cannot know the sibling set.
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-13T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({
+      ...principal(),
+      providerId: "opencode-go",
+    });
+
+    // Never report a still-live key as revoked. We cannot safely auto-delete on a masked-label match
+    // (it is not a credential identity), so surface it instead of lying.
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error.code).toBe(
+      "provisioning.connections.providerCredentialOrphaned",
+    );
   });
 
   it("fails closed when models status still reports OAuth credentials after disconnect", async () => {
@@ -3573,7 +3737,8 @@ describe("Connections provisioning helpers", () => {
 
     expect(result.ok).toBe(true);
     expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
-    expect(admin.calls.filter((call) => call.method === "models.authStatus")).toHaveLength(1);
+    // One ownership read before the mutation (#174) + one post-check read.
+    expect(admin.calls.filter((call) => call.method === "models.authStatus")).toHaveLength(2);
     expect(admin.calls.filter((call) => call.method === "config.get")).toHaveLength(2);
     expect(JSON.stringify(result)).not.toContain("sk-config-secret");
   });
@@ -3606,7 +3771,11 @@ describe("Connections provisioning helpers", () => {
     expect(result.ok ? null : result.error).toMatchObject({
       code: "provisioning.openclawAdmin.operatorAdminRequired",
     });
-    expect(admin.calls.filter((call) => call.method === "models.authStatus")).toHaveLength(0);
+    // The lone authStatus call is the pre-mutation ownership read (#174); the post-check (the only
+    // one that passes `refresh`) must never run, so a denied patch cannot be papered over as success.
+    expect(
+      admin.calls.filter((call) => call.method === "models.authStatus").map((call) => call.params),
+    ).toEqual([{}]);
   });
 
   it("redacts token material from surfaced disconnect write failures", async () => {
@@ -3682,8 +3851,11 @@ describe("Connections provisioning helpers", () => {
     expect(
       admin.calls.filter((call) => call.method === "models.authLogout").map((call) => call.params),
     ).toEqual([{ provider: "anthropic" }, { provider: "openai" }]);
+    // Each disconnect reads ownership first (cached, no refresh) and force-refreshes the post-check.
     expect(admin.calls.filter((call) => call.method === "models.authStatus")).toEqual([
+      expect.objectContaining({ params: {} }),
       expect.objectContaining({ params: { refresh: true } }),
+      expect.objectContaining({ params: {} }),
       expect.objectContaining({ params: { refresh: true } }),
     ]);
   });
