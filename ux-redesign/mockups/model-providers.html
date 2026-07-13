@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Model providers — Opzava</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="admin-nav.js" defer></script>
+  <style>
+    /* Page-specific LAYOUT only — every colour, size, radius and weight comes from tokens.css.
+       Issue #181: Model Providers card grid. Class prefix `pv-` = provider view. */
+    .page-stack { display: grid; gap: var(--space-4); }
+
+    /* Toolbar: tier tabs + search share one horizontal plane (saves a full row of vertical space). */
+    .pv-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+
+    /* Segmented tier control. Mirrors the REAL shadcn <Tabs> in apps/web/components/ui/tabs.tsx
+       (rounded track on --surface-2, active pill lifted onto --surface) — NOT app.css's underline
+       .tabs, so the mockup and the React component cannot drift. */
+    .pv-seg { display: inline-flex; align-items: center; gap: 2px; padding: 4px; background: var(--surface-2); border-radius: var(--radius-lg); }
+    .pv-seg-item { display: inline-flex; align-items: center; gap: var(--space-2); height: 32px; padding: 0 var(--space-3); font: inherit; font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg-muted); background: none; border: 1px solid transparent; border-radius: var(--radius-md); white-space: nowrap; cursor: pointer; }
+    .pv-seg-item:hover { color: var(--fg); }
+    .pv-seg-item[aria-selected="true"] { color: var(--fg); background: var(--surface); box-shadow: var(--shadow-sm); }
+
+    .pv-search { position: relative; width: 100%; max-width: 280px; }
+    .pv-search .ico { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--fg-subtle); pointer-events: none; }
+    .pv-search .input { padding-left: 32px; }
+
+    /* Results chip replaces the tier tabs while a search is active (search is GLOBAL across tiers). */
+    .pv-results { display: inline-flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); }
+
+    /* [hidden] must beat the display rules below, or a hidden grid/tab/card still paints.
+       (UA sheet's [hidden]{display:none} loses to any later class rule that sets display.) */
+    .pv-grid[hidden], .pv-grid > li[hidden], .pv-seg[hidden], .pv-results[hidden] { display: none; }
+
+    /* The grid. align-items:stretch so every card in a row shares a height and the footer button
+       lines up, even when one card has a models block and its neighbour does not. */
+    .pv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); align-items: stretch; list-style: none; margin: 0; padding: 0; }
+    .pv-grid > li { display: flex; min-width: 0; }
+
+    /* Card: header / body / footer. margin-top:auto on the footer pins actions to the bottom edge. */
+    .pv-card { display: flex; flex-direction: column; width: 100%; min-width: 0; padding: var(--space-4); gap: var(--space-3); }
+
+    /* Header wraps rather than colliding: a long status ("Waiting for approval") drops to its own
+       line instead of crushing or truncating the provider name. Names never truncate. */
+    .pv-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+    .pv-ident { flex: 1 1 auto; min-width: 0; }
+    .pv-status { flex: 0 0 auto; margin-left: auto; }
+
+    /* MONOCHROME glyph (always --fg, so it stays legible in both themes — several brand hexes are
+       near-black: Anthropic #191919, Moonshot/OpenCode #000000). The brand colour survives as the
+       tile tint only, mixed into the surface so it can never disappear. */
+    .pv-logo { display: grid; place-items: center; width: 38px; height: 38px; flex: none; border-radius: var(--radius-md); color: var(--fg); background: color-mix(in oklab, var(--pv-brand, var(--fg-subtle)) 16%, var(--surface-2)); }
+    .pv-logo svg { width: 20px; height: 20px; }
+    .pv-mono { font-size: var(--text-sm); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps); }
+    .pv-name { font-size: var(--text-sm); font-weight: var(--fw-semibold); line-height: var(--lh-snug); }
+    .pv-sub { margin-top: 1px; font-size: var(--text-xs); color: var(--fg-subtle); line-height: var(--lh-snug); }
+
+    .pv-body { display: grid; gap: var(--space-3); }
+    .pv-field { display: grid; gap: 6px; }
+    .pv-field-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); }
+    .pv-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pv-meta { font-size: var(--text-xs); color: var(--fg-subtle); line-height: var(--lh-snug); }
+    .pv-alert { padding: var(--space-2) var(--space-3); font-size: var(--text-xs); line-height: var(--lh-snug); border-radius: var(--radius-md); }
+    .pv-alert-warning { color: var(--warning); background: var(--warning-soft); }
+    .pv-alert-info { color: var(--fg-muted); background: var(--surface-2); }
+    .pv-code { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); letter-spacing: var(--tracking-caps); }
+
+    /* Footer pinned to the bottom: full-width Connect when unconnected, Manage + ⋮ when connected. */
+    .pv-foot { display: flex; align-items: center; gap: var(--space-2); margin-top: auto; padding-top: var(--space-1); }
+    .pv-foot .btn:first-child { flex: 1; }
+
+    /* Header ⓘ — a POPOVER (click), not a tooltip: Radix tooltips never open on touch and these
+       rules are load-bearing, not decorative. */
+    .pv-info-wrap { position: relative; display: inline-flex; }
+    .pv-info { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; color: var(--fg-subtle); background: none; border: 0; border-radius: var(--radius-full); cursor: pointer; }
+    .pv-info:hover { color: var(--fg); background: var(--surface-2); }
+    .pv-popover { position: absolute; top: calc(100% + 8px); left: 0; z-index: 20; width: 320px; padding: var(--space-4); display: grid; gap: var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+    .pv-popover[hidden] { display: none; }
+    .pv-popover strong { color: var(--fg); font-weight: var(--fw-semibold); }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       NAVIGATION RAIL
+  ══════════════════════════════════════════════════════════════════ -->
+  <aside class="rail" aria-label="Main navigation">
+
+    <!-- Logo / wordmark -->
+    <div class="rail-head">
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
+        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
+      </svg>
+      <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);letter-spacing:-.01em;">Opzava</span>
+      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
+    </div>
+
+    <!-- Nav groups -->
+    <nav class="rail-nav" aria-label="Application sections">
+      <a href="orchestrator-chat.html" class="rail-item" style="margin-bottom:4px;">
+        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
+        Ask Opzava
+        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
+      </a>
+      <div class="section-label">Operate</div>
+      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
+      <a href="agents.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
+      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
+      <a href="issues.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="9" r="1.75" fill="currentColor"/></svg> Issues <span class="count">12</span></a>
+      <a href="activity.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="4.5" cy="5" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="4.5" cy="12" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 12h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Activity</a>
+      <a href="messages-slack.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
+      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
+      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
+      <div class="section-label nav-section-gap">Observe</div>
+      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
+      <a href="logs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
+      <a href="costs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
+      <div class="section-label nav-section-gap">Automate</div>
+      <a href="connections.html" class="rail-item" aria-current="page"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="5" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><path d="M7.3 9h3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Connections <span class="dot dot-success dot-beat" style="margin-left:auto;" aria-label="all tools connected"></span></a>
+      <a href="automation.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M10 2.5 4.5 10H8l-1 5.5L13.5 8H10z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Automation <span class="count">4</span></a>
+      <div class="section-label nav-section-gap">Govern</div>
+      <a href="security-audit.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5l5 1.8v3.7c0 3.3-2.1 5.6-5 6.5-2.9-.9-5-3.2-5-6.5V4.3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Security &amp; Audit <span class="count" style="background:var(--danger-soft);color:var(--danger);">1</span></a>
+      <a href="memory-skills.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 2.5 6 9 9.5 15.5 6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M2.5 10 9 13.5 15.5 10" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Memory &amp; Skills</a>
+      <a href="notifications-alerts.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
+      <a href="settings.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
+      <a href="debug.html" class="rail-item u-subtle"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="3.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7.5 7.5 9.5 5.5 11.5M9.5 11.5h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Debug</a>
+      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+    </nav>
+
+    <!-- Rail footer: ⌘K quick jump -->
+    <div class="rail-foot">
+      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (⌘K)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-subtle u-grow">Jump to…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIN COLUMN
+  ══════════════════════════════════════════════════════════════════ -->
+  <div class="main-col">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="header">
+
+      <!-- Sidebar collapse -->
+      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <!-- Search -->
+      <div class="search" role="search">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-grow u-subtle">Search agents, tasks, runs…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </div>
+
+      <!-- Spacer -->
+      <div class="u-grow"></div>
+
+      <!-- Health pill -->
+      <div class="health-pill" aria-label="System health: All systems healthy">
+        <span class="dot dot-success" aria-hidden="true"></span>
+        All systems healthy
+      </div>
+
+      <!-- Live indicator -->
+      <div class="live-indicator" aria-label="Live connection active">
+        <span class="dot dot-success live" aria-hidden="true"></span>
+        <span>Live</span>
+      </div>
+
+      <!-- Notifications -->
+      <div class="notif-btn-wrap">
+        <a href="notifications-alerts.html" class="btn btn-ghost btn-icon" aria-label="Notifications, 2 unread">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </a>
+        <span class="notif-badge" aria-hidden="true">2</span>
+        <span class="u-sr-only">2 unread notifications</span>
+      </div>
+
+      <!-- Avatar -->
+      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu — Anthony G.">AG</div>
+
+    </header>
+
+    <!-- ── Main content ────────────────────────────────────────── -->
+    <main class="main">
+      <div class="page">
+        <div class="page-stack">
+
+          <!-- ════════════════════════════════════════════════════════════════════
+               MODEL PROVIDERS — card grid  (issue #181, design locked by grilling 2026-07-13)
+
+               Supersedes the table in connections.html §3 for the /connections/providers route.
+               Every field below maps to a REAL field on ProviderConnectionView
+               (apps/web/lib/connections-state.ts:35) — no invented data, no fake plans.
+
+               vs the table, DELETED: the wrapper <Card> (card-in-card), the "Provider connection
+               status" heading, the summary sentence (counts live in the tier tabs), and the two
+               explanatory paragraphs (rules moved into the header ⓘ popover).
+               ADDED: brand marks, per-card status, a full-width primary action.
+               PRESERVED (audit, Codex 2026-07-13): inline device-flow poller on pending cards,
+               OpenRouter "Routes many", disabled Connect + "No live auth method", lead/subagent
+               role badges, and the data-* selector contract the drive scripts key off.
+
+               Brand marks: CC0 (simple-icons 16.26.0). OpenAI's is absent there — sourced from our
+               own vendored fork, mainframe/docs/assets/sponsors/openai.svg. Providers with no
+               licensed mark (Groq, xAI, Cerebras, Together, Fireworks) get a deterministic
+               monogram in an identical tile, so the grid never looks half-finished.
+          ═════════════════════════════════════════════════════════════════════ -->
+
+          <!-- ── Page header ─────────────────────────────────────────── -->
+          <div class="page-header">
+            <div>
+              <h1 class="page-title" style="display:flex;align-items:center;gap:6px;">
+                Model providers
+                <span class="pv-info-wrap">
+                  <button type="button" class="pv-info" id="pv-info-btn" aria-expanded="false" aria-controls="pv-rules" aria-label="How model providers work">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/>
+                      <path d="M8 7.2v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                      <circle cx="8" cy="4.9" r=".9" fill="currentColor"/>
+                    </svg>
+                  </button>
+                  <div class="pv-popover" id="pv-rules" role="dialog" aria-label="How model providers work" hidden>
+                    <p><strong>Main orchestrator.</strong> Exactly one connected provider leads the fleet. Every other connected provider runs as a subagent.</p>
+                    <p><strong>Auth order.</strong> The gateway prefers an OAuth or subscription credential, then falls back to an API key.</p>
+                  </div>
+                </span>
+              </h1>
+              <p class="page-sub">Canonical LLM provider credentials the gateway can route to.</p>
+            </div>
+          </div>
+
+          <!-- Banner: shown ONLY when 2+ providers are connected, i.e. only when "who leads?" is a
+               real question. With 0 or 1 connected it renders nothing. -->
+          <div class="banner banner-info">
+            <span class="u-accent" aria-hidden="true">✦</span>
+            <span><strong>OpenAI</strong> is the main orchestrator. Z.AI (GLM) runs as a subagent.</span>
+          </div>
+
+          <!-- ── Toolbar: tier tabs + search, one horizontal plane ────── -->
+          <div class="pv-toolbar">
+            <div class="pv-seg" role="tablist" aria-label="Provider tiers" id="pv-tablist">
+          <button type="button" role="tab" class="pv-seg-item" data-tier="frontier" aria-selected="true" aria-controls="pv-grid-frontier">
+            Frontier <span class="badge badge-success" aria-label="1 of 2 connected">1/2</span>
+          </button>
+          <button type="button" role="tab" class="pv-seg-item" data-tier="bundles" aria-selected="false" aria-controls="pv-grid-bundles">
+            Bundles <span class="badge" aria-label="4 providers, none connected">4</span>
+          </button>
+          <button type="button" role="tab" class="pv-seg-item" data-tier="best-subagents" aria-selected="false" aria-controls="pv-grid-best-subagents">
+            Best Subagents <span class="badge badge-success" aria-label="1 of 4 connected">1/4</span>
+          </button>
+          <button type="button" role="tab" class="pv-seg-item" data-tier="other" aria-selected="false" aria-controls="pv-grid-other">
+            Other providers <span class="badge" aria-label="9 providers, none connected">9</span>
+          </button>
+            </div>
+            <!-- While a query is active this replaces the tabs in place (search is GLOBAL across
+                 tiers — nobody knows which tier Mistral lives in). -->
+            <div class="pv-results" id="pv-results" hidden>
+              <span id="pv-results-count"></span>
+              <button type="button" class="btn btn-ghost btn-sm" id="pv-clear">✕ Clear</button>
+            </div>
+
+            <div class="pv-search">
+              <svg class="ico" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              <label class="u-sr-only" for="pv-search">Search model providers</label>
+              <input class="input" type="search" id="pv-search" placeholder="Search providers">
+            </div>
+          </div>
+
+          <!-- ── Provider grids, one per tier ─────────────────────────── -->
+      <ul class="pv-grid" data-provider-tier="frontier" role="list" aria-label="Frontier providers">
+        <li>
+          <article class="card pv-card" data-provider-id="openai" aria-labelledby="pv-openai-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#10A37F;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-openai-name">OpenAI</h2>
+                <p class="pv-sub">incl. Codex CLI runtime</p>
+              </div>
+              <span class="badge badge-success pv-status" data-provider-status="connected"><span class="dot dot-success dot-beat" aria-hidden="true"></span> Connected</span>
+            </header>
+            <div class="pv-body">
+            <div><span class="badge badge-accent" title="Coordinator agent"><span aria-hidden="true">✦</span> Lead orchestrator</span></div>
+            <div class="pv-field">
+              <span class="pv-field-label">Models</span>
+              <div class="pv-chips">
+              <span class="badge u-mono" data-model>gpt-5.5</span>
+              <span class="badge u-mono" data-model>gpt-5-codex</span>
+              <span class="badge" title="3 more models">+3</span>
+              </div>
+            </div>
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">OAuth</span>
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            <p class="pv-meta">owner@opzava.app · Pro · expires in 27d</p>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn">Manage</button>
+            <button type="button" class="btn btn-icon" aria-label="More actions for OpenAI">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="3" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="8" cy="13" r="1.4"/></svg>
+            </button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="anthropic" aria-labelledby="pv-anthropic-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#191919;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-anthropic-name">Anthropic</h2>
+                <p class="pv-sub">incl. Claude CLI runtime</p>
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">Subscription</span>
+              <span class="badge">Setup token</span>
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+      </ul>
+
+      <ul class="pv-grid" data-provider-tier="bundles" role="list" aria-label="Bundles providers" hidden>
+        <li>
+          <article class="card pv-card" data-provider-id="opencode-go" aria-labelledby="pv-opencode-go-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#000000;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M22 24H2V0h20zM17 4.8H7v14.4h10z"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-opencode-go-name">OpenCode Go</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="openrouter" aria-labelledby="pv-openrouter-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#94A3B8;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M16.778 1.844v1.919q-.569-.026-1.138-.032-.708-.008-1.415.037c-1.93.126-4.023.728-6.149 2.237-2.911 2.066-2.731 1.95-4.14 2.75-.396.223-1.342.574-2.185.798-.841.225-1.753.333-1.751.333v4.229s.768.108 1.61.333c.842.224 1.789.575 2.185.799 1.41.798 1.228.683 4.14 2.75 2.126 1.509 4.22 2.11 6.148 2.236.88.058 1.716.041 2.555.005v1.918l7.222-4.168-7.222-4.17v2.176c-.86.038-1.611.065-2.278.021-1.364-.09-2.417-.357-3.979-1.465-2.244-1.593-2.866-2.027-3.68-2.508.889-.518 1.449-.906 3.822-2.59 1.56-1.109 2.614-1.377 3.978-1.466.667-.044 1.418-.017 2.278.02v2.176L24 6.014Z"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-openrouter-name">OpenRouter</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Models</span>
+              <div class="pv-chips"><span class="badge">Routes many</span></div>
+            </div>
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">OAuth</span>
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="qwen" aria-labelledby="pv-qwen-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#6950EF;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M23.919 14.545 20.817 9.17l1.47-2.544a.56.56 0 0 0 0-.566l-1.633-2.83a.57.57 0 0 0-.49-.283h-6.207L12.487.402a.57.57 0 0 0-.49-.284H8.732a.56.56 0 0 0-.49.284L5.139 5.775h-2.94a.56.56 0 0 0-.49.284L.077 8.887a.56.56 0 0 0 0 .567L3.18 14.83l-1.47 2.545a.56.56 0 0 0 0 .566l1.634 2.83a.57.57 0 0 0 .49.283h6.205l1.47 2.545a.57.57 0 0 0 .49.284h3.266a.57.57 0 0 0 .49-.284l3.104-5.375h2.94a.57.57 0 0 0 .49-.283l1.634-2.828a.55.55 0 0 0-.004-.568M8.733.686l1.634 2.828-1.634 2.828H21.8L20.164 9.17H7.425L5.63 6.06Zm1.306 19.801-6.205-.002 1.634-2.83h3.265L2.201 6.344h3.267q3.182 5.517 6.367 11.032zm10.124-5.66L18.53 12l-6.532 11.315-1.634-2.83c2.129-3.673 4.25-7.351 6.373-11.028h3.592l3.102 5.374z"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-qwen-name">Alibaba Model Studio</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">OAuth</span>
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="cloudflare-ai-gateway" aria-labelledby="pv-cloudflare-ai-gateway-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#F38020;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M16.5088 16.8447c.1475-.5068.0908-.9707-.1553-1.3154-.2246-.3164-.6045-.499-1.0615-.5205l-8.6592-.1123a.1559.1559 0 0 1-.1333-.0713c-.0283-.042-.0351-.0986-.021-.1553.0278-.084.1123-.1484.2036-.1562l8.7359-.1123c1.0351-.0489 2.1601-.8868 2.5537-1.9136l.499-1.3013c.0215-.0561.0293-.1128.0147-.168-.5625-2.5463-2.835-4.4453-5.5499-4.4453-2.5039 0-4.6284 1.6177-5.3876 3.8614-.4927-.3658-1.1187-.5625-1.794-.499-1.2026.119-2.1665 1.083-2.2861 2.2856-.0283.31-.0069.6128.0635.894C1.5683 13.171 0 14.7754 0 16.752c0 .1748.0142.3515.0352.5273.0141.083.0844.1475.1689.1475h15.9814c.0909 0 .1758-.0645.2032-.1553l.12-.4268zm2.7568-5.5634c-.0771 0-.1611 0-.2383.0112-.0566 0-.1054.0415-.127.0976l-.3378 1.1744c-.1475.5068-.0918.9707.1543 1.3164.2256.3164.6055.498 1.0625.5195l1.8437.1133c.0557 0 .1055.0263.1329.0703.0283.043.0351.1074.0214.1562-.0283.084-.1132.1485-.204.1553l-1.921.1123c-1.041.0488-2.1582.8867-2.5527 1.914l-.1406.3585c-.0283.0713.0215.1416.0986.1416h6.5977c.0771 0 .1474-.0489.169-.126.1122-.4082.1757-.837.1757-1.2803 0-2.6025-2.125-4.727-4.7344-4.727"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-cloudflare-ai-gateway-name">Cloudflare AI Gateway</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips"><span class="badge badge-warning">No live auth method</span></div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn" disabled>Connect</button>
+            </footer>
+          </article>
+        </li>
+      </ul>
+
+      <ul class="pv-grid" data-provider-tier="best-subagents" role="list" aria-label="Best Subagents providers" hidden>
+        <li>
+          <article class="card pv-card" data-provider-id="zai" aria-labelledby="pv-zai-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#2D2D2D;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M12.606 1.806l-1.677 2.388c-0.258 0.374-0.697 0.606-1.161 0.606h-9.162V1.794C0.594 1.806 12.606 1.806 12.606 1.806zM24 1.806L9.6 22.206 0 22.206 14.4 1.806zM11.394 22.206l1.69-2.4c0.258-0.374 0.697-0.606 1.161-0.606h9.149v3.006H11.394z"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-zai-name">Z.AI (GLM)</h2>
+                
+              </div>
+              <span class="badge badge-success pv-status" data-provider-status="connected"><span class="dot dot-success dot-beat" aria-hidden="true"></span> Connected</span>
+            </header>
+            <div class="pv-body">
+            <div><span class="badge">Subagent</span></div>
+            <div class="pv-field">
+              <span class="pv-field-label">Models</span>
+              <div class="pv-chips">
+              <span class="badge u-mono" data-model>glm-5.2</span>
+              </div>
+            </div>
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            <p class="pv-meta">Coding Plan · 42% of window used</p>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn">Manage</button>
+            <button type="button" class="btn btn-icon" aria-label="More actions for Z.AI (GLM)">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="3" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="8" cy="13" r="1.4"/></svg>
+            </button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="moonshot" aria-labelledby="pv-moonshot-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#000000;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="m1.053 16.91 9.538 2.55a21 20.981 0 0 0 .06 2.031l5.956 1.592a12 11.99 0 0 1-15.554-6.172m-1.02-5.79 11.352 3.035a21 20.981 0 0 0-.469 2.01l10.817 2.89a12 11.99 0 0 1-1.845 2.004L.658 15.918a12 11.99 0 0 1-.625-4.796m1.593-5.146L13.573 9.17a21 20.981 0 0 0-1.01 1.874l11.297 3.02a21 20.981 0 0 1-.67 2.362l-11.55-3.087L.125 10.26a12 11.99 0 0 1 1.499-4.285ZM6.067 1.58l11.285 3.016a21 20.981 0 0 0-1.688 1.719l7.824 2.091a21 20.981 0 0 1 .513 2.664L2.107 5.218a12 11.99 0 0 1 3.96-3.638M21.68 4.866 7.222 1.003A12 11.99 0 0 1 21.68 4.866"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-moonshot-name">Moonshot (Kimi)</h2>
+                
+              </div>
+              <span class="badge badge-warning pv-status" data-provider-status="needs_attention"><span class="dot dot-warning" aria-hidden="true"></span> Action required</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            <p class="pv-alert pv-alert-warning">Gateway reported this credential is expired. Reconnect the account or rotate the key.</p>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Fix</button>
+            <button type="button" class="btn btn-icon" aria-label="More actions for Moonshot (Kimi)">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="3" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="8" cy="13" r="1.4"/></svg>
+            </button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="minimax" aria-labelledby="pv-minimax-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#E73562;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M11.43 3.92a.86.86 0 1 0-1.718 0v14.236a1.999 1.999 0 0 1-3.997 0V9.022a.86.86 0 1 0-1.718 0v3.87a1.999 1.999 0 0 1-3.997 0V11.49a.57.57 0 0 1 1.139 0v1.404a.86.86 0 0 0 1.719 0V9.022a1.999 1.999 0 0 1 3.997 0v9.134a.86.86 0 0 0 1.719 0V3.92a1.998 1.998 0 1 1 3.996 0v11.788a.57.57 0 1 1-1.139 0zm10.572 3.105a2 2 0 0 0-1.999 1.997v7.63a.86.86 0 0 1-1.718 0V3.923a1.999 1.999 0 0 0-3.997 0v16.16a.86.86 0 0 1-1.719 0V18.08a.57.57 0 1 0-1.138 0v2a1.998 1.998 0 0 0 3.996 0V3.92a.86.86 0 0 1 1.719 0v12.73a1.999 1.999 0 0 0 3.996 0V9.023a.86.86 0 1 1 1.72 0v6.686a.57.57 0 0 0 1.138 0V9.022a2 2 0 0 0-1.998-1.997"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-minimax-name">MiniMax</h2>
+                
+              </div>
+              <span class="badge badge-warning pv-status" data-provider-status="pending"><span class="dot dot-warning" aria-hidden="true"></span> Waiting for approval</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">Device</span>
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            <div class="pv-alert pv-alert-info">
+              Enter <span class="pv-code">JKWD-PLMZ</span> at the provider to finish authorising. Waiting…
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn">Cancel authorisation</button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="xiaomi" aria-labelledby="pv-xiaomi-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#FF6900;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M12 0C8.016 0 4.756.255 2.493 2.516.23 4.776 0 8.033 0 12.012c0 3.98.23 7.235 2.494 9.497C4.757 23.77 8.017 24 12 24c3.983 0 7.243-.23 9.506-2.491C23.77 19.247 24 15.99 24 12.012c0-3.984-.233-7.243-2.502-9.504C19.234.252 15.978 0 12 0zM4.906 7.405h5.624c1.47 0 3.007.068 3.764.827.746.746.827 2.233.83 3.676v4.54a.15.15 0 0 1-.152.147h-1.947a.15.15 0 0 1-.152-.148V11.83c-.002-.806-.048-1.634-.464-2.051-.358-.36-1.026-.441-1.72-.458H7.158a.15.15 0 0 0-.151.147v6.98a.15.15 0 0 1-.152.148H4.906a.15.15 0 0 1-.15-.148V7.554a.15.15 0 0 1 .15-.149zm12.131 0h1.949a.15.15 0 0 1 .15.15v8.892a.15.15 0 0 1-.15.148h-1.949a.15.15 0 0 1-.151-.148V7.554a.15.15 0 0 1 .151-.149zM8.92 10.948h2.046c.083 0 .15.066.15.147v5.352a.15.15 0 0 1-.15.148H8.92a.15.15 0 0 1-.152-.148v-5.352a.15.15 0 0 1 .152-.147Z"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-xiaomi-name">Xiaomi MiMo</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+      </ul>
+
+      <ul class="pv-grid" data-provider-tier="other" role="list" aria-label="Other providers providers" hidden>
+        <li>
+          <article class="card pv-card" data-provider-id="google" aria-labelledby="pv-google-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#4285F4;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-google-name">Google</h2>
+                <p class="pv-sub">incl. Gemini CLI runtime</p>
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">OAuth</span>
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="deepseek" aria-labelledby="pv-deepseek-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#5786FE;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M23.748 4.651c-.254-.124-.364.113-.512.233-.051.04-.094.09-.137.137-.372.397-.806.657-1.373.626-.829-.046-1.537.214-2.163.848-.133-.782-.575-1.248-1.247-1.548-.352-.155-.708-.311-.955-.65-.172-.24-.219-.509-.305-.774-.055-.16-.11-.323-.293-.35-.2-.031-.278.136-.356.276-.313.572-.434 1.202-.422 1.84.027 1.436.633 2.58 1.838 3.393.137.094.172.187.129.323-.082.28-.18.553-.266.833-.055.179-.137.218-.328.14a5.5 5.5 0 0 1-1.737-1.179c-.857-.828-1.631-1.743-2.597-2.46a12 12 0 0 0-.689-.47c-.985-.957.13-1.743.387-1.836.27-.098.094-.433-.778-.428-.872.003-1.67.295-2.687.685a3 3 0 0 1-.465.136 9.6 9.6 0 0 0-2.883-.101c-1.885.21-3.39 1.1-4.497 2.622C.082 8.776-.231 10.854.152 13.02c.403 2.284 1.568 4.175 3.36 5.653 1.857 1.533 3.997 2.284 6.438 2.14 1.482-.085 3.132-.284 4.994-1.86.47.234.962.328 1.78.398.629.058 1.235-.031 1.705-.129.735-.155.684-.836.418-.961-2.155-1.004-1.682-.595-2.112-.926 1.095-1.295 2.768-3.598 3.284-6.733.05-.346.115-.834.108-1.114-.004-.171.035-.238.23-.257a4.2 4.2 0 0 0 1.545-.475c1.397-.763 1.96-2.016 2.093-3.517.02-.23-.004-.467-.247-.588M11.58 18.168c-2.088-1.642-3.101-2.183-3.52-2.16-.39.024-.32.472-.234.763.09.288.207.487.371.74.114.167.192.416-.113.603-.673.416-1.842-.14-1.897-.168-1.361-.801-2.5-1.86-3.301-3.306-.775-1.393-1.225-2.888-1.299-4.482-.02-.385.094-.522.477-.592a4.7 4.7 0 0 1 1.53-.038c2.131.311 3.946 1.264 5.467 2.774.868.86 1.525 1.887 2.202 2.89.72 1.066 1.494 2.082 2.48 2.915.348.291.626.513.892.677-.802.09-2.14.109-3.055-.615zm1.001-6.44a.306.306 0 0 1 .415-.287.3.3 0 0 1 .113.074.3.3 0 0 1 .086.214c0 .17-.136.307-.308.307a.303.303 0 0 1-.306-.307m3.11 1.596c-.2.081-.4.151-.591.16a1.25 1.25 0 0 1-.798-.254c-.274-.23-.47-.358-.551-.758a1.7 1.7 0 0 1 .015-.588c.07-.327-.007-.537-.238-.727-.188-.156-.426-.199-.689-.199a.6.6 0 0 1-.254-.078.253.253 0 0 1-.114-.358 1 1 0 0 1 .192-.21c.356-.202.767-.136 1.146.016.352.144.618.408 1.001.782.392.451.462.576.685.915.176.264.336.536.446.848.066.194-.02.353-.25.45"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-deepseek-name">DeepSeek</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="mistral" aria-labelledby="pv-mistral-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#FA520F;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M17.143 3.429v3.428h-3.429v3.429h-3.428V6.857H6.857V3.43H3.43v13.714H0v3.428h10.286v-3.428H6.857v-3.429h3.429v3.429h3.429v-3.429h3.428v3.429h-3.428v3.428H24v-3.428h-3.43V3.429z"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-mistral-name">Mistral</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="perplexity" aria-labelledby="pv-perplexity-name">
+            <header class="pv-card-head">
+              <span class="pv-logo" style="--pv-brand:#1FB8CD;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="img"><path d="M22.3977 7.0896h-2.3106V.0676l-7.5094 6.3542V.1577h-1.1554v6.1966L4.4904 0v7.0896H1.6023v10.3976h2.8882V24l6.932-6.3591v6.2005h1.1554v-6.0469l6.9318 6.1807v-6.4879h2.8882V7.0896zm-3.4657-4.531v4.531h-5.355l5.355-4.531zm-13.2862.0676 4.8691 4.4634H5.6458V2.6262zM2.7576 16.332V8.245h7.8476l-6.1149 6.1147v1.9723H2.7576zm2.8882 5.0404v-3.8852h.0001v-2.6488l5.7763-5.7764v7.0111l-5.7764 5.2993zm12.7086.0248-5.7766-5.1509V9.0618l5.7766 5.7766v6.5588zm2.8882-5.0652h-1.733v-1.9723L13.3948 8.245h7.8478v8.087z"/></svg>
+          </span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-perplexity-name">Perplexity</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="groq" aria-labelledby="pv-groq-name">
+            <header class="pv-card-head">
+              <span class="pv-logo pv-mono" style="--pv-brand:var(--info);" aria-hidden="true">G</span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-groq-name">Groq</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="xai" aria-labelledby="pv-xai-name">
+            <header class="pv-card-head">
+              <span class="pv-logo pv-mono" style="--pv-brand:var(--success);" aria-hidden="true">X</span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-xai-name">xAI</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="cerebras" aria-labelledby="pv-cerebras-name">
+            <header class="pv-card-head">
+              <span class="pv-logo pv-mono" style="--pv-brand:var(--fg-muted);" aria-hidden="true">C</span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-cerebras-name">Cerebras</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="together" aria-labelledby="pv-together-name">
+            <header class="pv-card-head">
+              <span class="pv-logo pv-mono" style="--pv-brand:var(--info);" aria-hidden="true">T</span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-together-name">Together AI</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+        <li>
+          <article class="card pv-card" data-provider-id="fireworks" aria-labelledby="pv-fireworks-name">
+            <header class="pv-card-head">
+              <span class="pv-logo pv-mono" style="--pv-brand:var(--warning);" aria-hidden="true">F</span>
+              <div class="pv-ident">
+                <h2 class="pv-name" id="pv-fireworks-name">Fireworks</h2>
+                
+              </div>
+              <span class="badge  pv-status" data-provider-status="not_connected">Available</span>
+            </header>
+            <div class="pv-body">
+            <div class="pv-field">
+              <span class="pv-field-label">Auth methods</span>
+              <div class="pv-chips">
+              <span class="badge">API key</span>
+              </div>
+            </div>
+            </div>
+            <footer class="pv-foot">
+            <button type="button" class="btn btn-primary">Connect</button>
+            </footer>
+          </article>
+        </li>
+      </ul>
+
+          <div class="empty" id="pv-empty" hidden>
+            <div class="empty-icon" aria-hidden="true">🔍</div>
+            <p class="empty-title">No model providers match</p>
+            <p class="empty-desc">Clear the search or refresh the gateway catalog.</p>
+          </div>
+
+        </div>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+
+<script>
+  // Mockup-only interactivity so every state below is reviewable: tier switching + global search.
+  // The React implementation gets these from shadcn <Tabs> and useState — this is not a spec for
+  // the implementation, only a way to see the design.
+  (function () {
+    const tabs = [...document.querySelectorAll('.pv-seg-item')];
+    const grids = [...document.querySelectorAll('.pv-grid')];
+    const seg = document.getElementById('pv-tablist');
+    const results = document.getElementById('pv-results');
+    const count = document.getElementById('pv-results-count');
+    const empty = document.getElementById('pv-empty');
+    const search = document.getElementById('pv-search');
+    const clear = document.getElementById('pv-clear');
+    const info = document.getElementById('pv-info-btn');
+    const rules = document.getElementById('pv-rules');
+
+    const gridFor = (tier) => grids.find((g) => g.dataset.providerTier === tier);
+    const activeTier = () => tabs.find((t) => t.getAttribute('aria-selected') === 'true').dataset.tier;
+
+    function showTier(tier) {
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tier === tier)));
+      grids.forEach((g) => { g.hidden = g.dataset.providerTier !== tier; });
+    }
+    tabs.forEach((t) => t.addEventListener('click', () => showTier(t.dataset.tier)));
+
+    search.addEventListener('input', () => {
+      const q = search.value.trim().toLowerCase();
+      const searching = q !== '';
+      seg.hidden = searching;
+      results.hidden = !searching;
+
+      if (!searching) {
+        grids.forEach((g) => g.querySelectorAll('li').forEach((li) => { li.hidden = false; }));
+        empty.hidden = true;
+        showTier(activeTier());
+        return;
+      }
+
+      let hits = 0;
+      grids.forEach((g) => {
+        let visible = 0;
+        g.querySelectorAll('li').forEach((li) => {
+          const match = li.textContent.toLowerCase().includes(q);
+          li.hidden = !match;
+          if (match) visible++;
+        });
+        g.hidden = visible === 0;
+        hits += visible;
+      });
+      count.textContent = hits + ' result' + (hits === 1 ? '' : 's') + ' for "' + search.value.trim() + '"';
+      empty.hidden = hits > 0;
+    });
+
+    clear.addEventListener('click', () => {
+      search.value = '';
+      search.dispatchEvent(new Event('input'));
+      search.focus();
+    });
+
+    info.addEventListener('click', () => {
+      const open = rules.hidden;
+      rules.hidden = !open;
+      info.setAttribute('aria-expanded', String(open));
+    });
+    document.addEventListener('click', (e) => {
+      if (!rules.hidden && !rules.contains(e.target) && !info.contains(e.target)) {
+        rules.hidden = true;
+        info.setAttribute('aria-expanded', 'false');
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !rules.hidden) { rules.hidden = true; info.setAttribute('aria-expanded', 'false'); info.focus(); }
+    });
+  })();
+</script>
+
+</body>
+</html>
