@@ -61,6 +61,9 @@ The Connections page reads the live provider catalog through Gateway admin RPC
 API-key provider connects call `config.patch` and store the key inside the Gateway auth profile.
 GitHub connects use GitHub device flow and store the access token in `SecretsVaultPort`; status is
 validated against `GET https://api.github.com/user` and the OAuth scopes response header.
+Main-orchestrator selection calls the worker's `/internal/connections/orchestrator/set-main` route,
+writes the Gateway primary model through the same admin boundary, moves the browser lead badge only
+after a successful mutation response, and reconciles the UI from the next Connections snapshot.
 
 Snapshot, health, catalog, and config-read paths need only `operator.read`; the Gateway also reports
 `operator.read` when a connected token holds `operator.write`. `config.patch` mutations are locally
@@ -69,11 +72,11 @@ gated with `requiredScope: "operator.admin"` and return a structured
 worker device is not admin-scoped.
 
 The inspected Gateway image `ghcr.io/openclaw/openclaw:2026.6.11` (Q18: same version, now built from
-`./mainframe` per ADR-016 — findings unchanged) documents
-`wizard.start/next/status/cancel`, but its live `wizard.start` validator accepts only `mode` and
-`workspace`. It does not expose a targeted provider/auth-choice admin RPC for model-provider
-device-code OAuth. Until that RPC exists, the GUI returns an explicit unsupported state for
-model-provider device-flow choices and keeps API-key and GitHub device-flow paths live.
+`./mainframe` per ADR-016 — findings unchanged) documents `wizard.start/next/status/cancel`, but its
+live `wizard.start` validator accepts only `mode` and `workspace`. It does not expose a targeted
+provider/auth-choice admin RPC for model-provider device-code OAuth. Until that RPC exists, the GUI
+returns an explicit unsupported state for model-provider device-flow choices and keeps API-key and
+GitHub device-flow paths live.
 
 ## Verification
 

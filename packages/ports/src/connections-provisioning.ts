@@ -225,6 +225,23 @@ export interface DisconnectModelProviderInput extends ConnectionProvisioningPrin
   readonly providerId: string;
 }
 
+// Disconnect logs the provider out of every configured agent, and the gateway caps control-plane
+// writes at 3 per 60s — so a tenant with 3+ agents needs 60-120s+ of paced writes. That cannot fit
+// in an HTTP request, hence start-then-poll (like the api-key connect flow) rather than one call.
+export interface ModelProviderDisconnectStart {
+  readonly opId: string;
+  readonly status: "pending";
+}
+
+export interface PollModelProviderDisconnectInput extends ConnectionProvisioningPrincipal {
+  readonly opId: string;
+}
+
+export type ModelProviderDisconnectPollState =
+  | { readonly status: "pending" }
+  | { readonly status: "disconnected"; readonly connection: ProviderConnectionState }
+  | { readonly status: "failed" | "expired"; readonly message: string; readonly code?: string };
+
 export interface ApplyOrchestratorDelegationInput extends ConnectionProvisioningPrincipal {
   readonly connectedProviderIds: readonly string[];
 }
@@ -236,10 +253,13 @@ export interface SetMainOrchestratorInput extends ConnectionProvisioningPrincipa
 export type StartGitHubDeviceFlowInput = ConnectionProvisioningPrincipal;
 export type DisconnectGitHubInput = ConnectionProvisioningPrincipal;
 
-export interface ConnectionsProvisioningPort {
+export interface ConnectionsReadPort {
   getConnectionsSnapshot(
     input: ConnectionProvisioningPrincipal,
   ): Promise<Result<ConnectionsSnapshot>>;
+}
+
+export interface ModelProviderConnectFlowsPort {
   startModelProviderApiKeyConnect(
     input: ConnectModelProviderApiKeyInput,
   ): Promise<Result<ModelProviderApiKeyConnectStart>>;
@@ -259,15 +279,24 @@ export interface ConnectionsProvisioningPort {
     input: StartModelProviderDeviceFlowInput,
   ): Promise<Result<DeviceFlowChallenge>>;
   pollDeviceFlow(input: PollDeviceFlowInput): Promise<Result<DeviceFlowPollState>>;
-  disconnectModelProvider(
+  startModelProviderDisconnect(
     input: DisconnectModelProviderInput,
-  ): Promise<Result<ProviderConnectionState>>;
+  ): Promise<Result<ModelProviderDisconnectStart>>;
+  pollModelProviderDisconnect(
+    input: PollModelProviderDisconnectInput,
+  ): Promise<Result<ModelProviderDisconnectPollState>>;
+  startGitHubDeviceFlow(input: StartGitHubDeviceFlowInput): Promise<Result<DeviceFlowChallenge>>;
+  disconnectGitHub(input: DisconnectGitHubInput): Promise<Result<GitHubConnectionState>>;
+}
+
+export interface OrchestratorDelegationPort {
   applyOrchestratorDelegation(
     input: ApplyOrchestratorDelegationInput,
   ): Promise<Result<OrchestratorDelegationState>>;
   setMainOrchestrator(
     input: SetMainOrchestratorInput,
   ): Promise<Result<OrchestratorDelegationState>>;
-  startGitHubDeviceFlow(input: StartGitHubDeviceFlowInput): Promise<Result<DeviceFlowChallenge>>;
-  disconnectGitHub(input: DisconnectGitHubInput): Promise<Result<GitHubConnectionState>>;
 }
+
+export interface ConnectionsProvisioningPort
+  extends ConnectionsReadPort, ModelProviderConnectFlowsPort, OrchestratorDelegationPort {}

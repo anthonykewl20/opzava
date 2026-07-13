@@ -17,18 +17,17 @@ import type { ProviderCategory } from "./connections-provisioning.js";
  */
 
 /** CLI runtimes that fold under a parent LLM provider. Never rendered as their own top-level row. */
-export const RUNTIME_PARENTS: Readonly<Record<string, { parentId: string; runtimeLabel: string }>> =
-  {
-    "claude-cli": { parentId: "anthropic", runtimeLabel: "Claude CLI" },
-    codex: { parentId: "openai", runtimeLabel: "Codex CLI" },
-    "codex-cli": { parentId: "openai", runtimeLabel: "Codex CLI" },
-    "codex-app-server": { parentId: "openai", runtimeLabel: "Codex CLI" },
-    "google-gemini-cli": { parentId: "google", runtimeLabel: "Gemini CLI" },
-    "gemini-cli": { parentId: "google", runtimeLabel: "Gemini CLI" },
-  };
+const RUNTIME_PARENTS: Readonly<Record<string, { parentId: string; runtimeLabel: string }>> = {
+  "claude-cli": { parentId: "anthropic", runtimeLabel: "Claude CLI" },
+  codex: { parentId: "openai", runtimeLabel: "Codex CLI" },
+  "codex-cli": { parentId: "openai", runtimeLabel: "Codex CLI" },
+  "codex-app-server": { parentId: "openai", runtimeLabel: "Codex CLI" },
+  "google-gemini-cli": { parentId: "google", runtimeLabel: "Gemini CLI" },
+  "gemini-cli": { parentId: "google", runtimeLabel: "Gemini CLI" },
+};
 
 /** Non-runtime provider ids that are auth/plan variants of a parent (folded, no runtime label). */
-export const PROVIDER_PARENT_ALIASES: Readonly<Record<string, string>> = {
+const PROVIDER_PARENT_ALIASES: Readonly<Record<string, string>> = {
   "claude-max-api-proxy": "anthropic",
   "qwen-oauth": "qwen",
   "anthropic-vertex": "anthropic",
@@ -36,7 +35,7 @@ export const PROVIDER_PARENT_ALIASES: Readonly<Record<string, string>> = {
   "vertex-gemini": "google",
 };
 
-export const PROVIDER_TIER_IDS = [
+const PROVIDER_TIER_IDS = [
   "frontier",
   "bundles",
   "best-subagents",
@@ -45,14 +44,14 @@ export const PROVIDER_TIER_IDS = [
 
 export type ProviderTier = (typeof PROVIDER_TIER_IDS)[number];
 
-export const PROVIDER_TIER_LABELS: Readonly<Record<ProviderTier, string>> = {
+const PROVIDER_TIER_LABELS: Readonly<Record<ProviderTier, string>> = {
   frontier: "Frontier",
   bundles: "Bundles",
   "best-subagents": "Best Subagents",
   other: "Other providers",
 };
 
-export const PROVIDER_TIERS: Readonly<Record<string, Exclude<ProviderTier, "other">>> = {
+const PROVIDER_TIERS: Readonly<Record<string, Exclude<ProviderTier, "other">>> = {
   openai: "frontier",
   anthropic: "frontier",
   "opencode-go": "bundles",
@@ -70,7 +69,7 @@ export const PROVIDER_TIERS: Readonly<Record<string, Exclude<ProviderTier, "othe
  * Models & Providers surface, which is LLM-only. Deliberately conservative: only ids that are
  * unambiguously non-LLM. Multi-modal LLM providers (minimax, mistral) stay LLM.
  */
-export const NON_LLM_PROVIDER_IDS: ReadonlySet<string> = new Set([
+const NON_LLM_PROVIDER_IDS: ReadonlySet<string> = new Set([
   "azure-speech",
   "deepgram",
   "elevenlabs",
@@ -85,7 +84,7 @@ export const NON_LLM_PROVIDER_IDS: ReadonlySet<string> = new Set([
 ]);
 
 /** Nicer display labels for providers the gateway advertises with raw/lowercase ids. */
-export const CANONICAL_PROVIDER_LABELS: Readonly<Record<string, string>> = {
+const CANONICAL_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   google: "Google",
@@ -114,7 +113,23 @@ export const CANONICAL_PROVIDER_LABELS: Readonly<Record<string, string>> = {
  * choice for it, so presence stays gateway-driven while the well-known connect targets never get
  * lost just because they have no bundled models yet (zai/openrouter have no models until connected).
  */
-export const CANONICAL_LLM_PROVIDER_IDS: readonly string[] = Object.keys(CANONICAL_PROVIDER_LABELS);
+const CANONICAL_LLM_PROVIDER_IDS: readonly string[] = Object.keys(CANONICAL_PROVIDER_LABELS);
+
+export function listProviderTierIds(): readonly ProviderTier[] {
+  return Object.freeze([...PROVIDER_TIER_IDS]);
+}
+
+export function providerTierLabel(id: ProviderTier): string {
+  return PROVIDER_TIER_LABELS[id];
+}
+
+export function listCanonicalLlmProviderIds(): readonly string[] {
+  return Object.freeze([...CANONICAL_LLM_PROVIDER_IDS]);
+}
+
+export function canonicalProviderLabel(id: string): string {
+  return CANONICAL_PROVIDER_LABELS[id] ?? id;
+}
 
 export interface ModelProviderClassification {
   readonly category: ProviderCategory;

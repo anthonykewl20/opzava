@@ -1,4 +1,4 @@
-import { DomainError } from "../result/index.js";
+import { DomainError, err, ok, type Result } from "../result/index.js";
 
 export type CurrencyCode = Uppercase<string> & { readonly __currencyCode: "CurrencyCode" };
 
@@ -45,6 +45,53 @@ export class Money {
       amountMinor: input.amountMinor,
       currency: makeCurrencyCode(input.currency)
     });
+  }
+
+  public static parse(input: unknown): Result<Money> {
+    if (
+      typeof input !== "object" ||
+      input === null ||
+      !("amountMinor" in input) ||
+      !("currency" in input)
+    ) {
+      return err(
+        new DomainError({
+          code: "sharedKernel.invalidMoneyInput",
+          message: "Money must be an object with amountMinor and currency."
+        })
+      );
+    }
+
+    const candidate = input as Partial<Record<keyof MoneyInput, unknown>>;
+
+    if (typeof candidate.amountMinor !== "number" || typeof candidate.currency !== "string") {
+      return err(
+        new DomainError({
+          code: "sharedKernel.invalidMoneyInput",
+          message: "Money amountMinor must be a number and currency must be a string."
+        })
+      );
+    }
+
+    if (candidate.amountMinor < 0) {
+      return err(
+        new DomainError({
+          code: "sharedKernel.invalidMoneyAmount",
+          message: "Money amountMinor must be non-negative.",
+          details: { amountMinor: candidate.amountMinor }
+        })
+      );
+    }
+
+    try {
+      return ok(Money.create(candidate as MoneyInput));
+    } catch (error) {
+      if (error instanceof DomainError) {
+        return err(error);
+      }
+
+      throw error;
+    }
   }
 
   public static zero(currency: string): Money {

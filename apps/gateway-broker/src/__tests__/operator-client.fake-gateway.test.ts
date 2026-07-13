@@ -548,6 +548,7 @@ describe("[fake-gateway] broker operator client", () => {
     expect(gateway.sessionCreateCount).toBe(1);
 
     const tools = await broker.getEffectiveTools({
+      routeId,
       sessionRef: first.value.sessionRef,
       toolNames: [
         "opzava_tasks_list",
@@ -587,6 +588,7 @@ describe("[fake-gateway] broker operator client", () => {
     expect(gateway.sessionCreateCount).toBe(1);
 
     const driftedTools = await broker.getEffectiveTools({
+      routeId,
       sessionRef: first.value.sessionRef,
       toolNames: ["opzava_tasks_list"],
     });

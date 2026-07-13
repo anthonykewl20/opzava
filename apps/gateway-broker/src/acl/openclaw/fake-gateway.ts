@@ -79,6 +79,7 @@ export class FakeOpenClawGateway {
   private sessionRequestCountValue = 0;
   private issuedDeviceTokenSequence = 0;
   private lastSessionSendParamsValue: Record<string, unknown> | undefined;
+  private readonly toolsEffectiveSessionKeysValue: string[] = [];
 
   public constructor(options: FakeGatewayOptions) {
     this.deviceKeypair = options.deviceKeypair;
@@ -122,6 +123,10 @@ export class FakeOpenClawGateway {
 
   public get lastSessionSendParams(): Readonly<Record<string, unknown>> | undefined {
     return this.lastSessionSendParamsValue;
+  }
+
+  public get toolsEffectiveSessionKeys(): readonly string[] {
+    return this.toolsEffectiveSessionKeysValue;
   }
 
   public finishDeferredStreams(): void {
@@ -195,11 +200,13 @@ export class FakeOpenClawGateway {
 
     if (frame.method === "tools.effective") {
       const shapeError = this.validateExactParams(frame.params, ["sessionKey", "agentId"]);
-      if (shapeError !== null || this.stringParam(frame.params, "sessionKey") === null) {
+      const sessionKey = this.stringParam(frame.params, "sessionKey");
+      if (shapeError !== null || sessionKey === null) {
         this.badRequest(socket, frame.id, shapeError ?? "sessionKey is required");
         return;
       }
 
+      this.toolsEffectiveSessionKeysValue.push(sessionKey);
       this.sendResponse(socket, {
         type: "res",
         id: frame.id,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { disconnectModelProviderForContext } from "@/lib/connections";
+import { startModelProviderDisconnectForContext } from "@/lib/connections";
 import { connectionsMutationErrorResponse } from "@/lib/connections-route-errors";
 import { getAppSessionContext } from "@/lib/session";
 
@@ -13,7 +13,10 @@ interface DisconnectBody {
 export async function POST(request: Request): Promise<NextResponse> {
   const context = await getAppSessionContext();
   if (context === null) {
-    return NextResponse.json({ message: "Unauthorized", code: "web.unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { message: "Unauthorized", code: "web.unauthorized" },
+      { status: 401 },
+    );
   }
 
   const body = (await request.json().catch(() => null)) as DisconnectBody | null;
@@ -24,7 +27,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const result = await disconnectModelProviderForContext({
+  const result = await startModelProviderDisconnectForContext({
     context,
     providerId: body.providerId,
   });

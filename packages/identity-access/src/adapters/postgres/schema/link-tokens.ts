@@ -11,8 +11,14 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import { linkTokenScopes } from "../../../application/link-tokens.js";
 import { authSessions, authUsers } from "./auth.js";
 import { appRole, organizations, ownerRole, workspaces } from "./tenancy.js";
+
+const linkTokenScopesSql = sql.raw(
+  `array[${linkTokenScopes.map((scope) => `'${scope}'`).join(", ")}]::text[]`,
+);
+const linkTokenScopesCountSql = sql.raw(String(linkTokenScopes.length));
 
 export const linkTokens = pgTable(
   "link_tokens",
@@ -50,10 +56,13 @@ export const linkTokens = pgTable(
       table.createdAt,
     ),
     check("link_tokens_client_id_check", sql`${table.clientId} = 'claude-code'`),
-    check("link_tokens_scopes_nonempty_check", sql`cardinality(${table.scopes}) between 1 and 2`),
+    check(
+      "link_tokens_scopes_nonempty_check",
+      sql`cardinality(${table.scopes}) between 1 and ${linkTokenScopesCountSql}`,
+    ),
     check(
       "link_tokens_scopes_subset_check",
-      sql`${table.scopes} <@ array['tasks:read', 'tasks:write']::text[]`,
+      sql`${table.scopes} <@ ${linkTokenScopesSql}`,
     ),
     check(
       "link_tokens_scopes_unique_check",

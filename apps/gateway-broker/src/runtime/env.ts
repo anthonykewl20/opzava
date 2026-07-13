@@ -1,5 +1,5 @@
 import { expectedLocalFileSecretReference, LocalFileSecretsVault } from "@opzava/adapters";
-import type { OpenClawGatewayRouteId } from "@opzava/ports";
+import type { OpenClawGatewayRouteId, SecretsVaultPort } from "@opzava/ports";
 import { DomainError, makeTenantId, type TenantId } from "@opzava/shared-kernel";
 
 import { Ed25519DeviceKeypair, type DeviceKeypair } from "../acl/openclaw/signing.js";
@@ -159,7 +159,8 @@ async function readDeviceTokenFromVault(source: NodeJS.ProcessEnv): Promise<stri
     ...(version === undefined ? {} : { version }),
   });
 
-  const token = await new LocalFileSecretsVault({ filePath }).resolveSecretValue({
+  const vault: SecretsVaultPort = new LocalFileSecretsVault({ filePath });
+  const token = await vault.resolveSecretValue({
     ref,
     requestedBy: "gateway-broker",
     reason: "openclaw-hot-path-device-token",

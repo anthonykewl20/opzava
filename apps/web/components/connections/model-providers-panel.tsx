@@ -1,17 +1,19 @@
 "use client";
 
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { flushSync } from "react-dom";
 import type {
   DeviceFlowChallenge,
   ModelProviderApiKeyConnectStart,
   ModelProviderAuthChoice,
+  ModelProviderDisconnectStart,
   OrchestratorDelegationState,
-  ProviderConnectionState,
 } from "@opzava/ports";
 
 import { ApiKeyConnectPoller } from "@/components/connections/api-key-connect-poller";
+import { DisconnectPoller } from "@/components/connections/disconnect-poller";
 import { DeviceFlowPoller } from "@/components/connections/device-flow-poller";
 import { SetupTokenConnect } from "@/components/connections/setup-token-connect";
 import {
@@ -44,6 +46,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -399,18 +408,25 @@ function MutationErrorNotice({
 // (UX error-prevention) — an accidental click on the row button should never sever a live connection.
 function DisconnectConfirm({
   provider,
+  open: controlledOpen,
+  onOpenChange,
+  trigger,
   size = "sm",
   triggerVariant = "ghost",
 }: {
   readonly provider: ProviderRow;
+  readonly open?: boolean;
+  readonly onOpenChange?: (open: boolean) => void;
+  readonly trigger?: ReactNode | null;
   readonly size?: "sm" | "default";
   readonly triggerVariant?: "ghost" | "destructive";
 }) {
   const router = useRouter();
   const formId = useId();
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [formVersion, setFormVersion] = useState(0);
+  const open = controlledOpen ?? uncontrolledOpen;
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (pending) {
@@ -420,23 +436,33 @@ function DisconnectConfirm({
       if (nextOpen) {
         setFormVersion((current) => current + 1);
       }
-      setOpen(nextOpen);
+      if (controlledOpen === undefined) {
+        setUncontrolledOpen(nextOpen);
+      }
+      onOpenChange?.(nextOpen);
     },
-    [pending],
+    [controlledOpen, onOpenChange, pending],
   );
   const handleSuccess = useCallback(() => {
     setPending(false);
-    setOpen(false);
+    if (controlledOpen === undefined) {
+      setUncontrolledOpen(false);
+    }
+    onOpenChange?.(false);
     router.refresh();
-  }, [router]);
+  }, [controlledOpen, onOpenChange, router]);
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogTrigger asChild>
-        <Button type="button" variant={triggerVariant} size={size}>
-          Disconnect
-        </Button>
-      </AlertDialogTrigger>
+      {trigger === null ? null : (
+        <AlertDialogTrigger asChild>
+          {trigger ?? (
+            <Button type="button" variant={triggerVariant} size={size}>
+              Disconnect
+            </Button>
+          )}
+        </AlertDialogTrigger>
+      )}
       <AlertDialogContent>
         <DisconnectConfirmForm
           key={`${provider.connectionProviderId}-${formVersion}`}
@@ -450,10 +476,13 @@ function DisconnectConfirm({
   );
 }
 
+// The disconnect itself runs in the worker and outlives the request that starts it, so the dialog
+// only ever holds an opId and samples it. There is no synchronous disconnect to fall back to: it
+// paces one gateway logout per agent and would time out for any tenant with 3+ agents (#168).
 type DisconnectPhase =
   | { readonly step: "idle" }
-  | { readonly step: "pending" }
-  | { readonly step: "verifying" }
+  | { readonly step: "starting" }
+  | { readonly step: "polling"; readonly opId: string }
   | { readonly step: "failed"; readonly message: string; readonly code: string | null };
 
 function DisconnectConfirmForm({
@@ -468,32 +497,38 @@ function DisconnectConfirmForm({
   readonly onSuccess: () => void;
 }) {
   const [phase, setPhase] = useState<DisconnectPhase>({ step: "idle" });
-  const isPending = phase.step === "pending" || phase.step === "verifying";
+  const isPending = phase.step === "starting" || phase.step === "polling";
 
   const runDisconnect = useCallback(async () => {
-    const disconnectOnce = () =>
-      postConnectionsMutation<ProviderConnectionState>("/api/connections/model/disconnect", {
-        providerId: provider.connectionProviderId,
-      });
-
-    setPhase({ step: "pending" });
+    setPhase({ step: "starting" });
     onPendingChange(true);
-    let result = await disconnectOnce();
-    if (!result.ok && (result.kind === "timeout" || result.kind === "network")) {
-      // Sad path: the request died in flight but the disconnect may still have completed
-      // server-side. Disconnect is idempotent, so ONE verify retry converges to the truth
-      // (already-disconnected re-runs return the disconnected state).
-      setPhase({ step: "verifying" });
-      result = await disconnectOnce();
-    }
-    onPendingChange(false);
-    if (result.ok) {
-      setPhase({ step: "idle" });
-      onSuccess();
+
+    const started = await postConnectionsMutation<ModelProviderDisconnectStart>(
+      "/api/connections/model/disconnect",
+      { providerId: provider.connectionProviderId },
+    );
+    if (!started.ok) {
+      onPendingChange(false);
+      setPhase({ step: "failed", message: started.message, code: started.code });
       return;
     }
-    setPhase({ step: "failed", message: result.message, code: result.code });
-  }, [onPendingChange, onSuccess, provider.connectionProviderId]);
+
+    setPhase({ step: "polling", opId: started.data.opId });
+  }, [onPendingChange, provider.connectionProviderId]);
+
+  const handleDisconnected = useCallback(() => {
+    onPendingChange(false);
+    setPhase({ step: "idle" });
+    onSuccess();
+  }, [onPendingChange, onSuccess]);
+
+  const handleFailed = useCallback(
+    (message: string, code: string | null) => {
+      onPendingChange(false);
+      setPhase({ step: "failed", message, code });
+    },
+    [onPendingChange],
+  );
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -515,10 +550,13 @@ function DisconnectConfirmForm({
           requires re-authenticating this provider. This can&apos;t be undone from here.
         </AlertDialogDescription>
       </AlertDialogHeader>
-      {phase.step === "verifying" ? (
-        <DialogNotice tone="neutral" role="status" title="Verifying disconnect">
-          The first attempt did not answer in time; confirming the provider state with the gateway.
-        </DialogNotice>
+      {phase.step === "polling" ? (
+        <DisconnectPoller
+          opId={phase.opId}
+          providerLabel={provider.label}
+          onDisconnected={handleDisconnected}
+          onFailed={handleFailed}
+        />
       ) : null}
       {phase.step === "failed" ? (
         <MutationErrorNotice failure={phase} title="Disconnect failed" />
@@ -543,12 +581,26 @@ function DisconnectConfirmForm({
   );
 }
 
-function SetMainOrchestratorConfirm({ provider }: { readonly provider: ProviderRow }) {
+function SetMainOrchestratorConfirm({
+  provider,
+  open: controlledOpen,
+  onOpenChange,
+  onSetMainSuccess,
+  trigger,
+}: {
+  readonly provider: ProviderRow;
+  readonly open?: boolean;
+  readonly onOpenChange?: (open: boolean) => void;
+  readonly onSetMainSuccess: (providerId: string) => void;
+  readonly trigger?: ReactNode | null;
+}) {
   const router = useRouter();
   const formId = useId();
-  const [open, setOpen] = useState(false);
+  const [, startRefreshTransition] = useTransition();
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [formVersion, setFormVersion] = useState(0);
+  const open = controlledOpen ?? uncontrolledOpen;
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (pending) {
@@ -558,23 +610,38 @@ function SetMainOrchestratorConfirm({ provider }: { readonly provider: ProviderR
       if (nextOpen) {
         setFormVersion((current) => current + 1);
       }
-      setOpen(nextOpen);
+      if (controlledOpen === undefined) {
+        setUncontrolledOpen(nextOpen);
+      }
+      onOpenChange?.(nextOpen);
     },
-    [pending],
+    [controlledOpen, onOpenChange, pending],
   );
   const handleSuccess = useCallback(() => {
-    setPending(false);
-    setOpen(false);
-    router.refresh();
-  }, [router]);
+    flushSync(() => {
+      setPending(false);
+      onSetMainSuccess(provider.id);
+      if (controlledOpen === undefined) {
+        setUncontrolledOpen(false);
+      }
+      onOpenChange?.(false);
+    });
+    startRefreshTransition(() => {
+      router.refresh();
+    });
+  }, [controlledOpen, onOpenChange, onSetMainSuccess, provider.id, router, startRefreshTransition]);
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogTrigger asChild>
-        <Button type="button" variant="secondary" size="sm">
-          Set as main orchestrator
-        </Button>
-      </AlertDialogTrigger>
+      {trigger === null ? null : (
+        <AlertDialogTrigger asChild>
+          {trigger ?? (
+            <Button type="button" variant="secondary" size="sm">
+              Set as main orchestrator
+            </Button>
+          )}
+        </AlertDialogTrigger>
+      )}
       <AlertDialogContent>
         <SetMainOrchestratorForm
           key={`${provider.connectionProviderId}-${formVersion}`}
@@ -679,14 +746,20 @@ function SetMainOrchestratorForm({
   );
 }
 
-function ProviderBacks({ provider }: { readonly provider: ProviderRow }) {
+function ProviderBacks({
+  provider,
+  isLeadOrchestrator,
+}: {
+  readonly provider: ProviderRow;
+  readonly isLeadOrchestrator: boolean;
+}) {
   // Role is only real once a provider is connected (an unconnected provider is not yet a subagent);
   // showing it otherwise is misleading chrome. Matches the mockup (badges only connected rows).
   if (provider.status !== "connected") {
     return null;
   }
 
-  if (provider.roleLabel === "Lead orchestrator") {
+  if (isLeadOrchestrator) {
     return (
       <Badge variant="secondary" title="Coordinator agent">
         <span className="sr-only">AI lead - </span>
@@ -714,7 +787,17 @@ type DeviceFlowStartPhase =
   | { readonly step: "started"; readonly challenge: DeviceFlowChallenge }
   | { readonly step: "failed"; readonly message: string; readonly code: string | null };
 
-function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow }) {
+function ProviderConnectDialog({
+  provider,
+  open,
+  onOpenChange,
+  trigger,
+}: {
+  readonly provider: ProviderRow;
+  readonly open?: boolean;
+  readonly onOpenChange?: (open: boolean) => void;
+  readonly trigger?: ReactNode | null;
+}) {
   const apiKeyChoice = credentialFormChoice(provider);
   const choice =
     provider.status === "connected" && provider.connectedAuthMode === "api_key"
@@ -789,16 +872,23 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
   }
 
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button
-          type="button"
-          size="sm"
-          variant={provider.status === "connected" ? "secondary" : "default"}
-        >
-          {actionLabel(provider)}
-        </Button>
-      </DialogTrigger>
+    <Dialog
+      {...(open === undefined ? {} : { open })}
+      {...(onOpenChange === undefined ? {} : { onOpenChange })}
+    >
+      {trigger === null ? null : (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button
+              type="button"
+              size="sm"
+              variant={provider.status === "connected" ? "secondary" : "default"}
+            >
+              {actionLabel(provider)}
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
@@ -1012,7 +1102,133 @@ function ProviderConnectDialog({ provider }: { readonly provider: ProviderRow })
   );
 }
 
-function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
+function ProviderConnectedActions({
+  provider,
+  canSetMainOrchestrator,
+  isLeadOrchestrator,
+  onSetMainOrchestratorSuccess,
+}: {
+  readonly provider: ProviderRow;
+  readonly canSetMainOrchestrator: boolean;
+  readonly isLeadOrchestrator: boolean;
+  readonly onSetMainOrchestratorSuccess: (providerId: string) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [setMainOpen, setSetMainOpen] = useState(false);
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const restoreRowActionTriggerFocus = useCallback(() => {
+    window.setTimeout(() => triggerRef.current?.focus(), 0);
+  }, []);
+  const handleManageOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setManageOpen(nextOpen);
+      if (!nextOpen) {
+        restoreRowActionTriggerFocus();
+      }
+    },
+    [restoreRowActionTriggerFocus],
+  );
+  const handleSetMainOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setSetMainOpen(nextOpen);
+      if (!nextOpen) {
+        restoreRowActionTriggerFocus();
+      }
+    },
+    [restoreRowActionTriggerFocus],
+  );
+  const handleDisconnectOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setDisconnectOpen(nextOpen);
+      if (!nextOpen) {
+        restoreRowActionTriggerFocus();
+      }
+    },
+    [restoreRowActionTriggerFocus],
+  );
+  const openDialogFromMenu = useCallback((event: Event, openDialog: () => void) => {
+    event.preventDefault();
+    openDialog();
+    setMenuOpen(false);
+  }, []);
+
+  return (
+    <>
+      <div className="inline-flex items-center justify-end gap-2">
+        {isLeadOrchestrator ? <Badge variant="secondary">Main orchestrator</Badge> : null}
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              ref={triggerRef}
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={`Row actions for ${provider.label}`}
+            >
+              <span aria-hidden="true" className="text-lg leading-none">
+                ⋮
+              </span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onSelect={(event) => openDialogFromMenu(event, () => setManageOpen(true))}
+            >
+              Manage
+            </DropdownMenuItem>
+            {canSetMainOrchestrator ? (
+              <DropdownMenuItem
+                onSelect={(event) => openDialogFromMenu(event, () => setSetMainOpen(true))}
+              >
+                Set as main orchestrator
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={(event) => openDialogFromMenu(event, () => setDisconnectOpen(true))}
+            >
+              Disconnect
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <ProviderConnectDialog
+        provider={provider}
+        open={manageOpen}
+        onOpenChange={handleManageOpenChange}
+        trigger={null}
+      />
+      {canSetMainOrchestrator ? (
+        <SetMainOrchestratorConfirm
+          provider={provider}
+          open={setMainOpen}
+          onOpenChange={handleSetMainOpenChange}
+          onSetMainSuccess={onSetMainOrchestratorSuccess}
+          trigger={null}
+        />
+      ) : null}
+      <DisconnectConfirm
+        provider={provider}
+        open={disconnectOpen}
+        onOpenChange={handleDisconnectOpenChange}
+        trigger={null}
+      />
+    </>
+  );
+}
+
+function ProviderTableRow({
+  provider,
+  optimisticLeadProviderId,
+  onSetMainOrchestratorSuccess,
+}: {
+  readonly provider: ProviderRow;
+  readonly optimisticLeadProviderId: string | null;
+  readonly onSetMainOrchestratorSuccess: (providerId: string) => void;
+}) {
   const models = providerModelParts(provider);
   const meta = statusMeta(provider);
   const subLine = providerSubLine(provider);
@@ -1026,7 +1242,10 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
   const statusDetails = [healthLabel, accountLabel, ...meta, guidance].filter(
     (detail): detail is string => detail !== null,
   );
-  const isLeadOrchestrator = provider.roleLabel === "Lead orchestrator";
+  const isLeadOrchestrator =
+    optimisticLeadProviderId === null
+      ? provider.roleLabel === "Lead orchestrator"
+      : provider.id === optimisticLeadProviderId;
   const canSetMainOrchestrator = provider.status === "connected" && !isLeadOrchestrator;
 
   return (
@@ -1035,7 +1254,7 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
         <div className="grid min-w-0 gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2 font-medium leading-tight">
             <span>{provider.label}</span>
-            <ProviderBacks provider={provider} />
+            <ProviderBacks provider={provider} isLeadOrchestrator={isLeadOrchestrator} />
           </div>
           {subLine === null ? null : (
             <div className="text-xs leading-snug text-muted-foreground">{subLine}</div>
@@ -1093,14 +1312,16 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
       </TableCell>
       <TableCell data-label="Actions" className="align-middle py-4 text-right">
         <div className="grid justify-items-end gap-2">
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          {provider.status === "connected" ? (
+            <ProviderConnectedActions
+              provider={provider}
+              canSetMainOrchestrator={canSetMainOrchestrator}
+              isLeadOrchestrator={isLeadOrchestrator}
+              onSetMainOrchestratorSuccess={onSetMainOrchestratorSuccess}
+            />
+          ) : (
             <ProviderConnectDialog provider={provider} />
-            {canSetMainOrchestrator ? <SetMainOrchestratorConfirm provider={provider} /> : null}
-            {provider.status === "connected" && isLeadOrchestrator ? (
-              <Badge variant="secondary">Main orchestrator</Badge>
-            ) : null}
-            {provider.status === "connected" ? <DisconnectConfirm provider={provider} /> : null}
-          </div>
+          )}
           {provider.pendingFlow === null ? null : (
             <DeviceFlowPoller
               flowId={provider.pendingFlow.flowId}
@@ -1117,7 +1338,15 @@ function ProviderTableRow({ provider }: { readonly provider: ProviderRow }) {
   );
 }
 
-function ProviderTable({ providers }: { readonly providers: readonly ProviderRow[] }) {
+function ProviderTable({
+  providers,
+  optimisticLeadProviderId,
+  onSetMainOrchestratorSuccess,
+}: {
+  readonly providers: readonly ProviderRow[];
+  readonly optimisticLeadProviderId: string | null;
+  readonly onSetMainOrchestratorSuccess: (providerId: string) => void;
+}) {
   if (providers.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border p-8 text-center">
@@ -1146,7 +1375,12 @@ function ProviderTable({ providers }: { readonly providers: readonly ProviderRow
         </TableHeader>
         <TableBody>
           {providers.map((provider) => (
-            <ProviderTableRow provider={provider} key={provider.id} />
+            <ProviderTableRow
+              provider={provider}
+              optimisticLeadProviderId={optimisticLeadProviderId}
+              onSetMainOrchestratorSuccess={onSetMainOrchestratorSuccess}
+              key={provider.id}
+            />
           ))}
         </TableBody>
       </Table>
@@ -1160,6 +1394,8 @@ export function ModelProvidersPanel({
   summary,
 }: ModelProvidersPanelProps) {
   const [query, setQuery] = useState("");
+  const [optimisticLeadProviderId, setOptimisticLeadProviderId] = useState<string | null>(null);
+  const providersAtOptimisticSetRef = useRef<readonly ProviderRow[] | null>(null);
   const sortedProviders = useMemo(() => [...providers].sort(providerSort), [providers]);
   const filteredProviders = useMemo(
     () => filterProviders(sortedProviders, query),
@@ -1171,6 +1407,31 @@ export function ModelProvidersPanel({
   );
   const searchActive = query.trim() !== "";
   const defaultTier = tiers[0]?.id ?? "frontier";
+  // Keep the lead badge deterministic after a successful set-main mutation while the
+  // transitioned router refresh catches the rest of the Connections snapshot up.
+  const handleSetMainOrchestratorSuccess = useCallback(
+    (providerId: string) => {
+      providersAtOptimisticSetRef.current = providers;
+      setOptimisticLeadProviderId(providerId);
+    },
+    [providers],
+  );
+  useEffect(() => {
+    if (optimisticLeadProviderId === null) {
+      return;
+    }
+    const optimisticProvider = providers.find(
+      (provider) => provider.id === optimisticLeadProviderId,
+    );
+    if (
+      providers !== providersAtOptimisticSetRef.current ||
+      optimisticProvider === undefined ||
+      optimisticProvider.status !== "connected"
+    ) {
+      providersAtOptimisticSetRef.current = null;
+      setOptimisticLeadProviderId(null);
+    }
+  }, [optimisticLeadProviderId, providers]);
 
   return (
     <Card aria-labelledby="providers-lbl">
@@ -1226,9 +1487,17 @@ export function ModelProvidersPanel({
             </p>
 
             {searchActive ? (
-              <ProviderTable providers={filteredProviders} />
+              <ProviderTable
+                providers={filteredProviders}
+                optimisticLeadProviderId={optimisticLeadProviderId}
+                onSetMainOrchestratorSuccess={handleSetMainOrchestratorSuccess}
+              />
             ) : tiers.length === 0 ? (
-              <ProviderTable providers={[]} />
+              <ProviderTable
+                providers={[]}
+                optimisticLeadProviderId={optimisticLeadProviderId}
+                onSetMainOrchestratorSuccess={handleSetMainOrchestratorSuccess}
+              />
             ) : (
               <Tabs defaultValue={defaultTier} className="gap-4">
                 <TabsList className="flex-wrap">
@@ -1263,7 +1532,11 @@ export function ModelProvidersPanel({
                 </TabsList>
                 {tiers.map((tier) => (
                   <TabsContent key={tier.id} value={tier.id} data-provider-tier={tier.id}>
-                    <ProviderTable providers={tier.providers} />
+                    <ProviderTable
+                      providers={tier.providers}
+                      optimisticLeadProviderId={optimisticLeadProviderId}
+                      onSetMainOrchestratorSuccess={handleSetMainOrchestratorSuccess}
+                    />
                   </TabsContent>
                 ))}
               </Tabs>

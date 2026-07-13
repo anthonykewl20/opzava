@@ -39,6 +39,20 @@ describe("@opzava/shared-kernel money", () => {
       )
     ).toThrow(/different currencies/);
   });
+
+  it("parses valid money input as a result", () => {
+    const parsed = Money.parse({ amountMinor: 1250, currency: "usd" });
+
+    expect(parsed.ok).toBe(true);
+    expect(parsed).toEqual({ ok: true, value: Money.create({ amountMinor: 1250, currency: "usd" }) });
+  });
+
+  it("returns errors for invalid money input", () => {
+    expect(Money.parse({ amountMinor: 1250, currency: "US" }).ok).toBe(false);
+    expect(Money.parse({ amountMinor: 1.25, currency: "USD" }).ok).toBe(false);
+    expect(Money.parse({ amountMinor: -1, currency: "USD" }).ok).toBe(false);
+    expect(Money.parse("USD 12.50").ok).toBe(false);
+  });
 });
 
 describe("@opzava/shared-kernel refs and result", () => {

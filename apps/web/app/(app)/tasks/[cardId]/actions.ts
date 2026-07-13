@@ -7,7 +7,6 @@ import type {
   TaskQualityReviewDto,
   TaskStepDto,
 } from "@opzava/project-management";
-import { ok } from "@opzava/shared-kernel";
 import { revalidatePath } from "next/cache";
 
 import {
@@ -28,9 +27,10 @@ import {
   type LinkedIssueCloseIntent,
   type PrepareEvidenceUploadResult,
 } from "@/lib/task-card-detail";
+import { defaultErrorCapturePort } from "@/lib/error-capture";
 import { getObjectStorePort } from "@/lib/object-store";
 import { getAppSessionContext } from "@/lib/session";
-import type { ErrorCapturePort, ObjectStorePresignedRequest } from "@opzava/ports";
+import type { ObjectStorePresignedRequest } from "@opzava/ports";
 
 export type TaskCardActionResult<T> =
   | {
@@ -82,11 +82,6 @@ function taskCardActionDependencies() {
 }
 
 function taskCardStorageActionDependencies() {
-  const errorCapture: ErrorCapturePort = {
-    async capture() {
-      return ok(undefined);
-    },
-  };
   let objectStorePort: ReturnType<typeof getObjectStorePort> | undefined;
   try {
     objectStorePort = getObjectStorePort();
@@ -98,7 +93,7 @@ function taskCardStorageActionDependencies() {
     ...defaultTaskCardActionDependencies,
     getSessionContext: getAppSessionContext,
     ...(objectStorePort === undefined ? {} : { objectStorePort }),
-    errorCapture,
+    errorCapture: defaultErrorCapturePort,
     revalidateTaskPaths,
   };
 }

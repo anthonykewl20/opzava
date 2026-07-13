@@ -7,12 +7,7 @@
 // actionably, and polling tolerates bounded transient blips before surfacing an error.
 
 export type MutationFailureKind =
-  | "timeout"
-  | "network"
-  | "unauthorized"
-  | "forbidden"
-  | "invalid"
-  | "server";
+  "timeout" | "network" | "unauthorized" | "forbidden" | "invalid" | "server";
 
 export interface MutationFailure {
   readonly ok: false;
@@ -70,23 +65,26 @@ export async function postConnectionsMutation<T>(
   }
 
   const payload = (await response.json().catch(() => null)) as
-    | { readonly message?: unknown; readonly code?: unknown }
-    | T
-    | null;
+    { readonly message?: unknown; readonly code?: unknown } | T | null;
   if (response.ok) {
     if (payload === null) {
-      return failure("server", "The server returned an unreadable response.", null, response.status);
+      return failure(
+        "server",
+        "The server returned an unreadable response.",
+        null,
+        response.status,
+      );
     }
     return { ok: true, data: payload as T };
   }
 
   const message =
     payload !== null && typeof (payload as { readonly message?: unknown }).message === "string"
-      ? ((payload as { readonly message: string }).message)
+      ? (payload as { readonly message: string }).message
       : "The request failed.";
   const code =
     payload !== null && typeof (payload as { readonly code?: unknown }).code === "string"
-      ? ((payload as { readonly code: string }).code)
+      ? (payload as { readonly code: string }).code
       : null;
   if (response.status === 401) {
     return failure("unauthorized", "The session expired. Sign in again.", code, 401);
@@ -105,7 +103,16 @@ export interface PollDriverOptions<T> {
   readonly isTerminal: (data: T) => boolean;
   /** Called with each successful non-terminal sample (e.g. to surface progress). */
   readonly onPending?: (data: T) => void;
+  /** Delay after the first pending sample. Also the constant interval when maxIntervalMs is unset. */
   readonly intervalMs?: number;
+  /**
+   * Ceiling for the pending-sample interval. Set this above intervalMs to sample a long operation
+   * adaptively: fast at first (so a quick op resolves promptly), then backing off toward the
+   * ceiling rather than hammering the route for minutes. Defaults to intervalMs (constant rate).
+   */
+  readonly maxIntervalMs?: number;
+  /** Growth factor applied per consecutive pending sample. */
+  readonly backoffFactor?: number;
   readonly maxDurationMs?: number;
   /** Consecutive timeout/network failures tolerated before surfacing them. */
   readonly maxTransientFailures?: number;
@@ -116,26 +123,57 @@ export interface PollDriverOptions<T> {
 export type PollDriverOutcome<T> =
   | { readonly ok: true; readonly data: T }
   | MutationFailure
-  | { readonly ok: false; readonly kind: "expired-window"; readonly message: string; readonly code: null; readonly status: null }
-  | { readonly ok: false; readonly kind: "cancelled"; readonly message: string; readonly code: null; readonly status: null };
+  | {
+      readonly ok: false;
+      readonly kind: "expired-window";
+      readonly message: string;
+      readonly code: null;
+      readonly status: null;
+    }
+  | {
+      readonly ok: false;
+      readonly kind: "cancelled";
+      readonly message: string;
+      readonly code: null;
+      readonly status: null;
+    };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Poll a status endpoint until terminal. Transient blips (timeout/network) retry with a doubling
- * backoff up to maxTransientFailures in a row; hard failures (unauthorized/forbidden/invalid/
- * server) surface immediately. The whole window is bounded by maxDurationMs.
+ * Poll a status endpoint until terminal. Two independent backoffs compose here:
+ *
+ *  - Pending backoff grows the sampling interval from intervalMs toward maxIntervalMs as an
+ *    operation stays pending, so a slow op (disconnect paces gateway logouts over minutes) is
+ *    sampled a few dozen times rather than hundreds, while a fast one still resolves on the first
+ *    short interval. With maxIntervalMs unset the rate stays constant.
+ *  - Transient backoff doubles on top of that for timeout/network blips, up to maxTransientFailures
+ *    in a row.
+ *
+ * Hard failures (unauthorized/forbidden/invalid/server) surface immediately. The whole window is
+ * bounded by maxDurationMs.
  */
-export async function pollUntilTerminal<T>(options: PollDriverOptions<T>): Promise<PollDriverOutcome<T>> {
+export async function pollUntilTerminal<T>(
+  options: PollDriverOptions<T>,
+): Promise<PollDriverOutcome<T>> {
   const intervalMs = options.intervalMs ?? 1_750;
+  const maxIntervalMs = Math.max(intervalMs, options.maxIntervalMs ?? intervalMs);
+  const backoffFactor = options.backoffFactor ?? 2;
   const maxDurationMs = options.maxDurationMs ?? 150_000;
   const maxTransientFailures = options.maxTransientFailures ?? 3;
   const deadline = Date.now() + maxDurationMs;
   let transientFailures = 0;
+  let pendingSamples = 0;
 
   while (Date.now() < deadline) {
     if (!options.shouldContinue()) {
-      return { ok: false, kind: "cancelled", message: "Polling stopped.", code: null, status: null };
+      return {
+        ok: false,
+        kind: "cancelled",
+        message: "Polling stopped.",
+        code: null,
+        status: null,
+      };
     }
 
     const result = await options.poll();
@@ -144,6 +182,7 @@ export async function pollUntilTerminal<T>(options: PollDriverOptions<T>): Promi
       if (options.isTerminal(result.data)) {
         return result;
       }
+      pendingSamples += 1;
       options.onPending?.(result.data);
     } else if (result.kind === "timeout" || result.kind === "network") {
       transientFailures += 1;
@@ -154,7 +193,12 @@ export async function pollUntilTerminal<T>(options: PollDriverOptions<T>): Promi
       return result;
     }
 
-    await sleep(intervalMs * Math.min(2 ** Math.max(0, transientFailures - 1), 4));
+    const pendingIntervalMs = Math.min(
+      maxIntervalMs,
+      intervalMs * backoffFactor ** Math.max(0, pendingSamples - 1),
+    );
+    const transientMultiplier = Math.min(2 ** Math.max(0, transientFailures - 1), 4);
+    await sleep(pendingIntervalMs * transientMultiplier);
   }
 
   return {

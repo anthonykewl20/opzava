@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 
 import type {
   GetSecretRefInput,
+  PutSecretInput,
   ResolvedSecret,
   ResolveSecretInput,
   SecretRefId,
@@ -28,13 +29,7 @@ interface StoredVaultFile {
   readonly secrets: Record<string, StoredSecret>;
 }
 
-export interface PutLocalFileSecretInput {
-  readonly tenantId: TenantId;
-  readonly purpose: SecretReference["purpose"];
-  readonly label: string;
-  readonly value: string;
-  readonly version?: string;
-}
+export type PutLocalFileSecretInput = PutSecretInput;
 
 export type DeleteLocalFileSecretInput = GetSecretRefInput;
 

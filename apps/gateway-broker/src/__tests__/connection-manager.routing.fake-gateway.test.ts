@@ -1,0 +1,194 @@
+import type { OpenClawGatewayRouteId, StartAssistantStreamInput } from "@opzava/ports";
+import { makeOrgId, makeTenantId, makeUserId, makeWorkspaceId } from "@opzava/shared-kernel";
+import { randomUUID } from "node:crypto";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { FakeOpenClawGateway } from "../acl/openclaw/fake-gateway.js";
+import { HmacDeviceKeypair, deriveDeviceIdFromPublicKey } from "../acl/openclaw/signing.js";
+import { GatewayConnectionManager } from "../routing/connection-manager.js";
+import { StaticGatewayRoutingTable, type GatewayRouteConfig } from "../routing/routes.js";
+
+const pairedDeviceToken = "paired-device-token";
+const fakeRawPublicKey = Buffer.from(
+  "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+  "hex",
+);
+
+const managers: GatewayConnectionManager[] = [];
+const gateways: FakeOpenClawGateway[] = [];
+
+function createDeviceKeypair(): HmacDeviceKeypair {
+  const publicKey = fakeRawPublicKey.toString("base64url");
+
+  return new HmacDeviceKeypair({
+    deviceId: deriveDeviceIdFromPublicKey(publicKey),
+    publicKey,
+    secret: randomUUID(),
+  });
+}
+
+async function createGateway(): Promise<{
+  readonly gateway: FakeOpenClawGateway;
+  readonly deviceKeypair: HmacDeviceKeypair;
+}> {
+  const deviceKeypair = createDeviceKeypair();
+  const gateway = new FakeOpenClawGateway({ deviceKeypair, pairedDeviceToken });
+  await gateway.ready;
+  gateways.push(gateway);
+
+  return { gateway, deviceKeypair };
+}
+
+function createBroker(routes: readonly GatewayRouteConfig[]): GatewayConnectionManager {
+  const broker = new GatewayConnectionManager({
+    idleDisconnectMs: 10_000,
+    routingTable: new StaticGatewayRoutingTable(routes),
+    clientOptions: {
+      challengeTimeoutMs: 500,
+      connectBudgetMs: 1_000,
+      requestTimeoutMs: 500,
+    },
+  });
+  managers.push(broker);
+
+  return broker;
+}
+
+function startInput(input: {
+  readonly routeId: OpenClawGatewayRouteId;
+  readonly tenantId: string;
+  readonly conversationId: string;
+}): StartAssistantStreamInput {
+  return {
+    routeId: input.routeId,
+    assistantKey: "ask-admin-opzava",
+    conversationId: input.conversationId,
+    turnId: "turn-1",
+    prompt: "Create a task",
+    idempotencyKey: `idem-${randomUUID()}`,
+    actingPrincipal: {
+      tenantId: makeTenantId(input.tenantId),
+      orgId: makeOrgId(`org-${input.tenantId}`),
+      workspaceId: makeWorkspaceId(`workspace-${input.tenantId}`),
+      userId: makeUserId(`user-${input.tenantId}`),
+      roleKeys: ["admin"],
+    },
+  };
+}
+
+const expectedToolNames = [
+  "opzava_tasks_list",
+  "opzava_tasks_create",
+  "opzava_tasks_update",
+  "opzava_crm_list_accounts",
+  "opzava_crm_list_contacts",
+  "opzava_crm_list_deals",
+  "opzava_crm_list_tickets",
+  "opzava_crm_get_contact_timeline",
+];
+
+afterEach(async () => {
+  for (const manager of managers.splice(0)) {
+    manager.disconnectAll();
+  }
+
+  for (const gateway of gateways.splice(0)) {
+    await gateway.close();
+  }
+});
+
+describe("GatewayConnectionManager route isolation", () => {
+  it("asks only the addressed tenant's Gateway for effective tools", async () => {
+    const routeA = "tenant-a-openclaw" as OpenClawGatewayRouteId;
+    const routeB = "tenant-b-openclaw" as OpenClawGatewayRouteId;
+    const a = await createGateway();
+    const b = await createGateway();
+
+    const broker = createBroker([
+      {
+        routeId: routeA,
+        tenantId: makeTenantId("tenant-a"),
+        url: a.gateway.url,
+        authMode: "paired-device",
+        pairedDeviceToken,
+        deviceKeypair: a.deviceKeypair,
+        clientVersion: "0.0.0",
+      },
+      {
+        routeId: routeB,
+        tenantId: makeTenantId("tenant-b"),
+        url: b.gateway.url,
+        authMode: "paired-device",
+        pairedDeviceToken,
+        deviceKeypair: b.deviceKeypair,
+        clientVersion: "0.0.0",
+      },
+    ]);
+
+    // Tenant B connects first, so it is the first client the manager iterates.
+    const streamB = await broker.startAssistantStream(
+      startInput({ routeId: routeB, tenantId: "tenant-b", conversationId: "conversation-b" }),
+    );
+    const streamA = await broker.startAssistantStream(
+      startInput({ routeId: routeA, tenantId: "tenant-a", conversationId: "conversation-a" }),
+    );
+    expect(streamB.ok).toBe(true);
+    expect(streamA.ok).toBe(true);
+    if (!streamA.ok) {
+      throw streamA.error;
+    }
+
+    const tools = await broker.getEffectiveTools({
+      routeId: routeA,
+      sessionRef: streamA.value.sessionRef,
+      toolNames: expectedToolNames,
+    });
+
+    expect(tools).toMatchObject({ ok: true, value: { toolNames: expectedToolNames } });
+    expect(a.gateway.toolsEffectiveSessionKeys).toEqual([
+      "agent:ask-admin-opzava:conversation-a",
+    ]);
+    expect(b.gateway.toolsEffectiveSessionKeys).toEqual([]);
+  });
+
+  it("keeps one connection per route when a tenant has two routes", async () => {
+    const primary = "tenant-a-primary" as OpenClawGatewayRouteId;
+    const secondary = "tenant-a-secondary" as OpenClawGatewayRouteId;
+    const a = await createGateway();
+    const b = await createGateway();
+    const tenantId = makeTenantId("tenant-a");
+
+    const broker = createBroker([
+      {
+        routeId: primary,
+        tenantId,
+        url: a.gateway.url,
+        authMode: "paired-device",
+        pairedDeviceToken,
+        deviceKeypair: a.deviceKeypair,
+        clientVersion: "0.0.0",
+      },
+      {
+        routeId: secondary,
+        tenantId,
+        url: b.gateway.url,
+        authMode: "paired-device",
+        pairedDeviceToken,
+        deviceKeypair: b.deviceKeypair,
+        clientVersion: "0.0.0",
+      },
+    ]);
+
+    const first = await broker.startAssistantStream(
+      startInput({ routeId: primary, tenantId: "tenant-a", conversationId: "conversation-1" }),
+    );
+    const second = await broker.startAssistantStream(
+      startInput({ routeId: secondary, tenantId: "tenant-a", conversationId: "conversation-2" }),
+    );
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+
+    expect(a.gateway.sessionRequestCount).toBe(1);
+    expect(b.gateway.sessionRequestCount).toBe(1);
+  });
+});

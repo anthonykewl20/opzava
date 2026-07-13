@@ -385,8 +385,13 @@ function fakePort(): ConnectionsProvisioningPort {
       ok(challenge({ providerId: input.providerId, authChoiceId: input.authChoiceId })),
     pollDeviceFlow: async () =>
       ok({ status: "connected", message: "Connected.", connection: providerState() }),
-    disconnectModelProvider: async (input) =>
-      ok(providerState({ providerId: input.providerId, status: "not_connected" })),
+    startModelProviderDisconnect: async () =>
+      ok({ opId: "model-disconnect:test", status: "pending" }),
+    pollModelProviderDisconnect: async () =>
+      ok({
+        status: "disconnected",
+        connection: providerState({ providerId: "openai", status: "not_connected" }),
+      }),
     applyOrchestratorDelegation: async (input) =>
       ok({
         orchestratorAgentId: "ask-admin-opzava",
@@ -1099,6 +1104,9 @@ describe("Connections page state", () => {
   it("keeps model-provider disconnect on the fetch mutation client with sad paths", async () => {
     const providersPanel = await readRepoFile("components/connections/model-providers-panel.tsx");
     const disconnectRoute = await readRepoFile("app/api/connections/model/disconnect/route.ts");
+    const disconnectPollRoute = await readRepoFile(
+      "app/api/connections/model/disconnect/poll/route.ts",
+    );
 
     // Mutations must ride plain fetch (always settles), never React form-action streams.
     expect(providersPanel).toContain("postConnectionsMutation");
@@ -1108,12 +1116,29 @@ describe("Connections page state", () => {
     expect(providersPanel).toContain("<form id={formId} onSubmit={handleSubmit}");
     expect(providersPanel).toContain("Disconnecting...");
     expect(providersPanel).toContain("Disconnect failed");
-    // Sad path: a timed-out disconnect verifies via one idempotent retry before surfacing.
-    expect(providersPanel).toContain("Verifying disconnect");
     expect(providersPanel).toContain("Retry disconnect");
     expect(providersPanel).not.toContain("AlertDialogAction");
-    expect(disconnectRoute).toContain("disconnectModelProviderForContext({");
+
+    // #168: disconnect is start-then-poll. The paced gateway logouts take 60-120s+, which no HTTP
+    // request survives, so the panel holds an opId and samples it — there is no synchronous
+    // disconnect and no in-request "verify" retry to fall back on.
+    expect(providersPanel).toContain("<DisconnectPoller");
+    expect(providersPanel).not.toContain("Verifying disconnect");
+    expect(disconnectRoute).toContain("startModelProviderDisconnectForContext({");
     expect(disconnectRoute).toContain("getAppSessionContext");
+    expect(disconnectPollRoute).toContain("pollModelProviderDisconnectForContext({");
+    expect(disconnectPollRoute).toContain("getAppSessionContext");
+  });
+
+  it("restores connected row-action focus after triggerless dialogs close", async () => {
+    const providersPanel = await readRepoFile("components/connections/model-providers-panel.tsx");
+
+    expect(providersPanel).toContain("const triggerRef = useRef<HTMLButtonElement>(null);");
+    expect(providersPanel).toContain("ref={triggerRef}");
+    expect(providersPanel).toContain("triggerRef.current?.focus()");
+    expect(providersPanel).toContain("onOpenChange={handleManageOpenChange}");
+    expect(providersPanel).toContain("onOpenChange={handleSetMainOpenChange}");
+    expect(providersPanel).toContain("onOpenChange={handleDisconnectOpenChange}");
   });
 
   it("names the production provisioning-worker env boundary", async () => {

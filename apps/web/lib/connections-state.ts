@@ -1,7 +1,7 @@
 import {
   classifyModelProvider,
-  PROVIDER_TIER_IDS,
-  PROVIDER_TIER_LABELS,
+  listProviderTierIds,
+  providerTierLabel,
   providerTier,
   type ConnectedAuthMode,
   type ConnectionsSnapshot,
@@ -417,7 +417,7 @@ export function projectModelProviders(
         whenToUse: group.whenToUse,
         pendingFlow,
         tier,
-        tierLabel: PROVIDER_TIER_LABELS[tier],
+        tierLabel: providerTierLabel(tier),
       };
     })
     .sort((left, right) => {
@@ -432,9 +432,9 @@ export function projectModelProviders(
 export function groupProviderConnectionsByTier(
   providers: readonly ProviderConnectionView[],
 ): readonly ProviderConnectionTierView[] {
-  return PROVIDER_TIER_IDS.map((id): ProviderConnectionTierView => ({
+  return listProviderTierIds().map((id): ProviderConnectionTierView => ({
     id,
-    label: PROVIDER_TIER_LABELS[id],
+    label: providerTierLabel(id),
     collapsed: id === "other",
     providers: providers.filter((provider) => provider.tier === id),
   })).filter((group) => group.providers.length > 0);

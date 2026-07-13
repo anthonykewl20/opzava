@@ -14,7 +14,7 @@ const context: AppSessionContext = {
 };
 
 const mocks = vi.hoisted(() => ({
-  disconnectModelProviderForContext: vi.fn(),
+  startModelProviderDisconnectForContext: vi.fn(),
   pollModelProviderSetupTokenFlowForContext: vi.fn(),
   getAppSessionContext: vi.fn(),
   startModelProviderSetupTokenFlowForContext: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock("@/lib/session", () => ({
 }));
 
 vi.mock("@/lib/connections", () => ({
-  disconnectModelProviderForContext: mocks.disconnectModelProviderForContext,
+  startModelProviderDisconnectForContext: mocks.startModelProviderDisconnectForContext,
   pollModelProviderSetupTokenFlowForContext: mocks.pollModelProviderSetupTokenFlowForContext,
   startModelProviderSetupTokenFlowForContext: mocks.startModelProviderSetupTokenFlowForContext,
   submitModelProviderSetupTokenCodeForContext: mocks.submitModelProviderSetupTokenCodeForContext,
@@ -53,24 +53,26 @@ describe("connections model disconnect route", () => {
     vi.clearAllMocks();
   });
 
-  it("disconnects through the provisioning port and returns the final provider state", async () => {
+  // Disconnect is start-then-poll (#168): the route hands back an opId immediately rather than
+  // holding the request open for the 60-120s of paced gateway logouts it would otherwise take.
+  it("starts the disconnect through the provisioning port and returns the pending op", async () => {
     const { POST } = await import("../app/api/connections/model/disconnect/route");
     mocks.getAppSessionContext.mockResolvedValueOnce(context);
-    mocks.disconnectModelProviderForContext.mockResolvedValueOnce({
+    mocks.startModelProviderDisconnectForContext.mockResolvedValueOnce({
       ok: true,
-      value: { providerId: "openai", status: "not_connected" },
+      value: { opId: "model-disconnect:op-1", status: "pending" },
     });
 
     const response = await POST(disconnectRequest({ providerId: "openai" }));
 
-    expect(mocks.disconnectModelProviderForContext).toHaveBeenCalledWith({
+    expect(mocks.startModelProviderDisconnectForContext).toHaveBeenCalledWith({
       context,
       providerId: "openai",
     });
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      providerId: "openai",
-      status: "not_connected",
+      opId: "model-disconnect:op-1",
+      status: "pending",
     });
   });
 
@@ -81,7 +83,7 @@ describe("connections model disconnect route", () => {
     const response = await POST(disconnectRequest({ providerId: "openai" }));
 
     expect(response.status).toBe(401);
-    expect(mocks.disconnectModelProviderForContext).not.toHaveBeenCalled();
+    expect(mocks.startModelProviderDisconnectForContext).not.toHaveBeenCalled();
   });
 
   it("returns 400 for a missing providerId and for malformed JSON", async () => {
@@ -93,13 +95,13 @@ describe("connections model disconnect route", () => {
 
     const malformed = await POST(disconnectRequest("{not json"));
     expect(malformed.status).toBe(400);
-    expect(mocks.disconnectModelProviderForContext).not.toHaveBeenCalled();
+    expect(mocks.startModelProviderDisconnectForContext).not.toHaveBeenCalled();
   });
 
   it("maps role denials to 403 and provisioning failures to 502 with redacted payloads", async () => {
     const { POST } = await import("../app/api/connections/model/disconnect/route");
     mocks.getAppSessionContext.mockResolvedValue(context);
-    mocks.disconnectModelProviderForContext.mockResolvedValueOnce({
+    mocks.startModelProviderDisconnectForContext.mockResolvedValueOnce({
       ok: false,
       error: { code: "web.connectionsForbidden", message: "Admins only." },
     });
@@ -108,7 +110,7 @@ describe("connections model disconnect route", () => {
     expect(forbidden.status).toBe(403);
     await expect(forbidden.json()).resolves.toMatchObject({ code: "web.connectionsForbidden" });
 
-    mocks.disconnectModelProviderForContext.mockResolvedValueOnce({
+    mocks.startModelProviderDisconnectForContext.mockResolvedValueOnce({
       ok: false,
       error: {
         code: "provisioning.connections.providerStillConnected",

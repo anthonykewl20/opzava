@@ -4,14 +4,15 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { LocalFileSecretsVault } from "@opzava/adapters";
+import { GITHUB_ISSUES_TOKEN_SECRET_LABEL, LocalFileSecretsVault } from "@opzava/adapters";
 import {
-  GITHUB_ISSUES_TOKEN_SECRET_LABEL,
   type ConnectionsProvisioningPort,
   type ConnectionsSnapshot,
   type DeviceFlowChallenge,
   type GitHubConnectionState,
   type ModelProviderAuthChoice,
+  type OpenClawAdminRpcPort,
+  type OpenClawOperatorScope,
   type OrchestratorDelegationState,
   type OrchestratorSubagentRole,
   type ProviderConnectionState,
@@ -38,10 +39,8 @@ import {
   openClawOperatorScopeGranted,
   type OpenClawAdminClock,
   type OpenClawAdminDeviceKeypair,
-  type OpenClawAdminRpcPort,
   type OpenClawAdminWebSocket,
   type OpenClawAdminWebSocketFactory,
-  type OpenClawOperatorScope,
 } from "../openclaw-admin-client.js";
 
 const tempDirectories: string[] = [];
@@ -162,7 +161,13 @@ function fakeProvisioningPort(): ConnectionsProvisioningPort {
     startModelProviderDeviceFlow: async () => ok(deviceFlowChallenge()),
     pollDeviceFlow: async () =>
       ok({ status: "connected", message: "Connected.", connection: providerConnection() }),
-    disconnectModelProvider: async () => ok({ ...providerConnection(), status: "not_connected" }),
+    startModelProviderDisconnect: async () =>
+      ok({ opId: "model-disconnect:test", status: "pending" }),
+    pollModelProviderDisconnect: async () =>
+      ok({
+        status: "disconnected",
+        connection: { ...providerConnection(), status: "not_connected" },
+      }),
     applyOrchestratorDelegation: async () =>
       ok({
         orchestratorAgentId: "ask-admin-opzava",
@@ -5078,5 +5083,108 @@ describe("Connections provisioning helpers", () => {
 
     const ref = await vault.getRef();
     expect(ref.ok ? ref.value : null).toBeNull();
+  });
+
+  // Regression: issue #168. Disconnect logs out the provider itself plus every configured non-main
+  // agent, and the gateway caps control-plane writes at 3 per 60s — so the logouts are paced 20s
+  // apart and a normal tenant needs 60-120s+. The web BFF aborts every provisioning call at 20s
+  // (apps/web/lib/connections.ts: workerRequestTimeoutMs), so the disconnect SUCCEEDED server-side
+  // while the user was shown "Provisioning worker request timed out." and a doomed "Retry
+  // disconnect". The two budgets can never both be satisfied, so the paced work must not sit inside
+  // the request at all: starting the op has to return immediately and the caller polls it.
+  //
+  // Guard the two budgets against silently drifting apart again.
+  const webClientAbortBudgetMs = 20_000;
+
+  function disconnectAdmin(agentCount: number): RecordingAdminClient {
+    return new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "openai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": ok({
+        hash: "config-hash-openai",
+        auth: { profiles: {}, order: {} },
+        agents: {
+          list: Array.from({ length: agentCount }, (_unused, index) => ({
+            id: `agent-${index + 1}`,
+            model: "openai/gpt-5.5",
+          })),
+        },
+      }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+  }
+
+  it.each([1, 2, 3, 4, 6, 10])(
+    "starts an OpenAI disconnect inside the web client's abort budget with %i agent(s)",
+    async (agentCount) => {
+      vi.useFakeTimers();
+      try {
+        const admin = disconnectAdmin(agentCount);
+        const port = new GatewayAdminConnectionsProvisioningPort({
+          adminClient: admin,
+          secretsVault: new MemorySecretsVault(),
+          githubRepository: "anthonykewl20/opzava",
+          now: () => new Date(Date.now()),
+        });
+
+        const startedAtMs = Date.now();
+        const start = await port.startModelProviderDisconnect({
+          ...principal(),
+          providerId: "openai",
+        });
+        const startElapsedMs = Date.now() - startedAtMs;
+
+        expect(start.ok).toBe(true);
+        // The whole point: the request that STARTS the disconnect never waits for the paced work,
+        // however many agents there are. Pre-fix this was (agentCount) x 20_000 for 3+ agents.
+        expect(startElapsedMs).toBeLessThan(webClientAbortBudgetMs);
+
+        // The paced work still runs to completion in the background, and every agent is logged out.
+        await vi.advanceTimersByTimeAsync(600_000);
+        const poll = await port.pollModelProviderDisconnect({
+          ...principal(),
+          opId: start.ok ? start.value.opId : "",
+        });
+
+        expect(poll.ok ? poll.value.status : null).toBe("disconnected");
+        expect(admin.calls.filter((call) => call.method === "models.authLogout")).toHaveLength(
+          agentCount + 1,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  // Second cliff (#168): the pacing sleeps used to be charged against the 150s transient-retry
+  // budget, so 8+ non-main agents exhausted it and the disconnect hard-failed with
+  // disconnectRetryExhausted, leaving the provider half-disconnected. Pacing is planned work, not a
+  // retry, so it no longer consumes that budget.
+  it("disconnects a provider across 10 agents without exhausting the retry budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const admin = disconnectAdmin(10);
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        now: () => new Date(Date.now()),
+      });
+
+      const start = await port.startModelProviderDisconnect({
+        ...principal(),
+        providerId: "openai",
+      });
+      await vi.advanceTimersByTimeAsync(600_000);
+      const poll = await port.pollModelProviderDisconnect({
+        ...principal(),
+        opId: start.ok ? start.value.opId : "",
+      });
+
+      const state = poll.ok ? poll.value : null;
+      expect(state?.status).toBe("disconnected");
+      expect(JSON.stringify(state)).not.toContain("disconnectRetryExhausted");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

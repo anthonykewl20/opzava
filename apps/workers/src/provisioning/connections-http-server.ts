@@ -327,6 +327,9 @@ async function handleConnectionsRequest(
     return;
   }
 
+  // Disconnect is start-then-poll, not a single call: it paces one gateway logout per agent and
+  // routinely runs past any HTTP client's timeout (#168). There is deliberately no synchronous
+  // disconnect route — one would time out for every tenant with 3+ agents.
   if (route === "/internal/connections/model/disconnect") {
     if (!isRecord(body)) {
       writeJson(response, 400, { error: "invalid_request" });
@@ -339,13 +342,37 @@ async function handleConnectionsRequest(
       return;
     }
 
-    const result = await options.provisioningPort.disconnectModelProvider({
+    const result = await options.provisioningPort.startModelProviderDisconnect({
       ...principal,
       providerId,
     });
     writeJson(
       response,
       result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
+    return;
+  }
+
+  if (route === "/internal/connections/model/disconnect/poll") {
+    if (!isRecord(body)) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const opId = stringValue(body["opId"]);
+    if (opId === null) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const result = await options.provisioningPort.pollModelProviderDisconnect({
+      ...principal,
+      opId,
+    });
+    writeJson(
+      response,
+      result.ok ? 200 : 404,
       result.ok ? result.value : errorPayload(result.error),
     );
     return;

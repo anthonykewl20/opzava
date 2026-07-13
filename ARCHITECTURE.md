@@ -71,6 +71,9 @@ flowchart LR
 | Gateway Runtime | OpenClaw Gateway per tenant: sessions, runs, task ledger, streaming, Workboard, logs, diagnostics, health, usage/cost snapshots. | [ADR-003](docs/adr/ADR-003-gateway-broker-acl-two-token.md), [ADR-004](docs/adr/ADR-004-data-boundary-cqrs.md) |
 | Channel / Automation / Skills / Memory Runtime | OpenClaw Gateway per tenant: channel runtime and secrets, cron, TaskFlow, standing-order execution, skills, memory-wiki, memory-lancedb, Gateway-local config. | [ADR-003](docs/adr/ADR-003-gateway-broker-acl-two-token.md), [ADR-010](docs/adr/ADR-010-knowledge-okf.md), [ADR-012](docs/adr/ADR-012-dept-workflow-engine.md) |
 
+For the deep, module-level documentation behind this map, see [docs/architecture/](docs/architecture/README.md).
+It documents every Module, Seam, and port-to-Adapter count, grades each seam real or hypothetical, and lists prioritized deepening opportunities; start at the [seam map](docs/architecture/SEAM-MAP.md).
+
 ## Agnostic ports catalog
 
 | Port | Purpose | Initial adapter |
