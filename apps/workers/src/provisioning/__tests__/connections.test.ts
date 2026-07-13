@@ -2471,6 +2471,120 @@ describe("Connections provisioning helpers", () => {
     });
   });
 
+  it("moves the orchestrator agent with the primary the onboard just changed (#186)", async () => {
+    // The live bug: connecting Anthropic on a stack whose OpenAI was disconnected left the gateway
+    // primary on anthropic (the onboard moves it) while the ask-admin agent still carried
+    // openai/gpt-5.5 -- so the UI called Anthropic the main orchestrator and Ask Admin died with
+    // "Codex app-server auth profile was not found". Connect must bring the orchestrator with it.
+    const askAdminEntry = {
+      id: "ask-admin-opzava",
+      model: "openai/gpt-5.5",
+      tools: {
+        profile: "minimal",
+        allow: ASK_ADMIN_TOOL_POLICY_ALLOW,
+        deny: ASK_ADMIN_TOOL_POLICY_DENY,
+      },
+    };
+    const preOnboardConfig = {
+      hash: "config-hash-186-pre",
+      config: {
+        agents: {
+          defaults: { models: { "openai/gpt-5.5": {} }, model: { primary: "openai/gpt-5.5" } },
+          list: [askAdminEntry],
+        },
+        plugins: { entries: { anthropic: { enabled: true } } },
+      },
+    };
+    const postOnboardConfig = {
+      hash: "config-hash-186-post",
+      config: {
+        agents: {
+          defaults: {
+            models: { "openai/gpt-5.5": {} },
+            model: { primary: "anthropic/claude-opus-4-8" },
+          },
+          list: [askAdminEntry],
+        },
+        plugins: { entries: { anthropic: { enabled: true } } },
+      },
+    };
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      status: {
+        allowed: ["anthropic/claude-opus-4-8"],
+        auth: {
+          providers: [
+            {
+              provider: "anthropic",
+              profiles: { count: 1, token: 1, labels: ["anthropic:default=Setup token"] },
+            },
+          ],
+        },
+      },
+    });
+    const admin = new RecordingAdminClient({
+      "config.get": () =>
+        ok(gatewayRuntime.connectCalls.length === 0 ? preOnboardConfig : postOnboardConfig),
+      "models.list": ok({
+        providers: [
+          {
+            id: "anthropic",
+            label: "Anthropic",
+            suggestedModel: "claude-opus-4-8",
+            authChoices: [
+              apiKeyChoice({
+                id: "setup-token",
+                providerId: "anthropic",
+                keyFlag: "token",
+              }),
+            ],
+          },
+        ],
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-13T00:00:00.000Z"),
+    });
+
+    const start = await port.startModelProviderApiKeyConnect({
+      ...principal(),
+      providerId: "anthropic",
+      authChoiceId: "setup-token",
+      apiKey: `sk-ant-oat01-${"a".repeat(95)}`,
+    });
+    const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
+
+    expect(result.ok ? result.value : result.error).toMatchObject({
+      status: "connected",
+      connection: { providerId: "anthropic", status: "connected" },
+    });
+
+    // The reconcile patch, which is the LAST one: connect also rewrites agents.list earlier to
+    // register the shared `main` credential agent (#169), and that patch carries the ask-admin entry
+    // through UNCHANGED. Reading the first match would assert against the pre-reconcile state.
+    const askAdminPatch = admin.calls
+      .filter((call) => call.method === "config.patch")
+      .map(
+        (call) =>
+          rawPatch(call.params) as {
+            agents?: { list?: readonly { id?: string; model?: string }[] };
+          },
+      )
+      .reverse()
+      .find((patch) => patch.agents?.list?.some((agent) => agent.id === "ask-admin-opzava"));
+
+    expect(askAdminPatch).toBeDefined();
+    const askAdmin = askAdminPatch?.agents?.list?.find((agent) => agent.id === "ask-admin-opzava");
+    expect(askAdmin?.model).toBe("anthropic/claude-opus-4-8");
+  });
+
   it("fails Anthropic setup-token when onboard never yields a routable provider", async () => {
     vi.useFakeTimers();
     try {
@@ -4099,7 +4213,11 @@ describe("Connections provisioning helpers", () => {
     expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
     // One ownership read before the mutation (#174) + one post-check read.
     expect(admin.calls.filter((call) => call.method === "models.authStatus")).toHaveLength(2);
-    expect(admin.calls.filter((call) => call.method === "config.get")).toHaveLength(2);
+    // Two as above, plus the orchestrator reconcile reading config to see whether this gateway even
+    // has an orchestrator to repair (#186). It has none here, so it stops there: no catalog read, no
+    // models status exec, and no second config.patch -- a disconnect must not reload the gateway
+    // twice.
+    expect(admin.calls.filter((call) => call.method === "config.get")).toHaveLength(3);
     expect(JSON.stringify(result)).not.toContain("sk-config-secret");
   });
 
@@ -4644,13 +4762,19 @@ describe("Connections provisioning helpers", () => {
     });
     expect(rawPatch(patchCall!.params)).toMatchObject({
       agents: {
+        // zai is the only connected provider and the gateway has no primary, so zai IS the
+        // orchestrator: Ask Admin routes to it and the primary moves onto it. The predecessor left
+        // Ask Admin on ASK_ADMIN_AGENT_MODEL ("openai/gpt-5.5") -- a provider that is NOT connected
+        // -- and demoted the one working provider to a subagent, which is #186 in miniature.
+        defaults: { model: { primary: "zai/glm-5.2" } },
         list: expect.arrayContaining([
           expect.objectContaining({ id: "other-agent" }),
           expect.objectContaining({
             id: "ask-admin-opzava",
+            model: "zai/glm-5.2",
             subagents: {
               delegationMode: "prefer",
-              allowAgents: ["subagent-zai"],
+              allowAgents: [],
             },
             tools: {
               profile: "minimal",
@@ -4658,7 +4782,6 @@ describe("Connections provisioning helpers", () => {
               deny: [...ASK_ADMIN_TOOL_POLICY_DENY],
             },
           }),
-          expect.objectContaining({ id: "subagent-zai", model: "zai/glm-5.2" }),
         ]),
       },
     });

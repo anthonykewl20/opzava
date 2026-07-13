@@ -1026,6 +1026,73 @@ function connectedProviderSubagents(input: {
     });
 }
 
+/**
+ * Is the live config already the config the reconcile would write?
+ *
+ * Compares only what the reconcile OWNS -- the orchestrator's model, the gateway primary, and the
+ * set of `subagent-*` agents. Anything else in `agents.list` is somebody else's business and must
+ * not make a reconcile look necessary.
+ */
+function orchestratorConfigIsCurrent(input: {
+  readonly config: Record<string, unknown>;
+  readonly orchestratorModel: string;
+  readonly primaryModel: string | null;
+  readonly subagents: readonly OrchestratorSubagentRole[];
+}): boolean {
+  if (input.orchestratorModel !== input.primaryModel) {
+    return false;
+  }
+
+  const agents = agentsList(input.config);
+  const askAdmin = agents.find((agent) => stringValue(agent["id"]) === ASK_ADMIN_AGENT_ID);
+  if (
+    askAdmin === undefined ||
+    modelSelectorPrimary(askAdmin["model"]) !== input.orchestratorModel
+  ) {
+    return false;
+  }
+
+  const liveSubagents = agents
+    .map((agent) => stringValue(agent["id"]))
+    .filter((id): id is string => id !== null && id.startsWith("subagent-"))
+    .sort();
+  const wantedSubagents = input.subagents.map((subagent) => subagent.agentId).sort();
+
+  return (
+    liveSubagents.length === wantedSubagents.length &&
+    liveSubagents.every((id, index) => id === wantedSubagents[index])
+  );
+}
+
+/**
+ * The model the orchestrator should route to when it is a given provider. Same resolution
+ * `setMainOrchestrator` uses (configured model first, catalog suggestion second) so the two ways of
+ * becoming the orchestrator cannot pick different models for the same provider.
+ */
+function orchestratorModelForProvider(input: {
+  readonly providerId: string | null;
+  readonly catalog: readonly ModelProviderCatalogEntry[];
+  readonly config: Record<string, unknown>;
+}): string | null {
+  if (input.providerId === null) {
+    return null;
+  }
+
+  const provider = input.catalog.find((entry) => entry.id === input.providerId);
+  const configuredModel = configuredModelForProvider({
+    providerId: input.providerId,
+    config: input.config,
+    models: provider?.models,
+  });
+  if (configuredModel !== null) {
+    return providerModelRef(input.providerId, configuredModel);
+  }
+
+  return provider?.suggestedModel === undefined
+    ? null
+    : providerModelRef(input.providerId, provider.suggestedModel);
+}
+
 function orchestratorDelegationState(input: {
   readonly orchestratorModel: string;
   readonly orchestratorProviderId: string | null;
@@ -2863,6 +2930,14 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       }
     }
 
+    // The onboard above may have moved `agents.defaults.model.primary` onto this provider. Bring the
+    // orchestrator agent and the subagents with it, or the gateway routes on one provider while Ask
+    // Admin still asks for another (#186).
+    await this.reconcileOrchestratorAfterCredentialChange({
+      reason: "connect",
+      providerId: input.op.providerId,
+    });
+
     return ok(connection.value);
   }
 
@@ -3714,6 +3789,14 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
+    // Disconnecting the orchestrator leaves the gateway primary pointing at a credential that no
+    // longer exists, and leaves a `subagent-<provider>` behind for a provider that can no longer
+    // answer. Reconcile onto what is still connected (#186).
+    await this.reconcileOrchestratorAfterCredentialChange({
+      reason: "disconnect",
+      providerId: input.providerId,
+    });
+
     return ok(
       disconnectedProviderState({
         providerId: input.providerId,
@@ -3726,9 +3809,65 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async applyOrchestratorDelegation(
     input: ApplyOrchestratorDelegationInput,
   ): Promise<Result<OrchestratorDelegationState>> {
+    return this.reconcileOrchestrator({ connectedProviderIds: input.connectedProviderIds });
+  }
+
+  /**
+   * Rebuild the orchestrator wiring from the CONNECTED set: which provider Ask Admin routes to, and
+   * one subagent per other connected provider.
+   *
+   * This must run after every credential change, because a credential change silently moves half the
+   * orchestrator on its own. OpenClaw's `onboard` rewrites `agents.defaults.model.primary` when a
+   * provider connects -- observed live in the gateway's reload log:
+   *
+   *   [reload] config change detected (agents.defaults.model.primary, auth.profiles.anthropic:default)
+   *
+   * Nothing reconciled the other half, so the primary pointed at the newly connected provider while
+   * the ask-admin agent still carried the model of the OLD one. Connect Anthropic on a stack whose
+   * OpenAI was disconnected and Ask Admin died outright ("Codex app-server auth profile was not
+   * found") while the UI cheerfully labelled Anthropic the main orchestrator -- and the only action
+   * that would have repaired it was hidden precisely BECAUSE the row already claimed to be the lead
+   * (#186).
+   *
+   * The primary is authoritative only while its provider still holds a credential. Disconnecting the
+   * orchestrator leaves the primary pointing at a provider that can no longer answer, so the
+   * orchestrator falls back to a provider that is actually connected, and the primary is moved with
+   * it -- the gateway is never left routing to a credential we just removed.
+   */
+  private async reconcileOrchestrator(
+    input: {
+      readonly connectedProviderIds?: readonly string[];
+      /**
+       * Repair only an orchestrator that already exists. PROVISIONING one is bootstrap's job
+       * (`bootstrap-platform-gateway`), not a side effect of connecting a credential -- a gateway
+       * with no ask-admin agent is not a gateway whose orchestrator drifted, and writing one from
+       * here would mean every connect and disconnect patched (and therefore RELOADED) a gateway
+       * that never asked for an orchestrator.
+       */
+      readonly repairOnly?: boolean;
+    } = {},
+  ): Promise<Result<OrchestratorDelegationState>> {
     const configResult = await this.options.adminClient.request("config.get", {});
     if (!configResult.ok) {
       return err(configResult.error);
+    }
+    const config = configPayload(configResult.value);
+
+    // Decide this BEFORE the catalog/status reads: a gateway with no orchestrator has nothing to
+    // reconcile, and a connect should not pay for three more gateway reads (one of them a CLI exec)
+    // just to discover that.
+    if (
+      input.repairOnly === true &&
+      !agentsList(config).some((agent) => stringValue(agent["id"]) === ASK_ADMIN_AGENT_ID)
+    ) {
+      return ok(
+        orchestratorDelegationState({
+          orchestratorModel: gatewayPrimaryModel(config) ?? ASK_ADMIN_AGENT_MODEL,
+          orchestratorProviderId: null,
+          subagents: [],
+          now: this.now(),
+        }),
+      );
     }
 
     const [modelsResult, modelStatusResult, authStatus] = await Promise.all([
@@ -3737,7 +3876,6 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         ok<unknown>({ auth: { providers: [] }, allowed: [] }),
       this.modelAuthStatus(),
     ]);
-    const config = configPayload(configResult.value);
     const catalog = providerCatalogFromModels(modelsResult.ok ? modelsResult.value : {}, config);
     const providerConnections = catalog.map((provider) =>
       providerConnectionFromConnectionSources({
@@ -3748,13 +3886,36 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         now: this.now(),
       }),
     );
+    // Caller-supplied ids win (the explicit apply passes the set it saw), but the post-credential
+    // reconcile has no caller to ask, so it reads the connected set from the gateway itself.
+    const connectedProviders = new Set(
+      input.connectedProviderIds ??
+        providerConnections
+          .filter((connection) => connection.status === "connected")
+          .map((connection) => connection.providerId),
+    );
+
     const primaryModel = gatewayPrimaryModel(config);
-    const orchestratorModel = primaryModel ?? ASK_ADMIN_AGENT_MODEL;
-    const orchestratorProviderId = orchestratorProviderIdFromConnections({
+    const primaryProviderId = orchestratorProviderIdFromConnections({
       primaryModel,
       providerConnections,
     });
-    const connectedProviders = new Set(input.connectedProviderIds);
+    const primaryIsConnected =
+      primaryProviderId !== null && connectedProviders.has(primaryProviderId);
+    // Catalog order, not Set order: the fallback must be deterministic.
+    const fallbackProviderId =
+      providerConnections.find(
+        (connection) =>
+          connection.status === "connected" && connectedProviders.has(connection.providerId),
+      )?.providerId ?? null;
+
+    const orchestratorProviderId = primaryIsConnected ? primaryProviderId : fallbackProviderId;
+    const orchestratorModel =
+      primaryIsConnected && primaryModel !== null
+        ? primaryModel
+        : (orchestratorModelForProvider({ providerId: orchestratorProviderId, catalog, config }) ??
+          ASK_ADMIN_AGENT_MODEL);
+
     const subagents = connectedProviderSubagents({
       catalog,
       providerConnections,
@@ -3769,13 +3930,42 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       const id = stringValue(agent["id"]);
       return id !== ASK_ADMIN_AGENT_ID && id?.startsWith("subagent-") !== true;
     });
+
+    // Every config.patch RELOADS the gateway and drops the operator socket (the restart window that
+    // #172 is about). A reconcile that runs after every credential change must therefore be silent
+    // when it has nothing to say, or it doubles the reloads and re-opens that race for no reason.
+    const state = orchestratorDelegationState({
+      orchestratorModel,
+      orchestratorProviderId,
+      subagents,
+      now: this.now(),
+    });
+    if (
+      orchestratorConfigIsCurrent({
+        config,
+        orchestratorModel,
+        primaryModel,
+        subagents,
+      })
+    ) {
+      return ok(state);
+    }
+
+    // The rebuilt list can be SHORTER than the live one (a disconnect drops a subagent), and the
+    // gateway rejects a patch that removes array entries unless the path is declared a replacement.
     const patchParams = configPatchParams({
       configGetPayload: configResult.value,
       patch: {
         agents: {
+          // Move the primary only when it is wrong: it is what the gateway routes on, and rewriting
+          // it on every reconcile would fight the operator's own choice of main orchestrator.
+          ...(orchestratorModel === primaryModel
+            ? {}
+            : { defaults: { model: { primary: orchestratorModel } } }),
           list: [...existingAgents, ...agentConfig.agents.list],
         },
       },
+      replacePaths: ["agents.list"],
     });
     if (!patchParams.ok) {
       return err(patchParams.error);
@@ -3788,14 +3978,37 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(result.error);
     }
 
-    return ok(
-      orchestratorDelegationState({
-        orchestratorModel,
-        orchestratorProviderId,
-        subagents,
-        now: this.now(),
-      }),
-    );
+    return ok(state);
+  }
+
+  /**
+   * Reconcile after a credential change, without failing the change itself.
+   *
+   * The connect or disconnect already succeeded against the gateway; a reconcile that cannot run
+   * must not retroactively report that as a failure. It is logged loudly instead, because the
+   * consequence is real: the orchestrator is left pointing somewhere the operator did not choose.
+   */
+  private async reconcileOrchestratorAfterCredentialChange(context: {
+    readonly reason: string;
+    readonly providerId: string;
+  }): Promise<void> {
+    const reconciled = await this.reconcileOrchestrator({ repairOnly: true });
+    if (!reconciled.ok) {
+      console.warn("connections.orchestrator.reconcileFailed", {
+        reason: context.reason,
+        providerId: context.providerId,
+        code: reconciled.error.code,
+      });
+      return;
+    }
+
+    console.info("connections.orchestrator.reconciled", {
+      reason: context.reason,
+      providerId: context.providerId,
+      orchestratorProviderId: reconciled.value.orchestratorProviderId,
+      orchestratorModel: reconciled.value.orchestratorModel,
+      subagents: reconciled.value.allowAgents,
+    });
   }
 
   public async setMainOrchestrator(
@@ -4187,6 +4400,12 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     );
     if (connection.status === "connected") {
       await this.cleanupModelProviderFlow(flow);
+      // The device-code login onboards through the same gateway path as the api-key connect, so it
+      // moves the primary the same way and needs the same reconcile (#186).
+      await this.reconcileOrchestratorAfterCredentialChange({
+        reason: "deviceFlowConnect",
+        providerId: flow.providerId,
+      });
       return ok({
         status: "connected",
         message: `${flow.providerId} connected in Opzava Gateway.`,
