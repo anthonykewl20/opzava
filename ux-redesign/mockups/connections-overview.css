@@ -127,6 +127,81 @@
 .conn-table { width: 100%; }
 .conn-table td .dot { margin-right: 6px; }
 
+/* ── Check strip ───────────────────────────────────────────────────────────
+ * The panel's verdict, CENTRED, in its own band, sitting BETWEEN the warnings
+ * and the component grid. It gets a full row of its own rather than floating
+ * over the alert (which clipped the alert's text in the concept render).
+ *
+ * State-aware, and that is the whole point: this emblem is the fastest read on
+ * the panel, so it must never show a green tick while a component is broken or
+ * unknown. */
+.conn-check-strip {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-5);
+}
+.conn-check-emblem {
+  position: relative;
+  width: 72px; height: 72px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-full);
+}
+/* Concentric ring — the "scanner" read, without animating anything that would
+ * distract from an actual outage. */
+.conn-check-emblem::after {
+  content: ""; position: absolute; inset: -8px;
+  border-radius: var(--radius-full);
+  border: 1px solid currentColor; opacity: .25;
+}
+.conn-check-title { font-size: var(--text-lg); font-weight: var(--fw-semibold); }
+.conn-check-sub { margin-top: 2px; color: var(--fg-subtle); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); font-weight: var(--fw-semibold); }
+
+.conn-check-strip--healthy .conn-check-emblem { background: var(--success-soft); color: var(--success); }
+.conn-check-strip--healthy .conn-check-title { color: var(--success); }
+.conn-check-strip--attention .conn-check-emblem { background: var(--warning-soft); color: var(--warning); }
+.conn-check-strip--attention .conn-check-title { color: var(--warning); }
+.conn-check-strip--unknown .conn-check-emblem { background: var(--surface-3); color: var(--fg-subtle); }
+.conn-check-strip--unknown .conn-check-title { color: var(--fg-muted); }
+
+/* ── Component groups ──────────────────────────────────────────────────────
+ * Each category owns its OWN label and its OWN grid, so "Channels" and "Agents"
+ * cannot share a band and blur into each other (they did in the concept render).
+ * Explicit 1 / 2 / 4 breakpoints keep every card the same width across groups,
+ * even when a group holds only two. */
+.conn-comp-groups { display: flex; flex-direction: column; gap: var(--space-5); padding: 0 var(--space-5) var(--space-5); }
+.conn-comp-group-label { padding: 0 0 var(--space-3); }
+.conn-comp-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); }
+@media (max-width: 1240px) { .conn-comp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px)  { .conn-comp-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* One card per component. Status is carried by icon + colour + border, so it
+ * survives being read at a glance, in greyscale, or by someone colour-blind. */
+.conn-comp-card {
+  display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+}
+.conn-comp-name { font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg); }
+.conn-comp-status { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-base); font-weight: var(--fw-semibold); }
+.conn-comp-status svg { width: 18px; height: 18px; flex: none; }
+.conn-comp-detail { display: flex; flex-direction: column; gap: 2px; margin-top: auto; font-size: var(--text-xs); }
+.conn-comp-detail > div { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.conn-comp-detail dt { color: var(--fg-subtle); min-width: 0; }
+/* The value never wraps — "20s ago" breaking into "20s / ago" reads as damage.
+ * The label yields instead, since it is the more compressible half. */
+.conn-comp-detail dd { flex: none; color: var(--fg-muted); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+.conn-comp-card--healthy .conn-comp-status { color: var(--success); }
+.conn-comp-card--attention { border-color: var(--warning); background: var(--warning-soft); }
+.conn-comp-card--attention .conn-comp-status { color: var(--warning); }
+/* NOT CHECKED is a DASHED, grey card — visually "absent", not "failed". A red or
+ * amber card here would claim we observed a failure we never observed. */
+.conn-comp-card--unknown { border-style: dashed; background: none; }
+.conn-comp-card--unknown .conn-comp-name,
+.conn-comp-card--unknown .conn-comp-status { color: var(--fg-subtle); }
+
 /* Unprobed rows are GREY, never red. "We could not ask" is not "it is broken" —
  * conflating them is how a status page loses the user's trust. */
 .conn-not-checked { color: var(--fg-subtle); }

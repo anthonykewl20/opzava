@@ -312,16 +312,19 @@
 
           </div>
 
-          <!-- ══ PANEL 3 · SYSTEM STATUS ═══════════════════════════════════════
-               Absorbs the DELETED /connections/gateway route. Collapsible
-               sub-sections keep it from becoming the wall-of-text this redesign
-               exists to escape.
-               Every row maps to a real field from `health` / `status` /
-               `update.status` — all three already exist as Gateway RPCs.
+          <!-- ══ PANEL 3 · SYSTEM COMPONENTS OVERVIEW ══════════════════════════
+               Absorbs the DELETED /connections/gateway route.
+               Components are CARDS grouped by category (System Core / Channels /
+               Agents), not a flat table: at a glance you want to know WHICH KIND
+               of thing is unwell, and a 4-column table makes you read every row
+               to find out. Each group owns its own label and its own grid, so the
+               categories cannot blur into one band.
+               Every field maps to a real `health` / `status` / `update.status`
+               response — all three already exist as Gateway RPCs.
           ═══════════════════════════════════════════════════════════════════ -->
           <section class="card" aria-labelledby="sys-title">
             <div class="card-header">
-              <h2 class="card-title" id="sys-title">System Status</h2>
+              <h2 class="card-title" id="sys-title">System Components Overview</h2>
               <div class="u-row" style="gap:var(--space-2);">
                 <span class="sb-badge sb-badge--secondary u-tnum">OpenClaw v1.42.0</span>
                 <span class="sb-badge sb-badge--accent">Update available</span>
@@ -332,35 +335,109 @@
               <!-- modelPricing is a WARNING, never an attention component.
                    OpenClaw docs: pricing refresh failures "do not mean the Gateway
                    or channels are unhealthy." Crying wolf here would poison the
-                   whole hero. -->
+                   whole hero. Width-aligned with the grid below it. -->
               <div class="sb-alert sb-alert--warning conn-alert">
                 <span class="ico" aria-hidden="true">⚠</span>
                 <div class="sb-alert-title">Model pricing refresh failed</div>
                 <div class="sb-alert-desc">Cost estimates may be stale. This does not affect Gateway or channel health.</div>
               </div>
 
-              <details class="conn-section" open>
-                <summary class="conn-summary">
-                  <span class="conn-summary-chev" aria-hidden="true">›</span>
-                  <span class="conn-summary-title">Components</span>
-                  <span class="sb-badge sb-badge--success">8 healthy</span>
-                </summary>
-                <table class="table table-compact conn-table">
-                  <thead>
-                    <tr><th scope="col">Component</th><th scope="col">Status</th><th scope="col">Detail</th><th scope="col">Checked</th></tr>
-                  </thead>
-                  <tbody>
-                    <tr><td>Gateway</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Reachable</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Event loop</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle u-tnum">3 ms lag</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Plugins</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle u-tnum">12 loaded · 0 errors</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Context engines</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">0 quarantined</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Channel · WhatsApp</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Linked</td><td class="u-subtle">20s ago</td></tr>
-                    <tr><td>Channel · Telegram</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Linked</td><td class="u-subtle">20s ago</td></tr>
-                    <tr><td>Agent · ask-admin-opzava</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Heartbeat 5s ago</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Agent · subagent-openai</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Heartbeat 5s ago</td><td class="u-subtle">now</td></tr>
-                  </tbody>
-                </table>
-              </details>
+              <!-- The panel's verdict, CENTRED, between the warnings and the grid.
+                   It gets its own band — in the concept render it floated over the
+                   alert and clipped its text.
+                   State-aware: this emblem must never show a green tick while a
+                   component is broken or unknown. -->
+              <div class="conn-check-strip conn-check-strip--healthy">
+                <span class="conn-check-emblem" aria-hidden="true">
+                  <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2.5 4.5 5.5v5.2c0 4.6 3.2 8.4 7.5 9.8 4.3-1.4 7.5-5.2 7.5-9.8V5.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                    <path d="m8.6 11.9 2.4 2.4 4.4-4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+                <div>
+                  <p class="conn-check-title">All 8 components healthy</p>
+                  <p class="conn-check-sub">Component check complete · 30s ago</p>
+                </div>
+              </div>
+
+              <div class="conn-comp-groups">
+
+                <div class="conn-comp-group">
+                  <div class="section-label conn-comp-group-label">System Core</div>
+                  <div class="conn-comp-grid">
+                    <div class="conn-comp-card conn-comp-card--healthy">
+                      <p class="conn-comp-name">Gateway</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="m6.6 10.2 2.2 2.2 4.6-4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Healthy</p>
+                      <dl class="conn-comp-detail">
+                        <div><dt>Reachable</dt><dd>now</dd></div>
+                      </dl>
+                    </div>
+                    <div class="conn-comp-card conn-comp-card--healthy">
+                      <p class="conn-comp-name">Event loop</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="m6.6 10.2 2.2 2.2 4.6-4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Healthy</p>
+                      <dl class="conn-comp-detail">
+                        <div><dt>Lag</dt><dd>3 ms</dd></div>
+                      </dl>
+                    </div>
+                    <div class="conn-comp-card conn-comp-card--healthy">
+                      <p class="conn-comp-name">Plugins</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="m6.6 10.2 2.2 2.2 4.6-4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Healthy</p>
+                      <dl class="conn-comp-detail">
+                        <div><dt>Loaded</dt><dd>12</dd></div>
+                        <div><dt>Errors</dt><dd>0</dd></div>
+                      </dl>
+                    </div>
+                    <div class="conn-comp-card conn-comp-card--healthy">
+                      <p class="conn-comp-name">Context engines</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="m6.6 10.2 2.2 2.2 4.6-4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Healthy</p>
+                      <dl class="conn-comp-detail">
+                        <div><dt>Quarantined</dt><dd>0</dd></div>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="conn-comp-group">
+                  <div class="section-label conn-comp-group-label">Channels</div>
+                  <div class="conn-comp-grid">
+                    <div class="conn-comp-card conn-comp-card--healthy">
+                      <p class="conn-comp-name">WhatsApp</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="m6.6 10.2 2.2 2.2 4.6-4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Healthy</p>
+                      <dl class="conn-comp-detail">
+                        <div><dt>Linked</dt><dd>20s ago</dd></div>
+                      </dl>
+                    </div>
+                    <div class="conn-comp-card conn-comp-card--healthy">
+                      <p class="conn-comp-name">Telegram</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="m6.6 10.2 2.2 2.2 4.6-4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Healthy</p>
+                      <dl class="conn-comp-detail">
+                        <div><dt>Linked</dt><dd>20s ago</dd></div>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="conn-comp-group">
+                  <div class="section-label conn-comp-group-label">Agents</div>
+                  <div class="conn-comp-grid">
+                    <div class="conn-comp-card conn-comp-card--healthy">
+                      <p class="conn-comp-name">ask-admin-opzava</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="m6.6 10.2 2.2 2.2 4.6-4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Healthy</p>
+                      <dl class="conn-comp-detail">
+                        <div><dt>Heartbeat</dt><dd>5s ago</dd></div>
+                      </dl>
+                    </div>
+                    <div class="conn-comp-card conn-comp-card--healthy">
+                      <p class="conn-comp-name">subagent-openai</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="m6.6 10.2 2.2 2.2 4.6-4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Healthy</p>
+                      <dl class="conn-comp-detail">
+                        <div><dt>Heartbeat</dt><dd>5s ago</dd></div>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
 
               <details class="conn-section">
                 <summary class="conn-summary">

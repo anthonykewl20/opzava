@@ -303,7 +303,7 @@
           <!-- ══ PANEL 3 · SYSTEM STATUS (all not checked) ═════════════════════ -->
           <section class="card" aria-labelledby="sys-title">
             <div class="card-header">
-              <h2 class="card-title" id="sys-title">System Status</h2>
+              <h2 class="card-title" id="sys-title">System Components Overview</h2>
               <span class="sb-badge sb-badge--outline">Not checked</span>
             </div>
             <div class="card-body" style="padding:0;">
@@ -317,28 +317,83 @@
                 </div>
               </div>
 
-              <details class="conn-section" open>
-                <summary class="conn-summary">
-                  <span class="conn-summary-chev" aria-hidden="true">›</span>
-                  <span class="conn-summary-title">Components</span>
-                  <span class="sb-badge sb-badge--outline">8 not checked</span>
-                </summary>
-                <table class="table table-compact conn-table">
-                  <thead>
-                    <tr><th scope="col">Component</th><th scope="col">Status</th><th scope="col">Detail</th><th scope="col">Checked</th></tr>
-                  </thead>
-                  <tbody>
-                    <tr class="conn-not-checked"><td>Gateway</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">Unreachable</td><td class="u-subtle">4m ago</td></tr>
-                    <tr class="conn-not-checked"><td>Event loop</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
-                    <tr class="conn-not-checked"><td>Plugins</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
-                    <tr class="conn-not-checked"><td>Context engines</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
-                    <tr class="conn-not-checked"><td>Channel · WhatsApp</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
-                    <tr class="conn-not-checked"><td>Channel · Telegram</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
-                    <tr class="conn-not-checked"><td>Agent · ask-admin-opzava</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
-                    <tr class="conn-not-checked"><td>Agent · subagent-openai</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
-                  </tbody>
-                </table>
-              </details>
+              <!-- Emblem is GREY with a question mark — not a red cross. We are not
+                   reporting eight failures; we are reporting eight unknowns. -->
+              <div class="conn-check-strip conn-check-strip--unknown">
+                <span class="conn-check-emblem" aria-hidden="true">
+                  <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2.5 4.5 5.5v5.2c0 4.6 3.2 8.4 7.5 9.8 4.3-1.4 7.5-5.2 7.5-9.8V5.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-dasharray="3 2.5"/>
+                    <path d="M10.1 9.6a2 2 0 1 1 2.6 1.9c-.5.2-.7.6-.7 1.1v.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                    <circle cx="12" cy="15.8" r="1" fill="currentColor"/>
+                  </svg>
+                </span>
+                <div>
+                  <p class="conn-check-title">Component health unknown</p>
+                  <p class="conn-check-sub">Check could not run · last complete 4m ago</p>
+                </div>
+              </div>
+
+              <div class="conn-comp-groups">
+
+                <div class="conn-comp-group">
+                  <div class="section-label conn-comp-group-label">System Core</div>
+                  <div class="conn-comp-grid">
+                    <div class="conn-comp-card conn-comp-card--unknown">
+                      <p class="conn-comp-name">Gateway</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
+                      <dl class="conn-comp-detail"><div><dt>Unreachable</dt><dd>4m ago</dd></div></dl>
+                    </div>
+                    <div class="conn-comp-card conn-comp-card--unknown">
+                      <p class="conn-comp-name">Event loop</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
+                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
+                    </div>
+                    <div class="conn-comp-card conn-comp-card--unknown">
+                      <p class="conn-comp-name">Plugins</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
+                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
+                    </div>
+                    <div class="conn-comp-card conn-comp-card--unknown">
+                      <p class="conn-comp-name">Context engines</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
+                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="conn-comp-group">
+                  <div class="section-label conn-comp-group-label">Channels</div>
+                  <div class="conn-comp-grid">
+                    <div class="conn-comp-card conn-comp-card--unknown">
+                      <p class="conn-comp-name">WhatsApp</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
+                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
+                    </div>
+                    <div class="conn-comp-card conn-comp-card--unknown">
+                      <p class="conn-comp-name">Telegram</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
+                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="conn-comp-group">
+                  <div class="section-label conn-comp-group-label">Agents</div>
+                  <div class="conn-comp-grid">
+                    <div class="conn-comp-card conn-comp-card--unknown">
+                      <p class="conn-comp-name">ask-admin-opzava</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
+                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
+                    </div>
+                    <div class="conn-comp-card conn-comp-card--unknown">
+                      <p class="conn-comp-name">subagent-openai</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
+                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
 
               <details class="conn-section">
                 <summary class="conn-summary">

@@ -65,7 +65,7 @@ Four panels:
 
 1. **Hero** (full width) - rollup headline, dual-segment bar (green healthy / amber attention / grey not-checked), `Checked Ns ago`.
 2. **Three-column grid**, equal heights - Opzava Gateway | Model Providers | Third-Party Integrations.
-3. **System Status** (full width, NEW) - collapsible sub-sections carrying everything from `health` + `status`.
+3. **System Components Overview** (full width, NEW) - warning banners, a state-aware check emblem, a component status **grid** (System Core / Channels / Agents), and low-priority accordions (Sessions / Gateway detail / Runtime).
 
 ### Cards
 
@@ -81,11 +81,36 @@ Four panels:
 - The faint logo row is **catalog-driven** and suppressed below 2 real integrations. Today only GitHub is real, so it does not render. It appears automatically the day a second integration ships.
 - This honors locked IA decision #7 (*"only integrations that actually work... no coming-soon vaporware"*). Painting Slack and Google logos promises something `Add Integration` cannot deliver.
 
-### System Status panel
+### System Components Overview panel
 
-Collapsible sub-sections - the panel carries a lot (components, channels, agents, sessions, auth, catalog, region, hosts, uptime, `runtimeVersion`, update-available) and must not become the wall-of-text this redesign exists to escape.
+Not a table. Components render as a **status grid** grouped into micro-categories - **System Core**, **Channels**, **Agents** - because the first question in an outage is *which kind of thing is unwell*, and a flat 4-column table makes you read every row to find out. Each category owns its own label and its own grid, so the groups cannot blur into a single band.
 
-Unprobed rows read **`not checked`**, greyed. `modelPricing` renders as a warning chip.
+Order inside the panel:
+
+1. **Warning banners** (e.g. `modelPricing`), width-aligned with the grid below.
+2. **Check emblem** - centred, between the warnings and the grid. State-aware.
+3. **Component grid** - `1 / 2 / 4` columns responsive.
+4. **Accordions** - `Sessions`, `Gateway detail`, `Runtime`: low-priority, full-width, counts and muted actions right-aligned.
+
+**The emblem is state-aware, and that is the whole point of it.** It is the fastest read on the panel, so it must never show a green tick while a component is broken or unknown:
+
+| State | Emblem | Headline |
+| --- | --- | --- |
+| all healthy | green shield + check | "All 8 components healthy" |
+| any attention | **amber** shield + `!` | "1 component needs attention" |
+| unreachable | **grey dashed** shield + `?` | "Component health unknown" |
+
+**Component card states** carry status in icon + colour + border, so they survive being read at a glance, in greyscale, or by someone colour-blind:
+
+| State | Card |
+| --- | --- |
+| `healthy` | default border, green check icon + green "Healthy" |
+| `attention` | **amber border + amber wash**, warning icon |
+| `not_checked` | **dashed border, no fill**, grey - visually *absent*, not *failed*. An amber or red card here would claim we observed a failure we never observed. |
+
+Telemetry (`Lag 3 ms`, `Loaded 12 / Errors 0`, `Heartbeat 5s ago`) sits at the bottom of each card in `text-xs` muted, pinned by `margin-top: auto` so the cards align. Values never wrap - "20s ago" breaking into "20s / ago" reads as damage - the label yields instead.
+
+`modelPricing` renders as a warning banner, never as an attention component.
 
 ## Freshness
 
