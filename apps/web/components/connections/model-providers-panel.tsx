@@ -8,11 +8,13 @@ import type {
   DeviceFlowChallenge,
   ModelProviderApiKeyConnectStart,
   ModelProviderAuthChoice,
+  ModelProviderDisconnectStart,
   OrchestratorDelegationState,
   ProviderConnectionState,
 } from "@opzava/ports";
 
 import { ApiKeyConnectPoller } from "@/components/connections/api-key-connect-poller";
+import { DisconnectPoller } from "@/components/connections/disconnect-poller";
 import { DeviceFlowPoller } from "@/components/connections/device-flow-poller";
 import { SetupTokenConnect } from "@/components/connections/setup-token-connect";
 import {
@@ -475,10 +477,13 @@ function DisconnectConfirm({
   );
 }
 
+// The disconnect itself runs in the worker and outlives the request that starts it, so the dialog
+// only ever holds an opId and samples it. There is no synchronous disconnect to fall back to: it
+// paces one gateway logout per agent and would time out for any tenant with 3+ agents (#168).
 type DisconnectPhase =
   | { readonly step: "idle" }
-  | { readonly step: "pending" }
-  | { readonly step: "verifying" }
+  | { readonly step: "starting" }
+  | { readonly step: "polling"; readonly opId: string }
   | { readonly step: "failed"; readonly message: string; readonly code: string | null };
 
 function DisconnectConfirmForm({
@@ -493,32 +498,38 @@ function DisconnectConfirmForm({
   readonly onSuccess: () => void;
 }) {
   const [phase, setPhase] = useState<DisconnectPhase>({ step: "idle" });
-  const isPending = phase.step === "pending" || phase.step === "verifying";
+  const isPending = phase.step === "starting" || phase.step === "polling";
 
   const runDisconnect = useCallback(async () => {
-    const disconnectOnce = () =>
-      postConnectionsMutation<ProviderConnectionState>("/api/connections/model/disconnect", {
-        providerId: provider.connectionProviderId,
-      });
-
-    setPhase({ step: "pending" });
+    setPhase({ step: "starting" });
     onPendingChange(true);
-    let result = await disconnectOnce();
-    if (!result.ok && (result.kind === "timeout" || result.kind === "network")) {
-      // Sad path: the request died in flight but the disconnect may still have completed
-      // server-side. Disconnect is idempotent, so ONE verify retry converges to the truth
-      // (already-disconnected re-runs return the disconnected state).
-      setPhase({ step: "verifying" });
-      result = await disconnectOnce();
-    }
-    onPendingChange(false);
-    if (result.ok) {
-      setPhase({ step: "idle" });
-      onSuccess();
+
+    const started = await postConnectionsMutation<ModelProviderDisconnectStart>(
+      "/api/connections/model/disconnect",
+      { providerId: provider.connectionProviderId },
+    );
+    if (!started.ok) {
+      onPendingChange(false);
+      setPhase({ step: "failed", message: started.message, code: started.code });
       return;
     }
-    setPhase({ step: "failed", message: result.message, code: result.code });
-  }, [onPendingChange, onSuccess, provider.connectionProviderId]);
+
+    setPhase({ step: "polling", opId: started.data.opId });
+  }, [onPendingChange, provider.connectionProviderId]);
+
+  const handleDisconnected = useCallback(() => {
+    onPendingChange(false);
+    setPhase({ step: "idle" });
+    onSuccess();
+  }, [onPendingChange, onSuccess]);
+
+  const handleFailed = useCallback(
+    (message: string, code: string | null) => {
+      onPendingChange(false);
+      setPhase({ step: "failed", message, code });
+    },
+    [onPendingChange],
+  );
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -540,10 +551,13 @@ function DisconnectConfirmForm({
           requires re-authenticating this provider. This can&apos;t be undone from here.
         </AlertDialogDescription>
       </AlertDialogHeader>
-      {phase.step === "verifying" ? (
-        <DialogNotice tone="neutral" role="status" title="Verifying disconnect">
-          The first attempt did not answer in time; confirming the provider state with the gateway.
-        </DialogNotice>
+      {phase.step === "polling" ? (
+        <DisconnectPoller
+          opId={phase.opId}
+          providerLabel={provider.label}
+          onDisconnected={handleDisconnected}
+          onFailed={handleFailed}
+        />
       ) : null}
       {phase.step === "failed" ? (
         <MutationErrorNotice failure={phase} title="Disconnect failed" />

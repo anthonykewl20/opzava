@@ -23,6 +23,8 @@ import {
   type GitHubConnectionState,
   type ModelProviderApiKeyConnectPollState,
   type ModelProviderApiKeyConnectStart,
+  type ModelProviderDisconnectPollState,
+  type ModelProviderDisconnectStart,
   listCanonicalLlmProviderIds,
   type ModelSummary,
   type ModelProviderAuthChoice,
@@ -30,6 +32,7 @@ import {
   type OrchestratorDelegationState,
   type OrchestratorSubagentRole,
   type PollModelProviderApiKeyConnectInput,
+  type PollModelProviderDisconnectInput,
   type PollModelProviderSetupTokenFlowInput,
   type ProviderAuthHealth,
   type ProviderConnectionState,
@@ -45,12 +48,7 @@ import {
   type OpenClawOperatorScope,
   type OpenClawAdminRpcPort,
 } from "@opzava/ports";
-import {
-  DomainError,
-  err,
-  ok,
-  type Result,
-} from "@opzava/shared-kernel";
+import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import {
   ASK_ADMIN_AGENT_ID,
@@ -130,6 +128,16 @@ interface PendingModelProviderApiKeyConnect {
   outcome?: ModelProviderApiKeyConnectPollState;
 }
 
+interface PendingModelProviderDisconnect {
+  readonly opId: string;
+  readonly orgId: string;
+  readonly providerId: string;
+  readonly startedAt: Date;
+  readonly expiresAt: Date;
+  readonly timeout: ReturnType<typeof setTimeout>;
+  outcome?: ModelProviderDisconnectPollState;
+}
+
 interface PendingModelProviderSetupTokenFlow {
   readonly flowId: string;
   readonly orgId: string;
@@ -159,9 +167,15 @@ const setupTokenCodeExchangeTimeoutMs = 30_000;
 const modelApiKeyPostCheckMaxWaitMs = 30 * 1000;
 const modelApiKeyPostCheckDelayMs = 500;
 const disconnectTransientMaxAttempts = 3;
+// Budget for UNPLANNED waits only (rate-limit backoff, closed-before-response, post-check retries).
+// The deliberate inter-logout pacing below is planned work and must NOT be charged against it —
+// doing so made any tenant with 8+ agents fail with disconnectRetryExhausted (#168).
 const disconnectTransientMaxTotalWaitMs = 150_000;
 const disconnectAuthLogoutInterCallDelayMs = 20_000;
 const disconnectAuthLogoutUnpacedLimit = 3;
+// The paced logouts run 60-120s+, so the operation is polled rather than awaited in one request.
+// Keep the worker's TTL above the browser's poll window so a slow disconnect still lands.
+const modelProviderDisconnectExpiresMs = 15 * 60 * 1000;
 const disconnectClosedBeforeResponseRetryDelayMs = 500;
 const disconnectPostCheckRetryDelayMs = 1_000;
 
@@ -313,7 +327,6 @@ function deviceCodeLogReadError(providerId: string): DomainError {
     { providerId },
   );
 }
-
 
 function splitScope(value: unknown): readonly string[] {
   if (typeof value === "string") {
@@ -927,8 +940,6 @@ function orchestratorDelegationState(input: {
 function receiptId(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 24);
 }
-
-
 
 class VaultBackedOpenClawAdminRpcClient implements OpenClawAdminRpcPort {
   private readonly logger: OpenClawAdminLogger;
@@ -1744,7 +1755,6 @@ function disconnectedProviderState(input: {
   };
 }
 
-
 function githubTokenScopes(value: unknown): readonly string[] {
   return splitScope(value);
 }
@@ -1896,6 +1906,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private readonly modelDeviceFlows = new Map<string, PendingModelProviderDeviceFlow>();
   private readonly modelApiKeyConnects = new Map<string, PendingModelProviderApiKeyConnect>();
   private readonly modelSetupTokenFlows = new Map<string, PendingModelProviderSetupTokenFlow>();
+  private readonly modelProviderDisconnects = new Map<string, PendingModelProviderDisconnect>();
 
   public constructor(private readonly options: GatewayAdminConnectionsOptions) {
     this.fetchImpl = options.fetch ?? fetch;
@@ -2383,7 +2394,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       await this.cleanupSetupTokenFlow(flow);
       return ok({
         status: "failed",
-        message: "Claude did not accept the authorization code. Copy a fresh code from Claude and retry.",
+        message:
+          "Claude did not accept the authorization code. Copy a fresh code from Claude and retry.",
         code: "provisioning.connections.setupTokenLoginFailed",
       });
     }
@@ -2763,6 +2775,93 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     });
   }
 
+  /**
+   * Begin a disconnect and return immediately. The work itself takes 60-120s+ for a tenant with
+   * several agents (one paced `models.authLogout` per agent against the gateway's 3-writes-per-60s
+   * cap), which no HTTP client will wait for — so callers poll {@link pollModelProviderDisconnect}
+   * instead of holding the request open. Same start-then-poll shape as the api-key connect flow.
+   */
+  public async startModelProviderDisconnect(
+    input: DisconnectModelProviderInput,
+  ): Promise<Result<ModelProviderDisconnectStart>> {
+    const opId = `model-disconnect:${randomUUID()}`;
+    const op: PendingModelProviderDisconnect = {
+      opId,
+      orgId: input.orgId,
+      providerId: input.providerId,
+      startedAt: this.now(),
+      expiresAt: new Date(this.now().getTime() + modelProviderDisconnectExpiresMs),
+      timeout: setTimeout(() => {
+        this.modelProviderDisconnects.delete(opId);
+      }, modelProviderDisconnectExpiresMs),
+    };
+    this.modelProviderDisconnects.set(opId, op);
+    void this.runModelProviderDisconnect({ op, input });
+
+    return ok({ opId, status: "pending" });
+  }
+
+  public async pollModelProviderDisconnect(
+    input: PollModelProviderDisconnectInput,
+  ): Promise<Result<ModelProviderDisconnectPollState>> {
+    const op = this.modelProviderDisconnects.get(input.opId);
+    if (op === undefined || op.orgId !== input.orgId) {
+      return err(
+        provisioningError(
+          "provisioning.connections.disconnectNotFound",
+          "Disconnect operation was not found.",
+        ),
+      );
+    }
+
+    if (this.now().getTime() >= op.expiresAt.getTime()) {
+      this.modelProviderDisconnects.delete(op.opId);
+      clearTimeout(op.timeout);
+      return ok({
+        status: "expired",
+        message: "Disconnect operation expired.",
+        code: "provisioning.connections.disconnectExpired",
+      });
+    }
+
+    if (op.outcome === undefined) {
+      return ok({ status: "pending" });
+    }
+
+    this.modelProviderDisconnects.delete(op.opId);
+    clearTimeout(op.timeout);
+    return ok(op.outcome);
+  }
+
+  private async runModelProviderDisconnect(input: {
+    readonly op: PendingModelProviderDisconnect;
+    readonly input: DisconnectModelProviderInput;
+  }): Promise<void> {
+    const { op } = input;
+    // The disconnect is the unit of work; it outlives the request that started it. A throw here
+    // would otherwise be an unhandled rejection that leaves the op pending until it expires.
+    try {
+      const result = await this.disconnectModelProvider(input.input);
+      op.outcome = result.ok
+        ? { status: "disconnected", connection: result.value }
+        : {
+            status: "failed",
+            message: result.error.message,
+            ...(result.error.code === undefined ? {} : { code: result.error.code }),
+          };
+    } catch (error) {
+      console.error("connections.modelProviderDisconnect.unhandled", {
+        providerId: op.providerId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      op.outcome = {
+        status: "failed",
+        message: "Disconnect failed unexpectedly in the provisioning worker.",
+        code: "provisioning.connections.disconnectFailed",
+      };
+    }
+  }
+
   public async disconnectModelProvider(
     input: DisconnectModelProviderInput,
   ): Promise<Result<ProviderConnectionState>> {
@@ -2805,18 +2904,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     const logoutResults: Record<string, unknown>[] = [];
     const paceAuthLogout = logoutParams.length > disconnectAuthLogoutUnpacedLimit;
     for (const [index, params] of logoutParams.entries()) {
-      if (
-        paceAuthLogout &&
-        index > 0 &&
-        !(await waitForDisconnectTransient(disconnectAuthLogoutInterCallDelayMs))
-      ) {
-        return err(
-          provisioningError(
-            "provisioning.connections.disconnectRetryExhausted",
-            "Disconnect retry wait budget was exhausted before all provider logout targets were attempted.",
-            { providerId: input.providerId },
-          ),
-        );
+      // Planned pacing, not a retry: the gateway caps control-plane writes at 3 per 60s, so each
+      // extra logout target has to be spaced out. Charging this to the transient budget capped the
+      // whole disconnect at 150s and hard-failed tenants with 8+ agents (#168).
+      if (paceAuthLogout && index > 0) {
+        await sleep(disconnectAuthLogoutInterCallDelayMs);
       }
       // No secret material is sent here. Let the gateway authoritatively accept or reject this
       // mutation so a disconnect cannot be hidden by the client's cached scope preflight.
@@ -3097,9 +3189,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         now: this.now(),
       }),
     );
-    const connection = providerConnections.find(
-      (entry) => entry.providerId === input.providerId,
-    );
+    const connection = providerConnections.find((entry) => entry.providerId === input.providerId);
     if (connection?.status !== "connected") {
       return err(
         provisioningError(
@@ -3682,13 +3772,17 @@ export class UnavailableConnectionsProvisioningPort implements ConnectionsProvis
     return err(this.error());
   }
 
-  public async disconnectModelProvider(
+  public async startModelProviderDisconnect(
     input: DisconnectModelProviderInput,
-  ): Promise<Result<ProviderConnectionState>> {
+  ): Promise<Result<ModelProviderDisconnectStart>> {
     console.warn("connections.modelProviderDisconnect.unavailable", {
       providerId: input.providerId,
       reason: this.reason,
     });
+    return err(this.error());
+  }
+
+  public async pollModelProviderDisconnect(): Promise<Result<ModelProviderDisconnectPollState>> {
     return err(this.error());
   }
 

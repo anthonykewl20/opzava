@@ -7,6 +7,8 @@ import type {
   GitHubConnectionState,
   ModelProviderApiKeyConnectPollState,
   ModelProviderApiKeyConnectStart,
+  ModelProviderDisconnectPollState,
+  ModelProviderDisconnectStart,
   OrchestratorDelegationState,
   ProviderConnectionState,
   SetupTokenFlowPollState,
@@ -211,7 +213,11 @@ class UnavailableConnectionsProvisioningPort implements ConnectionsProvisioningP
     return err(this.error());
   }
 
-  public async disconnectModelProvider(): Promise<Result<ProviderConnectionState>> {
+  public async startModelProviderDisconnect(): Promise<Result<ModelProviderDisconnectStart>> {
+    return err(this.error());
+  }
+
+  public async pollModelProviderDisconnect(): Promise<Result<ModelProviderDisconnectPollState>> {
     return err(this.error());
   }
 
@@ -313,14 +319,26 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
     return this.request<DeviceFlowPollState>("/internal/connections/device-flow/poll", input);
   }
 
-  public async disconnectModelProvider(input: {
+  public async startModelProviderDisconnect(input: {
     readonly orgId: string;
     readonly workspaceId: string;
     readonly actorUserId: string;
     readonly roleKeys: readonly string[];
     readonly providerId: string;
-  }): Promise<Result<ProviderConnectionState>> {
-    return this.request<ProviderConnectionState>("/internal/connections/model/disconnect", input);
+  }): Promise<Result<ModelProviderDisconnectStart>> {
+    return this.request<ModelProviderDisconnectStart>(
+      "/internal/connections/model/disconnect",
+      input,
+    );
+  }
+
+  public async pollModelProviderDisconnect(
+    input: ConnectionProvisioningPrincipal & { readonly opId: string },
+  ): Promise<Result<ModelProviderDisconnectPollState>> {
+    return this.request<ModelProviderDisconnectPollState>(
+      "/internal/connections/model/disconnect/poll",
+      input,
+    );
   }
 
   public async applyOrchestratorDelegation(input: {
@@ -605,18 +623,33 @@ export async function pollConnectionDeviceFlowForContext(
   });
 }
 
-export async function disconnectModelProviderForContext(
+export async function startModelProviderDisconnectForContext(
   input: { readonly context: AppSessionContext; readonly providerId: string },
   dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
-): Promise<Result<ProviderConnectionState>> {
+): Promise<Result<ModelProviderDisconnectStart>> {
   const allowed = requireConnectionMutationRole(input.context);
   if (!allowed.ok) {
     return err(allowed.error);
   }
 
-  return dependencies.provisioningPort.disconnectModelProvider({
+  return dependencies.provisioningPort.startModelProviderDisconnect({
     ...principalFromContext(input.context),
     providerId: input.providerId,
+  });
+}
+
+export async function pollModelProviderDisconnectForContext(
+  input: { readonly context: AppSessionContext; readonly opId: string },
+  dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
+): Promise<Result<ModelProviderDisconnectPollState>> {
+  const allowed = requireConnectionMutationRole(input.context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
+  return dependencies.provisioningPort.pollModelProviderDisconnect({
+    ...principalFromContext(input.context),
+    opId: input.opId,
   });
 }
 
