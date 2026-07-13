@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { pollConnectionDeviceFlowForContext } from "@/lib/connections";
+import { connectionsMutationErrorResponse } from "@/lib/connections-route-errors";
 import { getAppSessionContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -12,12 +13,18 @@ interface PollBody {
 export async function POST(request: Request): Promise<NextResponse> {
   const context = await getAppSessionContext();
   if (context === null) {
-    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { message: "Unauthorized", code: "web.unauthorized" },
+      { status: 401 },
+    );
   }
 
-  const body = (await request.json()) as PollBody;
-  if (typeof body.flowId !== "string" || body.flowId.trim() === "") {
-    return NextResponse.json({ message: "flowId is required" }, { status: 400 });
+  const body = (await request.json().catch(() => null)) as PollBody | null;
+  if (body === null || typeof body.flowId !== "string" || body.flowId.trim() === "") {
+    return NextResponse.json(
+      { message: "flowId is required", code: "web.invalidRequest" },
+      { status: 400 },
+    );
   }
 
   const result = await pollConnectionDeviceFlowForContext({
@@ -25,10 +32,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     flowId: body.flowId,
   });
   if (!result.ok) {
-    return NextResponse.json(
-      { message: result.error.message, code: result.error.code },
-      { status: 502 },
-    );
+    return connectionsMutationErrorResponse(result.error);
   }
 
   return NextResponse.json(result.value);

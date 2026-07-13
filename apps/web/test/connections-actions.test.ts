@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   getAppSessionContext: vi.fn(),
   startModelProviderSetupTokenFlowForContext: vi.fn(),
   submitModelProviderSetupTokenCodeForContext: vi.fn(),
+  pollConnectionDeviceFlowForContext: vi.fn(),
 }));
 
 vi.mock("@/lib/session", () => ({
@@ -30,6 +31,7 @@ vi.mock("@/lib/connections", () => ({
   pollModelProviderSetupTokenFlowForContext: mocks.pollModelProviderSetupTokenFlowForContext,
   startModelProviderSetupTokenFlowForContext: mocks.startModelProviderSetupTokenFlowForContext,
   submitModelProviderSetupTokenCodeForContext: mocks.submitModelProviderSetupTokenCodeForContext,
+  pollConnectionDeviceFlowForContext: mocks.pollConnectionDeviceFlowForContext,
 }));
 
 function disconnectRequest(body: unknown): Request {
@@ -122,6 +124,85 @@ describe("connections model disconnect route", () => {
     await expect(failed.json()).resolves.toMatchObject({
       code: "provisioning.connections.providerStillConnected",
     });
+  });
+});
+
+describe("connections device-flow poll route", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("polls the device flow through the provisioning port", async () => {
+    const { POST } = await import("../app/api/connections/device-flow/route");
+    mocks.getAppSessionContext.mockResolvedValueOnce(context);
+    mocks.pollConnectionDeviceFlowForContext.mockResolvedValueOnce({
+      ok: true,
+      value: { status: "pending" },
+    });
+
+    const response = await POST(
+      routeRequest("/api/connections/device-flow", { flowId: "model:flow-1" }),
+    );
+
+    expect(mocks.pollConnectionDeviceFlowForContext).toHaveBeenCalledWith({
+      context,
+      flowId: "model:flow-1",
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ status: "pending" });
+  });
+
+  // #159: this handler was the one of eight that hand-rolled its error prologue instead of calling
+  // connectionsMutationErrorResponse, so an RBAC denial — which pollConnectionDeviceFlowForContext
+  // really does raise — went out as 502 "gateway failure" rather than the 403 the browser client's
+  // contract (lib/connections-route-errors.ts) says a role denial owes.
+  it("maps a role denial to 403, not the 502 it owes a gateway failure", async () => {
+    const { POST } = await import("../app/api/connections/device-flow/route");
+    mocks.getAppSessionContext.mockResolvedValue(context);
+    mocks.pollConnectionDeviceFlowForContext.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "web.connectionsForbidden", message: "Admins only." },
+    });
+
+    const forbidden = await POST(
+      routeRequest("/api/connections/device-flow", { flowId: "model:flow-1" }),
+    );
+    expect(forbidden.status).toBe(403);
+    await expect(forbidden.json()).resolves.toMatchObject({ code: "web.connectionsForbidden" });
+
+    mocks.pollConnectionDeviceFlowForContext.mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: "provisioning.connections.deviceFlowLogUnavailable",
+        message: "Gateway device-code log could not be read.",
+      },
+    });
+    const failed = await POST(
+      routeRequest("/api/connections/device-flow", { flowId: "model:flow-1" }),
+    );
+    expect(failed.status).toBe(502);
+    await expect(failed.json()).resolves.toMatchObject({
+      code: "provisioning.connections.deviceFlowLogUnavailable",
+    });
+  });
+
+  it("returns 401 with the shared unauthorized code, 400 for a missing flowId and malformed JSON", async () => {
+    const { POST } = await import("../app/api/connections/device-flow/route");
+    mocks.getAppSessionContext.mockResolvedValueOnce(null);
+
+    const unauthorized = await POST(
+      routeRequest("/api/connections/device-flow", { flowId: "model:flow-1" }),
+    );
+    expect(unauthorized.status).toBe(401);
+    await expect(unauthorized.json()).resolves.toMatchObject({ code: "web.unauthorized" });
+
+    mocks.getAppSessionContext.mockResolvedValue(context);
+    const missing = await POST(routeRequest("/api/connections/device-flow", {}));
+    expect(missing.status).toBe(400);
+
+    const malformed = await POST(routeRequest("/api/connections/device-flow", "{not json"));
+    expect(malformed.status).toBe(400);
+    expect(mocks.pollConnectionDeviceFlowForContext).not.toHaveBeenCalled();
   });
 });
 
