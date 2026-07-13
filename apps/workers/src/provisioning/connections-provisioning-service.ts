@@ -178,6 +178,14 @@ const disconnectAuthLogoutUnpacedLimit = 4;
 const modelProviderDisconnectExpiresMs = 15 * 60 * 1000;
 const disconnectClosedBeforeResponseRetryDelayMs = 500;
 const disconnectPostCheckRetryDelayMs = 1_000;
+const disconnectGatewayReadyRetryDelayMs = 1_000;
+// A status read taken while the gateway is reloading reports the credential we just removed. Give
+// those reads a few chances to converge on the durable store before calling the disconnect failed:
+// a credential that genuinely survived keeps reporting forever, so it still fails closed (#172).
+const disconnectStaleStatusMaxAttempts = 3;
+// The only store that persists a credential. The other two are live reads of a running gateway, so
+// they can be stale; this one cannot.
+const durableCredentialStore = "config.auth.profiles";
 
 function provisioningError(
   code: string,
@@ -1899,8 +1907,11 @@ function providerStillHasCredentials(input: {
   const idMatchedSurvives = input.providerIds.some(
     (providerId) => configCredentialProfileIdsForProvider(input.config, providerId).length > 0,
   );
-  if ((survivingProfileIds.length > 0 || idMatchedSurvives) && !stores.includes("config.auth.profiles")) {
-    stores.push("config.auth.profiles");
+  if (
+    (survivingProfileIds.length > 0 || idMatchedSurvives) &&
+    !stores.includes(durableCredentialStore)
+  ) {
+    stores.push(durableCredentialStore);
   }
 
   return { stores, connectedAuthMode, survivingProfileIds };
@@ -2170,6 +2181,30 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       // orphan detection below, exactly as on a gateway that reports no ownership.
       return null;
     }
+  }
+
+  /**
+   * Block until the gateway is answering RPCs again after a config.patch reload.
+   *
+   * `health` is an idempotent read the RPC client already retries across a dropped socket, so
+   * polling it is how we learn the new process is serving. Returns false when it never comes back
+   * inside the caller's wait budget -- the caller must then report that it could not VERIFY the
+   * disconnect, not that the credential survived (#172): those are different claims, and only one
+   * of them sends an operator to re-run a destructive action against a provider that is already
+   * disconnected.
+   */
+  private async waitForGatewayReady(
+    waitForTransient: (delayMs: number) => Promise<boolean>,
+  ): Promise<boolean> {
+    let health = await this.options.adminClient.request("health", {});
+    while (!health.ok) {
+      if (!(await waitForTransient(disconnectGatewayReadyRetryDelayMs))) {
+        return false;
+      }
+      health = await this.options.adminClient.request("health", {});
+    }
+
+    return true;
   }
 
   private async modelAuthStatusPostCheck(
@@ -3456,6 +3491,26 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           return err(result.result.error);
         }
       }
+
+      // Removing an auth profile makes the gateway reload, and it drops the operator WS before
+      // answering the RPC. Anything read from a half-restarted gateway is not evidence: models
+      // .authStatus / models.status still report the credential that is already gone, which
+      // fail-closed the post-check and told the operator their disconnect had failed when it had
+      // succeeded (#172). Wait for the gateway to answer again before believing anything it says.
+      const gatewayReady = await this.waitForGatewayReady(waitForDisconnectTransient);
+      if (!gatewayReady) {
+        console.warn("connections.modelProviderDisconnect.failClosed", {
+          providerId: input.providerId,
+          reason: "gatewayNotReadyAfterConfigPatch",
+        });
+        return err(
+          provisioningError(
+            "provisioning.connections.providerPostCheckUnavailable",
+            "Gateway provider credential post-check failed.",
+            { providerId: input.providerId },
+          ),
+        );
+      }
     }
 
     // The config.patch above restarts the gateway when auth config changed, so post-check reads
@@ -3474,59 +3529,102 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return result;
     };
 
-    const refreshedAuth = await disconnectPostCheckRead(() =>
-      this.modelAuthStatusPostCheck(input.providerId),
-    );
-    if (!refreshedAuth.ok) {
-      console.warn("connections.modelProviderDisconnect.failClosed", {
-        providerId: input.providerId,
-        reason: "postCheckUnavailable",
-        code: refreshedAuth.error.code,
-      });
-      return err(
-        provisioningError(
-          "provisioning.connections.providerPostCheckUnavailable",
-          "Gateway provider credential post-check failed.",
-          { providerId: input.providerId },
-        ),
-      );
-    }
-    const refreshedConfigResult = await disconnectPostCheckRead(() =>
-      this.options.adminClient.request("config.get", {}),
-    );
-    if (!refreshedConfigResult.ok) {
-      console.warn("connections.modelProviderDisconnect.failClosed", {
-        providerId: input.providerId,
-        reason: "configPostCheckUnavailable",
-        code: refreshedConfigResult.error.code,
-      });
-      return err(refreshedConfigResult.error);
-    }
     const disconnectGatewayRuntime = this.options.gatewayRuntime;
-    const refreshedModelStatus =
-      disconnectGatewayRuntime === undefined
-        ? undefined
-        : await disconnectPostCheckRead(() => disconnectGatewayRuntime.modelStatus());
-    if (refreshedModelStatus !== undefined && !refreshedModelStatus.ok) {
-      console.warn("connections.modelProviderDisconnect.failClosed", {
-        providerId: input.providerId,
-        reason: "modelsStatusPostCheckUnavailable",
-        code: refreshedModelStatus.error.code,
+    const readCredentialState = async (): Promise<
+      Result<{
+        readonly lingering: ReturnType<typeof providerStillHasCredentials>;
+        readonly refreshedConfig: Record<string, unknown>;
+      }>
+    > => {
+      const refreshedAuth = await disconnectPostCheckRead(() =>
+        this.modelAuthStatusPostCheck(input.providerId),
+      );
+      if (!refreshedAuth.ok) {
+        console.warn("connections.modelProviderDisconnect.failClosed", {
+          providerId: input.providerId,
+          reason: "postCheckUnavailable",
+          code: refreshedAuth.error.code,
+        });
+        return err(
+          provisioningError(
+            "provisioning.connections.providerPostCheckUnavailable",
+            "Gateway provider credential post-check failed.",
+            { providerId: input.providerId },
+          ),
+        );
+      }
+      const refreshedConfigResult = await disconnectPostCheckRead(() =>
+        this.options.adminClient.request("config.get", {}),
+      );
+      if (!refreshedConfigResult.ok) {
+        console.warn("connections.modelProviderDisconnect.failClosed", {
+          providerId: input.providerId,
+          reason: "configPostCheckUnavailable",
+          code: refreshedConfigResult.error.code,
+        });
+        return err(refreshedConfigResult.error);
+      }
+      const refreshedModelStatus =
+        disconnectGatewayRuntime === undefined
+          ? undefined
+          : await disconnectPostCheckRead(() => disconnectGatewayRuntime.modelStatus());
+      if (refreshedModelStatus !== undefined && !refreshedModelStatus.ok) {
+        console.warn("connections.modelProviderDisconnect.failClosed", {
+          providerId: input.providerId,
+          reason: "modelsStatusPostCheckUnavailable",
+          code: refreshedModelStatus.error.code,
+        });
+        return err(refreshedModelStatus.error);
+      }
+      const refreshedConfig = configPayload(refreshedConfigResult.value);
+
+      // Provider-level emptiness is asserted ONLY for the provider the operator disconnected. A
+      // sibling may still legitimately hold unrelated credentials, so asserting it too would fail a
+      // disconnect that actually succeeded. The sibling is covered by the profile-level check below:
+      // its shared profile must be gone.
+      return ok({
+        lingering: providerStillHasCredentials({
+          providerIds: [input.providerId],
+          profileIds,
+          authStatus: refreshedAuth.value,
+          config: refreshedConfig,
+          modelStatus: refreshedModelStatus?.value ?? null,
+        }),
+        refreshedConfig,
       });
-      return err(refreshedModelStatus.error);
+    };
+
+    let credentialState = await readCredentialState();
+    if (!credentialState.ok) {
+      return err(credentialState.error);
     }
-    const refreshedConfig = configPayload(refreshedConfigResult.value);
-    // Provider-level emptiness is asserted ONLY for the provider the operator disconnected. A
-    // sibling may still legitimately hold unrelated credentials, so asserting it too would fail a
-    // disconnect that actually succeeded. The sibling is covered by the profile-level check below:
-    // its shared profile must be gone.
-    const lingering = providerStillHasCredentials({
-      providerIds: [input.providerId],
-      profileIds,
-      authStatus: refreshedAuth.value,
-      config: refreshedConfig,
-      modelStatus: refreshedModelStatus?.value ?? null,
-    });
+    // `config.auth.profiles` is the durable store: if the credential is THERE, it survived, full
+    // stop. models.authStatus and models.status are live reads of a gateway that has just reloaded,
+    // so on their own they may simply be stale -- and #172 was exactly that: a disconnect that had
+    // already succeeded, failed because two status reads had not caught up. Let them converge on the
+    // durable store before ruling. A credential that really did survive never converges, so it still
+    // fails closed; it just takes a few seconds longer to say so.
+    for (
+      let attempt = 1;
+      attempt < disconnectStaleStatusMaxAttempts &&
+      credentialState.ok &&
+      credentialState.value.lingering.stores.length > 0 &&
+      !credentialState.value.lingering.stores.includes(durableCredentialStore) &&
+      (await waitForDisconnectTransient(disconnectPostCheckRetryDelayMs));
+      attempt += 1
+    ) {
+      console.info("connections.modelProviderDisconnect.postCheck.staleStatusRetry", {
+        providerId: input.providerId,
+        attempt,
+        credentialStores: credentialState.value.lingering.stores,
+      });
+      credentialState = await readCredentialState();
+    }
+    if (!credentialState.ok) {
+      return err(credentialState.error);
+    }
+
+    const { lingering, refreshedConfig } = credentialState.value;
     if (lingering.stores.length > 0) {
       console.warn("connections.modelProviderDisconnect.failClosed", {
         providerId: input.providerId,

@@ -4066,6 +4066,178 @@ describe("Connections provisioning helpers", () => {
     expect(JSON.stringify(result)).not.toContain("sk-config-secret");
   });
 
+  it("does not fail a disconnect that succeeded while the gateway was still restarting (#172)", async () => {
+    // The live signature of #172: the config.patch reload drops the WS before answering, and the
+    // post-check then reads a half-restarted gateway that still reports the credential from BOTH
+    // status surfaces -- while the durable store (config.auth.profiles) is already clean. The
+    // operator was told "Disconnect failed: Gateway still reports provider credentials" about a
+    // disconnect that had worked, and invited to retry an irreversible action.
+    let patchAttempted = false;
+    let authStatusReads = 0;
+    const staleAnthropicAuthStatus = {
+      providers: [
+        {
+          provider: "anthropic",
+          status: "static",
+          profiles: [{ type: "token", status: "ok" }],
+        },
+      ],
+    };
+    const admin = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "anthropic", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": () =>
+        ok({
+          hash: "config-hash-anthropic",
+          auth: patchAttempted
+            ? { profiles: {}, order: { anthropic: [] } }
+            : {
+                profiles: { "anthropic-setup-token": { provider: "anthropic", mode: "token" } },
+                order: { anthropic: ["anthropic-setup-token"] },
+              },
+        }),
+      "config.patch": () => {
+        patchAttempted = true;
+        return err(
+          new DomainError({
+            code: "provisioning.openclawAdmin.connectionClosed",
+            message: "OpenClaw admin RPC config.patch closed before a response.",
+          }),
+        );
+      },
+      "models.authStatus": () => {
+        authStatusReads += 1;
+        // Read 1 is the pre-mutation ownership read; read 2 lands on the restarting gateway and is
+        // stale; by read 3 the gateway is back and tells the truth.
+        return ok(authStatusReads >= 3 ? { providers: [] } : staleAnthropicAuthStatus);
+      },
+    });
+    let modelStatusReads = 0;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      status: () => {
+        modelStatusReads += 1;
+        return modelStatusReads >= 2
+          ? { allowed: [], auth: { providers: [] } }
+          : {
+              allowed: ["anthropic/claude-opus-4-8"],
+              auth: {
+                providers: [{ provider: "anthropic", profiles: { count: 1, token: 1 } }],
+              },
+            };
+      },
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "anthropic" });
+
+    expect(result.ok).toBe(true);
+    // It waited for the gateway to answer again rather than believing a restarting process...
+    expect(admin.calls.filter((call) => call.method === "health").length).toBeGreaterThanOrEqual(1);
+    // ...and it re-read the status surfaces instead of ruling on the first stale answer.
+    expect(authStatusReads).toBeGreaterThanOrEqual(3);
+  });
+
+  it("waits for the gateway to answer again before post-checking a disconnect (#172)", async () => {
+    const callOrder: string[] = [];
+    let patchAttempted = false;
+    let healthReads = 0;
+    const admin = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "zai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": () => {
+        callOrder.push("config.get");
+        return ok({
+          hash: "config-hash-zai",
+          auth: patchAttempted
+            ? { profiles: {}, order: { zai: [] } }
+            : {
+                profiles: { "zai-zai-api-key": { provider: "zai", mode: "api_key" } },
+                order: { zai: ["zai-zai-api-key"] },
+              },
+        });
+      },
+      "config.patch": () => {
+        patchAttempted = true;
+        callOrder.push("config.patch");
+        return err(
+          new DomainError({
+            code: "provisioning.openclawAdmin.connectionClosed",
+            message: "OpenClaw admin RPC config.patch closed before a response.",
+          }),
+        );
+      },
+      health: () => {
+        healthReads += 1;
+        callOrder.push("health");
+        // The gateway is down while it reloads, then comes back.
+        return healthReads >= 3
+          ? ok({ status: "ok" })
+          : err(
+              new DomainError({
+                code: "provisioning.openclawAdmin.operatorWsHandshakeFailed",
+                message: "connection closed",
+              }),
+            );
+      },
+      "models.authStatus": () => {
+        callOrder.push("models.authStatus");
+        return ok({ providers: [] });
+      },
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "zai" });
+
+    expect(result.ok).toBe(true);
+    // Every post-check read must come AFTER the gateway has answered health again.
+    const readyAt = callOrder.lastIndexOf("health");
+    const postCheckAt = callOrder.indexOf("models.authStatus", callOrder.indexOf("config.patch"));
+    expect(healthReads).toBe(3);
+    expect(postCheckAt).toBeGreaterThan(readyAt);
+  });
+
+  it("still fails closed when the credential survives in the durable store (#172 guard)", async () => {
+    // The stale-status tolerance must not become a hole: a credential that is really still in
+    // config.auth.profiles is survival, and is fatal on sight -- no retries, no waiting.
+    const admin = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "zai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": ok({
+        hash: "config-hash-zai",
+        auth: {
+          profiles: { "zai-zai-api-key": { provider: "zai", mode: "api_key" } },
+          order: { zai: ["zai-zai-api-key"] },
+        },
+      }),
+      "config.patch": ok({ ok: true }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "zai" });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe(
+      "provisioning.connections.providerStillConnected",
+    );
+    expect(result.ok ? null : result.error.details?.["credentialStores"]).toContain(
+      "config.auth.profiles",
+    );
+  });
+
   it("still fails closed when operator.admin is denied for disconnect config.patch", async () => {
     const admin = new RecordingAdminClient(
       {
