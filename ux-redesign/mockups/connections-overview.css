@@ -8,6 +8,13 @@
  * (.sb-badge/.sb-progress/.sb-separator/.sb-alert).
  * ========================================================================== */
 
+/* ── Page stack ────────────────────────────────────────────────────────────
+ * The vertical rhythm of the page. Previously it lived in each mockup's inline
+ * <style> block; moving these pages to an external stylesheet dropped it, and
+ * the panels collapsed flush against each other with no gap. Defined here so
+ * every Connections page inherits the same rhythm and cannot lose it again. */
+.page-stack { display: flex; flex-direction: column; gap: var(--space-4); }
+
 /* ── Panel 2 · three-column grid ───────────────────────────────────────────
  * Equal heights: the grid stretches every card, and each card is a column flex
  * whose footer is pushed down by margin-top:auto. So the three action buttons
