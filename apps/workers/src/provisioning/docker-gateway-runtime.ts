@@ -31,6 +31,18 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+// `script` inherits the exec's window size, and the provisioning exec has no TTY, so the PTY it
+// allocates is 0x0. An Ink CLI asked to render into a zero-width terminal wraps EVERY WORD onto its
+// own line and chops long values (a 108-char setup-token) into fragments -- which is how the log
+// scrapers ended up gluing prose onto a captured secret (#145). Give the PTY a real window before
+// the CLI starts so its output is laid out the way the parsers assume.
+const ptyColumns = 200;
+const ptyRows = 50;
+
+function ptySized(command: string): string {
+  return `stty cols ${ptyColumns} rows ${ptyRows} >/dev/null 2>&1 || true; ${command}`;
+}
+
 function stripAnsi(value: string): string {
   // The device-code CLI is a TTY prompter (ANSI escapes + spinners); strip CSI sequences so the
   // verification URL + code parse cleanly. ESC (0x1B) is intentional here.
@@ -485,7 +497,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       "set -eu",
       `mkdir -m 700 ${shellQuote(flowDir)}`,
       `umask 077; : > ${shellQuote(logPath)}`,
-      `/usr/bin/script -qfc ${shellQuote(command)} /dev/null | ${redactor} >> ${shellQuote(logPath)}`,
+      `/usr/bin/script -qfc ${shellQuote(ptySized(command))} /dev/null | ${redactor} >> ${shellQuote(logPath)}`,
     ].join("; ");
     const containerId = await this.resolveContainerId();
     if (!containerId.ok) {
@@ -561,7 +573,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       `mkfifo -m 600 ${shellQuote(stdinPath)}`,
       `umask 077; : > ${shellQuote(logPath)}`,
       `exec 3<>${shellQuote(stdinPath)}; /usr/bin/script -qfc ${shellQuote(
-        "claude setup-token",
+        ptySized("claude setup-token"),
       )} /dev/null <&3 >> ${shellQuote(logPath)} 2>&1`,
     ].join("; ");
     const containerId = await this.resolveContainerId();

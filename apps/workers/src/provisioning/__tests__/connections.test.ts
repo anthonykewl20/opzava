@@ -2367,7 +2367,7 @@ describe("Connections provisioning helpers", () => {
       ...principal(),
       providerId: "anthropic",
       authChoiceId: "setup-token",
-      apiKey: `sk-ant-oat01-${"a".repeat(80)}`,
+      apiKey: `sk-ant-oat01-${"a".repeat(95)}`,
     });
     expect(start).toMatchObject({ ok: true, value: { status: "pending" } });
     const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
@@ -2378,7 +2378,7 @@ describe("Connections provisioning helpers", () => {
         providerId: "anthropic",
         authChoiceId: "setup-token",
         keyFlag: "token",
-        apiKey: `sk-ant-oat01-${"a".repeat(80)}`,
+        apiKey: `sk-ant-oat01-${"a".repeat(95)}`,
       },
     ]);
     expect(gatewayRuntime.deviceLoginCalls).toEqual([]);
@@ -2461,7 +2461,7 @@ describe("Connections provisioning helpers", () => {
       ...principal(),
       providerId: "anthropic",
       authChoiceId: "setup-token",
-      apiKey: `sk-ant-oat01-${"a".repeat(80)}`,
+      apiKey: `sk-ant-oat01-${"a".repeat(95)}`,
     });
     const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
 
@@ -2514,7 +2514,7 @@ describe("Connections provisioning helpers", () => {
         ...principal(),
         providerId: "anthropic",
         authChoiceId: "setup-token",
-        apiKey: `sk-ant-oat01-${"a".repeat(80)}`,
+        apiKey: `sk-ant-oat01-${"a".repeat(95)}`,
       });
       await vi.advanceTimersByTimeAsync(31_000);
       const result = await port.pollModelProviderApiKeyConnect({
@@ -2706,7 +2706,7 @@ describe("Connections provisioning helpers", () => {
   });
 
   it("completes setup-token from a minted token log without returning the token", async () => {
-    const token = `sk-ant-oat01-${"b".repeat(80)}`;
+    const token = `sk-ant-oat01-${"b".repeat(95)}`;
     const gatewayRuntime = new RecordingGatewayRuntime({
       choices: [
         { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
@@ -2756,7 +2756,7 @@ describe("Connections provisioning helpers", () => {
   });
 
   it("does not double-submit setup-token completion under overlapping polls", async () => {
-    const token = `sk-ant-oat01-${"c".repeat(80)}`;
+    const token = `sk-ant-oat01-${"c".repeat(95)}`;
     const gatewayRuntime = new RecordingGatewayRuntime({
       choices: [
         { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
@@ -2821,7 +2821,7 @@ describe("Connections provisioning helpers", () => {
   });
 
   it("delivers setup-token completion outcome from a later poll", async () => {
-    const token = `sk-ant-oat01-${"d".repeat(80)}`;
+    const token = `sk-ant-oat01-${"d".repeat(95)}`;
     const gatewayRuntime = new RecordingGatewayRuntime({
       choices: [
         { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
@@ -2871,16 +2871,32 @@ describe("Connections provisioning helpers", () => {
     expect(JSON.stringify([firstPoll, terminalPoll])).not.toContain("sk-ant-oat01");
   });
 
-  it("completes setup-token when the minted token is wrapped across PTY line breaks", async () => {
-    // The script PTY wraps long tokens across \r\n. setupTokenFromLog must strip the line breaks
-    // or it extracts only the first (short) segment; onboard then rejects it (the token must be
-    // >= 80 chars) and a valid token fails. Each line below is < 80 chars; the full token is not.
-    const token = `sk-ant-oat01-${"b".repeat(120)}`;
+  // Fixtures below are built from a REAL `claude setup-token` PTY capture taken from the running
+  // gateway (Claude Code 2.1.207 under `script`), not from a hand-written log. Two properties of
+  // that capture are what broke #145 and neither appears in a synthetic fixture:
+  //   1. the CLI lays text out by MOVING THE CURSOR (`Store\x1b[9Gthis`), not by writing spaces, so
+  //      naive ANSI-stripping concatenates words;
+  //   2. the provisioning exec has no TTY, so `script` allocates a 0x0 PTY and Ink renders every
+  //      word on its own line -- which is how "Store this token securely" became a 22-char suffix.
+  // The token below is the real length (108 = `sk-ant-oat01-` + 95).
+  const realSetupToken = `sk-ant-oat01-${"AbC9_x-Z".repeat(11)}TokenEn`;
+  const setupTokenNotice = "Store this token securely. You won't be able to see it again.";
+
+  // The success screen as the CLI actually renders it: cursor-positioned words, colour codes,
+  // doubled CR line endings, an OSC-8 hyperlink, and the token alone on its line.
+  const realPtySuccessLog = [
+    "\u001b[?2004l\u001b[1mYour\u001b[6Gtoken\u001b[12G(valid\u001b[19Gfor\u001b[23G1\u001b[25Gyear):\u001b[0m\r\r\n",
+    `\u001b[33m${realSetupToken}\u001b[39m\r\r\n`,
+    `\u001b[2mStore\u001b[7Gthis\u001b[12Gtoken\u001b[18Gsecurely.\u001b[28GYou\u001b[32Gwon't\u001b[38Gbe\u001b[41Gable\u001b[46Gto\u001b[49Gsee\u001b[53Git\u001b[56Gagain.\u001b[22m\r\r\n`,
+    "\u001b[2mUse\u001b[5Gthis\u001b[10Gtoken\u001b[16Gby\u001b[19Gsetting:\u001b[22m\r\r\n",
+  ].join("");
+
+  it("captures the minted token from a real PTY render without fusing the CLI notice onto it", async () => {
     const gatewayRuntime = new RecordingGatewayRuntime({
       choices: [
         { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
       ],
-      setupTokenLog: `Done sk-ant-oat01-${"b".repeat(60)}\r\n${"b".repeat(60)}\n`,
+      setupTokenLog: realPtySuccessLog,
       status: {
         allowed: ["anthropic/claude-sonnet-5"],
         auth: {
@@ -2915,9 +2931,94 @@ describe("Connections provisioning helpers", () => {
       status: "connected",
       connection: { providerId: "anthropic", authChoiceId: "setup-token" },
     });
+    // The exact token, not the token plus whatever the CLI printed underneath it.
     expect(gatewayRuntime.connectCalls).toEqual([
-      { providerId: "anthropic", authChoiceId: "setup-token", keyFlag: "token", apiKey: token },
+      {
+        providerId: "anthropic",
+        authChoiceId: "setup-token",
+        keyFlag: "token",
+        apiKey: realSetupToken,
+      },
     ]);
+    const stored = gatewayRuntime.connectCalls[0]?.apiKey ?? "";
+    expect(stored).toHaveLength(108);
+    expect(stored).not.toContain("Store");
+    expect(stored).not.toContain("securely");
+  });
+
+  it("does not fuse the notice onto the token when the PTY renders one word per line (#145)", async () => {
+    // The 0x0 PTY: Ink puts every word on its own line. The old scraper deleted all line endings to
+    // defeat wrapping, glued Store/this/token/securely onto the token, and stored 130 chars where
+    // the real credential is 108 -- authentication_error on every Anthropic call, for weeks.
+    const zeroWidthLog = [
+      "Your\r\ntoken\r\n(valid\r\nfor\r\n1\r\nyear):\r\n",
+      `\u001b[33m${realSetupToken}\u001b[39m\r\n`,
+      `${setupTokenNotice.split(" ").join("\r\n")}\r\n`,
+    ].join("");
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: zeroWidthLog,
+      status: {
+        allowed: ["anthropic/claude-sonnet-5"],
+        auth: {
+          providers: [
+            {
+              provider: "anthropic",
+              profiles: { count: 1, token: 1, labels: ["anthropic:manual=Setup token"] },
+            },
+          ],
+        },
+      },
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+    await delay(0);
+
+    expect(gatewayRuntime.connectCalls).toEqual([
+      {
+        providerId: "anthropic",
+        authChoiceId: "setup-token",
+        keyFlag: "token",
+        apiKey: realSetupToken,
+      },
+    ]);
+    expect(gatewayRuntime.connectCalls[0]?.apiKey).toHaveLength(108);
+  });
+
+  it("refuses a PTY-truncated token instead of storing a credential it cannot prove (#145)", async () => {
+    // A narrower PTY hard-wraps the token mid-value. The fragment still matches prefix-and-charset,
+    // so only the length proves it is whole: store it and the provider 401s on every call.
+    const truncated = realSetupToken.slice(0, 80);
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: `\u001b[33m${truncated}\r\n${realSetupToken.slice(80)}\u001b[39m\r\n`,
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+
+    const poll = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+    await delay(0);
+
+    expect(poll.ok ? poll.value.status : null).not.toBe("connected");
+    expect(gatewayRuntime.connectCalls).toEqual([]);
   });
 
   it("redacts terminal setup-token failures", async () => {
@@ -5696,7 +5797,7 @@ describe("model-provider credential store scope (issue #169)", () => {
       ],
     },
   };
-  const setupToken = `sk-ant-oat01-${"a".repeat(80)}`;
+  const setupToken = `sk-ant-oat01-${"a".repeat(95)}`;
 
   const connectAnthropic = async (
     admin: RecordingAdminClient,
@@ -5902,7 +6003,7 @@ describe("setup-token config profile does not suppress the shared write (issue #
       ...principal(),
       providerId: "anthropic",
       authChoiceId: "setup-token",
-      apiKey: `sk-ant-oat01-${"a".repeat(80)}`,
+      apiKey: `sk-ant-oat01-${"a".repeat(95)}`,
     });
     const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
 

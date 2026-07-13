@@ -220,10 +220,32 @@ function stringArrayValue(value: unknown): readonly string[] {
 }
 
 function stripAnsi(value: string): string {
-  // The device-code CLI is a TTY prompter (ANSI escapes + spinners); strip CSI sequences so the
-  // verification URL + code parse cleanly. ESC (0x1B) is intentional here.
-  // eslint-disable-next-line no-control-regex
-  return value.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, "");
+  // The provider CLIs are TTY prompters, and they lay text out by MOVING THE CURSOR rather than by
+  // emitting spaces: `Store\x1b[9Gthis\x1b[14Gtoken` renders as "Store this token". Deleting every
+  // escape (the old behaviour) therefore CONCATENATED words -- which is how "Store this token
+  // securely" fused onto a captured setup-token and produced a 130-char credential where the real
+  // one is 108 (#145). Cursor movement is layout, so it becomes a space; only decoration is dropped.
+  // ESC (0x1B) is intentional here.
+  /* eslint-disable no-control-regex */
+  return (
+    value
+      // OSC (hyperlinks): \x1B] ... BEL or ST. These wrap a URL around its own label, so leaving
+      // them in duplicated the authorize URL and appended a fragment of it to the parsed value.
+      .replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, "")
+      // CSI cursor positioning (CHA/CUF/CUP/HVP/HPA/HPR/VPA): a gap the CLI drew, so keep a gap.
+      .replace(/\x1B\[[0-9;?]*[GCHfad`]/g, " ")
+      // Every other CSI: colour, erase, cursor show/hide, spinner repaint. Pure decoration.
+      .replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, "")
+  );
+  /* eslint-enable no-control-regex */
+}
+
+function terminalLines(value: string): readonly string[] {
+  // A lone CR returns the cursor to column 0 (spinner repaint), so it separates renders just as a
+  // newline does. Normalising both keeps the line-oriented parsers below from fusing two lines.
+  return stripAnsi(value)
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
 }
 
 function parseDeviceCodeLog(value: string): {
@@ -271,17 +293,45 @@ function deviceCodeLogTerminalFailure(logValue: string): boolean {
   );
 }
 
+// A minted Claude setup-token is a single unbroken run of token characters, and it is a FIXED
+// length: `sk-ant-oat01-` + 95 payload characters. The length is the only thing that proves the
+// token is whole, because both ways the terminal can damage it leave a value that still looks like
+// a token: prose fused onto the end (the 130-char credential of #145) and a PTY hard-wrap that
+// truncates it mid-token both match prefix-and-charset perfectly. Verified live against
+// api.anthropic.com in #145: the 108-char value authenticates, the 130-char value 401s.
+//
+// If Anthropic ever changes the format this rejects the token and says so, which is a connect that
+// fails loudly and is fixed in one line -- the alternative is storing a secret we cannot prove and
+// discovering it weeks later as an unexplained 401 on every delegation.
+const setupTokenLength = 108;
+const setupTokenPattern = /(?:^|\s)(sk-ant-oat01-[A-Za-z0-9_-]+)(?=\s|$)/;
+
 function setupTokenFromLog(logValue: string): string | null {
-  // The script PTY wraps long lines, splitting a setup-token across \r\n; strip line endings
-  // (after ANSI) so the full token is contiguous. Otherwise the match stops at the wrap and
-  // onboard rejects the truncated token, which must be >= 80 chars (a wrapped extract is short).
-  const unwrapped = stripAnsi(logValue).replace(/[\r\n]+/g, "");
-  return unwrapped.match(/\bsk-ant-oat01-[A-Za-z0-9_-]{40,}\b/)?.[0] ?? null;
+  // Scan LINE BY LINE, and require whitespace on both sides of the match. The predecessor joined
+  // every line in the log before matching, which put the CLI's "Store this token securely." notice
+  // straight against the token and let the charset run swallow it (#145). Nothing here reassembles
+  // a token from fragments.
+  for (const line of terminalLines(logValue)) {
+    const candidate = line.match(setupTokenPattern)?.[1];
+    if (candidate === undefined) {
+      continue;
+    }
+    if (candidate.length === setupTokenLength) {
+      return candidate;
+    }
+
+    console.warn("connections.setupToken.rejectedMalformedToken", {
+      reason: candidate.length > setupTokenLength ? "tooLong" : "tooShort",
+      expectedLength: setupTokenLength,
+      observedLength: candidate.length,
+    });
+  }
+
+  return null;
 }
 
 function setupTokenAuthorizeUrl(logValue: string): string | null {
-  const stripped = stripAnsi(logValue);
-  for (const line of stripped.split(/\r?\n/)) {
+  for (const line of terminalLines(logValue)) {
     const urls = line.match(/https?:\/\/[^\s"'<>)]+/gi) ?? [];
     for (const url of urls) {
       const haystack = `${line} ${url}`.toLowerCase();
