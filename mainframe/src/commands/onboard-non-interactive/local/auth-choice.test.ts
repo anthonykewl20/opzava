@@ -1,5 +1,5 @@
 // Non-interactive auth-choice tests cover built-in, custom, deprecated, and plugin provider dispatch.
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../../config/config.js";
 import { resolveAgentModelPrimaryValue } from "../../../config/model-input.js";
 import { applyNonInteractiveAuthChoice } from "./auth-choice.js";
@@ -228,5 +228,139 @@ describe("applyNonInteractiveAuthChoice", () => {
     expect(result?.models?.providers?.["custom-models-custom-local"]?.models?.[0]?.input).toEqual([
       "text",
     ]);
+  });
+});
+
+describe("applyNonInteractiveAuthChoice with --credential-stdin", () => {
+  const realStdin = process.stdin;
+
+  function pipeStdin(chunks: readonly string[]): void {
+    const stdin = {
+      isTTY: false,
+      setEncoding: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield* chunks;
+      },
+    };
+    Object.defineProperty(process, "stdin", { value: stdin, configurable: true });
+  }
+
+  afterEach(() => {
+    Object.defineProperty(process, "stdin", { value: realStdin, configurable: true });
+  });
+
+  it("feeds the piped credential to provider API-key resolution instead of a flag", async () => {
+    pipeStdin(["sk-piped-key\n"]);
+    const runtime = createRuntime();
+    const nextConfig = { agents: { defaults: {} } } as OpenClawConfig;
+    resolveNonInteractiveApiKey.mockResolvedValueOnce(undefined);
+
+    await applyNonInteractiveAuthChoice({
+      nextConfig,
+      authChoice: "custom-api-key",
+      opts: {
+        credentialStdin: true,
+        customBaseUrl: "https://models.custom.local/v1",
+        customModelId: "local-large",
+      } as never,
+      runtime: runtime as never,
+      baseConfig: nextConfig,
+    });
+
+    const [apiKeyParams] = resolveNonInteractiveApiKey.mock.calls[0] ?? [];
+    expect(apiKeyParams?.flagValue).toBe("sk-piped-key");
+    expect(apiKeyParams?.flagName).toBe("--credential-stdin");
+    expect(runtime.exit).not.toHaveBeenCalled();
+  });
+
+  it("overrides a provider flag value so the plugin path cannot prefer argv", async () => {
+    pipeStdin(["sk-piped-key"]);
+    const runtime = createRuntime();
+    const nextConfig = { agents: { defaults: {} } } as OpenClawConfig;
+    resolveNonInteractiveApiKey.mockResolvedValueOnce(undefined);
+    applyNonInteractivePluginProviderChoice.mockImplementationOnce(async (params: never) => {
+      const { resolveApiKey } = params as {
+        resolveApiKey: (input: Record<string, unknown>) => Promise<unknown>;
+      };
+      await resolveApiKey({
+        provider: "zai",
+        flagValue: "sk-from-argv",
+        flagName: "--zai-api-key",
+        envVar: "ZAI_API_KEY",
+      });
+      return nextConfig;
+    });
+
+    await applyNonInteractiveAuthChoice({
+      nextConfig,
+      authChoice: "zai-api-key",
+      opts: { credentialStdin: true } as never,
+      runtime: runtime as never,
+      baseConfig: nextConfig,
+    });
+
+    const [apiKeyParams] = resolveNonInteractiveApiKey.mock.calls[0] ?? [];
+    expect(apiKeyParams?.flagValue).toBe("sk-piped-key");
+    expect(apiKeyParams?.provider).toBe("zai");
+  });
+
+  it("feeds the piped credential to token choices, which read opts.token directly", async () => {
+    pipeStdin(["sk-ant-oat01-piped"]);
+    const runtime = createRuntime();
+    const nextConfig = { agents: { defaults: {} } } as OpenClawConfig;
+    applyNonInteractivePluginProviderChoice.mockResolvedValueOnce(nextConfig as never);
+
+    await applyNonInteractiveAuthChoice({
+      nextConfig,
+      authChoice: "setup-token",
+      opts: { credentialStdin: true } as never,
+      runtime: runtime as never,
+      baseConfig: nextConfig,
+    });
+
+    const [dispatch] = applyNonInteractivePluginProviderChoice.mock.calls[0] ?? [];
+    expect((dispatch as { opts: { token?: string } } | undefined)?.opts.token).toBe(
+      "sk-ant-oat01-piped",
+    );
+  });
+
+  it("fails closed on an empty pipe rather than resolving some other credential", async () => {
+    pipeStdin([" \n"]);
+    const runtime = createRuntime();
+    const nextConfig = { agents: { defaults: {} } } as OpenClawConfig;
+
+    const result = await applyNonInteractiveAuthChoice({
+      nextConfig,
+      authChoice: "zai-api-key",
+      opts: { credentialStdin: true } as never,
+      runtime: runtime as never,
+      baseConfig: nextConfig,
+    });
+
+    expect(result).toBeNull();
+    expect(runtime.exit).toHaveBeenCalledWith(1);
+    expect(applyNonInteractivePluginProviderChoice).not.toHaveBeenCalled();
+    expect(resolveNonInteractiveApiKey).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when stdin is a TTY, so it cannot hang waiting on a human", async () => {
+    Object.defineProperty(process, "stdin", {
+      value: { isTTY: true, setEncoding: vi.fn() },
+      configurable: true,
+    });
+    const runtime = createRuntime();
+    const nextConfig = { agents: { defaults: {} } } as OpenClawConfig;
+
+    const result = await applyNonInteractiveAuthChoice({
+      nextConfig,
+      authChoice: "zai-api-key",
+      opts: { credentialStdin: true } as never,
+      runtime: runtime as never,
+      baseConfig: nextConfig,
+    });
+
+    expect(result).toBeNull();
+    expect(runtime.exit).toHaveBeenCalledWith(1);
+    expect(applyNonInteractivePluginProviderChoice).not.toHaveBeenCalled();
   });
 });

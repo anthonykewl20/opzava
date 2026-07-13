@@ -57,6 +57,13 @@ export type OnboardOptions = OnboardDynamicProviderOptions & {
   tokenProfileId?: string;
   /** Used when `authChoice=token` in non-interactive mode. */
   tokenExpiresIn?: string;
+  /**
+   * Read the selected auth choice's credential from stdin instead of a flag
+   * (non-interactive). Argv is world-readable in a process list, so callers that
+   * cannot trust every local reader pipe the secret in the way `models auth
+   * paste-api-key` already does.
+   */
+  credentialStdin?: boolean;
   /** API key persistence mode for setup flows (default: plaintext). */
   secretInputMode?: SecretInputMode;
   arceeaiApiKey?: string;

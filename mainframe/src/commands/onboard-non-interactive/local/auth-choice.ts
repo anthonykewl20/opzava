@@ -12,6 +12,7 @@ import { formatErrorMessage } from "../../../infra/errors.js";
 import { resolveManifestDeprecatedProviderAuthChoice } from "../../../plugins/provider-auth-choices.js";
 import type { RuntimeEnv } from "../../../runtime.js";
 import { resolveDefaultSecretProviderAlias } from "../../../secrets/ref-contract.js";
+import { normalizeOptionalSecretInput } from "../../../utils/normalize-secret-input.js";
 import {
   formatDeprecatedNonInteractiveAuthChoiceError,
   isDeprecatedAuthChoice,
@@ -32,6 +33,38 @@ import { applyNonInteractivePluginProviderChoice } from "./auth-choice.plugin-pr
 type ResolvedNonInteractiveApiKey = NonNullable<
   Awaited<ReturnType<typeof resolveNonInteractiveApiKey>>
 >;
+
+/**
+ * Reads the auth-choice credential from piped stdin for `--credential-stdin`.
+ *
+ * Every flag value is visible in the process list for the life of the command, so callers on a
+ * shared host cannot pass a secret in argv. Read it once here, before any provider dispatch, so no
+ * downstream path can try to consume the stream a second time and find it drained.
+ */
+async function readCredentialFromStdin(runtime: RuntimeEnv): Promise<string | null> {
+  if (process.stdin.isTTY) {
+    runtime.error("--credential-stdin needs the credential piped into stdin, but stdin is a TTY.");
+    runtime.exit(1);
+    return null;
+  }
+
+  process.stdin.setEncoding("utf8");
+  let input = "";
+  for await (const chunk of process.stdin) {
+    input += String(chunk);
+  }
+
+  const credential = normalizeOptionalSecretInput(input);
+  if (!credential) {
+    // Fail closed: an empty pipe means the caller lost the secret, not that setup should carry on
+    // and resolve some other credential the environment happens to hold.
+    runtime.error("--credential-stdin was set but stdin was empty. Pipe the API key or token in.");
+    runtime.exit(1);
+    return null;
+  }
+
+  return credential;
+}
 
 /** Applies a local non-interactive auth choice to the pending OpenClaw config. */
 export async function applyNonInteractiveAuthChoice(params: {
@@ -85,9 +118,24 @@ export async function applyNonInteractiveAuthChoice(params: {
       id: resolved.envVarName,
     };
   };
+  let stdinCredential: string | null = null;
+  if (opts.credentialStdin === true) {
+    stdinCredential = await readCredentialFromStdin(runtime);
+    if (stdinCredential === null) {
+      // Already reported and exited; null here means "stop", as everywhere else in this file.
+      return null;
+    }
+  }
+
+  // The piped credential outranks any flag or env value: the caller chose stdin precisely because it
+  // is the one channel that keeps the secret out of the process list. `flagName` follows it so a
+  // failure names the mechanism the operator actually used.
   const resolveApiKey = (input: Parameters<typeof resolveNonInteractiveApiKey>[0]) =>
     resolveNonInteractiveApiKey({
       ...input,
+      ...(stdinCredential === null
+        ? {}
+        : { flagValue: stdinCredential, flagName: "--credential-stdin" }),
       secretInputMode: requestedSecretInputMode,
     });
   const toApiKeyCredential = (paramsLocal: {
@@ -155,10 +203,15 @@ export async function applyNonInteractiveAuthChoice(params: {
     }
   }
 
+  // Token-shaped choices (Anthropic `setup-token` and friends) read `opts.token` straight off the bag
+  // instead of going through `resolveApiKey`, so the piped credential has to reach them that way too.
+  const authOpts: OnboardOptions =
+    stdinCredential === null ? opts : { ...opts, token: stdinCredential };
+
   const pluginProviderChoice = await applyNonInteractivePluginProviderChoice({
     nextConfig,
     authChoice,
-    opts,
+    opts: authOpts,
     runtime,
     baseConfig,
     resolveApiKey: (input) =>

@@ -515,22 +515,78 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     console.log(
       `provisioning-worker running gateway onboard for provider ${input.providerId} authChoice ${input.authChoiceId}`,
     );
-    const providerArgs = input.keyFlag === "token" ? ["--token-provider", input.providerId] : [];
-    return this.exec([
-      "node",
-      "openclaw.mjs",
-      "onboard",
-      "--non-interactive",
-      "--accept-risk",
-      "--flow",
-      "manual",
-      "--auth-choice",
-      input.authChoiceId,
-      ...providerArgs,
-      `--${input.keyFlag}`,
+    const supported = await this.assertOnboardReadsCredentialFromStdin(input.providerId);
+    if (!supported.ok) {
+      return err(supported.error);
+    }
+
+    // `--credential-stdin` makes onboard read the secret from the pipe, so it never becomes an argv
+    // element (#187). `--token-provider` still names the provider for token choices; only the
+    // credential moves.
+    const providerArgs =
+      input.keyFlag === "token" ? [`--token-provider ${shellQuote(input.providerId)}`] : [];
+    return this.execWithPipedCredential(
+      [
+        "node openclaw.mjs onboard",
+        "--non-interactive --accept-risk --flow manual",
+        `--auth-choice ${shellQuote(input.authChoiceId)}`,
+        ...providerArgs,
+        "--credential-stdin",
+        "--json",
+      ],
       input.apiKey,
-      "--json",
-    ]);
+    );
+  }
+
+  /**
+   * Runs a gateway command with the credential on stdin, never in argv.
+   *
+   * The secret reaches the container only through the exec environment, and reaches the command only
+   * through the pipe. Argv is readable in the container's process list for the life of the command,
+   * so every credential writer here goes through this one seam rather than assembling its own (#187).
+   */
+  private async execWithPipedCredential(
+    commandParts: readonly string[],
+    credential: string,
+  ): Promise<Result<GatewayRuntimeCommandResult>> {
+    const script = [`printf '%s' "$OPZAVA_CREDENTIAL"`, "|", ...commandParts].join(" ");
+    return this.exec(["sh", "-lc", script], [`OPZAVA_CREDENTIAL=${credential}`]);
+  }
+
+  /**
+   * Refuses to onboard against a gateway image whose `onboard` cannot read the credential from stdin.
+   *
+   * Such an image rejects `--credential-stdin` on its own, but only AFTER the worker has handed it
+   * the secret. Ask first, and fail closed: a stale image is an ops problem to fix by rebuilding, not
+   * a reason to fall back to passing the key in argv — that fallback is the leak this closes (#187).
+   */
+  private async assertOnboardReadsCredentialFromStdin(providerId: string): Promise<Result<void>> {
+    const help = await this.exec(["node", "openclaw.mjs", "onboard", "--help"]);
+    if (!help.ok) {
+      return err(help.error);
+    }
+    if (help.value.exitCode !== 0) {
+      return err(
+        commandFailureError({
+          providerId,
+          authChoiceId: "onboard-help",
+          result: help.value,
+        }),
+      );
+    }
+
+    const helpText = stripAnsi(`${help.value.stdout}\n${help.value.stderr}`);
+    if (helpText.includes("--credential-stdin")) {
+      return ok(undefined);
+    }
+
+    return err(
+      provisioningError(
+        "provisioning.connections.onboardCredentialStdinUnsupported",
+        `The gateway image's onboard does not support --credential-stdin, so connecting ${providerId} would expose the credential in the container's process list. Rebuild the gateway image from ./mainframe and retry.`,
+        { providerId },
+      ),
+    );
   }
 
   public async writeAgentCredential(
@@ -539,19 +595,17 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     console.log(
       `provisioning-worker storing ${input.providerId} credential in the ${input.agentId} auth store`,
     );
-    // `paste-token`/`paste-api-key` read the secret from stdin when stdin is not a TTY, so the
-    // credential travels through the exec environment and a pipe instead of argv, where it would
-    // be readable in the container's process list for the life of the command.
+    // `paste-token`/`paste-api-key` read the secret from stdin when stdin is not a TTY.
     const subcommand = input.keyFlag === "token" ? "paste-token" : "paste-api-key";
-    const script = [
-      `printf '%s' "$OPZAVA_CREDENTIAL"`,
-      "|",
-      "node openclaw.mjs models auth",
-      `--agent ${shellQuote(input.agentId)}`,
-      subcommand,
-      `--provider ${shellQuote(input.providerId)}`,
-    ].join(" ");
-    const result = await this.exec(["sh", "-lc", script], [`OPZAVA_CREDENTIAL=${input.apiKey}`]);
+    const result = await this.execWithPipedCredential(
+      [
+        "node openclaw.mjs models auth",
+        `--agent ${shellQuote(input.agentId)}`,
+        subcommand,
+        `--provider ${shellQuote(input.providerId)}`,
+      ],
+      input.apiKey,
+    );
     if (!result.ok) {
       return err(result.error);
     }

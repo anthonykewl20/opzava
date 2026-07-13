@@ -105,6 +105,11 @@ export function registerOnboardAuthOptions(command: Command): Command {
     )
     .option("--token-expires-in <duration>", "Optional token expiry duration (e.g. 365d, 12h)")
     .option(
+      "--credential-stdin",
+      "Read the auth-choice credential (API key or token) from stdin instead of a flag (non-interactive)",
+      false,
+    )
+    .option(
       "--secret-input-mode <mode>",
       "API key persistence mode: plaintext|ref (default: plaintext)",
     )
@@ -138,6 +143,7 @@ export function pickOnboardAuthOptionValues(
     token: opts.token as string | undefined,
     tokenProfileId: opts.tokenProfileId as string | undefined,
     tokenExpiresIn: opts.tokenExpiresIn as string | undefined,
+    credentialStdin: opts.credentialStdin === true,
     secretInputMode: opts.secretInputMode as SecretInputMode | undefined,
     ...pickOnboardProviderAuthOptionValues(opts),
     cloudflareAiGatewayAccountId: opts.cloudflareAiGatewayAccountId as string | undefined,

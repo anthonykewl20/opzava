@@ -18,22 +18,40 @@ function dockerStdoutFrame(stdout: string): Buffer {
   return Buffer.concat([header, payload]);
 }
 
+interface DockerExec {
+  readonly cmd: string[];
+  readonly env: string[];
+}
+
 interface FakeDocker {
   readonly runtime: DockerOpenClawGatewayRuntime;
   readonly commands: string[][];
+  readonly execs: DockerExec[];
 }
 
-function fakeDocker(input: { readonly stdout: string; readonly exitCode?: number }): FakeDocker {
+function fakeDocker(input: {
+  /** A function answers per command, for flows that exec more than once (onboard reads `--help` first). */
+  readonly stdout: string | ((cmd: readonly string[]) => string);
+  readonly exitCode?: number;
+}): FakeDocker {
   const commands: string[][] = [];
+  const execs: DockerExec[] = [];
+  const stdoutFor = (cmd: readonly string[]): string =>
+    typeof input.stdout === "function" ? input.stdout(cmd) : input.stdout;
   const fetchImpl = (async (url: string | URL, init?: RequestInit): Promise<Response> => {
     const path = new URL(String(url)).pathname;
     if (path.endsWith("/exec")) {
-      const body = JSON.parse(String(init?.body ?? "{}")) as { readonly Cmd?: string[] };
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        readonly Cmd?: string[];
+        readonly Env?: string[];
+      };
       commands.push(body.Cmd ?? []);
-      return new Response(JSON.stringify({ Id: "exec-1" }), { status: 200 });
+      execs.push({ cmd: body.Cmd ?? [], env: body.Env ?? [] });
+      return new Response(JSON.stringify({ Id: `exec-${execs.length}` }), { status: 200 });
     }
     if (path.endsWith("/start")) {
-      return new Response(dockerStdoutFrame(input.stdout), { status: 200 });
+      const current = execs.at(-1)?.cmd ?? [];
+      return new Response(dockerStdoutFrame(stdoutFor(current)), { status: 200 });
     }
     if (path.endsWith("/json")) {
       return new Response(JSON.stringify({ ExitCode: input.exitCode ?? 0 }), { status: 200 });
@@ -48,6 +66,7 @@ function fakeDocker(input: { readonly stdout: string; readonly exitCode?: number
       fetch: fetchImpl,
     }),
     commands,
+    execs,
   };
 }
 
@@ -222,11 +241,9 @@ describe("DockerOpenClawGatewayRuntime credential write (#183)", () => {
     expect(written.ok && written.value.providerId).toBeNull();
   });
 
-  // Scoped to THIS command on purpose. `writeAgentCredential` pipes the secret through stdin so it
-  // never lands in argv, where the container's process list would expose it for the life of the
-  // command. `connectApiKey` (onboard) still passes the key as an argv element and does NOT hold
-  // this property — a pre-existing exposure this change does not touch, and not something to imply
-  // is fixed by asserting it here.
+  // Both credential writers must hold this. `writeAgentCredential` always did; `connectApiKey`
+  // (onboard) passed the key as an argv element until #187, where the container's process list
+  // exposed it for the life of the command.
   it("keeps the credential out of argv, where the container process list would expose it", async () => {
     const docker = fakeDocker({ stdout: "Auth profile: zai:manual (zai/api_key)\n" });
 
@@ -238,5 +255,82 @@ describe("DockerOpenClawGatewayRuntime credential write (#183)", () => {
     });
 
     expect(JSON.stringify(docker.commands)).not.toContain("sk-super-secret");
+  });
+});
+
+/** Help text for a gateway image whose onboard can read the credential from stdin. */
+function onboardHelp(input: { readonly credentialStdin: boolean }): string {
+  return [
+    "Options:",
+    "  --auth-choice <choice>   Auth: setup-token|zai-api-key",
+    "  --zai-api-key <key>      Z.AI API key",
+    "  --token <token>          Token value",
+    ...(input.credentialStdin
+      ? ["  --credential-stdin       Read the auth-choice credential from stdin"]
+      : []),
+  ].join("\n");
+}
+
+function onboardStdout(input: { readonly credentialStdin: boolean }) {
+  return (cmd: readonly string[]): string =>
+    cmd.includes("--help") ? onboardHelp(input) : "Config updated.\n";
+}
+
+describe("DockerOpenClawGatewayRuntime onboard connect (#187)", () => {
+  it("keeps the submitted credential out of argv, and pipes it through the exec environment", async () => {
+    const docker = fakeDocker({ stdout: onboardStdout({ credentialStdin: true }) });
+
+    const connected = await docker.runtime.connectApiKey({
+      providerId: "zai",
+      authChoiceId: "zai-api-key",
+      keyFlag: "zai-api-key",
+      apiKey: "sk-super-secret",
+    });
+
+    expect(connected.ok).toBe(true);
+    expect(JSON.stringify(docker.commands)).not.toContain("sk-super-secret");
+
+    const onboard = docker.execs.at(-1);
+    expect(onboard?.cmd.join(" ")).toContain("--credential-stdin");
+    expect(onboard?.cmd.join(" ")).toContain('printf \'%s\' "$OPZAVA_CREDENTIAL" |');
+    expect(onboard?.env).toEqual(["OPZAVA_CREDENTIAL=sk-super-secret"]);
+  });
+
+  // The setup-token choice used to put the Anthropic token in argv behind `--token`. It now rides the
+  // same pipe; only `--token-provider`, which names the provider, stays on the command line.
+  it("pipes a setup-token too, and still names the token provider", async () => {
+    const docker = fakeDocker({ stdout: onboardStdout({ credentialStdin: true }) });
+
+    await docker.runtime.connectApiKey({
+      providerId: "anthropic",
+      authChoiceId: "setup-token",
+      keyFlag: "token",
+      apiKey: "sk-ant-oat01-secret",
+    });
+
+    const onboard = docker.execs.at(-1);
+    expect(JSON.stringify(docker.commands)).not.toContain("sk-ant-oat01-secret");
+    expect(onboard?.cmd.join(" ")).toContain("--token-provider 'anthropic'");
+    expect(onboard?.env).toEqual(["OPZAVA_CREDENTIAL=sk-ant-oat01-secret"]);
+  });
+
+  // A gateway image built before --credential-stdin would reject the flag anyway — but only after
+  // being handed the secret. Fail before that, and never fall back to argv.
+  it("refuses to send the credential to a gateway image that cannot read it from stdin", async () => {
+    const docker = fakeDocker({ stdout: onboardStdout({ credentialStdin: false }) });
+
+    const connected = await docker.runtime.connectApiKey({
+      providerId: "zai",
+      authChoiceId: "zai-api-key",
+      keyFlag: "zai-api-key",
+      apiKey: "sk-super-secret",
+    });
+
+    expect(connected.ok).toBe(false);
+    expect(!connected.ok && connected.error.code).toBe(
+      "provisioning.connections.onboardCredentialStdinUnsupported",
+    );
+    expect(docker.execs).toHaveLength(1);
+    expect(JSON.stringify(docker.execs)).not.toContain("sk-super-secret");
   });
 });
