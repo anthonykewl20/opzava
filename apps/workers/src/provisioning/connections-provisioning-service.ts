@@ -1723,7 +1723,10 @@ function disconnectProfileIdsForProvider(input: {
   const ids = new Set(configCredentialProfileIdsForProvider(input.config, input.providerId));
   for (const profileId of input.ownership?.[input.providerId] ?? []) {
     const profile = profiles[profileId];
-    if (isRecord(profile) && profileUsesGatewayCredentialAuth(profileId, profile)) {
+    // A declared profile MISSING from config is exactly the state a half-completed disconnect
+    // leaves: the config entry is gone but the secret is still in the auth store. Include it so the
+    // logout below still revokes it — filtering on config presence would re-orphan it.
+    if (!isRecord(profile) || profileUsesGatewayCredentialAuth(profileId, profile)) {
       ids.add(profileId);
     }
   }
@@ -1731,25 +1734,30 @@ function disconnectProfileIdsForProvider(input: {
   return [...ids];
 }
 
-/** Distinct provider ids owning the given profiles — each needs its own authLogout + order clear. */
-function providerIdsForProfiles(
+/**
+ * profileId -> the provider that owns it.
+ *
+ * Falls back to the profile-id prefix when the profile is absent from config: a previous
+ * half-completed disconnect (or a doctor prune) can leave a secret in the auth STORE with no config
+ * entry, and skipping it there would re-orphan the very credential this fix exists to revoke.
+ */
+function profileOwnersForDisconnect(
   config: Record<string, unknown>,
   profileIds: readonly string[],
-): readonly string[] {
+): ReadonlyMap<string, string> {
   const profiles = authProfiles(config);
-  const providerIds = new Set<string>();
+  const owners = new Map<string, string>();
   for (const profileId of profileIds) {
     const profile = profiles[profileId];
-    if (!isRecord(profile)) {
-      continue;
-    }
-    const providerId = providerIdFromProfile(profileId, profile);
+    const providerId = isRecord(profile)
+      ? providerIdFromProfile(profileId, profile)
+      : providerIdFromProfile(profileId, {});
     if (providerId !== null) {
-      providerIds.add(providerId);
+      owners.set(profileId, providerId);
     }
   }
 
-  return [...providerIds];
+  return owners;
 }
 
 /**
@@ -2068,29 +2076,35 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
    * the old behavior instead of refusing to run.
    */
   private async modelAuthProfileOwnership(): Promise<ProviderProfileOwnership | null> {
-    // No `refresh`: ownership is static plugin metadata, so a cached snapshot is authoritative and
-    // this must not cost the disconnect a forced auth-store rescan.
-    const result = await this.options.adminClient.request("models.authStatus", {});
-    if (!result.ok) {
-      return null;
-    }
-
-    const ownership = recordValue(recordValue(result.value)?.["ownership"]);
-    if (ownership === null) {
-      return null;
-    }
-
-    const parsed: Record<string, readonly string[]> = {};
-    for (const [providerId, profileIds] of Object.entries(ownership)) {
-      const ids = arrayValue(profileIds)
-        .map((value) => stringValue(value))
-        .filter((value): value is string => value !== null);
-      if (ids.length > 0) {
-        parsed[providerId] = ids;
+    try {
+      // No `refresh`: ownership is static plugin metadata, so a cached snapshot is authoritative and
+      // this must not cost the disconnect a forced auth-store rescan.
+      const result = await this.options.adminClient.request("models.authStatus", {});
+      if (!result.ok) {
+        return null;
       }
-    }
 
-    return Object.keys(parsed).length > 0 ? parsed : null;
+      const ownership = recordValue(recordValue(result.value)?.["ownership"]);
+      if (ownership === null) {
+        return null;
+      }
+
+      const parsed: Record<string, readonly string[]> = {};
+      for (const [providerId, profileIds] of Object.entries(ownership)) {
+        const ids = arrayValue(profileIds)
+          .map((value) => stringValue(value))
+          .filter((value): value is string => value !== null);
+        if (ids.length > 0) {
+          parsed[providerId] = ids;
+        }
+      }
+
+      return Object.keys(parsed).length > 0 ? parsed : null;
+    } catch {
+      // A thrown transport error must not fail the disconnect: fall back to id-matching plus the
+      // orphan detection below, exactly as on a gateway that reports no ownership.
+      return null;
+    }
   }
 
   private async modelAuthStatusPostCheck(
@@ -3019,14 +3033,32 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       ownership,
     });
     const isConfigCredentialProvider = profileIds.length > 0;
-    // Every provider owning one of those profiles needs its own authLogout: the gateway removes
-    // stored secrets by provider id, so logging out only the catalog id leaves the siblings' keys
-    // in the auth store even after their config entries are nulled.
-    const credentialProviderIds = [
-      ...new Set([input.providerId, ...providerIdsForProfiles(config, profileIds)]),
-    ];
+    // Every provider owning one of those profiles needs its own authLogout — the gateway removes
+    // stored secrets BY PROVIDER ID, so logging out only the catalog id leaves the siblings' keys in
+    // the auth store even after their config entries are nulled.
+    //
+    // But a sibling is only pulled in because it shares THIS connect's profile: a provider-wide
+    // logout would also destroy any unrelated credential it holds, which is worse than the orphan.
+    // So the sibling logout is narrowed to the shared profile ids, while the provider the operator
+    // actually disconnected gets the full provider-wide logout they asked for.
+    const profileOwners = profileOwnersForDisconnect(config, profileIds);
+    const siblingProfileIdsByProvider = new Map<string, string[]>();
+    for (const [profileId, ownerId] of profileOwners) {
+      if (ownerId === input.providerId) {
+        continue;
+      }
+      siblingProfileIdsByProvider.set(ownerId, [
+        ...(siblingProfileIdsByProvider.get(ownerId) ?? []),
+        profileId,
+      ]);
+    }
+    const credentialProviderIds = [input.providerId, ...siblingProfileIdsByProvider.keys()];
     const logoutParams = [
-      ...credentialProviderIds.map((provider) => ({ provider })),
+      { provider: input.providerId },
+      ...[...siblingProfileIdsByProvider].map(([provider, sharedProfileIds]) => ({
+        provider,
+        profileIds: sharedProfileIds,
+      })),
       ...(isConfigCredentialProvider
         ? []
         : configuredLogoutAgentIds(config).map((agent) => ({ provider: input.providerId, agent }))),
@@ -3117,8 +3149,20 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     // Clear the auth order of every provider that owned one of the removed profiles — a sibling's
     // order entry left pointing at a nulled profile is exactly the half-disconnected state that
     // makes the surface lie about what is connected.
-    const orderProviderIds = [...new Set([input.providerId, ...credentialProviderIds])];
-    const orderHasProviderEntries = orderProviderIds.some((providerId) => {
+    // The disconnected provider loses its whole auth order. A sibling only loses the SHARED profile
+    // ids: wiping its order would strand any unrelated credential it still legitimately holds.
+    const nextAuthOrder = new Map<string, readonly string[]>([[input.providerId, []]]);
+    for (const providerId of siblingProfileIdsByProvider.keys()) {
+      const orderValue = authOrder(config)[providerId];
+      const existingOrder = Array.isArray(orderValue)
+        ? orderValue.filter((entry): entry is string => typeof entry === "string")
+        : [];
+      nextAuthOrder.set(
+        providerId,
+        existingOrder.filter((profileId) => !profileIds.includes(profileId)),
+      );
+    }
+    const orderHasProviderEntries = [...nextAuthOrder.keys()].some((providerId) => {
       const orderValue = authOrder(config)[providerId];
       return (
         (Array.isArray(orderValue) && orderValue.length > 0) ||
@@ -3132,10 +3176,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         patch: {
           auth: {
             profiles: Object.fromEntries(profileIds.map((id) => [id, null])),
-            order: Object.fromEntries(orderProviderIds.map((providerId) => [providerId, []])),
+            order: Object.fromEntries(nextAuthOrder),
           },
         },
-        replacePaths: orderProviderIds.map((providerId) => `auth.order.${providerId}`),
+        replacePaths: [...nextAuthOrder.keys()].map((providerId) => `auth.order.${providerId}`),
       });
       if (!patchParams.ok) {
         return err(patchParams.error);
@@ -3220,8 +3264,12 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(refreshedModelStatus.error);
     }
     const refreshedConfig = configPayload(refreshedConfigResult.value);
+    // Provider-level emptiness is asserted ONLY for the provider the operator disconnected. A
+    // sibling may still legitimately hold unrelated credentials, so asserting it too would fail a
+    // disconnect that actually succeeded. The sibling is covered by the profile-level check below:
+    // its shared profile must be gone.
     const lingering = providerStillHasCredentials({
-      providerIds: credentialProviderIds,
+      providerIds: [input.providerId],
       profileIds,
       authStatus: refreshedAuth.value,
       config: refreshedConfig,

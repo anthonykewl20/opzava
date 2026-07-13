@@ -150,6 +150,17 @@ function readProviderParam(params: Record<string, unknown>): string | null {
   return provider || null;
 }
 
+/** Optional `profileIds` narrowing for logout. Null = not supplied → revoke the whole provider. */
+function readProfileIdsParam(params: Record<string, unknown>): string[] | null {
+  const raw = params.profileIds;
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+  const profileIds = raw.filter((value): value is string => typeof value === "string" && value !== "");
+  // An explicitly empty/garbage list must not silently widen into "remove everything".
+  return profileIds;
+}
+
 function readAgentParam(params: Record<string, unknown>): string | undefined | null {
   const raw = typeof params.agent === "string" ? params.agent : params.agentId;
   if (typeof raw !== "string") {
@@ -469,12 +480,21 @@ export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "agent is invalid"));
       return;
     }
+    // Optional narrowing: revoke only these profile ids of the provider, leaving its other
+    // credentials in place. A caller clearing a SHARED profile off a sibling provider (one key,
+    // several catalogs) must not wipe that sibling's unrelated profiles as collateral. Omitted =
+    // full provider logout, the original behavior.
+    const onlyProfileIds = readProfileIdsParam(params);
     try {
       const cfg = context.getRuntimeConfig();
       const agentDir = agentId ? resolveAgentDir(cfg, agentId) : resolveDefaultAgentDir(cfg);
       const authProvider = resolveProviderIdForAuth(provider, { config: cfg });
       const store = ensureAuthProfileStoreWithoutExternalProfiles(agentDir);
-      const removedProfiles = listProfilesForProvider(store, provider);
+      const providerProfiles = listProfilesForProvider(store, provider);
+      const removedProfiles =
+        onlyProfileIds === null
+          ? providerProfiles
+          : providerProfiles.filter((profileId) => onlyProfileIds.includes(profileId));
       const removed = await removeProviderAuthProfilesAcrossOwnerStores({
         provider,
         agentDir,

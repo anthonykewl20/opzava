@@ -37,6 +37,13 @@ async function authProfiles() {
   return JSON.parse((await gateway("openclaw config get auth.profiles --json")) || "{}");
 }
 
+// The SECRET lives in the agent auth store, not in config. Checking only `auth.profiles` would pass
+// on a disconnect that dropped the config pointer while leaving the key live and resolvable.
+async function storedCredentialProviders() {
+  const status = JSON.parse(await gateway("openclaw models status --json"));
+  return (status?.auth?.providers ?? []).map((entry) => entry.provider);
+}
+
 async function sql(query) {
   const { stdout } = await run("docker", [
     "exec",
@@ -123,18 +130,26 @@ async function main() {
   console.log("3. Checking the gateway for surviving credentials...");
   const surviving = await authProfiles();
   const survivingIds = Object.keys(surviving);
+  const survivingStoreProviders = await storedCredentialProviders();
+  console.log(
+    "   config profiles: %s | auth-store providers: %s",
+    JSON.stringify(survivingIds),
+    JSON.stringify(survivingStoreProviders),
+  );
 
   const reportedSuccess = result.status === "disconnected";
-  const leftCredential = survivingIds.length > 0;
+  const leftCredential = survivingIds.length > 0 || survivingStoreProviders.length > 0;
 
   if (leftCredential) {
     console.error(
       "\nFAIL: disconnect reported %s but LEFT A LIVE CREDENTIAL in the gateway.\n" +
-        "  surviving profiles: %s\n" +
+        "  surviving config profiles: %s\n" +
+        "  surviving auth-store providers: %s\n" +
         "  These hold the same key the operator just revoked, under a provider id the\n" +
         "  Connections UI does not list — invisible and unremovable from the UI.",
       reportedSuccess ? '"disconnected" (false success)' : `"${result.status}"`,
       JSON.stringify(surviving, null, 2),
+      JSON.stringify(survivingStoreProviders),
     );
     process.exit(1);
   }

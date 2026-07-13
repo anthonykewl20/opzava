@@ -3355,10 +3355,14 @@ describe("Connections provisioning helpers", () => {
 
     expect(result.ok).toBe(true);
 
-    // The stored secret leaves the auth store per provider id, so BOTH owners need a logout.
+    // The stored secret leaves the auth store per provider id, so BOTH owners need a logout — the
+    // sibling narrowed to the shared profile so its other credentials are not collateral.
     expect(
       admin.calls.filter((call) => call.method === "models.authLogout").map((call) => call.params),
-    ).toEqual([{ provider: "opencode-go" }, { provider: "opencode" }]);
+    ).toEqual([
+      { provider: "opencode-go" },
+      { provider: "opencode", profileIds: ["opencode:default"] },
+    ]);
 
     const patch = admin.calls.find((call) => call.method === "config.patch");
     expect(patch).toBeDefined();
@@ -3368,6 +3372,115 @@ describe("Connections provisioning helpers", () => {
         order: { "opencode-go": [], opencode: [] },
       },
     });
+  });
+
+  // A sibling is dragged in only because it SHARES this connect's profile. The gateway's logout is
+  // provider-scoped, so a provider-wide logout would also destroy the sibling's unrelated
+  // credentials — a worse bug than the orphan. The sibling logout must be profile-scoped.
+  it("revokes only the shared profile from a sibling provider, not its unrelated credentials", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "opencode-go", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": () => {
+        const patched = admin.calls.some((call) => call.method === "config.patch");
+        return ok({
+          hash: "config-hash-sibling",
+          auth: {
+            profiles: {
+              ...(patched
+                ? {}
+                : {
+                    "opencode-go:default": { provider: "opencode-go", mode: "api_key" },
+                    "opencode:default": { provider: "opencode", mode: "api_key" },
+                  }),
+              // An independent credential on the sibling. It must survive untouched.
+              "opencode:personal": { provider: "opencode", mode: "api_key" },
+            },
+            order: {
+              "opencode-go": patched ? [] : ["opencode-go:default"],
+              opencode: patched ? ["opencode:personal"] : ["opencode:default", "opencode:personal"],
+            },
+          },
+        });
+      },
+      "models.authStatus": ok({
+        providers: [],
+        ownership: { "opencode-go": ["opencode:default", "opencode-go:default"] },
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-13T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({
+      ...principal(),
+      providerId: "opencode-go",
+    });
+
+    expect(result.ok).toBe(true);
+
+    // Full logout for the provider the operator disconnected; profile-scoped for the sibling.
+    expect(
+      admin.calls.filter((call) => call.method === "models.authLogout").map((call) => call.params),
+    ).toEqual([
+      { provider: "opencode-go" },
+      { provider: "opencode", profileIds: ["opencode:default"] },
+    ]);
+
+    const patch = admin.calls.find((call) => call.method === "config.patch");
+    expect(JSON.parse(String(patch?.params["raw"]))).toEqual({
+      auth: {
+        profiles: { "opencode-go:default": null, "opencode:default": null },
+        // The sibling keeps its unrelated profile AND its place in the auth order.
+        order: { "opencode-go": [], opencode: ["opencode:personal"] },
+      },
+    });
+  });
+
+  // A previous half-completed disconnect leaves the secret in the auth store with no config entry.
+  // Filtering the declared set on config presence would skip its provider's logout and re-orphan it.
+  it("still logs out a declared profile that is missing from config", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "opencode-go", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": () => {
+        const patched = admin.calls.some((call) => call.method === "config.patch");
+        return ok({
+          hash: "config-hash-store-only",
+          auth: {
+            // `opencode:default` is declared-owned but absent here — it lives only in the auth store.
+            profiles: patched
+              ? {}
+              : { "opencode-go:default": { provider: "opencode-go", mode: "api_key" } },
+            order: { "opencode-go": patched ? [] : ["opencode-go:default"] },
+          },
+        });
+      },
+      "models.authStatus": ok({
+        providers: [],
+        ownership: { "opencode-go": ["opencode:default", "opencode-go:default"] },
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-13T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({
+      ...principal(),
+      providerId: "opencode-go",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(
+      admin.calls.filter((call) => call.method === "models.authLogout").map((call) => call.params),
+    ).toEqual([
+      { provider: "opencode-go" },
+      { provider: "opencode", profileIds: ["opencode:default"] },
+    ]);
   });
 
   it("does not remove profiles the gateway does not attribute to the disconnected provider", async () => {
