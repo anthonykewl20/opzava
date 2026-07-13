@@ -302,6 +302,11 @@ class MemorySecretsVault {
   }
 }
 
+// The agent OpenClaw resolves un-agented writes to (Opzava marks it `default: true`)...
+const orchestratorDefaultAgentId = "ask-admin-opzava";
+// ...and the store every agent actually inherits from. That they differ is issue #169.
+const sharedCredentialAgentId = "main";
+
 class RecordingGatewayRuntime {
   public readonly connectCalls: {
     readonly providerId: string;
@@ -310,7 +315,19 @@ class RecordingGatewayRuntime {
     readonly apiKey: string;
   }[] = [];
   public readonly deviceLoginCalls: string[] = [];
+  public readonly deviceLoginAgentIds: string[] = [];
   public readonly deviceLogReads: string[] = [];
+  public readonly agentCredentialWrites: {
+    readonly agentId: string;
+    readonly providerId: string;
+  }[] = [];
+  /** agentId -> providerIds whose credential is physically stored in THAT agent's auth store. */
+  public readonly agentStores = new Map<string, Set<string>>();
+  public writeAgentCredentialResult: Result<{
+    readonly exitCode: number;
+    readonly stdout: string;
+    readonly stderr: string;
+  }> | null = null;
   public readonly deviceStops: {
     readonly execId: string;
     readonly logPath: string;
@@ -427,13 +444,73 @@ class RecordingGatewayRuntime {
     if (this.options.connectDelayMs !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, this.options.connectDelayMs));
     }
-    return this.options.connectResult ?? ok({ exitCode: 0, stdout: "{}", stderr: "" });
+    const result = this.options.connectResult ?? ok({ exitCode: 0, stdout: "{}", stderr: "" });
+    if (result.ok && result.value.exitCode === 0) {
+      // Faithful to the real CLI: `onboard` has no --agent flag and always writes to the CONFIGURED
+      // DEFAULT agent — the orchestrator. That store is nobody else's inheritance base (#169).
+      this.storeFor(orchestratorDefaultAgentId).add(input.providerId);
+    }
+    return result;
+  }
+
+  public async writeAgentCredential(input: {
+    readonly agentId: string;
+    readonly providerId: string;
+    readonly keyFlag: string;
+    readonly apiKey: string;
+  }): Promise<
+    Result<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }>
+  > {
+    this.agentCredentialWrites.push({ agentId: input.agentId, providerId: input.providerId });
+    if (this.writeAgentCredentialResult !== null) {
+      return this.writeAgentCredentialResult;
+    }
+    this.storeFor(input.agentId).add(input.providerId);
+    return ok({ exitCode: 0, stdout: "", stderr: "" });
+  }
+
+  public async listAgentProviderProfiles(input: {
+    readonly agentId: string;
+    readonly providerId: string;
+  }): Promise<Result<readonly string[]>> {
+    return ok(
+      this.resolvableBy(input.agentId, input.providerId) ? [`${input.providerId}:manual`] : [],
+    );
+  }
+
+  /**
+   * OpenClaw's read-through inheritance, as verified against the real CLI: an agent resolves its own
+   * profiles PLUS whatever sits in the shared `main` store — and only `main`, never a sibling
+   * agent's store. This is the rule that makes a credential parked in the orchestrator unusable.
+   */
+  public resolvableBy(agentId: string, providerId: string): boolean {
+    return (
+      this.storeFor(agentId).has(providerId) ||
+      this.storeFor(sharedCredentialAgentId).has(providerId)
+    );
+  }
+
+  public forgetProviderInStore(agentId: string, providerId: string): void {
+    this.storeFor(agentId).delete(providerId);
+  }
+
+  private storeFor(agentId: string): Set<string> {
+    const existing = this.agentStores.get(agentId);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const created = new Set<string>();
+    this.agentStores.set(agentId, created);
+    return created;
   }
 
   public async startDeviceCodeLogin(
     providerId: string,
+    agentId: string,
   ): Promise<Result<{ readonly execId: string; readonly logPath: string }>> {
     this.deviceLoginCalls.push(providerId);
+    this.deviceLoginAgentIds.push(agentId);
+    this.storeFor(agentId).add(this.connectedDeviceProviderId ?? providerId);
     return ok({ execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" });
   }
 
@@ -2311,6 +2388,7 @@ describe("Connections provisioning helpers", () => {
   // negative even though the credential was written and is usable.
   it("connects Anthropic even when the onboard is what sets the default model (stale pre-onboard config)", async () => {
     const preOnboardConfig = {
+      hash: "config-hash-stale-pre",
       config: {
         agents: {
           defaults: { models: { "openai/gpt-5.5": {} }, model: { primary: "openai/gpt-5.5" } },
@@ -2319,6 +2397,7 @@ describe("Connections provisioning helpers", () => {
       },
     };
     const postOnboardConfig = {
+      hash: "config-hash-stale-post",
       config: {
         agents: {
           defaults: {
@@ -2351,6 +2430,9 @@ describe("Connections provisioning helpers", () => {
     const admin = new RecordingAdminClient({
       "config.get": () =>
         ok(gatewayRuntime.connectCalls.length === 0 ? preOnboardConfig : postOnboardConfig),
+      // Connect registers the shared `main` agent so the credential can be written where every
+      // agent inherits it (issue #169).
+      "config.patch": ok({ ok: true }),
     });
     const port = new GatewayAdminConnectionsProvisioningPort({
       adminClient: admin,
@@ -2395,6 +2477,7 @@ describe("Connections provisioning helpers", () => {
       });
       const admin = new RecordingAdminClient({
         "config.get": ok({
+          hash: "config-hash-unroutable",
           config: {
             agents: {
               defaults: { models: { "openai/gpt-5.5": {} }, model: { primary: "openai/gpt-5.5" } },
@@ -2402,6 +2485,7 @@ describe("Connections provisioning helpers", () => {
             plugins: { entries: { anthropic: { enabled: true } } },
           },
         }),
+        "config.patch": ok({ ok: true }),
       });
       const port = new GatewayAdminConnectionsProvisioningPort({
         adminClient: admin,
@@ -3672,15 +3756,25 @@ describe("Connections provisioning helpers", () => {
       });
 
       const resultPromise = port.disconnectModelProvider({ ...principal(), providerId: "zai" });
-      await vi.advanceTimersByTimeAsync(0);
+      // 5 logout targets now, so the batch is paced; drain the inter-call delays.
+      await vi.advanceTimersByTimeAsync(5 * 20_000);
       const result = await resultPromise;
 
       expect(result.ok).toBe(true);
+      // The per-agent logouts remove 0 profiles for a config api-key, but disconnect no longer tries
+      // to predict that: a provider whose credential DOES sit in an agent store (an Anthropic
+      // setup-token also has a config profile entry) would otherwise keep it after disconnect.
       expect(
         admin.calls
           .filter((call) => call.method === "models.authLogout")
           .map((call) => call.params),
-      ).toEqual([{ provider: "zai" }]);
+      ).toEqual([
+        { provider: "zai" },
+        { provider: "zai", agent: "agent-one" },
+        { provider: "zai", agent: "agent-two" },
+        { provider: "zai", agent: "agent-three" },
+        { provider: "zai", agent: "agent-four" },
+      ]);
       const patch = admin.calls.find((call) => call.method === "config.patch");
       expect(patch).toBeDefined();
       expect(patch?.params).toMatchObject({ replacePaths: ["auth.order.zai"] });
@@ -5145,7 +5239,7 @@ describe("Connections provisioning helpers", () => {
       fetch: fetchImpl,
     });
 
-    const started = await runtime.startDeviceCodeLogin("openai");
+    const started = await runtime.startDeviceCodeLogin("openai", "main");
     expect(started.ok).toBe(true);
     if (!started.ok) {
       throw started.error;
@@ -5159,6 +5253,11 @@ describe("Connections provisioning helpers", () => {
     expect(Array.isArray(startShell) ? startShell[2] : null).toEqual(expect.any(String));
     const startCommand = Array.isArray(startShell) ? String(startShell[2]) : "";
     expect(started.value.logPath).toMatch(/^\/tmp\/opzava-df-[^/]+\/device\.log$/);
+    // The OAuth profile must land in the shared store, not the default agent's private one (#169).
+    // The login runs inside `script -qfc '...'`, so its own quoting is escaped once more.
+    expect(startCommand).toMatch(
+      /models auth --agent .*main.* login --provider .*openai.* --device-code/,
+    );
     expect(startCommand).toContain("mkdir -m 700 '/tmp/opzava-df-");
     expect(startCommand).toContain("umask 077");
     expect(startCommand).toContain("/usr/bin/script -qfc");
@@ -5471,5 +5570,291 @@ describe("Connections provisioning helpers", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("model-provider credential store scope (issue #169)", () => {
+  const anthropicSetupTokenChoice = {
+    id: "setup-token",
+    label: "Anthropic setup-token",
+    mode: "api-key" as const,
+    keyFlag: "token",
+  };
+  const anthropicConnectedStatus = {
+    allowed: ["anthropic/claude-sonnet-5"],
+    auth: {
+      providers: [
+        {
+          provider: "anthropic",
+          profiles: { count: 1, token: 1, labels: ["anthropic:manual=Setup token"] },
+        },
+      ],
+    },
+  };
+  // The live gateway topology: the orchestrator is the DEFAULT agent (so onboard writes there), and
+  // a per-provider subagent runs the Q17 delegation.
+  const gatewayConfig = {
+    hash: "config-hash-169",
+    plugins: { allow: ["anthropic"] },
+    agents: {
+      list: [
+        { id: orchestratorDefaultAgentId, default: true },
+        { id: "subagent-anthropic" },
+        { id: sharedCredentialAgentId },
+      ],
+    },
+  };
+  const setupToken = `sk-ant-oat01-${"a".repeat(80)}`;
+
+  const connectAnthropic = async (
+    admin: RecordingAdminClient,
+    gatewayRuntime: RecordingGatewayRuntime,
+  ) => {
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+    const start = await port.startModelProviderApiKeyConnect({
+      ...principal(),
+      providerId: "anthropic",
+      authChoiceId: "setup-token",
+      apiKey: setupToken,
+    });
+    return pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
+  };
+
+  it("leaves the delegation subagent able to resolve the provider after connect", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok(gatewayConfig),
+      "config.patch": ok({ ok: true }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [anthropicSetupTokenChoice],
+      status: anthropicConnectedStatus,
+    });
+
+    const result = await connectAnthropic(admin, gatewayRuntime);
+
+    expect(result.ok).toBe(true);
+    // Onboard still stores it in the orchestrator's own store — that half was never broken...
+    expect(gatewayRuntime.resolvableBy(orchestratorDefaultAgentId, "anthropic")).toBe(true);
+    // ...but the shared store is the ONLY thing other agents inherit from, so the credential has to
+    // be placed there too. Without this write `subagent-anthropic` fails with
+    // `No API key found for provider "anthropic"` while the UI still reports Connected.
+    expect(gatewayRuntime.agentCredentialWrites).toContainEqual({
+      agentId: sharedCredentialAgentId,
+      providerId: "anthropic",
+    });
+    expect(gatewayRuntime.resolvableBy("subagent-anthropic", "anthropic")).toBe(true);
+  });
+
+  it("registers the shared store agent so it is addressable", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "config-hash-169b", plugins: { allow: ["anthropic"] } }),
+      "config.patch": ok({ ok: true }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [anthropicSetupTokenChoice],
+      status: anthropicConnectedStatus,
+    });
+
+    const result = await connectAnthropic(admin, gatewayRuntime);
+
+    expect(result.ok).toBe(true);
+    // `--agent main` is rejected outright unless `main` is a configured agent, so a gateway that has
+    // never seen it must have the entry added before the credential can be written there.
+    const agentPatches = admin.calls
+      .filter((call) => call.method === "config.patch")
+      .map((call) => rawPatch(call.params))
+      .filter((patch) => (patch as { agents?: unknown }).agents !== undefined);
+    expect(agentPatches).toContainEqual({
+      agents: { list: [{ id: sharedCredentialAgentId }] },
+    });
+    expect(JSON.stringify(admin.calls)).not.toContain(setupToken);
+  });
+
+  it("fails the connect when an agent that needs the provider cannot resolve it", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok(gatewayConfig),
+      "config.patch": ok({ ok: true }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [anthropicSetupTokenChoice],
+      status: anthropicConnectedStatus,
+    });
+    // Simulate the store-scope drift this bug was: the write reports success but the credential does
+    // not land where agents read from. `models status` still says "connected" — it reports the
+    // orchestrator's store — so only a resolvability check can catch it.
+    gatewayRuntime.writeAgentCredentialResult = ok({ exitCode: 0, stdout: "", stderr: "" });
+
+    const result = await connectAnthropic(admin, gatewayRuntime);
+
+    expect(result.ok ? result.value : result.error).toMatchObject({
+      status: "failed",
+      code: "provisioning.connections.providerCredentialUnresolvable",
+    });
+  });
+
+  it("clears the shared store on disconnect", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        hash: "config-hash-169c",
+        auth: { profiles: {}, order: {} },
+        agents: gatewayConfig.agents,
+      }),
+      "models.authLogout": ok({ provider: "anthropic", removedProfiles: [], abortedRunIds: [] }),
+      "models.authStatus": ok({ providers: [] }),
+      "models.list": ok({ providers: [], models: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "anthropic" });
+
+    expect(result.ok).toBe(true);
+    // Connect writes the credential into the shared store, so a disconnect that skipped it would
+    // leave a live credential behind: disconnected in the UI, still usable by every agent.
+    const logoutTargets = admin.calls
+      .filter((call) => call.method === "models.authLogout")
+      .map((call) => (call.params as { readonly agent?: string }).agent ?? "default");
+    expect(logoutTargets).toContain(sharedCredentialAgentId);
+  });
+
+  it("points the device-code login at the shared store", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok(gatewayConfig),
+      "config.patch": ok({ ok: true }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai", label: "OAuth device flow", mode: "device-flow" }],
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai",
+    });
+
+    expect(result.ok).toBe(true);
+    // The device-code CLI writes the OAuth profile itself, so the store has to be named up front —
+    // un-agented it would land in the orchestrator's store and hit this same bug.
+    expect(gatewayRuntime.deviceLoginAgentIds).toEqual([sharedCredentialAgentId]);
+  });
+});
+
+describe("setup-token config profile does not suppress the shared write (issue #169)", () => {
+  // The live gateway shape that broke the first cut of this fix: an Anthropic setup-token onboard
+  // writes a `mode: "token"` entry into config.auth.profiles while the token itself lives in an
+  // agent store. Classifying that entry as "the credential is in the config, so it is already
+  // global" skips the shared write for the exact provider this issue is about.
+  const configWithTokenProfile = {
+    hash: "config-hash-169-token-profile",
+    plugins: { allow: ["anthropic"] },
+    auth: {
+      profiles: { "anthropic:default": { provider: "anthropic", mode: "token" } },
+      order: {},
+    },
+    agents: {
+      list: [
+        { id: "ask-admin-opzava", default: true },
+        { id: "subagent-anthropic" },
+        { id: "main" },
+      ],
+    },
+  };
+
+  it("still shares the credential when the provider has a config token profile", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok(configWithTokenProfile),
+      "config.patch": ok({ ok: true }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      status: {
+        allowed: ["anthropic/claude-sonnet-5"],
+        auth: {
+          providers: [
+            {
+              provider: "anthropic",
+              profiles: { count: 1, token: 1, labels: ["anthropic:default=Setup token"] },
+            },
+          ],
+        },
+      },
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const start = await port.startModelProviderApiKeyConnect({
+      ...principal(),
+      providerId: "anthropic",
+      authChoiceId: "setup-token",
+      apiKey: `sk-ant-oat01-${"a".repeat(80)}`,
+    });
+    const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
+
+    expect(result.ok).toBe(true);
+    expect(gatewayRuntime.agentCredentialWrites).toContainEqual({
+      agentId: "main",
+      providerId: "anthropic",
+    });
+    expect(gatewayRuntime.resolvableBy("subagent-anthropic", "anthropic")).toBe(true);
+  });
+
+  it("logs the shared store out even for a provider with a config profile", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      // The config profile is gone once disconnect has patched it away, so the fail-closed
+      // post-check sees a genuinely cleared provider.
+      "config.get": () =>
+        ok({
+          ...configWithTokenProfile,
+          auth: admin.calls.some((call) => call.method === "config.patch")
+            ? { profiles: {}, order: {} }
+            : configWithTokenProfile.auth,
+        }),
+      "config.patch": ok({ ok: true }),
+      "models.authLogout": ok({ provider: "anthropic", removedProfiles: [], abortedRunIds: [] }),
+      "models.authStatus": ok({ providers: [] }),
+      "models.list": ok({ providers: [], models: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "anthropic" });
+
+    expect(result.ok).toBe(true);
+    // Previously this provider logged out ONLY the un-agented default target, leaving the token in
+    // every other agent store — including the shared one connect now writes to.
+    const logoutTargets = admin.calls
+      .filter((call) => call.method === "models.authLogout")
+      .map((call) => (call.params as { readonly agent?: string }).agent ?? "default");
+    expect(logoutTargets).toEqual(
+      expect.arrayContaining(["default", "ask-admin-opzava", "subagent-anthropic", "main"]),
+    );
   });
 });

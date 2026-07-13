@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  type GatewayRuntimeAgentCredential,
+  type GatewayRuntimeAgentProviderQuery,
   type GatewayRuntimeAuthChoice,
   type GatewayRuntimeCommandResult,
   type GatewayRuntimeDeviceCodeLogin,
@@ -253,6 +255,33 @@ function setupTokenKeyFlag(choiceId: string): string | null {
   return choiceId.toLowerCase() === "setup-token" ? "token" : null;
 }
 
+// `models auth list --json` answers with the profiles the agent can RESOLVE, which already accounts
+// for read-through inheritance from the shared store. An unparseable payload yields no profile ids,
+// so a post-check reading this fails closed rather than reporting a provider as usable on a guess.
+function parseAgentProviderProfileIds(stdout: string): readonly string[] {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stdout);
+  } catch {
+    return [];
+  }
+
+  const profiles = Array.isArray(payload)
+    ? payload
+    : ((payload as { readonly profiles?: unknown } | null)?.profiles ?? []);
+  if (!Array.isArray(profiles)) {
+    return [];
+  }
+
+  return profiles
+    .map((profile) =>
+      typeof profile === "string"
+        ? profile
+        : ((profile as { readonly id?: unknown } | null)?.id ?? null),
+    )
+    .filter((id): id is string => typeof id === "string" && id.trim() !== "");
+}
+
 function parseOnboardAuthChoices(helpText: string): readonly GatewayRuntimeAuthChoice[] {
   const choiceIds = parseOnboardAuthChoiceIds(helpText);
   const keyFlags = parseOnboardApiKeyFlags(helpText);
@@ -381,14 +410,67 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     ]);
   }
 
+  public async writeAgentCredential(
+    input: GatewayRuntimeAgentCredential,
+  ): Promise<Result<GatewayRuntimeCommandResult>> {
+    console.log(
+      `provisioning-worker storing ${input.providerId} credential in the ${input.agentId} auth store`,
+    );
+    // `paste-token`/`paste-api-key` read the secret from stdin when stdin is not a TTY, so the
+    // credential travels through the exec environment and a pipe instead of argv, where it would
+    // be readable in the container's process list for the life of the command.
+    const subcommand = input.keyFlag === "token" ? "paste-token" : "paste-api-key";
+    const script = [
+      `printf '%s' "$OPZAVA_CREDENTIAL"`,
+      "|",
+      "node openclaw.mjs models auth",
+      `--agent ${shellQuote(input.agentId)}`,
+      subcommand,
+      `--provider ${shellQuote(input.providerId)}`,
+    ].join(" ");
+    return this.exec(["sh", "-lc", script], [`OPZAVA_CREDENTIAL=${input.apiKey}`]);
+  }
+
+  public async listAgentProviderProfiles(
+    input: GatewayRuntimeAgentProviderQuery,
+  ): Promise<Result<readonly string[]>> {
+    const result = await this.exec([
+      "node",
+      "openclaw.mjs",
+      "models",
+      "auth",
+      "--agent",
+      input.agentId,
+      "list",
+      "--provider",
+      input.providerId,
+      "--json",
+    ]);
+    if (!result.ok) {
+      return err(result.error);
+    }
+    if (result.value.exitCode !== 0) {
+      return err(
+        commandFailureError({
+          providerId: input.providerId,
+          authChoiceId: "models-auth-list",
+          result: result.value,
+        }),
+      );
+    }
+
+    return ok(parseAgentProviderProfileIds(result.value.stdout));
+  }
+
   public async startDeviceCodeLogin(
     providerId: string,
+    agentId: string,
   ): Promise<Result<GatewayRuntimeDeviceCodeLogin>> {
     const flowDir = `/tmp/opzava-df-${randomUUID()}`;
     const logPath = `${flowDir}/device.log`;
-    const command = `node openclaw.mjs models auth login --provider ${shellQuote(
-      providerId,
-    )} --device-code`;
+    const command = `node openclaw.mjs models auth --agent ${shellQuote(
+      agentId,
+    )} login --provider ${shellQuote(providerId)} --device-code`;
     const redactor =
       "sed -u -E " +
       shellQuote(
@@ -599,7 +681,10 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     );
   }
 
-  private async exec(cmd: readonly string[]): Promise<Result<GatewayRuntimeCommandResult>> {
+  private async exec(
+    cmd: readonly string[],
+    env?: readonly string[],
+  ): Promise<Result<GatewayRuntimeCommandResult>> {
     const containerId = await this.resolveContainerId();
     if (!containerId.ok) {
       return err(containerId.error);
@@ -614,6 +699,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
           AttachStderr: true,
           Tty: false,
           Cmd: cmd,
+          ...(env === undefined ? {} : { Env: env }),
         },
       },
     );

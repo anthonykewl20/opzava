@@ -1,0 +1,143 @@
+/* ============================================================================
+ * connections-overview.css — layout for the Connections OVERVIEW route.
+ * Shared by connections.html (healthy), connections-degraded.html, and
+ * connections-unreachable.html so the three states cannot drift apart.
+ *
+ * Layout ONLY. Colour, font-size, radius and shadow come from tokens.css;
+ * components come from app.css (.card/.btn/.badge/.dot/.table) and shadcn.css
+ * (.sb-badge/.sb-progress/.sb-separator/.sb-alert).
+ * ========================================================================== */
+
+/* ── Panel 2 · three-column grid ───────────────────────────────────────────
+ * Equal heights: the grid stretches every card, and each card is a column flex
+ * whose footer is pushed down by margin-top:auto. So the three action buttons
+ * land on ONE baseline no matter how much content sits above them. */
+.conn-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: stretch;
+}
+@media (max-width: 1180px) {
+  .conn-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.conn-card { display: flex; flex-direction: column; height: 100%; }
+.conn-card-body { flex: 1; display: flex; flex-direction: column; }
+.conn-card-foot { margin-top: auto; padding-top: var(--space-5); }
+
+/* ── Panel 1 · hero ────────────────────────────────────────────────────────
+ * The metric is the loudest thing on the page: it is the one number the user
+ * came here for. */
+.conn-hero-metric {
+  font-size: var(--text-3xl);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.conn-hero-pct { color: var(--fg-muted); font-weight: var(--fw-regular); }
+.conn-hero-sub { margin-top: var(--space-2); margin-bottom: var(--space-5); color: var(--fg-muted); font-size: var(--text-sm); }
+
+/* Degraded / unreachable heroes keep the SAME structure — only the accent and
+ * the copy change — so the eye lands in the same place in every state. */
+.conn-hero-metric--attention { color: var(--warning); }
+.conn-hero-metric--unknown { color: var(--fg-muted); }
+
+/* ── Gateway card ──────────────────────────────────────────────────────────
+ * Centre-aligned status block: the connection state is the point of the card. */
+.conn-gw-state { text-align: center; padding: var(--space-4) 0 var(--space-2); }
+.conn-gw-badge { height: 34px; padding: 0 var(--space-5); font-size: var(--text-lg); border-radius: var(--radius-full); }
+.conn-gw-health {
+  display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  margin-top: var(--space-4); font-size: var(--text-sm); font-weight: var(--fw-medium);
+}
+.conn-gw-health--healthy { color: var(--success); }
+.conn-gw-health--attention { color: var(--warning); }
+.conn-gw-health--unknown { color: var(--fg-subtle); }
+
+/* ── Key/value rows (gateway card + System Status sub-sections) ─────────── */
+.conn-kv { display: grid; gap: var(--space-3); font-size: var(--text-sm); }
+.conn-kv > div { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.conn-kv dt { color: var(--fg-subtle); }
+.conn-kv dd { display: flex; align-items: center; gap: var(--space-2); color: var(--fg); text-align: right; min-width: 0; }
+.conn-kv--wide { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-3) var(--space-8); padding: var(--space-4) var(--space-5) var(--space-5); }
+
+/* ── Card headline stat (Model Providers / Integrations) ──────────────────── */
+.conn-stat-value { font-size: var(--text-2xl); font-weight: var(--fw-semibold); line-height: var(--lh-tight); }
+.conn-stat-unit { color: var(--fg-muted); font-size: var(--text-base); font-weight: var(--fw-regular); }
+.conn-sub-label { padding: 0 0 var(--space-2); }
+
+/* ── Actionable list rows (providers, integrations) ───────────────────────── */
+.conn-list { display: flex; flex-direction: column; gap: 2px; }
+.conn-list-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-2);
+  margin: 0 calc(var(--space-2) * -1);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+.conn-list-row:hover { background: var(--surface-2); }
+.conn-list-label { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-weight: var(--fw-medium); }
+.conn-list-sub { color: var(--fg-subtle); font-size: var(--text-xs); font-weight: var(--fw-regular); }
+.conn-list-action { flex: none; color: var(--fg-muted); font-size: var(--text-sm); text-decoration: none; }
+.conn-list-action:hover { color: var(--accent); text-decoration: underline; }
+/* `Setup` is the row that wants a click — it reads as the action, not a link. */
+.conn-list-action--setup { color: var(--accent); font-weight: var(--fw-medium); }
+
+/* Brand marks. Placeholder glyphs in the mockup; the app swaps in real SVG
+ * brand icons. Sized/greyed here so swapping them cannot shift the layout. */
+.conn-brand {
+  width: 22px; height: 22px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3); color: var(--fg-muted);
+  font-size: 13px;
+}
+.conn-brand--openai { color: var(--success); }
+.conn-brand--anthropic { color: var(--warning); }
+.conn-brand--zai { color: var(--accent); }
+
+/* ── Panel 3 · System Status ───────────────────────────────────────────────
+ * <details>/<summary> gives native disclosure + keyboard + screen-reader
+ * semantics with no JS. The panel carries a lot; the collapsibles are what stop
+ * it becoming the wall-of-text this redesign exists to escape. */
+.conn-alert { margin: var(--space-5); }
+
+.conn-section { border-top: 1px solid var(--border); }
+.conn-section:first-of-type { border-top: 0; }
+
+.conn-summary {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+.conn-summary::-webkit-details-marker { display: none; }
+.conn-summary:hover { background: var(--surface-2); }
+.conn-summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.conn-summary-title { flex: 1 1 auto; font-weight: var(--fw-semibold); }
+.conn-summary-chev {
+  flex: none; width: 12px; color: var(--fg-subtle);
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+.conn-section[open] > .conn-summary > .conn-summary-chev { transform: rotate(90deg); }
+
+.conn-table { width: 100%; }
+.conn-table td .dot { margin-right: 6px; }
+
+/* Unprobed rows are GREY, never red. "We could not ask" is not "it is broken" —
+ * conflating them is how a status page loses the user's trust. */
+.conn-not-checked { color: var(--fg-subtle); }
+
+/* ── Empty state (Third-Party Integrations, nothing connected) ────────────── */
+.conn-empty { text-align: center; padding: var(--space-6) var(--space-2); }
+.conn-empty-art { display: flex; align-items: center; justify-content: center; color: var(--fg-subtle); opacity: .5; }
+
+/* Catalog-driven logo row. Rendered ONLY when the real catalog holds 2+
+ * integrations — a single logo reads as broken, and painting logos we cannot
+ * actually connect (Slack, Google) would promise what `Add integration` does not
+ * deliver. It appears for free the day a second integration ships. */
+.conn-logo-row { display: flex; align-items: center; justify-content: center; gap: var(--space-4); margin-top: var(--space-5); opacity: .45; }
+.conn-logo-row > * { width: 26px; height: 26px; color: var(--fg-muted); }

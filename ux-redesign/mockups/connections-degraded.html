@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Connections — Overview — Opzava</title>
+  <title>Connections — Overview (degraded) — Opzava</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -16,12 +16,27 @@
   <script src="admin-nav.js" defer></script>
   <link rel="stylesheet" href="connections-overview.css">
 </head>
+<!--
+  ══════════════════════════════════════════════════════════════════════════════
+  STATE: DEGRADED.  8 components: 6 healthy · 1 ATTENTION · 1 NOT CHECKED.
+
+  This is the state the whole redesign exists for, and it exercises the one
+  distinction a status page must never blur:
+
+    ATTENTION   = we probed it, and it is broken   → amber, counts against you
+    NOT CHECKED = we could not probe it            → grey, counts against NOTHING
+
+  So the percentage is computed over PROBED components only (6 of 7 = 86%), and
+  the not-checked component is reported separately rather than being quietly
+  scored as healthy or loudly scored as broken.
+
+  Also drawn here: the Third-Party Integrations EMPTY state, and the attention-
+  first Model Providers list (the expiring key sorts ABOVE the healthy rows).
+  ══════════════════════════════════════════════════════════════════════════════
+-->
 <body>
 <div class="app">
 
-  <!-- ══════════════════════════════════════════════════════════════
-       NAVIGATION RAIL
-  ══════════════════════════════════════════════════════════════════ -->
   <aside class="rail" aria-label="Main navigation">
 
     <div class="rail-head">
@@ -51,13 +66,6 @@
       <a href="crm-deals.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Deals</a>
       <a href="crm-tickets.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 6.5a1.5 1.5 0 0 0 0 5V14h12v-2.5a1.5 1.5 0 0 1 0-5V4H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Tickets</a>
 
-      <!-- ══ AUTOMATE ══════════════════════════════════════════════════════════
-           `Automate` is the category label. It hosts `Connections` AND (roadmap
-           §194 / capability-parity §81) `Automation` — so `Connections` is a
-           title-case nav item with an icon, NOT the category itself.
-           The group header is a toggle that never takes the active pill: the
-           only filled pill is the page you are on (`Overview`).
-      ═══════════════════════════════════════════════════════════════════════ -->
       <div class="section-label nav-section-gap">Automate</div>
 
       <div class="rail-group">
@@ -67,20 +75,16 @@
           <svg class="rail-chevron" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
 
+        <!-- No GitHub sub-item: integrations only appear in the rail while CONNECTED. -->
         <div id="connections-rail-subtree" class="rail-subitems">
-          <a href="connections.html" class="rail-item rail-subitem" aria-current="page">
+          <a href="connections-degraded.html" class="rail-item rail-subitem" aria-current="page">
             <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="2.5" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="10" y="2.5" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="10" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="10" y="10" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/></svg>
             <span class="rail-label">Overview</span>
           </a>
           <a href="connections-providers.html" class="rail-item rail-subitem">
             <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 15 6v6l-6 3.5L3 12V6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
             <span class="rail-label">Model Providers</span>
-            <span class="count">2/29</span>
-          </a>
-          <a href="connections-github.html" class="rail-item rail-subitem">
-            <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a7 7 0 0 0-2.2 13.6c.35.07.48-.15.48-.34v-1.2c-1.95.42-2.36-.94-2.36-.94-.32-.8-.78-1.02-.78-1.02-.64-.44.05-.43.05-.43.7.05 1.08.72 1.08.72.63 1.08 1.64.77 2.04.59.06-.46.25-.77.45-.95-1.56-.18-3.2-.78-3.2-3.47 0-.77.28-1.4.73-1.89-.07-.18-.32-.9.07-1.87 0 0 .6-.19 1.95.72a6.8 6.8 0 0 1 3.55 0c1.35-.91 1.94-.72 1.94-.72.4.97.15 1.69.08 1.87.46.49.73 1.12.73 1.89 0 2.7-1.64 3.29-3.21 3.46.25.22.48.65.48 1.32v1.96c0 .19.13.42.49.34A7 7 0 0 0 9 2z" fill="currentColor"/></svg>
-            <span class="rail-label">GitHub</span>
-            <span class="dot dot-success dot-beat" aria-label="GitHub connected"></span>
+            <span class="count">1/29</span>
           </a>
           <a href="connections-add.html" class="rail-item rail-subitem rail-action">
             <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 4v10M4 9h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -105,9 +109,6 @@
 
   </aside>
 
-  <!-- ══════════════════════════════════════════════════════════════
-       MAIN COLUMN
-  ══════════════════════════════════════════════════════════════════ -->
   <div class="main-col">
 
     <header class="header">
@@ -130,10 +131,11 @@
 
       <div class="u-grow"></div>
 
-      <!-- HealthPill: SAME rollup as the hero. It can never contradict the page. -->
-      <a href="connections.html" class="health-pill" aria-label="System health: All systems healthy">
-        <span class="dot dot-success" aria-hidden="true"></span>
-        All systems healthy
+      <!-- HealthPill reads the SAME rollup as the hero. It cannot say "All systems
+           healthy" while the hero reports an attention component. -->
+      <a href="connections-degraded.html" class="health-pill" aria-label="System health: 1 subsystem needs attention">
+        <span class="dot dot-warning" aria-hidden="true"></span>
+        1 needs attention
       </a>
 
       <div class="notif-btn-wrap">
@@ -159,17 +161,17 @@
             </div>
           </div>
 
-          <!-- ══ PANEL 1 · HERO ════════════════════════════════════════════════
-               Health is OVERALL OPENCLAW health — NOT a provider-catalog ratio.
-               Denominator = probed subsystems (gateway, event loop, plugins,
-               context engines, each channel account, each agent). Model providers
-               are INVENTORY and are counted on their own card, never here.
+          <!-- ══ PANEL 1 · HERO (degraded) ═════════════════════════════════════
+               Percentage is over PROBED components (6 of 7), NOT over all 8. The
+               not-checked component is called out separately — never folded into
+               "healthy" (which would hide it) and never into "attention" (which
+               would be a lie: we did not observe it fail, we failed to look).
           ═══════════════════════════════════════════════════════════════════ -->
           <section class="card" aria-labelledby="health-title">
             <div class="card-header">
               <h2 class="card-title" id="health-title">Connection Health Overview</h2>
               <div class="u-row" style="gap:var(--space-3);">
-                <span class="hint" id="checked-at">Checked 12s ago</span>
+                <span class="hint">Checked 8s ago</span>
                 <button type="button" class="btn btn-ghost btn-sm" aria-label="Refresh connection health">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                   Refresh
@@ -177,18 +179,27 @@
               </div>
             </div>
             <div class="card-body">
-              <p class="conn-hero-metric">8 of 8 healthy <span class="conn-hero-pct">(100%)</span></p>
-              <p class="conn-hero-sub">All OpenClaw subsystems responding.</p>
+              <p class="conn-hero-metric conn-hero-metric--attention">6 of 7 checked healthy <span class="conn-hero-pct">(86%)</span></p>
+              <p class="conn-hero-sub">1 subsystem needs attention. 1 could not be checked.</p>
 
-              <!-- Multi-segment bar: healthy / attention / not-checked in ONE track. -->
-              <div class="sb-progress" role="img" aria-label="8 of 8 OpenClaw subsystems healthy">
-                <span class="sb-progress-seg sb-progress-seg--healthy" style="width:100%;"></span>
+              <div class="sb-progress" role="img" aria-label="6 of 8 subsystems healthy, 1 needs attention, 1 not checked">
+                <span class="sb-progress-seg sb-progress-seg--healthy" style="width:75%;"></span>
+                <span class="sb-progress-seg sb-progress-seg--attention" style="width:12.5%;"></span>
+                <span class="sb-progress-seg sb-progress-seg--unknown" style="width:12.5%;"></span>
               </div>
 
               <div class="sb-progress-legend">
                 <span class="sb-progress-legend-item">
                   <span class="sb-progress-legend-swatch" style="background:var(--success);" aria-hidden="true"></span>
-                  8 Healthy
+                  6 Healthy
+                </span>
+                <span class="sb-progress-legend-item">
+                  <span class="sb-progress-legend-swatch" style="background:var(--warning);" aria-hidden="true"></span>
+                  1 Attention
+                </span>
+                <span class="sb-progress-legend-item">
+                  <span class="sb-progress-legend-swatch" style="background:var(--border-strong);" aria-hidden="true"></span>
+                  1 Not checked
                 </span>
               </div>
             </div>
@@ -197,13 +208,6 @@
           <!-- ══ PANEL 2 · THREE-COLUMN GRID ═══════════════════════════════════ -->
           <div class="conn-grid">
 
-            <!-- ── Opzava Gateway ──────────────────────────────────────────────
-                 Footer action is `Run health check` — the action migrated from the
-                 DELETED /connections/gateway route. There is no `Open` button: it
-                 would point at a route that no longer exists (dead chrome).
-                 There is no "Active connections handled" metric: no such field
-                 exists on GatewayConnectionState.
-            ──────────────────────────────────────────────────────────────────── -->
             <section class="card conn-card" aria-labelledby="gw-title">
               <div class="card-header">
                 <h2 class="card-title" id="gw-title">Opzava Gateway</h2>
@@ -228,33 +232,33 @@
               </div>
             </section>
 
-            <!-- ── Model Providers ─────────────────────────────────────────────
-                 ATTENTION-FIRST list: needs_attention / pending / expiring →
-                 connected → backfilled with suggested providers to 3–4 rows.
-                 Every row carries a live status and a REAL action.
-                 GitHub is NOT here — it is an integration, not a model provider.
-            ──────────────────────────────────────────────────────────────────── -->
+            <!-- ATTENTION-FIRST: the expiring key sorts ABOVE the healthy rows.
+                 A card that can only ever show you green is a link with extra steps. -->
             <section class="card conn-card" aria-labelledby="mp-title">
               <div class="card-header">
                 <h2 class="card-title" id="mp-title">Model Providers</h2>
+                <span class="sb-badge sb-badge--warning">1 needs action</span>
               </div>
               <div class="card-body conn-card-body">
-                <p class="conn-stat-value u-tnum">2 of 29 <span class="conn-stat-unit">connected</span></p>
-                <p class="hint">27 more available in the live gateway catalog.</p>
+                <p class="conn-stat-value u-tnum">1 of 29 <span class="conn-stat-unit">connected</span></p>
+                <p class="hint">28 more available in the live gateway catalog.</p>
 
                 <hr class="sb-separator">
 
                 <div class="section-label conn-sub-label">Providers</div>
                 <ul class="conn-list" role="list">
                   <li class="conn-list-row">
-                    <span class="conn-brand conn-brand--openai" aria-hidden="true">◍</span>
-                    <span class="conn-list-label">OpenAI</span>
-                    <span class="dot dot-success" aria-label="Connected"></span>
-                    <a href="connections-providers.html" class="conn-list-action">Manage</a>
+                    <span class="conn-brand conn-brand--anthropic" aria-hidden="true">✳</span>
+                    <span class="conn-list-label">
+                      Anthropic
+                      <span class="conn-list-sub">Key expires in 3 days</span>
+                    </span>
+                    <span class="dot dot-warning" aria-label="Needs attention"></span>
+                    <a href="connections-providers.html" class="conn-list-action conn-list-action--setup">Fix</a>
                   </li>
                   <li class="conn-list-row">
-                    <span class="conn-brand conn-brand--anthropic" aria-hidden="true">✳</span>
-                    <span class="conn-list-label">Anthropic</span>
+                    <span class="conn-brand conn-brand--openai" aria-hidden="true">◍</span>
+                    <span class="conn-list-label">OpenAI</span>
                     <span class="dot dot-success" aria-label="Connected"></span>
                     <a href="connections-providers.html" class="conn-list-action">Manage</a>
                   </li>
@@ -272,37 +276,27 @@
               </div>
             </section>
 
-            <!-- ── Third-Party Integrations ────────────────────────────────────
-                 STATE-DRIVEN. Connected → rows + Open. Nothing connected → empty
-                 state (see connections-degraded.html).
-                 The faint logo row is CATALOG-DRIVEN and suppressed below 2 real
-                 integrations. Today only GitHub is real, so it does not render.
-                 Painting Slack/Google logos would promise what `Add Integration`
-                 cannot deliver (IA decision #7: no vaporware).
-            ──────────────────────────────────────────────────────────────────── -->
+            <!-- ══ EMPTY STATE ═══════════════════════════════════════════════════
+                 NOTE the absence of a logo row. The catalog holds exactly ONE real
+                 integration (GitHub), and the row only renders at 2+. Painting
+                 Slack / Google logos here — as the original mockup did — promises
+                 integrations `Add integration` cannot deliver (IA decision #7).
+                 The row appears for free the day a second integration ships.
+            ═══════════════════════════════════════════════════════════════════ -->
             <section class="card conn-card" aria-labelledby="ti-title">
               <div class="card-header">
                 <h2 class="card-title" id="ti-title">Third-Party Integrations</h2>
               </div>
               <div class="card-body conn-card-body">
-                <p class="conn-stat-value u-tnum">1 <span class="conn-stat-unit">connected</span></p>
-                <p class="hint">External services this workspace can reach.</p>
-
-                <hr class="sb-separator">
-
-                <ul class="conn-list" role="list">
-                  <li class="conn-list-row">
-                    <span class="conn-brand" aria-hidden="true">
-                      <svg width="16" height="16" viewBox="0 0 18 18" fill="none"><path d="M9 2a7 7 0 0 0-2.2 13.6c.35.07.48-.15.48-.34v-1.2c-1.95.42-2.36-.94-2.36-.94-.32-.8-.78-1.02-.78-1.02-.64-.44.05-.43.05-.43.7.05 1.08.72 1.08.72.63 1.08 1.64.77 2.04.59.06-.46.25-.77.45-.95-1.56-.18-3.2-.78-3.2-3.47 0-.77.28-1.4.73-1.89-.07-.18-.32-.9.07-1.87 0 0 .6-.19 1.95.72a6.8 6.8 0 0 1 3.55 0c1.35-.91 1.94-.72 1.94-.72.4.97.15 1.69.08 1.87.46.49.73 1.12.73 1.89 0 2.7-1.64 3.29-3.21 3.46.25.22.48.65.48 1.32v1.96c0 .19.13.42.49.34A7 7 0 0 0 9 2z" fill="currentColor"/></svg>
-                    </span>
-                    <span class="conn-list-label">
-                      GitHub
-                      <span class="conn-list-sub">anthonykewl20/opzava</span>
-                    </span>
-                    <span class="sb-badge sb-badge--success">Connected</span>
-                    <a href="connections-github.html" class="conn-list-action">Open</a>
-                  </li>
-                </ul>
+                <div class="conn-empty">
+                  <div class="conn-empty-art" aria-hidden="true">
+                    <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                      <path d="M14 20a4 4 0 0 1 4-4h9a4 4 0 0 0 4-4 4 4 0 0 1 8 0 4 4 0 0 0 4 4h9a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4 4 4 0 0 0 0 8 4 4 0 0 1 4 4v9a4 4 0 0 1-4 4h-9a4 4 0 0 1-4-4 4 4 0 0 0-8 0 4 4 0 0 1-4 4h-9a4 4 0 0 1-4-4v-9a4 4 0 0 1 4-4 4 4 0 0 0 0-8 4 4 0 0 1-4-4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                    </svg>
+                  </div>
+                  <p class="empty-title">No integrations connected</p>
+                  <p class="empty-desc">Connect GitHub to sync and close issues from Opzava.</p>
+                </div>
 
                 <div class="conn-card-foot">
                   <a href="connections-add.html" class="btn btn-primary" style="width:100%;">Add integration</a>
@@ -312,52 +306,55 @@
 
           </div>
 
-          <!-- ══ PANEL 3 · SYSTEM STATUS ═══════════════════════════════════════
-               Absorbs the DELETED /connections/gateway route. Collapsible
-               sub-sections keep it from becoming the wall-of-text this redesign
-               exists to escape.
-               Every row maps to a real field from `health` / `status` /
-               `update.status` — all three already exist as Gateway RPCs.
-          ═══════════════════════════════════════════════════════════════════ -->
+          <!-- ══ PANEL 3 · SYSTEM STATUS (degraded) ════════════════════════════ -->
           <section class="card" aria-labelledby="sys-title">
             <div class="card-header">
               <h2 class="card-title" id="sys-title">System Status</h2>
               <div class="u-row" style="gap:var(--space-2);">
                 <span class="sb-badge sb-badge--secondary u-tnum">OpenClaw v1.42.0</span>
-                <span class="sb-badge sb-badge--accent">Update available</span>
               </div>
             </div>
             <div class="card-body" style="padding:0;">
 
-              <!-- modelPricing is a WARNING, never an attention component.
-                   OpenClaw docs: pricing refresh failures "do not mean the Gateway
-                   or channels are unhealthy." Crying wolf here would poison the
-                   whole hero. -->
               <div class="sb-alert sb-alert--warning conn-alert">
                 <span class="ico" aria-hidden="true">⚠</span>
-                <div class="sb-alert-title">Model pricing refresh failed</div>
-                <div class="sb-alert-desc">Cost estimates may be stale. This does not affect Gateway or channel health.</div>
+                <div class="sb-alert-title">WhatsApp account disconnected</div>
+                <div class="sb-alert-desc">The channel is configured but no longer linked. Re-link it to resume delivery.</div>
               </div>
 
               <details class="conn-section" open>
                 <summary class="conn-summary">
                   <span class="conn-summary-chev" aria-hidden="true">›</span>
                   <span class="conn-summary-title">Components</span>
-                  <span class="sb-badge sb-badge--success">8 healthy</span>
+                  <span class="sb-badge sb-badge--warning">1 attention</span>
+                  <span class="sb-badge sb-badge--outline">1 not checked</span>
                 </summary>
                 <table class="table table-compact conn-table">
                   <thead>
                     <tr><th scope="col">Component</th><th scope="col">Status</th><th scope="col">Detail</th><th scope="col">Checked</th></tr>
                   </thead>
                   <tbody>
+                    <tr>
+                      <td>Channel · WhatsApp</td>
+                      <td><span class="dot dot-warning" aria-hidden="true"></span> Attention</td>
+                      <td class="u-subtle">Configured, not linked</td>
+                      <td class="u-subtle">20s ago</td>
+                    </tr>
+                    <!-- NOT CHECKED is grey, never red. The `status` RPC failed, so we
+                         could not ask. Rendering this as "failed" would be a lie, and
+                         lying dashboards get ignored. -->
+                    <tr class="conn-not-checked">
+                      <td>Context engines</td>
+                      <td><span class="dot" aria-hidden="true"></span> Not checked</td>
+                      <td class="u-subtle">Status probe unavailable</td>
+                      <td class="u-subtle">—</td>
+                    </tr>
                     <tr><td>Gateway</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Reachable</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Event loop</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle u-tnum">3 ms lag</td><td class="u-subtle">now</td></tr>
+                    <tr><td>Event loop</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle u-tnum">4 ms lag</td><td class="u-subtle">now</td></tr>
                     <tr><td>Plugins</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle u-tnum">12 loaded · 0 errors</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Context engines</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">0 quarantined</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Channel · WhatsApp</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Linked</td><td class="u-subtle">20s ago</td></tr>
                     <tr><td>Channel · Telegram</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Linked</td><td class="u-subtle">20s ago</td></tr>
                     <tr><td>Agent · ask-admin-opzava</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Heartbeat 5s ago</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Agent · subagent-openai</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Heartbeat 5s ago</td><td class="u-subtle">now</td></tr>
+                    <tr><td>Agent · subagent-openai</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Heartbeat 6s ago</td><td class="u-subtle">now</td></tr>
                   </tbody>
                 </table>
               </details>
@@ -366,16 +363,15 @@
                 <summary class="conn-summary">
                   <span class="conn-summary-chev" aria-hidden="true">›</span>
                   <span class="conn-summary-title">Sessions</span>
-                  <span class="sb-badge sb-badge--secondary u-tnum">14</span>
+                  <span class="sb-badge sb-badge--secondary u-tnum">9</span>
                 </summary>
                 <table class="table table-compact conn-table">
                   <thead>
                     <tr><th scope="col">Session</th><th scope="col">Agent</th><th scope="col">Updated</th></tr>
                   </thead>
                   <tbody>
-                    <tr><td class="u-mono">webchat:admin</td><td>ask-admin-opzava</td><td class="u-subtle">2m ago</td></tr>
-                    <tr><td class="u-mono">cron:digest</td><td>subagent-openai</td><td class="u-subtle">18m ago</td></tr>
-                    <tr><td class="u-mono">whatsapp:+63…</td><td>ask-admin-opzava</td><td class="u-subtle">1h ago</td></tr>
+                    <tr><td class="u-mono">webchat:admin</td><td>ask-admin-opzava</td><td class="u-subtle">1m ago</td></tr>
+                    <tr><td class="u-mono">cron:digest</td><td>subagent-openai</td><td class="u-subtle">22m ago</td></tr>
                   </tbody>
                 </table>
               </details>
@@ -400,15 +396,16 @@
                 <summary class="conn-summary">
                   <span class="conn-summary-chev" aria-hidden="true">›</span>
                   <span class="conn-summary-title">Runtime</span>
-                  <span class="u-subtle" style="font-size:var(--text-xs);">Uptime · version</span>
+                  <span class="sb-badge sb-badge--outline">Partly not checked</span>
                 </summary>
                 <dl class="conn-kv conn-kv--wide">
                   <div><dt>Version</dt><dd class="u-tnum">v1.42.0</dd></div>
-                  <div><dt>Gateway uptime</dt><dd class="u-tnum">3d 4h 12m</dd></div>
-                  <div><dt>Host uptime</dt><dd class="u-tnum">11d 2h</dd></div>
-                  <div><dt>Update channel</dt><dd>stable</dd></div>
-                  <div><dt>Git SHA</dt><dd class="u-mono">a1b2c3d</dd></div>
-                  <div><dt>Update</dt><dd><span class="sb-badge sb-badge--accent">v1.43.0 available</span></dd></div>
+                  <div><dt>Gateway uptime</dt><dd class="u-tnum">3d 4h 21m</dd></div>
+                  <!-- `status` RPC failed → these rows are UNKNOWN, not zero. Rendering
+                       "0" here would silently invent data. -->
+                  <div><dt>Host uptime</dt><dd class="conn-not-checked">Not checked</dd></div>
+                  <div><dt>Update channel</dt><dd class="conn-not-checked">Not checked</dd></div>
+                  <div><dt>Git SHA</dt><dd class="conn-not-checked">Not checked</dd></div>
                 </dl>
               </details>
 

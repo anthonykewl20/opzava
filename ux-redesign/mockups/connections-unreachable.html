@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Connections — Overview — Opzava</title>
+  <title>Connections — Overview (unreachable) — Opzava</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -16,12 +16,28 @@
   <script src="admin-nav.js" defer></script>
   <link rel="stylesheet" href="connections-overview.css">
 </head>
+<!--
+  ══════════════════════════════════════════════════════════════════════════════
+  STATE: GATEWAY UNREACHABLE.  Every component is NOT CHECKED.
+
+  The hero does NOT say "0 of 8 healthy (0%)".
+
+  We did not observe 8 subsystems fail — we failed to reach the Gateway, so we
+  know NOTHING about them. Reporting that as total failure is the single fastest
+  way to teach a user that the status page cries wolf, after which they stop
+  reading it and the page is worthless in the outage it exists for.
+
+  So: grey bar, "OpenClaw unreachable", and a LAST-KNOWN-GOOD timestamp so the
+  user can judge staleness for themselves.
+
+  The three cards below keep rendering from the last snapshot, clearly marked
+  stale. They are NOT blanked: a stale-but-labelled provider list is more useful
+  during an outage than an empty page.
+  ══════════════════════════════════════════════════════════════════════════════
+-->
 <body>
 <div class="app">
 
-  <!-- ══════════════════════════════════════════════════════════════
-       NAVIGATION RAIL
-  ══════════════════════════════════════════════════════════════════ -->
   <aside class="rail" aria-label="Main navigation">
 
     <div class="rail-head">
@@ -51,13 +67,6 @@
       <a href="crm-deals.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Deals</a>
       <a href="crm-tickets.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 6.5a1.5 1.5 0 0 0 0 5V14h12v-2.5a1.5 1.5 0 0 1 0-5V4H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Tickets</a>
 
-      <!-- ══ AUTOMATE ══════════════════════════════════════════════════════════
-           `Automate` is the category label. It hosts `Connections` AND (roadmap
-           §194 / capability-parity §81) `Automation` — so `Connections` is a
-           title-case nav item with an icon, NOT the category itself.
-           The group header is a toggle that never takes the active pill: the
-           only filled pill is the page you are on (`Overview`).
-      ═══════════════════════════════════════════════════════════════════════ -->
       <div class="section-label nav-section-gap">Automate</div>
 
       <div class="rail-group">
@@ -68,7 +77,7 @@
         </button>
 
         <div id="connections-rail-subtree" class="rail-subitems">
-          <a href="connections.html" class="rail-item rail-subitem" aria-current="page">
+          <a href="connections-unreachable.html" class="rail-item rail-subitem" aria-current="page">
             <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="2.5" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="10" y="2.5" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="2.5" y="10" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="10" y="10" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/></svg>
             <span class="rail-label">Overview</span>
           </a>
@@ -80,7 +89,6 @@
           <a href="connections-github.html" class="rail-item rail-subitem">
             <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a7 7 0 0 0-2.2 13.6c.35.07.48-.15.48-.34v-1.2c-1.95.42-2.36-.94-2.36-.94-.32-.8-.78-1.02-.78-1.02-.64-.44.05-.43.05-.43.7.05 1.08.72 1.08.72.63 1.08 1.64.77 2.04.59.06-.46.25-.77.45-.95-1.56-.18-3.2-.78-3.2-3.47 0-.77.28-1.4.73-1.89-.07-.18-.32-.9.07-1.87 0 0 .6-.19 1.95.72a6.8 6.8 0 0 1 3.55 0c1.35-.91 1.94-.72 1.94-.72.4.97.15 1.69.08 1.87.46.49.73 1.12.73 1.89 0 2.7-1.64 3.29-3.21 3.46.25.22.48.65.48 1.32v1.96c0 .19.13.42.49.34A7 7 0 0 0 9 2z" fill="currentColor"/></svg>
             <span class="rail-label">GitHub</span>
-            <span class="dot dot-success dot-beat" aria-label="GitHub connected"></span>
           </a>
           <a href="connections-add.html" class="rail-item rail-subitem rail-action">
             <svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 4v10M4 9h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -105,9 +113,6 @@
 
   </aside>
 
-  <!-- ══════════════════════════════════════════════════════════════
-       MAIN COLUMN
-  ══════════════════════════════════════════════════════════════════ -->
   <div class="main-col">
 
     <header class="header">
@@ -130,10 +135,11 @@
 
       <div class="u-grow"></div>
 
-      <!-- HealthPill: SAME rollup as the hero. It can never contradict the page. -->
-      <a href="connections.html" class="health-pill" aria-label="System health: All systems healthy">
-        <span class="dot dot-success" aria-hidden="true"></span>
-        All systems healthy
+      <!-- The pill says UNKNOWN, not "healthy" and not "down". Same rollup as the
+           hero, so the two can never disagree. -->
+      <a href="connections-unreachable.html" class="health-pill" aria-label="System health: unknown, OpenClaw unreachable">
+        <span class="dot" aria-hidden="true"></span>
+        Health unknown
       </a>
 
       <div class="notif-btn-wrap">
@@ -159,68 +165,65 @@
             </div>
           </div>
 
-          <!-- ══ PANEL 1 · HERO ════════════════════════════════════════════════
-               Health is OVERALL OPENCLAW health — NOT a provider-catalog ratio.
-               Denominator = probed subsystems (gateway, event loop, plugins,
-               context engines, each channel account, each agent). Model providers
-               are INVENTORY and are counted on their own card, never here.
+          <!-- ══ PANEL 1 · HERO (unreachable) ══════════════════════════════════
+               SAME structure as the healthy hero — metric, bar, legend — so the
+               eye lands in the same place. Only the accent and the copy change.
+               No percentage: a percentage of nothing is not a number.
           ═══════════════════════════════════════════════════════════════════ -->
           <section class="card" aria-labelledby="health-title">
             <div class="card-header">
               <h2 class="card-title" id="health-title">Connection Health Overview</h2>
               <div class="u-row" style="gap:var(--space-3);">
-                <span class="hint" id="checked-at">Checked 12s ago</span>
-                <button type="button" class="btn btn-ghost btn-sm" aria-label="Refresh connection health">
+                <span class="hint">Retrying…</span>
+                <button type="button" class="btn btn-ghost btn-sm" aria-label="Retry connection health check">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                  Refresh
+                  Retry
                 </button>
               </div>
             </div>
             <div class="card-body">
-              <p class="conn-hero-metric">8 of 8 healthy <span class="conn-hero-pct">(100%)</span></p>
-              <p class="conn-hero-sub">All OpenClaw subsystems responding.</p>
+              <p class="conn-hero-metric conn-hero-metric--unknown">OpenClaw unreachable</p>
+              <p class="conn-hero-sub">
+                Retrying automatically — the backend reconnect loop is still running.
+                <strong>Last healthy 4m ago</strong> (8 of 8 subsystems).
+              </p>
 
-              <!-- Multi-segment bar: healthy / attention / not-checked in ONE track. -->
-              <div class="sb-progress" role="img" aria-label="8 of 8 OpenClaw subsystems healthy">
-                <span class="sb-progress-seg sb-progress-seg--healthy" style="width:100%;"></span>
+              <div class="sb-progress" role="img" aria-label="OpenClaw unreachable: all 8 subsystems not checked">
+                <span class="sb-progress-seg sb-progress-seg--unknown" style="width:100%;"></span>
               </div>
 
               <div class="sb-progress-legend">
                 <span class="sb-progress-legend-item">
-                  <span class="sb-progress-legend-swatch" style="background:var(--success);" aria-hidden="true"></span>
-                  8 Healthy
+                  <span class="sb-progress-legend-swatch" style="background:var(--border-strong);" aria-hidden="true"></span>
+                  8 Not checked
                 </span>
               </div>
             </div>
           </section>
 
-          <!-- ══ PANEL 2 · THREE-COLUMN GRID ═══════════════════════════════════ -->
+          <!-- ══ PANEL 2 · THREE-COLUMN GRID (stale, but rendered) ═════════════
+               The cards are NOT blanked. A stale-but-labelled provider list beats
+               an empty page during an outage.
+          ═══════════════════════════════════════════════════════════════════ -->
           <div class="conn-grid">
 
-            <!-- ── Opzava Gateway ──────────────────────────────────────────────
-                 Footer action is `Run health check` — the action migrated from the
-                 DELETED /connections/gateway route. There is no `Open` button: it
-                 would point at a route that no longer exists (dead chrome).
-                 There is no "Active connections handled" metric: no such field
-                 exists on GatewayConnectionState.
-            ──────────────────────────────────────────────────────────────────── -->
             <section class="card conn-card" aria-labelledby="gw-title">
               <div class="card-header">
                 <h2 class="card-title" id="gw-title">Opzava Gateway</h2>
               </div>
               <div class="card-body conn-card-body">
                 <div class="conn-gw-state">
-                  <span class="sb-badge sb-badge--success conn-gw-badge">Active</span>
-                  <p class="conn-gw-health conn-gw-health--healthy">
-                    <span class="dot dot-success dot-beat" aria-hidden="true"></span>
-                    Healthy
+                  <span class="sb-badge sb-badge--warning conn-gw-badge">Unavailable</span>
+                  <p class="conn-gw-health conn-gw-health--unknown">
+                    <span class="dot dot-warning" aria-hidden="true"></span>
+                    Unreachable
                   </p>
-                  <p class="hint">Heartbeat now</p>
+                  <p class="hint">Last heartbeat 4m ago</p>
                 </div>
                 <hr class="sb-separator">
                 <dl class="conn-kv">
-                  <div><dt>Region</dt><dd>local</dd></div>
-                  <div><dt>Auth</dt><dd class="u-tnum">operator.admin</dd></div>
+                  <div><dt>Region</dt><dd class="conn-not-checked">Not checked</dd></div>
+                  <div><dt>Auth</dt><dd class="conn-not-checked">Not checked</dd></div>
                 </dl>
                 <div class="conn-card-foot">
                   <button type="button" class="btn" style="width:100%;">Run health check</button>
@@ -228,41 +231,33 @@
               </div>
             </section>
 
-            <!-- ── Model Providers ─────────────────────────────────────────────
-                 ATTENTION-FIRST list: needs_attention / pending / expiring →
-                 connected → backfilled with suggested providers to 3–4 rows.
-                 Every row carries a live status and a REAL action.
-                 GitHub is NOT here — it is an integration, not a model provider.
-            ──────────────────────────────────────────────────────────────────── -->
             <section class="card conn-card" aria-labelledby="mp-title">
               <div class="card-header">
                 <h2 class="card-title" id="mp-title">Model Providers</h2>
+                <span class="sb-badge sb-badge--outline">Stale</span>
               </div>
               <div class="card-body conn-card-body">
-                <p class="conn-stat-value u-tnum">2 of 29 <span class="conn-stat-unit">connected</span></p>
-                <p class="hint">27 more available in the live gateway catalog.</p>
+                <p class="conn-stat-value u-tnum conn-not-checked">2 of 29 <span class="conn-stat-unit">connected</span></p>
+                <p class="hint">Last known 4m ago. Provider state cannot be refreshed while the Gateway is unreachable.</p>
 
                 <hr class="sb-separator">
 
                 <div class="section-label conn-sub-label">Providers</div>
                 <ul class="conn-list" role="list">
-                  <li class="conn-list-row">
-                    <span class="conn-brand conn-brand--openai" aria-hidden="true">◍</span>
+                  <li class="conn-list-row conn-not-checked">
+                    <span class="conn-brand" aria-hidden="true">◍</span>
                     <span class="conn-list-label">OpenAI</span>
-                    <span class="dot dot-success" aria-label="Connected"></span>
-                    <a href="connections-providers.html" class="conn-list-action">Manage</a>
+                    <span class="dot" aria-label="Not checked"></span>
                   </li>
-                  <li class="conn-list-row">
-                    <span class="conn-brand conn-brand--anthropic" aria-hidden="true">✳</span>
+                  <li class="conn-list-row conn-not-checked">
+                    <span class="conn-brand" aria-hidden="true">✳</span>
                     <span class="conn-list-label">Anthropic</span>
-                    <span class="dot dot-success" aria-label="Connected"></span>
-                    <a href="connections-providers.html" class="conn-list-action">Manage</a>
+                    <span class="dot" aria-label="Not checked"></span>
                   </li>
-                  <li class="conn-list-row">
-                    <span class="conn-brand conn-brand--zai" aria-hidden="true">◆</span>
+                  <li class="conn-list-row conn-not-checked">
+                    <span class="conn-brand" aria-hidden="true">◆</span>
                     <span class="conn-list-label">z.AI</span>
-                    <span class="dot" aria-label="Not connected"></span>
-                    <a href="connections-providers.html" class="conn-list-action conn-list-action--setup">Setup</a>
+                    <span class="dot" aria-label="Not checked"></span>
                   </li>
                 </ul>
 
@@ -272,26 +267,19 @@
               </div>
             </section>
 
-            <!-- ── Third-Party Integrations ────────────────────────────────────
-                 STATE-DRIVEN. Connected → rows + Open. Nothing connected → empty
-                 state (see connections-degraded.html).
-                 The faint logo row is CATALOG-DRIVEN and suppressed below 2 real
-                 integrations. Today only GitHub is real, so it does not render.
-                 Painting Slack/Google logos would promise what `Add Integration`
-                 cannot deliver (IA decision #7: no vaporware).
-            ──────────────────────────────────────────────────────────────────── -->
             <section class="card conn-card" aria-labelledby="ti-title">
               <div class="card-header">
                 <h2 class="card-title" id="ti-title">Third-Party Integrations</h2>
+                <span class="sb-badge sb-badge--outline">Stale</span>
               </div>
               <div class="card-body conn-card-body">
-                <p class="conn-stat-value u-tnum">1 <span class="conn-stat-unit">connected</span></p>
-                <p class="hint">External services this workspace can reach.</p>
+                <p class="conn-stat-value u-tnum conn-not-checked">1 <span class="conn-stat-unit">connected</span></p>
+                <p class="hint">Last known 4m ago.</p>
 
                 <hr class="sb-separator">
 
                 <ul class="conn-list" role="list">
-                  <li class="conn-list-row">
+                  <li class="conn-list-row conn-not-checked">
                     <span class="conn-brand" aria-hidden="true">
                       <svg width="16" height="16" viewBox="0 0 18 18" fill="none"><path d="M9 2a7 7 0 0 0-2.2 13.6c.35.07.48-.15.48-.34v-1.2c-1.95.42-2.36-.94-2.36-.94-.32-.8-.78-1.02-.78-1.02-.64-.44.05-.43.05-.43.7.05 1.08.72 1.08.72.63 1.08 1.64.77 2.04.59.06-.46.25-.77.45-.95-1.56-.18-3.2-.78-3.2-3.47 0-.77.28-1.4.73-1.89-.07-.18-.32-.9.07-1.87 0 0 .6-.19 1.95.72a6.8 6.8 0 0 1 3.55 0c1.35-.91 1.94-.72 1.94-.72.4.97.15 1.69.08 1.87.46.49.73 1.12.73 1.89 0 2.7-1.64 3.29-3.21 3.46.25.22.48.65.48 1.32v1.96c0 .19.13.42.49.34A7 7 0 0 0 9 2z" fill="currentColor"/></svg>
                     </span>
@@ -299,7 +287,7 @@
                       GitHub
                       <span class="conn-list-sub">anthonykewl20/opzava</span>
                     </span>
-                    <span class="sb-badge sb-badge--success">Connected</span>
+                    <span class="dot" aria-label="Not checked"></span>
                     <a href="connections-github.html" class="conn-list-action">Open</a>
                   </li>
                 </ul>
@@ -312,103 +300,58 @@
 
           </div>
 
-          <!-- ══ PANEL 3 · SYSTEM STATUS ═══════════════════════════════════════
-               Absorbs the DELETED /connections/gateway route. Collapsible
-               sub-sections keep it from becoming the wall-of-text this redesign
-               exists to escape.
-               Every row maps to a real field from `health` / `status` /
-               `update.status` — all three already exist as Gateway RPCs.
-          ═══════════════════════════════════════════════════════════════════ -->
+          <!-- ══ PANEL 3 · SYSTEM STATUS (all not checked) ═════════════════════ -->
           <section class="card" aria-labelledby="sys-title">
             <div class="card-header">
               <h2 class="card-title" id="sys-title">System Status</h2>
-              <div class="u-row" style="gap:var(--space-2);">
-                <span class="sb-badge sb-badge--secondary u-tnum">OpenClaw v1.42.0</span>
-                <span class="sb-badge sb-badge--accent">Update available</span>
-              </div>
+              <span class="sb-badge sb-badge--outline">Not checked</span>
             </div>
             <div class="card-body" style="padding:0;">
 
-              <!-- modelPricing is a WARNING, never an attention component.
-                   OpenClaw docs: pricing refresh failures "do not mean the Gateway
-                   or channels are unhealthy." Crying wolf here would poison the
-                   whole hero. -->
-              <div class="sb-alert sb-alert--warning conn-alert">
+              <div class="sb-alert sb-alert--destructive conn-alert">
                 <span class="ico" aria-hidden="true">⚠</span>
-                <div class="sb-alert-title">Model pricing refresh failed</div>
-                <div class="sb-alert-desc">Cost estimates may be stale. This does not affect Gateway or channel health.</div>
+                <div class="sb-alert-title">Gateway unreachable — retrying automatically</div>
+                <div class="sb-alert-desc">
+                  Subsystem health cannot be probed while the Gateway is down. Nothing below is known to be
+                  broken; it is simply unknown. Check provisioning-worker health if this persists.
+                </div>
               </div>
 
               <details class="conn-section" open>
                 <summary class="conn-summary">
                   <span class="conn-summary-chev" aria-hidden="true">›</span>
                   <span class="conn-summary-title">Components</span>
-                  <span class="sb-badge sb-badge--success">8 healthy</span>
+                  <span class="sb-badge sb-badge--outline">8 not checked</span>
                 </summary>
                 <table class="table table-compact conn-table">
                   <thead>
                     <tr><th scope="col">Component</th><th scope="col">Status</th><th scope="col">Detail</th><th scope="col">Checked</th></tr>
                   </thead>
                   <tbody>
-                    <tr><td>Gateway</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Reachable</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Event loop</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle u-tnum">3 ms lag</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Plugins</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle u-tnum">12 loaded · 0 errors</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Context engines</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">0 quarantined</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Channel · WhatsApp</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Linked</td><td class="u-subtle">20s ago</td></tr>
-                    <tr><td>Channel · Telegram</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Linked</td><td class="u-subtle">20s ago</td></tr>
-                    <tr><td>Agent · ask-admin-opzava</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Heartbeat 5s ago</td><td class="u-subtle">now</td></tr>
-                    <tr><td>Agent · subagent-openai</td><td><span class="dot dot-success" aria-hidden="true"></span> Healthy</td><td class="u-subtle">Heartbeat 5s ago</td><td class="u-subtle">now</td></tr>
+                    <tr class="conn-not-checked"><td>Gateway</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">Unreachable</td><td class="u-subtle">4m ago</td></tr>
+                    <tr class="conn-not-checked"><td>Event loop</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
+                    <tr class="conn-not-checked"><td>Plugins</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
+                    <tr class="conn-not-checked"><td>Context engines</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
+                    <tr class="conn-not-checked"><td>Channel · WhatsApp</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
+                    <tr class="conn-not-checked"><td>Channel · Telegram</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
+                    <tr class="conn-not-checked"><td>Agent · ask-admin-opzava</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
+                    <tr class="conn-not-checked"><td>Agent · subagent-openai</td><td><span class="dot" aria-hidden="true"></span> Not checked</td><td class="u-subtle">—</td><td class="u-subtle">4m ago</td></tr>
                   </tbody>
                 </table>
-              </details>
-
-              <details class="conn-section">
-                <summary class="conn-summary">
-                  <span class="conn-summary-chev" aria-hidden="true">›</span>
-                  <span class="conn-summary-title">Sessions</span>
-                  <span class="sb-badge sb-badge--secondary u-tnum">14</span>
-                </summary>
-                <table class="table table-compact conn-table">
-                  <thead>
-                    <tr><th scope="col">Session</th><th scope="col">Agent</th><th scope="col">Updated</th></tr>
-                  </thead>
-                  <tbody>
-                    <tr><td class="u-mono">webchat:admin</td><td>ask-admin-opzava</td><td class="u-subtle">2m ago</td></tr>
-                    <tr><td class="u-mono">cron:digest</td><td>subagent-openai</td><td class="u-subtle">18m ago</td></tr>
-                    <tr><td class="u-mono">whatsapp:+63…</td><td>ask-admin-opzava</td><td class="u-subtle">1h ago</td></tr>
-                  </tbody>
-                </table>
-              </details>
-
-              <details class="conn-section">
-                <summary class="conn-summary">
-                  <span class="conn-summary-chev" aria-hidden="true">›</span>
-                  <span class="conn-summary-title">Gateway detail</span>
-                  <span class="u-subtle" style="font-size:var(--text-xs);">Auth · catalog · hosts</span>
-                </summary>
-                <dl class="conn-kv conn-kv--wide">
-                  <div><dt>Status</dt><dd><span class="dot dot-success" aria-hidden="true"></span> Active</dd></div>
-                  <div><dt>Auth</dt><dd>Opzava Gateway operator.admin</dd></div>
-                  <div><dt>Catalog</dt><dd class="u-tnum">29 providers</dd></div>
-                  <div><dt>Region</dt><dd>local</dd></div>
-                  <div><dt>Last heartbeat</dt><dd>now</dd></div>
-                  <div><dt>Hosts</dt><dd class="u-mono">openclaw-platform-gateway</dd></div>
-                </dl>
               </details>
 
               <details class="conn-section">
                 <summary class="conn-summary">
                   <span class="conn-summary-chev" aria-hidden="true">›</span>
                   <span class="conn-summary-title">Runtime</span>
-                  <span class="u-subtle" style="font-size:var(--text-xs);">Uptime · version</span>
+                  <span class="sb-badge sb-badge--outline">Not checked</span>
                 </summary>
                 <dl class="conn-kv conn-kv--wide">
-                  <div><dt>Version</dt><dd class="u-tnum">v1.42.0</dd></div>
-                  <div><dt>Gateway uptime</dt><dd class="u-tnum">3d 4h 12m</dd></div>
-                  <div><dt>Host uptime</dt><dd class="u-tnum">11d 2h</dd></div>
-                  <div><dt>Update channel</dt><dd>stable</dd></div>
-                  <div><dt>Git SHA</dt><dd class="u-mono">a1b2c3d</dd></div>
-                  <div><dt>Update</dt><dd><span class="sb-badge sb-badge--accent">v1.43.0 available</span></dd></div>
+                  <div><dt>Version</dt><dd class="conn-not-checked">Not checked</dd></div>
+                  <div><dt>Gateway uptime</dt><dd class="conn-not-checked">Not checked</dd></div>
+                  <div><dt>Host uptime</dt><dd class="conn-not-checked">Not checked</dd></div>
+                  <div><dt>Update channel</dt><dd class="conn-not-checked">Not checked</dd></div>
+                  <div><dt>Git SHA</dt><dd class="conn-not-checked">Not checked</dd></div>
                 </dl>
               </details>
 

@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connections — Opzava</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="shadcn.css">
+  <script src="theme-toggle.js"></script>
+  <script src="notify-bell.js"></script>
+  <script src="avatar-card.js"></script>
+  <script src="admin-nav.js" defer></script>
+  <style>
+    /* Page-specific layout only — no color, font-size, shadow, or radius overrides */
+    .two-col-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.8fr;
+      gap: var(--space-4);
+      align-items: start;
+    }
+    .spend-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: var(--space-2);
+      height: 72px;
+      padding: 0 var(--space-2);
+    }
+    .spend-chart-bar {
+      flex: 1;
+      border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+      min-width: 0;
+    }
+    .spend-chart-labels {
+      display: flex;
+      gap: var(--space-2);
+      padding: var(--space-1) var(--space-2) 0;
+    }
+    .spend-chart-labels span {
+      flex: 1;
+      text-align: center;
+    }
+    .activity-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      min-height: 40px;
+      padding: 0 var(--space-5);
+      border-bottom: 1px solid var(--border);
+    }
+    .activity-row:last-child {
+      border-bottom: 0;
+    }
+    .activity-time {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      color: var(--fg-subtle);
+      min-width: 68px;
+      flex: none;
+    }
+    .activity-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .nav-section-gap {
+      margin-top: var(--space-2);
+    }
+    .header-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--surface-3);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+      flex: none;
+      cursor: pointer;
+      font-weight: var(--fw-semibold);
+    }
+    .notif-btn-wrap {
+      position: relative;
+    }
+    .notif-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: var(--radius-full);
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      font-weight: var(--fw-semibold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-xs);
+      color: var(--fg-muted);
+    }
+    .spend-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .spend-row-sep {
+      color: var(--border-strong);
+    }
+    .page-stack {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+    .fleet-table-wrap {
+      overflow: hidden;
+    }
+    .activity-live-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    /* Collapsible card — deep/advanced config folded away so the page opens calm. */
+    .disc > summary {
+      display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+      padding: var(--space-4) var(--space-5); cursor: pointer; list-style: none; user-select: none;
+    }
+    .disc > summary::-webkit-details-marker { display: none; }
+    .disc > summary:hover { background: var(--surface-2); }
+    .disc > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+    .disc[open] > summary { border-bottom: 1px solid var(--border); }
+    .disc .chev { flex: none; color: var(--fg-subtle); font-size: var(--text-lg); line-height: 1; transition: transform var(--dur-fast) var(--ease-standard); }
+    .disc[open] .chev { transform: rotate(90deg); }
+    .disc-dl { display: grid; grid-template-columns: 160px 1fr; gap: var(--space-3) var(--space-4); align-items: baseline; margin: 0; }
+    .disc-dl dt { color: var(--fg-muted); }
+    .disc-dl dd { margin: 0; }
+    @media (max-width: 640px) { .disc-dl { grid-template-columns: 1fr; gap: 2px var(--space-4); } .disc-dl dd { margin-bottom: var(--space-2); } }
+    /* Group divider — segregates the page into its distinct management domains:
+       gateway models · your agent tools & MCP · channels. */
+    .conn-group { margin-top: var(--space-8); padding-top: var(--space-5); border-top: 1px solid var(--border); }
+    .conn-group-head { margin-bottom: var(--space-4); }
+    .conn-group-eyebrow { text-transform: uppercase; letter-spacing: var(--tracking-caps); font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--accent); }
+    .conn-group-head h2 { font-size: var(--text-lg); margin-top: 2px; }
+    .conn-group-head p { color: var(--fg-muted); font-size: var(--text-sm); margin: 4px 0 0; max-width: 70ch; }
+    /* Agent-tool rows — the user's connected coding agents */
+    .agent-kind { font-size: var(--text-xs); color: var(--fg-subtle); }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       NAVIGATION RAIL
+  ══════════════════════════════════════════════════════════════════ -->
+  <aside class="rail" aria-label="Main navigation">
+
+    <!-- Logo / wordmark -->
+    <div class="rail-head">
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
+        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
+      </svg>
+      <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);letter-spacing:-.01em;">Opzava</span>
+      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
+    </div>
+
+    <!-- Nav groups -->
+    <nav class="rail-nav" aria-label="Application sections">
+      <a href="orchestrator-chat.html" class="rail-item" style="margin-bottom:4px;">
+        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
+        Ask Opzava
+        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
+      </a>
+      <div class="section-label">Operate</div>
+      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
+      <a href="agents.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
+      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
+      <a href="issues.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="9" r="1.75" fill="currentColor"/></svg> Issues <span class="count">12</span></a>
+      <a href="activity.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="4.5" cy="5" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="4.5" cy="12" r="1.7" stroke="currentColor" stroke-width="1.5"/><path d="M8 12h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Activity</a>
+      <a href="messages-slack.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
+      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
+      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
+      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
+      <div class="section-label nav-section-gap">Observe</div>
+      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
+      <a href="logs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
+      <a href="costs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
+      <div class="section-label nav-section-gap">Automate</div>
+      <a href="connections.html" class="rail-item" aria-current="page"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="5" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="9" r="2.3" stroke="currentColor" stroke-width="1.5"/><path d="M7.3 9h3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Connections <span class="dot dot-success dot-beat" style="margin-left:auto;" aria-label="all tools connected"></span></a>
+      <a href="automation.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M10 2.5 4.5 10H8l-1 5.5L13.5 8H10z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Automation <span class="count">4</span></a>
+      <div class="section-label nav-section-gap">Govern</div>
+      <a href="security-audit.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5l5 1.8v3.7c0 3.3-2.1 5.6-5 6.5-2.9-.9-5-3.2-5-6.5V4.3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Security &amp; Audit <span class="count" style="background:var(--danger-soft);color:var(--danger);">1</span></a>
+      <a href="memory-skills.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 2.5 6 9 9.5 15.5 6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M2.5 10 9 13.5 15.5 10" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Memory &amp; Skills</a>
+      <a href="notifications-alerts.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
+      <a href="settings.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
+      <a href="debug.html" class="rail-item u-subtle"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="3.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7.5 7.5 9.5 5.5 11.5M9.5 11.5h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Debug</a>
+      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+    </nav>
+
+    <!-- Rail footer: ⌘K quick jump -->
+    <div class="rail-foot">
+      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (⌘K)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-subtle u-grow">Jump to…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIN COLUMN
+  ══════════════════════════════════════════════════════════════════ -->
+  <div class="main-col">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="header">
+
+      <!-- Sidebar collapse -->
+      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/>
+          <rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <!-- Search -->
+      <div class="search" role="search">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="u-grow u-subtle">Search agents, tasks, runs…</span>
+        <kbd class="kbd">⌘K</kbd>
+      </div>
+
+      <!-- Spacer -->
+      <div class="u-grow"></div>
+
+      <!-- Health pill -->
+      <div class="health-pill" aria-label="System health: All systems healthy">
+        <span class="dot dot-success" aria-hidden="true"></span>
+        All systems healthy
+      </div>
+
+      <!-- Live indicator -->
+      <div class="live-indicator" aria-label="Live connection active">
+        <span class="dot dot-success live" aria-hidden="true"></span>
+        <span>Live</span>
+      </div>
+
+      <!-- Notifications -->
+      <div class="notif-btn-wrap">
+        <a href="notifications-alerts.html" class="btn btn-ghost btn-icon" aria-label="Notifications, 2 unread">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </a>
+        <span class="notif-badge" aria-hidden="true">2</span>
+        <span class="u-sr-only">2 unread notifications</span>
+      </div>
+
+      <!-- Avatar -->
+      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu — Anthony G.">AG</div>
+
+    </header>
+
+    <!-- ── Main content ────────────────────────────────────────── -->
+    <main class="main">
+      <div class="page">
+        <div class="page-stack">
+
+          <!-- ── Page header ─────────────────────────────────────────── -->
+          <div class="page-header">
+            <div>
+              <h1>Connections</h1>
+              <p class="page-sub">Gateways, providers, channels &amp; tools</p>
+            </div>
+            <div class="u-row" style="gap:var(--space-2);">
+              <button type="button" class="btn">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M13 8a5 5 0 1 1-1.46-3.54M13 2.5v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Run health check
+              </button>
+              <button type="button" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Add connection
+              </button>
+            </div>
+          </div>
+
+          <!-- ── 1 · Health summary — glanceable ──────────────────────── -->
+          <section aria-label="Connection health summary">
+            <div class="stat-grid">
+
+              <div class="stat">
+                <div class="stat-label">Connected</div>
+                <div class="u-row" style="gap:var(--space-2);align-items:center;">
+                  <span class="stat-value u-tnum">14</span>
+                  <span class="dot dot-success dot-beat" aria-hidden="true" title="live"></span>
+                </div>
+                <div class="stat-delta u-subtle">live now · of 16 total</div>
+              </div>
+
+              <div class="stat">
+                <div class="stat-label">Needs attention</div>
+                <div class="u-row" style="gap:var(--space-2);align-items:center;">
+                  <span class="stat-value u-tnum">2</span>
+                  <span class="dot dot-warning" aria-hidden="true"></span>
+                </div>
+                <div class="stat-delta u-subtle">1 near limit · 1 to reconnect</div>
+              </div>
+
+              <div class="stat">
+                <div class="stat-label">Gateway</div>
+                <div class="u-row" style="gap:var(--space-2);align-items:center;">
+                  <span class="stat-value">Active</span>
+                  <span class="dot dot-success dot-beat" aria-hidden="true" title="heartbeat live"></span>
+                </div>
+                <div class="stat-delta u-subtle">OpenClaw · <span class="u-mono">fra1</span></div>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- ══════ GROUP ① — OpenClaw gateway & the models it routes to ══════ -->
+          <div class="conn-group">
+            <div class="conn-group-head">
+              <span class="conn-group-eyebrow">OpenClaw gateway</span>
+              <h2>Gateway &amp; models</h2>
+              <p>The backend LLM substrate the fleet runs on. The <strong>gateway</strong> holds provider credentials server-side (SecretRef / OAuth) and routes agent turns to the <strong>model providers</strong> below — raw keys never reach the browser.</p>
+            </div>
+          </div>
+
+          <!-- ── 2 · Gateway — the 24/7 substrate (prominent) ─────────── -->
+          <section aria-labelledby="gw-heading">
+            <div class="card" style="border-left:3px solid var(--accent);">
+              <div class="card-header">
+                <h2 class="card-title" id="gw-heading">OpenClaw gateway</h2>
+                <span class="badge badge-accent">24/7 substrate</span>
+              </div>
+              <div class="card-body">
+                <dl style="display:grid;grid-template-columns:148px 1fr;gap:var(--space-3) var(--space-4);align-items:baseline;margin:0;">
+
+                  <dt class="u-muted">Status</dt>
+                  <dd style="margin:0;">
+                    <span class="u-row" style="gap:var(--space-2);">
+                      <span class="dot dot-success dot-beat" aria-hidden="true"></span>
+                      Active
+                    </span>
+                  </dd>
+
+                  <dt class="u-muted">Auth</dt>
+                  <dd style="margin:0;">Sign in with ChatGPT <span class="u-subtle">(codex OAuth)</span></dd>
+
+                  <dt class="u-muted">Hosts</dt>
+                  <dd style="margin:0;">
+                    <div style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;">
+                      <span class="badge"><span class="u-sr-only">AI lead — </span><span class="u-accent" aria-hidden="true" style="font-size:var(--text-sm);">✦</span> Lead orchestrator</span>
+                      <span class="badge">Atlas</span>
+                      <span class="badge">Sage</span>
+                      <span class="badge">Echo</span>
+                      <span class="badge">Iris</span>
+                      <span class="badge">Nova</span>
+                    </div>
+                  </dd>
+
+                  <dt class="u-muted">Last heartbeat</dt>
+                  <dd style="margin:0;"><span class="u-mono">2s ago</span></dd>
+
+                  <dt class="u-muted">Region</dt>
+                  <dd style="margin:0;"><span class="u-mono">fra1</span></dd>
+
+                </dl>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── 3 · Model providers — what the gateway routes the fleet to ── -->
+          <!-- Q18 mockup-revision-first (Slice 3.7 view #1): reconciled against the OpenClaw
+               Control-UI reference. Every column here maps to a REAL gateway RPC field — no
+               invented data. DELETED vs the prior mockup: the free-text "Backs" column and the
+               fake "$52/$100" plan amounts (no RPC backs them). CHANGED: one row per canonical
+               LLM PARENT provider (docs/openclaw/providers) — CLI runtimes (Codex→OpenAI,
+               Claude CLI→Anthropic, Gemini CLI→Google) fold UNDER the parent, never as their own
+               rows; plan/region auth variants fold into the Auth cell. ADDED: real Models list
+               (models.list) and 5-state Status (models.authStatus: ok|expiring|expired|missing|
+               static) with real usage/expiry. Non-LLM providers (speech/image/video) are excluded. -->
+          <section aria-labelledby="providers-lbl">
+            <div class="u-between u-wrap" style="gap:var(--space-2);margin-bottom:var(--space-2);">
+              <div class="section-label" id="providers-lbl" style="padding:0;">Model providers</div>
+              <span class="u-subtle" style="font-size:var(--text-xs);">Canonical LLM providers the gateway can route to · auth order OAuth → API key</span>
+            </div>
+            <div class="card">
+              <table class="table table-compact table-cards">
+                <caption class="u-sr-only">LLM model providers the gateway can route to — provider (with folded CLI runtimes), authentication method(s), current models, and live connection status. Driven by the live gateway catalog; connected providers first.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Provider</th>
+                    <th scope="col">Auth</th>
+                    <th scope="col">Models</th>
+                    <th scope="col">Status</th>
+                    <th scope="col"><span class="u-sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+
+                  <!-- OpenAI (parent) — Codex CLI folds under; orchestrator role -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div class="u-row" style="gap:6px;font-weight:var(--fw-medium);line-height:var(--lh-snug);">
+                        OpenAI
+                        <span class="badge badge-accent" title="Coordinator agent"><span class="u-accent" aria-hidden="true">✦</span> Orchestrator</span>
+                      </div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">incl. Codex CLI runtime</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">OAuth</span> <span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">gpt-5.5</span> <span class="u-subtle">· gpt-5-codex · +3</span></td>
+                    <td data-label="Status">
+                      <span class="u-row"><span class="dot dot-success dot-beat" aria-hidden="true"></span> Connected <span class="u-subtle">· plan Pro</span></span>
+                    </td>
+                    <td data-label="Actions" class="u-right"><span class="u-row" style="gap:var(--space-2);justify-content:flex-end;"><button class="btn btn-ghost btn-sm" type="button">Manage</button><button class="btn btn-ghost btn-sm" type="button">Disconnect</button></span></td>
+                  </tr>
+
+                  <!-- Anthropic (parent) — Claude CLI folds under -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div class="u-row" style="gap:6px;font-weight:var(--fw-medium);line-height:var(--lh-snug);">
+                        Anthropic
+                        <span class="badge">Subagent</span>
+                      </div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">incl. Claude CLI runtime</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">Setup token</span> <span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">claude-opus-4-8</span> <span class="u-subtle">· claude-sonnet-5 · +2</span></td>
+                    <td data-label="Status">
+                      <span class="u-row"><span class="dot dot-success dot-beat" aria-hidden="true"></span> Connected</span>
+                    </td>
+                    <td data-label="Actions" class="u-right"><span class="u-row" style="gap:var(--space-2);justify-content:flex-end;"><button class="btn btn-ghost btn-sm" type="button">Manage</button><button class="btn btn-ghost btn-sm" type="button">Disconnect</button></span></td>
+                  </tr>
+
+                  <!-- Z.AI (GLM) — plan/region variants fold into Auth; real usage window -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div class="u-row" style="gap:6px;font-weight:var(--fw-medium);line-height:var(--lh-snug);">
+                        Z.AI <span class="badge">Subagent</span>
+                      </div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">GLM · Coding-Plan / Global / CN</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">glm-4.7</span> <span class="u-subtle">· glm-5.2</span></td>
+                    <td data-label="Status">
+                      <span class="u-row"><span class="dot dot-success dot-beat" aria-hidden="true"></span> Connected <span class="u-subtle">· 68% window left</span></span>
+                    </td>
+                    <td data-label="Actions" class="u-right"><span class="u-row" style="gap:var(--space-2);justify-content:flex-end;"><button class="btn btn-ghost btn-sm" type="button">Manage</button><button class="btn btn-ghost btn-sm" type="button">Disconnect</button></span></td>
+                  </tr>
+
+                  <!-- Google (parent) — Gemini CLI folds under; not connected -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Google</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Gemini · incl. Gemini CLI runtime</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">OAuth</span> <span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">gemini-2.5-pro</span></td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
+                  </tr>
+
+                  <!-- OpenRouter — OAuth + API key; not connected -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">OpenRouter</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Aggregator</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">OAuth</span> <span class="badge">API key</span></td>
+                    <td data-label="Models" class="u-subtle">Routes many</td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
+                  </tr>
+
+                  <!-- Moonshot (Kimi) — .ai / .cn variants fold into Auth -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Moonshot</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Kimi · .ai / .cn</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">kimi-k2</span></td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
+                  </tr>
+
+                  <!-- Qwen — OAuth + API key -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Qwen</div>
+                      <div class="u-subtle" style="font-size:var(--text-xs);margin-top:2px;">Alibaba · Coding / Standard</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">OAuth</span> <span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">qwen3-max</span></td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
+                  </tr>
+
+                  <!-- DeepSeek — API key -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">DeepSeek</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">deepseek-v4</span></td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
+                  </tr>
+
+                  <!-- Groq — API key -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">Groq</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">llama-3.3-70b</span></td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
+                  </tr>
+
+                  <!-- xAI — OAuth + API key -->
+                  <tr>
+                    <td data-label="Provider">
+                      <div style="font-weight:var(--fw-medium);line-height:var(--lh-snug);">xAI</div>
+                    </td>
+                    <td data-label="Auth"><span class="badge">OAuth</span> <span class="badge">API key</span></td>
+                    <td data-label="Models"><span class="u-mono">grok-4</span></td>
+                    <td data-label="Status"><span class="u-subtle">Not connected</span></td>
+                    <td data-label="Actions" class="u-right"><button class="btn btn-primary btn-sm" type="button">Connect</button></td>
+                  </tr>
+
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+
+          <!-- ── 6 · Gateway configuration — deep runtime settings, folded ── -->
+          <section aria-label="Gateway configuration" class="nav-section-gap">
+            <details class="card disc">
+              <summary>
+                <span class="u-col" style="gap:2px;min-width:0;">
+                  <span class="card-title">Gateway configuration</span>
+                  <span class="u-subtle" style="font-size:var(--text-xs);">Exposure, auth, endpoints — restart-gated changes</span>
+                </span>
+                <span class="u-row" style="gap:var(--space-3);">
+                  <span class="badge badge-warning">2 restart-gated</span>
+                  <span class="chev" aria-hidden="true">›</span>
+                </span>
+              </summary>
+              <div class="card-body">
+                <dl class="disc-dl">
+                  <dt>Exposure</dt><dd>private <span class="u-subtle">— loopback, backend-only</span> <span class="badge badge-success">Safe baseline</span></dd>
+                  <dt>Auth mode</dt><dd>token <span class="u-subtle">— SecretRef, never browser-exposed</span></dd>
+                  <dt>Reload mode</dt><dd>hybrid <span class="u-subtle">— hot-apply first, restart only if required</span></dd>
+                  <dt>Bind host</dt><dd><span class="u-mono">127.0.0.1</span> · WS + HTTP on one port</dd>
+                  <dt>TLS</dt><dd>proxy-terminated <span class="u-subtle">— prefer proxy TLS for public traffic</span></dd>
+                  <dt>Endpoints</dt><dd><span class="badge">Responses · on</span> <span class="badge">WebSocket · on</span> <span class="badge"><span class="u-muted">Chat Completions · off</span></span></dd>
+                </dl>
+                <div class="section-label" style="padding:var(--space-4) 0 var(--space-2);">Change queue</div>
+                <div class="card oc-panel-flat" style="background:var(--surface-2);">
+                  <div class="activity-row"><span class="activity-text"><strong>Rotate gateway token</strong> <span class="u-subtle">— owner approval + restart required</span></span><span class="badge badge-warning">Queued</span></div>
+                  <div class="activity-row"><span class="activity-text"><strong>Shorten health interval</strong> <span class="u-subtle">— applies without a restart</span></span><span class="badge badge-success">Ready</span></div>
+                </div>
+                <div class="u-row u-wrap" style="gap:var(--space-2);margin-top:var(--space-4);">
+                  <button type="button" class="btn btn-primary btn-sm">Review gateway changes</button>
+                  <a class="btn btn-ghost btn-sm" href="../../docs/openclaw/gateway/configuration.md">Open gateway docs</a>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <!-- ── 7 · Provider policy & catalogs — connect & routing ───────── -->
+          <section aria-label="Provider policy and catalogs" class="nav-section-gap">
+            <details class="card disc">
+              <summary>
+                <span class="u-col" style="gap:2px;min-width:0;">
+                  <span class="card-title">Provider policy &amp; catalogs</span>
+                  <span class="u-subtle" style="font-size:var(--text-xs);">Connect an account, auth order, model catalogs</span>
+                </span>
+                <span class="chev" aria-hidden="true">›</span>
+              </summary>
+              <div class="card-body">
+                <dl class="disc-dl">
+                  <dt>Auth order</dt><dd>1 · OAuth <span class="u-subtle">(Codex Pro / Sign in with ChatGPT)</span> → 2 · API-key fallback <span class="u-subtle">(SecretRef)</span></dd>
+                  <dt>Credential store</dt><dd>server-side only <span class="u-subtle">— keys never reach the browser or generated configs</span></dd>
+                  <dt>Catalogs</dt><dd><span style="display:flex;flex-wrap:wrap;gap:var(--space-2);"><span class="badge">OpenAI</span><span class="badge">Anthropic</span><span class="badge">Z.AI</span><span class="badge">MiniMax</span><span class="badge">OpenRouter</span></span></dd>
+                  <dt>Pricing</dt><dd>plan vs metered <span class="u-subtle">— shown per provider in the Providers table above</span></dd>
+                </dl>
+                <div class="u-row u-wrap" style="gap:var(--space-2);margin-top:var(--space-4);">
+                  <button type="button" class="btn btn-primary btn-sm">Connect an account</button>
+                  <button type="button" class="btn btn-ghost btn-sm">Set routing &amp; auth order</button>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <!-- ══════ GROUP ② — Operator-owned coding tools and MCP policy ══════ -->
+          <div class="conn-group">
+            <div class="conn-group-head">
+              <span class="conn-group-eyebrow">Your tools</span>
+              <h2>Agent tools &amp; MCP</h2>
+              <p>The coding agents this operator connected — Claude Code, Codex, and OpenCode — plus the MCP tools they call through OpenClaw policy.</p>
+            </div>
+          </div>
+
+          <!-- ── 8 · Agent tools — operator connected coding agents ──────── -->
+          <section aria-labelledby="agent-tools-lbl">
+            <div class="u-between u-wrap" style="gap:var(--space-2);margin-bottom:var(--space-2);">
+              <div class="u-row u-wrap" style="gap:var(--space-2);align-items:center;">
+                <div class="section-label" id="agent-tools-lbl" style="padding:0;">Agent tools</div>
+                <span class="u-subtle" style="font-size:var(--text-xs);">5 tools · 4 connected</span>
+              </div>
+              <button type="button" class="btn btn-primary btn-sm">Connect a tool</button>
+            </div>
+            <div class="card">
+              <table class="table table-compact table-cards">
+                <caption class="u-sr-only">Agent tools connected by this operator — tool, kind, connection path, status, and last seen. Five tools; four connected and one not connected.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Tool</th>
+                    <th scope="col">Kind</th>
+                    <th scope="col">Connects via</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Last seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td data-label="Tool" style="font-weight:var(--fw-medium);">Claude Code</td>
+                    <td data-label="Kind"><span class="agent-kind">ACP harness</span></td>
+                    <td data-label="Connects via">Gateway session <span class="u-subtle">(ACP)</span></td>
+                    <td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot dot-success" aria-hidden="true"></span>Connected</span></td>
+                    <td data-label="Last seen" class="u-mono u-subtle">2s ago</td>
+                  </tr>
+                  <tr>
+                    <td data-label="Tool" style="font-weight:var(--fw-medium);">Codex CLI</td>
+                    <td data-label="Kind"><span class="agent-kind">Native Codex plugin</span></td>
+                    <td data-label="Connects via">Codex app-server</td>
+                    <td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot dot-success" aria-hidden="true"></span>Connected</span></td>
+                    <td data-label="Last seen" class="u-mono u-subtle">30s ago</td>
+                  </tr>
+                  <tr>
+                    <td data-label="Tool" style="font-weight:var(--fw-medium);">OpenCode</td>
+                    <td data-label="Kind"><span class="agent-kind">ACP harness</span></td>
+                    <td data-label="Connects via">Gateway session <span class="u-subtle">(ACP)</span></td>
+                    <td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot dot-success" aria-hidden="true"></span>Connected</span></td>
+                    <td data-label="Last seen" class="u-mono u-subtle">1m ago</td>
+                  </tr>
+                  <tr>
+                    <td data-label="Tool" style="font-weight:var(--fw-medium);">Claude Desktop</td>
+                    <td data-label="Kind"><span class="agent-kind">MCP client</span></td>
+                    <td data-label="Connects via"><span class="u-mono">openclaw mcp serve</span></td>
+                    <td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot dot-success" aria-hidden="true"></span>Connected</span></td>
+                    <td data-label="Last seen" class="u-mono u-subtle">5m ago</td>
+                  </tr>
+                  <tr>
+                    <td data-label="Tool" style="font-weight:var(--fw-medium);">Codex Desktop</td>
+                    <td data-label="Kind"><span class="agent-kind">MCP client</span></td>
+                    <td data-label="Connects via"><span class="u-mono">openclaw mcp serve</span></td>
+                    <td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot" aria-hidden="true"></span><span class="u-muted">Not connected</span></span></td>
+                    <td data-label="Last seen" class="u-muted">—</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ── 9 · MCP & tool policy — servers, allow/deny, sandbox ──────── -->
+          <section aria-label="MCP and tool policy" class="nav-section-gap">
+            <details class="card disc">
+              <summary>
+                <span class="u-col" style="gap:2px;min-width:0;">
+                  <span class="card-title">MCP &amp; tool policy</span>
+                  <span class="u-subtle" style="font-size:var(--text-xs);">Servers, allow/deny, sandbox, exec approvals</span>
+                </span>
+                <span class="u-row" style="gap:var(--space-3);">
+                  <span class="badge">sandbox · required</span>
+                  <span class="chev" aria-hidden="true">›</span>
+                </span>
+              </summary>
+              <div class="card-body">
+                <div style="overflow-x:auto;">
+                  <table class="table table-compact table-cards">
+                    <thead><tr><th scope="col">MCP server</th><th scope="col">Transport</th><th scope="col">Auth</th><th scope="col">Tools</th><th scope="col">Status</th></tr></thead>
+                    <tbody>
+                      <tr><td data-label="MCP server"><strong>filesystem</strong></td><td data-label="Transport" class="u-mono">stdio</td><td data-label="Auth">none <span class="u-subtle">(local)</span></td><td data-label="Tools">read, write</td><td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot dot-success" aria-hidden="true"></span>Active</span></td></tr>
+                      <tr><td data-label="MCP server"><strong>github</strong></td><td data-label="Transport" class="u-mono">http</td><td data-label="Auth">OAuth</td><td data-label="Tools">issues, PRs, repos</td><td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot dot-success" aria-hidden="true"></span>Active</span></td></tr>
+                      <tr><td data-label="MCP server"><strong>web-search</strong></td><td data-label="Transport" class="u-mono">http</td><td data-label="Auth">API key <span class="u-subtle">(SecretRef)</span></td><td data-label="Tools">search</td><td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot dot-success" aria-hidden="true"></span>Active</span></td></tr>
+                      <tr><td data-label="MCP server"><strong>shell</strong></td><td data-label="Transport" class="u-mono">stdio</td><td data-label="Auth">none</td><td data-label="Tools">exec <span class="u-subtle">(sandboxed)</span></td><td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot dot-warning" aria-hidden="true"></span>Approval-gated</span></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <dl class="disc-dl" style="margin-top:var(--space-4);">
+                  <dt>Default policy</dt><dd>allow-list <span class="u-subtle">— deny by default, tools opted in per profile</span></dd>
+                  <dt>Sandbox</dt><dd>required <span class="u-subtle">— workers run in Docker / OpenShell with explicit workspace access</span></dd>
+                  <dt>Exec approvals</dt><dd>ask every time <span class="u-subtle">— destructive commands require per-tool approval</span></dd>
+                  <dt>Codex projection</dt><dd>on <span class="u-subtle">— MCP tools projected into Codex with the same policy</span></dd>
+                </dl>
+                <div class="u-row u-wrap" style="gap:var(--space-2);margin-top:var(--space-4);">
+                  <button type="button" class="btn btn-primary btn-sm">Add MCP server</button>
+                  <button type="button" class="btn btn-ghost btn-sm">Edit allow/deny rules</button>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <!-- ══════ GROUP ③ — External publishing and messaging surfaces ══════ -->
+          <div class="conn-group">
+            <div class="conn-group-head">
+              <span class="conn-group-eyebrow">Integrations</span>
+              <h2>Channels &amp; services</h2>
+              <p>Where the fleet publishes and talks.</p>
+            </div>
+          </div>
+
+          <!-- ── 10 · Channels — publishing and team surfaces ──────────────── -->
+          <section aria-label="Channels and services">
+            <div class="card">
+              <table class="table table-compact table-cards">
+                <caption class="u-sr-only">Channels and services connected to the fleet — service, use, connection status, and last sync. Five services; four connected and one needs reconnect.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Service</th>
+                    <th scope="col">Use</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Last sync</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td data-label="Service" style="font-weight:var(--fw-medium);">WordPress</td>
+                    <td data-label="Use">publishing</td>
+                    <td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot dot-success" aria-hidden="true"></span>Connected</span></td>
+                    <td data-label="Last sync" class="u-mono u-subtle">5m ago</td>
+                  </tr>
+                  <tr>
+                    <td data-label="Service" style="font-weight:var(--fw-medium);">Resend</td>
+                    <td data-label="Use">email</td>
+                    <td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot dot-success" aria-hidden="true"></span>Connected</span></td>
+                    <td data-label="Last sync" class="u-mono u-subtle">1m ago</td>
+                  </tr>
+                  <tr>
+                    <td data-label="Service" style="font-weight:var(--fw-medium);">Slack</td>
+                    <td data-label="Use">team messaging</td>
+                    <td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot dot-success" aria-hidden="true"></span>Connected</span></td>
+                    <td data-label="Last sync" class="u-muted" aria-label="push-based">—</td>
+                  </tr>
+                  <tr>
+                    <td data-label="Service" style="font-weight:var(--fw-medium);">X (Twitter)</td>
+                    <td data-label="Use">social</td>
+                    <td data-label="Status"><span class="u-row" style="gap:var(--space-2);"><span class="dot dot-success" aria-hidden="true"></span>Connected</span></td>
+                    <td data-label="Last sync" class="u-mono u-subtle">12m ago</td>
+                  </tr>
+                  <tr>
+                    <td data-label="Service" style="font-weight:var(--fw-medium);">LinkedIn</td>
+                    <td data-label="Use">social</td>
+                    <td data-label="Status">
+                      <span class="u-row u-wrap" style="gap:var(--space-2);">
+                        <span class="u-row" style="gap:var(--space-2);">
+                          <span class="dot dot-danger" aria-hidden="true"></span>
+                          Needs reconnect
+                        </span>
+                        <a class="btn btn-ghost btn-sm" href="essential-connect-wizard.html" rel="noopener">Reconnect</a>
+                      </span>
+                    </td>
+                    <td data-label="Last sync" class="u-muted">auth expired 2d ago</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ── 11 · Footer hint ──────────────────────────────────────── -->
+          <p class="hint">Health re-checked every 30s · last full check 30s ago.</p>
+
+        </div>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+</body>
+</html>
