@@ -2585,6 +2585,104 @@ describe("Connections provisioning helpers", () => {
     expect(askAdmin?.model).toBe("anthropic/claude-opus-4-8");
   });
 
+  it("waits out the gateway write rate limit rather than dropping the reconcile (#186)", async () => {
+    // Found by driving the real stack: a disconnect spends the gateway's control-plane write budget
+    // (its own config.patch plus a paced models.authLogout per agent), so the reconcile's patch came
+    // back "rate limit exceeded for config.patch; retry after 36s" and was dropped -- leaving Ask
+    // Admin routed at the provider that had just been disconnected. Exactly the bug, on the path
+    // that matters most.
+    const askAdminEntry = {
+      id: "ask-admin-opzava",
+      model: "openai/gpt-5.5",
+      tools: {
+        profile: "minimal",
+        allow: ASK_ADMIN_TOOL_POLICY_ALLOW,
+        deny: ASK_ADMIN_TOOL_POLICY_DENY,
+      },
+    };
+    const config = {
+      hash: "config-hash-186-rate",
+      config: {
+        agents: {
+          defaults: { model: { primary: "anthropic/claude-opus-4-8" } },
+          list: [askAdminEntry],
+        },
+        plugins: { entries: { anthropic: { enabled: true } } },
+      },
+    };
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      status: {
+        allowed: ["anthropic/claude-opus-4-8"],
+        auth: {
+          providers: [
+            {
+              provider: "anthropic",
+              profiles: { count: 1, token: 1, labels: ["anthropic:default=Setup token"] },
+            },
+          ],
+        },
+      },
+    });
+    let patchAttempts = 0;
+    const admin = new RecordingAdminClient({
+      "config.get": ok(config),
+      "models.list": ok({
+        providers: [
+          {
+            id: "anthropic",
+            label: "Anthropic",
+            suggestedModel: "claude-opus-4-8",
+            authChoices: [
+              apiKeyChoice({ id: "setup-token", providerId: "anthropic", keyFlag: "token" }),
+            ],
+          },
+        ],
+      }),
+      "config.patch": () => {
+        patchAttempts += 1;
+        // The gateway's real refusal shape; retryAfterMs kept tiny so the test does not sleep 36s.
+        return patchAttempts === 1
+          ? err(
+              new DomainError({
+                code: "provisioning.openclawAdmin.requestRejected",
+                message: "rate limit exceeded for config.patch; retry after 36s",
+                details: { retryAfterMs: 5 },
+              }),
+            )
+          : ok({ ok: true });
+      },
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-13T00:00:00.000Z"),
+    });
+
+    const result = await port.applyOrchestratorDelegation({
+      ...principal(),
+      connectedProviderIds: ["anthropic"],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(patchAttempts).toBe(2);
+    const patched = admin.calls
+      .filter((call) => call.method === "config.patch")
+      .map(
+        (call) =>
+          rawPatch(call.params) as {
+            agents?: { list?: readonly { id?: string; model?: string }[] };
+          },
+      )
+      .at(-1)
+      ?.agents?.list?.find((agent) => agent.id === "ask-admin-opzava");
+    expect(patched?.model).toBe("anthropic/claude-opus-4-8");
+  });
+
   it("fails Anthropic setup-token when onboard never yields a routable provider", async () => {
     vi.useFakeTimers();
     try {

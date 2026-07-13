@@ -179,6 +179,14 @@ const modelProviderDisconnectExpiresMs = 15 * 60 * 1000;
 const disconnectClosedBeforeResponseRetryDelayMs = 500;
 const disconnectPostCheckRetryDelayMs = 1_000;
 const disconnectGatewayReadyRetryDelayMs = 1_000;
+// The gateway rate-limits control-plane writes, and a disconnect has already spent that budget by
+// the time the orchestrator reconcile wants its own config.patch (live: "rate limit exceeded for
+// config.patch; retry after 36s"). Losing that patch leaves the orchestrator pointing at the
+// credential we just removed -- the very state #186 is about -- so the reconcile waits the gateway
+// out rather than giving up on it.
+const orchestratorReconcileMaxAttempts = 3;
+const orchestratorReconcileMaxWaitMs = 150_000;
+const orchestratorReconcileRateLimitMarginMs = 1_000;
 // A status read taken while the gateway is reloading reports the credential we just removed. Give
 // those reads a few chances to converge on the durable store before calling the disconnect failed:
 // a credential that genuinely survived keeps reporting forever, so it still fails closed (#172).
@@ -3971,14 +3979,49 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(patchParams.error);
     }
 
-    const result = await this.options.adminClient.request("config.patch", patchParams.value, {
-      requiredScope: "operator.admin",
-    });
+    const result = await this.patchOrchestratorConfig(patchParams.value);
     if (!result.ok) {
       return err(result.error);
     }
 
     return ok(state);
+  }
+
+  /**
+   * The reconcile's own config.patch, with the gateway's write rate limit waited out.
+   *
+   * A disconnect issues its profile-removing patch and a paced `models.authLogout` per agent, which
+   * exhausts the gateway's control-plane write budget. The reconcile's patch then lands on
+   * "rate limit exceeded for config.patch; retry after 36s" and, on the first cut of this fix, was
+   * simply dropped -- leaving Ask Admin routed at the provider the operator had just disconnected.
+   * The gateway tells us exactly how long to wait; wait.
+   */
+  private async patchOrchestratorConfig(params: Record<string, unknown>): Promise<Result<unknown>> {
+    let waitedMs = 0;
+
+    for (let attempt = 1; ; attempt += 1) {
+      const result = await this.options.adminClient.request("config.patch", params, {
+        requiredScope: "operator.admin",
+      });
+      if (result.ok) {
+        return result;
+      }
+
+      const retryAfterMs = rateLimitRetryAfterMs(result.error, "config.patch");
+      const delayMs =
+        retryAfterMs === null ? null : retryAfterMs + orchestratorReconcileRateLimitMarginMs;
+      if (
+        delayMs === null ||
+        attempt >= orchestratorReconcileMaxAttempts ||
+        waitedMs + delayMs > orchestratorReconcileMaxWaitMs
+      ) {
+        return result;
+      }
+
+      console.info("connections.orchestrator.reconcileRateLimited", { attempt, delayMs });
+      waitedMs += delayMs;
+      await sleep(delayMs);
+    }
   }
 
   /**
