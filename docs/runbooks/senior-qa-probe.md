@@ -24,7 +24,7 @@ Do not test everything at once. Each run takes one clear high-level objective pl
 3. Navigate to a bounded surface; call `reconDom(page)` after it settles.
 4. Choose actions, payloads, persona framing, and sequencing from the objective plus the live DOM inventory.
 5. Gather evidence: `screenshot(page, name)`, driver-collected response slices, `logSlice(sinceIso, patterns)`.
-6. Call `writeFinding(finding)` for every verified issue (schema: [findings.md](findings.md)).
+6. Call `writeFinding(finding)` for every verified issue (schema: [senior-qa-findings.md](senior-qa-findings.md)).
 
 ## The three lenses
 

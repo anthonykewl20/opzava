@@ -2,7 +2,7 @@
 // Automated user-level validation against the REAL local docker stack:
 //   real login (NO minted sessions), real data (NO mocks/synthetic),
 //   real visuals (screenshots), iterative sweeps that LOOP UNTIL CLEAN.
-// A slice is NOT Done until this exits 0. See .claude/skills/senior-qa.
+// A slice is NOT Done until this exits 0. See docs/runbooks/senior-qa-gate.md.
 //
 // Usage:
 //   docker compose up -d --build && node real-world-validate.local.mjs [outDir]

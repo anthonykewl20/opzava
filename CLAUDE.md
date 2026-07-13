@@ -46,10 +46,10 @@ Concise, project-specific, scannable. Claude treats this as guidance, not enforc
 2. Scope: work only the current slice or issue from `EXECUTION.md`.
 3. Validate docs: check `docs/plan/official-docs.md`, `docs/openclaw`, vendor docs, and validation tools before coding APIs.
 4. Build: implement only the linked ADR or PRD behavior; keep local style and architecture.
-5. Prove: run `tdd`, `code-review`, then the SeniorQA final gate.
+5. Prove: run `tdd`, `code-review`, and `qa`, then the final gate.
 6. Record: update `EXECUTION.md` and the issue, then commit on a branch off `development`.
 
-**SeniorQA final gate (the Done bar):** `node real-world-validate.local.mjs` against `http://web.opzava.localhost:18088` with real login, real seeded data, and real screenshots, passing 2 consecutive clean runs.
+**Final gate (the Done bar):** `node real-world-validate.local.mjs` against `http://web.opzava.localhost:18088` with real login, real seeded data, and real screenshots, passing 2 consecutive clean runs. Procedure: `docs/runbooks/senior-qa-gate.md`. The gate is a script, not a skill — `code-review` and `qa` do the review and exploratory-QA work, but neither replaces the gate's exit code.
 
 Done means every workflow gate passed. Missing a required skill means authoring it with `writing-great-skills` first.
 

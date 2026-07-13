@@ -60,11 +60,64 @@ describe("postConnectionsMutation sad paths", () => {
   });
 
   it("treats an unreadable 200 body as a server failure instead of returning garbage", async () => {
-    globalThis.fetch = vi.fn(
-      async () => new Response("<html>proxy error</html>", { status: 200 }),
-    );
+    globalThis.fetch = vi.fn(async () => new Response("<html>proxy error</html>", { status: 200 }));
     const result = await postConnectionsMutation("/x", {});
     expect(result).toMatchObject({ ok: false, kind: "server" });
+  });
+});
+
+describe("pollUntilTerminal pending backoff", () => {
+  // Records the sleep schedule while running it at zero delay, so the backoff curve is asserted
+  // exactly without the test actually waiting.
+  function captureDelays(): { readonly delays: number[]; restore: () => void } {
+    const delays: number[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    const record = (handler: TimerHandler, ms?: number) => {
+      delays.push(ms ?? 0);
+      // Fire immediately: the schedule is what's under test, not the waiting.
+      return realSetTimeout(handler, 0);
+    };
+    const spy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(record as unknown as typeof globalThis.setTimeout);
+    return { delays, restore: () => spy.mockRestore() };
+  }
+
+  // #168: a disconnect paces gateway logouts over 60-120s+. Sampling that at a flat interval means
+  // hundreds of polls; the interval must grow toward a ceiling instead.
+  it("grows the pending interval toward the ceiling instead of hammering a long operation", async () => {
+    const { delays, restore } = captureDelays();
+    let polls = 0;
+
+    const outcome = await pollUntilTerminal<{ status: string }>({
+      poll: async () => ({ ok: true, data: { status: ++polls < 8 ? "pending" : "disconnected" } }),
+      isTerminal: (data) => data.status !== "pending",
+      intervalMs: 1_000,
+      maxIntervalMs: 5_000,
+      backoffFactor: 2,
+      shouldContinue: () => true,
+    });
+    restore();
+
+    expect(outcome).toMatchObject({ ok: true, data: { status: "disconnected" } });
+    // Fast first sample (a 1-agent disconnect lands immediately), then backing off and pinning at
+    // the ceiling — never seven flat 1s polls.
+    expect(delays).toEqual([1_000, 2_000, 4_000, 5_000, 5_000, 5_000, 5_000]);
+  });
+
+  it("keeps a constant interval when no ceiling is set, so existing connect flows are unchanged", async () => {
+    const { delays, restore } = captureDelays();
+    let polls = 0;
+
+    await pollUntilTerminal<{ status: string }>({
+      poll: async () => ({ ok: true, data: { status: ++polls < 4 ? "pending" : "connected" } }),
+      isTerminal: (data) => data.status !== "pending",
+      intervalMs: 1_750,
+      shouldContinue: () => true,
+    });
+    restore();
+
+    expect(delays).toEqual([1_750, 1_750, 1_750]);
   });
 });
 
