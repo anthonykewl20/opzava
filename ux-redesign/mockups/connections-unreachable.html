@@ -165,17 +165,22 @@
             </div>
           </div>
 
-          <!-- ══ PANEL 1 · HERO (unreachable) ══════════════════════════════════
-               SAME structure as the healthy hero — metric, bar, legend — so the
-               eye lands in the same place. Only the accent and the copy change.
-               No percentage: a percentage of nothing is not a number.
+          <!-- ══ PANEL 1 · SYSTEM HEALTH (unreachable) ═════════════════════════
+               It does NOT say "0 of 8 healthy (0%)". We did not watch 8 subsystems
+               fail — we failed to reach the Gateway, so we know NOTHING about them.
+               Reporting that as total failure is the fastest way to teach a user the
+               page cries wolf, after which they stop reading it and it is worthless
+               in the outage it exists for.
+
+               Grey bar, dashed pills, and a LAST-KNOWN-GOOD timestamp so the user can
+               judge staleness for themselves.
           ═══════════════════════════════════════════════════════════════════ -->
           <section class="card" aria-labelledby="health-title">
             <div class="card-header">
-              <h2 class="card-title" id="health-title">Connection Health Overview</h2>
+              <h2 class="card-title" id="health-title">System health</h2>
               <div class="u-row" style="gap:var(--space-3);">
                 <span class="hint">Retrying…</span>
-                <button type="button" class="btn btn-ghost btn-sm" aria-label="Retry connection health check">
+                <button type="button" class="btn btn-ghost btn-sm" aria-label="Retry system health check">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                   Retry
                 </button>
@@ -185,19 +190,28 @@
               <p class="conn-hero-metric conn-hero-metric--unknown">OpenClaw unreachable</p>
               <p class="conn-hero-sub">
                 Retrying automatically — the backend reconnect loop is still running.
-                <strong>Last healthy 4m ago</strong> (8 of 8 subsystems).
+                <strong>Last healthy 4m ago</strong> (8 of 8 components).
               </p>
 
-              <div class="sb-progress" role="img" aria-label="OpenClaw unreachable: all 8 subsystems not checked">
+              <div class="sb-progress" role="img" aria-label="OpenClaw unreachable: all 8 components not checked">
                 <span class="sb-progress-seg sb-progress-seg--unknown" style="width:100%;"></span>
               </div>
 
-              <div class="sb-progress-legend">
-                <span class="sb-progress-legend-item">
-                  <span class="sb-progress-legend-swatch" style="background:var(--border-strong);" aria-hidden="true"></span>
-                  8 Not checked
-                </span>
-              </div>
+              <nav class="conn-groups" aria-label="Component groups">
+                <a href="connections-system.html" class="conn-group-pill conn-group-pill--unknown">
+                  <span class="dot" aria-hidden="true"></span>
+                  System Core <span class="conn-group-pill-count">—</span>
+                </a>
+                <a href="connections-system.html" class="conn-group-pill conn-group-pill--unknown">
+                  <span class="dot" aria-hidden="true"></span>
+                  Channels <span class="conn-group-pill-count">—</span>
+                </a>
+                <a href="connections-system.html" class="conn-group-pill conn-group-pill--unknown">
+                  <span class="dot" aria-hidden="true"></span>
+                  Agents <span class="conn-group-pill-count">—</span>
+                </a>
+                <a href="connections-system.html" class="conn-groups-link">System status &rarr;</a>
+              </nav>
             </div>
           </section>
 
@@ -300,123 +314,7 @@
 
           </div>
 
-          <!-- ══ PANEL 3 · SYSTEM STATUS (all not checked) ═════════════════════ -->
-          <section class="card" aria-labelledby="sys-title">
-            <div class="card-header">
-              <h2 class="card-title" id="sys-title">System Components Overview</h2>
-              <span class="sb-badge sb-badge--outline">Not checked</span>
-            </div>
-            <div class="card-body" style="padding:0;">
-
-              <div class="sb-alert sb-alert--destructive conn-alert">
-                <span class="ico" aria-hidden="true">⚠</span>
-                <div class="sb-alert-title">Gateway unreachable — retrying automatically</div>
-                <div class="sb-alert-desc">
-                  Subsystem health cannot be probed while the Gateway is down. Nothing below is known to be
-                  broken; it is simply unknown. Check provisioning-worker health if this persists.
-                </div>
-              </div>
-
-              <!-- Emblem is GREY with a question mark — not a red cross. We are not
-                   reporting eight failures; we are reporting eight unknowns. -->
-              <div class="conn-check-strip conn-check-strip--unknown">
-                <span class="conn-check-emblem" aria-hidden="true">
-                  <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 2.5 4.5 5.5v5.2c0 4.6 3.2 8.4 7.5 9.8 4.3-1.4 7.5-5.2 7.5-9.8V5.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-dasharray="3 2.5"/>
-                    <path d="M10.1 9.6a2 2 0 1 1 2.6 1.9c-.5.2-.7.6-.7 1.1v.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-                    <circle cx="12" cy="15.8" r="1" fill="currentColor"/>
-                  </svg>
-                </span>
-                <div>
-                  <p class="conn-check-title">Component health unknown</p>
-                  <p class="conn-check-sub">Check could not run · last complete 4m ago</p>
-                </div>
-              </div>
-
-              <div class="conn-comp-groups">
-
-                <div class="conn-comp-group">
-                  <div class="section-label conn-comp-group-label">System Core</div>
-                  <div class="conn-comp-grid">
-                    <div class="conn-comp-card conn-comp-card--unknown">
-                      <p class="conn-comp-name">Gateway</p>
-                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
-                      <dl class="conn-comp-detail"><div><dt>Unreachable</dt><dd>4m ago</dd></div></dl>
-                    </div>
-                    <div class="conn-comp-card conn-comp-card--unknown">
-                      <p class="conn-comp-name">Event loop</p>
-                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
-                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
-                    </div>
-                    <div class="conn-comp-card conn-comp-card--unknown">
-                      <p class="conn-comp-name">Plugins</p>
-                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
-                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
-                    </div>
-                    <div class="conn-comp-card conn-comp-card--unknown">
-                      <p class="conn-comp-name">Context engines</p>
-                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
-                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="conn-comp-group">
-                  <div class="section-label conn-comp-group-label">Channels</div>
-                  <div class="conn-comp-grid">
-                    <div class="conn-comp-card conn-comp-card--unknown">
-                      <p class="conn-comp-name">WhatsApp</p>
-                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
-                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
-                    </div>
-                    <div class="conn-comp-card conn-comp-card--unknown">
-                      <p class="conn-comp-name">Telegram</p>
-                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
-                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="conn-comp-group">
-                  <div class="section-label conn-comp-group-label">Agents</div>
-                  <div class="conn-comp-grid">
-                    <div class="conn-comp-card conn-comp-card--unknown">
-                      <p class="conn-comp-name">ask-admin-opzava</p>
-                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
-                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
-                    </div>
-                    <div class="conn-comp-card conn-comp-card--unknown">
-                      <p class="conn-comp-name">subagent-openai</p>
-                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.5 2.5"/><path d="M7 10h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Not checked</p>
-                      <dl class="conn-comp-detail"><div><dt>Last known</dt><dd>4m ago</dd></div></dl>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-
-              <details class="conn-section">
-                <summary class="conn-summary">
-                  <span class="conn-summary-chev" aria-hidden="true">›</span>
-                  <span class="conn-summary-title">Runtime</span>
-                  <span class="sb-badge sb-badge--outline">Not checked</span>
-                </summary>
-                <dl class="conn-kv conn-kv--wide">
-                  <div><dt>Version</dt><dd class="conn-not-checked">Not checked</dd></div>
-                  <div><dt>Gateway uptime</dt><dd class="conn-not-checked">Not checked</dd></div>
-                  <div><dt>Host uptime</dt><dd class="conn-not-checked">Not checked</dd></div>
-                  <div><dt>Update channel</dt><dd class="conn-not-checked">Not checked</dd></div>
-                  <div><dt>Git SHA</dt><dd class="conn-not-checked">Not checked</dd></div>
-                </dl>
-              </details>
-
-            </div>
-          </section>
-
-          <p class="hint">
-            Health re-checks every 30s and on window focus. Connection actions are provisioning/admin
-            operations — the broker hot path cannot request provider secrets or <code>operator.admin</code> scopes.
-          </p>
+          <p class="hint">Health re-checks every 30s and on window focus.</p>
 
         </div>
       </div>

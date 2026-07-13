@@ -61,11 +61,44 @@ The provisioning worker already holds `operator.admin` (durable device-store boo
 
 ## Layout
 
-Four panels:
+**The Overview is TWO panels. It is an overview, not a console.**
 
-1. **Hero** (full width) - rollup headline, dual-segment bar (green healthy / amber attention / grey not-checked), `Checked Ns ago`.
+An earlier revision put a full System Status panel on the Overview. The result: the hero said "8 of 8 healthy", and directly beneath it a second panel said "All 8 components healthy" over eight cards and three tables of sessions, auth, catalog, hosts, uptime and git SHA. The same fact twice, then a console dump, on a page called Overview. That is a Hick's Law / Nielsen-H8 failure and it is corrected here.
+
+1. **System health** (full width) - status headline, dual-segment bar (green healthy / amber attention / grey not-checked), `Checked Ns ago` + Refresh, an **attention row** (only when something is wrong), and three **group pills** (System Core / Channels / Agents) plus one link: `System status →`.
 2. **Three-column grid**, equal heights - Opzava Gateway | Model Providers | Third-Party Integrations.
-3. **System Components Overview** (full width, NEW) - warning banners, a state-aware check emblem, a component status **grid** (System Core / Channels / Agents), and low-priority accordions (Sessions / Gateway detail / Runtime).
+
+That is all. No component grid, no tables, no accordions on the Overview.
+
+### Progressive disclosure
+
+The Overview shows the **shape** of the problem; `/connections/system` shows **the problem**.
+
+| Question | Answered on |
+| --- | --- |
+| Is anything wrong? | Overview - headline + bar |
+| What is wrong, and how do I fix it? | Overview - the attention row, with its action |
+| Which *kind* of thing is unwell? | Overview - the three group pills |
+| Which exact probe returned what, when? | **`/connections/system`** |
+| Sessions, auth, catalog, hosts, uptime, version, git SHA | **`/connections/system`** |
+
+The **attention row renders only when something is actually wrong.** When everything is healthy it is *absent* - not an empty container. A page that stays calm when things are fine is a page you believe when it finally raises its voice.
+
+### `/connections/system` (System status)
+
+The detail surface. Breadcrumb `Connections / System status`. Holds the state-aware check emblem, the component **grid** grouped into **System Core / Channels / Agents**, and the low-priority accordions (Sessions / Gateway detail / Runtime).
+
+It is a **drill-down of the Overview, not a peer connection**, so it is deliberately NOT a rail sub-item - the rail lists *connections*, and OpenClaw's internals are not one. It is reached from the health panel.
+
+**Component card states** carry status in icon + colour + border together, so they survive being read at a glance, in greyscale, or by someone colour-blind:
+
+| State | Card |
+| --- | --- |
+| `healthy` | default border, green check icon |
+| `attention` | **amber border + amber wash**, warning icon |
+| `not_checked` | **dashed border, no fill**, grey - visually *absent*, not *failed*. An amber or red card here would claim we observed a failure we never observed. |
+
+The check emblem is state-aware for the same reason: green shield + check / **amber** shield + `!` / **grey dashed** shield + `?`. It is the fastest read on the panel, so it must never show a green tick while something is broken or unknown.
 
 ### Cards
 
@@ -80,37 +113,6 @@ Four panels:
 
 - The faint logo row is **catalog-driven** and suppressed below 2 real integrations. Today only GitHub is real, so it does not render. It appears automatically the day a second integration ships.
 - This honors locked IA decision #7 (*"only integrations that actually work... no coming-soon vaporware"*). Painting Slack and Google logos promises something `Add Integration` cannot deliver.
-
-### System Components Overview panel
-
-Not a table. Components render as a **status grid** grouped into micro-categories - **System Core**, **Channels**, **Agents** - because the first question in an outage is *which kind of thing is unwell*, and a flat 4-column table makes you read every row to find out. Each category owns its own label and its own grid, so the groups cannot blur into a single band.
-
-Order inside the panel:
-
-1. **Warning banners** (e.g. `modelPricing`), width-aligned with the grid below.
-2. **Check emblem** - centred, between the warnings and the grid. State-aware.
-3. **Component grid** - `1 / 2 / 4` columns responsive.
-4. **Accordions** - `Sessions`, `Gateway detail`, `Runtime`: low-priority, full-width, counts and muted actions right-aligned.
-
-**The emblem is state-aware, and that is the whole point of it.** It is the fastest read on the panel, so it must never show a green tick while a component is broken or unknown:
-
-| State | Emblem | Headline |
-| --- | --- | --- |
-| all healthy | green shield + check | "All 8 components healthy" |
-| any attention | **amber** shield + `!` | "1 component needs attention" |
-| unreachable | **grey dashed** shield + `?` | "Component health unknown" |
-
-**Component card states** carry status in icon + colour + border, so they survive being read at a glance, in greyscale, or by someone colour-blind:
-
-| State | Card |
-| --- | --- |
-| `healthy` | default border, green check icon + green "Healthy" |
-| `attention` | **amber border + amber wash**, warning icon |
-| `not_checked` | **dashed border, no fill**, grey - visually *absent*, not *failed*. An amber or red card here would claim we observed a failure we never observed. |
-
-Telemetry (`Lag 3 ms`, `Loaded 12 / Errors 0`, `Heartbeat 5s ago`) sits at the bottom of each card in `text-xs` muted, pinned by `margin-top: auto` so the cards align. Values never wrap - "20s ago" breaking into "20s / ago" reads as damage - the label yields instead.
-
-`modelPricing` renders as a warning banner, never as an attention component.
 
 ## Freshness
 
@@ -148,8 +150,8 @@ Two primitives are missing and must be added in both places: **`progress`** (dua
 
 ## Amendments to `connections-ia-redesign.md`
 
-- **Decision #2 (rail sub-items)** - `Gateway` is REMOVED as a rail sub-item.
-- **Decision #4 (detail routes)** - `/connections/gateway` is REMOVED as a route.
+- **Decision #2 (rail sub-items)** - `Gateway` is REMOVED as a rail sub-item. `System status` is NOT added as one: it is a drill-down of the Overview, not a connection.
+- **Decision #4 (detail routes)** - `/connections/gateway` is REMOVED. `/connections/system` is ADDED as the system-detail surface.
 
 Rationale: the Gateway is **platform substrate, not a manageable connection**. The IA spec itself describes it as *"Platform infra: not disconnectable, no connect action"* - it never belonged as a peer of Model Providers and GitHub. Once the System Status panel lands on the Overview, the gateway route is pure duplication, and two surfaces showing gateway health is how they drift out of sync.
 
@@ -161,7 +163,8 @@ Rationale: the Gateway is **platform substrate, not a manageable connection**. T
 | --- | --- |
 | `ux-redesign/mockups/connections.html` | Healthy - all components green. |
 | `ux-redesign/mockups/connections-degraded.html` | Degraded - 1 attention (dead channel), 1 `not checked`, expiring provider key. |
-| `ux-redesign/mockups/connections-unreachable.html` | Gateway unreachable - last-known-good, all components `not checked`. |
+| `ux-redesign/mockups/connections-unreachable.html` | Gateway unreachable - last-known-good, all groups `not checked`. |
+| `ux-redesign/mockups/connections-system.html` | **`/connections/system`** - the detail surface the Overview links to. Component grid + Sessions / Gateway detail / Runtime. |
 | `ux-redesign/mockups/connections-legacy-pre-ia.html` | **Preserved, stale.** The pre-IA monolith. Still the only design for `/connections/providers` (shipped) and for the unbuilt Agent-tools/MCP/Channels port-program slices. Extract sub-route mockups from it; do not delete it. |
 
 ### Known gap (pre-existing, not introduced here)

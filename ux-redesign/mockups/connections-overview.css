@@ -44,6 +44,70 @@
 .conn-hero-metric--attention { color: var(--warning); }
 .conn-hero-metric--unknown { color: var(--fg-muted); }
 
+/* ── Attention row ─────────────────────────────────────────────────────────
+ * Renders ONLY when something is actually wrong. This is the whole reason the
+ * page exists, so it gets a row of its own with the fix one click away — and
+ * when everything is healthy it is ABSENT, not an empty container. A page that
+ * is calm when things are fine is a page you trust when it shouts. */
+.conn-attention {
+  display: flex; align-items: center; gap: var(--space-3);
+  margin-top: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+  background: var(--warning-soft);
+  font-size: var(--text-sm);
+}
+.conn-attention-icon { flex: none; width: 18px; height: 18px; color: var(--warning); }
+.conn-attention-body { flex: 1 1 auto; min-width: 0; }
+.conn-attention-title { font-weight: var(--fw-semibold); color: var(--fg); }
+.conn-attention-desc { color: var(--fg-muted); font-size: var(--text-xs); margin-top: 1px; }
+
+/* ── Group pills ───────────────────────────────────────────────────────────
+ * The OVERVIEW answer to "which kind of thing is unwell": three pills, not
+ * eight cards and not a table. Detail is one click away on /connections/system.
+ * Progressive disclosure — the overview shows the shape of the problem, the
+ * detail page shows the problem. */
+.conn-groups {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.conn-group-pill {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  height: 30px; padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  font-size: var(--text-sm); color: var(--fg-muted);
+  text-decoration: none;
+}
+.conn-group-pill:hover { background: var(--surface-3); color: var(--fg); }
+.conn-group-pill-count { font-variant-numeric: tabular-nums; color: var(--fg); font-weight: var(--fw-medium); }
+.conn-group-pill--attention { border-color: var(--warning); background: var(--warning-soft); }
+.conn-group-pill--attention .conn-group-pill-count { color: var(--warning); }
+.conn-group-pill--unknown { border-style: dashed; background: none; color: var(--fg-subtle); }
+.conn-group-pill--unknown .conn-group-pill-count { color: var(--fg-subtle); font-weight: var(--fw-regular); }
+
+/* The one link off the health panel. Pushed right so it reads as "go deeper",
+ * not as another status chip. */
+.conn-groups-link { margin-left: auto; font-size: var(--text-sm); color: var(--fg-muted); text-decoration: none; white-space: nowrap; }
+.conn-groups-link:hover { color: var(--accent); text-decoration: underline; }
+
+/* ── Breadcrumb (System status drill-down) ─────────────────────────────────
+ * System status is a drill-down OF the Overview, not a peer connection, so it is
+ * deliberately NOT a rail sub-item — the rail lists connections, and OpenClaw's
+ * internals are not one. The breadcrumb is how it says where it sits. */
+.conn-crumb {
+  display: flex; align-items: center; gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm); color: var(--fg-subtle);
+}
+.conn-crumb a { color: var(--fg-muted); text-decoration: none; }
+.conn-crumb a:hover { color: var(--accent); text-decoration: underline; }
+.conn-crumb [aria-current="page"] { color: var(--fg); }
+
 /* ── Gateway card ──────────────────────────────────────────────────────────
  * Centre-aligned status block: the connection state is the point of the card. */
 .conn-gw-state { text-align: center; padding: var(--space-4) 0 var(--space-2); }
