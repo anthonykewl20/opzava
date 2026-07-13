@@ -55,9 +55,7 @@ export function SetupTokenConnect({ providerId }: { readonly providerId: string 
   const [code, setCode] = useState("");
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
-  const busy =
-    phase.step === "starting" ||
-    phase.step === "completing";
+  const busy = phase.step === "starting" || phase.step === "completing";
 
   useEffect(() => {
     const flowId =
@@ -86,7 +84,10 @@ export function SetupTokenConnect({ providerId }: { readonly providerId: string 
         }
       },
       shouldContinue: () => !cancelled,
-      maxDurationMs: 10 * 60 * 1000,
+      // Covers BOTH halves of the flow: the operator authorizing in their browser, and the
+      // completion that follows — which now proves the minted token against the provider and, if
+      // the provider rejects it, removes it again before failing (#183).
+      maxDurationMs: 15 * 60 * 1000,
     }).then((outcome) => {
       if (cancelled) {
         return;

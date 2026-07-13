@@ -2,18 +2,29 @@ import { randomUUID } from "node:crypto";
 
 import {
   type GatewayRuntimeAgentCredential,
+  type GatewayRuntimeAgentCredentialWrite,
   type GatewayRuntimeAgentProviderQuery,
   type GatewayRuntimeAuthChoice,
+  type GatewayRuntimeAuthProbeQuery,
   type GatewayRuntimeCommandResult,
   type GatewayRuntimeDeviceCodeLogin,
   type GatewayRuntimePort,
   type GatewayRuntimeSetupTokenLogin,
+  type ProviderAuthProbe,
 } from "@opzava/ports";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 type Fetch = typeof fetch;
 
 const dockerRequestTimeoutMs = 15_000;
+// A probe is one deliberately tiny model call ("Reply with OK", tools disabled). The gateway's own
+// defaults are 8s/8 tokens; give it a little more room than that because the exec has to cold-start
+// the runtime, and keep concurrency at 1 so a probe cannot itself trip a provider rate limit.
+const authProbeTimeoutMs = 20_000;
+const authProbeMaxTokens = 8;
+// The exec must outlive the probe's own timeout, or we would time the docker request out while the
+// gateway is still deciding — which reads as "unproven" and silently disarms the guard.
+const authProbeExecTimeoutMs = 60_000;
 
 function provisioningError(
   code: string,
@@ -81,6 +92,14 @@ function redactDeviceCodeLog(value: string): string {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
 }
 
 function commandFailureError(input: {
@@ -294,6 +313,98 @@ function parseAgentProviderProfileIds(stdout: string): readonly string[] {
     .filter((id): id is string => typeof id === "string" && id.trim() !== "");
 }
 
+// `models auth paste-api-key|paste-token` declares what it wrote on its last line:
+//   `Auth profile: anthropic:manual (anthropic/token)`
+// Read BOTH the profile id and the provider from it rather than recomputing them. The gateway
+// canonicalizes some providers on the way in (`codex` and `openai-codex` both collapse to `openai`),
+// so locally-derived values would be wrong for exactly the providers Opzava cares most about — and a
+// probe addressed to a profile or provider the gateway does not have probes NOTHING, which fails
+// open and silently disarms the guard.
+function parseWrittenAuthProfile(stdout: string): {
+  readonly profileId: string | null;
+  readonly providerId: string | null;
+} {
+  const match = stripAnsi(stdout).match(/^\s*Auth profile:\s*(\S+)\s+\(([^/)]+)\//m);
+  return {
+    profileId: match?.[1] ?? null,
+    providerId: match?.[2] === undefined ? null : (stringValue(match[2]) ?? null),
+  };
+}
+
+/**
+ * The probe summary the gateway emits under `auth.probes` in `models status --json`.
+ *
+ * The nesting is load-bearing: an earlier draft of this read a top-level `probes` key, which parses
+ * to nothing on every real payload and would have made the whole guard a no-op that always answered
+ * "unproven" — a security check that silently never fires is worse than no check, because it is
+ * believed.
+ */
+function parseAuthProbeResults(stdout: string): readonly Record<string, unknown>[] | null {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+
+  const auth = recordValue(recordValue(payload)?.["auth"]);
+  const probes = recordValue(auth?.["probes"]);
+  if (probes === null) {
+    return null;
+  }
+
+  const results = probes["results"];
+  return Array.isArray(results) ? results.filter(isRecord) : [];
+}
+
+/**
+ * Classify the gateway's own probe buckets into a verdict.
+ *
+ * `auth` is the ONLY invalidating one. Everything else — rate_limit, billing, timeout, format,
+ * unknown, no_model, and every pre-call reasonCode — means the probe did not get an answer, not
+ * that the answer was no. Treating those as rejections would reject valid credentials during a
+ * provider outage, which #183 explicitly calls worse than the bug it is fixing.
+ */
+function providerAuthProbeVerdict(results: readonly Record<string, unknown>[]): ProviderAuthProbe {
+  const rejected = results.find((result) => stringValue(result["status"]) === "auth");
+  if (rejected !== undefined) {
+    return {
+      verdict: "rejected",
+      reason: probeReason(rejected) ?? "the provider rejected the credential",
+    };
+  }
+
+  if (results.some((result) => stringValue(result["status"]) === "ok")) {
+    return { verdict: "verified", reason: "the provider accepted the credential" };
+  }
+
+  const inconclusive = results[0];
+  if (inconclusive === undefined) {
+    // No target at all: the profile we asked about is not one the gateway would ever resolve, so
+    // there was nothing to prove. Fail open, loudly, at the call site.
+    return { verdict: "unproven", reason: "the gateway had no credential to probe" };
+  }
+
+  const status = stringValue(inconclusive["status"]) ?? "unknown";
+  return {
+    verdict: "unproven",
+    reason: probeReason(inconclusive) ?? `the probe was inconclusive (${status})`,
+  };
+}
+
+function probeReason(result: Record<string, unknown>): string | null {
+  const status = stringValue(result["status"]);
+  const reasonCode = stringValue(result["reasonCode"]);
+  const error = stringValue(result["error"]);
+  const detail = error === null ? null : sanitizedCommandFailureReason(error);
+  const label = reasonCode ?? status;
+  if (label === null) {
+    return detail;
+  }
+
+  return detail === null ? label : `${label}: ${detail}`;
+}
+
 function parseOnboardAuthChoices(helpText: string): readonly GatewayRuntimeAuthChoice[] {
   const choiceIds = parseOnboardAuthChoiceIds(helpText);
   const keyFlags = parseOnboardApiKeyFlags(helpText);
@@ -424,7 +535,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
 
   public async writeAgentCredential(
     input: GatewayRuntimeAgentCredential,
-  ): Promise<Result<GatewayRuntimeCommandResult>> {
+  ): Promise<Result<GatewayRuntimeAgentCredentialWrite>> {
     console.log(
       `provisioning-worker storing ${input.providerId} credential in the ${input.agentId} auth store`,
     );
@@ -440,7 +551,64 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       subcommand,
       `--provider ${shellQuote(input.providerId)}`,
     ].join(" ");
-    return this.exec(["sh", "-lc", script], [`OPZAVA_CREDENTIAL=${input.apiKey}`]);
+    const result = await this.exec(["sh", "-lc", script], [`OPZAVA_CREDENTIAL=${input.apiKey}`]);
+    if (!result.ok) {
+      return err(result.error);
+    }
+
+    return ok({ ...result.value, ...parseWrittenAuthProfile(result.value.stdout) });
+  }
+
+  public async probeProviderAuth(
+    input: GatewayRuntimeAuthProbeQuery,
+  ): Promise<Result<ProviderAuthProbe>> {
+    console.log(
+      `provisioning-worker probing the ${input.providerId} credential (${input.profileId}) in the ${input.agentId} auth store`,
+    );
+    const result = await this.exec(
+      [
+        "node",
+        "openclaw.mjs",
+        "models",
+        "status",
+        "--json",
+        "--probe",
+        "--agent",
+        input.agentId,
+        "--probe-provider",
+        input.providerId,
+        // Scope to the ONE profile this connect wrote. Without it the probe would also try any other
+        // profile the provider happens to own — a stale OAuth token from an earlier connect could
+        // then reject a perfectly good new API key.
+        "--probe-profile",
+        input.profileId,
+        "--probe-timeout",
+        String(authProbeTimeoutMs),
+        "--probe-concurrency",
+        "1",
+        "--probe-max-tokens",
+        String(authProbeMaxTokens),
+      ],
+      undefined,
+      authProbeExecTimeoutMs,
+    );
+    if (!result.ok) {
+      return err(result.error);
+    }
+
+    const results = parseAuthProbeResults(result.value.stdout);
+    if (results === null) {
+      // The command ran but said nothing we understand. That is not evidence the key is bad.
+      return err(
+        provisioningError(
+          "provisioning.connections.authProbeUnavailable",
+          "Gateway auth probe did not return a readable probe summary.",
+          { providerId: input.providerId, exitCode: result.value.exitCode },
+        ),
+      );
+    }
+
+    return ok(providerAuthProbeVerdict(results));
   }
 
   public async listAgentProviderProfiles(
@@ -696,6 +864,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
   private async exec(
     cmd: readonly string[],
     env?: readonly string[],
+    timeoutMs?: number,
   ): Promise<Result<GatewayRuntimeCommandResult>> {
     const containerId = await this.resolveContainerId();
     if (!containerId.ok) {
@@ -735,6 +904,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
         Detach: false,
         Tty: false,
       },
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     });
     if (!started.ok) {
       return err(started.error);
@@ -810,7 +980,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
 
   private async dockerRawRequest(
     path: string,
-    init: { readonly method: "GET" | "POST"; readonly body?: unknown },
+    init: { readonly method: "GET" | "POST"; readonly body?: unknown; readonly timeoutMs?: number },
   ): Promise<Result<Buffer>> {
     return this.dockerConsume(path, init, async (response) =>
       Buffer.from(await response.arrayBuffer()),
@@ -819,26 +989,27 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
 
   private async dockerTextRequest(
     path: string,
-    init: { readonly method: "GET" | "POST"; readonly body?: unknown },
+    init: { readonly method: "GET" | "POST"; readonly body?: unknown; readonly timeoutMs?: number },
   ): Promise<Result<string>> {
     return this.dockerConsume(path, init, async (response) => response.text());
   }
 
   private async dockerConsume<T>(
     path: string,
-    init: { readonly method: "GET" | "POST"; readonly body?: unknown },
+    init: { readonly method: "GET" | "POST"; readonly body?: unknown; readonly timeoutMs?: number },
     consume: (response: Response) => Promise<T>,
   ): Promise<Result<T>> {
     if (!this.baseUrlResult.ok) {
       return err(this.baseUrlResult.error);
     }
 
+    const requestTimeoutMs = init.timeoutMs ?? dockerRequestTimeoutMs;
     const controller = new AbortController();
     let didTimeout = false;
     const timeout = setTimeout(() => {
       didTimeout = true;
       controller.abort();
-    }, dockerRequestTimeoutMs);
+    }, requestTimeoutMs);
     try {
       const requestInit: RequestInit = {
         method: init.method,
@@ -874,7 +1045,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       return err(
         provisioningError(code, message, {
           error: String(error),
-          timeoutMs: dockerRequestTimeoutMs,
+          timeoutMs: requestTimeoutMs,
         }),
       );
     } finally {

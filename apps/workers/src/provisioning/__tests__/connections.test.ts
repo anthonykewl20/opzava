@@ -9,12 +9,15 @@ import {
   type ConnectionsProvisioningPort,
   type ConnectionsSnapshot,
   type DeviceFlowChallenge,
+  type GatewayRuntimeAgentCredential,
+  type GatewayRuntimeAgentCredentialWrite,
   type GitHubConnectionState,
   type ModelProviderAuthChoice,
   type OpenClawAdminRpcPort,
   type OpenClawOperatorScope,
   type OrchestratorDelegationState,
   type OrchestratorSubagentRole,
+  type ProviderAuthProbe,
   type ProviderConnectionState,
   type SecretReference,
 } from "@opzava/ports";
@@ -314,6 +317,17 @@ const orchestratorDefaultAgentId = "ask-admin-opzava";
 // ...and the store every agent actually inherits from. That they differ is issue #169.
 const sharedCredentialAgentId = "main";
 
+/**
+ * A credential the fake provider will reject, the way a real one rejects a key that never
+ * authenticated. The #183 probe is the only thing that can tell this apart from a good key: it is
+ * stored, it is routable, and every structural check passes.
+ */
+const bogusApiKey = "sk-bogus-never-authenticates";
+
+function credentialKey(agentId: string, providerId: string): string {
+  return `${agentId}:${providerId}`;
+}
+
 class RecordingGatewayRuntime {
   public readonly connectCalls: {
     readonly providerId: string;
@@ -328,8 +342,15 @@ class RecordingGatewayRuntime {
     readonly agentId: string;
     readonly providerId: string;
   }[] = [];
+  public readonly authProbes: {
+    readonly agentId: string;
+    readonly providerId: string;
+    readonly profileId: string;
+  }[] = [];
   /** agentId -> providerIds whose credential is physically stored in THAT agent's auth store. */
   public readonly agentStores = new Map<string, Set<string>>();
+  /** `${agentId}:${providerId}` -> the credential actually sitting in that store right now. */
+  public readonly storedCredentials = new Map<string, string>();
   public writeAgentCredentialResult: Result<{
     readonly exitCode: number;
     readonly stdout: string;
@@ -371,6 +392,16 @@ class RecordingGatewayRuntime {
       readonly deviceCodeLogResult?: Result<string>;
       readonly deviceCodeLog?: string | (() => string);
       readonly setupTokenLog?: string | (() => string);
+      /** Force every probe to one verdict, e.g. to simulate a rate-limited provider. */
+      readonly authProbeResult?: Result<ProviderAuthProbe> | (() => Result<ProviderAuthProbe>);
+      /** Suppress the `Auth profile: ...` line, as an older gateway would. */
+      readonly omitWrittenProfileId?: boolean;
+      /**
+       * Report `models status` from the credentials actually held, so a logout that removes one
+       * really does change what the gateway says. Without this the fake would insist a provider is
+       * still connected after its credential is gone, and a rollback could not be tested honestly.
+       */
+      readonly statusFromStores?: { readonly providerId: string; readonly model: string };
     } = {},
   ) {}
 
@@ -406,6 +437,31 @@ class RecordingGatewayRuntime {
 
     if (this.options.status !== undefined) {
       return ok(this.options.status);
+    }
+
+    const fromStores = this.options.statusFromStores;
+    if (fromStores !== undefined) {
+      const connected =
+        this.credentialResolvedBy(orchestratorDefaultAgentId, fromStores.providerId) !== undefined;
+      return ok(
+        connected
+          ? {
+              allowed: [fromStores.model],
+              auth: {
+                providers: [
+                  {
+                    provider: fromStores.providerId,
+                    profiles: {
+                      count: 1,
+                      apiKey: 1,
+                      labels: [`${fromStores.providerId}:manual=API key`],
+                    },
+                  },
+                ],
+              },
+            }
+          : { allowed: [], auth: { providers: [] } },
+      );
     }
 
     if (this.connectedDeviceProviderId !== null) {
@@ -456,24 +512,65 @@ class RecordingGatewayRuntime {
       // Faithful to the real CLI: `onboard` has no --agent flag and always writes to the CONFIGURED
       // DEFAULT agent — the orchestrator. That store is nobody else's inheritance base (#169).
       this.storeFor(orchestratorDefaultAgentId).add(input.providerId);
+      this.storedCredentials.set(
+        credentialKey(orchestratorDefaultAgentId, input.providerId),
+        input.apiKey,
+      );
     }
     return result;
   }
 
-  public async writeAgentCredential(input: {
-    readonly agentId: string;
-    readonly providerId: string;
-    readonly keyFlag: string;
-    readonly apiKey: string;
-  }): Promise<
-    Result<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }>
-  > {
+  public async writeAgentCredential(
+    input: GatewayRuntimeAgentCredential,
+  ): Promise<Result<GatewayRuntimeAgentCredentialWrite>> {
     this.agentCredentialWrites.push({ agentId: input.agentId, providerId: input.providerId });
     if (this.writeAgentCredentialResult !== null) {
-      return this.writeAgentCredentialResult;
+      const forced = this.writeAgentCredentialResult;
+      return forced.ok ? ok({ ...forced.value, profileId: null, providerId: null }) : forced;
     }
     this.storeFor(input.agentId).add(input.providerId);
-    return ok({ exitCode: 0, stdout: "", stderr: "" });
+    // Faithful to the real CLI: `models auth paste-*` UPSERTS a deterministic profile id per
+    // provider, so a re-connect overwrites the credential in place rather than adding a second one.
+    this.storedCredentials.set(credentialKey(input.agentId, input.providerId), input.apiKey);
+    const profileId = `${input.providerId}:manual`;
+    const omit = this.options.omitWrittenProfileId === true;
+    return ok({
+      exitCode: 0,
+      stdout: omit ? "" : `Auth profile: ${profileId} (${input.providerId}/api_key)\n`,
+      stderr: "",
+      profileId: omit ? null : profileId,
+      providerId: omit ? null : input.providerId,
+    });
+  }
+
+  /**
+   * The live check #183 is about: ask the provider whether the credential in a given store actually
+   * authenticates. Structural checks cannot answer this — a bogus key is stored and routable just
+   * like a good one — so the fake answers from the credential it really holds.
+   */
+  public async probeProviderAuth(input: {
+    readonly agentId: string;
+    readonly providerId: string;
+    readonly profileId: string;
+  }): Promise<Result<ProviderAuthProbe>> {
+    this.authProbes.push(input);
+    if (typeof this.options.authProbeResult === "function") {
+      return this.options.authProbeResult();
+    }
+    if (this.options.authProbeResult !== undefined) {
+      return this.options.authProbeResult;
+    }
+
+    const credential = this.storedCredentials.get(credentialKey(input.agentId, input.providerId));
+    if (credential === undefined) {
+      return ok({ verdict: "unproven", reason: "the gateway had no credential to probe" });
+    }
+
+    return ok(
+      credential === bogusApiKey
+        ? { verdict: "rejected", reason: "auth: invalid api key" }
+        : { verdict: "verified", reason: "the provider accepted the credential" },
+    );
   }
 
   public async listAgentProviderProfiles(input: {
@@ -499,6 +596,15 @@ class RecordingGatewayRuntime {
 
   public forgetProviderInStore(agentId: string, providerId: string): void {
     this.storeFor(agentId).delete(providerId);
+    this.storedCredentials.delete(credentialKey(agentId, providerId));
+  }
+
+  /** The credential an agent would actually present for a provider, counting inheritance. */
+  public credentialResolvedBy(agentId: string, providerId: string): string | undefined {
+    return (
+      this.storedCredentials.get(credentialKey(agentId, providerId)) ??
+      this.storedCredentials.get(credentialKey(sharedCredentialAgentId, providerId))
+    );
   }
 
   private storeFor(agentId: string): Set<string> {
@@ -3395,6 +3501,313 @@ describe("Connections provisioning helpers", () => {
     }
   });
 
+  // #183: connect stored a credential without ever proving it works. A key that cannot possibly
+  // authenticate is stored, is routable, and passes every structural post-check there is — so the
+  // gateway reported it Connected, and the lie only surfaced weeks later as a delegation failure
+  // far from its cause. These cover the guard that spends one real model call finding out instead.
+  describe("API-key connect liveness probe (#183)", () => {
+    function probePort(input: {
+      readonly admin: RecordingAdminClient;
+      readonly gatewayRuntime: RecordingGatewayRuntime;
+    }): GatewayAdminConnectionsProvisioningPort {
+      return new GatewayAdminConnectionsProvisioningPort({
+        adminClient: input.admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        gatewayRuntime: input.gatewayRuntime,
+        now: () => new Date("2026-07-03T00:00:00.000Z"),
+      });
+    }
+
+    /**
+     * A REJECTED connect rolls the credential back through the real disconnect, which paces and
+     * retries against the gateway — so unlike a clean connect it does not settle on microtasks
+     * alone. Drive its timers rather than giving up on it while it is still working.
+     */
+    async function pollRejectedConnectUntilTerminal(
+      port: GatewayAdminConnectionsProvisioningPort,
+      opId: string,
+    ) {
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const result = await port.pollModelProviderApiKeyConnect({ ...principal(), opId });
+        if (!result.ok || result.value.status !== "pending") {
+          return result;
+        }
+        await vi.advanceTimersByTimeAsync(1_000);
+      }
+
+      return port.pollModelProviderApiKeyConnect({ ...principal(), opId });
+    }
+
+    /**
+     * `models.authLogout` is what actually removes a credential, so the fake gateway honours it —
+     * otherwise a rollback would "succeed" against stores it never touched and the test would pass
+     * on a fiction.
+     */
+    function forgettingAdminClient(
+      providerId: string,
+      gatewayRuntime: RecordingGatewayRuntime,
+    ): RecordingAdminClient {
+      const admin: RecordingAdminClient = new RecordingAdminClient({
+        "config.get": ok({
+          hash: "config-hash-probe",
+          plugins: { allow: [providerId] },
+          auth: { profiles: {}, order: {} },
+          agents: { list: [{ id: orchestratorDefaultAgentId, default: true }, { id: "main" }] },
+        }),
+        "models.authLogout": () => {
+          const params = admin.calls.at(-1)?.params ?? {};
+          const agent = params["agent"];
+          gatewayRuntime.forgetProviderInStore(
+            typeof agent === "string" ? agent : orchestratorDefaultAgentId,
+            providerId,
+          );
+          return ok({ provider: providerId, removedProfiles: [], abortedRunIds: [] });
+        },
+        // Reported from the credentials really held, for the same reason as `statusFromStores`: a
+        // post-check that cannot see a removal would fail every rollback closed.
+        "models.authStatus": () =>
+          ok({
+            providers:
+              gatewayRuntime.credentialResolvedBy(orchestratorDefaultAgentId, providerId) ===
+              undefined
+                ? []
+                : [
+                    {
+                      provider: providerId,
+                      status: "ok",
+                      profiles: [
+                        { profileId: `${providerId}:manual`, type: "api_key", status: "ok" },
+                      ],
+                    },
+                  ],
+          }),
+      });
+      return admin;
+    }
+
+    it("refuses to report Connected on a credential the provider rejects, and does not keep it", async () => {
+      vi.useFakeTimers();
+      try {
+        const gatewayRuntime = new RecordingGatewayRuntime({
+          choices: [
+            {
+              id: "moonshot-api-key",
+              label: "API key",
+              mode: "api-key",
+              keyFlag: "moonshot-api-key",
+            },
+          ],
+          statusFromStores: { providerId: "moonshot", model: "moonshot/kimi-k2" },
+        });
+        const admin = forgettingAdminClient("moonshot", gatewayRuntime);
+        const port = probePort({ admin, gatewayRuntime });
+
+        const start = await port.startModelProviderApiKeyConnect({
+          ...principal(),
+          providerId: "moonshot",
+          authChoiceId: "moonshot-api-key",
+          apiKey: bogusApiKey,
+        });
+        const result = await pollRejectedConnectUntilTerminal(
+          port,
+          start.ok ? start.value.opId : "",
+        );
+
+        expect(result.ok ? result.value : null).toMatchObject({
+          status: "failed",
+          code: "provisioning.connections.providerCredentialRejected",
+        });
+        // The whole point: it must not survive the connect that submitted it.
+        expect(gatewayRuntime.credentialResolvedBy("main", "moonshot")).toBeUndefined();
+        expect(
+          gatewayRuntime.credentialResolvedBy(orchestratorDefaultAgentId, "moonshot"),
+        ).toBeUndefined();
+        expect(JSON.stringify(result)).not.toContain(bogusApiKey);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("probes the credential it just wrote, in the store the whole fleet reads", async () => {
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        statusFromStores: { providerId: "zai", model: "zai/glm-5.2" },
+      });
+      const admin = forgettingAdminClient("zai", gatewayRuntime);
+      const port = probePort({ admin, gatewayRuntime });
+
+      const start = await port.startModelProviderApiKeyConnect({
+        ...principal(),
+        providerId: "zai",
+        authChoiceId: "zai-api-key",
+        apiKey: "a-real-working-key",
+      });
+      const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
+
+      expect(result.ok ? result.value : null).toMatchObject({
+        status: "connected",
+        connection: { providerId: "zai", status: "connected" },
+      });
+      // Scoped to the profile this connect wrote, in `main` — the shared store every agent
+      // read-through-inherits. Probing by provider alone could pick up an unrelated stale profile
+      // and reject a perfectly good new key.
+      expect(gatewayRuntime.authProbes).toEqual([
+        { agentId: "main", providerId: "zai", profileId: "zai:manual" },
+      ]);
+    });
+
+    it("connects on an UNPROVEN probe: a rate limit is not evidence the key is bad", async () => {
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        statusFromStores: { providerId: "zai", model: "zai/glm-5.2" },
+        authProbeResult: ok({
+          verdict: "unproven",
+          reason: "rate_limit: too many requests",
+        }),
+      });
+      const admin = forgettingAdminClient("zai", gatewayRuntime);
+      const port = probePort({ admin, gatewayRuntime });
+
+      const start = await port.startModelProviderApiKeyConnect({
+        ...principal(),
+        providerId: "zai",
+        authChoiceId: "zai-api-key",
+        apiKey: "a-real-working-key",
+      });
+      const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
+
+      // Rejecting a VALID credential is worse than the bug this guard exists to catch, so anything
+      // short of an explicit authentication rejection has to let the connect through.
+      expect(result.ok ? result.value : null).toMatchObject({ status: "connected" });
+      expect(gatewayRuntime.credentialResolvedBy("main", "zai")).toBe("a-real-working-key");
+    });
+
+    it("connects when the probe itself cannot run — an unprobeable key is unproven, not invalid", async () => {
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        statusFromStores: { providerId: "zai", model: "zai/glm-5.2" },
+        authProbeResult: err(
+          new DomainError({
+            code: "provisioning.connections.authProbeUnavailable",
+            message: "Gateway auth probe did not return a readable probe summary.",
+          }),
+        ),
+      });
+      const admin = forgettingAdminClient("zai", gatewayRuntime);
+      const port = probePort({ admin, gatewayRuntime });
+
+      const start = await port.startModelProviderApiKeyConnect({
+        ...principal(),
+        providerId: "zai",
+        authChoiceId: "zai-api-key",
+        apiKey: "a-real-working-key",
+      });
+      const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
+
+      expect(result.ok ? result.value : null).toMatchObject({ status: "connected" });
+    });
+
+    it("does not probe at all when the gateway will not name the profile it wrote", async () => {
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        statusFromStores: { providerId: "zai", model: "zai/glm-5.2" },
+        omitWrittenProfileId: true,
+      });
+      const admin = forgettingAdminClient("zai", gatewayRuntime);
+      const port = probePort({ admin, gatewayRuntime });
+
+      const start = await port.startModelProviderApiKeyConnect({
+        ...principal(),
+        providerId: "zai",
+        authChoiceId: "zai-api-key",
+        apiKey: "a-real-working-key",
+      });
+      const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
+
+      // Falling back to a provider-wide probe here would reopen the exact hazard --probe-profile
+      // exists to close, so we would rather prove nothing than prove the wrong thing.
+      expect(gatewayRuntime.authProbes).toEqual([]);
+      expect(result.ok ? result.value : null).toMatchObject({ status: "connected" });
+    });
+
+    // The rollback is destructive, so it must only ever destroy what its OWN connect wrote. Two
+    // connects racing on one provider target the same deterministic auth profile: if the bogus one
+    // finished last it would roll back the good one's credential, and the guard against storing a
+    // bad key would have become a way to delete a good one.
+    it("refuses a second connect for a provider while one is still running", async () => {
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        statusFromStores: { providerId: "zai", model: "zai/glm-5.2" },
+        connectDelayMs: 5_000,
+      });
+      const admin = forgettingAdminClient("zai", gatewayRuntime);
+      const port = probePort({ admin, gatewayRuntime });
+
+      const first = await port.startModelProviderApiKeyConnect({
+        ...principal(),
+        providerId: "zai",
+        authChoiceId: "zai-api-key",
+        apiKey: bogusApiKey,
+      });
+      expect(first.ok).toBe(true);
+
+      const second = await port.startModelProviderApiKeyConnect({
+        ...principal(),
+        providerId: "zai",
+        authChoiceId: "zai-api-key",
+        apiKey: "a-real-working-key",
+      });
+
+      expect(second.ok).toBe(false);
+      expect(!second.ok && second.error.code).toBe(
+        "provisioning.connections.providerConnectInFlight",
+      );
+      // Only the first connect ever reached the gateway, so there is no second credential for the
+      // first one's rollback to destroy.
+      expect(gatewayRuntime.connectCalls).toHaveLength(1);
+    });
+
+    // The case that makes the probe target load-bearing: `main` already holds a GOOD key, so a
+    // probe aimed at "whatever this provider has" would cheerfully pass while the bogus key the
+    // admin just submitted sat in the orchestrator's store.
+    it("rejects a bogus key pasted over an already-connected provider", async () => {
+      vi.useFakeTimers();
+      try {
+        const gatewayRuntime = new RecordingGatewayRuntime({
+          statusFromStores: { providerId: "zai", model: "zai/glm-5.2" },
+        });
+        const admin = forgettingAdminClient("zai", gatewayRuntime);
+        const port = probePort({ admin, gatewayRuntime });
+
+        const first = await port.startModelProviderApiKeyConnect({
+          ...principal(),
+          providerId: "zai",
+          authChoiceId: "zai-api-key",
+          apiKey: "the-original-good-key",
+        });
+        await pollRejectedConnectUntilTerminal(port, first.ok ? first.value.opId : "");
+        expect(gatewayRuntime.credentialResolvedBy("main", "zai")).toBe("the-original-good-key");
+
+        const rotation = await port.startModelProviderApiKeyConnect({
+          ...principal(),
+          providerId: "zai",
+          authChoiceId: "zai-api-key",
+          apiKey: bogusApiKey,
+        });
+        const result = await pollRejectedConnectUntilTerminal(
+          port,
+          rotation.ok ? rotation.value.opId : "",
+        );
+
+        expect(result.ok ? result.value : null).toMatchObject({
+          status: "failed",
+          code: "provisioning.connections.providerCredentialRejected",
+        });
+        // `onboard` already overwrote the old credential — it is the writer — so there is nothing
+        // left to restore and "not connected" is the only honest end state.
+        expect(gatewayRuntime.credentialResolvedBy("main", "zai")).toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it("retries transient API-key post-check failures before reporting connected", async () => {
     vi.useFakeTimers();
     try {
@@ -3461,7 +3874,13 @@ describe("Connections provisioning helpers", () => {
       const admin: RecordingAdminClient = new RecordingAdminClient({
         "config.get": ok({ hash: "config-hash-1", plugins: { allow: ["zai"] } }),
       });
-      const gatewayRuntime = new RecordingGatewayRuntime({ connectDelayMs: 200_000 });
+      // A connect that never finishes. The window it has to finish IN is now 15 minutes, not 120s:
+      // a connect ends with a live auth probe, and a REJECTED probe removes the credential again
+      // before failing (#183), which takes minutes on a tenant with several agents.
+      const apiKeyConnectExpiresMs = 15 * 60 * 1000;
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        connectDelayMs: apiKeyConnectExpiresMs * 2,
+      });
       const port = new GatewayAdminConnectionsProvisioningPort({
         adminClient: admin,
         secretsVault: new MemorySecretsVault(),
@@ -3484,7 +3903,14 @@ describe("Connections provisioning helpers", () => {
       });
       expect(foreign.ok).toBe(false);
 
+      // Still in flight at the OLD deadline — the op must not be reaped out from under a connect
+      // that is legitimately still working.
       await vi.advanceTimersByTimeAsync(120_000);
+      await expect(port.pollModelProviderApiKeyConnect({ ...principal(), opId })).resolves.toEqual(
+        ok({ status: "pending" }),
+      );
+
+      await vi.advanceTimersByTimeAsync(apiKeyConnectExpiresMs);
       const expired = await port.pollModelProviderApiKeyConnect({ ...principal(), opId });
       expect(expired.ok).toBe(false);
       expect(gatewayRuntime.connectCalls).toHaveLength(1);

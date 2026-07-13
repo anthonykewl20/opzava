@@ -3,10 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import type { ModelProviderApiKeyConnectPollState } from "@opzava/ports";
-import {
-  pollUntilTerminal,
-  postConnectionsMutation,
-} from "@/lib/connections-mutation-client";
+import { pollUntilTerminal, postConnectionsMutation } from "@/lib/connections-mutation-client";
 
 interface ApiKeyConnectPollerProps {
   readonly opId: string;
@@ -20,6 +17,13 @@ interface ApiKeyConnectPollerProps {
  * retries for network blips, hard errors surface immediately, the whole window is bounded, and
  * unmounting cancels cleanly (the operation itself continues server-side).
  */
+// The worker now proves the credential with a live provider call before reporting success, and a
+// credential the provider REJECTS is removed again before the connect fails (#183). That rollback
+// paces one gateway logout per agent, so a failing connect can run minutes rather than seconds —
+// give the poller the same window the disconnect poller already uses, or the browser stops watching
+// before the reason it is waiting for arrives.
+const apiKeyConnectPollMaxDurationMs = 10 * 60 * 1000;
+
 export function ApiKeyConnectPoller({ opId, onConnected, onFailed }: ApiKeyConnectPollerProps) {
   const callbacksRef = useRef({ onConnected, onFailed });
   callbacksRef.current = { onConnected, onFailed };
@@ -35,6 +39,7 @@ export function ApiKeyConnectPoller({ opId, onConnected, onFailed }: ApiKeyConne
           { timeoutMs: 10_000 },
         ),
       isTerminal: (data) => data.status !== "pending",
+      maxDurationMs: apiKeyConnectPollMaxDurationMs,
       shouldContinue: () => !cancelled,
     }).then((outcome) => {
       if (cancelled) {
@@ -69,8 +74,8 @@ export function ApiKeyConnectPoller({ opId, onConnected, onFailed }: ApiKeyConne
       <div>
         <div className="label">Connecting provider</div>
         <p className="hint">
-          Writing the credential into Opzava Gateway. This survives the gateway&apos;s own restart
-          and usually finishes within seconds.
+          Writing the credential into Opzava Gateway, then checking it against the provider with one
+          real call. A credential the provider rejects is removed again rather than kept.
         </p>
       </div>
     </div>

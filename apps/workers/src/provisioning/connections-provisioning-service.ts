@@ -117,6 +117,12 @@ interface PendingModelProviderDeviceFlow {
 interface PendingModelProviderApiKeyConnect {
   readonly opId: string;
   readonly orgId: string;
+  /**
+   * The principal that started the connect. Carried because a credential the provider REJECTS has
+   * to be removed again on that same principal's behalf (#183), and the removal runs long after the
+   * request that authorized it has returned.
+   */
+  readonly principal: ConnectionProvisioningPrincipal;
   readonly providerId: string;
   readonly authChoiceId: string;
   readonly startedAt: Date;
@@ -138,6 +144,8 @@ interface PendingModelProviderDisconnect {
 interface PendingModelProviderSetupTokenFlow {
   readonly flowId: string;
   readonly orgId: string;
+  /** See {@link PendingModelProviderApiKeyConnect.principal} — the completion funnels into it. */
+  readonly principal: ConnectionProvisioningPrincipal;
   readonly providerId: string;
   readonly authChoiceId: "setup-token";
   readonly execId: string;
@@ -158,7 +166,12 @@ const modelDeviceFlowStartPollDelayMs = 1_500;
 const modelDeviceFlowStartMaxAttempts = 4;
 const modelDeviceFlowExpiresMs = 15 * 60 * 1000;
 const modelDeviceFlowPollIntervalSeconds = 5;
-const modelApiKeyConnectExpiresMs = 120 * 1000;
+// A connect is no longer just a write: it ends with a live auth probe, and a probe that comes back
+// REJECTED then removes the credential again (#183) — a removal that paces one gateway logout per
+// agent and can run well past the old 120s. Expiring the op mid-rollback would replace the loud
+// "the provider rejected your key" the admin needs to see with a bland "operation not found". Match
+// the disconnect flow's window, which is long for exactly this reason.
+const modelApiKeyConnectExpiresMs = 15 * 60 * 1000;
 const modelSetupTokenFlowExpiresMs = 10 * 60 * 1000;
 const setupTokenCodeExchangeTimeoutMs = 30_000;
 const modelApiKeyPostCheckMaxWaitMs = 30 * 1000;
@@ -205,6 +218,36 @@ function provisioningError(
     message,
     ...(details === undefined ? {} : { details }),
   });
+}
+
+interface StoredProviderCredential {
+  /** The auth profile the gateway wrote, or `null` when it would not name one. */
+  readonly profileId: string | null;
+  /** The provider id the gateway FILED it under, which is not always the one we sent. */
+  readonly providerId: string;
+}
+
+function credentialWriteKey(orgId: string, providerId: string): string {
+  return `${orgId}:${providerId}`;
+}
+
+function providerConnectInFlightError(providerId: string): DomainError {
+  return provisioningError(
+    "provisioning.connections.providerConnectInFlight",
+    `A connect for ${providerId} is already running. Wait for it to finish before starting another.`,
+    { providerId },
+  );
+}
+
+function connectionPrincipal(
+  input: ConnectionProvisioningPrincipal,
+): ConnectionProvisioningPrincipal {
+  return {
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    roleKeys: input.roleKeys,
+  };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -2202,6 +2245,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private readonly modelApiKeyConnects = new Map<string, PendingModelProviderApiKeyConnect>();
   private readonly modelSetupTokenFlows = new Map<string, PendingModelProviderSetupTokenFlow>();
   private readonly modelProviderDisconnects = new Map<string, PendingModelProviderDisconnect>();
+  /** `${orgId}:${providerId}` of every credential write currently running. See {@link providerConnectInFlight}. */
+  private readonly providerCredentialWrites = new Set<string>();
 
   public constructor(private readonly options: GatewayAdminConnectionsOptions) {
     this.fetchImpl = options.fetch ?? fetch;
@@ -2569,10 +2614,16 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
+    const busy = this.providerConnectInFlight(input.orgId, input.providerId);
+    if (busy !== null) {
+      return err(busy);
+    }
+
     const opId = `model-api-key:${randomUUID()}`;
     const op: PendingModelProviderApiKeyConnect = {
       opId,
       orgId: input.orgId,
+      principal: connectionPrincipal(input),
       providerId: input.providerId,
       authChoiceId: input.authChoiceId,
       startedAt: this.now(),
@@ -2632,6 +2683,14 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(gatewayRuntimeUnavailableError());
     }
 
+    // A setup-token completion funnels into the same credential write and the same #183 rollback as
+    // an API-key connect, so it races an in-flight connect for the provider exactly as another
+    // connect would.
+    const busy = this.providerConnectInFlight(input.orgId, input.providerId);
+    if (busy !== null) {
+      return err(busy);
+    }
+
     const authChoices = await gatewayRuntime.listAuthChoices();
     if (!authChoices.ok) {
       return err(authChoices.error);
@@ -2660,6 +2719,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     const flow: PendingModelProviderSetupTokenFlow = {
       flowId,
       orgId: input.orgId,
+      principal: connectionPrincipal(input),
       providerId: input.providerId,
       authChoiceId: "setup-token",
       execId: login.value.execId,
@@ -2668,7 +2728,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       expiresAt: new Date(this.now().getTime() + modelSetupTokenFlowExpiresMs),
       timeout: setTimeout(() => {
         const current = this.modelSetupTokenFlows.get(flowId);
-        if (current !== undefined) {
+        // A completion that is still running owns this flow: it is writing, probing, and possibly
+        // ROLLING BACK a credential (#183), which takes minutes. Reaping the flow underneath it
+        // would throw away the outcome and show the operator "expired" in place of the loud
+        // provider rejection they need to see. Let it finish and record its own verdict.
+        if (current !== undefined && current.completionInFlight !== true) {
           void this.cleanupSetupTokenFlow(current);
         }
       }, modelSetupTokenFlowExpiresMs),
@@ -2690,7 +2754,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         ),
       );
     }
-    if (this.now().getTime() >= flow.expiresAt.getTime()) {
+    // The deadline is for the OPERATOR's half of the flow — authorizing in the browser. Once a
+    // completion is running, the flow is no longer waiting on anybody, and its credential write and
+    // possible #183 rollback can legitimately outlast the window. Reporting "expired" here would
+    // strand a credential mid-rollback and hide the reason the connect failed.
+    if (this.now().getTime() >= flow.expiresAt.getTime() && flow.completionInFlight !== true) {
       await this.cleanupSetupTokenFlow(flow);
       return ok({
         status: "expired",
@@ -2820,6 +2888,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       op: {
         opId: flow.flowId,
         orgId: flow.orgId,
+        principal: flow.principal,
         providerId: flow.providerId,
         authChoiceId: flow.authChoiceId,
         startedAt: this.now(),
@@ -2852,7 +2921,33 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         };
   }
 
+  /**
+   * The critical section. Everything inside writes, proves, or removes ONE provider's credential,
+   * and two of them running at once for the same provider would fight over the same auth profile —
+   * see {@link providerConnectInFlight}. The API-key start path already refuses to queue a second
+   * one, but a setup-token completion arrives here on its own schedule, so the lock is taken HERE,
+   * where the write actually happens, rather than only at the doors.
+   */
   private async completeModelProviderApiKeyConnect(input: {
+    readonly op: PendingModelProviderApiKeyConnect;
+    readonly apiKey: string;
+    readonly authChoice: ModelProviderAuthChoice;
+    readonly authChoices: readonly GatewayRuntimeAuthChoice[];
+  }): Promise<Result<ProviderConnectionState>> {
+    const writeKey = credentialWriteKey(input.op.orgId, input.op.providerId);
+    if (this.providerCredentialWrites.has(writeKey)) {
+      return err(providerConnectInFlightError(input.op.providerId));
+    }
+
+    this.providerCredentialWrites.add(writeKey);
+    try {
+      return await this.writeAndProveProviderCredential(input);
+    } finally {
+      this.providerCredentialWrites.delete(writeKey);
+    }
+  }
+
+  private async writeAndProveProviderCredential(input: {
     readonly op: PendingModelProviderApiKeyConnect;
     readonly apiKey: string;
     readonly authChoice: ModelProviderAuthChoice;
@@ -2931,11 +3026,26 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     // `models status` reports the ORCHESTRATOR's effective store, so it says "connected" even when
     // no other agent can resolve the credential — that is exactly how #169 stayed invisible. A
     // provider is only really connected once the agents that will use it can resolve it.
-    if (shared.value) {
-      const resolvable = await this.assertProviderResolvableByAgents(input.op.providerId);
-      if (!resolvable.ok) {
-        return err(resolvable.error);
-      }
+    const resolvable = await this.assertProviderResolvableByAgents(input.op.providerId);
+    if (!resolvable.ok) {
+      return err(resolvable.error);
+    }
+
+    // Everything above proves the credential is STORED and ROUTABLE. None of it proves it WORKS —
+    // a stored-but-401 key satisfies every one of those checks, which is how two providers were
+    // connected with deliberately bogus keys and reported Connected (#183). Spend one real model
+    // call finding out before telling the admin they are connected.
+    const proven = await this.assertProviderCredentialAuthenticates({
+      // The credential as the GATEWAY filed it — see StoredProviderCredential. Probing the ids we
+      // sent instead would quietly probe nothing for any provider it canonicalizes.
+      stored: shared.value,
+      // Disconnect is keyed on the provider the operator actually connected, so a rollback uses
+      // ours, not the gateway's canonical alias.
+      providerId: input.op.providerId,
+      principal: input.op.principal,
+    });
+    if (!proven.ok) {
+      return err(proven.error);
     }
 
     // The onboard above may have moved `agents.defaults.model.primary` onto this provider. Bring the
@@ -2950,21 +3060,146 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }
 
   /**
-   * Places the credential in the shared `main` store so every agent inherits it. Resolves to `true`
-   * when a shared copy was needed and written.
+   * Proves the credential this connect just stored actually authenticates, and removes it if the
+   * provider says no.
    *
-   * Whether a provider needs one is settled by ASKING the gateway, not by reading the config's
-   * shape. The obvious-looking shortcut — "skip providers that have a `config.auth.profiles` entry,
-   * their credential is global anyway" — is wrong: an Anthropic setup-token writes a `mode: "token"`
-   * profile entry into the config while the token itself lives in an agent store, so that test
-   * would skip the one provider #169 is actually about. A resolvability probe cannot be fooled by
-   * the entry's shape.
+   * Only an explicit authentication rejection fails the connect. A rate limit, a timeout, a
+   * provider outage, or a probe we could not run at all leave the credential UNPROVEN, not invalid
+   * — and an unproven credential is allowed through, loudly. That asymmetry is deliberate (#183):
+   * wrongly rejecting a VALID credential would break every honest connect, which is a worse failure
+   * than the one this guard exists to catch.
    */
+  private async assertProviderCredentialAuthenticates(input: {
+    readonly stored: StoredProviderCredential;
+    readonly providerId: string;
+    readonly principal: ConnectionProvisioningPrincipal;
+  }): Promise<Result<void>> {
+    const gatewayRuntime = this.options.gatewayRuntime;
+    if (gatewayRuntime === undefined) {
+      return err(gatewayRuntimeUnavailableError());
+    }
+
+    const profileId = input.stored.profileId;
+    if (profileId === null) {
+      // The gateway did not name the profile it wrote, so there is no way to probe THIS credential
+      // rather than some other one the provider owns. Probing by provider alone could let a stale
+      // profile reject a good new key, so do not probe at all.
+      console.warn("connections.authProbe.unproven", {
+        providerId: input.providerId,
+        reason: "the gateway did not name the auth profile it wrote",
+      });
+      return ok(undefined);
+    }
+
+    const probe = await gatewayRuntime.probeProviderAuth({
+      agentId: sharedCredentialAgentId,
+      providerId: input.stored.providerId,
+      profileId,
+    });
+    if (!probe.ok) {
+      console.warn("connections.authProbe.unproven", {
+        providerId: input.providerId,
+        profileId,
+        code: probe.error.code,
+      });
+      return ok(undefined);
+    }
+
+    if (probe.value.verdict !== "rejected") {
+      console.info("connections.authProbe.result", {
+        providerId: input.providerId,
+        profileId,
+        verdict: probe.value.verdict,
+        reason: probe.value.reason,
+      });
+      return ok(undefined);
+    }
+
+    console.warn("connections.authProbe.rejected", {
+      providerId: input.providerId,
+      profileId,
+      reason: probe.value.reason,
+    });
+
+    // The credential does not authenticate, so it must not survive the connect that submitted it.
+    // `onboard` has already overwritten whatever was there before — it is the writer — so there is
+    // no earlier credential left to restore, and "provider not connected" is the only honest end
+    // state available.
+    const removed = await this.disconnectModelProvider({
+      ...input.principal,
+      providerId: input.providerId,
+    });
+    if (!removed.ok) {
+      console.error("connections.authProbe.rollbackFailed", {
+        providerId: input.providerId,
+        code: removed.error.code,
+      });
+      return err(
+        provisioningError(
+          "provisioning.connections.providerCredentialRejectedNotRemoved",
+          `The provider rejected the credential (${probe.value.reason}), and Opzava could not remove it again. Disconnect ${input.providerId} before retrying.`,
+          { providerId: input.providerId, rollbackCode: removed.error.code ?? null },
+        ),
+      );
+    }
+
+    return err(
+      provisioningError(
+        "provisioning.connections.providerCredentialRejected",
+        `The provider rejected the credential (${probe.value.reason}). It has not been kept, and ${input.providerId} is not connected.`,
+        { providerId: input.providerId },
+      ),
+    );
+  }
+
+  /**
+   * Places the SUBMITTED credential in the shared `main` store so every agent inherits it, and
+   * resolves to the auth profile the gateway wrote.
+   *
+   * This write is unconditional. It used to be skipped when `main` could already resolve the
+   * provider, on the reasoning that the credential must then be config-reachable (a genuine config
+   * api-key like zai) and a second copy would only be one more thing to revoke. That reasoning
+   * holds on a FIRST connect and breaks on a re-connect: on a key rotation, what `main` already
+   * resolves is the OLD credential, so the skip left it there — the fleet kept using the previous
+   * key while the UI reported the new one connected, and the #183 liveness probe below would have
+   * dutifully proven a credential nobody submitted.
+   *
+   * Writing every time is safe because the gateway UPSERTS a deterministic profile id per provider
+   * (`<provider>:manual`), so the write overwrites in place and cannot pile up duplicate copies —
+   * and disconnect already fans `models.authLogout` out across `main`, so the copy is revoked.
+   */
+  /**
+   * Is a credential write for this provider already running?
+   *
+   * Two overlapping writes for the same provider target the SAME deterministic auth profile, so
+   * they cannot both win — and a REJECTED one now removes that profile (#183). Without this, a
+   * bogus key submitted first could finish last and roll back the good key submitted second,
+   * deleting a credential it never wrote: the guard against storing a bad credential would have
+   * become a way to destroy a good one.
+   *
+   * Deliberately does NOT count a setup-token flow that is merely waiting for the operator to
+   * authorize in their browser. That one has written nothing yet, and starting a fresh flow is
+   * meant to supersede it (see `cleanupSetupTokenFlowsForProvider`).
+   */
+  private providerConnectInFlight(orgId: string, providerId: string): DomainError | null {
+    const pendingConnect = [...this.modelApiKeyConnects.values()].some(
+      (op) => op.orgId === orgId && op.providerId === providerId && op.outcome === undefined,
+    );
+    if (
+      !pendingConnect &&
+      !this.providerCredentialWrites.has(credentialWriteKey(orgId, providerId))
+    ) {
+      return null;
+    }
+
+    return providerConnectInFlightError(providerId);
+  }
+
   private async storeSharedProviderCredential(input: {
     readonly providerId: string;
     readonly keyFlag: string;
     readonly apiKey: string;
-  }): Promise<Result<boolean>> {
+  }): Promise<Result<StoredProviderCredential>> {
     const gatewayRuntime = this.options.gatewayRuntime;
     if (gatewayRuntime === undefined) {
       return err(gatewayRuntimeUnavailableError());
@@ -2979,20 +3214,6 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     const sharedAgent = await this.ensureSharedCredentialAgent(configResult.value);
     if (!sharedAgent.ok) {
       return err(sharedAgent.error);
-    }
-
-    // `main` holds no credential of its own here, so if it can already resolve the provider the
-    // credential must be reachable from the config for every agent (a genuine config api-key, e.g.
-    // zai). Nothing to share, and no second copy to have to revoke later.
-    const shared = await gatewayRuntime.listAgentProviderProfiles({
-      agentId: sharedCredentialAgentId,
-      providerId: input.providerId,
-    });
-    if (!shared.ok) {
-      return err(shared.error);
-    }
-    if (shared.value.length > 0) {
-      return ok(false);
     }
 
     const written = await gatewayRuntime.writeAgentCredential({
@@ -3015,7 +3236,12 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
-    return ok(true);
+    return ok({
+      profileId: written.value.profileId,
+      // The gateway's own id for the provider, not ours. It canonicalizes some on the way in
+      // (`codex` -> `openai`), and a probe addressed to the id we sent would find nothing.
+      providerId: written.value.providerId ?? input.providerId,
+    });
   }
 
   /**
@@ -3330,6 +3556,16 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async startModelProviderDisconnect(
     input: DisconnectModelProviderInput,
   ): Promise<Result<ModelProviderDisconnectStart>> {
+    // A credential write in flight is already mutating this provider's auth stores, and a #183
+    // rollback inside one is itself a disconnect. Letting a second, operator-initiated disconnect
+    // interleave with that makes the outcome last-writer-wins, which can land opposite to what the
+    // operator is watching. The write always finishes in bounded time; make the disconnect wait for
+    // it rather than fight it. (The rollback calls `disconnectModelProvider` directly and so does
+    // not gate itself here.)
+    if (this.providerCredentialWrites.has(credentialWriteKey(input.orgId, input.providerId))) {
+      return err(providerConnectInFlightError(input.providerId));
+    }
+
     const opId = `model-disconnect:${randomUUID()}`;
     const op: PendingModelProviderDisconnect = {
       opId,
