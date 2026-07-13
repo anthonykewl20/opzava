@@ -132,8 +132,11 @@
 .conn-stat-unit { color: var(--fg-muted); font-size: var(--text-base); font-weight: var(--fw-regular); }
 .conn-sub-label { padding: 0 0 var(--space-2); }
 
-/* ── Actionable list rows (providers, integrations) ───────────────────────── */
-.conn-list { display: flex; flex-direction: column; gap: 2px; }
+/* ── Actionable list rows (providers, integrations) ─────────────────────────
+ * The <ul> reset is load-bearing, not cosmetic: without it the UA defaults
+ * (padding-left:40px, margin:15px 0, list-style:disc) pushed every row 53px off
+ * the card's left grid boundary. */
+.conn-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .conn-list-row {
   display: flex; align-items: center; gap: var(--space-3);
   padding: var(--space-2) var(--space-2);
