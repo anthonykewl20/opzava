@@ -93,6 +93,7 @@ export interface StartAssistantStreamReceipt {
 }
 
 export interface ExpectedToolInventory {
+  readonly routeId: OpenClawGatewayRouteId;
   readonly sessionRef: OpenClawSessionRef;
   readonly toolNames: readonly string[];
 }
