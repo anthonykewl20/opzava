@@ -13,7 +13,6 @@ import {
   type ModelProviderAuthChoice,
   type ModelProviderCatalogEntry,
   type OrchestratorDelegationState,
-  type OrchestratorSubagentRole,
   type ProviderAuthHealth,
   type ProviderCategory,
   type ProviderConnectionState,
@@ -83,28 +82,6 @@ export interface DeviceFlowPollSchedule {
   readonly stop: boolean;
   readonly nextDelayMs: number;
   readonly expired: boolean;
-}
-
-export interface OrchestratorConfigPlan {
-  readonly agents: {
-    readonly list: readonly {
-      readonly id: string;
-      readonly model: string;
-      readonly default?: boolean;
-      readonly subagents?: {
-        readonly delegationMode: "prefer";
-        readonly allowAgents: readonly string[];
-      };
-      readonly tools?: {
-        readonly allow: readonly string[];
-      };
-    }[];
-  };
-  readonly receipt: {
-    readonly delegationMode: "prefer";
-    readonly allowAgents: readonly string[];
-    readonly toolPolicyExpansion: readonly ["sessions_spawn", "subagents", "group:sessions"];
-  };
 }
 
 export function statusLabel(status: ConnectionStatus): string {
@@ -463,69 +440,6 @@ export function hasConnectedProviderOrGitHub(
         classifyModelProvider(connection.providerId).category === "llm",
     )
   );
-}
-
-export function buildOrchestratorConfigPlan(input: {
-  readonly providers: readonly ProviderConnectionView[];
-  readonly current?: OrchestratorDelegationState;
-}): OrchestratorConfigPlan {
-  const orchestratorProviderId =
-    input.current?.orchestratorProviderId ??
-    input.providers.find((provider) => provider.roleLabel === "Lead orchestrator")
-      ?.connectionProviderId ??
-    null;
-  const orchestrator = input.providers.find(
-    (provider) =>
-      orchestratorProviderId !== null && provider.connectionProviderId === orchestratorProviderId,
-  );
-  const subagents: OrchestratorSubagentRole[] = input.providers
-    .filter(
-      (provider) =>
-        provider.status === "connected" &&
-        (orchestratorProviderId === null ||
-          provider.connectionProviderId !== orchestratorProviderId),
-    )
-    .map((provider) => ({
-      agentId: `subagent-${provider.connectionProviderId}`,
-      providerId: provider.connectionProviderId,
-      providerLabel: provider.label,
-      model: provider.model ?? provider.models[0]?.id ?? provider.id,
-      strength: provider.strength,
-      whenToUse: provider.whenToUse,
-    }));
-  const allowAgents = subagents.map((subagent) => subagent.agentId);
-
-  return {
-    agents: {
-      list: [
-        {
-          id: input.current?.orchestratorAgentId ?? "ask-admin-opzava",
-          model:
-            orchestrator?.model ??
-            orchestrator?.models[0]?.id ??
-            input.current?.orchestratorModel ??
-            "openai/gpt-5.5",
-          default: true,
-          subagents: {
-            delegationMode: "prefer",
-            allowAgents,
-          },
-          tools: {
-            allow: ["sessions_spawn", "subagents", "group:sessions"],
-          },
-        },
-        ...subagents.map((subagent) => ({
-          id: subagent.agentId,
-          model: subagent.model,
-        })),
-      ],
-    },
-    receipt: {
-      delegationMode: "prefer",
-      allowAgents,
-      toolPolicyExpansion: ["sessions_spawn", "subagents", "group:sessions"],
-    },
-  };
 }
 
 function deviceFlowCodeFields(input: {

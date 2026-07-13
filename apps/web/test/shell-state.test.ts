@@ -122,14 +122,6 @@ function connectionsPageData(current: ConnectionsSnapshot): ConnectionsPageData 
     },
     providerSummary,
     providers: [],
-    orchestratorPlan: {
-      agents: { list: [] },
-      receipt: {
-        delegationMode: "prefer",
-        allowAgents: [],
-        toolPolicyExpansion: ["sessions_spawn", "subagents", "group:sessions"],
-      },
-    },
     githubSummary: "GitHub",
     provisioningAvailable: true,
   };

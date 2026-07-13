@@ -2,7 +2,11 @@ import { GITHUB_ISSUES_TOKEN_SECRET_LABEL } from "@opzava/adapters";
 import { type ModelProviderAuthChoice, type OrchestratorSubagentRole } from "@opzava/ports";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
-import { ASK_ADMIN_AGENT_ID, ASK_ADMIN_AGENT_MODEL } from "./ask-admin-agent.js";
+import {
+  ASK_ADMIN_AGENT_ID,
+  ASK_ADMIN_DELEGATION_TOOL_ALLOW,
+  buildAskAdminAgentEntry,
+} from "./ask-admin-agent.js";
 
 export interface GatewayConfigPatchInvocation {
   readonly method: "config.patch";
@@ -111,7 +115,7 @@ export function buildDelegationProvisioningReceipt(input: {
     delegationMode: "prefer",
     allowAgents: input.subagents.map((subagent) => subagent.agentId),
     subagents: input.subagents,
-    toolPolicyExpansion: ["sessions_spawn", "subagents", "group:sessions"],
+    toolPolicyExpansion: ASK_ADMIN_DELEGATION_TOOL_ALLOW,
     note: "delegation-engine-deferred-to-p1",
   };
 }
@@ -136,18 +140,13 @@ export function buildOrchestratorAgentConfig(input: {
   return {
     agents: {
       list: [
-        {
-          id: ASK_ADMIN_AGENT_ID,
-          model: input.orchestratorModel ?? ASK_ADMIN_AGENT_MODEL,
-          default: true,
-          subagents: {
+        buildAskAdminAgentEntry({
+          ...(input.orchestratorModel === undefined ? {} : { model: input.orchestratorModel }),
+          delegation: {
             delegationMode: receipt.delegationMode,
             allowAgents: receipt.allowAgents,
           },
-          tools: {
-            allow: receipt.toolPolicyExpansion,
-          },
-        },
+        }),
         ...input.subagents.map((subagent) => ({
           id: subagent.agentId,
           model: subagent.model,

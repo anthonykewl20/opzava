@@ -46,6 +46,12 @@ export const ASK_ADMIN_TOOL_POLICY_ALLOW = [
   "opzava_crm_get_contact_timeline",
 ] as const;
 
+export const ASK_ADMIN_DELEGATION_TOOL_ALLOW = [
+  "sessions_spawn",
+  "subagents",
+  "group:sessions",
+] as const;
+
 export interface AskAdminArtifactTemplate {
   readonly path: "SOUL.md" | "IDENTITY.md" | "AGENTS.md";
   readonly body: string;
@@ -264,6 +270,51 @@ export const ASK_ADMIN_AGENT_CONFIG_FRAGMENT: AskAdminAgentConfigFragment = {
     ],
   },
 };
+
+export interface AskAdminDelegation {
+  readonly delegationMode: "prefer";
+  readonly allowAgents: readonly string[];
+}
+
+export interface AskAdminAgentEntryInput {
+  readonly model?: string;
+  readonly delegation?: AskAdminDelegation;
+}
+
+/**
+ * The one place an `agents.list` entry for Ask Admin is built.
+ *
+ * Delegation ADDS to the canonical tool policy; it must never replace it. Rebuilding the entry from
+ * the delegation tools alone dropped `tools.profile`, the deny-wins lock-down (ADR-005) and every
+ * `opzava_tasks_*`/`opzava_crm_*` tool, so enabling delegation silently turned the orchestrator into
+ * a delegation-only agent with no task tools and no guardrails, and also lost `workspace`/`agentDir`
+ * (issue #146). Callers that patch the live `agents.list` must go through here.
+ */
+export function buildAskAdminAgentEntry(input: AskAdminAgentEntryInput = {}) {
+  const base = ASK_ADMIN_AGENT_CONFIG_FRAGMENT.agents.list[0];
+  const delegation = input.delegation;
+
+  return {
+    ...base,
+    model: input.model ?? base.model,
+    ...(delegation === undefined
+      ? {}
+      : {
+          subagents: {
+            delegationMode: delegation.delegationMode,
+            allowAgents: delegation.allowAgents,
+          },
+        }),
+    tools: {
+      profile: base.tools.profile,
+      allow:
+        delegation === undefined
+          ? [...base.tools.allow]
+          : [...base.tools.allow, ...ASK_ADMIN_DELEGATION_TOOL_ALLOW],
+      deny: [...base.tools.deny],
+    },
+  };
+}
 
 export function sha256Hex(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");

@@ -22,7 +22,6 @@ import {
 } from "../lib/connections";
 import {
   authBranchForChoice,
-  buildOrchestratorConfigPlan,
   connectionHealthSummary,
   deviceFlowPollSchedule,
   deviceFlowReducer,
@@ -30,7 +29,6 @@ import {
   isTerminalDeviceFlowStatus,
   providerConnectionSummary,
   projectModelProviders,
-  projectProviderConnections,
 } from "../lib/connections-state";
 import type { AppSessionContext } from "../lib/session";
 
@@ -699,22 +697,6 @@ describe("Connections page state", () => {
     expect(providers.find((provider) => provider.id === "openrouter")).toMatchObject({
       status: "needs_attention",
       authHealth: "missing",
-    });
-  });
-
-  it("builds orchestrator delegation config with sessions tool-policy expansion", () => {
-    const providers = projectProviderConnections(snapshot());
-    const config = buildOrchestratorConfigPlan({ providers });
-
-    expect(config.receipt).toMatchObject({
-      delegationMode: "prefer",
-      allowAgents: ["subagent-zai"],
-      toolPolicyExpansion: ["sessions_spawn", "subagents", "group:sessions"],
-    });
-    expect(config.agents.list[0]).toMatchObject({
-      id: "ask-admin-opzava",
-      model: "openai/gpt-5.5",
-      subagents: { delegationMode: "prefer", allowAgents: ["subagent-zai"] },
     });
   });
 

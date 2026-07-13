@@ -22,6 +22,13 @@ import { DomainError, err, ok, type Result, type TenantId } from "@opzava/shared
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ASK_ADMIN_AGENT_DIR,
+  ASK_ADMIN_AGENT_WORKSPACE,
+  ASK_ADMIN_DELEGATION_TOOL_ALLOW,
+  ASK_ADMIN_TOOL_POLICY_ALLOW,
+  ASK_ADMIN_TOOL_POLICY_DENY,
+} from "../ask-admin-agent.js";
+import {
   buildGitHubConnectionProvisioningReceipt,
   buildOrchestratorAgentConfig,
   gatewayApiKeyConfigPatchInvocation,
@@ -1044,8 +1051,16 @@ describe("Connections provisioning helpers", () => {
     });
     expect(config.agents.list[0]).toMatchObject({
       id: "ask-admin-opzava",
+      workspace: ASK_ADMIN_AGENT_WORKSPACE,
+      agentDir: ASK_ADMIN_AGENT_DIR,
       subagents: { delegationMode: "prefer", allowAgents: ["subagent-zai"] },
-      tools: { allow: ["sessions_spawn", "subagents", "group:sessions"] },
+      // Delegation ADDS to the canonical policy (#146): the task/CRM allow-list, the minimal
+      // profile and the deny-wins lock-down all survive alongside the delegation tools.
+      tools: {
+        profile: "minimal",
+        allow: [...ASK_ADMIN_TOOL_POLICY_ALLOW, ...ASK_ADMIN_DELEGATION_TOOL_ALLOW],
+        deny: [...ASK_ADMIN_TOOL_POLICY_DENY],
+      },
     });
   });
 
@@ -4327,7 +4342,11 @@ describe("Connections provisioning helpers", () => {
               delegationMode: "prefer",
               allowAgents: ["subagent-zai"],
             },
-            tools: { allow: ["sessions_spawn", "subagents", "group:sessions"] },
+            tools: {
+              profile: "minimal",
+              allow: [...ASK_ADMIN_TOOL_POLICY_ALLOW, ...ASK_ADMIN_DELEGATION_TOOL_ALLOW],
+              deny: [...ASK_ADMIN_TOOL_POLICY_DENY],
+            },
           }),
           expect.objectContaining({ id: "subagent-zai", model: "zai/glm-5.2" }),
         ]),
@@ -4498,6 +4517,79 @@ describe("Connections provisioning helpers", () => {
         ]),
       },
     });
+  });
+
+  it("keeps the Ask Admin tool policy when set-main rebuilds agents.list (#146)", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        hash: "config-hash-set-main-policy",
+        auth: {
+          profiles: {
+            "openai-device": { providerId: "openai", authChoiceId: "openai-device-code" },
+            "zai-zai-api-key": {
+              providerId: "zai",
+              authChoiceId: "zai-api-key",
+              model: "zai/glm-5.2",
+            },
+          },
+          order: { openai: ["openai-device"], zai: ["zai-zai-api-key"] },
+        },
+        agents: {
+          defaults: { model: { primary: "openai/gpt-5.5" } },
+          list: [
+            {
+              id: "ask-admin-opzava",
+              tools: {
+                profile: "minimal",
+                allow: ASK_ADMIN_TOOL_POLICY_ALLOW,
+                deny: ASK_ADMIN_TOOL_POLICY_DENY,
+              },
+            },
+          ],
+        },
+      }),
+      "models.list": ok({
+        providers: [
+          {
+            id: "openai",
+            label: "OpenAI",
+            suggestedModel: "openai/gpt-5.5",
+            authChoices: [
+              apiKeyChoice({
+                id: "openai-device-code",
+                providerId: "openai",
+                keyFlag: "openai-api-key",
+              }),
+            ],
+          },
+          { id: "zai", label: "z.ai / GLM", suggestedModel: "zai/glm-5.2", authChoices: [apiKeyChoice()] },
+        ],
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.setMainOrchestrator({ ...principal(), providerId: "zai" });
+
+    expect(result.ok).toBe(true);
+    const patchCall = admin.calls.find((call) => call.method === "config.patch");
+    const askAdmin = (
+      rawPatch(patchCall!.params) as {
+        agents: { list: readonly { id: string; tools?: Record<string, unknown> }[] };
+      }
+    ).agents.list.find((agent) => agent.id === "ask-admin-opzava");
+
+    // The failable check from #146: enabling delegation must not disarm the orchestrator.
+    expect(askAdmin?.tools?.["allow"]).toEqual(
+      expect.arrayContaining(["opzava_tasks_list", "sessions_spawn"]),
+    );
+    expect(askAdmin?.tools?.["profile"]).toBe("minimal");
+    expect(askAdmin?.tools?.["deny"]).toEqual([...ASK_ADMIN_TOOL_POLICY_DENY]);
   });
 
   it("sets the main orchestrator from runtime connection state without config auth profiles", async () => {

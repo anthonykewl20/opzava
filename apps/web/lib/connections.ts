@@ -16,14 +16,12 @@ import type {
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import {
-  buildOrchestratorConfigPlan,
   connectedProviderIds,
   connectionHealthSummary,
   githubConnectionSummary,
   providerConnectionSummary,
   projectProviderConnections,
   type ConnectionHealthSummary,
-  type OrchestratorConfigPlan,
   type ProviderConnectionSummary,
   type ProviderConnectionView,
 } from "@/lib/connections-state";
@@ -34,7 +32,6 @@ export interface ConnectionsPageData {
   readonly health: ConnectionHealthSummary;
   readonly providerSummary: ProviderConnectionSummary;
   readonly providers: readonly ProviderConnectionView[];
-  readonly orchestratorPlan: OrchestratorConfigPlan;
   readonly githubSummary: string;
   readonly provisioningAvailable: boolean;
 }
@@ -469,10 +466,6 @@ export async function loadConnectionsPageData(
         health: connectionHealthSummary(fallback),
         providerSummary,
         providers,
-        orchestratorPlan: buildOrchestratorConfigPlan({
-          providers,
-          current: fallback.orchestrator,
-        }),
         githubSummary: githubConnectionSummary(fallback.github),
         provisioningAvailable: false,
       });
@@ -488,10 +481,6 @@ export async function loadConnectionsPageData(
     health: connectionHealthSummary(snapshot.value),
     providerSummary,
     providers,
-    orchestratorPlan: buildOrchestratorConfigPlan({
-      providers,
-      current: snapshot.value.orchestrator,
-    }),
     githubSummary: githubConnectionSummary(snapshot.value.github),
     provisioningAvailable: snapshot.value.gateway.status === "active",
   });
