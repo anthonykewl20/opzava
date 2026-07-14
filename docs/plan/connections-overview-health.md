@@ -81,8 +81,8 @@ Every data RPC required already existed, and **the worker already called `health
 
 The provisioning worker already holds `operator.admin` (durable device-store bootstrap). Live QA then exposed two defects in behavior owned by the Gateway, requiring minimal tracked Mainframe fork fixes:
 
-1. **PATCHES rung 4:** safe and admin-sensitive health caches are scoped separately, and probe-strength-aware coalescing prevents a weak background refresh from absorbing a requested live probe or replacing its sensitive result with an older safe snapshot.
-2. **PATCHES rung 5:** a successful explicit provider login re-enables a matching configured empty auth order and promotes the exact profile just written, so disconnect/reconnect cannot leave a valid credential present but ineligible for runtime selection.
+1. **Mainframe patch #4 (rung 3):** safe and admin-sensitive health caches are scoped separately, and probe-strength-aware coalescing prevents a weak background refresh from absorbing a requested live probe or replacing its sensitive result with an older safe snapshot.
+2. **Mainframe patch #5 (rung 3):** a successful explicit provider login re-enables a matching configured empty auth order and promotes the exact profile just written, so disconnect/reconnect cannot leave a valid credential present but ineligible for runtime selection.
 
 This preserves the ownership boundary in `docs/openclaw/concepts/architecture.md`: the Gateway is the authority for live provider connections, credential selection, and health snapshots; the worker projects those typed results and orchestrates Opzava workflows. Neither defect can be reliably repaired in the worker without duplicating or racing Gateway state.
 
