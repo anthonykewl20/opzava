@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import * as http from "node:http";
 
 import {
   type GatewayRuntimeAgentCredential,
@@ -20,7 +21,25 @@ import { ASK_ADMIN_AGENT_DIR } from "./ask-admin-agent.js";
 
 type Fetch = typeof fetch;
 
+export interface DockerExecStdinConnection {
+  readonly statusCode: number;
+  readonly head: Uint8Array;
+  readonly output: AsyncIterable<Uint8Array>;
+  readonly end: (stdin: Uint8Array) => void;
+  readonly destroy: () => void;
+}
+
+export type DockerExecStdinTransport = (input: {
+  readonly url: URL;
+  readonly connectionTimeoutMs: number;
+}) => Promise<DockerExecStdinConnection>;
+
 const dockerRequestTimeoutMs = 15_000;
+const execStdinConnectionTimeoutMs = 15_000;
+const execStdinExecutionTimeoutMs = 60_000;
+const execStdinInspectTimeoutMs = 5_000;
+const execStdinInspectPollMs = 50;
+const execStdinMaxOutputBytes = 2 * 1024 * 1024;
 // A probe is one deliberately tiny model call ("Reply with OK", tools disabled). The gateway's own
 // defaults are 8s/8 tokens; give it a little more room than that because the exec has to cold-start
 // the runtime, and keep concurrency at 1 so a probe cannot itself trip a provider rate limit.
@@ -34,6 +53,84 @@ const pluginModelDiscoveryMaxOutputBytes = 2 * 1024 * 1024;
 const pluginModelDiscoveryTruncatedExitCode = 73;
 const pluginModelDiscoveryMagic = "OPZAVA_PLUGIN_DISCOVERY_V1";
 const generatedPluginModelCatalogVersion = "openclaw-plugin-model-catalog-v1";
+
+/** The one place credential material is stripped out of text on its way to a Result or a log (#191). */
+function redactCredential(text: string, credential: string): string {
+  return credential === "" ? text : text.replaceAll(credential, "[redacted]");
+}
+
+class ExecStdinFailure extends Error {
+  public constructor(
+    public readonly kind: "connectionTimeout" | "executionTimeout" | "outputTooLarge",
+  ) {
+    super(kind);
+  }
+}
+
+function nodeHttpExecStdinTransport(input: {
+  readonly url: URL;
+  readonly connectionTimeoutMs: number;
+}): Promise<DockerExecStdinConnection> {
+  return new Promise((resolve, reject) => {
+    const payload = Buffer.from(JSON.stringify({ Detach: false, Tty: false }), "utf8");
+    let settled = false;
+    const request = http.request(input.url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(payload.length),
+        connection: "Upgrade",
+        upgrade: "tcp",
+      },
+    });
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        request.destroy();
+        reject(new ExecStdinFailure("connectionTimeout"));
+      }
+    }, input.connectionTimeoutMs);
+    const rejectOnce = (error: unknown): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      request.destroy();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+
+    request.once("upgrade", (response, socket, head) => {
+      if (response.statusCode !== 101) {
+        socket.destroy();
+        rejectOnce(new Error(`Docker exec stdin upgrade returned HTTP ${response.statusCode}.`));
+        return;
+      }
+      if (settled) {
+        socket.destroy();
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      resolve({
+        statusCode: response.statusCode,
+        head,
+        output: socket,
+        end: (stdin) => socket.end(stdin),
+        destroy: () => socket.destroy(),
+      });
+    });
+    request.once("response", (response) => {
+      response.resume();
+      rejectOnce(
+        new Error(`Docker exec stdin request was not upgraded (HTTP ${response.statusCode}).`),
+      );
+    });
+    request.once("error", rejectOnce);
+    request.write(payload);
+    // Ending the HTTP request before the upgrade closes the write side that becomes exec stdin.
+  });
+}
 
 function provisioningError(
   code: string,
@@ -652,6 +749,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       readonly dockerHost: string;
       readonly containerName?: string;
       readonly fetch?: Fetch;
+      readonly execStdinTransport?: DockerExecStdinTransport;
     },
   ) {
     this.baseUrlResult = dockerHttpBaseUrl(options.dockerHost);
@@ -777,16 +875,20 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       return err(supported.error);
     }
 
-    // `--credential-stdin` makes onboard read the secret from the pipe, so it never becomes an argv
-    // element (#187). `--token-provider` still names the provider for token choices; only the
-    // credential moves.
-    const providerArgs =
-      input.keyFlag === "token" ? [`--token-provider ${shellQuote(input.providerId)}`] : [];
-    return this.execWithPipedCredential(
+    // `--credential-stdin` keeps the credential out of argv, exec Env, and the shell (#187, #191).
+    // `--token-provider` still names the provider for token choices; only the credential moves.
+    const providerArgs = input.keyFlag === "token" ? ["--token-provider", input.providerId] : [];
+    return this.execWithCredentialOnStdin(
       [
-        "node openclaw.mjs onboard",
-        "--non-interactive --accept-risk --flow manual",
-        `--auth-choice ${shellQuote(input.authChoiceId)}`,
+        "node",
+        "openclaw.mjs",
+        "onboard",
+        "--non-interactive",
+        "--accept-risk",
+        "--flow",
+        "manual",
+        "--auth-choice",
+        input.authChoiceId,
         ...providerArgs,
         "--credential-stdin",
         "--json",
@@ -796,18 +898,195 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
   }
 
   /**
-   * Runs a gateway command with the credential on stdin, never in argv.
+   * Runs a gateway command with the credential attached directly to stdin.
    *
-   * The secret reaches the container only through the exec environment, and reaches the command only
-   * through the pipe. Argv is readable in the container's process list for the life of the command,
-   * so every credential writer here goes through this one seam rather than assembling its own (#187).
+   * The Docker hop remains plaintext over tcp://docker-socket-proxy:2375. This closes /proc,
+   * exec-inspect Env, argv, and shell exposure (#191), but cannot protect against a compromised
+   * worker, proxy, daemon, or container-network sniffer.
    */
-  private async execWithPipedCredential(
-    commandParts: readonly string[],
+  private async execWithCredentialOnStdin(
+    cmd: readonly string[],
     credential: string,
   ): Promise<Result<GatewayRuntimeCommandResult>> {
-    const script = [`printf '%s' "$OPZAVA_CREDENTIAL"`, "|", ...commandParts].join(" ");
-    return this.exec(["sh", "-lc", script], [`OPZAVA_CREDENTIAL=${credential}`]);
+    if (!this.baseUrlResult.ok) {
+      return err(this.baseUrlResult.error);
+    }
+    const containerId = await this.resolveContainerId();
+    if (!containerId.ok) {
+      return err(containerId.error);
+    }
+    const created = await this.dockerRequest<{ readonly Id?: unknown }>(
+      `/containers/${encodeURIComponent(containerId.value)}/exec`,
+      {
+        method: "POST",
+        body: {
+          AttachStdin: true,
+          AttachStdout: true,
+          AttachStderr: true,
+          Tty: false,
+          Cmd: cmd,
+        },
+      },
+    );
+    if (!created.ok) {
+      return err(created.error);
+    }
+    const execId = stringValue(created.value["Id"]);
+    if (execId === null) {
+      return err(
+        provisioningError(
+          "provisioning.docker.execCreateInvalid",
+          "Docker exec create did not return an exec id.",
+        ),
+      );
+    }
+
+    const transport = this.options.execStdinTransport ?? nodeHttpExecStdinTransport;
+    let connection: DockerExecStdinConnection;
+    try {
+      connection = await transport({
+        url: new URL(`/exec/${encodeURIComponent(execId)}/start`, this.baseUrlResult.value),
+        connectionTimeoutMs: execStdinConnectionTimeoutMs,
+      });
+    } catch (error) {
+      const timedOut = error instanceof ExecStdinFailure && error.kind === "connectionTimeout";
+      return err(
+        provisioningError(
+          timedOut
+            ? "provisioning.docker.execStdinConnectionTimeout"
+            : "provisioning.docker.execStdinUpgradeFailed",
+          timedOut
+            ? "Docker exec stdin connection timed out."
+            : "Docker exec stdin connection was not upgraded.",
+          { error: String(error), timeoutMs: execStdinConnectionTimeoutMs },
+        ),
+      );
+    }
+    if (connection.statusCode !== 101) {
+      connection.destroy();
+      return err(
+        provisioningError(
+          "provisioning.docker.execStdinUpgradeRejected",
+          `Docker exec stdin connection failed closed on HTTP ${connection.statusCode}.`,
+        ),
+      );
+    }
+
+    const captured: Buffer[] = [];
+    let capturedBytes = 0;
+    const capture = (bytes: Uint8Array): void => {
+      capturedBytes += bytes.byteLength;
+      if (capturedBytes > execStdinMaxOutputBytes) {
+        throw new ExecStdinFailure("outputTooLarge");
+      }
+      captured.push(Buffer.from(bytes));
+    };
+    // Exactly once: the execution-timeout path destroys before it rejects, and the catch below
+    // destroys everything else. Both can run for one failure.
+    let destroyed = false;
+    const destroyOnce = (): void => {
+      if (!destroyed) {
+        destroyed = true;
+        connection.destroy();
+      }
+    };
+    let executionTimeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const completed = (async (): Promise<void> => {
+        capture(connection.head);
+        connection.end(Buffer.from(credential, "utf8"));
+        for await (const chunk of connection.output) {
+          capture(chunk);
+        }
+      })();
+      await Promise.race([
+        completed,
+        new Promise<never>((_resolve, reject) => {
+          executionTimeout = setTimeout(() => {
+            // Closing the worker's socket bounds this call; the container process may still run.
+            destroyOnce();
+            reject(new ExecStdinFailure("executionTimeout"));
+          }, execStdinExecutionTimeoutMs);
+        }),
+      ]);
+    } catch (error) {
+      // Destroy on EVERY failing path, not just the two typed ones: a generic stream error would
+      // otherwise leave the socket open and the exec blocked on a stdin that never gets its EOF.
+      destroyOnce();
+      if (error instanceof ExecStdinFailure && error.kind === "outputTooLarge") {
+        return err(
+          provisioningError(
+            "provisioning.docker.execStdinOutputTooLarge",
+            "Docker exec output exceeded the bounded capture limit.",
+            { maxOutputBytes: execStdinMaxOutputBytes },
+          ),
+        );
+      }
+      const timedOut = error instanceof ExecStdinFailure && error.kind === "executionTimeout";
+      return err(
+        provisioningError(
+          timedOut
+            ? "provisioning.docker.execStdinExecutionTimeout"
+            : "provisioning.docker.execStdinStreamFailed",
+          timedOut ? "Docker exec stdin command timed out." : "Docker exec stdin stream failed.",
+          // The credential is already in the transport's hands by here, so the exception text is
+          // untrusted: redact it rather than hand a stream error the chance to carry the secret
+          // into a DomainError and from there into a log (#191).
+          { error: redactCredential(String(error), credential), timeoutMs: execStdinExecutionTimeoutMs },
+        ),
+      );
+    } finally {
+      clearTimeout(executionTimeout);
+    }
+
+    const output = dockerMultiplexedOutput(Buffer.concat(captured));
+    const stdout = redactCredential(output.stdout, credential);
+    const stderr = redactCredential(output.stderr, credential);
+    const inspected = await this.inspectExecAfterStdinEof(execId);
+    if (!inspected.ok) {
+      return err(inspected.error);
+    }
+    return ok({ exitCode: inspected.value, stdout, stderr });
+  }
+
+  private async inspectExecAfterStdinEof(execId: string): Promise<Result<number>> {
+    const deadline = Date.now() + execStdinInspectTimeoutMs;
+    while (true) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        return err(
+          provisioningError(
+            "provisioning.docker.execStdinInspectTimeout",
+            "Docker exec did not publish a stopped state before the inspect timeout.",
+            { timeoutMs: execStdinInspectTimeoutMs },
+          ),
+        );
+      }
+      const inspected = await this.dockerRequest<{
+        readonly Running?: unknown;
+        readonly ExitCode?: unknown;
+      }>(`/exec/${encodeURIComponent(execId)}/json`, {
+        method: "GET",
+        timeoutMs: remainingMs,
+      });
+      if (!inspected.ok) {
+        return err(inspected.error);
+      }
+      if (inspected.value.Running === false) {
+        const exitCode = inspected.value.ExitCode;
+        return ok(typeof exitCode === "number" && Number.isFinite(exitCode) ? exitCode : 1);
+      }
+      if (Date.now() >= deadline) {
+        return err(
+          provisioningError(
+            "provisioning.docker.execStdinInspectTimeout",
+            "Docker exec did not publish a stopped state before the inspect timeout.",
+            { timeoutMs: execStdinInspectTimeoutMs },
+          ),
+        );
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, execStdinInspectPollMs));
+    }
   }
 
   /**
@@ -854,12 +1133,17 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     );
     // `paste-token`/`paste-api-key` read the secret from stdin when stdin is not a TTY.
     const subcommand = input.keyFlag === "token" ? "paste-token" : "paste-api-key";
-    const result = await this.execWithPipedCredential(
+    const result = await this.execWithCredentialOnStdin(
       [
-        "node openclaw.mjs models auth",
-        `--agent ${shellQuote(input.agentId)}`,
+        "node",
+        "openclaw.mjs",
+        "models",
+        "auth",
+        "--agent",
+        input.agentId,
         subcommand,
-        `--provider ${shellQuote(input.providerId)}`,
+        "--provider",
+        input.providerId,
       ],
       input.apiKey,
     );
@@ -1271,7 +1555,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
 
   private async dockerRequest<T>(
     path: string,
-    init: { readonly method: "GET" | "POST"; readonly body?: unknown },
+    init: { readonly method: "GET" | "POST"; readonly body?: unknown; readonly timeoutMs?: number },
   ): Promise<Result<T>> {
     const response = await this.dockerTextRequest(path, init);
     if (!response.ok) {

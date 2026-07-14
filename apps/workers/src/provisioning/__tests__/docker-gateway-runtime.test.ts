@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { DockerOpenClawGatewayRuntime } from "../docker-gateway-runtime.js";
+import {
+  type DockerExecStdinConnection,
+  DockerOpenClawGatewayRuntime,
+} from "../docker-gateway-runtime.js";
 
 /**
  * The auth probe is the guard that stops Opzava storing a provider credential it never proved works
@@ -9,24 +12,42 @@ import { DockerOpenClawGatewayRuntime } from "../docker-gateway-runtime.js";
  * tests fake `probeProviderAuth` wholesale and cannot see a parsing regression at all.
  */
 
-/** Docker multiplexes exec output into 8-byte-headed frames; stdout is stream 1. */
-function dockerStdoutFrame(stdout: string): Buffer {
-  const payload = Buffer.from(stdout, "utf8");
+/** Docker multiplexes exec output into 8-byte-headed frames. */
+function dockerOutputFrame(stream: 1 | 2, output: string): Buffer {
+  const payload = Buffer.from(output, "utf8");
   const header = Buffer.alloc(8);
-  header[0] = 1;
+  header[0] = stream;
   header.writeUInt32BE(payload.length, 4);
   return Buffer.concat([header, payload]);
 }
 
+function dockerStdoutFrame(stdout: string): Buffer {
+  return dockerOutputFrame(1, stdout);
+}
+
 interface DockerExec {
   readonly cmd: string[];
-  readonly env: string[];
+  readonly env?: string[];
+  readonly attachStdin: boolean;
+}
+
+interface DockerExecCreateBody {
+  readonly AttachStdin?: boolean;
+  readonly AttachStdout?: boolean;
+  readonly AttachStderr?: boolean;
+  readonly Tty?: boolean;
+  readonly Cmd?: string[];
+  readonly Env?: string[];
 }
 
 interface FakeDocker {
   readonly runtime: DockerOpenClawGatewayRuntime;
   readonly commands: string[][];
   readonly execs: DockerExec[];
+  readonly execCreateBodies: DockerExecCreateBody[];
+  readonly stdinWrites: Buffer[];
+  readonly stdinInspectCount: () => number;
+  readonly stdinDestroyCount: () => number;
 }
 
 function fakeDocker(input: {
@@ -34,20 +55,36 @@ function fakeDocker(input: {
   readonly stdout: string | ((cmd: readonly string[]) => string);
   readonly exitCode?: number;
   readonly startStatus?: number;
+  readonly stdinStatusCode?: number;
+  readonly stdinHead?: Buffer;
+  readonly stdinChunks?: readonly Buffer[];
+  readonly stdinTransportError?: Error;
+  readonly stdinStreamError?: Error;
+  readonly stdinNeverEnds?: boolean;
+  readonly stdinInspectStates?: readonly {
+    readonly Running: boolean;
+    readonly ExitCode?: number;
+  }[];
 }): FakeDocker {
   const commands: string[][] = [];
   const execs: DockerExec[] = [];
+  const execCreateBodies: DockerExecCreateBody[] = [];
+  const stdinWrites: Buffer[] = [];
+  let stdinInspectCount = 0;
+  let stdinDestroyCount = 0;
   const stdoutFor = (cmd: readonly string[]): string =>
     typeof input.stdout === "function" ? input.stdout(cmd) : input.stdout;
   const fetchImpl = (async (url: string | URL, init?: RequestInit): Promise<Response> => {
     const path = new URL(String(url)).pathname;
     if (path.endsWith("/exec")) {
-      const body = JSON.parse(String(init?.body ?? "{}")) as {
-        readonly Cmd?: string[];
-        readonly Env?: string[];
-      };
+      const body = JSON.parse(String(init?.body ?? "{}")) as DockerExecCreateBody;
+      execCreateBodies.push(body);
       commands.push(body.Cmd ?? []);
-      execs.push({ cmd: body.Cmd ?? [], env: body.Env ?? [] });
+      execs.push({
+        cmd: body.Cmd ?? [],
+        ...(body.Env === undefined ? {} : { env: body.Env }),
+        attachStdin: body.AttachStdin === true,
+      });
       return new Response(JSON.stringify({ Id: `exec-${execs.length}` }), { status: 200 });
     }
     if (path.endsWith("/start")) {
@@ -57,19 +94,63 @@ function fakeDocker(input: {
       });
     }
     if (path.endsWith("/json")) {
-      return new Response(JSON.stringify({ ExitCode: input.exitCode ?? 0 }), { status: 200 });
+      const execNumber = Number(path.match(/\/exec-(\d+)\/json$/)?.[1]);
+      const isStdinExec = execs[execNumber - 1]?.attachStdin === true;
+      if (isStdinExec && input.stdinInspectStates !== undefined) {
+        const state =
+          input.stdinInspectStates[
+            Math.min(stdinInspectCount, input.stdinInspectStates.length - 1)
+          ];
+        stdinInspectCount += 1;
+        return new Response(JSON.stringify(state), { status: 200 });
+      }
+      return new Response(JSON.stringify({ Running: false, ExitCode: input.exitCode ?? 0 }), {
+        status: 200,
+      });
     }
     throw new Error(`unexpected docker path ${path}`);
   }) as unknown as typeof fetch;
+
+  const execStdinTransport = async (): Promise<DockerExecStdinConnection> => {
+    if (input.stdinTransportError !== undefined) {
+      throw input.stdinTransportError;
+    }
+    const current = execs.at(-1)?.cmd ?? [];
+    const chunks = input.stdinChunks ?? [dockerStdoutFrame(stdoutFor(current))];
+    return {
+      statusCode: input.stdinStatusCode ?? 101,
+      head: input.stdinHead ?? Buffer.alloc(0),
+      output: (async function* () {
+        for (const chunk of chunks) {
+          yield chunk;
+        }
+        if (input.stdinStreamError !== undefined) {
+          throw input.stdinStreamError;
+        }
+        if (input.stdinNeverEnds === true) {
+          await new Promise<void>(() => undefined);
+        }
+      })(),
+      end: (stdin) => stdinWrites.push(Buffer.from(stdin)),
+      destroy: () => {
+        stdinDestroyCount += 1;
+      },
+    };
+  };
 
   return {
     runtime: new DockerOpenClawGatewayRuntime({
       dockerHost: "tcp://docker-socket-proxy:2375",
       containerName: "openclaw-platform-gateway",
       fetch: fetchImpl,
+      execStdinTransport,
     }),
     commands,
     execs,
+    execCreateBodies,
+    stdinWrites,
+    stdinInspectCount: () => stdinInspectCount,
+    stdinDestroyCount: () => stdinDestroyCount,
   };
 }
 
@@ -415,7 +496,7 @@ describe("DockerOpenClawGatewayRuntime auth probe (#183)", () => {
   });
 });
 
-describe("DockerOpenClawGatewayRuntime credential write (#183)", () => {
+describe("DockerOpenClawGatewayRuntime credential write (#183, #191)", () => {
   // The gateway canonicalizes `codex` to `openai` on the way in. Probing the id we SENT would find
   // no such credential and prove nothing, so both ids are read back from what the gateway says it
   // actually stored.
@@ -449,10 +530,9 @@ describe("DockerOpenClawGatewayRuntime credential write (#183)", () => {
     expect(written.ok && written.value.providerId).toBeNull();
   });
 
-  // Both credential writers must hold this. `writeAgentCredential` always did; `connectApiKey`
-  // (onboard) passed the key as an argv element until #187, where the container's process list
-  // exposed it for the life of the command.
-  it("keeps the credential out of argv, where the container process list would expose it", async () => {
+  // Both credential writers must hold this. `connectApiKey` exposed argv until #187; both writers
+  // then exposed exec Env until #191 moved the credential onto the hijacked stdin stream.
+  it("keeps the credential out of the write exec body and sends exact stdin bytes", async () => {
     const docker = fakeDocker({ stdout: "Auth profile: zai:manual (zai/api_key)\n" });
 
     await docker.runtime.writeAgentCredential({
@@ -462,7 +542,224 @@ describe("DockerOpenClawGatewayRuntime credential write (#183)", () => {
       apiKey: "sk-super-secret",
     });
 
-    expect(JSON.stringify(docker.commands)).not.toContain("sk-super-secret");
+    expect(docker.execCreateBodies).toEqual([
+      {
+        AttachStdin: true,
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+        Cmd: [
+          "node",
+          "openclaw.mjs",
+          "models",
+          "auth",
+          "--agent",
+          "main",
+          "paste-api-key",
+          "--provider",
+          "zai",
+        ],
+      },
+    ]);
+    expect(JSON.stringify(docker.execCreateBodies)).not.toContain("sk-super-secret");
+    expect(docker.stdinWrites).toEqual([Buffer.from("sk-super-secret")]);
+  });
+
+  it("keeps paste-token and its agent and provider flags as separate argv elements", async () => {
+    const docker = fakeDocker({ stdout: "Auth profile: anthropic:manual (anthropic/token)\n" });
+
+    await docker.runtime.writeAgentCredential({
+      agentId: "ask-admin-opzava",
+      providerId: "anthropic",
+      keyFlag: "token",
+      apiKey: "setup-token-secret",
+    });
+
+    expect(docker.execCreateBodies[0]?.Cmd).toEqual([
+      "node",
+      "openclaw.mjs",
+      "models",
+      "auth",
+      "--agent",
+      "ask-admin-opzava",
+      "paste-token",
+      "--provider",
+      "anthropic",
+    ]);
+    expect(docker.stdinWrites).toEqual([Buffer.from("setup-token-secret")]);
+  });
+
+  it("fails closed without sending the credential when stdin start is not HTTP 101", async () => {
+    const docker = fakeDocker({ stdout: "unused", stdinStatusCode: 200 });
+
+    const written = await docker.runtime.writeAgentCredential({
+      agentId: "main",
+      providerId: "zai",
+      keyFlag: "zai-api-key",
+      apiKey: "sk-super-secret",
+    });
+
+    expect(written.ok).toBe(false);
+    expect(!written.ok && written.error.code).toBe("provisioning.docker.execStdinUpgradeRejected");
+    expect(docker.stdinWrites).toEqual([]);
+  });
+
+  it("fails closed when the hijacked stdin transport rejects", async () => {
+    const docker = fakeDocker({
+      stdout: "unused",
+      stdinTransportError: new Error("proxy stripped the upgrade"),
+    });
+
+    const written = await docker.runtime.writeAgentCredential({
+      agentId: "main",
+      providerId: "zai",
+      keyFlag: "zai-api-key",
+      apiKey: "sk-super-secret",
+    });
+
+    expect(written.ok).toBe(false);
+    expect(!written.ok && written.error.code).toBe("provisioning.docker.execStdinUpgradeFailed");
+    expect(docker.stdinWrites).toEqual([]);
+  });
+
+  // By the time the stream fails, the credential is already in the transport's hands: the socket has
+  // to be torn down (or the exec sits forever on a stdin that never gets its EOF), and the exception
+  // text has to be scrubbed before it can ride a DomainError into a log.
+  it("destroys the connection and redacts the credential when the stdin stream fails", async () => {
+    const docker = fakeDocker({
+      stdout: "unused",
+      stdinStreamError: new Error("socket hang up while sending sk-super-secret"),
+    });
+
+    const written = await docker.runtime.writeAgentCredential({
+      agentId: "main",
+      providerId: "zai",
+      keyFlag: "zai-api-key",
+      apiKey: "sk-super-secret",
+    });
+
+    expect(written.ok).toBe(false);
+    expect(!written.ok && written.error.code).toBe("provisioning.docker.execStdinStreamFailed");
+    expect(docker.stdinDestroyCount()).toBe(1);
+    expect(JSON.stringify(!written.ok && written.error)).not.toContain("sk-super-secret");
+  });
+
+  it("preserves output delivered in the HTTP upgrade head buffer", async () => {
+    const docker = fakeDocker({
+      stdout: "unused",
+      stdinHead: dockerStdoutFrame("head output"),
+      stdinChunks: [],
+    });
+
+    const written = await docker.runtime.writeAgentCredential({
+      agentId: "main",
+      providerId: "zai",
+      keyFlag: "zai-api-key",
+      apiKey: "secret",
+    });
+
+    expect(written.ok && written.value.stdout).toBe("head output");
+  });
+
+  it("demultiplexes a Docker frame whose header is split across chunks", async () => {
+    const frame = dockerStdoutFrame("split header output");
+    const docker = fakeDocker({
+      stdout: "unused",
+      stdinHead: frame.subarray(0, 3),
+      stdinChunks: [frame.subarray(3, 6), frame.subarray(6, 11), frame.subarray(11)],
+    });
+
+    const written = await docker.runtime.writeAgentCredential({
+      agentId: "main",
+      providerId: "zai",
+      keyFlag: "zai-api-key",
+      apiKey: "secret",
+    });
+
+    expect(written.ok && written.value.stdout).toBe("split header output");
+  });
+
+  it("scrubs an echoed credential from demultiplexed stdout and stderr", async () => {
+    const credential = "sk-echoed-secret";
+    const docker = fakeDocker({
+      stdout: "unused",
+      stdinChunks: [
+        dockerOutputFrame(1, `stdout ${credential}`),
+        dockerOutputFrame(2, `stderr ${credential}`),
+      ],
+    });
+
+    const written = await docker.runtime.writeAgentCredential({
+      agentId: "main",
+      providerId: "zai",
+      keyFlag: "zai-api-key",
+      apiKey: credential,
+    });
+
+    expect(written.ok && written.value.stdout).toBe("stdout [redacted]");
+    expect(written.ok && written.value.stderr).toBe("stderr [redacted]");
+    expect(JSON.stringify(written)).not.toContain(credential);
+  });
+
+  it("fails with bounded capture instead of retaining oversized exec output", async () => {
+    const docker = fakeDocker({
+      stdout: "unused",
+      stdinChunks: [dockerStdoutFrame("x".repeat(2 * 1024 * 1024))],
+    });
+
+    const written = await docker.runtime.writeAgentCredential({
+      agentId: "main",
+      providerId: "zai",
+      keyFlag: "zai-api-key",
+      apiKey: "secret",
+    });
+
+    expect(written.ok).toBe(false);
+    expect(!written.ok && written.error.code).toBe("provisioning.docker.execStdinOutputTooLarge");
+  });
+
+  it("destroys the stream and returns a timeout while the container process may still run", async () => {
+    vi.useFakeTimers();
+    try {
+      const docker = fakeDocker({ stdout: "partial output", stdinNeverEnds: true });
+
+      const writtenPromise = docker.runtime.writeAgentCredential({
+        agentId: "main",
+        providerId: "zai",
+        keyFlag: "zai-api-key",
+        apiKey: "secret",
+      });
+      await vi.runAllTimersAsync();
+      const written = await writtenPromise;
+
+      expect(written.ok).toBe(false);
+      expect(!written.ok && written.error.code).toBe(
+        "provisioning.docker.execStdinExecutionTimeout",
+      );
+      expect(docker.stdinDestroyCount()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("polls exec inspect until Docker publishes Running false", async () => {
+    const docker = fakeDocker({
+      stdout: "stored",
+      stdinInspectStates: [
+        { Running: true, ExitCode: 0 },
+        { Running: false, ExitCode: 7 },
+      ],
+    });
+
+    const written = await docker.runtime.writeAgentCredential({
+      agentId: "main",
+      providerId: "zai",
+      keyFlag: "zai-api-key",
+      apiKey: "secret",
+    });
+
+    expect(written.ok && written.value.exitCode).toBe(7);
+    expect(docker.stdinInspectCount()).toBe(2);
   });
 });
 
@@ -484,8 +781,8 @@ function onboardStdout(input: { readonly credentialStdin: boolean }) {
     cmd.includes("--help") ? onboardHelp(input) : "Config updated.\n";
 }
 
-describe("DockerOpenClawGatewayRuntime onboard connect (#187)", () => {
-  it("keeps the submitted credential out of argv, and pipes it through the exec environment", async () => {
+describe("DockerOpenClawGatewayRuntime onboard connect (#187, #191)", () => {
+  it("sends the credential only through attached stdin", async () => {
     const docker = fakeDocker({ stdout: onboardStdout({ credentialStdin: true }) });
 
     const connected = await docker.runtime.connectApiKey({
@@ -496,12 +793,31 @@ describe("DockerOpenClawGatewayRuntime onboard connect (#187)", () => {
     });
 
     expect(connected.ok).toBe(true);
-    expect(JSON.stringify(docker.commands)).not.toContain("sk-super-secret");
 
     const onboard = docker.execs.at(-1);
-    expect(onboard?.cmd.join(" ")).toContain("--credential-stdin");
-    expect(onboard?.cmd.join(" ")).toContain("printf '%s' \"$OPZAVA_CREDENTIAL\" |");
-    expect(onboard?.env).toEqual(["OPZAVA_CREDENTIAL=sk-super-secret"]);
+    expect(docker.execCreateBodies.at(-1)).toEqual({
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: false,
+      Cmd: [
+        "node",
+        "openclaw.mjs",
+        "onboard",
+        "--non-interactive",
+        "--accept-risk",
+        "--flow",
+        "manual",
+        "--auth-choice",
+        "zai-api-key",
+        "--credential-stdin",
+        "--json",
+      ],
+    });
+    expect(JSON.stringify(docker.execCreateBodies)).not.toContain("sk-super-secret");
+    expect(onboard?.cmd).not.toContain("sh");
+    expect(onboard?.cmd).not.toContain("printf");
+    expect(docker.stdinWrites).toEqual([Buffer.from("sk-super-secret")]);
   });
 
   // The setup-token choice used to put the Anthropic token in argv behind `--token`. It now rides the
@@ -517,9 +833,24 @@ describe("DockerOpenClawGatewayRuntime onboard connect (#187)", () => {
     });
 
     const onboard = docker.execs.at(-1);
-    expect(JSON.stringify(docker.commands)).not.toContain("sk-ant-oat01-secret");
-    expect(onboard?.cmd.join(" ")).toContain("--token-provider 'anthropic'");
-    expect(onboard?.env).toEqual(["OPZAVA_CREDENTIAL=sk-ant-oat01-secret"]);
+    expect(JSON.stringify(docker.execCreateBodies)).not.toContain("sk-ant-oat01-secret");
+    expect(onboard?.cmd).toEqual([
+      "node",
+      "openclaw.mjs",
+      "onboard",
+      "--non-interactive",
+      "--accept-risk",
+      "--flow",
+      "manual",
+      "--auth-choice",
+      "setup-token",
+      "--token-provider",
+      "anthropic",
+      "--credential-stdin",
+      "--json",
+    ]);
+    expect(onboard?.env).toBeUndefined();
+    expect(docker.stdinWrites).toEqual([Buffer.from("sk-ant-oat01-secret")]);
   });
 
   // A gateway image built before --credential-stdin would reject the flag anyway — but only after

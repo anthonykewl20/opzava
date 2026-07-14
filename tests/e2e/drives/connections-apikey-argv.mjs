@@ -1,20 +1,31 @@
-// #187 real-flow driver: a submitted provider API key must never reach the gateway container's
-// process list. Real login (NO minted session), real api-key connect through the UI with a canary
-// key, while sampling /proc/*/cmdline inside the gateway container.
+// #187 + #191 real-flow driver: a submitted provider API key must never reach the gateway container's
+// process list (argv, #187) NOR its process environment (environ, #191). Real login (NO minted
+// session), real api-key connect through the UI with a canary key, while sampling both
+// /proc/*/cmdline and /proc/*/environ inside the gateway container.
 //
 // The connect is EXPECTED to end rejected: the canary is not a real credential, so the #183 liveness
 // probe refuses it and rolls it back. That is the point — the key still travels the whole write path
 // (onboard exec + shared-store write) with nothing left behind.
 //
-// Two assertions, and the control one matters most:
-//   1. CONTROL: the sampler must SEE THIS connect's credential-carrying onboard running. Without it,
-//      "the key was not in the process list" would just mean the sampler was looking at nothing.
-//   2. The canary must appear in NO sampled command line, and in no worker log line.
+// The control assertions matter most — without them a clean result is vacuous:
+//   1. The sampler must SEE THIS connect's credential-carrying onboard running. Otherwise "the key
+//      was not in the process list" only says the sampler was looking at nothing.
+//   2. The sampler must have READ that onboard's environ, and must be able to see a DIFFERENT,
+//      deliberately planted secret in a process environment. Otherwise "the key was not in environ"
+//      only says the sampler cannot read environs at all.
+//   3. The connect must actually FINISH. If stdin never arrived or EOF was lost, onboard would hang
+//      and a "no canary anywhere" result would be an artifact of the command never getting the key.
+// Only then does it mean anything that the canary appears in NO command line and NO environment.
+//
+// The canary is never passed to the sampler through its own argv or env — that would plant it in
+// /proc and the drive would flag itself. It travels on stdin into a pattern file, and all matching
+// happens INSIDE the container: raw environments never leave it (they hold unrelated real gateway
+// secrets) and are never written to an artifact. Only pids, command lines and booleans come back.
 //
 // Usage: node tests/e2e/drives/connections-apikey-argv.mjs [outDir]
 
 import { chromium } from "@playwright/test";
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
@@ -28,13 +39,67 @@ mkdirSync(OUT, { recursive: true });
 
 // Shaped like a real key so nothing along the path can dismiss it as obviously malformed.
 const CANARY = `sk-canary187-${randomUUID().replaceAll("-", "")}`;
+// The positive control for the environ sampler MUST be a different secret from the one under test:
+// planting the canary itself would make the negative assertion ("the canary is in no environ")
+// impossible to state. This one is deliberately put somewhere the sampler must find it.
+const ENV_CONTROL = `sk-envcontrol191-${randomUUID().replaceAll("-", "")}`;
+// Two files, matched with `grep -f`: the secrets must never appear in grep's OWN argv, or the
+// per-process cmdline scan would catch the sampler red-handed and report its own pattern as a leak.
+// Per-run paths: a fixed name would let two concurrent drives overwrite — or delete — each other's
+// canary pattern, quietly disarming one of them.
+const RUN_ID = randomUUID().slice(0, 8);
+const CANARY_PATTERN_FILE = `/tmp/opzava-canary-pattern-${RUN_ID}`;
+const CONTROL_PATTERN_FILE = `/tmp/opzava-control-pattern-${RUN_ID}`;
 const findings = [];
 let samples = "";
 
-/** Samples every process's argv inside the gateway container until killed. */
-function startProcessListSampler() {
-  const script =
-    'while true; do for p in /proc/[0-9]*/cmdline; do tr "\\0" " " < "$p" 2>/dev/null; echo; done; sleep 0.05; done';
+/**
+ * Stages a secret in an in-container pattern file, delivered on stdin.
+ *
+ * One exec per pattern: two `head -1`s sharing a single stdin do not work — the first consumes the
+ * whole buffer and the second file lands empty, which silently disables that matcher. `cat`'s argv
+ * carries no secret, which is the whole point of routing them through a file.
+ */
+function stagePatternFile(path, secret) {
+  execFileSync("docker", ["exec", "-i", GATEWAY, "sh", "-c", `cat > ${path}`], { input: secret });
+}
+
+/**
+ * Samples every process's argv AND environ inside the gateway container until killed.
+ *
+ * Matching happens in-container against a pattern file: the secrets never enter the sampler's own
+ * argv or env (that would plant them in the very /proc this drive reads, and the drive would flag
+ * itself), and no environ content is ever emitted — only pids, command lines, and which marker
+ * matched.
+ *
+ * Runs as the container's DEFAULT user, deliberately — not root. Reading another process's environ
+ * needs PTRACE_MODE_READ, and the container drops CAP_SYS_PTRACE, so root actually reads back zero
+ * bytes; a same-uid process reads it in full. The gateway runs the tenant's agent workloads under
+ * that same uid as `onboard`, which is exactly the reader #191 is about. Sampling as root would
+ * quietly succeed at nothing and pass this drive forever.
+ */
+function startProcessSampler() {
+  stagePatternFile(CANARY_PATTERN_FILE, CANARY);
+  stagePatternFile(CONTROL_PATTERN_FILE, ENV_CONTROL);
+
+  const script = [
+    "while true; do",
+    "  for d in /proc/[0-9]*; do",
+    '    cmd=$(tr "\\0" " " < "$d/cmdline" 2>/dev/null)',
+    '    [ -z "$cmd" ] && continue',
+    "    pid=${d#/proc/}",
+    '    echo "CMD $pid $cmd"',
+    // A /proc file always stat()s as size 0, so `-s` is useless here: count the bytes actually read.
+    // Proving the environ was READABLE is what makes a clean scan mean something.
+    '    bytes=$(wc -c < "$d/environ" 2>/dev/null || echo 0)',
+    '    [ "$bytes" -gt 0 ] && echo "ENVREAD $pid $cmd"',
+    `    grep -qaf ${CANARY_PATTERN_FILE} "$d/environ" 2>/dev/null && echo "ENVHIT $pid $cmd"`,
+    `    grep -qaf ${CONTROL_PATTERN_FILE} "$d/environ" 2>/dev/null && echo "ENVCTL $pid $cmd"`,
+    "  done",
+    "  sleep 0.05",
+    "done",
+  ].join("\n");
+
   const child = spawn("docker", ["exec", GATEWAY, "sh", "-c", script], {
     stdio: ["ignore", "pipe", "ignore"],
   });
@@ -42,6 +107,30 @@ function startProcessListSampler() {
     samples += String(chunk);
   });
   return child;
+}
+
+/**
+ * Plants ENV_CONTROL in a real process environment inside the gateway — the sampler's positive
+ * control. If the sampler cannot see THIS, it cannot see a credential in an environ either, and a
+ * clean canary result proves nothing.
+ */
+function plantEnvironControl() {
+  execFileSync(
+    "docker",
+    ["exec", "-d", "-e", `OPZAVA_ENV_CONTROL=${ENV_CONTROL}`, GATEWAY, "sleep", "120"],
+    { stdio: "ignore" },
+  );
+}
+
+function sampledLines(prefix) {
+  return [
+    ...new Set(
+      samples
+        .split("\n")
+        .filter((line) => line.startsWith(`${prefix} `))
+        .map((line) => line.slice(prefix.length + 1)),
+    ),
+  ];
 }
 
 
@@ -115,7 +204,8 @@ async function openApiKeyConnectDialog(page) {
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
-const sampler = startProcessListSampler();
+plantEnvironControl();
+const sampler = startProcessSampler();
 const startedAt = new Date();
 let providerId = null;
 
@@ -144,33 +234,86 @@ try {
   findings.push(`drive-failed=${error instanceof Error ? error.message : String(error)}`);
 } finally {
   sampler.kill("SIGKILL");
+  // The pattern files hold the canary; do not leave them in the container for the next drive to find.
+  execFileSync(
+    "docker",
+    ["exec", GATEWAY, "rm", "-f", CANARY_PATTERN_FILE, CONTROL_PATTERN_FILE],
+    { stdio: "ignore" },
+  );
   await context.close();
   await browser.close();
 }
 
-const workerLogs = execFileSync(
+// BOTH streams: `docker logs` sends the container's stderr to ITS stderr, and the worker logs plenty
+// there. Reading only stdout would leave half the log surface unscanned for the canary.
+const workerLogProcess = spawnSync(
   "docker",
   ["logs", "--since", startedAt.toISOString(), WORKER],
-  { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  { encoding: "utf8" },
 );
+const workerLogs = `${workerLogProcess.stdout ?? ""}\n${workerLogProcess.stderr ?? ""}`;
 
-const onboardLines = [
-  ...new Set(samples.split("\n").filter((line) => line.includes("openclaw.mjs onboard"))),
-];
+const commandLines = sampledLines("CMD");
+const onboardLines = commandLines.filter((line) => line.includes("openclaw.mjs onboard"));
 
 // CONTROL: the sampler must have caught THIS connect's onboard while it ran. Without that, "the key
 // was never in the process list" only says the sampler was looking at nothing. It has to be the
 // credential-carrying command for the provider we submitted to — `onboard --help` (the capability
 // check) runs on the same path and must not be allowed to stand in for it.
-const connectLines = onboardLines.filter(
-  (line) =>
-    line.includes("--credential-stdin") && providerId !== null && line.includes(providerId),
-);
+const isThisConnect = (line) =>
+  line.includes("--credential-stdin") && providerId !== null && line.includes(providerId);
+const connectLines = onboardLines.filter(isThisConnect);
 if (connectLines.length === 0) {
   findings.push("control-sampler-never-saw-this-connects-onboard=true");
 }
-if (samples.includes(CANARY)) {
+
+// CONTROL: the sampler must be able to see a secret that IS in an environment. If the planted
+// control never shows up, the sampler cannot read environs and a clean canary result is vacuous.
+const controlEnvironHits = sampledLines("ENVCTL");
+if (controlEnvironHits.length === 0) {
+  findings.push("control-environ-sampler-saw-no-planted-secret=true");
+}
+
+// CONTROL: and specifically THIS connect's onboard environ must have been read at least once —
+// otherwise the credential-carrying process is exactly the one the sampler missed.
+const environReadLines = sampledLines("ENVREAD");
+if (!environReadLines.some(isThisConnect)) {
+  findings.push("control-never-read-this-connects-onboard-environ=true");
+}
+
+// CONTROL: the connect must have reached a real terminal outcome. A hijacked stdin that never
+// delivered the key, or lost its EOF, would leave onboard blocked forever — and a blocked onboard
+// also leaves the canary nowhere, which would read as a pass. The worker logs the verdict for this
+// provider; require it, rather than inferring completion from a fixed wait.
+// The #183 liveness probe publishes the verdict once onboard has actually run and the credential was
+// filed. Match the event, not a phrase: the worker pretty-prints its payloads across several lines,
+// so provider and verdict never share one.
+const connectSettled =
+  /connections\.authProbe\.(rejected|verified)/i.test(workerLogs) &&
+  providerId !== null &&
+  workerLogs.includes(providerId);
+if (!connectSettled) {
+  findings.push("control-connect-never-reached-a-terminal-outcome=true");
+}
+
+// CONTROL: a hung onboard (stdin never delivered, or EOF lost) would also leave the canary nowhere.
+// The connect has to have actually run to completion for absence to mean anything.
+const stillRunning = execFileSync(
+  "docker",
+  ["exec", GATEWAY, "sh", "-c", 'ps -o args= -A 2>/dev/null | grep -c "[c]redential-stdin" || true'],
+  { encoding: "utf8" },
+).trim();
+if (stillRunning !== "0") {
+  findings.push(`onboard-still-running-after-connect=${stillRunning}`);
+}
+
+// THE ASSERTIONS: the submitted key in no command line (#187), and in no process environment (#191).
+if (commandLines.some((line) => line.includes(CANARY))) {
   findings.push("canary-in-gateway-process-list=true");
+}
+const canaryEnvironHits = sampledLines("ENVHIT");
+if (canaryEnvironHits.length > 0) {
+  findings.push(`canary-in-gateway-process-environ=${canaryEnvironHits.length}`);
 }
 if (workerLogs.includes(CANARY)) {
   findings.push("canary-in-worker-logs=true");
@@ -184,9 +327,15 @@ writeFileSync(
       canaryLength: CANARY.length,
       sampledProcessLines: samples.split("\n").length,
       sawThisConnectsOnboardInProcessList: connectLines.length > 0,
-      // Safe to record: that these carry no credential is exactly what this drive proves.
+      environSamplerSawPlantedControl: controlEnvironHits.length > 0,
+      readThisConnectsOnboardEnviron: environReadLines.some(isThisConnect),
+      connectReachedTerminalOutcome: connectSettled,
+      onboardStillRunningAfterConnect: stillRunning,
+      // Safe to record: that these carry no credential is exactly what this drive proves. Process
+      // ENVIRONMENTS are never recorded — they hold unrelated real gateway secrets.
       onboardCommandLines: onboardLines,
-      canaryInProcessList: samples.includes(CANARY),
+      canaryInProcessList: commandLines.some((line) => line.includes(CANARY)),
+      canaryInProcessEnviron: canaryEnvironHits.length > 0,
       canaryInWorkerLogs: workerLogs.includes(CANARY),
       findings,
     },
