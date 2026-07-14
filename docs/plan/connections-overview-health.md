@@ -1,9 +1,10 @@
 # Connections Overview: OpenClaw health - locked design
 
 Status: design locked; implementation, user override, and follow-up Mainframe fixes landed
-(2026-07-14 through 2026-07-15). Local Docker partial-unknown real E2E is green. The healthy,
-degraded, and unreachable scenario matrix remains pending; those states have not been run in
-dedicated scenario environments.
+(2026-07-14 through 2026-07-15). The currently realizable live health states are
+`partial-unknown`, `degraded`, and `unreachable`. A fully `healthy` renderer/classifier remains
+covered automatically, but cannot be claimed from the current Mainframe contract because it does
+not expose authoritative per-agent liveness.
 Tracks: #175 (parent), #176-#182 (children).
 Governs the Connections **Overview** route (`/connections`). Supersedes parts of `docs/plan/connections-ia-redesign.md` (see "Amendments" below).
 
@@ -34,7 +35,7 @@ Model providers and integrations are *inventory*, not *health*. They keep their 
 | Plugins | `HealthSummary.plugins{loaded,errors}` | Any error -> attention. |
 | Context engines | `HealthSummary.contextEngines.quarantined[]` | Any quarantine -> attention. |
 | Channel account (one per configured account) | `HealthSummary.channels{}` + `channelOrder` + `channelLabels` | `configured`, `linked`, `probe`, `lastProbeAt`. |
-| Agent (one per agent) | `HealthSummary.agents[].heartbeat` | Stale heartbeat -> attention. |
+| Agent (one per agent) | `HealthSummary.agents[]` schedule metadata | Mainframe reports schedule configuration, not an authoritative live probe. Until it exposes per-agent liveness, each configured agent renders `not_checked`, never failed or healthy. |
 
 `modelPricing` is a **warning chip only** and can NEVER mark the system unhealthy. OpenClaw's own docs are explicit (`docs/openclaw/cli/status.md`): *"Model pricing refresh failures are shown as optional pricing warnings. They do not mean the Gateway or channels are unhealthy."* Crying wolf over a pricing fetch is how a status page loses its credibility.
 
@@ -75,7 +76,7 @@ Every data RPC required already existed, and **the worker already called `health
 
 | RPC | Returns | Scope |
 | --- | --- | --- |
-| `health` | `HealthSummary`: `eventLoop`, `plugins{loaded,errors}`, `contextEngines{quarantined}`, `modelPricing`, `channels{}`/`channelOrder`/`channelLabels`, `agents[].heartbeat`, `sessions{count,recent}` | `operator.admin` |
+| `health` | `HealthSummary`: `eventLoop`, `plugins{loaded,errors}`, `contextEngines{quarantined}`, `modelPricing`, `channels{}`/`channelOrder`/`channelLabels`, agent schedule metadata, `sessions{count,recent}` | `operator.admin` |
 | `status` | `StatusSummary`: `runtimeVersion`, `heartbeat.agents`, `channelSummary`, `queuedSystemEvents`, `tasks`, `sessions.byAgent` (`includeSensitive` gated on admin) | `operator.admin` |
 | `update.status` | Update-available hint | - |
 
@@ -201,6 +202,7 @@ Rationale: the Gateway is **platform substrate, not a manageable connection**. T
 | File | State |
 | --- | --- |
 | `ux-redesign/mockups/connections.html` | Healthy - all components green. |
+| `ux-redesign/mockups/connections-partial-unknown.html` | Reachable Gateway - 4 healthy System Core components and 3 agents without a live probe result. |
 | `ux-redesign/mockups/connections-degraded.html` | Degraded - 1 attention (dead channel), 1 `not checked`, expiring provider key. |
 | `ux-redesign/mockups/connections-unreachable.html` | Gateway unreachable - last-known-good, all groups `not checked`. |
 | `ux-redesign/mockups/connections-system.html` | **`/connections/system`** - the detail surface the Overview links to. Component grid + Sessions / Gateway detail / Runtime. |
@@ -216,11 +218,28 @@ Extract them from `connections-legacy-pre-ia.html` (which still holds the Model 
 
 Verified locally against the Docker stack (2026-07-15):
 
-- The partial-unknown real E2E drive completed with zero findings.
+- The `partial-unknown` real E2E drive completed with zero findings.
+- The `degraded` real E2E drive completed with the required exact attention count of `1`. The
+  fixture was a deliberately invalid Telegram bot channel; the temporary channel was removed and
+  the normal stack was restarted afterward.
 - Manual health refresh advanced `checkedAt`, proving that the requested live probe was not swallowed by cached background work.
 - The OpenAI OAuth `gpt-5.5` probe succeeded, and a real Ask Admin run reached `READY`.
 
-The healthy, degraded, and unreachable scenario matrix remains pending and is not claimed by this evidence.
+The `unreachable` contract treats the provider catalog as unavailable, not as an empty catalog: the
+provider route must show the explicit Gateway outage/retry state and expose zero provider rows or
+provider actions. Its final real rerun is still pending at this point, so this document does not
+claim that result. The normal stack was restored after the outage preparation.
+
+The health and integration axes are separate. `REAL_CONNECTIONS_INTEGRATIONS=empty` was exercised
+live. A real connected integration was not exercised and remains pending; no health-state result
+above implies connected-integration coverage.
+
+The current real health matrix is therefore `partial-unknown`, `degraded`, and `unreachable`.
+`healthy` stays in classifier, component, and E2E self-test coverage so the UI remains
+future-compatible. It is not currently a realizable live rollup: Mainframe always reports at least
+the implicit default agent and exposes schedule configuration rather than a liveness result. The
+healthy-live clause in #182 is blocked on an authoritative Mainframe per-agent liveness contract
+unless the issue owner accepts this evidence-based amendment.
 
 - Side-by-side screenshots (mockup vs live), light + dark, for all three states.
 - Every element functions live with real data - no dead chrome, no placeholder numbers. Any metric on the page maps to a real field in the RPC table above.

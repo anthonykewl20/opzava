@@ -71,11 +71,18 @@ export REAL_CONNECTIONS_BASELINE_LOAD_MS="$(jq -r '.baselineCapture.suggestedBas
 export REAL_CONNECTIONS_MAX_REGRESSION_MS=REPLACE_WITH_APPROVED_BUDGET_MS
 ```
 
+The current Mainframe contract can produce three honest real-stack health states: `partial-unknown`,
+`degraded`, and `unreachable`. It reports agent schedule configuration, not an authoritative
+per-agent liveness result, and always includes at least the implicit default agent. Consequently a
+fully `healthy` live rollup is not currently realizable. Healthy classification and rendering remain
+covered by the driver's `--self-test` and component tests for future Mainframe liveness support; do
+not claim a live healthy run until that contract exists.
+
+Integration state is an independent axis. Exercise each health state with the integration state
+actually prepared in the stack. The empty state has been exercised live; a connected real
+integration remains pending and must not be inferred from health coverage.
+
 ```bash
-REAL_CONNECTIONS_HEALTH=healthy REAL_CONNECTIONS_INTEGRATIONS=empty \
-  node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-healthy-empty
-REAL_CONNECTIONS_HEALTH=healthy REAL_CONNECTIONS_INTEGRATIONS=connected \
-  node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-healthy-connected
 REAL_CONNECTIONS_HEALTH=degraded REAL_CONNECTIONS_ATTENTION=1 REAL_CONNECTIONS_INTEGRATIONS=empty \
   node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-degraded-empty
 REAL_CONNECTIONS_HEALTH=degraded REAL_CONNECTIONS_ATTENTION=1 REAL_CONNECTIONS_INTEGRATIONS=connected \
@@ -90,12 +97,27 @@ REAL_CONNECTIONS_HEALTH=unreachable REAL_CONNECTIONS_INTEGRATIONS=connected \
   node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-unreachable-connected
 ```
 
+For `unreachable`, an unavailable provider catalog is the correct outcome. The provider page must
+show the explicit Gateway outage/retry copy and expose no provider rows or actions; zero rows in
+this state must never be interpreted as a valid zero-provider catalog.
+
+The healthy commands remain available for the future contract or an environment that can provide
+authoritative agent liveness:
+
+```bash
+REAL_CONNECTIONS_HEALTH=healthy REAL_CONNECTIONS_INTEGRATIONS=empty \
+  node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-healthy-empty
+REAL_CONNECTIONS_HEALTH=healthy REAL_CONNECTIONS_INTEGRATIONS=connected \
+  node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-healthy-connected
+```
+
 Each successful validation run records numeric navigation timings and the numeric baseline contract,
 and writes matched 1440x960 light/dark live and static-mockup screenshots plus
 `connections-report.json` to its output directory. `partial-unknown` is the honest state for a
-reachable Gateway with an unknown rollup, such as an intentionally unobservable agent; it is not an
-unreachable Gateway. The four health states require genuinely prepared real environments or separate
-preparations; one ambient run does not cover the matrix.
+reachable Gateway whose configured agents have no authoritative liveness result; it is not an
+unreachable Gateway. The three currently realizable health states require genuinely prepared real
+environments or separate preparations; one ambient run does not cover the matrix. Healthy remains
+automated future-compatible coverage, not a current live-matrix requirement.
 
 These scripts used to sit loose in the repo root as `*.local.mjs`. Docs frozen before 2026-07-14
 (`docs/plan/consensus/`, `docs/plan/audits/`) still cite those old paths; the mapping is
