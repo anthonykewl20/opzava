@@ -1,6 +1,8 @@
 # Connections Overview: OpenClaw health - locked design
 
-Status: design locked (grilling, 2026-07-13). Mockup authored; not yet built.
+Status: design locked; implementation landed on this branch (2026-07-14). Real healthy,
+degraded, and unreachable scenario validation remains pending, blocked on dedicated scenario
+environments.
 Tracks: #175 (parent), #176-#182 (children).
 Governs the Connections **Overview** route (`/connections`). Supersedes parts of `docs/plan/connections-ia-redesign.md` (see "Amendments" below).
 
