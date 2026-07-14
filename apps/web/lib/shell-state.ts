@@ -1,4 +1,4 @@
-import { db, sql, withTenant } from "@opzava/adapters";
+import { sql, withTenant } from "@opzava/adapters";
 import {
   listIssueProjections,
   listTasks,
@@ -7,20 +7,25 @@ import {
 } from "@opzava/project-management";
 
 import { askAdminAssistantKey } from "@/lib/ask-admin-history";
-import { hasConnectedProviderOrGitHub } from "@/lib/connections-state";
-import { loadConnectionsPageData } from "@/lib/connections";
+import {
+  hasConnectedProviderOrGitHub,
+  openclawHealthSummary,
+  type OpenClawHealthSummary,
+} from "@/lib/connections-state";
+import { loadConnectionsPageDataForRequest, type loadConnectionsPageData } from "@/lib/connections";
 import { readGitHubIssuesRepository } from "@/lib/issues";
 import { formatCardId } from "@/lib/task-card-format";
 import type { AppSessionContext } from "@/lib/session";
 
-export type ShellHealthStatus = "healthy" | "degraded" | "unknown";
+export type ShellHealthStatus = "healthy" | "attention" | "unknown";
 
 export interface ShellHealthState {
   readonly status: ShellHealthStatus;
   readonly text: string;
   readonly dotClassName: string;
   readonly ariaLabel: string;
-  readonly databaseReachable: boolean | null;
+  readonly attentionCount: number;
+  readonly checkedAt: string | null;
   readonly gatewayReachable: boolean | null;
 }
 
@@ -59,7 +64,6 @@ export interface AdminShellStateDependencies {
   readonly listIssueProjections: typeof listIssueProjections;
   readonly loadConnectionsPageData: typeof loadConnectionsPageData;
   readonly countActiveAskOpzavaTurns: (context: AppSessionContext) => Promise<number>;
-  readonly checkDatabaseHealth: () => Promise<boolean>;
 }
 
 type QueryRow = Record<string, unknown>;
@@ -154,15 +158,11 @@ export function openIssueCount(issues: readonly IssueProjectionDto[]): number {
 }
 
 export function shellHealthView(input: {
-  readonly databaseReachable: boolean | null;
+  readonly summary: OpenClawHealthSummary;
+  readonly checkedAt: string | null;
   readonly gatewayReachable: boolean | null;
 }): ShellHealthState {
-  const checks = [input.databaseReachable, input.gatewayReachable];
-  const status: ShellHealthStatus = checks.every((check) => check === true)
-    ? "healthy"
-    : checks.some((check) => check === false)
-      ? "degraded"
-      : "unknown";
+  const status = input.summary.status;
 
   if (status === "healthy") {
     return {
@@ -170,18 +170,22 @@ export function shellHealthView(input: {
       text: "All systems healthy",
       dotClassName: "dot dot-success",
       ariaLabel: "System health: All systems healthy",
-      databaseReachable: input.databaseReachable,
+      attentionCount: input.summary.attention,
+      checkedAt: input.checkedAt,
       gatewayReachable: input.gatewayReachable,
     };
   }
 
-  if (status === "degraded") {
+  if (status === "attention") {
+    const count = input.summary.attention;
+    const text = `${count} ${count === 1 ? "needs" : "need"} attention`;
     return {
       status,
-      text: "Systems degraded",
+      text,
       dotClassName: "dot dot-warning",
-      ariaLabel: "System health: Systems degraded",
-      databaseReachable: input.databaseReachable,
+      ariaLabel: `System health: ${text}`,
+      attentionCount: count,
+      checkedAt: input.checkedAt,
       gatewayReachable: input.gatewayReachable,
     };
   }
@@ -191,7 +195,8 @@ export function shellHealthView(input: {
     text: "Health unknown",
     dotClassName: "dot",
     ariaLabel: "System health: Health unknown",
-    databaseReachable: input.databaseReachable,
+    attentionCount: input.summary.attention,
+    checkedAt: input.checkedAt,
     gatewayReachable: input.gatewayReachable,
   };
 }
@@ -211,22 +216,12 @@ async function defaultCountActiveAskOpzavaTurns(context: AppSessionContext): Pro
   return numberValue(rowsFromExecuteResult(result)[0]?.["active_count"]);
 }
 
-async function defaultCheckDatabaseHealth(): Promise<boolean> {
-  try {
-    await db.execute(sql`select 1`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function defaultDependencies(): AdminShellStateDependencies {
   return {
     listTasks,
     listIssueProjections,
-    loadConnectionsPageData,
+    loadConnectionsPageData: loadConnectionsPageDataForRequest,
     countActiveAskOpzavaTurns: defaultCountActiveAskOpzavaTurns,
-    checkDatabaseHealth: defaultCheckDatabaseHealth,
   };
 }
 
@@ -301,13 +296,7 @@ export async function loadAdminShellState(
 ): Promise<AdminShellState> {
   const actor = actorFromContext(context);
   const repository = safeGitHubIssuesRepository();
-  const [
-    tasksResult,
-    issuesResult,
-    connectionsResult,
-    activeTurnsResult,
-    databaseReachable,
-  ] = await Promise.all([
+  const [tasksResult, issuesResult, connectionsResult, activeTurnsResult] = await Promise.all([
     dependencies.listTasks({
       orgId: context.orgId,
       workspaceId: context.workspaceId,
@@ -324,13 +313,25 @@ export async function loadAdminShellState(
         }),
     dependencies.loadConnectionsPageData(context).catch(() => null),
     dependencies.countActiveAskOpzavaTurns(context).catch(() => 0),
-    dependencies.checkDatabaseHealth().catch(() => false),
   ]);
 
   const tasks = tasksResult.ok ? tasksResult.value : [];
   const issues = issuesResult?.ok === true ? issuesResult.value : [];
   const gatewayReachable = gatewayReachableFromConnectionsPageData(connectionsResult);
   const connections = connectionsNavStateFromPageData(connectionsResult);
+  const openclawHealth =
+    connectionsResult?.ok === true ? connectionsResult.value.snapshot.openclawHealth : null;
+  const healthSummary =
+    openclawHealth === null
+      ? {
+          total: 0,
+          healthy: 0,
+          attention: 0,
+          notChecked: 0,
+          percent: null,
+          status: "unknown" as const,
+        }
+      : openclawHealthSummary(openclawHealth);
 
   return {
     nav: {
@@ -343,7 +344,8 @@ export async function loadAdminShellState(
       connections,
     },
     health: shellHealthView({
-      databaseReachable,
+      summary: healthSummary,
+      checkedAt: openclawHealth?.checkedAt ?? null,
       gatewayReachable,
     }),
     commandItems: buildCommandPaletteItems({

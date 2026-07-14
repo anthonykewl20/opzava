@@ -12,6 +12,7 @@ import {
   type ModelSummary,
   type ModelProviderAuthChoice,
   type ModelProviderCatalogEntry,
+  type OpenClawHealth,
   type OrchestratorDelegationState,
   type ProviderAuthHealth,
   type ProviderCategory,
@@ -19,15 +20,24 @@ import {
   type ProviderTier,
 } from "@opzava/ports";
 
-export interface ConnectionHealthSummary {
+export type OpenClawHealthRollupStatus = "healthy" | "attention" | "unknown";
+
+export interface OpenClawHealthSummary {
   readonly total: number;
+  readonly healthy: number;
+  readonly attention: number;
+  readonly notChecked: number;
+  /** Healthy percentage across probed components only; null means nothing was probed. */
+  readonly percent: number | null;
+  readonly status: OpenClawHealthRollupStatus;
+}
+
+export interface ProviderConnectionSummary {
+  readonly total: number;
+  readonly available: number;
   readonly connected: number;
   readonly needsAttention: number;
   readonly pending: number;
-}
-
-export interface ProviderConnectionSummary extends ConnectionHealthSummary {
-  readonly available: number;
   readonly notConnected: number;
 }
 
@@ -134,18 +144,23 @@ export function preferredAuthChoice(
   );
 }
 
-export function connectionHealthSummary(snapshot: ConnectionsSnapshot): ConnectionHealthSummary {
-  const statuses: ConnectionStatus[] = [
-    ...projectModelProviders(snapshot).map((provider) => provider.status),
-    snapshot.github.status,
-    snapshot.gateway.status === "active" ? "connected" : "needs_attention",
-  ];
+export function openclawHealthSummary(health: OpenClawHealth): OpenClawHealthSummary {
+  const healthy = health.components.filter((component) => component.status === "healthy").length;
+  const attention = health.components.filter(
+    (component) => component.status === "attention",
+  ).length;
+  const notChecked = health.components.filter(
+    (component) => component.status === "not_checked",
+  ).length;
+  const probed = healthy + attention;
 
   return {
-    total: statuses.length,
-    connected: statuses.filter((status) => status === "connected").length,
-    needsAttention: statuses.filter((status) => status === "needs_attention").length,
-    pending: statuses.filter((status) => status === "pending").length,
+    total: health.components.length,
+    healthy,
+    attention,
+    notChecked,
+    percent: probed === 0 ? null : Math.round((healthy / probed) * 100),
+    status: attention > 0 ? "attention" : notChecked > 0 || probed === 0 ? "unknown" : "healthy",
   };
 }
 

@@ -23,11 +23,11 @@ import {
 } from "../lib/connections";
 import {
   authBranchForChoice,
-  connectionHealthSummary,
   deviceFlowPollSchedule,
   deviceFlowReducer,
   groupProviderConnectionsByTier,
   isTerminalDeviceFlowStatus,
+  openclawHealthSummary,
   providerConnectionSummary,
   projectModelProviders,
 } from "../lib/connections-state";
@@ -690,12 +690,50 @@ describe("Connections page state", () => {
     });
   });
 
-  it("counts curated parent providers in overall connection health", () => {
-    expect(connectionHealthSummary(snapshot())).toEqual({
-      total: 9,
-      connected: 3,
-      needsAttention: 0,
-      pending: 0,
+  it("rolls up only OpenClaw components and excludes unprobed components from percent", () => {
+    const component = (
+      id: string,
+      status: ConnectionsSnapshot["openclawHealth"]["components"][number]["status"],
+    ): ConnectionsSnapshot["openclawHealth"]["components"][number] => ({
+      id,
+      kind: "gateway",
+      label: id,
+      status,
+      detail: null,
+      lastCheckedAt: "2026-07-03T00:00:00.000Z",
+    });
+
+    expect(openclawHealthSummary(snapshot().openclawHealth)).toEqual({
+      total: 0,
+      healthy: 0,
+      attention: 0,
+      notChecked: 0,
+      percent: null,
+      status: "unknown",
+    });
+    expect(
+      openclawHealthSummary({
+        ...snapshot().openclawHealth,
+        components: [component("agent", "not_checked")],
+      }),
+    ).toMatchObject({ total: 1, notChecked: 1, percent: null, status: "unknown" });
+    expect(
+      openclawHealthSummary({
+        ...snapshot().openclawHealth,
+        components: [
+          component("gateway", "healthy"),
+          component("plugins", "healthy"),
+          component("channel", "attention"),
+          component("agent", "not_checked"),
+        ],
+      }),
+    ).toEqual({
+      total: 4,
+      healthy: 2,
+      attention: 1,
+      notChecked: 1,
+      percent: 67,
+      status: "attention",
     });
   });
 
@@ -920,6 +958,9 @@ describe("Connections page state", () => {
     const healthCheckButton = await readRepoFile("components/connections/health-check-submit.tsx");
     const providersPanel = await readRepoFile("components/connections/model-providers-panel.tsx");
     const skeleton = await readRepoFile("components/ui/skeleton.tsx");
+    const appLayout = await readRepoFile("app/(app)/layout.tsx");
+    const connectionsLib = await readRepoFile("lib/connections.ts");
+    const shellState = await readRepoFile("lib/shell-state.ts");
     const route = await readRepoFile("app/api/connections/device-flow/route.ts");
     const nav = await readRepoFile("components/shell/admin-nav.tsx");
     const componentsCss = await readRepoFile("app/styles/components.css");
@@ -933,7 +974,16 @@ describe("Connections page state", () => {
     expect(focusDetailHeading).toContain("usePathname");
     expect(focusDetailHeading).toContain("[data-connections-detail] h1");
     expect(focusDetailHeading).toContain("preventScroll: false");
-    expect(pageData).toContain("loadConnectionsPageData(context)");
+    expect(pageData).toContain("loadConnectionsPageDataForRequest(context)");
+    expect(shellState).toContain("loadConnectionsPageData: loadConnectionsPageDataForRequest");
+    expect(shellState).not.toContain("checkDatabaseHealth");
+    expect(connectionsLib).toContain("const loadConnectionsPageDataByStablePrincipal = cache(");
+    expect(connectionsLib).toContain("context.orgId");
+    expect(connectionsLib).toContain("context.workspaceId");
+    expect(appLayout).toContain('href="/connections"');
+    expect(appLayout).toContain("data-health-status={state.status}");
+    expect(appLayout).toContain("data-health-attention-count={state.attentionCount}");
+    expect(appLayout).toContain('data-health-checked-at={state.checkedAt ?? ""}');
     expect(pageData).toContain('redirect("/login")');
     expect(pageData).toContain('redirect("/")');
     expect(providersPanel).toContain("Model providers");
@@ -1015,9 +1065,9 @@ describe("Connections page state", () => {
     expect(providersPanel).not.toContain("table table-compact table-cards");
     expect(providersPanel).toContain("LLM model providers the gateway can route to");
     expect(providersPanel).not.toContain("connections-provider-list");
-    expect(page).toContain("data.health.connected");
-    expect(page).toContain("data.health.total");
-    expect(page).toContain("connections healthy");
+    expect(page).toContain("openclawHealthSummary(data.snapshot.openclawHealth)");
+    expect(page).toContain("health.healthy");
+    expect(page).toContain("checked components healthy");
     expect(page).toContain('aria-label="Platform connections"');
     expect(page).toContain("No third-party integrations connected");
     expect(page).toContain("Add GitHub or another supported integration");

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AdminNav } from "@/components/shell/admin-nav";
@@ -18,10 +19,18 @@ export const dynamic = "force-dynamic";
 
 function HealthPill({ state }: { readonly state: ShellHealthState }) {
   return (
-    <div className="health-pill" aria-label={state.ariaLabel} title={state.ariaLabel}>
+    <Link
+      href="/connections"
+      className="health-pill"
+      aria-label={state.ariaLabel}
+      title={state.ariaLabel}
+      data-health-status={state.status}
+      data-health-attention-count={state.attentionCount}
+      data-health-checked-at={state.checkedAt ?? ""}
+    >
       <span className={state.dotClassName} aria-hidden="true" />
       {state.text}
-    </div>
+    </Link>
   );
 }
 

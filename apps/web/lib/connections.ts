@@ -15,14 +15,13 @@ import type {
   SetupTokenFlowStart,
 } from "@opzava/ports";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
+import { cache } from "react";
 
 import {
   connectedProviderIds,
-  connectionHealthSummary,
   githubConnectionSummary,
   providerConnectionSummary,
   projectProviderConnections,
-  type ConnectionHealthSummary,
   type ProviderConnectionSummary,
   type ProviderConnectionView,
 } from "@/lib/connections-state";
@@ -30,7 +29,6 @@ import type { AppSessionContext } from "@/lib/session";
 
 export interface ConnectionsPageData {
   readonly snapshot: ConnectionsSnapshot;
-  readonly health: ConnectionHealthSummary;
   readonly providerSummary: ProviderConnectionSummary;
   readonly providers: readonly ProviderConnectionView[];
   readonly githubSummary: string;
@@ -507,13 +505,11 @@ export function defaultConnectionsDependencies(): ConnectionsDependencies {
   };
 }
 
-export async function loadConnectionsPageData(
-  context: AppSessionContext,
-  dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
+async function loadConnectionsPageDataForPrincipal(
+  principal: ConnectionProvisioningPrincipal,
+  dependencies: ConnectionsDependencies,
 ): Promise<Result<ConnectionsPageData>> {
-  const snapshot = await dependencies.provisioningPort.getConnectionsSnapshot(
-    principalFromContext(context),
-  );
+  const snapshot = await dependencies.provisioningPort.getConnectionsSnapshot(principal);
   if (!snapshot.ok) {
     const code = errorCode(snapshot.error);
     if (
@@ -528,7 +524,6 @@ export async function loadConnectionsPageData(
       const providerSummary = providerConnectionSummary(fallback);
       return ok({
         snapshot: fallback,
-        health: connectionHealthSummary(fallback),
         providerSummary,
         providers,
         githubSummary: githubConnectionSummary(fallback.github),
@@ -543,12 +538,54 @@ export async function loadConnectionsPageData(
   const providerSummary = providerConnectionSummary(snapshot.value);
   return ok({
     snapshot: snapshot.value,
-    health: connectionHealthSummary(snapshot.value),
     providerSummary,
     providers,
     githubSummary: githubConnectionSummary(snapshot.value.github),
     provisioningAvailable: snapshot.value.gateway.status === "active",
   });
+}
+
+export function loadConnectionsPageData(
+  context: AppSessionContext,
+  dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
+): Promise<Result<ConnectionsPageData>> {
+  return loadConnectionsPageDataForPrincipal(principalFromContext(context), dependencies);
+}
+
+const loadConnectionsPageDataByStablePrincipal = cache(
+  async (
+    orgId: string,
+    workspaceId: string,
+    actorUserId: string,
+    roleKeysJson: string,
+  ): Promise<Result<ConnectionsPageData>> => {
+    const roleKeys = JSON.parse(roleKeysJson) as string[];
+    return loadConnectionsPageDataForPrincipal(
+      {
+        orgId,
+        workspaceId,
+        actorUserId,
+        roleKeys,
+      },
+      defaultConnectionsDependencies(),
+    );
+  },
+);
+
+/**
+ * React request memoization keeps the layout pill and page hero on one snapshot without
+ * retaining tenant data across requests. Primitive inputs make independently loaded session
+ * context objects converge on the same request-local cache key.
+ */
+export function loadConnectionsPageDataForRequest(
+  context: AppSessionContext,
+): Promise<Result<ConnectionsPageData>> {
+  return loadConnectionsPageDataByStablePrincipal(
+    context.orgId,
+    context.workspaceId,
+    context.user.id,
+    JSON.stringify([...context.roleKeys].sort()),
+  );
 }
 
 export async function refreshConnectionsPageData(
@@ -563,7 +600,6 @@ export async function refreshConnectionsPageData(
   const providers = projectProviderConnections(snapshot.value);
   return ok({
     snapshot: snapshot.value,
-    health: connectionHealthSummary(snapshot.value),
     providerSummary: providerConnectionSummary(snapshot.value),
     providers,
     githubSummary: githubConnectionSummary(snapshot.value.github),

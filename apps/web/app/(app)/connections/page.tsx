@@ -11,6 +11,7 @@ import {
   relativeTime,
   requireConnectionsPageData,
 } from "@/app/(app)/connections/_lib/page-data";
+import { openclawHealthSummary } from "@/lib/connections-state";
 
 interface ConnectionsPageProps {
   readonly searchParams?: Promise<{
@@ -27,6 +28,7 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
     ? `Heartbeat ${relativeTime(data.snapshot.gateway.lastHeartbeatAt)}`
     : gatewayUnavailableCopy(data.snapshot.gateway);
   const githubConnected = data.snapshot.github.status === "connected";
+  const health = openclawHealthSummary(data.snapshot.openclawHealth);
 
   return (
     <>
@@ -48,11 +50,11 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
               Overview
             </h2>
             <p className="page-sub">
-              {data.health.connected} of {data.health.total} connections healthy
-              {data.health.needsAttention > 0
-                ? `, ${data.health.needsAttention} need attention`
-                : ""}
-              {data.health.pending > 0 ? `, ${data.health.pending} pending` : ""}.
+              {health.percent === null
+                ? "OpenClaw health not checked"
+                : `${health.healthy} of ${health.healthy + health.attention} checked components healthy`}
+              {health.attention > 0 ? `, ${health.attention} need attention` : ""}
+              {health.notChecked > 0 ? `, ${health.notChecked} not checked` : ""}.
             </p>
           </div>
         </div>

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { loadConnectionsPageData, type ConnectionsPageData } from "@/lib/connections";
+import { loadConnectionsPageDataForRequest, type ConnectionsPageData } from "@/lib/connections";
 import { getAppSessionContext } from "@/lib/session";
 
 export async function requireConnectionsPageData(): Promise<ConnectionsPageData> {
@@ -9,7 +9,7 @@ export async function requireConnectionsPageData(): Promise<ConnectionsPageData>
     redirect("/login");
   }
 
-  const result = await loadConnectionsPageData(context);
+  const result = await loadConnectionsPageDataForRequest(context);
   if (!result.ok) {
     if (
       errorCode(result.error) === "projectManagement.forbidden" ||
@@ -96,7 +96,9 @@ export function gatewayOutageKind(
   return Number.isNaN(ageMs) || ageMs < 10 * 60_000 ? "transient" : "persistent";
 }
 
-export function gatewayUnavailableCopy(gateway: ConnectionsPageData["snapshot"]["gateway"]): string {
+export function gatewayUnavailableCopy(
+  gateway: ConnectionsPageData["snapshot"]["gateway"],
+): string {
   return gatewayOutageKind(gateway) === "transient"
     ? "Gateway unavailable - retrying automatically. The backend reconnect loop is still running."
     : "Gateway unavailable - still retrying automatically. Check provisioning worker health if this persists.";

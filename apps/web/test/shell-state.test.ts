@@ -4,7 +4,7 @@ import { ok } from "@opzava/shared-kernel";
 import { describe, expect, it } from "vitest";
 
 import type { ConnectionsPageData } from "../lib/connections";
-import { providerConnectionSummary } from "../lib/connections-state";
+import { openclawHealthSummary, providerConnectionSummary } from "../lib/connections-state";
 import {
   buildCommandPaletteItems,
   loadAdminShellState,
@@ -81,7 +81,16 @@ function snapshot(overrides: Partial<ConnectionsSnapshot> = {}): ConnectionsSnap
       message: null,
     },
     openclawHealth: {
-      components: [],
+      components: [
+        {
+          id: "gateway",
+          kind: "gateway",
+          label: "Gateway",
+          status: "healthy",
+          detail: null,
+          lastCheckedAt: "2026-07-03T00:00:00.000Z",
+        },
+      ],
       warnings: [],
       runtime: { version: null, uptimeMs: null, hostUptimeMs: null, updateAvailable: null },
       sessions: { count: null, recent: [] },
@@ -123,12 +132,6 @@ function connectionsPageData(current: ConnectionsSnapshot): ConnectionsPageData 
 
   return {
     snapshot: current,
-    health: {
-      total: 1,
-      connected: 1,
-      needsAttention: 0,
-      pending: 0,
-    },
     providerSummary,
     providers: [],
     githubSummary: "GitHub",
@@ -144,27 +147,109 @@ describe("Admin shell state", () => {
     );
   });
 
-  it("maps real health checks into the shell pill states", () => {
-    expect(shellHealthView({ databaseReachable: true, gatewayReachable: true })).toMatchObject({
+  it("maps the canonical OpenClaw rollup into the shell pill states", () => {
+    expect(
+      shellHealthView({
+        summary: {
+          total: 1,
+          healthy: 1,
+          attention: 0,
+          notChecked: 0,
+          percent: 100,
+          status: "healthy",
+        },
+        checkedAt: "2026-07-03T00:00:00.000Z",
+        gatewayReachable: true,
+      }),
+    ).toMatchObject({
       status: "healthy",
       text: "All systems healthy",
       dotClassName: "dot dot-success",
     });
-    expect(shellHealthView({ databaseReachable: true, gatewayReachable: false })).toMatchObject({
-      status: "degraded",
-      text: "Systems degraded",
+    expect(
+      shellHealthView({
+        summary: {
+          total: 3,
+          healthy: 1,
+          attention: 1,
+          notChecked: 1,
+          percent: 50,
+          status: "attention",
+        },
+        checkedAt: "2026-07-03T00:00:00.000Z",
+        gatewayReachable: true,
+      }),
+    ).toMatchObject({
+      status: "attention",
+      text: "1 needs attention",
       dotClassName: "dot dot-warning",
     });
-    expect(shellHealthView({ databaseReachable: true, gatewayReachable: null })).toMatchObject({
+    expect(
+      shellHealthView({
+        summary: {
+          total: 4,
+          healthy: 1,
+          attention: 2,
+          notChecked: 1,
+          percent: 33,
+          status: "attention",
+        },
+        checkedAt: "2026-07-03T00:00:00.000Z",
+        gatewayReachable: true,
+      }),
+    ).toMatchObject({ text: "2 need attention" });
+    expect(
+      shellHealthView({
+        summary: {
+          total: 1,
+          healthy: 0,
+          attention: 0,
+          notChecked: 1,
+          percent: null,
+          status: "unknown",
+        },
+        checkedAt: null,
+        gatewayReachable: null,
+      }),
+    ).toMatchObject({
       status: "unknown",
       text: "Health unknown",
       dotClassName: "dot",
     });
-    expect(shellHealthView({ databaseReachable: null, gatewayReachable: null })).toMatchObject({
-      status: "unknown",
-      text: "Health unknown",
-      dotClassName: "dot",
+  });
+
+  it("keeps hero and shell presentation in agreement for one OpenClaw health DTO", () => {
+    const health = {
+      ...snapshot().openclawHealth,
+      checkedAt: "2026-07-03T00:00:00.000Z",
+      components: [
+        {
+          id: "gateway",
+          kind: "gateway" as const,
+          label: "Gateway",
+          status: "healthy" as const,
+          detail: null,
+          lastCheckedAt: "2026-07-03T00:00:00.000Z",
+        },
+        {
+          id: "channel.github",
+          kind: "channel" as const,
+          label: "GitHub",
+          status: "attention" as const,
+          detail: "Disconnected",
+          lastCheckedAt: "2026-07-03T00:00:00.000Z",
+        },
+      ],
+    };
+    const heroSummary = openclawHealthSummary(health);
+    const pill = shellHealthView({
+      summary: openclawHealthSummary(health),
+      checkedAt: health.checkedAt,
+      gatewayReachable: true,
     });
+
+    expect(heroSummary).toMatchObject({ status: "attention", attention: 1, percent: 50 });
+    expect(pill).toMatchObject({ status: heroSummary.status, text: "1 needs attention" });
   });
 
   it("builds command palette entries from nav routes, task titles, and issue titles", () => {
@@ -221,7 +306,6 @@ describe("Admin shell state", () => {
           ),
         ),
       countActiveAskOpzavaTurns: async () => 1,
-      checkDatabaseHealth: async () => true,
       checkGatewayHealth: async () => false,
     };
 
@@ -261,16 +345,28 @@ describe("Admin shell state", () => {
                 lastHeartbeatAt: null,
                 message: "Operator RPC unavailable.",
               },
+              openclawHealth: {
+                ...current.openclawHealth,
+                components: [
+                  {
+                    id: "gateway",
+                    kind: "gateway",
+                    label: "Gateway",
+                    status: "attention",
+                    detail: "Operator RPC unavailable.",
+                    lastCheckedAt: "2026-07-03T00:00:00.000Z",
+                  },
+                ],
+              },
             }),
           ),
         ),
       countActiveAskOpzavaTurns: async () => 0,
-      checkDatabaseHealth: async () => true,
     } satisfies AdminShellStateDependencies;
 
     const state = await loadAdminShellState(context(), dependencies);
 
-    expect(state.health.status).toBe("degraded");
+    expect(state.health.status).toBe("attention");
     expect(state.health.gatewayReachable).toBe(false);
   });
 
@@ -329,7 +425,6 @@ describe("Admin shell state", () => {
           ),
         ),
       countActiveAskOpzavaTurns: async () => 0,
-      checkDatabaseHealth: async () => true,
     } satisfies AdminShellStateDependencies;
 
     const state = await loadAdminShellState(context(), dependencies);
@@ -350,12 +445,11 @@ describe("Admin shell state", () => {
         throw new Error("connections unavailable");
       },
       countActiveAskOpzavaTurns: async () => 0,
-      checkDatabaseHealth: async () => true,
     } satisfies AdminShellStateDependencies;
 
     const state = await loadAdminShellState(context(), dependencies);
 
-    expect(state.health.status).toBe("degraded");
+    expect(state.health.status).toBe("unknown");
     expect(state.health.gatewayReachable).toBe(false);
     expect(state.nav.connections).toEqual({
       gatewayActive: false,
@@ -365,19 +459,17 @@ describe("Admin shell state", () => {
     });
   });
 
-  it("degrades shell health when the database is unreachable", async () => {
+  it("does not mix database reachability into the OpenClaw health pill", async () => {
     const dependencies = {
       listTasks: async () => ok([]),
       listIssueProjections: async () => ok([]),
       loadConnectionsPageData: async () => ok(connectionsPageData(snapshot())),
       countActiveAskOpzavaTurns: async () => 0,
-      checkDatabaseHealth: async () => false,
     } satisfies AdminShellStateDependencies;
 
     const state = await loadAdminShellState(context(), dependencies);
 
-    expect(state.health.status).toBe("degraded");
-    expect(state.health.databaseReachable).toBe(false);
+    expect(state.health.status).toBe("healthy");
     expect(state.health.gatewayReachable).toBe(true);
   });
 });
