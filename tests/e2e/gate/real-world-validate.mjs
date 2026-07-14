@@ -34,7 +34,8 @@ const STORM_THRESHOLD = posInt("REAL_STORM_THRESHOLD", 5);
 const OUT = process.argv[2] ?? `real-validate-artifacts/${new Date().toISOString().replaceAll(":", "-")}`;
 mkdirSync(OUT, { recursive: true });
 
-const SEED_ROUTES = ["/", "/tasks", "/issues", "/connections", "/ask-opzava",
+const SEED_ROUTES = ["/", "/tasks", "/issues", "/connections", "/connections/system",
+  "/connections/providers", "/connections/github", "/connections/add", "/ask-opzava",
   "/crm/accounts", "/crm/contacts", "/crm/deals", "/crm/tickets"];
 // One-shot init containers that legitimately exit 0.
 const ALLOW_EXITED = new Set(["minio-bucket-init"]);

@@ -33,6 +33,35 @@ node tests/e2e/drives/connections.mjs # or call any script directly, with an opt
 - **Artifacts** (screenshots + `*-report.json`) go to `real-validate-artifacts/<prefix>-<timestamp>/`, which is gitignored. Pass `[outDir]` to pin one.
 - Env overrides: `REAL_BASE`, `REAL_EMAIL`, `REAL_PASSWORD` (and the gate's `REAL_MAX_PASSES`, `REAL_CLEAN_STREAK`, `REAL_STORM_THRESHOLD`; the probe's `SENIORQA_*`).
 
+## Connections Overview real-state matrix
+
+`drives/connections.mjs` never fabricates health or integration data and never mutates the shared
+Gateway or GitHub integration to manufacture a scenario. Prepare the real stack in one state, then
+declare that state explicitly. Missing declarations and observed-state mismatches fail the drive;
+they are not skips. A degraded run also requires the exact positive attention count.
+
+```bash
+REAL_CONNECTIONS_HEALTH=healthy REAL_CONNECTIONS_INTEGRATIONS=empty \
+  node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-healthy-empty
+REAL_CONNECTIONS_HEALTH=healthy REAL_CONNECTIONS_INTEGRATIONS=connected \
+  node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-healthy-connected
+REAL_CONNECTIONS_HEALTH=degraded REAL_CONNECTIONS_ATTENTION=1 REAL_CONNECTIONS_INTEGRATIONS=empty \
+  node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-degraded-empty
+REAL_CONNECTIONS_HEALTH=degraded REAL_CONNECTIONS_ATTENTION=1 REAL_CONNECTIONS_INTEGRATIONS=connected \
+  node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-degraded-connected
+REAL_CONNECTIONS_HEALTH=unreachable REAL_CONNECTIONS_INTEGRATIONS=empty \
+  node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-unreachable-empty
+REAL_CONNECTIONS_HEALTH=unreachable REAL_CONNECTIONS_INTEGRATIONS=connected \
+  node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-unreachable-connected
+```
+
+Set optional `REAL_CONNECTIONS_MAX_LOAD_MS` to a positive number to enforce an explicit
+per-navigation SLO. Timings are recorded even when no SLO is configured. Each successful run writes
+matched 1440x960 light/dark live and static-mockup screenshots plus
+`connections-report.json` to its output directory. The three health states require three genuinely
+prepared real environments or three separate preparations; one ambient run does not cover the
+matrix.
+
 These scripts used to sit loose in the repo root as `*.local.mjs`. Docs frozen before 2026-07-14
 (`docs/plan/consensus/`, `docs/plan/audits/`) still cite those old paths; the mapping is
 `<name>.local.mjs` → this directory.
