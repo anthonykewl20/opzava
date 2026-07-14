@@ -35,7 +35,6 @@ export interface AdminNavState {
   readonly askOpzavaActive: boolean;
   readonly connectionsConnected: boolean;
   readonly connections: {
-    readonly gatewayActive: boolean;
     readonly providersConnected: number;
     readonly providersTotal: number;
     readonly githubConnected: boolean;
@@ -236,7 +235,6 @@ function connectionsNavStateFromPageData(
 ): AdminNavState["connections"] {
   if (result?.ok !== true) {
     return {
-      gatewayActive: false,
       providersConnected: 0,
       providersTotal: 0,
       githubConnected: false,
@@ -244,7 +242,6 @@ function connectionsNavStateFromPageData(
   }
 
   return {
-    gatewayActive: result.value.snapshot.gateway.status === "active",
     providersConnected: result.value.providerSummary.connected,
     providersTotal: result.value.providerSummary.total,
     githubConnected: result.value.snapshot.github.status === "connected",

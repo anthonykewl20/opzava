@@ -317,7 +317,6 @@ describe("Admin shell state", () => {
       askOpzavaActive: true,
       connectionsConnected: true,
       connections: {
-        gatewayActive: true,
         providersConnected: 0,
         providersTotal: 0,
         githubConnected: false,
@@ -430,7 +429,6 @@ describe("Admin shell state", () => {
     const state = await loadAdminShellState(context(), dependencies);
 
     expect(state.nav.connections).toEqual({
-      gatewayActive: true,
       providersConnected: 1,
       providersTotal: 2,
       githubConnected: true,
@@ -452,7 +450,6 @@ describe("Admin shell state", () => {
     expect(state.health.status).toBe("unknown");
     expect(state.health.gatewayReachable).toBe(false);
     expect(state.nav.connections).toEqual({
-      gatewayActive: false,
       providersConnected: 0,
       providersTotal: 0,
       githubConnected: false,

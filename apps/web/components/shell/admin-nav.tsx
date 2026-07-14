@@ -11,7 +11,6 @@ interface AdminNavState {
   readonly askOpzavaActive: boolean;
   readonly connectionsConnected: boolean;
   readonly connections: {
-    readonly gatewayActive: boolean;
     readonly providersConnected: number;
     readonly providersTotal: number;
     readonly githubConnected: boolean;
@@ -40,7 +39,6 @@ type IconName =
   | "deals"
   | "tickets"
   | "connections"
-  | "gateway"
   | "providers"
   | "github"
   | "add";
@@ -152,16 +150,6 @@ function NavIcon({ icon }: { readonly icon: IconName }) {
       <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
         <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.5" />
         <path d="M9 5.5v5l3 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    );
-  }
-
-  if (icon === "gateway") {
-    return (
-      <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-        <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M2.5 9h13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        <ellipse cx="9" cy="9" rx="3.1" ry="6.5" stroke="currentColor" strokeWidth="1.5" />
       </svg>
     );
   }
@@ -294,20 +282,12 @@ function ConnectionsRailGroup({
     }
   }, [inConnections]);
 
+  const activeHref = connectionRailActiveHref(pathname);
+
   const subItems: readonly NavItem[] = [
     { label: "Overview", href: "/connections", icon: "overview" },
     {
-      label: "Gateway",
-      href: "/connections/gateway",
-      icon: "gateway",
-      status: connections.gatewayActive ? "success" : "warning",
-      statusLabel: connections.gatewayActive ? "Gateway active" : "Gateway unavailable",
-    },
-    {
-      // "Model Providers" in full cannot fit the 232px rail alongside its icon and
-      // a 5-char count ("12/29"); under the Connections header "Providers" is
-      // unambiguous. The route and its page heading stay "Model Providers".
-      label: "Providers",
+      label: "Model Providers",
       href: "/connections/providers",
       icon: "providers",
       count: `${connections.providersConnected}/${connections.providersTotal}`,
@@ -349,7 +329,7 @@ function ConnectionsRailGroup({
       {expanded ? (
         <div id="connections-rail-subtree" className="rail-subitems">
           {subItems.map((item) => {
-            const active = pathname === item.href;
+            const active = activeHref === item.href;
             return (
               <a
                 key={item.href}
@@ -440,6 +420,7 @@ export function AdminNav({ state }: { readonly state: AdminNavState }) {
         ))}
 
         <RailSection label="CRM" items={crmItems} pathname={pathname} />
+        <div className="section-label nav-section-gap">Automate</div>
         <ConnectionsRailGroup
           connectionsConnected={state.connectionsConnected}
           connections={state.connections}
@@ -452,4 +433,24 @@ export function AdminNav({ state }: { readonly state: AdminNavState }) {
       </div>
     </aside>
   );
+}
+
+export function connectionRailActiveHref(pathname: string): string | null {
+  if (
+    pathname === "/connections" ||
+    pathname === "/connections/system" ||
+    pathname.startsWith("/connections/system/")
+  ) {
+    return "/connections";
+  }
+
+  for (const href of [
+    "/connections/providers",
+    "/connections/github",
+    "/connections/add",
+  ] as const) {
+    if (pathname === href || pathname.startsWith(`${href}/`)) return href;
+  }
+
+  return null;
 }

@@ -1,64 +1,107 @@
-# Connections IA Redesign - locked design
+# Connections IA Redesign - implemented
 
-Status: design locked (grilling, 2026-07-12). Not yet built.
-Governs the UI/IA of the Connections surface specified functionally by `docs/prd/PRD-013-connections-tools.md`.
-This is an information-architecture + navigation refactor of the existing page; it does not change PRD-013 behavior, ports, worker, or APIs.
+Status: current and implemented (2026-07-14).
 
-## Problem
+This document records the shipped information architecture for Connections. The live health contract
+and Overview layout are governed by `docs/plan/connections-overview-health.md`; this document owns
+the route and navigation model around those surfaces.
 
-`/connections` stacks three unlike domains plus summary tiles on one scroll:
-gateway health, a 27-provider model-providers panel (4 tier tabs), and GitHub - all competing for attention at once.
-It violates Hick's Law and Nielsen H8 (minimalist design) and does not scale to the future 3rd-party integrations it must host.
-Goal: one focus at a time, clear segregation of which connection is which, and a structure that scales as integrations grow.
+## Problem resolved
 
-Evidence: real logged-in screenshot of the current page captured 2026-07-12 (owner login, dark theme) confirms three domains + two stat tiles + footer on a single surface.
+The original `/connections` page stacked gateway diagnostics, a large model-provider panel, and
+GitHub management into one scroll. It mixed platform substrate with manageable connections and made
+each domain compete for attention. The current master/detail structure keeps the global rail as the
+master and gives each connection a focused, deep-linkable detail surface.
 
-## Decisions (locked)
+## Current rail
 
-1. **Pattern** - rail-as-master + full-width detail. A master/detail model, with the master promoted into the global rail (no second sidebar).
-2. **Navigation** - the global rail `Connections` entry (under Automate) is an expand/collapse toggle revealing sub-items:
-   ```
-   Connections            (toggle)
-     Overview             -> /connections
-     Gateway              -> /connections/gateway
-     Model Providers 2/27 -> /connections/providers
-     [connected integrations, e.g. GitHub once connected]
-     + Add integration    -> /connections/add
-   ```
-   - Sub-items carry live status (dot / count), mirroring today's green connected dot.
-   - `Overview` is an explicit sub-item (not the parent label).
-3. **Routing** - one sub-route per connection under `/connections/*`. Deep-linkable, back/forward and refresh stable. Post-action `?notice=`/`provider=` redirects target the specific sub-route.
-4. **Default landing** - bare `/connections` renders the **Overview** home in the full-width content area: a compact per-connection status summary (absorbs the two former top-of-page stat tiles) plus jump-in links. The standalone stat tiles are removed.
-5. **List granularity** - one row per domain. Model Providers is a single row; its 27 providers and 4 tier tabs stay inside its detail pane, never in the list.
-6. **Integrations model** - the list shows only connected connections. `+ Add integration` opens a catalog of available integrations to connect; a newly connected integration becomes its own rail sub-item + `/connections/<slug>` detail. Disconnecting returns it to the catalog. Keeps the list short as integrations multiply.
-7. **Catalog scope** - the catalog lists only integrations that actually work (today: GitHub). No "coming soon" vaporware / non-functional cards.
+`Connections` is a normal title-case disclosure item under the `AUTOMATE` section. Expanding it
+shows:
 
-## Detail routes (each shows ONE connection, full width)
+```text
+Connections
+  Overview                  -> /connections
+  Model Providers N/M       -> /connections/providers
+  [connected integrations]  -> /connections/<slug>
+  Add integration           -> /connections/add
+```
 
-- **Overview** (`/connections`) - compact status summary of every connection + jump-in links. No standalone stat tiles.
-- **Gateway** (`/connections/gateway`) - read-only status/auth/catalog/heartbeat/hosts + Run health check. Platform infra: not disconnectable, no connect action.
-- **Model Providers** (`/connections/providers`) - the existing `ModelProvidersPanel` unchanged (tier tabs, search, table, connect/manage/disconnect/set-main).
-- **Integration detail** (e.g. `/connections/github`) - status/repo/account/scopes + connect/reconnect/disconnect. Appears in the rail only while connected.
-- **Add** (`/connections/add`) - catalog of real integrations (GitHub today). Connect -> becomes a rail sub-item + its own route.
+- `Overview` is the active rail item for both `/connections` and `/connections/system`.
+- `Model Providers` is rendered in full and carries the live connected/total count.
+- Connected integrations such as GitHub appear only while connected.
+- `Add integration` lists only integrations that actually work; it contains no coming-soon
+  placeholders.
+- `System status` is deliberately absent from the rail. It is a diagnostic drill-down from the
+  Overview, not a manageable connection.
+- `Gateway` is absent from the rail.
 
-## Scope
+The disclosure header never claims `aria-current`; exactly one visible destination does. Nested rows
+remain compact on desktop and retain a 44px minimum touch target on narrow screens.
 
-- Pure frontend/routing refactor. Reuse `loadConnectionsPageData`, existing server actions (`refreshConnectionsAction`, `startGitHubDeviceFlowAction`, `disconnectGitHubAction`, `applyOrchestratorRolesAction`), the `/api/connections/*` routes, and existing components. No `packages/ports`, provisioning-worker, or API changes.
-- Each sub-route renders only its slice of the one `ConnectionsSnapshot`.
+## Current routes and scopes
 
-## Out of scope (recorded, not building now)
+### Overview - `/connections`
 
-- Further simplifying the Model Providers panel internals (4 tier tabs / 27 rows). It is now isolated to its own focused route; revisit only if it still feels dense in use. Separate follow-up.
+The Overview has two panels: the OpenClaw system-health summary and a three-card inventory grid for
+Opzava Gateway, Model Providers, and Third-Party Integrations. It shows the shape of a problem and
+links to the focused surface that can answer it. It does not duplicate component cards, sessions, or
+runtime diagnostics.
 
-## Non-functional
+### System status - `/connections/system`
 
-- Responsive: existing mobile rail (hamburger drawer) hosts the nesting; detail is full-width. On narrow screens, nav then detail.
-- Every route designs its states: loading (skeleton), empty (e.g. no integrations connected), error (secret-redacted), offline/degraded (worker unavailable snapshot).
-- A11y: `aria-current` on the active sub-item, focus moves to the detail heading on navigation, WCAG 2.2 contrast/target/focus. Light + dark parity.
-- Mockup functional parity (EXECUTION.md directive): every visible element functions live with real data; no dead chrome.
+The diagnostic drill-down reached from Overview. It renders the same request-scoped
+`ConnectionsSnapshot` as the Overview and shell health pill:
 
-## Verification bar
+- OpenClaw components grouped as System Core, Channels, and Agents;
+- warnings kept separate from failed components;
+- sessions restricted to the browser-safe allowlist;
+- gateway detail and runtime facts exposed by the DTO.
 
-- Reuse/extend `tests/e2e/drives/connections.mjs` (real login, real interactions) for the providers route; add drivers for Overview, Gateway, GitHub connect/disconnect, and the Add catalog.
-- Frontend reviewer loop (real browser) during build; mechanical gate for shippable.
-- SeniorQA final gate: `node tests/e2e/gate/real-world-validate.mjs` against `http://web.opzava.localhost:18088`, 2 consecutive clean runs.
+It has no provider/orchestrator management UI and is not represented in the rail.
+
+### Model Providers - `/connections/providers`
+
+The focused provider management surface: provider status, tier/search controls, connect/manage,
+disconnect, model selection, and orchestrator/subagent role labels.
+
+### Integration detail - `/connections/<slug>`
+
+A focused management surface for a real integration, such as GitHub. A connected integration appears
+in the rail; disconnecting returns it to the Add catalog.
+
+### Add integration - `/connections/add`
+
+The catalog of integrations that can actually be connected. GitHub is the only current entry.
+
+### Removed Gateway route
+
+`/connections/gateway` was removed and permanently redirects to `/connections`, preserving old
+bookmarks without maintaining a duplicate diagnostic page. The Overview owns the gateway summary and
+health-check action; `/connections/system` owns detailed health facts.
+
+## Rationale
+
+The Gateway is platform substrate, not a manageable connection: it cannot be connected,
+disconnected, or configured from this UI. Giving it a peer route beside Model Providers and GitHub
+falsely implied otherwise. It also created two health surfaces that could drift and report different
+answers. One Overview summary plus one System drill-down keeps the health rollup and underlying
+facts aligned.
+
+## Non-functional contract
+
+- Every route uses live `ConnectionsSnapshot` facts; no fabricated counts, hosts, paths, or
+  configuration values.
+- `not_checked` remains neutral and visually distinct from a probed failure.
+- Loading, empty, error, and degraded states remain explicit and secret-redacted.
+- Navigation is deep-linkable and refresh/back-forward stable.
+- Focus-visible styling, semantic headings, keyboard-operable disclosures, and mobile touch targets
+  meet the shared shell accessibility contract.
+- The Overview, System page, and shell use the same OpenClaw health rollup.
+
+## Verification
+
+Unit and component tests cover the System status state matrix, warning separation, session privacy,
+exact accordion labels, active rail mapping, and the permanent redirect. Real-login E2E coverage and
+paired screenshots for the Overview scenarios and System detail are owned by #182. The release gate
+remains two consecutive clean runs of `node tests/e2e/gate/real-world-validate.mjs` against the real
+local stack.
