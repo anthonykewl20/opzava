@@ -521,13 +521,26 @@ function authOrder(config: Record<string, unknown>): Record<string, unknown> {
   return recordValue(authConfig(config)["order"]) ?? {};
 }
 
+function canonicalProviderIdentity(providerId: string): string {
+  const normalized = providerId.trim().toLowerCase();
+  return classifyModelProvider(normalized).parentId ?? normalized;
+}
+
+function providerIdentitiesMatch(left: string | null, right: string): boolean {
+  return left !== null && canonicalProviderIdentity(left) === canonicalProviderIdentity(right);
+}
+
 function authOrderEntry(
   config: Record<string, unknown>,
   providerId: string,
 ): { readonly present: boolean; readonly value: unknown } {
-  const entry = Object.entries(authOrder(config)).find(
-    ([candidate]) => candidate.toLowerCase() === providerId.toLowerCase(),
-  );
+  const entries = Object.entries(authOrder(config));
+  // Prefer the catalog provider's exact entry if both canonical and legacy-alias keys exist. The
+  // canonical comparison is only a compatibility fallback for Gateway-written auth identities.
+  const normalizedProviderId = providerId.trim().toLowerCase();
+  const entry =
+    entries.find(([candidate]) => candidate.trim().toLowerCase() === normalizedProviderId) ??
+    entries.find(([candidate]) => providerIdentitiesMatch(candidate, providerId));
   return entry === undefined
     ? { present: false, value: undefined }
     : { present: true, value: entry[1] };
@@ -824,7 +837,7 @@ function providerHasAuthProfile(config: Record<string, unknown>, providerId: str
   return Object.entries(authProfiles(config)).some(
     ([profileId, profile]) =>
       isRecord(profile) &&
-      providerIdFromProfile(profileId, profile)?.toLowerCase() === providerId.toLowerCase(),
+      providerIdentitiesMatch(providerIdFromProfile(profileId, profile), providerId),
   );
 }
 
@@ -1277,7 +1290,8 @@ function firstProfileIdForProvider(
   }
 
   for (const [id, profile] of Object.entries(authProfiles(config))) {
-    if (isRecord(profile) && providerIdFromProfile(id, profile) === providerId) {
+    const profileProviderId = isRecord(profile) ? providerIdFromProfile(id, profile) : null;
+    if (providerIdentitiesMatch(profileProviderId, providerId)) {
       return id;
     }
   }
@@ -2438,7 +2452,7 @@ function configCredentialProfileIdsForProvider(
     .filter(
       ([id, profile]) =>
         isRecord(profile) &&
-        providerIdFromProfile(id, profile) === providerId &&
+        providerIdentitiesMatch(providerIdFromProfile(id, profile), providerId) &&
         profileUsesGatewayCredentialAuth(id, profile),
     )
     .map(([id]) => id);

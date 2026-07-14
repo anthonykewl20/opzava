@@ -29,6 +29,7 @@ const RUNTIME_PARENTS: Readonly<Record<string, { parentId: string; runtimeLabel:
 /** Non-runtime provider ids that are auth/plan variants of a parent (folded, no runtime label). */
 const PROVIDER_PARENT_ALIASES: Readonly<Record<string, string>> = {
   "claude-max-api-proxy": "anthropic",
+  "moonshot-ai": "moonshot",
   "qwen-oauth": "qwen",
   "anthropic-vertex": "anthropic",
   "gemini-vertex": "google",

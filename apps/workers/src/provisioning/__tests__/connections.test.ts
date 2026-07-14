@@ -2526,6 +2526,132 @@ describe("Connections provisioning helpers", () => {
     expect(JSON.stringify(snapshot.value)).not.toContain("private-profile");
   });
 
+  it("honors an explicitly empty aliased auth order instead of raw profile inventory", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        auth: {
+          profiles: {
+            "moonshot:manual": {
+              providerId: "moonshot",
+              authChoiceId: "api-key",
+              model: "moonshot/kimi-k2.6",
+            },
+          },
+          order: { "moonshot-ai": [] },
+        },
+        agents: {
+          defaults: {
+            model: { primary: "moonshot/kimi-k2.6" },
+            models: { "moonshot/kimi-k2.6": {} },
+          },
+        },
+      }),
+      health: ok({ status: "ok" }),
+      "last-heartbeat": ok({}),
+      "models.list": ok({
+        providers: [
+          {
+            id: "moonshot",
+            label: "Moonshot",
+            suggestedModel: "moonshot/kimi-k2.6",
+            authChoices: [],
+          },
+        ],
+      }),
+      "models.authStatus": ok({
+        providers: [{ provider: "moonshot", status: "missing", profiles: [] }],
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({
+        status: {
+          allowed: ["moonshot/kimi-k2.6"],
+          auth: {
+            providers: [
+              {
+                provider: "moonshot",
+                profiles: { count: 1, api_key: 1, labels: ["moonshot:manual=API key"] },
+              },
+            ],
+          },
+        },
+      }),
+    });
+
+    const snapshot = await port.getConnectionsSnapshot(principal());
+
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) throw snapshot.error;
+    expect(
+      snapshot.value.providerConnections.find((candidate) => candidate.providerId === "moonshot"),
+    ).toMatchObject({ providerId: "moonshot", status: "needs_attention" });
+    expect(snapshot.value.orchestrator.orchestratorProviderId).toBeNull();
+    expect(JSON.stringify(snapshot.value)).not.toContain("moonshot:manual");
+  });
+
+  it("matches an aliased config profile to its canonical catalog provider", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        auth: {
+          profiles: {
+            "moonshot-ai:manual": {
+              providerId: "moonshot-ai",
+              authChoiceId: "api-key",
+              mode: "api_key",
+              model: "moonshot/kimi-k2.6",
+            },
+          },
+        },
+        agents: {
+          defaults: {
+            model: { primary: "moonshot/kimi-k2.6" },
+            models: { "moonshot/kimi-k2.6": {} },
+          },
+        },
+      }),
+      health: ok({ status: "ok" }),
+      "last-heartbeat": ok({}),
+      "models.list": ok({
+        providers: [
+          {
+            id: "moonshot",
+            label: "Moonshot",
+            suggestedModel: "moonshot/kimi-k2.6",
+            authChoices: [],
+          },
+        ],
+      }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({
+        statusResult: err(
+          new DomainError({ code: "test.modelStatusUnavailable", message: "unavailable" }),
+        ),
+      }),
+    });
+
+    const snapshot = await port.getConnectionsSnapshot(principal());
+
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) throw snapshot.error;
+    expect(
+      snapshot.value.providerConnections.find((candidate) => candidate.providerId === "moonshot"),
+    ).toMatchObject({
+      providerId: "moonshot",
+      status: "connected",
+      authChoiceId: "api-key",
+      connectedAuthMode: "api_key",
+    });
+    expect(snapshot.value.orchestrator.orchestratorProviderId).toBe("moonshot");
+  });
+
   it("uses CLI api-key profile truth for connected providers and authStatus only for health", async () => {
     const admin: RecordingAdminClient = new RecordingAdminClient({
       "config.get": ok({
