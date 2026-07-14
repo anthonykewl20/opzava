@@ -560,13 +560,6 @@ async function validateProviderPage(page) {
     (await page.getByRole("heading", { name: "Model providers", exact: true }).count()) === 1,
     "providers page heading missing",
   );
-  assertFinding(
-    (await page
-      .getByRole("heading", { name: "Provider connection status", exact: true })
-      .count()) === 1,
-    "provider connection status heading missing",
-  );
-
   const expectation = providerPageExpectation(expectedHealth);
   if (expectation.state === "gateway-unavailable") {
     const providerRowCount = await page.locator("tr[data-provider-id]").count();
@@ -593,6 +586,13 @@ async function validateProviderPage(page) {
     };
     return;
   }
+
+  assertFinding(
+    (await page
+      .getByRole("heading", { name: "Provider connection status", exact: true })
+      .count()) === 1,
+    "provider connection status heading missing",
+  );
 
   assertFinding(
     (await page.getByRole("table", { name: /llm model providers/i }).count()) > 0,
