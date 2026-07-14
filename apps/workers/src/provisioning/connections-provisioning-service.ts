@@ -1954,7 +1954,7 @@ function modelStatusAuthEvidence(input: {
   }
 
   const providerMatches = (value: unknown): boolean =>
-    stringValue(value)?.toLowerCase() === input.providerId.toLowerCase();
+    providerIdentitiesMatch(stringValue(value), input.providerId);
   if (stringArrayValue(auth["missingProvidersInUse"]).some(providerMatches)) {
     return evidence("blocked");
   }
@@ -3367,7 +3367,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       const targetProvider = root["providers"].find(
         (provider) =>
           isRecord(provider) &&
-          (stringValue(provider["provider"]) ?? stringValue(provider["providerId"])) === providerId,
+          providerIdentitiesMatch(
+            stringValue(provider["provider"]) ?? stringValue(provider["providerId"]),
+            providerId,
+          ),
       );
       if (targetProvider !== undefined && providerAuthHealth(targetProvider["status"]) === null) {
         return err(

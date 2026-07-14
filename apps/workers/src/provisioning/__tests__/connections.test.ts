@@ -2528,6 +2528,83 @@ describe("Connections provisioning helpers", () => {
   });
 
   it.each([
+    {
+      case: "an alias in missingProvidersInUse",
+      authEvidence: { missingProvidersInUse: ["moonshotai"] },
+    },
+    {
+      case: "a blocked alias runtime route",
+      authEvidence: {
+        runtimeAuthRoutes: [{ provider: "moonshot-ai", status: "missing" }],
+      },
+    },
+  ])("fails closed for $case instead of raw profile inventory", async ({ authEvidence }) => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        auth: {
+          profiles: {
+            "moonshot:manual": {
+              providerId: "moonshot",
+              authChoiceId: "api-key",
+              model: "moonshot/kimi-k2.6",
+            },
+          },
+          order: { moonshot: ["moonshot:manual"] },
+        },
+        agents: {
+          defaults: {
+            model: { primary: "moonshot/kimi-k2.6" },
+            models: { "moonshot/kimi-k2.6": {} },
+          },
+        },
+      }),
+      health: ok({ status: "ok" }),
+      "last-heartbeat": ok({}),
+      "models.list": ok({
+        providers: [
+          {
+            id: "moonshot",
+            label: "Moonshot",
+            suggestedModel: "moonshot/kimi-k2.6",
+            authChoices: [],
+          },
+        ],
+      }),
+      "models.authStatus": ok({
+        providers: [{ provider: "moonshot", status: "missing", profiles: [] }],
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({
+        status: {
+          allowed: ["moonshot/kimi-k2.6"],
+          auth: {
+            ...authEvidence,
+            providers: [
+              {
+                provider: "moonshot",
+                profiles: { count: 1, api_key: 1, labels: ["moonshot:manual=API key"] },
+              },
+            ],
+          },
+        },
+      }),
+    });
+
+    const snapshot = await port.getConnectionsSnapshot(principal());
+
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) throw snapshot.error;
+    expect(
+      snapshot.value.providerConnections.find((candidate) => candidate.providerId === "moonshot"),
+    ).toMatchObject({ providerId: "moonshot", status: "needs_attention" });
+    expect(snapshot.value.orchestrator.orchestratorProviderId).toBeNull();
+  });
+
+  it.each([
     { case: "empty moonshot-ai alias", order: { "moonshot-ai": [] } },
     { case: "empty moonshotai alias", order: { moonshotai: [] } },
     {
@@ -5921,6 +5998,28 @@ describe("Connections provisioning helpers", () => {
     expect(result.ok ? null : result.error).toMatchObject({
       code: "provisioning.connections.providerPostCheckUnavailable",
       details: { providerId: "openai" },
+    });
+  });
+
+  it("fails closed when an aliased post-check target has a malformed status", async () => {
+    const admin = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "moonshot", removedProfiles: ["moonshotai:external"] }),
+      "config.get": ok({ hash: "config-hash-moonshot", auth: { profiles: {}, order: {} } }),
+      "models.authStatus": ok({ providers: [{ provider: "moonshotai" }] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "moonshot" });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error).toMatchObject({
+      code: "provisioning.connections.providerPostCheckUnavailable",
+      details: { providerId: "moonshot" },
     });
   });
 
