@@ -156,6 +156,49 @@ describe("Connections System status", () => {
     expect(unknownHtml).not.toContain("text-red");
   });
 
+  it("renders arbitrary agents with honest liveness timing instead of Checked not checked", () => {
+    const components: Component[] = [
+      {
+        ...component(
+          "research-worker",
+          "agent",
+          "not_checked",
+          "Schedule configured; no liveness result exposed.",
+        ),
+        lastCheckedAt: null,
+      },
+      {
+        ...component(
+          "qa-agent",
+          "agent",
+          "not_checked",
+          "Schedule configured; no liveness result exposed.",
+        ),
+        lastCheckedAt: null,
+      },
+      {
+        ...component(
+          "release-coordinator",
+          "agent",
+          "not_checked",
+          "Schedule configured; no liveness result exposed.",
+        ),
+        lastCheckedAt: null,
+      },
+    ];
+    const html = render(health({ components, checkedAt: null }));
+
+    expect(html).toContain('data-component-id="research-worker"');
+    expect(html).toContain('data-component-id="qa-agent"');
+    expect(html).toContain('data-component-id="release-coordinator"');
+    expect(html.match(/data-component-status="not_checked"/g)).toHaveLength(3);
+    expect(html.match(/Schedule configured; no liveness result exposed\./g)).toHaveLength(3);
+    expect(html.match(/No live check available/g)).toHaveLength(3);
+    expect(html).toContain("Not checked");
+    expect(html).not.toContain("Checked not checked");
+    expect(html).not.toContain("subagent-zai");
+  });
+
   it("groups exact component kinds and represents missing groups honestly", () => {
     const html = render(health({ components: [component("Gateway", "gateway", "healthy")] }));
 

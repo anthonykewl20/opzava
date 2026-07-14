@@ -136,6 +136,8 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
   const remainingAffected = Math.max(0, affected.length - 1);
   const gatewayUnavailable = data.snapshot.gateway.status === "unavailable";
   const groupsNotChecked = groups.filter((group) => group.notChecked > 0);
+  const agentsNotChecked = groupsNotChecked.some((group) => group.id === "agents");
+  const retryableGroupsNotChecked = groupsNotChecked.some((group) => group.id !== "agents");
   const showLastKnown = summary.notChecked > 0 && health.lastKnownHealthy !== null;
 
   return (
@@ -222,10 +224,27 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
               <AlertTitle>{plural(summary.notChecked, "component")} not checked</AlertTitle>
               <AlertDescription className="grid gap-2">
                 <p>
-                  {gatewayUnavailable
-                    ? "The Gateway is unavailable. OpenClaw will retry automatically. "
-                    : "One or more live probes returned no result. "}
-                  No live result means unknown, not failed. Refresh retries the missing probe.
+                  {agentsNotChecked ? (
+                    <>
+                      {gatewayUnavailable
+                        ? "The Gateway is unavailable. OpenClaw will retry automatically. "
+                        : retryableGroupsNotChecked
+                          ? "One or more live probes returned no result. "
+                          : null}
+                      OpenClaw reports agent schedule configuration but does not expose a live
+                      liveness result for those agents. Unknown does not mean failed.
+                      {retryableGroupsNotChecked
+                        ? " Refresh retries available probes while agent liveness may remain unavailable."
+                        : null}
+                    </>
+                  ) : (
+                    <>
+                      {gatewayUnavailable
+                        ? "The Gateway is unavailable. OpenClaw will retry automatically. "
+                        : "One or more live probes returned no result. "}
+                      No live result means unknown, not failed. Refresh retries the missing probe.
+                    </>
+                  )}
                 </p>
                 <ul className="grid gap-1">
                   {groupsNotChecked.map((group) => (

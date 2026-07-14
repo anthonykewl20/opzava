@@ -126,9 +126,9 @@
       <div class="u-grow"></div>
 
       <!-- HealthPill: SAME rollup as the hero. It can never contradict the page. -->
-      <a href="connections.html" class="health-pill" aria-label="System health: All systems healthy">
-        <span class="dot dot-success" aria-hidden="true"></span>
-        All systems healthy
+      <a href="connections.html" class="health-pill" aria-label="System health: Health unknown">
+        <span class="dot" aria-hidden="true"></span>
+        Health unknown
       </a>
 
       <div class="notif-btn-wrap">
@@ -202,16 +202,17 @@
                    alert and clipped its text.
                    State-aware: this emblem must never show a green tick while a
                    component is broken or unknown. -->
-              <div class="conn-check-strip conn-check-strip--healthy">
+              <div class="conn-check-strip conn-check-strip--unknown">
                 <span class="conn-check-emblem" aria-hidden="true">
                   <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 2.5 4.5 5.5v5.2c0 4.6 3.2 8.4 7.5 9.8 4.3-1.4 7.5-5.2 7.5-9.8V5.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-                    <path d="m8.6 11.9 2.4 2.4 4.4-4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/>
+                    <path d="M9.9 9a2.3 2.3 0 0 1 4.4 1c0 2-2.4 2.1-2.4 3.7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                    <circle cx="12" cy="17" r="1" fill="currentColor"/>
                   </svg>
                 </span>
                 <div>
-                  <p class="conn-check-title">All 8 components healthy</p>
-                  <p class="conn-check-sub">Component check complete · 30s ago</p>
+                  <p class="conn-check-title">Health not fully checked</p>
+                  <p class="conn-check-sub">6 healthy · 2 not checked · agent liveness unavailable</p>
                 </div>
               </div>
 
@@ -275,18 +276,22 @@
                 <div class="conn-comp-group" id="system-group-agents">
                   <div class="section-label conn-comp-group-label">Agents</div>
                   <div class="conn-comp-grid">
-                    <div class="conn-comp-card conn-comp-card--healthy">
-                      <p class="conn-comp-name">ask-admin-opzava</p>
-                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="m6.6 10.2 2.2 2.2 4.6-4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Healthy</p>
+                    <div class="conn-comp-card conn-comp-card--unknown">
+                      <p class="conn-comp-name">research-worker</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M8.2 7.6a2.1 2.1 0 0 1 4 .9c0 1.8-2.2 1.9-2.2 3.3" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="14.5" r=".9" fill="currentColor"/></svg> Not checked</p>
                       <dl class="conn-comp-detail">
-                        <div><dt>Heartbeat</dt><dd>5s ago</dd></div>
+                        <div><dt>Schedule</dt><dd>Configured</dd></div>
+                        <div><dt>Liveness</dt><dd>Not exposed</dd></div>
+                        <div><dt>Live check</dt><dd>Not available</dd></div>
                       </dl>
                     </div>
-                    <div class="conn-comp-card conn-comp-card--healthy">
-                      <p class="conn-comp-name">subagent-openai</p>
-                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="m6.6 10.2 2.2 2.2 4.6-4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Healthy</p>
+                    <div class="conn-comp-card conn-comp-card--unknown">
+                      <p class="conn-comp-name">qa-agent</p>
+                      <p class="conn-comp-status"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M8.2 7.6a2.1 2.1 0 0 1 4 .9c0 1.8-2.2 1.9-2.2 3.3" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="14.5" r=".9" fill="currentColor"/></svg> Not checked</p>
                       <dl class="conn-comp-detail">
-                        <div><dt>Heartbeat</dt><dd>5s ago</dd></div>
+                        <div><dt>Schedule</dt><dd>Configured</dd></div>
+                        <div><dt>Liveness</dt><dd>Not exposed</dd></div>
+                        <div><dt>Live check</dt><dd>Not available</dd></div>
                       </dl>
                     </div>
                   </div>
@@ -305,9 +310,9 @@
                     <tr><th scope="col">Session</th><th scope="col">Agent</th><th scope="col">Updated</th></tr>
                   </thead>
                   <tbody>
-                    <tr><td class="u-mono">webchat:admin</td><td>ask-admin-opzava</td><td class="u-subtle">2m ago</td></tr>
-                    <tr><td class="u-mono">cron:digest</td><td>subagent-openai</td><td class="u-subtle">18m ago</td></tr>
-                    <tr><td class="u-mono">whatsapp:+63…</td><td>ask-admin-opzava</td><td class="u-subtle">1h ago</td></tr>
+                    <tr><td class="u-mono">webchat:admin</td><td>research-worker</td><td class="u-subtle">2m ago</td></tr>
+                    <tr><td class="u-mono">cron:digest</td><td>qa-agent</td><td class="u-subtle">18m ago</td></tr>
+                    <tr><td class="u-mono">whatsapp:+63…</td><td>research-worker</td><td class="u-subtle">1h ago</td></tr>
                   </tbody>
                 </table>
               </details>

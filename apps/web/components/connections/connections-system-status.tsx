@@ -157,10 +157,14 @@ function ComponentCard({ component }: { readonly component: OpenClawHealthCompon
         ) : (
           <p>{component.detail}</p>
         )}
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Clock3 className="size-3.5" aria-hidden="true" />
-          Checked <CheckedTime value={component.lastCheckedAt} />
-        </p>
+        {component.lastCheckedAt === null ? (
+          <p className="text-xs text-muted-foreground">No live check available</p>
+        ) : (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Clock3 className="size-3.5" aria-hidden="true" />
+            Checked <CheckedTime value={component.lastCheckedAt} />
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -356,9 +360,13 @@ export function ConnectionsSystemStatus({ data, refreshAction }: ConnectionsSyst
             <p className="mt-1 text-muted-foreground">
               {headline(summary.status, summary.attention)}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Checked <CheckedTime value={health.checkedAt} />
-            </p>
+            {health.checkedAt === null ? (
+              <p className="mt-1 text-xs text-muted-foreground">No completed health check</p>
+            ) : (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Checked <CheckedTime value={health.checkedAt} />
+              </p>
+            )}
           </div>
         </div>
         <form action={refreshAction} className="self-start sm:self-auto">

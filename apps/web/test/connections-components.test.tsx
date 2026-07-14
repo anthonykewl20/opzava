@@ -222,7 +222,7 @@ describe("Connections components", () => {
     expect(html).toContain("1 needs attention");
     expect(html).toContain("1 not checked");
     expect(html).toContain("1 component not checked");
-    expect(html).toContain("No live result means unknown, not failed");
+    expect(html).toContain("Unknown does not mean failed");
     expect(html).toContain('href="/connections/system#system-group-agents"');
     expect(html).toContain("Agents: 1 not checked");
     const channelsPill = html.match(/<a[^>]*data-health-group="channels"[^>]*>/)?.[0];
@@ -349,6 +349,69 @@ describe("Connections components", () => {
     expect(html).not.toContain("View details");
   });
 
+  it("explains configured agents without claiming Refresh can obtain liveness", () => {
+    const html = renderToStaticMarkup(
+      createElement(ConnectionsOverview, {
+        data: overviewData({
+          openclawHealth: {
+            components: [
+              healthComponent("research-worker", "agent", "not_checked"),
+              healthComponent("qa-agent", "agent", "not_checked"),
+              healthComponent("release-coordinator", "agent", "not_checked"),
+            ],
+            warnings: [],
+            runtime: { version: null, uptimeMs: null, hostUptimeMs: null, updateAvailable: null },
+            sessions: { count: null, recent: [] },
+            checkedAt: "2026-07-14T00:00:00.000Z",
+            lastKnownHealthy: null,
+          },
+        }),
+        refreshAction: async () => undefined,
+      }),
+    );
+
+    expect(html).toContain("3 components not checked");
+    expect(html).toContain("Agents: 3 not checked");
+    expect(html).toContain(
+      "OpenClaw reports agent schedule configuration but does not expose a live liveness result for those agents.",
+    );
+    expect(html).toContain("Unknown does not mean failed.");
+    expect(html).not.toContain("Refresh retries the missing probe");
+    expect(html).not.toContain("Refresh retries available probes");
+    expect(html).not.toContain("subagent-zai");
+  });
+
+  it("separates retryable probes from unavailable agent liveness in a mixed unknown state", () => {
+    const html = renderToStaticMarkup(
+      createElement(ConnectionsOverview, {
+        data: overviewData({
+          openclawHealth: {
+            components: [
+              healthComponent("channel:matrix", "channel", "not_checked"),
+              healthComponent("research-worker", "agent", "not_checked"),
+            ],
+            warnings: [],
+            runtime: { version: null, uptimeMs: null, hostUptimeMs: null, updateAvailable: null },
+            sessions: { count: null, recent: [] },
+            checkedAt: "2026-07-14T00:00:00.000Z",
+            lastKnownHealthy: null,
+          },
+        }),
+        refreshAction: async () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Channels: 1 not checked");
+    expect(html).toContain("Agents: 1 not checked");
+    expect(html).toContain(
+      "OpenClaw reports agent schedule configuration but does not expose a live liveness result for those agents.",
+    );
+    expect(html).toContain(
+      "Refresh retries available probes while agent liveness may remain unavailable.",
+    );
+    expect(html).not.toContain("Refresh retries the missing probe");
+  });
+
   it("keeps last-known-good aggregate separate when the live Gateway is unavailable", () => {
     const data = overviewData({
       gateway: {
@@ -436,6 +499,9 @@ describe("Connections components", () => {
     expect(html).toContain('aria-label="Channels: 1 healthy, 1 needs attention, 1 not checked"');
     expect(html).toContain('href="/connections/system#system-group-channels"');
     expect(html).toContain("Channels: 1 not checked");
+    expect(html).toContain(
+      "One or more live probes returned no result. No live result means unknown, not failed. Refresh retries the missing probe.",
+    );
     expect(html.indexOf("channel:whatsapp needs attention")).toBeLessThan(
       html.indexOf('data-health-missing-guidance="true"'),
     );
