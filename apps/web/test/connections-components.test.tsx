@@ -551,6 +551,7 @@ function overviewData(
         orchestratorAgentId: "ask-admin-opzava",
         orchestratorModel: "openai/gpt-5.5",
         orchestratorProviderId: null,
+        reconcile: { status: "idle" },
         delegationMode: "prefer",
         allowAgents: [],
         subagents: [],
