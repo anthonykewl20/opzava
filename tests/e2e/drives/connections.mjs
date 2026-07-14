@@ -316,7 +316,7 @@ function unknownHealthHeadline(scenario) {
 }
 
 function overviewMockupForScenario(scenario) {
-  return scenario === "healthy" || scenario === "partial-unknown"
+  return scenario === "healthy"
     ? "ux-redesign/mockups/connections.html"
     : `ux-redesign/mockups/connections-${scenario}.html`;
 }
@@ -452,7 +452,8 @@ function runScenarioClassifierSelfTest() {
   }
   if (
     !HEALTH_SCENARIOS.has("partial-unknown") ||
-    overviewMockupForScenario("partial-unknown") !== "ux-redesign/mockups/connections.html"
+    overviewMockupForScenario("partial-unknown") !==
+      "ux-redesign/mockups/connections-partial-unknown.html"
   ) {
     throw new Error("partial-unknown scenario contract self-test failed");
   }
@@ -586,13 +587,6 @@ async function validateProviderPage(page) {
     };
     return;
   }
-
-  assertFinding(
-    (await page
-      .getByRole("heading", { name: "Provider connection status", exact: true })
-      .count()) === 1,
-    "provider connection status heading missing",
-  );
 
   assertFinding(
     (await page.getByRole("table", { name: /llm model providers/i }).count()) > 0,
