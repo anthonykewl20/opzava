@@ -550,26 +550,46 @@ describe("modelsAuthLoginCommand", () => {
     });
   });
 
-  it("re-enables a provider when login follows an explicit empty auth order", async () => {
-    const runtime = createRuntime();
-    currentConfig = {
-      auth: {
-        order: {
-          openai: [],
-        },
-      },
-    };
+  it.each([
+    { provider: "openai", orderProvider: "openai", profileId: "openai:user@example.com" },
+    { provider: "moonshot", orderProvider: "moonshot-ai", profileId: "moonshot:test-profile" },
+  ])(
+    "re-enables $provider login after the $orderProvider empty auth order",
+    async ({ provider, orderProvider, profileId }) => {
+      const runtime = createRuntime();
+      currentConfig = { auth: { order: { [orderProvider]: [] } } };
+      const runAuth = vi.fn().mockResolvedValue({
+        profiles: [
+          {
+            profileId,
+            credential: {
+              type: "oauth",
+              provider,
+              access: "access-token",
+              refresh: "refresh-token",
+              expires: Date.now() + 60_000,
+            },
+          },
+        ],
+      });
+      mocks.resolvePluginProviders.mockReturnValue([
+        createProvider({
+          id: provider,
+          run: runAuth as ProviderPlugin["auth"][number]["run"],
+        }),
+      ]);
 
-    await modelsAuthLoginCommand({ provider: "openai" }, runtime);
+      await modelsAuthLoginCommand({ provider }, runtime);
 
-    expect(mocks.promoteAuthProfileInOrder).toHaveBeenCalledWith({
-      agentDir: "/tmp/openclaw/agents/main",
-      provider: "openai",
-      profileId: "openai:user@example.com",
-      createIfMissing: true,
-      createFromOrder: [],
-    });
-  });
+      expect(mocks.promoteAuthProfileInOrder).toHaveBeenCalledWith({
+        agentDir: "/tmp/openclaw/agents/main",
+        provider,
+        profileId,
+        createIfMissing: true,
+        createFromOrder: [],
+      });
+    },
+  );
 
   it("does not report login success when auth-order promotion fails", async () => {
     const runtime = createRuntime();
