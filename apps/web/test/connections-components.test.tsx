@@ -196,6 +196,9 @@ describe("Connections components", () => {
     expect(html).toContain('data-health-attention-count="1"');
     expect(html).toContain('data-health-checked-at="2026-07-14T00:00:00.000Z"');
     expect(html).toContain('href="/connections/system"');
+    expect(html).toContain('aria-label="System Core: 1 healthy, 0 need attention, 0 not checked"');
+    expect(html).toContain('aria-label="Channels: 0 healthy, 1 needs attention, 0 not checked"');
+    expect(html).toContain('aria-label="Agents: 0 healthy, 0 need attention, 1 not checked"');
     expect(html).toContain("Pricing refresh failed.");
     expect(html).toContain("Health warning");
     expect(html).toContain("View details");

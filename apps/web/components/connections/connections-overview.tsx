@@ -74,11 +74,13 @@ function GroupStatusIcon({ status }: { readonly status: OverviewHealthStatus }) 
 }
 
 function HealthGroupLink({ group }: { readonly group: OverviewHealthGroup }) {
+  const accessibleStatus = `${group.healthy} healthy, ${group.attention} ${group.attention === 1 ? "needs" : "need"} attention, ${group.notChecked} not checked`;
+
   return (
     <Link
       href={group.href}
       className="flex min-h-11 items-center gap-2 rounded-full border border-border px-3 py-2 text-sm font-medium outline-none transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:min-h-9 sm:py-1.5"
-      aria-label={`${group.label}: ${group.healthy} of ${group.total} healthy`}
+      aria-label={`${group.label}: ${accessibleStatus}`}
     >
       <Badge variant={groupBadgeVariant(group.status)} className="size-5 justify-center p-0">
         <GroupStatusIcon status={group.status} />
