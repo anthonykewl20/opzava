@@ -7135,6 +7135,11 @@ describe("Connections provisioning helpers", () => {
     }
 
     const samePrincipalSnapshot = await port.getConnectionsSnapshot(principal());
+    const sameOrgRolePeerSnapshot = await port.getConnectionsSnapshot({
+      ...principal(),
+      actorUserId: "00000000-0000-4000-8000-000000000098",
+      roleKeys: ["owner"],
+    });
     const otherPrincipalSnapshot = await port.getConnectionsSnapshot({
       ...principal(),
       orgId: "00000000-0000-4000-8000-000000000099",
@@ -7149,6 +7154,9 @@ describe("Connections provisioning helpers", () => {
     ]);
     expect(
       otherPrincipalSnapshot.ok ? otherPrincipalSnapshot.value.pendingDeviceFlows : [],
+    ).toEqual([]);
+    expect(
+      sameOrgRolePeerSnapshot.ok ? sameOrgRolePeerSnapshot.value.pendingDeviceFlows : [],
     ).toEqual([]);
     expect(JSON.stringify(samePrincipalSnapshot)).not.toContain("secret-dashboard-token");
     expect(JSON.stringify(otherPrincipalSnapshot)).not.toContain("secret-dashboard-token");
@@ -7188,7 +7196,7 @@ describe("Connections provisioning helpers", () => {
     expect(gatewayRuntime.deviceStops).toHaveLength(1);
   });
 
-  it("does not mutate a flow for foreign, unknown, or malformed cancellation ids", async () => {
+  it("does not mutate a flow for role peers, foreign, unknown, or malformed cancellation ids", async () => {
     const gatewayRuntime = new RecordingGatewayRuntime({
       choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
     });
@@ -7211,6 +7219,12 @@ describe("Connections provisioning helpers", () => {
       orgId: "00000000-0000-4000-8000-000000000099",
       flowId: started.value.flowId,
     });
+    const rolePeer = await port.cancelModelProviderDeviceFlow({
+      ...principal(),
+      actorUserId: "00000000-0000-4000-8000-000000000098",
+      roleKeys: ["owner"],
+      flowId: started.value.flowId,
+    });
     const unknown = await port.cancelModelProviderDeviceFlow({
       ...principal(),
       flowId: "model:00000000-0000-4000-8000-000000000099",
@@ -7221,12 +7235,24 @@ describe("Connections provisioning helpers", () => {
     });
 
     expect(foreign).toMatchObject({ ok: true, value: { status: "not_found" } });
+    expect(rolePeer).toEqual(foreign);
     expect(unknown).toEqual(foreign);
     expect(malformed).toMatchObject({
       ok: false,
       error: { code: "provisioning.connections.invalidDeviceFlowId" },
     });
     expect(gatewayRuntime.deviceStops).toHaveLength(0);
+    const peerPoll = await port.pollDeviceFlow({
+      ...principal(),
+      actorUserId: "00000000-0000-4000-8000-000000000098",
+      roleKeys: ["owner"],
+      flowId: started.value.flowId,
+    });
+    const unknownPoll = await port.pollDeviceFlow({
+      ...principal(),
+      flowId: "model:00000000-0000-4000-8000-000000000099",
+    });
+    expect(peerPoll).toEqual(unknownPoll);
     await expect(
       port.pollDeviceFlow({ ...principal(), flowId: started.value.flowId }),
     ).resolves.toMatchObject({ ok: true, value: { status: "pending" } });
@@ -7424,7 +7450,7 @@ describe("Connections provisioning helpers", () => {
     ]);
     expect(firstPoll.ok ? firstPoll.value : null).toMatchObject({
       status: "expired",
-      message: "Model-provider device code expired or has already completed.",
+      message: "Device sign-in not found.",
     });
     expect(secondPoll.ok ? secondPoll.value : null).toMatchObject({
       status: "pending",
@@ -8013,7 +8039,7 @@ describe("Connections provisioning helpers", () => {
     ]);
     expect(poll.ok ? poll.value : null).toMatchObject({
       status: "expired",
-      message: "Model-provider device code expired or has already completed.",
+      message: "Device sign-in not found.",
     });
     expect(JSON.stringify(disconnected)).not.toContain("secret-race-token");
   });
@@ -8294,7 +8320,7 @@ describe("Connections provisioning helpers", () => {
       const fetchImpl: typeof fetch = async (url, init) => {
         if (String(url).endsWith("/containers/gateway/exec")) {
           execNumber += 1;
-          const execId = `${failure}-${execNumber}`;
+          const execId = `case-${failure}-${execNumber}`;
           const body =
             typeof init?.body === "string"
               ? (JSON.parse(init.body) as Record<string, unknown>)
@@ -8302,13 +8328,13 @@ describe("Connections provisioning helpers", () => {
           commandsByExecId.set(execId, Array.isArray(body?.["Cmd"]) ? String(body["Cmd"][2]) : "");
           return jsonResponse({ Id: execId });
         }
-        if (String(url).includes(`/${failure}-1/start`) && failure === "start") {
+        if (String(url).includes(`/case-${failure}-1/start`) && failure === "start") {
           return jsonResponse({ message: "start failed" }, 500);
         }
         if (String(url).includes("/start")) {
           return new Response(new Uint8Array(), { status: 200 });
         }
-        if (String(url).includes(`/${failure}-1/json`)) {
+        if (String(url).includes(`/case-${failure}-1/json`)) {
           return jsonResponse({ Pid: 3_144_061, Running: false, ExitCode: 1 });
         }
         const execId = String(url).match(/\/exec\/([^/]+)\/json/)?.[1] ?? "";
@@ -8338,6 +8364,92 @@ describe("Connections provisioning helpers", () => {
         );
       }
     }
+  });
+
+  it("recovers ambiguous Docker start failures without deleting live control artifacts", async () => {
+    const run = async (mode: "controlled" | "no-control" | "inspect-unknown") => {
+      let execNumber = 0;
+      let primaryInspects = 0;
+      const commandsByExecId = new Map<string, string>();
+      const jsonResponse = (value: unknown, status = 200) =>
+        new Response(JSON.stringify(value), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      const fetchImpl: typeof fetch = async (url, init) => {
+        if (String(url).endsWith("/containers/gateway/exec")) {
+          execNumber += 1;
+          const execId = `${mode}-${execNumber}`;
+          const body =
+            typeof init?.body === "string"
+              ? (JSON.parse(init.body) as Record<string, unknown>)
+              : null;
+          commandsByExecId.set(execId, Array.isArray(body?.["Cmd"]) ? String(body["Cmd"][2]) : "");
+          return jsonResponse({ Id: execId });
+        }
+        if (String(url).includes(`/exec/${mode}-1/start`)) {
+          return jsonResponse({ message: "ambiguous start failure" }, 500);
+        }
+        if (String(url).includes("/start")) {
+          const execId = String(url).match(/\/exec\/([^/]+)\/start/)?.[1] ?? "";
+          const command = commandsByExecId.get(execId) ?? "";
+          if (command.includes("session.pid") && mode === "controlled") {
+            return new Response("24500\n", { status: 200 });
+          }
+          return new Response(new Uint8Array(), { status: 200 });
+        }
+        if (String(url).includes(`/exec/${mode}-1/json`)) {
+          primaryInspects += 1;
+          if (mode === "inspect-unknown") {
+            return jsonResponse({ message: "inspect unavailable" }, 503);
+          }
+          return jsonResponse({
+            Pid: 3_144_061,
+            Running: mode === "controlled" ? primaryInspects < 3 : true,
+            ExitCode: mode === "controlled" && primaryInspects >= 3 ? 0 : null,
+          });
+        }
+        const execId = String(url).match(/\/exec\/([^/]+)\/json/)?.[1] ?? "";
+        return jsonResponse({
+          Running: false,
+          ExitCode:
+            mode !== "controlled" && (commandsByExecId.get(execId) ?? "").includes("attempt=0")
+              ? 3
+              : 0,
+        });
+      };
+      const runtime = new DockerOpenClawGatewayRuntime({
+        dockerHost: "tcp://docker-socket-proxy:2375",
+        containerName: "gateway",
+        fetch: fetchImpl,
+      });
+      return {
+        result: await runtime.startDeviceCodeLogin("qwen", "main"),
+        commands: [...commandsByExecId.values()],
+      };
+    };
+
+    const controlled = await run("controlled");
+    expect(controlled.result.ok ? null : controlled.result.error.code).toBe(
+      "provisioning.docker.requestRejected",
+    );
+    expect(controlled.commands.find((command) => command.includes("kill -TERM"))).toContain(
+      "pid=24500",
+    );
+    expect(controlled.commands.some((command) => command.includes("shred -u"))).toBe(true);
+
+    const noControl = await run("no-control");
+    expect(noControl.result.ok ? null : noControl.result.error.code).toBe(
+      "provisioning.docker.flowStartRecoveryRequired",
+    );
+    expect(noControl.commands.some((command) => command.includes("shred -u"))).toBe(false);
+
+    const unknown = await run("inspect-unknown");
+    expect(unknown.result.ok ? null : unknown.result.error).toMatchObject({
+      code: "provisioning.docker.flowStartStateUnknown",
+      details: undefined,
+    });
+    expect(unknown.commands.some((command) => command.includes("shred -u"))).toBe(false);
   });
 
   it("fails loudly without claiming cleanup when a running exec has no trusted control pid", async () => {
@@ -8522,6 +8634,7 @@ describe("Connections provisioning helpers", () => {
 
   it("runs GitHub OAuth device flow against fetch and stores the token in the vault", async () => {
     const vault = new MemorySecretsVault();
+    let tokenPolls = 0;
     const fetchImpl: typeof fetch = async (url) => {
       if (String(url).endsWith("/device/code")) {
         return new Response(
@@ -8535,6 +8648,8 @@ describe("Connections provisioning helpers", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+
+      tokenPolls += 1;
 
       return new Response(
         JSON.stringify({
@@ -8560,6 +8675,33 @@ describe("Connections provisioning helpers", () => {
       throw challenge.error;
     }
 
+    const ownerSnapshot = await port.getConnectionsSnapshot(principal());
+    const rolePeerPrincipal = {
+      ...principal(),
+      actorUserId: "00000000-0000-4000-8000-000000000098",
+      roleKeys: ["owner"],
+    };
+    const peerSnapshot = await port.getConnectionsSnapshot(rolePeerPrincipal);
+    expect(ownerSnapshot.ok ? ownerSnapshot.value.pendingDeviceFlows : []).toEqual([
+      expect.objectContaining({
+        flowId: challenge.value.flowId,
+        kind: "github",
+        verificationUri: challenge.value.verificationUri,
+      }),
+    ]);
+    expect(peerSnapshot.ok ? peerSnapshot.value.pendingDeviceFlows : []).toEqual([]);
+
+    const peerPoll = await port.pollDeviceFlow({
+      ...rolePeerPrincipal,
+      flowId: challenge.value.flowId,
+    });
+    const missingPoll = await port.pollDeviceFlow({
+      ...principal(),
+      flowId: "github:00000000-0000-4000-8000-000000000099",
+    });
+    expect(peerPoll).toEqual(missingPoll);
+    expect(tokenPolls).toBe(0);
+
     const poll = await port.pollDeviceFlow({ ...principal(), flowId: challenge.value.flowId });
     expect(poll.ok).toBe(true);
     expect(poll.ok ? poll.value : null).toMatchObject({
@@ -8572,6 +8714,8 @@ describe("Connections provisioning helpers", () => {
 
     const ref = await vault.getRef();
     expect(ref.ok && ref.value !== null).toBe(true);
+    // Owner poll exchanges the device code and then verifies the stored token against GitHub.
+    expect(tokenPolls).toBe(2);
   });
 
   it("reports vault-backed GitHub status from the live GitHub token probe", async () => {

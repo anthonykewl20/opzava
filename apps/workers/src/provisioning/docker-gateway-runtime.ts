@@ -1339,8 +1339,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       },
     });
     if (!started.ok) {
-      const cleanup = await this.cleanupInactiveFlowArtifacts(logPath);
-      return cleanup.ok ? err(started.error) : err(cleanup.error);
+      return this.recoverAfterFlowStartFailure(execId, logPath, started.error);
     }
 
     const controlPid = await this.waitForFlowControlPid(logPath);
@@ -1425,8 +1424,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       },
     });
     if (!started.ok) {
-      const cleanup = await this.cleanupInactiveFlowArtifacts(logPath);
-      return cleanup.ok ? err(started.error) : err(cleanup.error);
+      return this.recoverAfterFlowStartFailure(execId, logPath, started.error);
     }
 
     const controlPid = await this.waitForFlowControlPid(logPath);
@@ -1609,6 +1607,50 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     }
     const cleanup = await this.cleanupInactiveFlowArtifacts(logPath);
     return cleanup.ok ? err(readinessError) : err(cleanup.error);
+  }
+
+  private async recoverAfterFlowStartFailure(
+    execId: string,
+    logPath: string,
+    startError: DomainError,
+  ): Promise<Result<never>> {
+    const inspected = await this.dockerRequest<{ readonly Running?: unknown }>(
+      `/exec/${encodeURIComponent(execId)}/json`,
+      { method: "GET" },
+    );
+    if (!inspected.ok || typeof inspected.value.Running !== "boolean") {
+      return err(
+        provisioningError(
+          "provisioning.docker.flowStartStateUnknown",
+          "Docker did not confirm whether the provider authorization process started; artifacts were retained for manual intervention.",
+        ),
+      );
+    }
+    if (inspected.value.Running === false) {
+      const cleanup = await this.cleanupInactiveFlowArtifacts(logPath);
+      return cleanup.ok ? err(startError) : err(cleanup.error);
+    }
+
+    const controlPid = await this.waitForFlowControlPid(logPath);
+    if (!controlPid.ok) {
+      return err(
+        provisioningError(
+          "provisioning.docker.flowStartRecoveryRequired",
+          "Docker may have started provider authorization without a trusted control pid; artifacts were retained for manual intervention.",
+        ),
+      );
+    }
+    try {
+      await this.stopDeviceCodeLogin(execId, logPath);
+      return err(startError);
+    } catch {
+      return err(
+        provisioningError(
+          "provisioning.docker.flowStartRecoveryRequired",
+          "Docker may have started provider authorization and verified cleanup did not complete; retained artifacts require manual intervention.",
+        ),
+      );
+    }
   }
 
   public async stopDeviceCodeLogin(execId: string, logPath: string): Promise<void> {

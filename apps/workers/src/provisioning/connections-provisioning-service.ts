@@ -120,6 +120,8 @@ interface PendingModelProviderDeviceFlow {
   readonly flowId: string;
   /** Owning tenant — a flow may only be polled by the principal that started it (multi-tenant scope). */
   readonly orgId: string;
+  /** Device codes are bearer-like capabilities, so only the initiating user may resume them. */
+  readonly actorUserId: string;
   readonly providerId: string;
   readonly authChoiceId: string;
   readonly verificationUri?: string;
@@ -3734,9 +3736,20 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       providerCatalog: catalog,
       providerConnections,
       pendingDeviceFlows: [
-        ...[...this.githubFlows.values()].map((flow) => this.challengeFromGitHubFlow(flow)),
+        ...[...this.githubFlows.values()]
+          .filter(
+            (flow) =>
+              flow.principal.orgId === input.orgId &&
+              flow.principal.actorUserId === input.actorUserId,
+          )
+          .map((flow) => this.challengeFromGitHubFlow(flow)),
         ...[...this.modelDeviceFlows.values()]
-          .filter((flow) => flow.orgId === input.orgId && flow.lifecycle === "active")
+          .filter(
+            (flow) =>
+              flow.orgId === input.orgId &&
+              flow.actorUserId === input.actorUserId &&
+              flow.lifecycle === "active",
+          )
           .map((flow) => this.challengeFromModelFlow(flow)),
       ],
       github,
@@ -5105,6 +5118,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       const baseFlow: PendingModelProviderDeviceFlow = {
         flowId,
         orgId: input.orgId,
+        actorUserId: input.actorUserId,
         providerId: input.providerId,
         authChoiceId: input.authChoiceId,
         expiresAt: new Date(this.now().getTime() + modelDeviceFlowExpiresMs),
@@ -5184,6 +5198,12 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   ): Promise<Result<DeviceFlowPollState>> {
     const githubFlow = this.githubFlows.get(input.flowId);
     if (githubFlow !== undefined) {
+      if (
+        githubFlow.principal.orgId !== input.orgId ||
+        githubFlow.principal.actorUserId !== input.actorUserId
+      ) {
+        return ok({ status: "expired", message: "Device sign-in not found." });
+      }
       return this.pollGitHubFlow(githubFlow);
     }
 
@@ -5193,16 +5213,15 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     }
 
     if (input.flowId.startsWith("model:")) {
-      return ok({
-        status: "expired",
-        message: "Model-provider device code expired or has already completed.",
-      });
+      return ok({ status: "expired", message: "Device sign-in not found." });
     }
 
-    return ok({
-      status: "failed",
-      message: "Device flow is not known or has already completed.",
-    });
+    return input.flowId.startsWith("github:")
+      ? ok({ status: "expired", message: "Device sign-in not found." })
+      : ok({
+          status: "failed",
+          message: "Device flow is not known or has already completed.",
+        });
   }
 
   public async cancelModelProviderDeviceFlow(
@@ -5219,7 +5238,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
 
     const flow = this.modelDeviceFlows.get(input.flowId);
     // Unknown and cross-tenant ids are deliberately indistinguishable and mutation-free.
-    if (flow === undefined || flow.orgId !== input.orgId) {
+    if (
+      flow === undefined ||
+      flow.orgId !== input.orgId ||
+      flow.actorUserId !== input.actorUserId
+    ) {
       return ok({ status: "not_found", message: "Device sign-in was already finished." });
     }
 
@@ -6684,8 +6707,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     input: { readonly flowId: string } & ConnectionProvisioningPrincipal,
     flow: PendingModelProviderDeviceFlow,
   ): Promise<Result<DeviceFlowPollState>> {
-    // A device flow belongs to the principal that started it; never let another tenant poll it.
-    if (flow.orgId !== input.orgId) {
+    // A device flow belongs to the user who started it; a role peer cannot read its bearer code.
+    if (flow.orgId !== input.orgId || flow.actorUserId !== input.actorUserId) {
       return ok({ status: "expired", message: "Device sign-in not found." });
     }
     if (!this.isCurrentActiveModelFlow(flow)) {
