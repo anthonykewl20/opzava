@@ -210,7 +210,7 @@ class UnavailableConnectionsProvisioningPort implements ConnectionsProvisioningP
   }
 
   public async refreshConnectionsSnapshot(): Promise<Result<ConnectionsSnapshot>> {
-    return this.getConnectionsSnapshot();
+    return err(this.error());
   }
 
   public async startModelProviderApiKeyConnect(): Promise<Result<ModelProviderApiKeyConnectStart>> {

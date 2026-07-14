@@ -12,6 +12,7 @@ import type {
 import { ok } from "@opzava/shared-kernel";
 import { describe, expect, it } from "vitest";
 import {
+  defaultConnectionsProvisioningPort,
   loadConnectionsPageData,
   pollConnectionDeviceFlowForContext,
   pollModelProviderApiKeyConnectForContext,
@@ -45,6 +46,35 @@ function context(overrides: Partial<AppSessionContext> = {}): AppSessionContext 
     ...overrides,
   };
 }
+
+it("fails a manual refresh when the provisioning worker is unavailable", async () => {
+  const keys = [
+    "PROVISIONING_WORKER_URL",
+    "PROVISIONING_WORKER_TOKEN",
+    "PROVISIONING_INTERNAL_URL",
+    "PROVISIONING_INTERNAL_TOKEN",
+  ] as const;
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  for (const key of keys) delete process.env[key];
+  try {
+    const result = await defaultConnectionsProvisioningPort().refreshConnectionsSnapshot({
+      orgId: "org-1",
+      workspaceId: "workspace-1",
+      actorUserId: "user-1",
+      roleKeys: ["admin"],
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected unavailable refresh failure");
+    expect(result.error).toMatchObject({ code: "web.connectionsProvisioningNotConfigured" });
+  } finally {
+    for (const key of keys) {
+      const value = previous[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
 
 function providerState(overrides: Partial<ProviderConnectionState> = {}): ProviderConnectionState {
   return {

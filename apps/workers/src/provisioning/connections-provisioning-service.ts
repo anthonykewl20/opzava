@@ -2559,6 +2559,26 @@ function channelAccountRecords(
   return accountId !== null && channel["configured"] === true ? [[accountId, channel]] : [];
 }
 
+const positiveChannelHealthStates = new Set([
+  "linked",
+  "connected",
+  "configured",
+  "healthy",
+  "ok",
+  "ready",
+  "running",
+  "unmanaged",
+]);
+const negativeChannelHealthStates = new Set([
+  "not-linked",
+  "disconnected",
+  "unstable",
+  "unconfigured",
+  "failed",
+  "error",
+  "unhealthy",
+]);
+
 function channelAccountComponent(input: {
   readonly channelId: string;
   readonly channelLabel: string;
@@ -2567,24 +2587,22 @@ function channelAccountComponent(input: {
   readonly healthCheckedAt: string;
 }): OpenClawHealthComponent {
   const probe = recordValue(input.account["probe"]);
-  const healthState = stringValue(input.account["healthState"]);
-  const statusState = stringValue(input.account["statusState"]);
+  const healthState = stringValue(input.account["healthState"])?.toLowerCase() ?? null;
+  const statusState = stringValue(input.account["statusState"])?.toLowerCase() ?? null;
   const explicitlyUnhealthy =
     input.account["linked"] === false ||
     input.account["running"] === false ||
     input.account["connected"] === false ||
     probe?.["ok"] === false ||
-    (healthState !== null && healthState !== "healthy" && healthState !== "unmanaged") ||
-    (statusState !== null && statusState !== "healthy" && statusState !== "connected");
+    (healthState !== null && negativeChannelHealthStates.has(healthState)) ||
+    (statusState !== null && negativeChannelHealthStates.has(statusState));
   const explicitlyHealthy =
     input.account["linked"] === true ||
     input.account["running"] === true ||
     input.account["connected"] === true ||
     probe?.["ok"] === true ||
-    healthState === "healthy" ||
-    healthState === "unmanaged" ||
-    statusState === "healthy" ||
-    statusState === "connected";
+    (healthState !== null && positiveChannelHealthStates.has(healthState)) ||
+    (statusState !== null && positiveChannelHealthStates.has(statusState));
   const lastCheckedAt = isoTimestamp(input.account["lastProbeAt"]);
 
   return healthComponent({
@@ -2783,7 +2801,7 @@ function projectOpenClawRuntimeAndSessions(input: {
   return {
     runtime: {
       version:
-        (validStatus ? stringValue(status["runtimeVersion"]) : null) ??
+        (status === null ? null : stringValue(status["runtimeVersion"])) ??
         input.metadata?.serverVersion ??
         null,
       uptimeMs: input.metadata?.uptimeMs ?? null,
@@ -6117,7 +6135,7 @@ export class UnavailableConnectionsProvisioningPort implements ConnectionsProvis
   }
 
   public async refreshConnectionsSnapshot(): Promise<Result<ConnectionsSnapshot>> {
-    return this.getConnectionsSnapshot();
+    return err(this.error());
   }
 
   public async startModelProviderApiKeyConnect(): Promise<Result<ModelProviderApiKeyConnectStart>> {

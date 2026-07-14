@@ -46,6 +46,7 @@ import {
   createDefaultConnectionsProvisioningPort,
   DockerOpenClawGatewayRuntime,
   GatewayAdminConnectionsProvisioningPort,
+  UnavailableConnectionsProvisioningPort,
 } from "../gateway-admin-connections.js";
 import { resolveProvisioningWorkerRuntimeConfig } from "../../main.js";
 import {
@@ -8341,6 +8342,47 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
     expect(JSON.stringify(result.value.openclawHealth)).not.toContain("must-not-cross");
   });
 
+  it("classifies only allowlisted channel status states and leaves unknown states unchecked", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "health-config", config: {} }),
+      health: ok({
+        ok: true,
+        ts: Date.parse("2026-07-14T11:59:30.000Z"),
+        eventLoop: { degraded: false },
+        channels: {
+          telegram: {
+            accounts: {
+              linked: { accountId: "linked", configured: true, statusState: "linked" },
+              configured: {
+                accountId: "configured",
+                configured: true,
+                healthState: "configured",
+              },
+              future: { accountId: "future", configured: true, statusState: "future-state" },
+            },
+          },
+        },
+        channelOrder: ["telegram"],
+        channelLabels: { telegram: "Telegram" },
+        agents: [],
+      }),
+      status: ok({ runtimeVersion: null, sessions: { count: 0, recent: [] } }),
+      "models.list": ok({ providers: [], models: [] }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+
+    const result = await healthPort(admin).getConnectionsSnapshot(principal());
+
+    if (!result.ok) throw result.error;
+    expect(result.value.openclawHealth.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "channel:telegram:linked", status: "healthy" }),
+        expect.objectContaining({ id: "channel:telegram:configured", status: "healthy" }),
+        expect.objectContaining({ id: "channel:telegram:future", status: "not_checked" }),
+      ]),
+    );
+  });
+
   it.each([
     {
       name: "health fails",
@@ -8373,6 +8415,13 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
       health: err(new DomainError({ code: "health.failed", message: "health failed" })),
       status: err(new DomainError({ code: "status.failed", message: "status failed" })),
       expectedVersion: "hello-fallback",
+      expectedCount: null,
+    },
+    {
+      name: "sessions are malformed",
+      health: err(new DomainError({ code: "health.failed", message: "health failed" })),
+      status: ok({ runtimeVersion: "runtime-independent", sessions: { count: "invalid" } }),
+      expectedVersion: "runtime-independent",
       expectedCount: null,
     },
   ])("degrades honestly when $name", async ({ health, status, expectedVersion, expectedCount }) => {
@@ -8520,5 +8569,18 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
     expect(JSON.stringify(client.connectionMetadata())).not.toMatch(
       /configPath|stateDir|authMode|presence|health|connId|arbitrary/,
     );
+  });
+
+  it("fails a manual refresh when provisioning is unavailable", async () => {
+    const port = new UnavailableConnectionsProvisioningPort(
+      "OpenClaw admin RPC is not configured.",
+      "anthonykewl20/opzava",
+    );
+
+    const result = await port.refreshConnectionsSnapshot();
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected unavailable refresh failure");
+    expect(result.error).toMatchObject({ code: "provisioning.connections.notConfigured" });
   });
 });
