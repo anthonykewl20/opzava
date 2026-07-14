@@ -446,13 +446,18 @@ async function persistProviderAuthResult(params: {
       credential: profile.credential,
       agentDir: params.agentDir,
     });
-    await promoteAuthProfileInOrder({
+    const promoted = await promoteAuthProfileInOrder({
       agentDir: params.agentDir,
       provider: profile.credential.provider,
       profileId: profile.profileId,
       createIfMissing: configuredSelection.createIfMissing,
       ...(configuredSelection.order ? { createFromOrder: configuredSelection.order } : {}),
     });
+    if (!promoted) {
+      throw new Error(
+        "Failed to update auth profile order; the auth store lock may be busy. Wait a moment and retry.",
+      );
+    }
   }
 
   // Auth login owns the credential store. Keep openclaw.json untouched unless
@@ -516,10 +521,7 @@ function resolveConfiguredAuthSelectionForProvider(
 ): { createIfMissing: boolean; order?: string[] } {
   const providerAuthKey = resolveProviderIdForAuth(provider, { config: cfg });
   for (const [orderProvider, profileIds] of Object.entries(cfg.auth?.order ?? {})) {
-    if (
-      profileIds.length > 0 &&
-      resolveProviderIdForAuth(orderProvider, { config: cfg }) === providerAuthKey
-    ) {
+    if (resolveProviderIdForAuth(orderProvider, { config: cfg }) === providerAuthKey) {
       return { createIfMissing: true, order: profileIds };
     }
   }

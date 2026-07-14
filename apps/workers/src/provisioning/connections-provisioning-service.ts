@@ -521,6 +521,26 @@ function authOrder(config: Record<string, unknown>): Record<string, unknown> {
   return recordValue(authConfig(config)["order"]) ?? {};
 }
 
+function authOrderEntry(
+  config: Record<string, unknown>,
+  providerId: string,
+): { readonly present: boolean; readonly value: unknown } {
+  const entry = Object.entries(authOrder(config)).find(
+    ([candidate]) => candidate.toLowerCase() === providerId.toLowerCase(),
+  );
+  return entry === undefined
+    ? { present: false, value: undefined }
+    : { present: true, value: entry[1] };
+}
+
+function providerHasExplicitEmptyAuthOrder(
+  config: Record<string, unknown>,
+  providerId: string,
+): boolean {
+  const order = authOrderEntry(config, providerId);
+  return order.present && Array.isArray(order.value) && order.value.length === 0;
+}
+
 function agentsList(config: Record<string, unknown>): readonly Record<string, unknown>[] {
   const agents = recordValue(config["agents"]);
   return arrayValue(agents?.["list"]).filter(isRecord);
@@ -1236,16 +1256,24 @@ function firstProfileIdForProvider(
   providerId: string,
   config: Record<string, unknown>,
 ): string | null {
-  const orderValue = authOrder(config)[providerId];
+  const order = authOrderEntry(config, providerId);
+  const orderValue = order.value;
   if (Array.isArray(orderValue)) {
     const ordered = orderValue.find((entry): entry is string => typeof entry === "string");
     if (ordered !== undefined) {
       return ordered;
     }
+    // An explicit empty order disables provider selection. Falling through to inventory here makes
+    // a disconnected provider look connected even though the runtime cannot select its credential.
+    return null;
   }
 
   if (typeof orderValue === "string" && orderValue.trim() !== "") {
     return orderValue;
+  }
+
+  if (order.present) {
+    return null;
   }
 
   for (const [id, profile] of Object.entries(authProfiles(config))) {
@@ -1796,6 +1824,21 @@ function modelStatusProvider(status: unknown, providerId: string): Record<string
   );
 }
 
+function modelStatusOAuthProvider(
+  status: unknown,
+  providerId: string,
+): Record<string, unknown> | null {
+  const auth = recordValue(recordValue(status)?.["auth"]);
+  const oauth = recordValue(auth?.["oauth"]);
+  return (
+    arrayValue(oauth?.["providers"])
+      .filter(isRecord)
+      .find(
+        (provider) => stringValue(provider["provider"])?.toLowerCase() === providerId.toLowerCase(),
+      ) ?? null
+  );
+}
+
 function providerIdFromModel(providerId: string): string {
   return providerId.split("/", 1)[0] ?? providerId;
 }
@@ -1816,6 +1859,87 @@ function modelStatusProfileCount(provider: Record<string, unknown> | null): numb
 function modelStatusProfileLabels(provider: Record<string, unknown> | null): readonly string[] {
   const profiles = recordValue(provider?.["profiles"]);
   return stringArrayValue(profiles?.["labels"]);
+}
+
+type ProviderAuthUsability = "usable" | "blocked" | "absent" | "unknown";
+
+interface ModelStatusAuthEvidence {
+  readonly usability: ProviderAuthUsability;
+  readonly provider: Record<string, unknown> | null;
+  readonly profileCount: number;
+}
+
+function modelStatusAuthEvidence(input: {
+  readonly status: unknown;
+  readonly providerId: string;
+  readonly config: Record<string, unknown>;
+}): ModelStatusAuthEvidence {
+  const provider = modelStatusProvider(input.status, input.providerId);
+  const profileCount = modelStatusProfileCount(provider);
+  const evidence = (usability: ProviderAuthUsability): ModelStatusAuthEvidence => ({
+    usability,
+    provider,
+    profileCount,
+  });
+  const root = recordValue(input.status);
+  const auth = recordValue(root?.["auth"]);
+  if (root === null || auth === null) {
+    return evidence(
+      providerHasExplicitEmptyAuthOrder(input.config, input.providerId) ? "blocked" : "unknown",
+    );
+  }
+
+  const providerMatches = (value: unknown): boolean =>
+    stringValue(value)?.toLowerCase() === input.providerId.toLowerCase();
+  if (stringArrayValue(auth["missingProvidersInUse"]).some(providerMatches)) {
+    return evidence("blocked");
+  }
+
+  const routes = arrayValue(auth["runtimeAuthRoutes"])
+    .filter(isRecord)
+    .filter((route) => providerMatches(route["provider"]));
+  if (routes.length > 0) {
+    return evidence(
+      routes.some((route) => stringValue(route["status"]) === "usable") ? "usable" : "blocked",
+    );
+  }
+
+  const effectiveKind = stringValue(recordValue(provider?.["effective"])?.["kind"]);
+  if (effectiveKind === "env" || effectiveKind === "models.json" || effectiveKind === "synthetic") {
+    return evidence("usable");
+  }
+
+  const oauthProvider = modelStatusOAuthProvider(input.status, input.providerId);
+  if (oauthProvider !== null && Object.hasOwn(oauthProvider, "effectiveProfiles")) {
+    const effectiveProfiles = arrayValue(oauthProvider["effectiveProfiles"]).filter(isRecord);
+    if (effectiveProfiles.length === 0) {
+      return evidence("blocked");
+    }
+    return evidence(
+      effectiveProfiles.some((profile) => {
+        const status = stringValue(profile["status"]);
+        return status === "ok" || status === "expiring" || status === "static";
+      })
+        ? "usable"
+        : "blocked",
+    );
+  }
+
+  if (effectiveKind === "profiles") {
+    return evidence(profileCount > 0 ? "usable" : "blocked");
+  }
+  if (effectiveKind === "missing") {
+    return evidence(profileCount > 0 ? "blocked" : "absent");
+  }
+
+  const providersPresent = Object.hasOwn(auth, "providers");
+  if (provider !== null) {
+    if (providerHasExplicitEmptyAuthOrder(input.config, input.providerId)) {
+      return evidence("blocked");
+    }
+    return evidence(profileCount > 0 ? "usable" : "absent");
+  }
+  return evidence(providersPresent ? "absent" : "unknown");
 }
 
 // Derive the real connected auth mode from the CLI `models status` profile counts
@@ -1849,16 +1973,21 @@ function providerConnectionFromModelStatus(input: {
   readonly modelStatus: unknown;
   readonly now: Date;
 }): ProviderConnectionState | null {
-  const statusProvider = modelStatusProvider(input.modelStatus, input.provider.id);
-  const profileCount = modelStatusProfileCount(statusProvider);
-  if (profileCount <= 0) {
+  const authEvidence = modelStatusAuthEvidence({
+    status: input.modelStatus,
+    providerId: input.provider.id,
+    config: input.config,
+  });
+  const hasConfigInventory = providerHasAuthProfile(input.config, input.provider.id);
+  if (
+    authEvidence.usability === "unknown" ||
+    (authEvidence.usability === "absent" && authEvidence.profileCount <= 0 && !hasConfigInventory)
+  ) {
     return null;
   }
 
   const allowedModels = modelStatusAllowedModels(input.modelStatus);
   const providerAllowed = allowedModels.some((model) => model.startsWith(`${input.provider.id}/`));
-  const labels = modelStatusProfileLabels(statusProvider);
-  const firstLabel = labels[0] ?? null;
   const id = firstProfileIdForProvider(input.provider.id, input.config);
   const profile = id === null ? null : recordValue(authProfiles(input.config)[id]);
   const model = configuredModelForProvider({
@@ -1867,20 +1996,29 @@ function providerConnectionFromModelStatus(input: {
     models: input.provider.models,
   });
   const hasRoutableModel = providerAllowed || model !== null;
+  const connected = authEvidence.usability === "usable" && hasRoutableModel;
 
   return {
     providerId: input.provider.id,
-    status: hasRoutableModel ? "connected" : "needs_attention",
+    status: connected ? "connected" : "needs_attention",
     authChoiceId: id === null || profile === null ? null : authChoiceIdFromProfile(id, profile),
-    accountLabel: firstLabel === null ? stringValue(statusProvider?.["provider"]) : firstLabel,
+    // CLI labels may embed a profile id (often an email address). Inventory labels never cross the
+    // worker boundary; models.authStatus can overlay its provider-safe display name when available.
+    accountLabel: stringValue(authEvidence.provider?.["provider"]),
     scopes: [],
     model,
-    usageLabel: profileCount === 1 ? "1 auth profile" : `${profileCount} auth profiles`,
+    usageLabel:
+      authEvidence.profileCount === 1
+        ? "1 auth profile"
+        : `${authEvidence.profileCount} auth profiles`,
     lastCheckedAt: input.now.toISOString(),
-    message: hasRoutableModel
-      ? "Gateway model auth profile is usable."
-      : "Provider has credentials but no routable Gateway model.",
-    connectedAuthMode: connectedAuthModeFromModelStatus(statusProvider),
+    message:
+      authEvidence.usability === "usable"
+        ? hasRoutableModel
+          ? "Gateway model authentication is usable."
+          : "Provider has credentials but no routable Gateway model."
+        : "Gateway reports credentials, but none are eligible for runtime use.",
+    connectedAuthMode: connectedAuthModeFromModelStatus(authEvidence.provider),
   };
 }
 
@@ -2951,6 +3089,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private readonly now: () => Date;
   private readonly githubFlows = new Map<string, PendingGitHubDeviceFlow>();
   private readonly modelDeviceFlows = new Map<string, PendingModelProviderDeviceFlow>();
+  private readonly modelDeviceFlowFinalizations = new Map<
+    string,
+    Promise<Result<DeviceFlowPollState>>
+  >();
   private readonly modelApiKeyConnects = new Map<string, PendingModelProviderApiKeyConnect>();
   private readonly modelSetupTokenFlows = new Map<string, PendingModelProviderSetupTokenFlow>();
   private readonly modelProviderDisconnects = new Map<string, PendingModelProviderDisconnect>();
@@ -3324,8 +3466,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       this.options.gatewayRuntime?.listAuthChoices() ?? ok<readonly GatewayRuntimeAuthChoice[]>([]),
       // `models status` (CLI) sees the REAL profile stores — incl. the Codex/OAuth store that the
       // `models.authStatus` RPC under-reports as "missing" for openai. It is the connected-truth.
-      this.options.gatewayRuntime?.modelStatus() ??
-        ok<unknown>({ auth: { providers: [] }, allowed: [] }),
+      this.options.gatewayRuntime?.modelStatus() ?? ok<unknown>(null),
       this.options.gatewayRuntime?.readPluginModelDiscovery() ??
         ok<PluginModelCatalogDiscovery>({ catalogs: [], plugins: [] }),
       this.modelAuthStatus(),
@@ -3561,8 +3702,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
             this.options.adminClient.request("models.list", { view: "all" }),
             this.options.gatewayRuntime?.readPluginModelDiscovery() ??
               ok<PluginModelCatalogDiscovery>({ catalogs: [], plugins: [] }),
-            this.options.gatewayRuntime?.modelStatus() ??
-              ok<unknown>({ auth: { providers: [] }, allowed: [] }),
+            this.options.gatewayRuntime?.modelStatus() ?? ok<unknown>(null),
             this.modelAuthStatus(),
           ]);
         if (!configResult.ok) {
@@ -3578,18 +3718,19 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         }
 
         const config = configPayload(configResult.value);
-        // Connection truth mirrors the snapshot: a provider is connected when config holds an auth
-        // profile OR the runtime agent store does (`models status` profiles) — OAuth providers can
-        // be fully connected with an EMPTY config.auth.profiles, and refusing their toggles would
-        // strand every switch the UI just rendered for them.
-        const runtimeStoreConnected =
-          modelStatusProfileCount(
-            modelStatusProvider(
-              modelStatusResult.ok ? modelStatusResult.value : null,
-              input.providerId,
-            ),
-          ) > 0;
-        if (!providerHasAuthProfile(config, input.providerId) && !runtimeStoreConnected) {
+        // Model repair needs usable auth, not an already-routable model. The authoritative status
+        // path admits env/synthetic auth without profiles and rejects stored-but-excluded inventory;
+        // only an unavailable/legacy status falls back to the configured profile selection.
+        const authEvidence = modelStatusAuthEvidence({
+          status: modelStatusResult.ok ? modelStatusResult.value : null,
+          providerId: input.providerId,
+          config,
+        });
+        const legacyConfigConnected = firstProfileIdForProvider(input.providerId, config) !== null;
+        const providerConnected =
+          authEvidence.usability === "usable" ||
+          (authEvidence.usability === "unknown" && legacyConfigConnected);
+        if (!providerConnected) {
           return err(
             provisioningError(
               "provisioning.connections.providerNotConnected",
@@ -5453,8 +5594,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       this.options.adminClient.request("models.list", { view: "all" }),
       this.options.gatewayRuntime?.readPluginModelDiscovery() ??
         ok<PluginModelCatalogDiscovery>({ catalogs: [], plugins: [] }),
-      this.options.gatewayRuntime?.modelStatus() ??
-        ok<unknown>({ auth: { providers: [] }, allowed: [] }),
+      this.options.gatewayRuntime?.modelStatus() ?? ok<unknown>(null),
       this.modelAuthStatus(),
     ]);
     const discovery = discoveryResult.ok ? discoveryResult.value : null;
@@ -5742,8 +5882,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
 
     const [modelsResult, modelStatusResult, authStatus] = await Promise.all([
       this.options.adminClient.request("models.list", { view: "all" }),
-      this.options.gatewayRuntime?.modelStatus() ??
-        ok<unknown>({ auth: { providers: [] }, allowed: [] }),
+      this.options.gatewayRuntime?.modelStatus() ?? ok<unknown>(null),
       this.modelAuthStatus(),
     ]);
     const config = configPayload(configResult.value);
@@ -5782,8 +5921,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       const known = (provider?.catalogModels ?? provider?.models ?? []).some(
         (model) =>
           model.id.trim().toLowerCase() === electedModel.toLowerCase() ||
-          providerModelRef(input.providerId, model.id).toLowerCase() ===
-            electedModel.toLowerCase(),
+          providerModelRef(input.providerId, model.id).toLowerCase() === electedModel.toLowerCase(),
       );
       if (!known) {
         return err(
@@ -6171,29 +6309,17 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       "Waiting for gateway device-code authorization.",
     );
     if (connection.status === "connected") {
-      const reservationKey = configWriteKey(flow.orgId);
-      this.acquireProviderWrite(reservationKey);
+      const activeFinalization = this.modelDeviceFlowFinalizations.get(flow.flowId);
+      if (activeFinalization !== undefined) {
+        return activeFinalization;
+      }
+      const finalization = this.finalizeModelProviderFlow(flow, connection);
+      this.modelDeviceFlowFinalizations.set(flow.flowId, finalization);
       try {
-        // The device-code login onboards through the same gateway path as the api-key connect, so it
-        // moves the primary the same way and needs the same reconcile (#186). Keep the flow in the
-        // guard map until reconcile finishes so a toggle cannot interleave with its config.patch.
-        await this.reconcileOrchestratorAfterCredentialChange({
-          reason: "connect",
-          providerId: flow.providerId,
-        });
-        return ok({
-          status: "connected",
-          message: `${flow.providerId} connected in Opzava Gateway.`,
-          connection: {
-            ...connection,
-            authChoiceId: connection.authChoiceId ?? flow.authChoiceId,
-          },
-        });
+        return await finalization;
       } finally {
-        try {
-          await this.cleanupModelProviderFlow(flow);
-        } finally {
-          this.releaseProviderWrite(reservationKey);
+        if (this.modelDeviceFlowFinalizations.get(flow.flowId) === finalization) {
+          this.modelDeviceFlowFinalizations.delete(flow.flowId);
         }
       }
     }
@@ -6244,6 +6370,36 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       intervalSeconds: currentFlow.intervalSeconds,
       codePending: true,
     });
+  }
+
+  private async finalizeModelProviderFlow(
+    flow: PendingModelProviderDeviceFlow,
+    connection: ProviderConnectionState,
+  ): Promise<Result<DeviceFlowPollState>> {
+    const reservationKey = configWriteKey(flow.orgId);
+    this.acquireProviderWrite(reservationKey);
+    try {
+      // Overlapping browser polls share this whole finalization through modelDeviceFlowFinalizations;
+      // one successful login must reconcile and stop its runtime exactly once.
+      await this.reconcileOrchestratorAfterCredentialChange({
+        reason: "connect",
+        providerId: flow.providerId,
+      });
+      return ok({
+        status: "connected",
+        message: `${flow.providerId} connected in Opzava Gateway.`,
+        connection: {
+          ...connection,
+          authChoiceId: connection.authChoiceId ?? flow.authChoiceId,
+        },
+      });
+    } finally {
+      try {
+        await this.cleanupModelProviderFlow(flow);
+      } finally {
+        this.releaseProviderWrite(reservationKey);
+      }
+    }
   }
 
   private challengeFromGitHubFlow(flow: PendingGitHubDeviceFlow): DeviceFlowChallenge {

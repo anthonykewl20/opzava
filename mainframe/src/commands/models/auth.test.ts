@@ -365,6 +365,7 @@ describe("modelsAuthLoginCommand", () => {
     mocks.upsertAuthProfileWithLock.mockReset();
     mocks.upsertAuthProfileWithLock.mockResolvedValue({ version: 1, profiles: {} });
     mocks.promoteAuthProfileInOrder.mockReset();
+    mocks.promoteAuthProfileInOrder.mockResolvedValue({ version: 1, profiles: {} });
     mocks.removeProviderAuthProfilesWithLock.mockReset();
     mocks.removeProviderAuthProfilesWithLock.mockResolvedValue({ version: 1, profiles: {} });
 
@@ -547,6 +548,41 @@ describe("modelsAuthLoginCommand", () => {
       createIfMissing: true,
       createFromOrder: ["openai:old-login"],
     });
+  });
+
+  it("re-enables a provider when login follows an explicit empty auth order", async () => {
+    const runtime = createRuntime();
+    currentConfig = {
+      auth: {
+        order: {
+          openai: [],
+        },
+      },
+    };
+
+    await modelsAuthLoginCommand({ provider: "openai" }, runtime);
+
+    expect(mocks.promoteAuthProfileInOrder).toHaveBeenCalledWith({
+      agentDir: "/tmp/openclaw/agents/main",
+      provider: "openai",
+      profileId: "openai:user@example.com",
+      createIfMissing: true,
+      createFromOrder: [],
+    });
+  });
+
+  it("does not report login success when auth-order promotion fails", async () => {
+    const runtime = createRuntime();
+    currentConfig = { auth: { order: { openai: [] } } };
+    mocks.promoteAuthProfileInOrder.mockResolvedValue(null);
+
+    await expect(modelsAuthLoginCommand({ provider: "openai" }, runtime)).rejects.toThrow(
+      /auth profile order/i,
+    );
+
+    expect(runtime.log).not.toHaveBeenCalledWith(
+      "Auth profile: openai:user@example.com (openai/oauth)",
+    );
   });
 
   it("defaults OpenAI login to ChatGPT OAuth when API key is also available", async () => {

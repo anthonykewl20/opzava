@@ -372,6 +372,13 @@ function toggleStatusFromAdmin(
   };
 }
 
+function modelToggleRuntime(admin: { currentConfig(): Record<string, unknown> }) {
+  return new RecordingGatewayRuntime({
+    pluginDiscoveryResult: ok(bundleDiscovery),
+    statusResult: toggleStatusFromAdmin(admin),
+  });
+}
+
 const bundleModelsPayload = {
   providers: [{ id: "opencode-go", label: "OpenCode Go", suggestedModel: "opencode-go/base" }],
   models: [
@@ -2340,6 +2347,183 @@ describe("Connections provisioning helpers", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it.each([
+    {
+      case: "an explicitly empty effective profile set",
+      status: {
+        allowed: ["nebula/stellar-1"],
+        auth: {
+          providers: [
+            {
+              provider: "nebula",
+              effective: { kind: "profiles", detail: "agent store" },
+              profiles: { count: 1, oauth: 1, labels: ["private-profile=OAuth"] },
+            },
+          ],
+          oauth: {
+            providers: [
+              {
+                provider: "nebula",
+                status: "missing",
+                profiles: [{ profileId: "private-profile", type: "oauth", status: "ok" }],
+                effectiveProfiles: [],
+              },
+            ],
+          },
+        },
+      },
+      expected: "needs_attention",
+    },
+    {
+      case: "a provider declared missing for its active route",
+      status: {
+        allowed: ["nebula/stellar-1"],
+        auth: {
+          missingProvidersInUse: ["nebula"],
+          providers: [
+            {
+              provider: "nebula",
+              effective: { kind: "profiles", detail: "agent store" },
+              profiles: { count: 1, oauth: 1, labels: ["private-profile=OAuth"] },
+            },
+          ],
+          oauth: {
+            providers: [
+              {
+                provider: "nebula",
+                status: "ok",
+                profiles: [],
+                effectiveProfiles: [{ profileId: "private-profile", type: "oauth", status: "ok" }],
+              },
+            ],
+          },
+        },
+      },
+      expected: "needs_attention",
+    },
+    {
+      case: "a usable effective profile",
+      status: {
+        allowed: ["nebula/stellar-1"],
+        auth: {
+          providers: [
+            {
+              provider: "nebula",
+              effective: { kind: "profiles", detail: "agent store" },
+              profiles: { count: 1, oauth: 1, labels: ["private-profile=OAuth"] },
+            },
+          ],
+          oauth: {
+            providers: [
+              {
+                provider: "nebula",
+                status: "ok",
+                profiles: [],
+                effectiveProfiles: [{ profileId: "private-profile", type: "oauth", status: "ok" }],
+              },
+            ],
+          },
+        },
+      },
+      expected: "connected",
+    },
+    {
+      case: "a reported environment route without profiles",
+      status: {
+        allowed: ["nebula/stellar-1"],
+        auth: {
+          providers: [
+            {
+              provider: "nebula",
+              effective: { kind: "env", detail: "NEBULA_API_KEY" },
+              profiles: { count: 0, labels: [] },
+            },
+          ],
+          oauth: {
+            providers: [
+              { provider: "nebula", status: "missing", profiles: [], effectiveProfiles: [] },
+            ],
+          },
+        },
+      },
+      expected: "connected",
+    },
+    {
+      case: "legacy profile inventory excluded by an empty config order",
+      status: {
+        allowed: ["nebula/stellar-1"],
+        auth: {
+          providers: [
+            {
+              provider: "nebula",
+              profiles: { count: 1, oauth: 1, labels: ["private-profile=OAuth"] },
+            },
+          ],
+        },
+      },
+      expected: "needs_attention",
+    },
+  ])("fails closed for $case", async ({ status, expected }) => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        auth: {
+          profiles: {
+            "private-profile": {
+              providerId: "nebula",
+              authChoiceId: "oauth",
+              model: "nebula/stellar-1",
+            },
+          },
+          order: { nebula: [] },
+        },
+        agents: {
+          defaults: {
+            model: { primary: "nebula/stellar-1" },
+            models: { "nebula/stellar-1": {} },
+          },
+        },
+      }),
+      health: ok({ status: "ok" }),
+      "last-heartbeat": ok({}),
+      "models.list": ok({
+        providers: [
+          {
+            id: "nebula",
+            label: "Nebula",
+            suggestedModel: "nebula/stellar-1",
+            authChoices: [],
+          },
+        ],
+      }),
+      "models.authStatus": ok({
+        providers: [{ provider: "nebula", status: "missing", profiles: [] }],
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({ status }),
+    });
+
+    const snapshot = await port.getConnectionsSnapshot(principal());
+
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) throw snapshot.error;
+    const connection = snapshot.value.providerConnections.find(
+      (candidate) => candidate.providerId === "nebula",
+    );
+    expect(connection).toMatchObject({
+      providerId: "nebula",
+      status: expected,
+      accountLabel: "nebula",
+    });
+    expect(snapshot.value.orchestrator.orchestratorProviderId).toBe(
+      expected === "connected" ? "nebula" : null,
+    );
+    expect(JSON.stringify(snapshot.value)).not.toContain("private-profile");
   });
 
   it("uses CLI api-key profile truth for connected providers and authStatus only for health", async () => {
@@ -6509,10 +6693,17 @@ describe("Connections provisioning helpers", () => {
     });
 
     gatewayRuntime.connectedDeviceProviderId = "openai";
-    const connected = await port.pollDeviceFlow({
-      ...principal(),
-      flowId: challenge.value.flowId,
-    });
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const [connected, duplicate] = await Promise.all([
+      port.pollDeviceFlow({
+        ...principal(),
+        flowId: challenge.value.flowId,
+      }),
+      port.pollDeviceFlow({
+        ...principal(),
+        flowId: challenge.value.flowId,
+      }),
+    ]);
 
     expect(connected.ok ? connected.value : null).toMatchObject({
       status: "connected",
@@ -6527,7 +6718,74 @@ describe("Connections provisioning helpers", () => {
     expect(gatewayRuntime.deviceStops).toEqual([
       { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
     ]);
+    expect(duplicate).toEqual(connected);
+    expect(
+      info.mock.calls.filter(([message]) => message === "connections.orchestrator.reconciled"),
+    ).toHaveLength(1);
+    info.mockRestore();
     expect(JSON.stringify(connected)).not.toContain("secret");
+  });
+
+  it("keeps device flow pending when stored credentials are excluded from runtime auth", async () => {
+    let credentialStored = false;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLog: "Open https://auth.openai.com/codex/device\nCode: NRK5-7IPKG\n",
+      status: () => ({
+        allowed: ["openai/gpt-5.5"],
+        auth: {
+          providers: credentialStored
+            ? [
+                {
+                  provider: "openai",
+                  effective: { kind: "profiles", detail: "agent store" },
+                  profiles: { count: 1, oauth: 1, labels: ["private-profile=OAuth"] },
+                },
+              ]
+            : [],
+          oauth: {
+            providers: credentialStored
+              ? [
+                  {
+                    provider: "openai",
+                    status: "missing",
+                    profiles: [],
+                    effectiveProfiles: [],
+                  },
+                ]
+              : [],
+          },
+        },
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+    });
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+
+    const challenge = await port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+    if (!challenge.ok) throw challenge.error;
+    credentialStored = true;
+
+    const poll = await port.pollDeviceFlow({ ...principal(), flowId: challenge.value.flowId });
+
+    expect(poll.ok ? poll.value : null).toMatchObject({
+      status: "pending",
+      message: "Waiting for gateway device-code authorization.",
+    });
+    expect(gatewayRuntime.deviceStops).toEqual([]);
+    expect(
+      info.mock.calls.filter(([message]) => message === "connections.orchestrator.reconciled"),
+    ).toEqual([]);
+    expect(JSON.stringify(poll)).not.toContain("private-profile");
+    info.mockRestore();
   });
 
   it("surfaces a provider-blocked device-code request as a terminal failure instead of hanging", async () => {
@@ -7792,7 +8050,7 @@ describe("setup-token config profile does not suppress the shared write (issue #
       adminClient: admin,
       secretsVault: new MemorySecretsVault(),
       githubRepository: "anthonykewl20/opzava",
-      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+      gatewayRuntime: modelToggleRuntime(admin),
     });
 
     const result = await port.setModelProviderModelEnabled({
@@ -7850,7 +8108,7 @@ describe("setup-token config profile does not suppress the shared write (issue #
       adminClient: admin,
       secretsVault: new MemorySecretsVault(),
       githubRepository: "anthonykewl20/opzava",
-      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+      gatewayRuntime: modelToggleRuntime(admin),
     });
 
     const result = await port.setModelProviderModelEnabled({
@@ -7872,12 +8130,12 @@ describe("setup-token config profile does not suppress the shared write (issue #
       models: bundleModelsPayload,
     });
     const disableAdmin = modelToggleAdmin({ config: bundleConfig(), models: bundleModelsPayload });
-    const makePort = (admin: RecordingAdminClient) =>
+    const makePort = (admin: ReturnType<typeof modelToggleAdmin>) =>
       new GatewayAdminConnectionsProvisioningPort({
         adminClient: admin,
         secretsVault: new MemorySecretsVault(),
         githubRepository: "anthonykewl20/opzava",
-        gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+        gatewayRuntime: modelToggleRuntime(admin),
       });
 
     const enabled = await makePort(enableAdmin).setModelProviderModelEnabled({
@@ -7942,7 +8200,7 @@ describe("setup-token config profile does not suppress the shared write (issue #
       adminClient: admin,
       secretsVault: new MemorySecretsVault(),
       githubRepository: "anthonykewl20/opzava",
-      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+      gatewayRuntime: modelToggleRuntime(admin),
     });
 
     const result = await port.setModelProviderModelEnabled({
@@ -7964,7 +8222,7 @@ describe("setup-token config profile does not suppress the shared write (issue #
       adminClient: admin,
       secretsVault: new MemorySecretsVault(),
       githubRepository: "anthonykewl20/opzava",
-      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+      gatewayRuntime: modelToggleRuntime(admin),
     });
 
     const result = await port.setModelProviderModelEnabled({
@@ -7989,7 +8247,10 @@ describe("setup-token config profile does not suppress the shared write (issue #
       adminClient: admin,
       secretsVault: new MemorySecretsVault(),
       githubRepository: "anthonykewl20/opzava",
-      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+      gatewayRuntime: new RecordingGatewayRuntime({
+        pluginDiscoveryResult: ok(bundleDiscovery),
+        statusResult: ok({ allowed: [], auth: { providers: [], oauth: { providers: [] } } }),
+      }),
     });
 
     const result = await port.setModelProviderModelEnabled({
@@ -8040,6 +8301,55 @@ describe("setup-token config profile does not suppress the shared write (issue #
     });
   });
 
+  it("allows model enable to repair routing when authoritative auth is usable", async () => {
+    const admin = modelToggleAdmin({
+      config: bundleConfig({ enabled: [] }),
+      models: bundleModelsPayload,
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({
+        pluginDiscoveryResult: ok(bundleDiscovery),
+        statusResult: ok({
+          allowed: [],
+          auth: {
+            providers: [
+              {
+                provider: "opencode-go",
+                effective: { kind: "profiles", detail: "agent store" },
+                profiles: { count: 1, apiKey: 1, labels: [] },
+              },
+            ],
+            oauth: {
+              providers: [
+                {
+                  provider: "opencode-go",
+                  status: "static",
+                  profiles: [],
+                  effectiveProfiles: [
+                    { profileId: "private-profile", type: "api_key", status: "static" },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+      }),
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "visible",
+      enabled: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("private-profile");
+  });
+
   it("treats disabling an absent-but-protected model as an idempotent no-op", async () => {
     // The no-op check runs BEFORE the disable guardrails: a model that is already absent from the
     // enabled set must disable successfully without mutation even while a primary/fallback still
@@ -8052,7 +8362,7 @@ describe("setup-token config profile does not suppress the shared write (issue #
       adminClient: admin,
       secretsVault: new MemorySecretsVault(),
       githubRepository: "anthonykewl20/opzava",
-      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+      gatewayRuntime: modelToggleRuntime(admin),
     });
 
     const result = await port.setModelProviderModelEnabled({
@@ -8080,7 +8390,18 @@ describe("setup-token config profile does not suppress the shared write (issue #
         gatewayRuntime: new RecordingGatewayRuntime({
           pluginDiscoveryResult: ok(bundleDiscovery),
           // Static allowed list that never gains the ref — e.g. the reload dropped the model.
-          statusResult: ok({ allowed: ["opencode-go/base"], auth: { providers: [] } }),
+          statusResult: ok({
+            allowed: ["opencode-go/base"],
+            auth: {
+              providers: [
+                {
+                  provider: "opencode-go",
+                  effective: { kind: "profiles", detail: "agent store" },
+                  profiles: { count: 1, apiKey: 1, labels: [] },
+                },
+              ],
+            },
+          }),
         }),
       });
 
@@ -8162,7 +8483,7 @@ describe("setup-token config profile does not suppress the shared write (issue #
         adminClient: admin,
         secretsVault: new MemorySecretsVault(),
         githubRepository: "anthonykewl20/opzava",
-        gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+        gatewayRuntime: modelToggleRuntime(admin),
       });
 
       const pending = port.setModelProviderModelEnabled({
@@ -8195,7 +8516,7 @@ describe("setup-token config profile does not suppress the shared write (issue #
       adminClient: admin,
       secretsVault: new MemorySecretsVault(),
       githubRepository: "anthonykewl20/opzava",
-      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+      gatewayRuntime: modelToggleRuntime(admin),
     });
 
     const result = await port.setModelProviderModelEnabled({
@@ -8223,7 +8544,7 @@ describe("setup-token config profile does not suppress the shared write (issue #
         adminClient: admin,
         secretsVault: new MemorySecretsVault(),
         githubRepository: "anthonykewl20/opzava",
-        gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+        gatewayRuntime: modelToggleRuntime(admin),
       });
 
       const pending = port.setModelProviderModelEnabled({
