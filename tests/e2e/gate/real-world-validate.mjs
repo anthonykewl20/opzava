@@ -11,6 +11,8 @@
 //   REAL_MAX_PASSES (default 5)  REAL_CLEAN_STREAK (default 2)
 //   REAL_STORM_THRESHOLD (default 5)  connection-failure log lines in a pass
 //     window that flip a warning into a blocking retry-storm finding.
+//   REAL_CONNECTIONS_HEALTH / REAL_CONNECTIONS_INTEGRATIONS and the required numeric
+//   REAL_CONNECTIONS_BASELINE_LOAD_MS / REAL_CONNECTIONS_MAX_REGRESSION_MS contract.
 // Exit 0 = REAL_CLEAN_STREAK consecutive clean passes. Anything else = NOT DONE.
 
 import { chromium } from "@playwright/test";
@@ -32,6 +34,7 @@ const MAX_PASSES = posInt("REAL_MAX_PASSES", 5);
 const CLEAN_STREAK = posInt("REAL_CLEAN_STREAK", 2);
 const STORM_THRESHOLD = posInt("REAL_STORM_THRESHOLD", 5);
 const OUT = process.argv[2] ?? `real-validate-artifacts/${new Date().toISOString().replaceAll(":", "-")}`;
+const REPORT_BASE = new URL(BASE).origin;
 mkdirSync(OUT, { recursive: true });
 
 const SEED_ROUTES = ["/", "/tasks", "/issues", "/connections", "/connections/system",
@@ -77,6 +80,37 @@ function preflight() {
   console.log(`preflight OK: ${expected.length} services (${[...ALLOW_EXITED].join(", ")} may be exited 0)`);
 }
 function fail(msg) { console.error(`PREFLIGHT FAIL: ${msg}`); process.exit(2); }
+
+function requireConnectionsScenarioContract() {
+  const required = [
+    "REAL_CONNECTIONS_HEALTH",
+    "REAL_CONNECTIONS_INTEGRATIONS",
+    "REAL_CONNECTIONS_BASELINE_LOAD_MS",
+    "REAL_CONNECTIONS_MAX_REGRESSION_MS",
+  ];
+  if (process.env.REAL_CONNECTIONS_HEALTH === "degraded")
+    required.push("REAL_CONNECTIONS_ATTENTION");
+  const missing = required.filter((name) => process.env[name] === undefined);
+  if (missing.length > 0)
+    fail(`Connections scenario contract is missing: ${missing.join(", ")}.`);
+}
+
+// A clean generic route sweep cannot prove the Connections state matrix. Require the dedicated
+// real-login drive before looping. Environment is inherited by default; scenario declarations and
+// credentials never enter command arguments, captured output, or the gate report.
+function validateConnectionsScenario() {
+  const childArtifacts = `${OUT}/connections-scenario`;
+  const result = spawnSync(
+    process.execPath,
+    ["tests/e2e/drives/connections.mjs", childArtifacts],
+    { stdio: "ignore" },
+  );
+  if (result.error !== undefined)
+    fail("Connections scenario validation could not start; inspect the local runtime.");
+  if (result.status !== 0)
+    fail(`Connections scenario validation failed (exit ${result.status ?? "signal"}); inspect ${childArtifacts}/connections-report.json when present.`);
+  console.log(`connections scenario OK: ${childArtifacts}`);
+}
 
 // ---------- Findings collection
 function makeCollector(page, pass, findings) {
@@ -165,9 +199,11 @@ function auditLogs(sinceIso, pass, findings, warnings) {
 }
 
 // ---------- Main loop: iterate until CLEAN_STREAK consecutive clean passes.
+requireConnectionsScenarioContract();
 preflight();
+validateConnectionsScenario();
 const browser = await chromium.launch();
-const report = { base: BASE, startedAt: new Date().toISOString(), passes: [], verdict: "NOT-DONE" };
+const report = { base: REPORT_BASE, startedAt: new Date().toISOString(), passes: [], verdict: "NOT-DONE" };
 let streak = 0;
 
 for (let pass = 1; pass <= MAX_PASSES && streak < CLEAN_STREAK; pass++) {
@@ -183,7 +219,7 @@ for (let pass = 1; pass <= MAX_PASSES && streak < CLEAN_STREAK; pass++) {
     for (const route of routes) await sweepRoute(page, route, pass, findings, pass === 1 || streak === CLEAN_STREAK - 1);
     await writeFlowProof(page, pass, findings);
   } catch (e) {
-    findings.push({ pass, kind: "pass-aborted", where: BASE, detail: String(e).slice(0, 500) });
+    findings.push({ pass, kind: "pass-aborted", where: REPORT_BASE, detail: String(e).slice(0, 500) });
   } finally {
     await ctx.close();
   }

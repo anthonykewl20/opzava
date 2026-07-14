@@ -4,6 +4,8 @@
 // live Gateway data, and real server actions: no session minting, API mocks, or state fabrication.
 // See tests/e2e/README.md for the required scenario matrix.
 // Usage: node tests/e2e/drives/connections.mjs [outDir]
+// Static classifier check: node tests/e2e/drives/connections.mjs --self-test
+// Fixed-point timing capture: node tests/e2e/drives/connections.mjs --capture-baseline [outDir]
 
 import { chromium } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -12,9 +14,20 @@ import { pathToFileURL } from "node:url";
 
 import { BASE, artifactDir, realLogin } from "../lib/session.mjs";
 
-const OUT = process.argv[2] ?? artifactDir("connections");
 const HEALTH_SCENARIOS = new Set(["healthy", "degraded", "unreachable"]);
 const INTEGRATION_SCENARIOS = new Set(["empty", "connected"]);
+const SELF_TEST = process.argv.includes("--self-test");
+const CAPTURE_BASELINE = process.argv.includes("--capture-baseline");
+
+if (SELF_TEST) {
+  runScenarioClassifierSelfTest();
+  console.log("connections scenario classifier self-test OK");
+  process.exit(0);
+}
+
+const OUT =
+  process.argv.slice(2).find((argument) => !argument.startsWith("--")) ??
+  artifactDir("connections");
 
 function requiredChoice(name, allowed) {
   const value = process.env[name];
@@ -27,11 +40,16 @@ function requiredChoice(name, allowed) {
   return value;
 }
 
-function optionalPositiveNumber(name) {
+function requiredNumber(name, { allowZero }) {
   const raw = process.env[name];
-  if (raw === undefined) return null;
+  if (raw === undefined)
+    throw new Error(`${name} is required for Connections regression validation.`);
+  if (raw.trim() === "")
+    throw new Error(`${name} must be a ${allowZero ? "nonnegative" : "positive"} number.`);
   const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number.`);
+  if (!Number.isFinite(value) || (allowZero ? value < 0 : value <= 0)) {
+    throw new Error(`${name} must be a ${allowZero ? "nonnegative" : "positive"} number.`);
+  }
   return value;
 }
 
@@ -53,7 +71,14 @@ if (expectedHealth === "degraded") {
     throw new Error("REAL_CONNECTIONS_ATTENTION must be 0 or omitted outside degraded health.");
   }
 }
-const maxLoadMs = optionalPositiveNumber("REAL_CONNECTIONS_MAX_LOAD_MS");
+const baselineLoadMs = CAPTURE_BASELINE
+  ? null
+  : requiredNumber("REAL_CONNECTIONS_BASELINE_LOAD_MS", { allowZero: false });
+const maxRegressionMs = CAPTURE_BASELINE
+  ? null
+  : requiredNumber("REAL_CONNECTIONS_MAX_REGRESSION_MS", { allowZero: true });
+const allowedConnectionsLoadMs =
+  baselineLoadMs === null || maxRegressionMs === null ? null : baselineLoadMs + maxRegressionMs;
 const reportBase = new URL(BASE).origin;
 
 mkdirSync(OUT, { recursive: true });
@@ -97,11 +122,16 @@ const report = {
     health: expectedHealth,
     integrations: expectedIntegration,
     attentionCount: expectedAttention,
-    maxLoadMs,
+  },
+  performanceContract: {
+    baselineLoadMs,
+    maxRegressionMs,
+    allowedConnectionsLoadMs,
   },
   observed: null,
   heroHealth: null,
   pillHealth: null,
+  gatewayState: null,
   integrationState: null,
   providerOrdering: null,
   providerPage: null,
@@ -136,8 +166,14 @@ async function timedGoto(page, route, options = {}) {
   });
   const elapsedMs = Math.round(performance.now() - started);
   (report.navigationTimings[route] ??= []).push(elapsedMs);
-  if (maxLoadMs !== null && elapsedMs > maxLoadMs) {
-    finding(`${route} load ${elapsedMs}ms exceeded REAL_CONNECTIONS_MAX_LOAD_MS`);
+  if (
+    route === "/connections" &&
+    allowedConnectionsLoadMs !== null &&
+    elapsedMs > allowedConnectionsLoadMs
+  ) {
+    finding(
+      `${route} load ${elapsedMs}ms exceeded baseline plus allowed regression (${allowedConnectionsLoadMs}ms)`,
+    );
   }
   return response;
 }
@@ -203,21 +239,140 @@ async function overviewHealth(page) {
   return { hero: heroHealth, pill: pillHealth };
 }
 
-function scenarioStatus(health) {
-  if (health.status === "healthy") return "healthy";
-  if (health.status === "attention") return "degraded";
-  return "unreachable";
+async function overviewGatewayState(page) {
+  const card = page.locator('main section[aria-labelledby="gateway-card-title"]');
+  const activeCount = await card.getByText("Active", { exact: true }).count();
+  const unavailableCount = await card.getByText("Unavailable", { exact: true }).count();
+  const connectionStatus =
+    activeCount === 1 && unavailableCount === 0
+      ? "active"
+      : unavailableCount === 1 && activeCount === 0
+        ? "unavailable"
+        : null;
+
+  const componentLabels = [
+    ["Healthy", "healthy"],
+    ["Needs attention", "attention"],
+    ["Not checked", "not_checked"],
+  ];
+  const presentComponentStatuses = [];
+  for (const [label, status] of componentLabels) {
+    if ((await card.getByText(label, { exact: true }).count()) === 1) {
+      presentComponentStatuses.push(status);
+    }
+  }
+  const componentStatus =
+    presentComponentStatuses.length === 1 ? presentComponentStatuses[0] : null;
+
+  assertFinding(connectionStatus !== null, "Overview Gateway connection state is ambiguous");
+  assertFinding(componentStatus !== null, "Overview Gateway component health is ambiguous");
+  return { connectionStatus, componentStatus, source: "overview-gateway-card" };
 }
 
-function assertExpectedHealth(health, label) {
+function classifyObservedScenario(input) {
+  if (
+    input.health.status === "healthy" &&
+    input.health.checkedAt !== null &&
+    input.gateway.connectionStatus === "active" &&
+    input.gateway.componentStatus === "healthy"
+  ) {
+    return "healthy";
+  }
+  if (input.health.status === "attention") return "degraded";
+  if (
+    input.health.status === "unknown" &&
+    input.health.checkedAt === null &&
+    input.gateway.connectionStatus === "unavailable" &&
+    input.gateway.componentStatus === "not_checked"
+  ) {
+    return "unreachable";
+  }
+  return "partial-unknown";
+}
+
+function runScenarioClassifierSelfTest() {
+  const cases = [
+    {
+      name: "healthy requires checked reachable Gateway facts",
+      input: {
+        health: { status: "healthy", checkedAt: "2026-07-14T00:00:00.000Z" },
+        gateway: { connectionStatus: "active", componentStatus: "healthy" },
+      },
+      expected: "healthy",
+    },
+    {
+      name: "attention is degraded",
+      input: {
+        health: { status: "attention", checkedAt: "2026-07-14T00:00:00.000Z" },
+        gateway: { connectionStatus: "active", componentStatus: "healthy" },
+      },
+      expected: "degraded",
+    },
+    {
+      name: "unknown agents do not make a reachable Gateway unreachable",
+      input: {
+        health: { status: "unknown", checkedAt: "2026-07-14T00:00:00.000Z" },
+        gateway: { connectionStatus: "active", componentStatus: "healthy" },
+      },
+      expected: "partial-unknown",
+    },
+    {
+      name: "active Gateway with missing probes remains partial unknown",
+      input: {
+        health: { status: "unknown", checkedAt: null },
+        gateway: { connectionStatus: "active", componentStatus: "not_checked" },
+      },
+      expected: "partial-unknown",
+    },
+    {
+      name: "unreachable requires unavailable unchecked Gateway and no checkedAt",
+      input: {
+        health: { status: "unknown", checkedAt: null },
+        gateway: { connectionStatus: "unavailable", componentStatus: "not_checked" },
+      },
+      expected: "unreachable",
+    },
+    {
+      name: "stale checkedAt does not prove unreachable",
+      input: {
+        health: { status: "unknown", checkedAt: "2026-07-14T00:00:00.000Z" },
+        gateway: { connectionStatus: "unavailable", componentStatus: "not_checked" },
+      },
+      expected: "partial-unknown",
+    },
+  ];
+  for (const testCase of cases) {
+    const actual = classifyObservedScenario(testCase.input);
+    if (actual !== testCase.expected) {
+      throw new Error(`${testCase.name}: expected ${testCase.expected}, received ${actual}`);
+    }
+  }
+}
+
+function assertExpectedHealth(health, gateway, label) {
+  const observed = classifyObservedScenario({ health, gateway });
   assertFinding(
-    scenarioStatus(health) === expectedHealth,
-    `${label} health does not match scenario`,
+    observed === expectedHealth,
+    `${label} health classified as ${observed}, not expected ${expectedHealth}`,
   );
   assertFinding(
     health.attentionCount === expectedAttention,
     `${label} attention count does not match scenario`,
   );
+  if (expectedHealth === "unreachable") {
+    assertFinding(
+      gateway.connectionStatus === "unavailable",
+      `${label} unreachable scenario requires Gateway unavailable`,
+    );
+    assertFinding(
+      gateway.componentStatus === "not_checked",
+      `${label} unreachable scenario requires Gateway component not checked`,
+    );
+    assertFinding(
+      health.checkedAt === null,
+      `${label} unreachable scenario requires no successful health checkedAt`,
+    );
+  }
 }
 
 function rowActions(row) {
@@ -354,9 +509,10 @@ async function validateOverviewStructure(page) {
   assertFinding(counts !== null, "health bar count label could not be parsed");
 
   const groupNav = page.getByRole("navigation", { name: "OpenClaw component groups" });
+  const groupCounts = {};
   for (const group of ["System Core", "Channels", "Agents"]) {
     const link = groupNav.getByRole("link", {
-      name: new RegExp(`^${group}: \\d+ of \\d+ healthy$`),
+      name: new RegExp(`^${group}: \\d+ healthy, \\d+ (?:needs|need) attention, \\d+ not checked$`),
     });
     assertFinding((await link.count()) === 1, `${group} summary missing`);
     if ((await link.count()) === 1) {
@@ -364,12 +520,31 @@ async function validateOverviewStructure(page) {
         (await link.getAttribute("href")) === "/connections/system",
         `${group} link mismatch`,
       );
+      const label = (await link.getAttribute("aria-label")) ?? "";
+      const groupMatch = label.match(
+        new RegExp(
+          `^${group}: (\\d+) healthy, (\\d+) (?:needs|need) attention, (\\d+) not checked$`,
+        ),
+      );
+      assertFinding(groupMatch !== null, `${group} exact-count summary could not be parsed`);
+      if (groupMatch !== null) {
+        groupCounts[group] = {
+          healthy: Number(groupMatch[1]),
+          attention: Number(groupMatch[2]),
+          notChecked: Number(groupMatch[3]),
+        };
+      }
     }
   }
 
   return counts === null
     ? null
-    : { healthy: Number(counts[1]), attention: Number(counts[2]), notChecked: Number(counts[3]) };
+    : {
+        healthy: Number(counts[1]),
+        attention: Number(counts[2]),
+        notChecked: Number(counts[3]),
+        groups: groupCounts,
+      };
 }
 
 function providerPriority(status, authHealth) {
@@ -457,7 +632,8 @@ async function validateIntegration(page) {
 }
 
 async function runHealthCheck(page) {
-  const before = await overviewHealth(page);
+  const beforeHealth = await overviewHealth(page);
+  const beforeGateway = await overviewGatewayState(page);
   const button = page.getByRole("button", { name: "Run health check", exact: true }).first();
   await Promise.all([
     page.waitForURL(
@@ -474,16 +650,22 @@ async function runHealthCheck(page) {
     (await notice.getByText("Health check complete.", { exact: true }).count()) === 1,
     "manual health check did not report server-action success",
   );
-  const after = await overviewHealth(page);
+  const afterHealth = await overviewHealth(page);
+  const afterGateway = await overviewGatewayState(page);
   assertFinding(
-    before.hero.checkedAt !== after.hero.checkedAt,
+    beforeHealth.hero.checkedAt !== afterHealth.hero.checkedAt,
     "manual health check did not change checkedAt",
   );
-  assertExpectedHealth(before.hero, "pre-check");
-  assertExpectedHealth(after.hero, "post-check");
-  report.healthCheck = { before: before.hero, after: after.hero, notice: "complete" };
-  report.heroHealth = after.hero;
-  report.pillHealth = after.pill;
+  assertExpectedHealth(beforeHealth.hero, beforeGateway, "pre-check");
+  assertExpectedHealth(afterHealth.hero, afterGateway, "post-check");
+  report.healthCheck = {
+    before: { health: beforeHealth.hero, gateway: beforeGateway },
+    after: { health: afterHealth.hero, gateway: afterGateway },
+    notice: "complete",
+  };
+  report.heroHealth = afterHealth.hero;
+  report.pillHealth = afterHealth.pill;
+  report.gatewayState = afterGateway;
 }
 
 async function validateSystem(page) {
@@ -631,14 +813,19 @@ try {
   await timedGoto(page, "/connections");
   const healthBar = await validateOverviewStructure(page);
   const initialHealth = await overviewHealth(page);
+  const initialGateway = await overviewGatewayState(page);
   report.heroHealth = initialHealth.hero;
   report.pillHealth = initialHealth.pill;
+  report.gatewayState = initialGateway;
   report.observed = {
-    health: scenarioStatus(initialHealth.hero),
+    health: classifyObservedScenario({ health: initialHealth.hero, gateway: initialGateway }),
+    rollupStatus: initialHealth.hero.status,
     attentionCount: initialHealth.hero.attentionCount,
+    gateway: initialGateway,
   };
-  assertExpectedHealth(initialHealth.hero, "observed");
+  assertExpectedHealth(initialHealth.hero, initialGateway, "observed");
   if (healthBar !== null) {
+    const grouped = Object.values(healthBar.groups);
     assertFinding(
       healthBar.attention === initialHealth.hero.attentionCount,
       "health bar attention count does not match health rollup",
@@ -646,6 +833,13 @@ try {
     assertFinding(
       healthBar.healthy + healthBar.attention + healthBar.notChecked > 0,
       "health bar is vacuous",
+    );
+    assertFinding(grouped.length === 3, "health group exact-count summaries are incomplete");
+    assertFinding(
+      grouped.reduce((total, group) => total + group.healthy, 0) === healthBar.healthy &&
+        grouped.reduce((total, group) => total + group.attention, 0) === healthBar.attention &&
+        grouped.reduce((total, group) => total + group.notChecked, 0) === healthBar.notChecked,
+      "health group exact counts do not reconcile with the health bar",
     );
   }
   await validateOverviewProviders(page);
@@ -659,9 +853,11 @@ try {
   failOnFindings("manual health check failed");
   await timedGoto(page, "/connections");
   const screenshotHealth = await overviewHealth(page);
-  assertExpectedHealth(screenshotHealth.hero, "screenshot");
+  const screenshotGateway = await overviewGatewayState(page);
+  assertExpectedHealth(screenshotHealth.hero, screenshotGateway, "screenshot");
   report.heroHealth = screenshotHealth.hero;
   report.pillHealth = screenshotHealth.pill;
+  report.gatewayState = screenshotGateway;
   failOnFindings("post-check Overview reload failed");
   await captureThemes(page, `connections-${expectedHealth}-live`);
   const overviewMockup =
@@ -681,7 +877,7 @@ try {
 
   await validateLegacyRedirect(page);
   failOnFindings("legacy redirect validation failed");
-  console.log("connections-drive OK:", OUT);
+  console.log(CAPTURE_BASELINE ? "connections baseline capture OK:" : "connections-drive OK:", OUT);
 } catch (error) {
   const unsafeMessage = error instanceof Error ? error.message : String(error);
   const message = unsafeMessage.replaceAll(BASE, reportBase);

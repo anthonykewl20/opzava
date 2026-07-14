@@ -44,7 +44,30 @@ node tests/e2e/drives/connections.mjs # or call any script directly, with an opt
 `drives/connections.mjs` never fabricates health or integration data and never mutates the shared
 Gateway or GitHub integration to manufacture a scenario. Prepare the real stack in one state, then
 declare that state explicitly. Missing declarations and observed-state mismatches fail the drive;
-they are not skips. A degraded run also requires the exact positive attention count.
+they are not skips. A degraded run also requires the exact positive attention count. The final gate
+runs this drive as a required child validation with inherited environment and writes its artifacts
+under `<gate-out>/connections-scenario`; therefore a gate run also covers exactly one prepared
+state.
+
+Capture the non-secret navigation baseline against the agreed fixed point before validating the
+candidate. Make this E2E-only harness available in a fixed-point worktree without bringing over app
+changes, prepare the same real scenario, and run measurement mode:
+
+```bash
+REAL_CONNECTIONS_HEALTH=healthy REAL_CONNECTIONS_INTEGRATIONS=connected \
+  node tests/e2e/drives/connections.mjs --capture-baseline \
+  real-validate-artifacts/connections-fixed-point-baseline
+jq '.navigationTimings["/connections"]' \
+  real-validate-artifacts/connections-fixed-point-baseline/connections-report.json
+```
+
+Use the measured fixed-point value and an explicitly approved regression budget; neither has a
+default. The drive checks every observed `/connections` navigation against their sum.
+
+```bash
+export REAL_CONNECTIONS_BASELINE_LOAD_MS=REPLACE_WITH_MEASURED_FIXED_POINT_MS
+export REAL_CONNECTIONS_MAX_REGRESSION_MS=REPLACE_WITH_APPROVED_BUDGET_MS
+```
 
 ```bash
 REAL_CONNECTIONS_HEALTH=healthy REAL_CONNECTIONS_INTEGRATIONS=empty \
@@ -61,11 +84,11 @@ REAL_CONNECTIONS_HEALTH=unreachable REAL_CONNECTIONS_INTEGRATIONS=connected \
   node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-unreachable-connected
 ```
 
-Set optional `REAL_CONNECTIONS_MAX_LOAD_MS` to a positive number to enforce an explicit
-per-navigation SLO. Timings are recorded even when no SLO is configured. Each successful run writes
-matched 1440x960 light/dark live and static-mockup screenshots plus `connections-report.json` to its
-output directory. The three health states require three genuinely prepared real environments or
-three separate preparations; one ambient run does not cover the matrix.
+Each successful validation run records numeric navigation timings and the numeric baseline contract,
+and writes matched 1440x960 light/dark live and static-mockup screenshots plus
+`connections-report.json` to its output directory. The three health states require three genuinely
+prepared real environments or three separate preparations; one ambient run does not cover the
+matrix.
 
 These scripts used to sit loose in the repo root as `*.local.mjs`. Docs frozen before 2026-07-14
 (`docs/plan/consensus/`, `docs/plan/audits/`) still cite those old paths; the mapping is
