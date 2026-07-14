@@ -6,16 +6,8 @@ import {
   sql,
   withTenant,
 } from "@opzava/adapters";
-import {
-  addNote,
-  createAccount,
-  createContact,
-  createDeal,
-  createTicket,
-  defaultCrmAuthorizationPort,
-} from "@opzava/crm";
 import type { AuthorizationPort } from "@opzava/ports";
-import { ok, type Result } from "@opzava/shared-kernel";
+import { ok } from "@opzava/shared-kernel";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -23,7 +15,6 @@ import {
   appendAssistantDelta,
   appendUserTurn,
   createConversation,
-  executeRuntimeControlCrmTool,
   executeRuntimeControlTaskTool,
   finalizeAssistantTurn,
   recordToolOutcome,
@@ -36,11 +27,6 @@ interface TenantFixture {
   readonly organizationId: string;
   readonly workspaceId: string;
   readonly userId: string;
-}
-
-interface TestActor {
-  readonly userId: string;
-  readonly roleKeys: readonly string[];
 }
 
 const testRunId = randomUUID();
@@ -134,15 +120,6 @@ function context(tenant: TenantFixture) {
   };
 }
 
-function unwrap<T>(result: Result<T>): T {
-  expect(result.ok).toBe(true);
-  if (!result.ok) {
-    throw result.error;
-  }
-
-  return result.value;
-}
-
 async function assistantToolContext(
   tenant: TenantFixture,
   label: string,
@@ -186,51 +163,6 @@ async function assistantToolContext(
   return toolContext.value;
 }
 
-async function assistantToolContextForActor(
-  tenant: TenantFixture,
-  label: string,
-  actor: TestActor,
-): Promise<ToolExecutionContext> {
-  const appContext = context(tenant);
-  const conversation = await createConversation({
-    ...appContext,
-    surface: "tasks.ask_admin",
-    assistantKey: "ask-admin-opzava",
-  });
-  expect(conversation.ok).toBe(true);
-  if (!conversation.ok) {
-    throw conversation.error;
-  }
-
-  const assistantTurn = await startAssistantTurn({
-    ...appContext,
-    conversationId: conversation.value.id,
-    idempotencyKey: `assistant-${label}`,
-    assistantKey: "ask-admin-opzava",
-  });
-  expect(assistantTurn.ok).toBe(true);
-  if (!assistantTurn.ok) {
-    throw assistantTurn.error;
-  }
-
-  const toolContext = toolExecutionContextFromSessionPrincipal({
-    principal: {
-      ...appContext,
-      actor,
-      sessionId: `session-${label}`,
-    },
-    conversationId: conversation.value.id,
-    assistantTurnId: assistantTurn.value.id,
-    commandIdempotencyKey: `command-${label}`,
-  });
-  expect(toolContext.ok).toBe(true);
-  if (!toolContext.ok) {
-    throw toolContext.error;
-  }
-
-  return toolContext.value;
-}
-
 const denyingAuthorizationPort: AuthorizationPort = {
   async can() {
     return ok({ allowed: false, reason: "test-denied" });
@@ -242,44 +174,6 @@ const denyingAuthorizationPort: AuthorizationPort = {
     return ok({ allowed: false, reason: "test-denied" });
   },
 };
-
-const allowingAuthorizationPort: AuthorizationPort = {
-  async can() {
-    return ok({ allowed: true });
-  },
-  async hasTenantGrant() {
-    return ok({ allowed: true });
-  },
-  async hasProjectGrant() {
-    return ok({ allowed: true });
-  },
-};
-
-const crmReadOnlyCountTables = [
-  "crm_pipelines",
-  "crm_pipeline_stages",
-  "crm_accounts",
-  "crm_contacts",
-  "crm_deals",
-  "crm_tickets",
-  "crm_activities",
-] as const;
-
-async function crmTableCounts(
-  tenant: TenantFixture,
-): Promise<Readonly<Record<(typeof crmReadOnlyCountTables)[number], number>>> {
-  const counts = {} as Record<(typeof crmReadOnlyCountTables)[number], number>;
-
-  for (const table of crmReadOnlyCountTables) {
-    const result = await adminPool.query<{ count: number }>(
-      `select count(*)::integer as count from public.${table} where organization_id = $1`,
-      [tenant.organizationId],
-    );
-    counts[table] = Number(result.rows[0]?.count ?? 0);
-  }
-
-  return counts;
-}
 
 async function cleanupCreatedRows(): Promise<void> {
   const organizationResult = await adminPool.query<{ id: string }>(
@@ -303,33 +197,6 @@ async function cleanupCreatedRows(): Promise<void> {
   const userIds = [...new Set([...createdUserIds, ...userResult.rows.map((row) => row.id)])];
 
   if (organizationIds.length > 0) {
-    await adminPool.query(
-      "delete from public.crm_activities where organization_id = any($1::uuid[])",
-      [organizationIds],
-    );
-    await adminPool.query(
-      "delete from public.crm_tickets where organization_id = any($1::uuid[])",
-      [organizationIds],
-    );
-    await adminPool.query("delete from public.crm_deals where organization_id = any($1::uuid[])", [
-      organizationIds,
-    ]);
-    await adminPool.query(
-      "delete from public.crm_pipeline_stages where organization_id = any($1::uuid[])",
-      [organizationIds],
-    );
-    await adminPool.query(
-      "delete from public.crm_pipelines where organization_id = any($1::uuid[])",
-      [organizationIds],
-    );
-    await adminPool.query(
-      "delete from public.crm_contacts where organization_id = any($1::uuid[])",
-      [organizationIds],
-    );
-    await adminPool.query(
-      "delete from public.crm_accounts where organization_id = any($1::uuid[])",
-      [organizationIds],
-    );
     await adminPool.query("delete from public.tasks where organization_id = any($1::uuid[])", [
       organizationIds,
     ]);
@@ -847,351 +714,6 @@ describe("slice 2a Runtime-Control", () => {
       },
     });
     expect(missing).toMatchObject({
-      ok: true,
-      value: {
-        status: "failed",
-        code: "not_found",
-      },
-    });
-  });
-
-  it("executes CRM read tools through CRM services with compact summaries", async () => {
-    const tenant = await adminCreateTenant("crm-tools");
-    const appContext = context(tenant);
-    const account = unwrap(
-      await createAccount({
-        ...appContext,
-        name: "Acme Runtime",
-        domain: "acme.example",
-        industry: "Industrial automation",
-        website: "https://acme.example",
-      }),
-    );
-    const contact = unwrap(
-      await createContact({
-        ...appContext,
-        displayName: "Ada Admin",
-        email: "ada.admin@example.test",
-        title: "Operations Lead",
-        lifecycleStage: "qualified",
-        accountId: account.id,
-      }),
-    );
-    unwrap(
-      await createDeal({
-        ...appContext,
-        title: "Acme expansion",
-        accountId: account.id,
-        primaryContactId: contact.id,
-        valueCents: 123456,
-        currency: "USD",
-      }),
-    );
-    unwrap(
-      await createTicket({
-        ...appContext,
-        subject: "Portal access issue",
-        contactId: contact.id,
-        accountId: account.id,
-        status: "open",
-        priority: "high",
-        queue: "support",
-      }),
-    );
-    unwrap(
-      await addNote({
-        ...appContext,
-        contactId: contact.id,
-        body: "Discussed renewal timeline.",
-      }),
-    );
-    const longTimelineBody = "A".repeat(320);
-    unwrap(
-      await addNote({
-        ...appContext,
-        contactId: contact.id,
-        body: longTimelineBody,
-      }),
-    );
-
-    const toolContext = await assistantToolContext(tenant, "crm-tools");
-
-    const accounts = await executeRuntimeControlCrmTool({
-      context: toolContext,
-      toolName: "opzava_crm_list_accounts",
-      toolCallId: "tool-call-crm-accounts",
-      args: { limit: 10 },
-    });
-    expect(accounts).toMatchObject({
-      ok: true,
-      value: {
-        status: "succeeded",
-        output: {
-          kind: "crm.accounts.list",
-          totalCount: 1,
-          accounts: [
-            {
-              name: "Acme Runtime",
-              domain: "acme.example",
-              contactCount: 1,
-              dealCount: 1,
-              ticketCount: 1,
-            },
-          ],
-        },
-      },
-    });
-
-    const contacts = await executeRuntimeControlCrmTool({
-      context: toolContext,
-      toolName: "opzava_crm_list_contacts",
-      toolCallId: "tool-call-crm-contacts",
-      args: { limit: 10 },
-    });
-    expect(contacts).toMatchObject({
-      ok: true,
-      value: {
-        output: {
-          kind: "crm.contacts.list",
-          contacts: [
-            {
-              name: "Ada Admin",
-              accountName: "Acme Runtime",
-              lifecycleLabel: "Qualified",
-              openDealCount: 1,
-              openTicketCount: 1,
-            },
-          ],
-        },
-      },
-    });
-
-    const deals = await executeRuntimeControlCrmTool({
-      context: toolContext,
-      toolName: "opzava_crm_list_deals",
-      toolCallId: "tool-call-crm-deals",
-      args: { limit: 10 },
-    });
-    expect(deals).toMatchObject({
-      ok: true,
-      value: {
-        output: {
-          kind: "crm.deals.list",
-          totalCount: 1,
-          deals: [
-            {
-              title: "Acme expansion",
-              accountName: "Acme Runtime",
-              primaryContactName: "Ada Admin",
-              statusLabel: "Open",
-              value: "$1,234.56",
-            },
-          ],
-        },
-      },
-    });
-
-    const tickets = await executeRuntimeControlCrmTool({
-      context: toolContext,
-      toolName: "opzava_crm_list_tickets",
-      toolCallId: "tool-call-crm-tickets",
-      args: { status: "open", limit: 10 },
-    });
-    expect(tickets).toMatchObject({
-      ok: true,
-      value: {
-        output: {
-          kind: "crm.tickets.list",
-          totalCount: 1,
-          tickets: [
-            {
-              subject: "Portal access issue",
-              contactName: "Ada Admin",
-              accountName: "Acme Runtime",
-              statusLabel: "Open",
-              priorityLabel: "High",
-            },
-          ],
-        },
-      },
-    });
-
-    const timeline = await executeRuntimeControlCrmTool({
-      context: toolContext,
-      toolName: "opzava_crm_get_contact_timeline",
-      toolCallId: "tool-call-crm-timeline",
-      args: { contactId: contact.id, limit: 5 },
-    });
-    expect(timeline).toMatchObject({
-      ok: true,
-      value: {
-        output: {
-          kind: "crm.contact_timeline.get",
-          contactId: contact.id,
-        },
-      },
-    });
-    if (
-      !timeline.ok ||
-      timeline.value.status !== "succeeded" ||
-      timeline.value.output.kind !== "crm.contact_timeline.get"
-    ) {
-      throw new Error("CRM timeline tool must succeed for activity assertions.");
-    }
-    expect(timeline.value.output.activities).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "note",
-          kindLabel: "Note",
-          summary: "Discussed renewal timeline.",
-        }),
-        expect.objectContaining({
-          kind: "note",
-          kindLabel: "Note",
-          summary: longTimelineBody.slice(0, 280),
-          truncated: true,
-          originalLength: longTimelineBody.length,
-        }),
-      ]),
-    );
-  });
-
-  it("keeps admitted CRM read tools from changing CRM table counts", async () => {
-    const tenant = await adminCreateTenant("crm-tools-read-only");
-    const appContext = context(tenant);
-    const account = unwrap(
-      await createAccount({
-        ...appContext,
-        name: "Read-only account",
-      }),
-    );
-    const contact = unwrap(
-      await createContact({
-        ...appContext,
-        displayName: "Read-only contact",
-        accountId: account.id,
-      }),
-    );
-
-    const toolContext = await assistantToolContext(tenant, "crm-tools-read-only");
-    const baselineCounts = await crmTableCounts(tenant);
-
-    const toolCalls = [
-      {
-        toolName: "opzava_crm_list_accounts",
-        toolCallId: "tool-call-crm-read-only-accounts",
-        args: { limit: 10 },
-      },
-      {
-        toolName: "opzava_crm_list_contacts",
-        toolCallId: "tool-call-crm-read-only-contacts",
-        args: { limit: 10 },
-      },
-      {
-        toolName: "opzava_crm_list_deals",
-        toolCallId: "tool-call-crm-read-only-deals",
-        args: { limit: 10 },
-      },
-      {
-        toolName: "opzava_crm_list_tickets",
-        toolCallId: "tool-call-crm-read-only-tickets",
-        args: { limit: 10 },
-      },
-      {
-        toolName: "opzava_crm_get_contact_timeline",
-        toolCallId: "tool-call-crm-read-only-timeline",
-        args: { contactId: contact.id, limit: 10 },
-      },
-    ] as const;
-
-    for (const toolCall of toolCalls) {
-      const result = await executeRuntimeControlCrmTool({
-        context: toolContext,
-        toolName: toolCall.toolName,
-        toolCallId: toolCall.toolCallId,
-        args: toolCall.args,
-      });
-      expect(result).toMatchObject({
-        ok: true,
-        value: {
-          status: "succeeded",
-        },
-      });
-      expect(await crmTableCounts(tenant)).toEqual(baselineCounts);
-    }
-  });
-
-  it("fails CRM tool execution closed for non-member actors", async () => {
-    const tenant = await adminCreateTenant("crm-tool-forbidden");
-    const toolContext = await assistantToolContextForActor(tenant, "crm-tool-forbidden", {
-      userId: randomUUID(),
-      roleKeys: [],
-    });
-
-    const denied = await executeRuntimeControlCrmTool(
-      {
-        context: toolContext,
-        toolName: "opzava_crm_list_accounts",
-        toolCallId: "tool-call-crm-denied",
-        args: { limit: 10 },
-      },
-      {
-        authorizationPort: allowingAuthorizationPort,
-        crmAuthorizationPort: defaultCrmAuthorizationPort,
-      },
-    );
-    expect(denied).toMatchObject({
-      ok: true,
-      value: {
-        status: "failed",
-        code: "forbidden",
-      },
-    });
-  });
-
-  it("keeps CRM records invisible across tenants through the admitted tools", async () => {
-    const tenantA = await adminCreateTenant("crm-tenant-a");
-    const tenantB = await adminCreateTenant("crm-tenant-b");
-    const account = unwrap(
-      await createAccount({
-        ...context(tenantA),
-        name: "Tenant A CRM Account",
-      }),
-    );
-    const contact = unwrap(
-      await createContact({
-        ...context(tenantA),
-        displayName: "Tenant A CRM Contact",
-        accountId: account.id,
-      }),
-    );
-    const toolContext = await assistantToolContext(tenantB, "crm-tenant-b");
-
-    const listed = await executeRuntimeControlCrmTool({
-      context: toolContext,
-      toolName: "opzava_crm_list_contacts",
-      toolCallId: "tool-call-crm-cross-list",
-      args: { limit: 10 },
-    });
-    expect(listed).toMatchObject({
-      ok: true,
-      value: {
-        status: "succeeded",
-        output: {
-          kind: "crm.contacts.list",
-          totalCount: 0,
-          contacts: [],
-        },
-      },
-    });
-
-    const timeline = await executeRuntimeControlCrmTool({
-      context: toolContext,
-      toolName: "opzava_crm_get_contact_timeline",
-      toolCallId: "tool-call-crm-cross-timeline",
-      args: { contactId: contact.id, limit: 10 },
-    });
-    expect(timeline).toMatchObject({
       ok: true,
       value: {
         status: "failed",

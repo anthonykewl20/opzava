@@ -257,25 +257,6 @@ importers:
         specifier: ~5.9.0
         version: 5.9.3
 
-  packages/crm:
-    dependencies:
-      '@opzava/adapters':
-        specifier: workspace:*
-        version: link:../adapters
-      '@opzava/ports':
-        specifier: workspace:*
-        version: link:../ports
-      '@opzava/shared-kernel':
-        specifier: workspace:*
-        version: link:../shared-kernel
-      drizzle-orm:
-        specifier: 0.45.2
-        version: 0.45.2(@types/pg@8.20.0)(kysely@0.29.2)(pg@8.22.0)
-    devDependencies:
-      '@opzava/config':
-        specifier: workspace:*
-        version: link:../config
-
   packages/identity-access:
     dependencies:
       '@better-auth/drizzle-adapter':
@@ -335,9 +316,6 @@ importers:
       '@opzava/adapters':
         specifier: workspace:*
         version: link:../adapters
-      '@opzava/crm':
-        specifier: workspace:*
-        version: link:../crm
       '@opzava/ports':
         specifier: workspace:*
         version: link:../ports

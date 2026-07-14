@@ -22,7 +22,6 @@
   },
   "dependencies": {
     "@opzava/adapters": "workspace:*",
-    "@opzava/crm": "workspace:*",
     "@opzava/ports": "workspace:*",
     "@opzava/project-management": "workspace:*",
     "@opzava/shared-kernel": "workspace:*",

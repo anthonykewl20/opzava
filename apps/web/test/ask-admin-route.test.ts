@@ -141,9 +141,6 @@ function successfulRuntime(
     appendAssistantDelta: async () => ok(assistantTurn()),
     finalizeAssistantTurn: async () => ok(assistantTurn({ status: "final" })),
     failAssistantTurn: async () => ok(assistantTurn({ status: "failed" })),
-    executeRuntimeControlCrmTool: async () => {
-      throw new Error("not used");
-    },
     executeRuntimeControlTaskTool: async () => {
       throw new Error("not used");
     },
@@ -217,9 +214,6 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
           );
         },
         failAssistantTurn: async () => ok(assistantTurn({ status: "failed" })),
-        executeRuntimeControlCrmTool: async () => {
-          throw new Error("not used");
-        },
         executeRuntimeControlTaskTool: async () => {
           throw new Error("not used");
         },
@@ -285,9 +279,6 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         appendAssistantDelta: async () => ok(assistantTurn()),
         finalizeAssistantTurn: async () => ok(assistantTurn({ status: "final" })),
         failAssistantTurn: async () => ok(assistantTurn({ status: "failed" })),
-        executeRuntimeControlCrmTool: async () => {
-          throw new Error("not used");
-        },
         executeRuntimeControlTaskTool: async () => {
           throw new Error("not used");
         },
@@ -351,9 +342,6 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
             }),
           ),
         failAssistantTurn: async () => ok(assistantTurn({ status: "failed" })),
-        executeRuntimeControlCrmTool: async () => {
-          throw new Error("not used");
-        },
         executeRuntimeControlTaskTool: async () =>
           ok({
             status: "succeeded",

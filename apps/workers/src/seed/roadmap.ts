@@ -76,7 +76,7 @@ const roadmapTasks = [
   {
     title: "Slice 3 - CRM core (thin)",
     description:
-      "Own customer truth in Postgres with manually managed CRM records so Opzava can track real prospects while promoting itself. No channel ingest yet.",
+      "CRM surfaces and backend were removed on 2026-07-15 pending the user-side dashboard.",
     priority: "high",
     labels: ["roadmap", "phase"],
   },
@@ -111,7 +111,7 @@ const roadmapTasks = [
   {
     title: "P4 - CRM",
     description:
-      "(remainder) Channel ingest, sender projections, governed replies, Contact merge, and GDPR erasure after Slice 3 owns CRM records and admin surfaces.",
+      "Rebuild CRM on the user-side dashboard, then add channel ingest, sender projections, governed replies, Contact merge, and GDPR erasure.",
     priority: "normal",
     labels: ["roadmap", "phase"],
   },

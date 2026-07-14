@@ -602,11 +602,6 @@ describe("[fake-gateway] broker operator client", () => {
         "opzava_tasks_list",
         "opzava_tasks_create",
         "opzava_tasks_update",
-        "opzava_crm_list_accounts",
-        "opzava_crm_list_contacts",
-        "opzava_crm_list_deals",
-        "opzava_crm_list_tickets",
-        "opzava_crm_get_contact_timeline",
       ],
     });
     expect(tools).toMatchObject({
@@ -616,11 +611,6 @@ describe("[fake-gateway] broker operator client", () => {
           "opzava_tasks_list",
           "opzava_tasks_create",
           "opzava_tasks_update",
-          "opzava_crm_list_accounts",
-          "opzava_crm_list_contacts",
-          "opzava_crm_list_deals",
-          "opzava_crm_list_tickets",
-          "opzava_crm_get_contact_timeline",
         ],
       },
     });

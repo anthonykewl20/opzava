@@ -10,7 +10,6 @@ FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json tsconfig.base.json ./
 COPY packages/adapters/package.json packages/adapters/package.json
 COPY packages/config/package.json packages/config/package.json
-COPY packages/crm/package.json packages/crm/package.json
 COPY packages/identity-access/package.json packages/identity-access/package.json
 COPY packages/project-management/package.json packages/project-management/package.json
 COPY packages/runtime-control/package.json packages/runtime-control/package.json

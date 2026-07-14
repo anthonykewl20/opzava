@@ -30,26 +30,6 @@ export {
   defaultRuntimeControlAuthorizationPort
 } from "./authorization.js";
 export type {
-  ExecuteRuntimeControlCrmToolInput,
-  RuntimeControlCrmAccountSummary,
-  RuntimeControlCrmActivitySummary,
-  RuntimeControlCrmContactSummary,
-  RuntimeControlCrmDealStageSummary,
-  RuntimeControlCrmDealSummary,
-  RuntimeControlCrmServices,
-  RuntimeControlCrmTicketSummary,
-  RuntimeControlCrmToolDefinition,
-  RuntimeControlCrmToolDependencies,
-  RuntimeControlCrmToolExecution,
-  RuntimeControlCrmToolName,
-  RuntimeControlCrmToolOutput
-} from "./crm-tools.js";
-export {
-  executeRuntimeControlCrmTool,
-  runtimeControlCrmToolNames,
-  runtimeControlCrmToolRegistry
-} from "./crm-tools.js";
-export type {
   ExecuteRuntimeControlTaskToolInput,
   RuntimeControlTaskToolDependencies,
   RuntimeControlTaskToolDefinition,

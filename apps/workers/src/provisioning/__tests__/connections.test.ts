@@ -1365,7 +1365,7 @@ describe("Connections provisioning helpers", () => {
       workspace: ASK_ADMIN_AGENT_WORKSPACE,
       agentDir: ASK_ADMIN_AGENT_DIR,
       subagents: { delegationMode: "prefer", allowAgents: ["subagent-zai", "subagent-openai"] },
-      // Delegation ADDS to the canonical policy (#146): the task/CRM allow-list, the minimal
+      // Delegation ADDS to the canonical policy (#146): the task allow-list, the minimal
       // profile and the deny-wins lock-down all survive alongside the delegation tools.
       tools: {
         profile: "minimal",

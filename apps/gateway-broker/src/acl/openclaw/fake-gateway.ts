@@ -216,11 +216,6 @@ export class FakeOpenClawGateway {
             { name: "opzava_tasks_list", source: "core" },
             { name: "opzava_tasks_create", source: "core" },
             { name: "opzava_tasks_update", source: "core" },
-            { name: "opzava_crm_list_accounts", source: "core" },
-            { name: "opzava_crm_list_contacts", source: "core" },
-            { name: "opzava_crm_list_deals", source: "core" },
-            { name: "opzava_crm_list_tickets", source: "core" },
-            { name: "opzava_crm_get_contact_timeline", source: "core" },
           ],
         },
       });

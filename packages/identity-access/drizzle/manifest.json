@@ -60,6 +60,10 @@
     {
       "path": "0014_slice3_deal_stage_coherence.sql",
       "sha256": "0ffc43614b0be6aab46d3c99d5c458436115d287431c07f91a4caf34db50ef28"
+    },
+    {
+      "path": "0015_crm_removal.sql",
+      "sha256": "7b2f22d5237d105d58c2b9768da108d39b2cc3ec53ab4f933cc4c2fd4b17e9ae"
     }
   ]
 }
