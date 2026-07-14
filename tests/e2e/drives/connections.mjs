@@ -237,10 +237,8 @@ async function overviewHealth(page) {
     assertFinding(heroText.includes(heroExpected), "attention hero text mismatch");
     assertFinding(pillText === pillExpected, "attention pill text mismatch");
   } else {
-    assertFinding(
-      heroText.includes("System health is not fully checked"),
-      "unknown hero text mismatch",
-    );
+    const expectedHeadline = unknownHealthHeadline(expectedHealth);
+    assertFinding(heroText.includes(expectedHeadline), "unknown hero text mismatch");
     assertFinding(pillText === "Health unknown", "unknown pill text mismatch");
   }
 
@@ -308,6 +306,10 @@ function healthCheckExpectation(scenario) {
   return scenario === "unreachable"
     ? { noticeParam: "health-check-error", reportNotice: "error", checkedAt: "unchanged-null" }
     : { noticeParam: "health-check-complete", reportNotice: "complete", checkedAt: "changed" };
+}
+
+function unknownHealthHeadline(scenario) {
+  return scenario === "unreachable" ? "OpenClaw unreachable" : "System health is not fully checked";
 }
 
 function runScenarioClassifierSelfTest() {
@@ -391,6 +393,13 @@ function runScenarioClassifierSelfTest() {
     unreachableCheck.checkedAt !== "unchanged-null"
   ) {
     throw new Error("health-check outcome contract self-test failed");
+  }
+  if (
+    unknownHealthHeadline("unreachable") !== "OpenClaw unreachable" ||
+    unknownHealthHeadline("healthy") !== "System health is not fully checked" ||
+    unknownHealthHeadline(null) !== "System health is not fully checked"
+  ) {
+    throw new Error("unknown health headline contract self-test failed");
   }
 }
 
