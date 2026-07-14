@@ -84,8 +84,8 @@ export function DisconnectPoller({
       <div>
         <div className="label">Disconnecting {providerLabel}</div>
         <p className="hint">
-          Signing every agent out of this provider. Opzava Gateway paces these writes, so this can
-          take a couple of minutes. You can leave this dialog — the disconnect keeps running.
+          Removing the credential and signing every agent out. Once removal is verified, this dialog
+          closes; main-orchestrator re-election continues separately on the page.
         </p>
       </div>
     </div>

@@ -28,6 +28,7 @@ import {
   type ModelProviderAuthChoice,
   type ModelProviderCatalogEntry,
   type OrchestratorDelegationState,
+  type OrchestratorReconcileState,
   type OrchestratorSubagentRole,
   type PollModelProviderApiKeyConnectInput,
   type PollModelProviderDisconnectInput,
@@ -1255,6 +1256,7 @@ function currentOrchestratorState(input: {
   readonly config: Record<string, unknown>;
   readonly catalog: readonly ModelProviderCatalogEntry[];
   readonly providerConnections: readonly ProviderConnectionState[];
+  readonly reconcile: OrchestratorReconcileState;
   readonly now: Date;
 }): OrchestratorDelegationState {
   const primaryModel = gatewayPrimaryModel(input.config);
@@ -1298,6 +1300,7 @@ function currentOrchestratorState(input: {
       allow: ["sessions_spawn", "subagents", "group:sessions"],
       receiptId: askAdmin === undefined ? null : "openclaw-config",
     },
+    reconcile: input.reconcile,
     updatedAt: askAdmin === undefined ? null : input.now.toISOString(),
   };
 }
@@ -1413,6 +1416,7 @@ function orchestratorDelegationState(input: {
       allow: ["sessions_spawn", "subagents", "group:sessions"],
       receiptId: receiptId(receipt),
     },
+    reconcile: { status: "idle" },
     updatedAt: input.now.toISOString(),
   };
 }
@@ -2513,6 +2517,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private readonly modelApiKeyConnects = new Map<string, PendingModelProviderApiKeyConnect>();
   private readonly modelSetupTokenFlows = new Map<string, PendingModelProviderSetupTokenFlow>();
   private readonly modelProviderDisconnects = new Map<string, PendingModelProviderDisconnect>();
+  private orchestratorReconcileState: OrchestratorReconcileState = { status: "idle" };
+  private orchestratorReconcileTail: Promise<void> = Promise.resolve();
+  private orchestratorReconcileQueued = 0;
   /** Ref-counted `${orgId}:${providerId}` reservations. One async owner may release only itself. */
   private readonly providerCredentialWrites = new Map<string, number>();
 
@@ -2781,13 +2788,18 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     const now = this.now();
     const configResult = await this.options.adminClient.request("config.get", {});
     if (!configResult.ok) {
-      return ok(
-        unavailableSnapshot({
-          now,
-          repository: this.options.githubRepository,
-          message: configResult.error.message,
-        }),
-      );
+      const snapshot = unavailableSnapshot({
+        now,
+        repository: this.options.githubRepository,
+        message: configResult.error.message,
+      });
+      return ok({
+        ...snapshot,
+        orchestrator: {
+          ...snapshot.orchestrator,
+          reconcile: this.orchestratorReconcileState,
+        },
+      });
     }
 
     const [
@@ -2862,6 +2874,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         config,
         catalog,
         providerConnections,
+        reconcile: this.orchestratorReconcileState,
         now,
       }),
       refreshedAt: now.toISOString(),
@@ -3868,6 +3881,13 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
+    // The rejected connect has already removed the bad credential. Re-election must remain
+    // observable even though the connect operation reports the provider rejection first.
+    void this.reconcileOrchestratorAfterCredentialChange({
+      reason: "disconnect",
+      providerId: input.providerId,
+    });
+
     return err(
       provisioningError(
         "provisioning.connections.providerCredentialRejected",
@@ -4388,6 +4408,14 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
             message: result.error.message,
             ...(result.error.code === undefined ? {} : { code: result.error.code }),
           };
+      if (result.ok) {
+        // The browser may consume and delete the terminal op immediately. Snapshot state owns the
+        // slower re-election phase, so publish the disconnect before starting that continuation.
+        void this.reconcileOrchestratorAfterCredentialChange({
+          reason: "disconnect",
+          providerId: op.providerId,
+        });
+      }
     } catch (error) {
       console.error("connections.modelProviderDisconnect.unhandled", {
         providerId: op.providerId,
@@ -4792,14 +4820,6 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
-    // Disconnecting the orchestrator leaves the gateway primary pointing at a credential that no
-    // longer exists, and leaves a `subagent-<provider>` behind for a provider that can no longer
-    // answer. Reconcile onto what is still connected (#186).
-    await this.reconcileOrchestratorAfterCredentialChange({
-      reason: "disconnect",
-      providerId: input.providerId,
-    });
-
     return ok(
       disconnectedProviderState({
         providerId: input.providerId,
@@ -4812,7 +4832,13 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async applyOrchestratorDelegation(
     input: ApplyOrchestratorDelegationInput,
   ): Promise<Result<OrchestratorDelegationState>> {
-    return this.reconcileOrchestrator({ connectedProviderIds: input.connectedProviderIds });
+    const reconciled = await this.reconcileOrchestrator({
+      connectedProviderIds: input.connectedProviderIds,
+    });
+    if (reconciled.ok) {
+      this.orchestratorReconcileState = { status: "idle" };
+    }
+    return reconciled;
   }
 
   /**
@@ -5027,30 +5053,71 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
    * Reconcile after a credential change, without failing the change itself.
    *
    * The connect or disconnect already succeeded against the gateway; a reconcile that cannot run
-   * must not retroactively report that as a failure. It is logged loudly instead, because the
-   * consequence is real: the orchestrator is left pointing somewhere the operator did not choose.
+   * must not retroactively report that as a failure. The snapshot retains the failure because the
+   * consequence is real: the orchestrator can be left pointing at a credential that no longer
+   * exists.
    */
-  private async reconcileOrchestratorAfterCredentialChange(context: {
-    readonly reason: string;
+  private reconcileOrchestratorAfterCredentialChange(context: {
+    readonly reason: "disconnect" | "connect";
     readonly providerId: string;
   }): Promise<void> {
-    const reconciled = await this.reconcileOrchestrator({ repairOnly: true });
-    if (!reconciled.ok) {
-      console.warn("connections.orchestrator.reconcileFailed", {
-        reason: context.reason,
-        providerId: context.providerId,
-        code: reconciled.error.code,
-      });
-      return;
+    const tracked = { ...context, startedAt: this.now().toISOString() };
+    this.orchestratorReconcileQueued += 1;
+    if (
+      this.orchestratorReconcileQueued === 1 &&
+      this.orchestratorReconcileState.status !== "failed"
+    ) {
+      this.orchestratorReconcileState = { status: "running", ...tracked };
     }
 
-    console.info("connections.orchestrator.reconciled", {
-      reason: context.reason,
-      providerId: context.providerId,
-      orchestratorProviderId: reconciled.value.orchestratorProviderId,
-      orchestratorModel: reconciled.value.orchestratorModel,
-      subagents: reconciled.value.allowAgents,
+    const continuation = this.orchestratorReconcileTail.then(async () => {
+      // A recorded failure is a safety warning, not transient progress copy. Keep it visible while
+      // a later repair runs and clear it only once that reconcile has actually succeeded.
+      if (this.orchestratorReconcileState.status !== "failed") {
+        this.orchestratorReconcileState = { status: "running", ...tracked };
+      }
+      try {
+        const reconciled = await this.reconcileOrchestrator({ repairOnly: true });
+        if (!reconciled.ok) {
+          const failure = redactedDomainError(reconciled.error);
+          console.warn("connections.orchestrator.reconcileFailed", {
+            reason: context.reason,
+            providerId: context.providerId,
+            code: failure.code,
+          });
+          this.orchestratorReconcileState = {
+            status: "failed",
+            ...tracked,
+            message: failure.message,
+          };
+          return;
+        }
+
+        console.info("connections.orchestrator.reconciled", {
+          reason: context.reason,
+          providerId: context.providerId,
+          orchestratorProviderId: reconciled.value.orchestratorProviderId,
+          orchestratorModel: reconciled.value.orchestratorModel,
+          subagents: reconciled.value.allowAgents,
+        });
+        this.orchestratorReconcileState = { status: "idle" };
+      } catch {
+        console.error("connections.orchestrator.reconcileFailed", {
+          reason: context.reason,
+          providerId: context.providerId,
+          code: "provisioning.connections.orchestratorReconcileFailed",
+        });
+        this.orchestratorReconcileState = {
+          status: "failed",
+          ...tracked,
+          message: "Orchestrator re-election failed unexpectedly in the provisioning worker.",
+        };
+      } finally {
+        this.orchestratorReconcileQueued -= 1;
+      }
     });
+    this.orchestratorReconcileTail = continuation;
+    return continuation;
   }
 
   public async setMainOrchestrator(
@@ -5156,6 +5223,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(result.error);
     }
 
+    // A manual set-main writes the same primary/agent wiring the failed continuation was meant to
+    // repair. Keeping the stale warning after this authoritative repair would tell the operator the
+    // gateway is still unsafe when it is not.
+    this.orchestratorReconcileState = { status: "idle" };
     return ok(
       orchestratorDelegationState({
         orchestratorModel,
@@ -5462,7 +5533,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         // moves the primary the same way and needs the same reconcile (#186). Keep the flow in the
         // guard map until reconcile finishes so a toggle cannot interleave with its config.patch.
         await this.reconcileOrchestratorAfterCredentialChange({
-          reason: "deviceFlowConnect",
+          reason: "connect",
           providerId: flow.providerId,
         });
         return ok({

@@ -33,6 +33,7 @@ export default async function ModelProviderConnectionsPage({
         gatewayStatus={data.snapshot.gateway.status}
         providers={data.providers}
         summary={data.providerSummary}
+        orchestratorReconcile={data.snapshot.orchestrator.reconcile}
       />
 
       {/* DESCOPE(provider-policy-catalogs): P8 PRD-013 omits catalog policy controls until auth-order editing and model catalog reads are implemented. */}

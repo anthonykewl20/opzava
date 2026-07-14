@@ -66,10 +66,48 @@ function provider(
 }
 
 describe("Connections components", () => {
+  it("renders orchestrator re-election as a separate non-blocking phase", () => {
+    const runningHtml = renderToStaticMarkup(
+      createElement(ModelProvidersPanel, {
+        gatewayStatus: "active",
+        providers: [],
+        summary: emptySummary,
+        orchestratorReconcile: {
+          status: "running",
+          reason: "disconnect",
+          providerId: "anthropic",
+          startedAt: "2026-07-14T00:00:00.000Z",
+        },
+      }),
+    );
+    const failedHtml = renderToStaticMarkup(
+      createElement(ModelProvidersPanel, {
+        gatewayStatus: "active",
+        providers: [],
+        summary: emptySummary,
+        orchestratorReconcile: {
+          status: "failed",
+          reason: "disconnect",
+          providerId: "anthropic",
+          message: "Gateway rejected the orchestrator patch.",
+          startedAt: "2026-07-14T00:00:00.000Z",
+        },
+      }),
+    );
+
+    expect(runningHtml).toContain("Re-electing the main orchestrator - this can take a minute.");
+    expect(runningHtml).toContain('role="status"');
+    expect(failedHtml).toContain("Main orchestrator re-election failed");
+    expect(failedHtml).toContain("may still point to a disconnected provider");
+    expect(failedHtml).toContain("Gateway rejected the orchestrator patch.");
+    expect(failedHtml).toContain('role="alert"');
+  });
+
   it("renders provider states with host roles and repair guidance", () => {
     const html = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {
         gatewayStatus: "active",
+        orchestratorReconcile: { status: "idle" },
         providers: [
           provider({
             id: "openai",
@@ -123,6 +161,7 @@ describe("Connections components", () => {
     const html = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {
         gatewayStatus: "active",
+        orchestratorReconcile: { status: "idle" },
         providers: [
           provider({
             id: "anthropic",
@@ -158,6 +197,7 @@ describe("Connections components", () => {
     const html = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {
         gatewayStatus: "active",
+        orchestratorReconcile: { status: "idle" },
         providers: [
           provider({
             id: "openai",
@@ -199,6 +239,7 @@ describe("Connections components", () => {
     const html = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {
         gatewayStatus: "active",
+        orchestratorReconcile: { status: "idle" },
         providers: [
           provider({
             id: "openai",
@@ -228,6 +269,7 @@ describe("Connections components", () => {
     const activeHtml = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {
         gatewayStatus: "active",
+        orchestratorReconcile: { status: "idle" },
         providers: [],
         summary: emptySummary,
       }),
@@ -235,6 +277,7 @@ describe("Connections components", () => {
     const unavailableHtml = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {
         gatewayStatus: "unavailable",
+        orchestratorReconcile: { status: "idle" },
         providers: [],
         summary: emptySummary,
       }),

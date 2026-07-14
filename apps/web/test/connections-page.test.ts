@@ -354,6 +354,7 @@ function snapshot(overrides: Partial<ConnectionsSnapshot> = {}): ConnectionsSnap
         allow: ["sessions_spawn", "subagents", "group:sessions"],
         receiptId: "receipt-1",
       },
+      reconcile: { status: "idle" },
       updatedAt: "2026-07-03T00:00:00.000Z",
     },
     refreshedAt: "2026-07-03T00:00:00.000Z",
@@ -403,6 +404,7 @@ function fakePort(): ConnectionsProvisioningPort {
           allow: ["sessions_spawn", "subagents", "group:sessions"],
           receiptId: "receipt-2",
         },
+        reconcile: { status: "idle" },
         updatedAt: "2026-07-03T00:00:00.000Z",
       } satisfies OrchestratorDelegationState),
     setMainOrchestrator: async (input) =>
@@ -417,6 +419,7 @@ function fakePort(): ConnectionsProvisioningPort {
           allow: ["sessions_spawn", "subagents", "group:sessions"],
           receiptId: "receipt-3",
         },
+        reconcile: { status: "idle" },
         updatedAt: "2026-07-03T00:00:00.000Z",
       } satisfies OrchestratorDelegationState),
     startGitHubDeviceFlow: async () =>
@@ -1086,6 +1089,7 @@ describe("Connections page state", () => {
 
   it("keeps model-provider disconnect on the fetch mutation client with sad paths", async () => {
     const providersPanel = await readRepoFile("components/connections/model-providers-panel.tsx");
+    const disconnectPoller = await readRepoFile("components/connections/disconnect-poller.tsx");
     const disconnectRoute = await readRepoFile("app/api/connections/model/disconnect/route.ts");
     const disconnectPollRoute = await readRepoFile(
       "app/api/connections/model/disconnect/poll/route.ts",
@@ -1101,6 +1105,11 @@ describe("Connections page state", () => {
     expect(providersPanel).toContain("Disconnect failed");
     expect(providersPanel).toContain("Retry disconnect");
     expect(providersPanel).not.toContain("AlertDialogAction");
+    expect(providersPanel).toContain('{"This logs the gateway out of "}');
+    expect(providersPanel).toContain('" and stops routing its models.');
+    expect(disconnectPoller).toContain("main-orchestrator re-election continues separately");
+    expect(providersPanel).toContain("const orchestratorReconcilePollIntervalMs = 5_000;");
+    expect(providersPanel).toContain("window.setInterval");
 
     // #168: disconnect is start-then-poll. The paced gateway logouts take 60-120s+, which no HTTP
     // request survives, so the panel holds an opId and samples it — there is no synchronous

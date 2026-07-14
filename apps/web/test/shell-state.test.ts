@@ -102,6 +102,7 @@ function snapshot(overrides: Partial<ConnectionsSnapshot> = {}): ConnectionsSnap
         allow: ["sessions_spawn", "subagents", "group:sessions"],
         receiptId: null,
       },
+      reconcile: { status: "idle" },
       updatedAt: null,
     },
     refreshedAt: "2026-07-03T00:00:00.000Z",

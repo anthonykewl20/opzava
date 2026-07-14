@@ -9,7 +9,14 @@ import {
   type OpenClawOperatorScope,
   type SecretReference,
 } from "@opzava/ports";
-import { DomainError, err, makeTenantId, ok, type Result, type TenantId } from "@opzava/shared-kernel";
+import {
+  DomainError,
+  err,
+  makeTenantId,
+  ok,
+  type Result,
+  type TenantId,
+} from "@opzava/shared-kernel";
 
 import {
   ASK_ADMIN_AGENT_ID,
@@ -178,6 +185,7 @@ export function unavailableSnapshot(input: {
         allow: ["sessions_spawn", "subagents", "group:sessions"],
         receiptId: null,
       },
+      reconcile: { status: "idle" },
       updatedAt: null,
     },
     refreshedAt: input.now.toISOString(),

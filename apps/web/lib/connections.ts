@@ -170,6 +170,7 @@ function unavailableSnapshot(input: {
         allow: ["sessions_spawn", "subagents", "group:sessions"],
         receiptId: null,
       },
+      reconcile: { status: "idle" },
       updatedAt: null,
     },
     refreshedAt: input.now.toISOString(),

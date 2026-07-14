@@ -142,6 +142,14 @@ export interface OrchestratorSubagentRole {
   readonly whenToUse: string;
 }
 
+export interface OrchestratorReconcileState {
+  readonly status: "idle" | "running" | "failed";
+  readonly reason?: "disconnect" | "connect";
+  readonly providerId?: string;
+  readonly message?: string;
+  readonly startedAt?: string;
+}
+
 export interface OrchestratorDelegationState {
   readonly orchestratorAgentId: string;
   readonly orchestratorModel: string;
@@ -153,6 +161,7 @@ export interface OrchestratorDelegationState {
     readonly allow: readonly ["sessions_spawn", "subagents", "group:sessions"];
     readonly receiptId: string | null;
   };
+  readonly reconcile: OrchestratorReconcileState;
   readonly updatedAt: string | null;
 }
 

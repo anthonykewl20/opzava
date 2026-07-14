@@ -78,12 +78,14 @@ interface ModelProvidersPanelProps {
   readonly gatewayStatus: ConnectionsPageData["snapshot"]["gateway"]["status"];
   readonly providers: readonly ProviderRow[];
   readonly summary: ConnectionsPageData["providerSummary"];
+  readonly orchestratorReconcile: OrchestratorDelegationState["reconcile"];
 }
 
 const TABLE_CAPTION =
   "LLM model providers the gateway can route to, with folded CLI runtimes, authentication methods, current models, live connection status, and actions.";
 const UNSAFE_ACCOUNT_LABEL_PATTERN = /token:|sk-[a-z]|:default=|api[-_]?key/i;
 const MAX_VISIBLE_AUTH_BADGES = 2;
+const orchestratorReconcilePollIntervalMs = 5_000;
 
 function providerSort(left: ProviderRow, right: ProviderRow): number {
   const leftConnected = left.status === "connected" ? 0 : 1;
@@ -361,7 +363,6 @@ function StatusDot({ status }: { readonly status: ProviderRow["status"] }) {
   );
 }
 
-
 const ALERT_TONE = {
   success: "border-[color-mix(in_oklab,var(--success)_35%,transparent)] bg-[var(--success-soft)]",
   warning: "border-[color-mix(in_oklab,var(--warning)_35%,transparent)] bg-[var(--warning-soft)]",
@@ -550,8 +551,11 @@ function DisconnectConfirmForm({
       <AlertDialogHeader>
         <AlertDialogTitle>Disconnect {provider.label}?</AlertDialogTitle>
         <AlertDialogDescription>
-          This logs the gateway out of {provider.label} and stops routing its models. Reconnecting
-          requires re-authenticating this provider. This can&apos;t be undone from here.
+          {"This logs the gateway out of "}
+          {provider.label}
+          {
+            " and stops routing its models. Reconnecting requires re-authenticating this provider. This can't be undone from here."
+          }
         </AlertDialogDescription>
       </AlertDialogHeader>
       {phase.step === "polling" ? (
@@ -1506,11 +1510,53 @@ function ProviderTable({
   );
 }
 
+function OrchestratorReconcileNotice({
+  reconcile,
+}: {
+  readonly reconcile: OrchestratorDelegationState["reconcile"];
+}) {
+  if (reconcile.status === "idle") {
+    return null;
+  }
+
+  if (reconcile.status === "running") {
+    return (
+      <div
+        className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+        role="status"
+      >
+        <span className="sb-spinner sb-spinner--sm" aria-hidden="true" />
+        <span>Re-electing the main orchestrator - this can take a minute.</span>
+      </div>
+    );
+  }
+
+  const recovery =
+    reconcile.reason === "disconnect"
+      ? `The main orchestrator may still point to a disconnected provider. Set another connected provider as main, or reconnect ${reconcile.providerId ?? "the provider"} before using Ask Admin.`
+      : "The gateway primary and main orchestrator may disagree. Set a connected provider as main before using Ask Admin.";
+
+  return (
+    <div
+      className="grid gap-1 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm"
+      role="alert"
+    >
+      <p className="font-medium">Main orchestrator re-election failed</p>
+      <p>{recovery}</p>
+      {reconcile.message === undefined ? null : (
+        <p className="text-muted-foreground">{reconcile.message}</p>
+      )}
+    </div>
+  );
+}
+
 export function ModelProvidersPanel({
   gatewayStatus,
   providers,
   summary,
+  orchestratorReconcile,
 }: ModelProvidersPanelProps) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [optimisticLeadProviderId, setOptimisticLeadProviderId] = useState<string | null>(null);
   const providersAtOptimisticSetRef = useRef<readonly ProviderRow[] | null>(null);
@@ -1525,6 +1571,16 @@ export function ModelProvidersPanel({
   );
   const searchActive = query.trim() !== "";
   const defaultTier = tiers[0]?.id ?? "frontier";
+  useEffect(() => {
+    if (orchestratorReconcile.status !== "running") {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      router.refresh();
+    }, orchestratorReconcilePollIntervalMs);
+    return () => window.clearInterval(intervalId);
+  }, [orchestratorReconcile.status, router]);
   // Keep the lead badge deterministic after a successful set-main mutation while the
   // transitioned router refresh catches the rest of the Connections snapshot up.
   const handleSetMainOrchestratorSuccess = useCallback(
@@ -1567,6 +1623,7 @@ export function ModelProvidersPanel({
       </CardHeader>
 
       <CardContent className="grid gap-4">
+        <OrchestratorReconcileNotice reconcile={orchestratorReconcile} />
         {providers.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border p-8 text-center">
             <p className="font-medium">

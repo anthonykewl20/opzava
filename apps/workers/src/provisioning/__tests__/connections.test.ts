@@ -155,6 +155,7 @@ function connectionsSnapshot(): ConnectionsSnapshot {
         allow: ["sessions_spawn", "subagents", "group:sessions"],
         receiptId: "receipt-1",
       },
+      reconcile: { status: "idle" },
       updatedAt: "2026-07-03T00:00:00.000Z",
     },
     refreshedAt: "2026-07-03T00:00:00.000Z",
@@ -194,6 +195,7 @@ function fakeProvisioningPort(): ConnectionsProvisioningPort {
           allow: ["sessions_spawn", "subagents", "group:sessions"],
           receiptId: "receipt-2",
         },
+        reconcile: { status: "idle" },
         updatedAt: "2026-07-03T00:00:00.000Z",
       } satisfies OrchestratorDelegationState),
     setMainOrchestrator: async (input) =>
@@ -208,6 +210,7 @@ function fakeProvisioningPort(): ConnectionsProvisioningPort {
           allow: ["sessions_spawn", "subagents", "group:sessions"],
           receiptId: "receipt-3",
         },
+        reconcile: { status: "idle" },
         updatedAt: "2026-07-03T00:00:00.000Z",
       } satisfies OrchestratorDelegationState),
     startGitHubDeviceFlow: async () =>
@@ -5008,11 +5011,10 @@ describe("Connections provisioning helpers", () => {
     expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
     // One ownership read before the mutation (#174) + one post-check read.
     expect(admin.calls.filter((call) => call.method === "models.authStatus")).toHaveLength(2);
-    // Two as above, plus the orchestrator reconcile reading config to see whether this gateway even
-    // has an orchestrator to repair (#186). It has none here, so it stops there: no catalog read, no
-    // models status exec, and no second config.patch -- a disconnect must not reload the gateway
-    // twice.
-    expect(admin.calls.filter((call) => call.method === "config.get")).toHaveLength(3);
+    // The credential-removal seam ends after its post-check. The polled operation schedules the
+    // orchestrator continuation only after publishing its terminal outcome, so this direct seam has
+    // only the initial config read and the post-check read.
+    expect(admin.calls.filter((call) => call.method === "config.get")).toHaveLength(2);
     expect(JSON.stringify(result)).not.toContain("sk-config-secret");
   });
 
@@ -6928,6 +6930,166 @@ describe("Connections provisioning helpers", () => {
       "models.authStatus": ok({ providers: [] }),
     });
   }
+
+  function orchestratorDisconnectAdmin(patch: () => Result<unknown>): RecordingAdminClient {
+    return new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "openai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": ok({
+        hash: "config-hash-two-phase-disconnect",
+        auth: { profiles: {}, order: {} },
+        agents: {
+          defaults: { model: { primary: "openai/gpt-5.5" } },
+          list: [{ id: "ask-admin-opzava", model: "openai/gpt-5.5" }],
+        },
+      }),
+      "models.authStatus": ok({ providers: [] }),
+      "models.list": ok({
+        providers: [
+          { id: "openai", label: "OpenAI", authChoices: [] },
+          { id: "anthropic", label: "Anthropic", authChoices: [] },
+        ],
+        models: [
+          { id: "gpt-5.5", name: "GPT 5.5", provider: "openai" },
+          { id: "claude-opus-4-8", name: "Claude Opus 4.8", provider: "anthropic" },
+        ],
+      }),
+      "config.patch": patch,
+    });
+  }
+
+  function anthropicOnlyRuntime(): RecordingGatewayRuntime {
+    return new RecordingGatewayRuntime({
+      choices: [],
+      status: {
+        allowed: ["anthropic/claude-opus-4-8"],
+        auth: {
+          providers: [
+            {
+              provider: "anthropic",
+              profiles: { count: 1, token: 1, labels: ["anthropic:default=Setup token"] },
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  it("publishes disconnected before a rate-limited orchestrator reconcile completes", async () => {
+    vi.useFakeTimers();
+    try {
+      let patchAttempts = 0;
+      const admin = orchestratorDisconnectAdmin(() => {
+        patchAttempts += 1;
+        return patchAttempts === 1
+          ? err(
+              new DomainError({
+                code: "provisioning.openclawAdmin.requestRejected",
+                message: "rate limit exceeded for config.patch; retry after 36s",
+                details: { retryAfterMs: 5 },
+              }),
+            )
+          : ok({ ok: true });
+      });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        gatewayRuntime: anthropicOnlyRuntime(),
+        now: () => new Date(Date.now()),
+      });
+
+      const start = await port.startModelProviderDisconnect({
+        ...principal(),
+        providerId: "openai",
+      });
+      if (!start.ok) throw start.error;
+
+      let poll = await port.pollModelProviderDisconnect({ ...principal(), opId: start.value.opId });
+      for (
+        let attempt = 0;
+        attempt < 20 && poll.ok && poll.value.status === "pending";
+        attempt += 1
+      ) {
+        await Promise.resolve();
+        poll = await port.pollModelProviderDisconnect({ ...principal(), opId: start.value.opId });
+      }
+      while (patchAttempts === 0) {
+        await Promise.resolve();
+      }
+
+      expect(poll.ok ? poll.value.status : null).toBe("disconnected");
+      expect(patchAttempts).toBe(1);
+      const runningSnapshot = await port.getConnectionsSnapshot(principal());
+      expect(
+        runningSnapshot.ok ? runningSnapshot.value.orchestrator.reconcile : null,
+      ).toMatchObject({
+        status: "running",
+        reason: "disconnect",
+        providerId: "openai",
+      });
+
+      await vi.advanceTimersByTimeAsync(1_005);
+      expect(patchAttempts).toBe(2);
+      const completedSnapshot = await port.getConnectionsSnapshot(principal());
+      expect(completedSnapshot.ok ? completedSnapshot.value.orchestrator.reconcile : null).toEqual({
+        status: "idle",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a failed post-disconnect reconcile visible in the snapshot", async () => {
+    const admin = orchestratorDisconnectAdmin(() =>
+      err(
+        new DomainError({
+          code: "provisioning.openclawAdmin.requestRejected",
+          message: "Gateway rejected config.patch with api_key=secret-reconcile-value.",
+        }),
+      ),
+    );
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: anthropicOnlyRuntime(),
+      now: () => new Date("2026-07-14T00:00:00.000Z"),
+    });
+
+    const start = await port.startModelProviderDisconnect({
+      ...principal(),
+      providerId: "openai",
+    });
+    if (!start.ok) throw start.error;
+
+    let snapshotResult = await port.getConnectionsSnapshot(principal());
+    for (
+      let attempt = 0;
+      attempt < 20 &&
+      snapshotResult.ok &&
+      snapshotResult.value.orchestrator.reconcile.status !== "failed";
+      attempt += 1
+    ) {
+      await Promise.resolve();
+      snapshotResult = await port.getConnectionsSnapshot(principal());
+    }
+
+    const reconcile = snapshotResult.ok ? snapshotResult.value.orchestrator.reconcile : null;
+    expect(reconcile).toMatchObject({
+      status: "failed",
+      reason: "disconnect",
+      providerId: "openai",
+      startedAt: "2026-07-14T00:00:00.000Z",
+    });
+    expect(reconcile?.message).toContain("Gateway rejected config.patch");
+    expect(reconcile?.message).not.toContain("secret-reconcile-value");
+
+    await Promise.resolve();
+    const laterSnapshot = await port.getConnectionsSnapshot(principal());
+    expect(laterSnapshot.ok ? laterSnapshot.value.orchestrator.reconcile.status : null).toBe(
+      "failed",
+    );
+  });
 
   it.each([1, 2, 3, 4, 6, 10])(
     "starts an OpenAI disconnect inside the web client's abort budget with %i agent(s)",
