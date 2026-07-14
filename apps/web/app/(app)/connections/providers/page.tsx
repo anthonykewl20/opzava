@@ -23,10 +23,10 @@ export default async function ModelProviderConnectionsPage({
     <>
       <div className="page-header">
         <div>
-          <h1 className="flex items-center gap-1.5">
-            Model providers
+          <div className="flex items-center gap-1.5">
+            <h1>Model providers</h1>
             <ProviderRulesPopover />
-          </h1>
+          </div>
           <p className="page-sub">Canonical LLM provider credentials the gateway can route to.</p>
         </div>
       </div>
