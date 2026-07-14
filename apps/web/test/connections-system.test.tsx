@@ -145,6 +145,8 @@ describe("Connections System status", () => {
 
     expect(healthyHtml).toContain('data-health-status="healthy"');
     expect(healthyHtml).toContain("All systems healthy");
+    expect(healthyHtml).toContain("Refreshes the Opzava health snapshot.");
+    expect(healthyHtml).not.toContain("OpenClaw");
     expect(attentionHtml).toContain('data-health-status="attention"');
     expect(attentionHtml).toContain("needs attention");
     expect(attentionHtml).toContain("border-amber");

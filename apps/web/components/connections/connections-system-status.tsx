@@ -372,7 +372,7 @@ export function ConnectionsSystemStatus({ data, refreshAction }: ConnectionsSyst
         <form action={refreshAction} className="self-start sm:self-auto">
           <HealthCheckSubmitButton describedBy="system-health-refresh-copy" />
           <span id="system-health-refresh-copy" className="sr-only">
-            Refreshes the OpenClaw health snapshot.
+            Refreshes the Opzava health snapshot.
           </span>
         </form>
       </header>

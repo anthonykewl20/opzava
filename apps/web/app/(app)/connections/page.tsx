@@ -26,7 +26,7 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
         <div>
           <h1>Connections</h1>
           <p className="page-sub">
-            OpenClaw health, model providers, and third-party integrations for this workspace.
+            Opzava health, model providers, and third-party integrations for this workspace.
           </p>
         </div>
       </div>

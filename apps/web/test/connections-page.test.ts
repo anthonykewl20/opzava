@@ -1003,6 +1003,7 @@ describe("Connections page state", () => {
     expect(providersPanel).toContain("Provider connection status");
     expect(page).toContain("ConnectionsOverview");
     expect(page).toContain("ConnectionsAutoRefresh");
+    expect(page).toContain("Opzava health, model providers, and third-party integrations");
     expect(page).toContain('refreshConnectionsAction.bind(null, "/connections")');
     expect(overview).not.toContain('href="/connections/gateway"');
     expect(overview).toContain('href="/connections/providers"');
@@ -1089,7 +1090,7 @@ describe("Connections page state", () => {
     expect(overview).toContain("openclawHealthSummary(health)");
     expect(overview).toContain("summary.healthy");
     expect(overview).toContain("HealthStatusBreakdown");
-    expect(overview).toContain('aria-label="OpenClaw component groups"');
+    expect(overview).toContain('aria-label="Opzava component groups"');
     expect(overview).toContain("No integrations connected");
     expect(overview).toContain("Add GitHub when this workspace needs repository access");
     expect(overview).toContain("overviewProviders(data.providers)");

@@ -312,7 +312,7 @@ function healthCheckExpectation(scenario) {
 }
 
 function unknownHealthHeadline(scenario) {
-  return scenario === "unreachable" ? "OpenClaw unreachable" : "System health is not fully checked";
+  return scenario === "unreachable" ? "Opzava unreachable" : "System health is not fully checked";
 }
 
 function overviewMockupForScenario(scenario) {
@@ -443,7 +443,7 @@ function runScenarioClassifierSelfTest() {
     throw new Error("health-check outcome contract self-test failed");
   }
   if (
-    unknownHealthHeadline("unreachable") !== "OpenClaw unreachable" ||
+    unknownHealthHeadline("unreachable") !== "Opzava unreachable" ||
     unknownHealthHeadline("partial-unknown") !== "System health is not fully checked" ||
     unknownHealthHeadline("healthy") !== "System health is not fully checked" ||
     unknownHealthHeadline(null) !== "System health is not fully checked"
@@ -718,7 +718,7 @@ async function validateOverviewStructure(page) {
     }
   }
 
-  const groupNav = page.getByRole("navigation", { name: "OpenClaw component groups" });
+  const groupNav = page.getByRole("navigation", { name: "Opzava component groups" });
   const groupCounts = {};
   for (const group of [
     {

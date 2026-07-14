@@ -46,7 +46,7 @@ function healthHeadline(
 ): string {
   if (status === "attention")
     return `${plural(attention, "component")} ${attention === 1 ? "needs" : "need"} attention`;
-  if (status === "unknown" && gatewayUnavailable) return "OpenClaw unreachable";
+  if (status === "unknown" && gatewayUnavailable) return "Opzava unreachable";
   if (status === "unknown") return "System health is not fully checked";
   return "All systems healthy";
 }
@@ -159,7 +159,7 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
             </p>
             <form action={refreshAction} aria-describedby="system-health-check-copy">
               <span id="system-health-check-copy" className="sr-only">
-                Runs a live OpenClaw health probe.
+                Runs a live Opzava health probe.
               </span>
               <HealthCheckSubmitButton
                 describedBy="system-health-check-copy"
@@ -227,11 +227,11 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
                   {agentsNotChecked ? (
                     <>
                       {gatewayUnavailable
-                        ? "The Gateway is unavailable. OpenClaw will retry automatically. "
+                        ? "The Gateway is unavailable. Opzava will retry automatically. "
                         : retryableGroupsNotChecked
                           ? "One or more live probes returned no result. "
                           : null}
-                      OpenClaw reports agent schedule configuration but does not expose a live
+                      Opzava reports agent schedule configuration but does not expose a live
                       liveness result for those agents. Unknown does not mean failed.
                       {retryableGroupsNotChecked
                         ? " Refresh retries available probes while agent liveness may remain unavailable."
@@ -240,7 +240,7 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
                   ) : (
                     <>
                       {gatewayUnavailable
-                        ? "The Gateway is unavailable. OpenClaw will retry automatically. "
+                        ? "The Gateway is unavailable. Opzava will retry automatically. "
                         : "One or more live probes returned no result. "}
                       No live result means unknown, not failed. Refresh retries the missing probe.
                     </>
@@ -274,7 +274,7 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
             </Alert>
           ))}
 
-          <nav className="grid gap-2 md:grid-cols-3" aria-label="OpenClaw component groups">
+          <nav className="grid gap-2 md:grid-cols-3" aria-label="Opzava component groups">
             {groups.map((group) => (
               <HealthGroupLink group={group} key={group.id} />
             ))}
@@ -372,7 +372,7 @@ function GatewayCard({ data, refreshAction }: ConnectionsOverviewProps) {
             aria-describedby="gateway-health-check-copy"
           >
             <span id="gateway-health-check-copy" className="sr-only">
-              Runs a live OpenClaw health probe.
+              Runs a live Opzava health probe.
             </span>
             <HealthCheckSubmitButton describedBy="gateway-health-check-copy" />
           </form>

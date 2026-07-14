@@ -8,7 +8,7 @@ export default function ConnectionsLoading() {
         <div className="page-header connections-header">
           <div>
             <h1>Connections</h1>
-            <p className="page-sub">Loading current OpenClaw health and connections…</p>
+            <p className="page-sub">Loading current Opzava health and connections…</p>
           </div>
         </div>
 

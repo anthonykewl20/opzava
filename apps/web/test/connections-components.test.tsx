@@ -232,6 +232,8 @@ describe("Connections components", () => {
     expect(html).toContain("Health warning");
     expect(html).toContain("Inspect channel");
     expect(html).toContain("Opzava Gateway");
+    expect(html).toContain("Opzava reports agent schedule configuration");
+    expect(html).not.toContain("OpenClaw");
     expect(html).toContain("Model Providers");
     expect(html).toContain("Third-Party Integrations");
     expect(html).toContain("Run health check");
@@ -339,7 +341,7 @@ describe("Connections components", () => {
 
     expect(html).toContain('data-health-status="unknown"');
     expect(html).toContain("System health is not fully checked");
-    expect(html).not.toContain("OpenClaw unreachable");
+    expect(html).not.toContain("Opzava unreachable");
     expect(html).toContain(
       "0 components healthy. 0 components need attention. 1 component not checked.",
     );
@@ -373,7 +375,7 @@ describe("Connections components", () => {
     expect(html).toContain("3 components not checked");
     expect(html).toContain("Agents: 3 not checked");
     expect(html).toContain(
-      "OpenClaw reports agent schedule configuration but does not expose a live liveness result for those agents.",
+      "Opzava reports agent schedule configuration but does not expose a live liveness result for those agents.",
     );
     expect(html).toContain("Unknown does not mean failed.");
     expect(html).not.toContain("Refresh retries the missing probe");
@@ -404,7 +406,7 @@ describe("Connections components", () => {
     expect(html).toContain("Channels: 1 not checked");
     expect(html).toContain("Agents: 1 not checked");
     expect(html).toContain(
-      "OpenClaw reports agent schedule configuration but does not expose a live liveness result for those agents.",
+      "Opzava reports agent schedule configuration but does not expose a live liveness result for those agents.",
     );
     expect(html).toContain(
       "Refresh retries available probes while agent liveness may remain unavailable.",
@@ -441,10 +443,11 @@ describe("Connections components", () => {
       }),
     );
 
-    expect(html).toContain("OpenClaw unreachable");
+    expect(html).toContain("Opzava unreachable");
     expect(html).not.toContain("System health is not fully checked");
     expect(html).toContain("The Gateway is unavailable");
-    expect(html).toContain("OpenClaw will retry automatically");
+    expect(html).toContain("Opzava will retry automatically");
+    expect(html).not.toContain("OpenClaw");
     expect(html).toContain("Refresh retries the missing probe");
     expect(html).toContain("Last known fully healthy snapshot");
     expect(html).toContain("8 of 8 components healthy");
@@ -778,6 +781,8 @@ describe("Connections components", () => {
 
     expect(loadingHtml).toContain('aria-busy="true"');
     expect(loadingHtml).toContain('data-slot="skeleton"');
+    expect(loadingHtml).toContain("Loading current Opzava health and connections");
+    expect(loadingHtml).not.toContain("OpenClaw");
     expect(errorHtml).toContain("Connections could not load");
     expect(errorHtml).toContain("Retry");
     expect(errorHtml).toContain("token=[redacted]");
