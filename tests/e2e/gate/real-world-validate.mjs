@@ -39,7 +39,7 @@ mkdirSync(OUT, { recursive: true });
 
 const SEED_ROUTES = ["/", "/tasks", "/issues", "/connections", "/connections/system",
   "/connections/providers", "/connections/github", "/connections/add", "/ask-opzava",
-  "/crm/accounts", "/crm/contacts", "/crm/deals", "/crm/tickets"];
+];
 // One-shot init containers that legitimately exit 0.
 const ALLOW_EXITED = new Set(["minio-bucket-init"]);
 const HARD_LOG = /unhandled|fatal|panic/i;

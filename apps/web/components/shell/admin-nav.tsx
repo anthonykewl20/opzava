@@ -34,10 +34,6 @@ type IconName =
   | "overview"
   | "tasks"
   | "issues"
-  | "contacts"
-  | "accounts"
-  | "deals"
-  | "tickets"
   | "connections"
   | "providers"
   | "github"
@@ -47,13 +43,6 @@ const operateItems: readonly NavItem[] = [
   { label: "Overview", href: "/", icon: "overview" },
   { label: "Tasks", href: "/tasks", icon: "tasks" },
   { label: "Issues", href: "/issues", icon: "issues" },
-] as const;
-
-const crmItems: readonly NavItem[] = [
-  { label: "Contacts", href: "/crm/contacts", icon: "contacts" },
-  { label: "Accounts", href: "/crm/accounts", icon: "accounts" },
-  { label: "Deals", href: "/crm/deals", icon: "deals" },
-  { label: "Tickets", href: "/crm/tickets", icon: "tickets" },
 ] as const;
 
 function countBadge(count: number | null): string | undefined {
@@ -108,48 +97,11 @@ function NavIcon({ icon }: { readonly icon: IconName }) {
     );
   }
 
-  if (icon === "issues" || icon === "tickets") {
+  if (icon === "issues") {
     return (
       <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
         <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.5" />
         <circle cx="9" cy="9" r="1.75" fill="currentColor" />
-      </svg>
-    );
-  }
-
-  if (icon === "contacts") {
-    return (
-      <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-        <circle cx="9" cy="6" r="3" stroke="currentColor" strokeWidth="1.5" />
-        <path
-          d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-      </svg>
-    );
-  }
-
-  if (icon === "accounts") {
-    return (
-      <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-        <rect x="3" y="4" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-        <path
-          d="M6 7h6M6 10h6M6 13h3"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-      </svg>
-    );
-  }
-
-  if (icon === "deals") {
-    return (
-      <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-        <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M9 5.5v5l3 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     );
   }
@@ -419,7 +371,6 @@ export function AdminNav({ state }: { readonly state: AdminNavState }) {
           <RailItem key={item.href} item={item} pathname={pathname} />
         ))}
 
-        <RailSection label="CRM" items={crmItems} pathname={pathname} />
         <div className="section-label nav-section-gap">Automate</div>
         <ConnectionsRailGroup
           connectionsConnected={state.connectionsConnected}

@@ -79,22 +79,6 @@ const destinationItems: readonly CommandPaletteItem[] = [
   { id: "nav.tasks", label: "Tasks", href: "/tasks", kind: "destination", meta: "Operate" },
   { id: "nav.issues", label: "Issues", href: "/issues", kind: "destination", meta: "Operate" },
   {
-    id: "nav.contacts",
-    label: "Contacts",
-    href: "/crm/contacts",
-    kind: "destination",
-    meta: "CRM",
-  },
-  {
-    id: "nav.accounts",
-    label: "Accounts",
-    href: "/crm/accounts",
-    kind: "destination",
-    meta: "CRM",
-  },
-  { id: "nav.deals", label: "Deals", href: "/crm/deals", kind: "destination", meta: "CRM" },
-  { id: "nav.tickets", label: "Tickets", href: "/crm/tickets", kind: "destination", meta: "CRM" },
-  {
     id: "nav.connections",
     label: "Connections",
     href: "/connections",
