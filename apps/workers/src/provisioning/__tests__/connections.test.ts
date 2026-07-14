@@ -33,6 +33,7 @@ import {
   ASK_ADMIN_DELEGATION_TOOL_ALLOW,
   ASK_ADMIN_TOOL_POLICY_ALLOW,
   ASK_ADMIN_TOOL_POLICY_DENY,
+  ASK_ADMIN_AGENT_VERSION,
   SUBAGENT_TOOL_POLICY_DENY,
 } from "../ask-admin-agent.js";
 import {
@@ -47,8 +48,9 @@ import {
   DockerOpenClawGatewayRuntime,
   GatewayAdminConnectionsProvisioningPort,
   UnavailableConnectionsProvisioningPort,
+  type ConnectionsProvisioningRuntimePort,
 } from "../gateway-admin-connections.js";
-import { resolveProvisioningWorkerRuntimeConfig } from "../../main.js";
+import { resolveProvisioningWorkerRuntimeConfig, startProvisioningWorker } from "../../main.js";
 import {
   OpenClawAdminRpcClient,
   openClawOperatorScopeGranted,
@@ -1553,6 +1555,87 @@ describe("Connections provisioning helpers", () => {
       internalToken: "worker-token",
       port: 19188,
     });
+  });
+
+  it("reconciles before listening and injects the same runtime port into the server", async () => {
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let closed = false;
+    let serverCreated = false;
+    let injected: unknown;
+    const port: ConnectionsProvisioningRuntimePort = {
+      ...fakeProvisioningPort(),
+      async reconcileStartupOrchestrator() {
+        return ok(undefined);
+      },
+      async reconcileStartup() {
+        await barrier;
+        return ok({
+          agentId: "ask-admin-opzava",
+          version: ASK_ADMIN_AGENT_VERSION,
+          artifactsChecked: 3,
+          artifactsWritten: 0,
+        });
+      },
+      close() {
+        closed = true;
+      },
+    };
+    const starting = startProvisioningWorker(
+      { port: 0, internalToken: "test-token" },
+      {
+        provisioningPort: port,
+        createServer(options) {
+          serverCreated = true;
+          injected = options.provisioningPort;
+          return createConnectionsInternalHttpServer(options);
+        },
+      },
+    );
+    await Promise.resolve();
+    expect(serverCreated).toBe(false);
+
+    release();
+    const server = await starting;
+    expect(serverCreated).toBe(true);
+    expect(injected).toBe(port);
+    expect(closed).toBe(false);
+    await closeServer(server);
+    expect(closed).toBe(true);
+  });
+
+  it("does not listen and closes the shared runtime when startup reconciliation fails", async () => {
+    let closed = false;
+    let serverCreated = false;
+    const port: ConnectionsProvisioningRuntimePort = {
+      ...fakeProvisioningPort(),
+      async reconcileStartupOrchestrator() {
+        return err(new DomainError({ code: "startup.failed", message: "failed" }));
+      },
+      async reconcileStartup() {
+        return err(new DomainError({ code: "startup.failed", message: "failed" }));
+      },
+      close() {
+        closed = true;
+      },
+    };
+
+    await expect(
+      startProvisioningWorker(
+        { port: 0, internalToken: "test-token" },
+        {
+          provisioningPort: port,
+          createServer(options) {
+            serverCreated = true;
+            return createConnectionsInternalHttpServer(options);
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: "startup.failed" });
+    expect(serverCreated).toBe(false);
+    expect(closed).toBe(true);
   });
 
   it("connects with least-privilege read scope for read-only admin RPC", async () => {
@@ -6134,6 +6217,330 @@ describe("Connections provisioning helpers", () => {
     expect(patchCall?.params).not.toHaveProperty("patch");
     expect(patchCall?.params).not.toHaveProperty("receipt");
     expect(patchCall?.idempotencyKey).toBeUndefined();
+  });
+
+  it("repairs policy-only Ask Admin drift and preserves unrelated gateway config", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        hash: "config-policy-drift",
+        auth: {
+          profiles: {
+            "openai-device": { providerId: "openai", authChoiceId: "openai-device-code" },
+            "zai-key": { providerId: "zai", authChoiceId: "zai-api-key" },
+            unrelated: { providerId: "custom", type: "api-key", key: "preserve-by-merge" },
+          },
+          order: { openai: ["openai-device"], zai: ["zai-key"], custom: ["unrelated"] },
+        },
+        agents: {
+          defaults: {
+            model: { primary: "openai/gpt-5.5" },
+            models: { "openai/gpt-5.5": {}, "custom/model": { alias: "keep" } },
+          },
+          list: [
+            { id: "unrelated-agent", model: "custom/model", extension: { keep: true } },
+            {
+              id: "ask-admin-opzava",
+              name: "Ask Admin Opzava",
+              model: "openai/gpt-5.5",
+              workspace: "/home/node/.openclaw/workspace/ask-admin-opzava",
+              agentDir: "/home/node/.openclaw/agents/ask-admin-opzava/agent",
+              skills: [],
+              contextInjection: "always",
+              bootstrapMaxChars: 20000,
+              default: true,
+              subagents: { delegationMode: "prefer", allowAgents: ["subagent-zai"] },
+              tools: {
+                profile: "minimal",
+                allow: [
+                  "opzava_tasks_list",
+                  "opzava_tasks_create",
+                  "opzava_tasks_update",
+                  "opzava_crm_list_accounts",
+                  "sessions_spawn",
+                  "subagents",
+                  "group:sessions",
+                ],
+                deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
+              },
+            },
+            {
+              id: "subagent-zai",
+              model: "zai/glm-5.2",
+              tools: {
+                profile: "minimal",
+                allow: [],
+                deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
+              },
+            },
+          ],
+        },
+        unrelatedRoot: { keep: true },
+      }),
+      "models.list": ok({
+        providers: [
+          { id: "openai", label: "OpenAI", suggestedModel: "gpt-5.5" },
+          { id: "zai", label: "z.ai / GLM", suggestedModel: "glm-5.2" },
+        ],
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+    });
+
+    const result = await port.applyOrchestratorDelegation({
+      ...principal(),
+      connectedProviderIds: ["openai", "zai"],
+    });
+
+    expect(result.ok).toBe(true);
+    const patchCall = admin.calls.find((call) => call.method === "config.patch");
+    expect(patchCall).toBeDefined();
+    const patch = rawPatch(patchCall!.params) as {
+      agents: { list: readonly Record<string, unknown>[] };
+    };
+    expect(patch.agents.list.find((agent) => agent["id"] === "ask-admin-opzava")).toMatchObject({
+      contextInjection: "always",
+      tools: {
+        allow: [
+          "opzava_tasks_list",
+          "opzava_tasks_create",
+          "opzava_tasks_update",
+          "sessions_spawn",
+          "subagents",
+          "group:sessions",
+        ],
+      },
+    });
+    expect(patch.agents.list).toContainEqual(
+      expect.objectContaining({
+        id: "unrelated-agent",
+        model: "custom/model",
+        extension: { keep: true },
+      }),
+    );
+    expect(patchCall?.params).not.toHaveProperty("auth");
+    expect(JSON.stringify(patchCall?.params)).not.toContain("preserve-by-merge");
+  });
+
+  it("does not patch an exact canonical orchestrator and subagent config", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        hash: "config-exact",
+        auth: {
+          profiles: {
+            "openai-device": { providerId: "openai", authChoiceId: "openai-device-code" },
+            "zai-key": { providerId: "zai", authChoiceId: "zai-api-key" },
+          },
+          order: { openai: ["openai-device"], zai: ["zai-key"] },
+        },
+        agents: {
+          defaults: {
+            model: { primary: "openai/gpt-5.5" },
+            models: { "openai/gpt-5.5": {} },
+          },
+          list: [
+            {
+              id: "ask-admin-opzava",
+              name: "Ask Admin Opzava",
+              model: "openai/gpt-5.5",
+              workspace: "/home/node/.openclaw/workspace/ask-admin-opzava",
+              agentDir: "/home/node/.openclaw/agents/ask-admin-opzava/agent",
+              skills: [],
+              contextInjection: "always",
+              bootstrapMaxChars: 20000,
+              default: true,
+              subagents: { delegationMode: "prefer", allowAgents: ["subagent-zai"] },
+              tools: {
+                profile: "minimal",
+                allow: [
+                  "opzava_tasks_list",
+                  "opzava_tasks_create",
+                  "opzava_tasks_update",
+                  "sessions_spawn",
+                  "subagents",
+                  "group:sessions",
+                ],
+                deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
+              },
+            },
+            {
+              id: "subagent-zai",
+              model: "zai/glm-5.2",
+              tools: {
+                profile: "minimal",
+                allow: [],
+                deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
+              },
+            },
+          ],
+        },
+      }),
+      "models.list": ok({
+        providers: [
+          { id: "openai", label: "OpenAI", suggestedModel: "gpt-5.5" },
+          { id: "zai", label: "z.ai / GLM", suggestedModel: "glm-5.2" },
+        ],
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+    });
+
+    const result = await port.applyOrchestratorDelegation({
+      ...principal(),
+      connectedProviderIds: ["openai", "zai"],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(admin.calls.some((call) => call.method === "config.patch")).toBe(false);
+  });
+
+  it("reconnects after the startup patch and postverifies every canonical owned field", async () => {
+    const config = {
+      auth: {
+        profiles: { "openai-device": { providerId: "openai", authChoiceId: "device" } },
+        order: { openai: ["openai-device"] },
+      },
+      agents: {
+        defaults: {
+          model: { primary: "openai/gpt-5.5" },
+          models: { "openai/gpt-5.5": {} },
+        },
+        list: [
+          {
+            id: "ask-admin-opzava",
+            model: "openai/gpt-5.5",
+            tools: {
+              profile: "minimal",
+              allow: ["opzava_tasks_list", "opzava_crm_list_accounts"],
+              deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
+            },
+          },
+        ],
+      },
+    };
+    const admin = modelToggleAdmin({
+      config,
+      models: {
+        providers: [
+          {
+            id: "openai",
+            label: "OpenAI",
+            suggestedModel: "gpt-5.5",
+            authChoices: [
+              apiKeyChoice({ id: "device", providerId: "openai", keyFlag: "openai-api-key" }),
+            ],
+          },
+        ],
+      },
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+    });
+
+    const result = await port.reconcileStartupOrchestrator();
+
+    expect(result).toEqual(ok(undefined));
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+    expect(
+      admin.calls.filter((call) => call.method === "config.get").length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      (admin.currentConfig()["agents"] as { list: readonly Record<string, unknown>[] }).list.find(
+        (agent) => agent["id"] === "ask-admin-opzava",
+      ),
+    ).toMatchObject({
+      contextInjection: "always",
+      tools: {
+        allow: [
+          "opzava_tasks_list",
+          "opzava_tasks_create",
+          "opzava_tasks_update",
+          "sessions_spawn",
+          "subagents",
+          "group:sessions",
+        ],
+      },
+    });
+  });
+
+  it("fails startup closed when postverify still lacks Ask Admin", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        hash: "startup-missing-agent",
+        auth: {
+          profiles: { "openai-device": { providerId: "openai", authChoiceId: "device" } },
+          order: { openai: ["openai-device"] },
+        },
+        agents: {
+          defaults: {
+            model: { primary: "openai/gpt-5.5" },
+            models: { "openai/gpt-5.5": {} },
+          },
+          list: [],
+        },
+      }),
+      "models.list": ok({
+        providers: [{ id: "openai", label: "OpenAI", suggestedModel: "gpt-5.5" }],
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+    });
+
+    await expect(port.reconcileStartupOrchestrator()).resolves.toMatchObject({
+      ok: false,
+      error: { code: "provisioning.connections.startupOrchestratorVerifyFailed" },
+    });
+  });
+
+  it("fails startup closed on malformed provider discovery or an unresolved route", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "startup-invalid", agents: { list: [] } }),
+      "models.list": ok({ malformed: true }),
+    });
+    const malformedDiscovery = new RecordingGatewayRuntime({
+      pluginDiscoveryResult: err(
+        new DomainError({
+          code: "provisioning.connections.pluginModelDiscoveryInvalidOutput",
+          message: "Invalid discovery.",
+        }),
+      ),
+    });
+    const malformedPort = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: malformedDiscovery,
+    });
+    await expect(malformedPort.reconcileStartupOrchestrator()).resolves.toMatchObject({
+      ok: false,
+      error: { code: "provisioning.connections.pluginModelDiscoveryInvalidOutput" },
+    });
+
+    const unresolvedPort = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: new RecordingAdminClient({
+        "config.get": ok({ hash: "startup-unresolved", agents: { list: [] } }),
+        "models.list": ok({ malformed: true }),
+      }),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+    });
+    await expect(unresolvedPort.reconcileStartupOrchestrator()).resolves.toMatchObject({
+      ok: false,
+      error: { code: "provisioning.connections.startupOrchestratorUnresolved" },
+    });
   });
 
   it("applies orchestrator delegation from the gateway primary provider", async () => {

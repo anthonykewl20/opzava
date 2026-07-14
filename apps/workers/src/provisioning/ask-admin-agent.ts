@@ -8,8 +8,8 @@ export const ASK_ADMIN_AGENT_ID = "ask-admin-opzava";
 // - docs/plan/consensus/slice2-agent-install-redteam.mmx.md (refuted-in-part)
 // - docs/plan/consensus/slice2e-agent-config-review.codex.md (SOUND-WITH-FIXES)
 // `tools.profile: "minimal"` means session_status only per docs/openclaw/gateway/config-tools.md.
-export const ASK_ADMIN_AGENT_VERSION = "2026-07-15.opzava-identity-crm-removed";
-const ASK_ADMIN_AGENT_ARTIFACT_VERSION = "2026-07-15.opzava-identity-crm-removed";
+export const ASK_ADMIN_AGENT_VERSION = "2026-07-15.opzava-identity-startup-reconcile";
+const ASK_ADMIN_AGENT_ARTIFACT_VERSION = "2026-07-15.opzava-identity-startup-reconcile";
 export const ASK_ADMIN_AGENT_WORKSPACE = "/home/node/.openclaw/workspace/ask-admin-opzava";
 export const ASK_ADMIN_AGENT_DIR = "/home/node/.openclaw/agents/ask-admin-opzava/agent";
 export const ASK_ADMIN_TOOL_POLICY_ID = "ask-admin-opzava-tool-policy";
@@ -80,7 +80,7 @@ export interface AskAdminAgentConfigFragment {
         readonly workspace: typeof ASK_ADMIN_AGENT_WORKSPACE;
         readonly agentDir: typeof ASK_ADMIN_AGENT_DIR;
         readonly skills: readonly [];
-        readonly contextInjection: "continuation-skip";
+        readonly contextInjection: "always";
         readonly bootstrapMaxChars: 20000;
         readonly default: true;
         readonly tools: {
@@ -267,7 +267,7 @@ export const ASK_ADMIN_AGENT_CONFIG_FRAGMENT: AskAdminAgentConfigFragment = {
         workspace: ASK_ADMIN_AGENT_WORKSPACE,
         agentDir: ASK_ADMIN_AGENT_DIR,
         skills: [],
-        contextInjection: "continuation-skip",
+        contextInjection: "always",
         bootstrapMaxChars: 20000,
         default: true,
         tools: {
@@ -409,7 +409,7 @@ export function createAskAdminProvisioningReceipt(
         artifact.path,
         {
           sha256: artifact.sha256,
-          targetPath: `${ASK_ADMIN_AGENT_DIR}/${artifact.path}`,
+          targetPath: `${ASK_ADMIN_AGENT_WORKSPACE}/${artifact.path}`,
         },
       ] as const,
   );

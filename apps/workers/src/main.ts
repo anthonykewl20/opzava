@@ -2,6 +2,10 @@ import { type Server } from "node:http";
 import { pathToFileURL } from "node:url";
 
 import { createConnectionsInternalHttpServer } from "./provisioning/connections-http-server.js";
+import {
+  createDefaultConnectionsProvisioningPort,
+  type ConnectionsProvisioningRuntimePort,
+} from "./provisioning/gateway-admin-connections.js";
 
 export interface ProvisioningWorkerRuntimeConfig {
   readonly port: number;
@@ -41,16 +45,40 @@ export function resolveProvisioningWorkerRuntimeConfig(
 
 export function startProvisioningWorker(
   config: ProvisioningWorkerRuntimeConfig = resolveProvisioningWorkerRuntimeConfig(),
-): Server {
-  const server = createConnectionsInternalHttpServer({
-    internalToken: config.internalToken,
-  });
+  dependencies: {
+    readonly provisioningPort?: ConnectionsProvisioningRuntimePort;
+    readonly createServer?: typeof createConnectionsInternalHttpServer;
+  } = {},
+): Promise<Server> {
+  const provisioningPort =
+    dependencies.provisioningPort ?? createDefaultConnectionsProvisioningPort();
 
-  server.listen(config.port, "0.0.0.0", () => {
-    console.log(`provisioning-worker listening on ${config.port}`);
-  });
+  return (async () => {
+    try {
+      const reconciled = await provisioningPort.reconcileStartup();
+      if (!reconciled.ok) {
+        throw reconciled.error;
+      }
 
-  return server;
+      const server = (dependencies.createServer ?? createConnectionsInternalHttpServer)({
+        internalToken: config.internalToken,
+        provisioningPort,
+      });
+      server.once("close", () => provisioningPort.close());
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(config.port, "0.0.0.0", () => {
+          server.off("error", reject);
+          console.log(`provisioning-worker listening on ${config.port}`);
+          resolve();
+        });
+      });
+      return server;
+    } catch (error) {
+      provisioningPort.close();
+      throw error;
+    }
+  })();
 }
 
 function runningAsEntrypoint(): boolean {
@@ -59,26 +87,24 @@ function runningAsEntrypoint(): boolean {
 }
 
 if (runningAsEntrypoint()) {
-  let server: Server;
-  try {
-    server = startProvisioningWorker();
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-    throw error;
-  }
+  void startProvisioningWorker()
+    .then((server) => {
+      const shutdown = (signal: NodeJS.Signals) => {
+        server.close((error) => {
+          if (error !== undefined) {
+            console.error(error);
+            process.exit(1);
+          }
 
-  const shutdown = (signal: NodeJS.Signals) => {
-    server.close((error) => {
-      if (error !== undefined) {
-        console.error(error);
-        process.exit(1);
-      }
+          process.exit(signal === "SIGTERM" || signal === "SIGINT" ? 0 : 1);
+        });
+      };
 
-      process.exit(signal === "SIGTERM" || signal === "SIGINT" ? 0 : 1);
+      process.once("SIGTERM", shutdown);
+      process.once("SIGINT", shutdown);
+    })
+    .catch((error) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
     });
-  };
-
-  process.once("SIGTERM", shutdown);
-  process.once("SIGINT", shutdown);
 }

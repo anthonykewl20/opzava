@@ -12,8 +12,8 @@ docker compose up -d openclaw-platform-gateway
 
 - Image pinned via `OPENCLAW_IMAGE_TAG` (currently `2026.6.11`); local host port 18799
   (`docker-compose.override.yml`; 18789 is the developer's personal OpenClaw).
-- The platform Gateway now runs by default with `gateway-broker` for the internal
-  single-tenant phase. It is still expose-only in compose, with no Traefik labels.
+- The platform Gateway now runs by default with `gateway-broker` for the internal single-tenant
+  phase. It is still expose-only in compose, with no Traefik labels.
 - First run only: config bootstrap + auth token (gateway refuses lan bind without auth):
 
 ```bash
@@ -49,8 +49,8 @@ docker compose exec openclaw-platform-gateway sh -lc \
 - Device identity derives from `OPENCLAW_DEVICE_PRIVATE_KEY_PEM(_BASE64)` (ed25519).
 - Approvals are METADATA-BOUND: changing client version/platform/userAgent triggers a
   `metadata-upgrade` re-approval and invalidates prior tokens - re-run issuance after approving.
-- Hot-path token scopes must validate exactly `operator.write + operator.approvals`
-  (+ gateway-materialized `operator.read`). Anything else fails closed.
+- Hot-path token scopes must validate exactly `operator.write + operator.approvals` (+
+  gateway-materialized `operator.read`). Anything else fails closed.
 
 ## Model auth — Codex subscription OAuth (Q16; once per environment, INTERACTIVE)
 
@@ -77,25 +77,33 @@ environments (by design) - each environment signs in once.
 
 ## Ask Admin agent (installed 2026-07-03)
 
-`agents.list[0]`: id `ask-admin-opzava`, model `openai/gpt-5.5` (native Codex runtime),
-`contextInjection: continuation-skip`, per-agent tools `{profile: minimal, allow: opzava_tasks_*,
-deny: group:runtime/write/edit/apply_patch/group:fs}`. `minimal` = `session_status` only
-(`docs/openclaw/gateway/config-tools.md`) - the deny list is defense-in-depth. Persona files live
-in the agentDir; hashes must match the provisioning receipt
-(`apps/workers/src/provisioning/ask-admin-agent.ts`).
+`agents.list[ask-admin-opzava]` uses the operator-selected connected model and
+`contextInjection: always`, with per-agent tools
+`{profile: minimal, allow: opzava_tasks_* + delegation tools, deny: group:runtime/write/edit/apply_patch/group:fs}`.
+`minimal` = `session_status` only (`docs/openclaw/gateway/config-tools.md`) - the deny list is
+defense-in-depth. `always` deliberately spends additional bootstrap tokens and latency so the
+privileged assistant cannot continue a session with stale identity or policy instructions.
+
+The provisioning worker now fails closed before listening: it first exact-reconciles every
+Opzava-owned orchestrator/subagent config field and postverifies after the Gateway reload, then
+exact-reconciles `SOUL.md`, `IDENTITY.md`, and `AGENTS.md` in that order through
+`agents.files.get/set` using `operator.admin`. Persona files live in the Ask Admin workspace, and
+their hashes and target paths must match the provisioning receipt
+(`apps/workers/src/provisioning/ask-admin-agent.ts`). A worker restart is therefore a real repair,
+not merely a preparation step.
 
 Consensus trail: `docs/plan/consensus/slice2-agent-install-redteam.mmx.md` (adjudicated) +
 `slice2e-agent-config-review.codex.md` (SOUND-WITH-FIXES; fixes applied).
 
 ## Sad paths
 
-| Symptom | Meaning | Action |
-| --- | --- | --- |
-| `exec gateway failed` on start | compose `command` replaced the node invocation | command must be `["node","openclaw.mjs","gateway",...]` |
-| `Refusing to bind gateway to lan without auth` | no gateway token | set `OPENCLAW_GATEWAY_TOKEN`, recreate |
-| CLI `SECURITY ERROR ... plaintext ws://` | CLI refuses non-loopback ws | exec INSIDE the container (loopback) |
-| `device identity mismatch` | device.id != sha256(raw pubkey) | derive identity from the private key (bootstrap does this) |
-| `gateway token mismatch` on validation | device token sent in `auth.token` | paired tokens ride in `auth.deviceToken` |
-| `device token mismatch (rotate/reissue)` | stale token (metadata rebind) | re-run issuance mode |
-| `pairing required: ... more scopes` | CLI/device scope upgrade pending | `devices approve <requestId>` (direct-local fallback works in-container) |
-| Orchestrator slow/degraded, invoice climbing | silent fallback to API-key tier | check auth monitoring; re-run OAuth sign-in |
+| Symptom                                        | Meaning                                        | Action                                                                   |
+| ---------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
+| `exec gateway failed` on start                 | compose `command` replaced the node invocation | command must be `["node","openclaw.mjs","gateway",...]`                  |
+| `Refusing to bind gateway to lan without auth` | no gateway token                               | set `OPENCLAW_GATEWAY_TOKEN`, recreate                                   |
+| CLI `SECURITY ERROR ... plaintext ws://`       | CLI refuses non-loopback ws                    | exec INSIDE the container (loopback)                                     |
+| `device identity mismatch`                     | device.id != sha256(raw pubkey)                | derive identity from the private key (bootstrap does this)               |
+| `gateway token mismatch` on validation         | device token sent in `auth.token`              | paired tokens ride in `auth.deviceToken`                                 |
+| `device token mismatch (rotate/reissue)`       | stale token (metadata rebind)                  | re-run issuance mode                                                     |
+| `pairing required: ... more scopes`            | CLI/device scope upgrade pending               | `devices approve <requestId>` (direct-local fallback works in-container) |
+| Orchestrator slow/degraded, invoice climbing   | silent fallback to API-key tier                | check auth monitoring; re-run OAuth sign-in                              |

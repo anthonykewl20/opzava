@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocalFileSecretsVault } from "@opzava/adapters";
 
 import {
+  ASK_ADMIN_AGENT_VERSION,
   ASK_ADMIN_TOOL_POLICY_DENY,
   ASK_ADMIN_FORBIDDEN_OPERATOR_SCOPES,
   ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES,
@@ -271,9 +272,16 @@ afterEach(async () => {
 });
 
 describe("Ask Admin Opzava provisioning artifacts", () => {
+  it("always injects the rollout-pinned identity artifacts", () => {
+    expect(ASK_ADMIN_AGENT_VERSION).toBe("2026-07-15.opzava-identity-startup-reconcile");
+    expect(JSON.parse(renderAskAdminAgentConfigFragment())).toMatchObject({
+      agents: { list: [{ id: "ask-admin-opzava", contextInjection: "always" }] },
+    });
+  });
+
   it("renders the versioned source artifacts from a golden snapshot", () => {
     expect(sanitizedArtifactsSnapshot()).toBe(`--- SOUL.md ---
-<!-- opzava:ask-admin-opzava version:2026-07-15.opzava-identity-crm-removed artifact:SOUL.md body-sha256:<hash> -->
+<!-- opzava:ask-admin-opzava version:2026-07-15.opzava-identity-startup-reconcile artifact:SOUL.md body-sha256:<hash> -->
 
 # Ask Admin Opzava SOUL
 
@@ -313,7 +321,7 @@ If a request crosses a boundary, say that you cannot do that action and offer a
 task-safe alternative when one exists.
 
 --- IDENTITY.md ---
-<!-- opzava:ask-admin-opzava version:2026-07-15.opzava-identity-crm-removed artifact:IDENTITY.md body-sha256:<hash> -->
+<!-- opzava:ask-admin-opzava version:2026-07-15.opzava-identity-startup-reconcile artifact:IDENTITY.md body-sha256:<hash> -->
 
 # Ask Admin Opzava IDENTITY
 
@@ -342,7 +350,7 @@ Identity rules:
   tools exposed by the runtime-control registry.
 
 --- AGENTS.md ---
-<!-- opzava:ask-admin-opzava version:2026-07-15.opzava-identity-crm-removed artifact:AGENTS.md body-sha256:<hash> -->
+<!-- opzava:ask-admin-opzava version:2026-07-15.opzava-identity-startup-reconcile artifact:AGENTS.md body-sha256:<hash> -->
 
 # Ask Admin Opzava AGENTS
 
@@ -375,15 +383,15 @@ Required behavior:
     ).toEqual([
       {
         path: "SOUL.md",
-        sha256: "f25191273e7ca2801d4bcf4f2863c6319bb1409ae44be83c57b0ef6320b0f033",
+        sha256: "0bef03139cd0aed7002d598ebe9a3d55e9452d356a2354a9374f95f2bf1f47ee",
       },
       {
         path: "IDENTITY.md",
-        sha256: "89ca7917ba50d92ebcac02c340e2f9a5a8ca1e7dc1a35941bbba83371a348a3e",
+        sha256: "6885f8d59c5030696e2e97d35a914937b1d4e67227492ae67d9a4b7fc14d3f25",
       },
       {
         path: "AGENTS.md",
-        sha256: "7190415e36d0031deebb3137bb707329d9e9fa0a0611de80cb09b6baed7da76c",
+        sha256: "846e6a6adf584a20782998d2020dbe5c70e93612b7032f2973e4ec20daf906f3",
       },
     ]);
   });
@@ -425,7 +433,7 @@ Required behavior:
         "workspace": "/home/node/.openclaw/workspace/ask-admin-opzava",
         "agentDir": "/home/node/.openclaw/agents/ask-admin-opzava/agent",
         "skills": [],
-        "contextInjection": "continuation-skip",
+        "contextInjection": "always",
         "bootstrapMaxChars": 20000,
         "default": true,
         "tools": {
@@ -449,7 +457,7 @@ Required behavior:
 }
 `);
     expect(sha256Hex(config)).toBe(
-      "d600ae182d7d69a418bd81468d143b69dc75ad50b2758e9cf0bb983eee89e748",
+      "4f02d712e604e7954519ce63b67d69e7fb2c19ea80e6273567549768406ecb87",
     );
     expect(JSON.parse(config)).toEqual({
       agents: {
@@ -460,16 +468,12 @@ Required behavior:
             workspace: "/home/node/.openclaw/workspace/ask-admin-opzava",
             agentDir: "/home/node/.openclaw/agents/ask-admin-opzava/agent",
             skills: [],
-            contextInjection: "continuation-skip",
+            contextInjection: "always",
             bootstrapMaxChars: 20000,
             default: true,
             tools: {
               profile: "minimal",
-              allow: [
-                "opzava_tasks_list",
-                "opzava_tasks_create",
-                "opzava_tasks_update",
-              ],
+              allow: ["opzava_tasks_list", "opzava_tasks_create", "opzava_tasks_update"],
               deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
             },
           },
@@ -479,13 +483,9 @@ Required behavior:
 
     expect(JSON.parse(renderAskAdminToolPolicy())).toEqual({
       id: "ask-admin-opzava-tool-policy",
-      version: "2026-07-15.opzava-identity-crm-removed",
+      version: "2026-07-15.opzava-identity-startup-reconcile",
       mode: "deny-wins",
-      allow: [
-        "opzava_tasks_list",
-        "opzava_tasks_create",
-        "opzava_tasks_update",
-      ],
+      allow: ["opzava_tasks_list", "opzava_tasks_create", "opzava_tasks_update"],
       deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
     });
   });
@@ -537,21 +537,26 @@ Required behavior:
       tenantId: "platform",
       purpose: "openclaw",
       label: "platform-operator-device-token",
-      version: "2026-07-15.opzava-identity-crm-removed",
+      version: "2026-07-15.opzava-identity-startup-reconcile",
     });
     expect(receipt.workerAdminDeviceTokenRef).toEqual(
       expectedAskAdminWorkerAdminDeviceTokenRef(ASK_ADMIN_PLATFORM_TENANT_ID),
     );
-    expect(receipt.version).toBe("2026-07-15.opzava-identity-crm-removed");
+    expect(receipt.version).toBe("2026-07-15.opzava-identity-startup-reconcile");
     expect(receipt.toolPolicy.sha256).toBe(
-      "b0b3b381ec5fe9c258e5602d34932edb11eabb49b858719b197838611ff58b05",
+      "c8dbabddc2a5a077269db6b46a42f4e02caccfcec65ee1c7de430a0cb8aa105a",
     );
     expect(receipt.agentConfig.sha256).toBe(
-      "d600ae182d7d69a418bd81468d143b69dc75ad50b2758e9cf0bb983eee89e748",
+      "4f02d712e604e7954519ce63b67d69e7fb2c19ea80e6273567549768406ecb87",
     );
     expect(
       Object.values(receipt.artifacts).every((artifact) => /^[a-f0-9]{64}$/.test(artifact.sha256)),
     ).toBe(true);
+    expect(Object.values(receipt.artifacts).map((artifact) => artifact.targetPath)).toEqual([
+      "/home/node/.openclaw/workspace/ask-admin-opzava/SOUL.md",
+      "/home/node/.openclaw/workspace/ask-admin-opzava/IDENTITY.md",
+      "/home/node/.openclaw/workspace/ask-admin-opzava/AGENTS.md",
+    ]);
   });
 });
 
@@ -719,14 +724,14 @@ describe("bootstrapPlatformGateway", () => {
       purpose: "openclaw",
       label: "platform-operator-device-token",
       value: brokerDeviceToken,
-      version: "2026-07-15.opzava-identity-crm-removed",
+      version: "2026-07-15.opzava-identity-startup-reconcile",
     });
     const workerStored = await vault.putSecret({
       tenantId: ASK_ADMIN_PLATFORM_TENANT_ID,
       purpose: "openclaw",
       label: "platform-worker-admin-device-token",
       value: workerAdminDeviceToken,
-      version: "2026-07-15.opzava-identity-crm-removed",
+      version: "2026-07-15.opzava-identity-startup-reconcile",
     });
     if (!brokerStored.ok) {
       throw brokerStored.error;
@@ -845,7 +850,7 @@ describe("bootstrapPlatformGateway", () => {
       purpose: "openclaw",
       label: "platform-operator-device-token",
       value: brokerDeviceToken,
-      version: "2026-07-15.opzava-identity-crm-removed",
+      version: "2026-07-15.opzava-identity-startup-reconcile",
     });
     if (!brokerStored.ok) {
       throw brokerStored.error;

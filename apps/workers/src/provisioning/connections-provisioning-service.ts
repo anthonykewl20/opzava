@@ -66,6 +66,11 @@ import {
 } from "./openclaw-admin-client.js";
 import { DockerOpenClawGatewayRuntime } from "./docker-gateway-runtime.js";
 import {
+  AskAdminStartupReconciler,
+  type AskAdminStartupReconciliationReceipt,
+  type StartupOrchestratorConfigPort,
+} from "./startup-reconciler.js";
+import {
   configPatchParams,
   consoleAdminLogger,
   gatewayRuntimeUnavailableError,
@@ -93,6 +98,12 @@ interface GatewayAdminConnectionsOptions {
   readonly gatewayRuntime?: GatewayRuntimePort;
   readonly fetch?: Fetch;
   readonly now?: () => Date;
+}
+
+export interface ConnectionsProvisioningRuntimePort
+  extends ConnectionsProvisioningPort, StartupOrchestratorConfigPort {
+  reconcileStartup(): Promise<Result<AskAdminStartupReconciliationReceipt>>;
+  close(): void;
 }
 
 interface PendingGitHubDeviceFlow {
@@ -1518,9 +1529,9 @@ function connectedProviderSubagents(input: {
 /**
  * Is the live config already the config the reconcile would write?
  *
- * Compares only what the reconcile OWNS -- the orchestrator's model, the gateway primary, and the
- * set of `subagent-*` agents. Anything else in `agents.list` is somebody else's business and must
- * not make a reconcile look necessary.
+ * Compares only what the reconcile OWNS, but compares ALL of it. The previous id/model-only check
+ * let removed Opzava tools survive forever because policy drift looked current. Unrelated agents
+ * and root config remain somebody else's business and must not make a reconcile look necessary.
  */
 function orchestratorConfigIsCurrent(input: {
   readonly config: Record<string, unknown>;
@@ -1539,24 +1550,60 @@ function orchestratorConfigIsCurrent(input: {
     return false;
   }
 
+  const canonical = buildOrchestratorAgentConfig({
+    orchestratorModel: input.orchestratorModel,
+    subagents: input.subagents,
+  });
+  if (!canonical.ok) {
+    return false;
+  }
+
   const agents = agentsList(input.config);
-  const askAdmin = agents.find((agent) => stringValue(agent["id"]) === ASK_ADMIN_AGENT_ID);
+  const ownedIds = new Set(canonical.value.agents.list.map((agent) => agent.id));
+  const liveOwned = agents.filter((agent) => {
+    const id = stringValue(agent["id"]);
+    return id === ASK_ADMIN_AGENT_ID || id?.startsWith("subagent-") === true;
+  });
   if (
-    askAdmin === undefined ||
-    modelSelectorPrimary(askAdmin["model"]) !== input.orchestratorModel
+    liveOwned.length !== canonical.value.agents.list.length ||
+    liveOwned.some((agent) => {
+      const id = stringValue(agent["id"]);
+      return id === null || !ownedIds.has(id);
+    })
   ) {
     return false;
   }
 
-  const liveSubagents = agents
-    .map((agent) => stringValue(agent["id"]))
-    .filter((id): id is string => id !== null && id.startsWith("subagent-"))
-    .sort();
-  const wantedSubagents = input.subagents.map((subagent) => subagent.agentId).sort();
+  return canonical.value.agents.list.every((wanted) => {
+    const live = liveOwned.find((agent) => stringValue(agent["id"]) === wanted.id);
+    return live !== undefined && ownedConfigValueEquals(live, wanted);
+  });
+}
 
+function ownedConfigValueEquals(left: unknown, right: unknown): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => ownedConfigValueEquals(value, right[index]))
+    );
+  }
+  if (!isRecord(left) || !isRecord(right)) {
+    return false;
+  }
+
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
   return (
-    liveSubagents.length === wantedSubagents.length &&
-    liveSubagents.every((id, index) => id === wantedSubagents[index])
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) =>
+        key === rightKeys[index] && ownedConfigValueEquals(left[key], right[rightKeys[index]!]),
+    )
   );
 }
 
@@ -3187,7 +3234,7 @@ function projectOpenClawRuntimeAndSessions(input: {
   };
 }
 
-export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvisioningPort {
+export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvisioningRuntimePort {
   private readonly fetchImpl: Fetch;
   private readonly now: () => Date;
   private readonly githubFlows = new Map<string, PendingGitHubDeviceFlow>();
@@ -3212,6 +3259,17 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public constructor(private readonly options: GatewayAdminConnectionsOptions) {
     this.fetchImpl = options.fetch ?? fetch;
     this.now = options.now ?? (() => new Date());
+  }
+
+  public reconcileStartup(): Promise<Result<AskAdminStartupReconciliationReceipt>> {
+    return new AskAdminStartupReconciler({
+      adminClient: this.options.adminClient,
+      configPort: this,
+    }).reconcile();
+  }
+
+  public close(): void {
+    this.options.adminClient.close();
   }
 
   private acquireProviderWrite(key: string): void {
@@ -5655,6 +5713,47 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     }
   }
 
+  /** Internal fail-closed startup repair; never exposed through the tenant-facing HTTP surface. */
+  public async reconcileStartupOrchestrator(): Promise<Result<void>> {
+    const reconciled = await this.reconcileOrchestrator({ strict: true });
+    if (!reconciled.ok) {
+      return err(reconciled.error);
+    }
+    const state = reconciled.value;
+    if (state.orchestratorModel === null || state.orchestratorProviderId === null) {
+      return err(
+        provisioningError(
+          "provisioning.connections.startupOrchestratorUnresolved",
+          "Ask Admin startup has no connected, routable orchestrator model.",
+        ),
+      );
+    }
+
+    // config.patch reloads the Gateway and drops the socket. This read therefore doubles as the
+    // reconnect boundary; the admin client retries idempotent config.get on a fresh socket.
+    const verified = await this.options.adminClient.request("config.get", {});
+    if (!verified.ok) {
+      return err(verified.error);
+    }
+    const config = configPayload(verified.value);
+    if (
+      !orchestratorConfigIsCurrent({
+        config,
+        orchestratorModel: state.orchestratorModel,
+        primaryModel: gatewayPrimaryModel(config),
+        subagents: state.subagents,
+      })
+    ) {
+      return err(
+        provisioningError(
+          "provisioning.connections.startupOrchestratorVerifyFailed",
+          "Ask Admin startup config did not match the canonical owned fields after reload.",
+        ),
+      );
+    }
+    return ok(undefined);
+  }
+
   /**
    * Rebuild the orchestrator wiring from the CONNECTED set: which provider Ask Admin routes to, and
    * one subagent per other connected provider.
@@ -5681,6 +5780,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private async reconcileOrchestrator(
     input: {
       readonly connectedProviderIds?: readonly string[];
+      /** Startup cannot fall back around malformed discovery or an unresolved route. */
+      readonly strict?: boolean;
       /**
        * Repair only an orchestrator that already exists. PROVISIONING one is bootstrap's job
        * (`bootstrap-platform-gateway`), not a side effect of connecting a credential -- a gateway
@@ -5721,6 +5822,17 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       this.options.gatewayRuntime?.modelStatus() ?? ok<unknown>(null),
       this.modelAuthStatus(),
     ]);
+    if (input.strict === true) {
+      if (!modelsResult.ok) {
+        return err(modelsResult.error);
+      }
+      if (!discoveryResult.ok) {
+        return err(discoveryResult.error);
+      }
+      if (!modelStatusResult.ok) {
+        return err(modelStatusResult.error);
+      }
+    }
     const discovery = discoveryResult.ok ? discoveryResult.value : null;
     const catalog = providerCatalogFromModels(
       modelsResult.ok ? modelsResult.value : {},
@@ -5787,6 +5899,14 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     // With no connected provider there is no valid orchestrator model. Preserve the gateway's own
     // stale/default config rather than inventing a credential-backed route that does not exist.
     if (orchestratorModel === null || orchestratorProviderId === null) {
+      if (input.strict === true) {
+        return err(
+          provisioningError(
+            "provisioning.connections.startupOrchestratorUnresolved",
+            "Ask Admin startup has no connected, routable orchestrator model.",
+          ),
+        );
+      }
       return ok(
         orchestratorDelegationState({
           orchestratorModel: null,
@@ -6638,13 +6758,22 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }
 }
 
-export class UnavailableConnectionsProvisioningPort implements ConnectionsProvisioningPort {
+export class UnavailableConnectionsProvisioningPort implements ConnectionsProvisioningRuntimePort {
   public constructor(
     private readonly reason: string,
     private readonly repository: string,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
+  public async reconcileStartup(): Promise<Result<AskAdminStartupReconciliationReceipt>> {
+    return err(this.error());
+  }
+
+  public async reconcileStartupOrchestrator(): Promise<Result<void>> {
+    return err(this.error());
+  }
+
+  public close(): void {}
   public async getConnectionsSnapshot(): Promise<Result<ConnectionsSnapshot>> {
     return ok(
       unavailableSnapshot({
@@ -6732,7 +6861,7 @@ export class UnavailableConnectionsProvisioningPort implements ConnectionsProvis
 
 export function createDefaultConnectionsProvisioningPort(
   env: NodeJS.ProcessEnv = process.env,
-): ConnectionsProvisioningPort {
+): ConnectionsProvisioningRuntimePort {
   const repository = readRepository(env);
   const gatewayUrl = env["OPENCLAW_GATEWAY_URL"]?.trim();
   const gatewayToken = env["OPENCLAW_GATEWAY_TOKEN"]?.trim();
