@@ -218,21 +218,29 @@ Extract them from `connections-legacy-pre-ia.html` (which still holds the Model 
 
 Verified locally against the Docker stack (2026-07-15):
 
-- The `partial-unknown` real E2E drive completed with zero findings.
+- The `partial-unknown` real E2E drive completed with zero findings; artifacts are in
+  `real-validate-artifacts/connections-integrated-partial-fixed`.
 - The `degraded` real E2E drive completed with the required exact attention count of `1`. The
   fixture was a deliberately invalid Telegram bot channel; the temporary channel was removed and
   the normal stack was restarted afterward.
+- The `unreachable` real E2E drive passed with the provider catalog correctly rendered as
+  unavailable rather than empty; artifacts are in
+  `real-validate-artifacts/connections-integrated-unreachable`. The Gateway was restored after the
+  drive.
 - Manual health refresh advanced `checkedAt`, proving that the requested live probe was not swallowed by cached background work.
 - The OpenAI OAuth `gpt-5.5` probe succeeded, and a real Ask Admin run reached `READY`.
+- The SeniorQA gate completed two consecutive clean passes with zero findings, zero warnings, and
+  `DONE-ELIGIBLE`; artifacts are in `real-validate-artifacts/connections-integrated-final-gate`.
 
 The `unreachable` contract treats the provider catalog as unavailable, not as an empty catalog: the
 provider route must show the explicit Gateway outage/retry state and expose zero provider rows or
-provider actions. Its final real rerun is still pending at this point, so this document does not
-claim that result. The normal stack was restored after the outage preparation.
+provider actions. The completed real drive verified that contract, and the normal Gateway was
+restored afterward.
 
 The health and integration axes are separate. `REAL_CONNECTIONS_INTEGRATIONS=empty` was exercised
 live. A real connected integration was not exercised and remains pending; no health-state result
-above implies connected-integration coverage.
+above implies connected-integration coverage. That state requires a configured external
+integration and was not fabricated for the gate.
 
 The current real health matrix is therefore `partial-unknown`, `degraded`, and `unreachable`.
 `healthy` stays in classifier, component, and E2E self-test coverage so the UI remains
