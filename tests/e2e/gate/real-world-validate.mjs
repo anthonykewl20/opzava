@@ -95,21 +95,22 @@ function requireConnectionsScenarioContract() {
     fail(`Connections scenario contract is missing: ${missing.join(", ")}.`);
 }
 
-// A clean generic route sweep cannot prove the Connections state matrix. Require the dedicated
-// real-login drive before looping. Environment is inherited by default; scenario declarations and
-// credentials never enter command arguments, captured output, or the gate report.
-function validateConnectionsScenario() {
-  const childArtifacts = `${OUT}/connections-scenario`;
+// A clean generic route sweep cannot prove the Connections state matrix. Run the dedicated real-login
+// drive in every pass so two consecutive clean passes also mean two complete Connections validations.
+// Environment is inherited by default; declarations and credentials never enter arguments/output.
+function validateConnectionsScenario(pass, findings) {
+  const childArtifacts = `${OUT}/p${pass}-connections-scenario`;
   const result = spawnSync(
     process.execPath,
     ["tests/e2e/drives/connections.mjs", childArtifacts],
     { stdio: "ignore" },
   );
-  if (result.error !== undefined)
-    fail("Connections scenario validation could not start; inspect the local runtime.");
-  if (result.status !== 0)
-    fail(`Connections scenario validation failed (exit ${result.status ?? "signal"}); inspect ${childArtifacts}/connections-report.json when present.`);
-  console.log(`connections scenario OK: ${childArtifacts}`);
+  const passed = result.error === undefined && result.status === 0;
+  if (!passed)
+    findings.push({ pass, kind: "connections-scenario-failed", where: childArtifacts,
+      detail: `dedicated real-state validation failed (exit ${result.status ?? "signal"})` });
+  else console.log(`pass ${pass}: connections scenario OK: ${childArtifacts}`);
+  return { artifactDir: childArtifacts, passed, exitStatus: result.status };
 }
 
 // ---------- Findings collection
@@ -201,7 +202,6 @@ function auditLogs(sinceIso, pass, findings, warnings) {
 // ---------- Main loop: iterate until CLEAN_STREAK consecutive clean passes.
 requireConnectionsScenarioContract();
 preflight();
-validateConnectionsScenario();
 const browser = await chromium.launch();
 const report = { base: REPORT_BASE, startedAt: new Date().toISOString(), passes: [], verdict: "NOT-DONE" };
 let streak = 0;
@@ -223,10 +223,11 @@ for (let pass = 1; pass <= MAX_PASSES && streak < CLEAN_STREAK; pass++) {
   } finally {
     await ctx.close();
   }
+  const connectionsScenario = validateConnectionsScenario(pass, findings);
   auditLogs(passStart, pass, findings, warnings);
   const clean = findings.length === 0;
   streak = clean ? streak + 1 : 0;
-  report.passes.push({ pass, routes, clean, findings, warnings });
+  report.passes.push({ pass, routes, connectionsScenario, clean, findings, warnings });
   console.log(`pass ${pass}: ${clean ? "CLEAN" : `${findings.length} FINDINGS`} (${warnings.length} log warnings) - streak ${streak}/${CLEAN_STREAK}`);
   for (const f of findings) console.log(`  [${f.kind}] ${f.where} :: ${f.detail}`);
 }

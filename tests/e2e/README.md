@@ -45,19 +45,20 @@ node tests/e2e/drives/connections.mjs # or call any script directly, with an opt
 Gateway or GitHub integration to manufacture a scenario. Prepare the real stack in one state, then
 declare that state explicitly. Missing declarations and observed-state mismatches fail the drive;
 they are not skips. A degraded run also requires the exact positive attention count. The final gate
-runs this drive as a required child validation with inherited environment and writes its artifacts
-under `<gate-out>/connections-scenario`; therefore a gate run also covers exactly one prepared
-state.
+runs this drive inside every pass with inherited environment and writes its artifacts under
+`<gate-out>/pN-connections-scenario`. A failed child blocks that pass and resets the clean streak,
+so Done-eligible requires two consecutive complete scenario-drive passes against one prepared state.
 
 Capture the non-secret navigation baseline against the agreed fixed point before validating the
 candidate. Make this E2E-only harness available in a fixed-point worktree without bringing over app
-changes, prepare the same real scenario, and run measurement mode:
+changes, start its real stack, and run measurement mode. This mode performs the real login and three
+timed `/connections` navigations, then exits before all candidate-only selectors and scenario
+assertions. It requires no `REAL_CONNECTIONS_*` scenario or performance variables.
 
 ```bash
-REAL_CONNECTIONS_HEALTH=healthy REAL_CONNECTIONS_INTEGRATIONS=connected \
-  node tests/e2e/drives/connections.mjs --capture-baseline \
+node tests/e2e/drives/connections.mjs --capture-baseline \
   real-validate-artifacts/connections-fixed-point-baseline
-jq '.navigationTimings["/connections"]' \
+jq '.baselineCapture' \
   real-validate-artifacts/connections-fixed-point-baseline/connections-report.json
 ```
 
@@ -65,7 +66,8 @@ Use the measured fixed-point value and an explicitly approved regression budget;
 default. The drive checks every observed `/connections` navigation against their sum.
 
 ```bash
-export REAL_CONNECTIONS_BASELINE_LOAD_MS=REPLACE_WITH_MEASURED_FIXED_POINT_MS
+export REAL_CONNECTIONS_BASELINE_LOAD_MS="$(jq -r '.baselineCapture.suggestedBaselineLoadMs' \
+  real-validate-artifacts/connections-fixed-point-baseline/connections-report.json)"
 export REAL_CONNECTIONS_MAX_REGRESSION_MS=REPLACE_WITH_APPROVED_BUDGET_MS
 ```
 

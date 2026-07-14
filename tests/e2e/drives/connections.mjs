@@ -16,10 +16,10 @@ import { BASE, artifactDir, realLogin } from "../lib/session.mjs";
 
 const HEALTH_SCENARIOS = new Set(["healthy", "degraded", "unreachable"]);
 const INTEGRATION_SCENARIOS = new Set(["empty", "connected"]);
-const SELF_TEST = process.argv.includes("--self-test");
-const CAPTURE_BASELINE = process.argv.includes("--capture-baseline");
+const EXECUTION_MODE = connectionsExecutionMode(process.argv.slice(2));
+const CAPTURE_BASELINE = EXECUTION_MODE === "baseline-capture";
 
-if (SELF_TEST) {
+if (EXECUTION_MODE === "self-test") {
   runScenarioClassifierSelfTest();
   console.log("connections scenario classifier self-test OK");
   process.exit(0);
@@ -53,10 +53,14 @@ function requiredNumber(name, { allowZero }) {
   return value;
 }
 
-const expectedHealth = requiredChoice("REAL_CONNECTIONS_HEALTH", HEALTH_SCENARIOS);
-const expectedIntegration = requiredChoice("REAL_CONNECTIONS_INTEGRATIONS", INTEGRATION_SCENARIOS);
+const expectedHealth = CAPTURE_BASELINE
+  ? null
+  : requiredChoice("REAL_CONNECTIONS_HEALTH", HEALTH_SCENARIOS);
+const expectedIntegration = CAPTURE_BASELINE
+  ? null
+  : requiredChoice("REAL_CONNECTIONS_INTEGRATIONS", INTEGRATION_SCENARIOS);
 let expectedAttention = 0;
-if (expectedHealth === "degraded") {
+if (!CAPTURE_BASELINE && expectedHealth === "degraded") {
   const raw = process.env.REAL_CONNECTIONS_ATTENTION;
   const parsed = raw === undefined ? Number.NaN : Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1) {
@@ -65,7 +69,7 @@ if (expectedHealth === "degraded") {
     );
   }
   expectedAttention = parsed;
-} else if (process.env.REAL_CONNECTIONS_ATTENTION !== undefined) {
+} else if (!CAPTURE_BASELINE && process.env.REAL_CONNECTIONS_ATTENTION !== undefined) {
   const parsed = Number(process.env.REAL_CONNECTIONS_ATTENTION);
   if (!Number.isInteger(parsed) || parsed !== 0) {
     throw new Error("REAL_CONNECTIONS_ATTENTION must be 0 or omitted outside degraded health.");
@@ -118,11 +122,14 @@ const NON_LLM_IDS = new Set([
 
 const report = {
   base: reportBase,
-  expectedScenario: {
-    health: expectedHealth,
-    integrations: expectedIntegration,
-    attentionCount: expectedAttention,
-  },
+  mode: EXECUTION_MODE,
+  expectedScenario: CAPTURE_BASELINE
+    ? null
+    : {
+        health: expectedHealth,
+        integrations: expectedIntegration,
+        attentionCount: expectedAttention,
+      },
   performanceContract: {
     baselineLoadMs,
     maxRegressionMs,
@@ -139,6 +146,7 @@ const report = {
   redirectChain: [],
   healthCheck: null,
   navigationTimings: {},
+  baselineCapture: null,
   screenshotPaths: [],
   findings: [],
 };
@@ -290,6 +298,18 @@ function classifyObservedScenario(input) {
   return "partial-unknown";
 }
 
+function connectionsExecutionMode(argumentsList) {
+  if (argumentsList.includes("--self-test")) return "self-test";
+  if (argumentsList.includes("--capture-baseline")) return "baseline-capture";
+  return "scenario-validation";
+}
+
+function healthCheckExpectation(scenario) {
+  return scenario === "unreachable"
+    ? { noticeParam: "health-check-error", reportNotice: "error", checkedAt: "unchanged-null" }
+    : { noticeParam: "health-check-complete", reportNotice: "complete", checkedAt: "changed" };
+}
+
 function runScenarioClassifierSelfTest() {
   const cases = [
     {
@@ -346,6 +366,31 @@ function runScenarioClassifierSelfTest() {
     if (actual !== testCase.expected) {
       throw new Error(`${testCase.name}: expected ${testCase.expected}, received ${actual}`);
     }
+  }
+
+  const modeCases = [
+    { argumentsList: [], expected: "scenario-validation" },
+    { argumentsList: ["artifacts"], expected: "scenario-validation" },
+    { argumentsList: ["--capture-baseline"], expected: "baseline-capture" },
+    { argumentsList: ["--self-test", "--capture-baseline"], expected: "self-test" },
+  ];
+  for (const testCase of modeCases) {
+    const actual = connectionsExecutionMode(testCase.argumentsList);
+    if (actual !== testCase.expected) {
+      throw new Error(`execution mode: expected ${testCase.expected}, received ${actual}`);
+    }
+  }
+
+  const reachableCheck = healthCheckExpectation("healthy");
+  const degradedCheck = healthCheckExpectation("degraded");
+  const unreachableCheck = healthCheckExpectation("unreachable");
+  if (
+    reachableCheck.reportNotice !== "complete" ||
+    degradedCheck.checkedAt !== "changed" ||
+    unreachableCheck.noticeParam !== "health-check-error" ||
+    unreachableCheck.checkedAt !== "unchanged-null"
+  ) {
+    throw new Error("health-check outcome contract self-test failed");
   }
 }
 
@@ -634,10 +679,13 @@ async function validateIntegration(page) {
 async function runHealthCheck(page) {
   const beforeHealth = await overviewHealth(page);
   const beforeGateway = await overviewGatewayState(page);
+  const expectation = healthCheckExpectation(expectedHealth);
   const button = page.getByRole("button", { name: "Run health check", exact: true }).first();
   await Promise.all([
     page.waitForURL(
-      (url) => url.pathname === "/connections" && url.searchParams.get("notice") !== null,
+      (url) =>
+        url.pathname === "/connections" &&
+        url.searchParams.get("notice") === expectation.noticeParam,
       {
         timeout: 30_000,
       },
@@ -645,23 +693,38 @@ async function runHealthCheck(page) {
     button.click(),
   ]);
   await page.waitForLoadState("networkidle");
-  const notice = page.getByRole("status");
-  assertFinding(
-    (await notice.getByText("Health check complete.", { exact: true }).count()) === 1,
-    "manual health check did not report server-action success",
-  );
+  if (expectation.reportNotice === "complete") {
+    const notice = page.getByRole("status");
+    assertFinding(
+      (await notice.getByText("Health check complete.", { exact: true }).count()) === 1,
+      "manual health check did not report server-action success",
+    );
+  } else {
+    const notice = page.getByRole("alert");
+    assertFinding(
+      (await notice.getByText("Health check could not complete.", { exact: true }).count()) === 1,
+      "unreachable health check did not report the server-action error",
+    );
+  }
   const afterHealth = await overviewHealth(page);
   const afterGateway = await overviewGatewayState(page);
-  assertFinding(
-    beforeHealth.hero.checkedAt !== afterHealth.hero.checkedAt,
-    "manual health check did not change checkedAt",
-  );
+  if (expectation.checkedAt === "changed") {
+    assertFinding(
+      beforeHealth.hero.checkedAt !== afterHealth.hero.checkedAt,
+      "manual health check did not change checkedAt",
+    );
+  } else {
+    assertFinding(
+      beforeHealth.hero.checkedAt === null && afterHealth.hero.checkedAt === null,
+      "unreachable health check must preserve a null checkedAt",
+    );
+  }
   assertExpectedHealth(beforeHealth.hero, beforeGateway, "pre-check");
   assertExpectedHealth(afterHealth.hero, afterGateway, "post-check");
   report.healthCheck = {
     before: { health: beforeHealth.hero, gateway: beforeGateway },
     after: { health: afterHealth.hero, gateway: afterGateway },
-    notice: "complete",
+    notice: expectation.reportNotice,
   };
   report.heroHealth = afterHealth.hero;
   report.pillHealth = afterHealth.pill;
@@ -809,75 +872,90 @@ const context = await browser.newContext({
 });
 
 try {
-  const page = await realLogin(context, { what: "Connections Overview real-state matrix" });
-  await timedGoto(page, "/connections");
-  const healthBar = await validateOverviewStructure(page);
-  const initialHealth = await overviewHealth(page);
-  const initialGateway = await overviewGatewayState(page);
-  report.heroHealth = initialHealth.hero;
-  report.pillHealth = initialHealth.pill;
-  report.gatewayState = initialGateway;
-  report.observed = {
-    health: classifyObservedScenario({ health: initialHealth.hero, gateway: initialGateway }),
-    rollupStatus: initialHealth.hero.status,
-    attentionCount: initialHealth.hero.attentionCount,
-    gateway: initialGateway,
-  };
-  assertExpectedHealth(initialHealth.hero, initialGateway, "observed");
-  if (healthBar !== null) {
-    const grouped = Object.values(healthBar.groups);
-    assertFinding(
-      healthBar.attention === initialHealth.hero.attentionCount,
-      "health bar attention count does not match health rollup",
+  const page = await realLogin(context, {
+    what: CAPTURE_BASELINE
+      ? "Connections fixed-point baseline"
+      : "Connections Overview real-state matrix",
+  });
+  if (CAPTURE_BASELINE) {
+    for (let sample = 0; sample < 3; sample += 1) await timedGoto(page, "/connections");
+    const samples = report.navigationTimings["/connections"];
+    report.baselineCapture = {
+      sampleCount: samples.length,
+      observedLoadMs: samples,
+      suggestedBaselineLoadMs: Math.max(...samples),
+    };
+    console.log("connections baseline capture OK:", OUT);
+  } else {
+    await timedGoto(page, "/connections");
+    const healthBar = await validateOverviewStructure(page);
+    const initialHealth = await overviewHealth(page);
+    const initialGateway = await overviewGatewayState(page);
+    report.heroHealth = initialHealth.hero;
+    report.pillHealth = initialHealth.pill;
+    report.gatewayState = initialGateway;
+    report.observed = {
+      health: classifyObservedScenario({ health: initialHealth.hero, gateway: initialGateway }),
+      rollupStatus: initialHealth.hero.status,
+      attentionCount: initialHealth.hero.attentionCount,
+      gateway: initialGateway,
+    };
+    assertExpectedHealth(initialHealth.hero, initialGateway, "observed");
+    if (healthBar !== null) {
+      const grouped = Object.values(healthBar.groups);
+      assertFinding(
+        healthBar.attention === initialHealth.hero.attentionCount,
+        "health bar attention count does not match health rollup",
+      );
+      assertFinding(
+        healthBar.healthy + healthBar.attention + healthBar.notChecked > 0,
+        "health bar is vacuous",
+      );
+      assertFinding(grouped.length === 3, "health group exact-count summaries are incomplete");
+      assertFinding(
+        grouped.reduce((total, group) => total + group.healthy, 0) === healthBar.healthy &&
+          grouped.reduce((total, group) => total + group.attention, 0) === healthBar.attention &&
+          grouped.reduce((total, group) => total + group.notChecked, 0) === healthBar.notChecked,
+        "health group exact counts do not reconcile with the health bar",
+      );
+    }
+    await validateOverviewProviders(page);
+    await validateIntegration(page);
+    failOnFindings("scenario prerequisite failed");
+
+    await validateProviderPage(page);
+    failOnFindings("provider-page validation failed");
+    await timedGoto(page, "/connections");
+    await runHealthCheck(page);
+    failOnFindings("manual health check failed");
+    await timedGoto(page, "/connections");
+    const screenshotHealth = await overviewHealth(page);
+    const screenshotGateway = await overviewGatewayState(page);
+    assertExpectedHealth(screenshotHealth.hero, screenshotGateway, "screenshot");
+    report.heroHealth = screenshotHealth.hero;
+    report.pillHealth = screenshotHealth.pill;
+    report.gatewayState = screenshotGateway;
+    failOnFindings("post-check Overview reload failed");
+    await captureThemes(page, `connections-${expectedHealth}-live`);
+    const overviewMockup =
+      expectedHealth === "healthy"
+        ? "ux-redesign/mockups/connections.html"
+        : `ux-redesign/mockups/connections-${expectedHealth}.html`;
+    await captureStaticMockup(context, overviewMockup, `connections-${expectedHealth}-mockup`);
+
+    await validateSystem(page);
+    failOnFindings("System status validation failed");
+    await captureThemes(page, `connections-system-${expectedHealth}-live`);
+    await captureStaticMockup(
+      context,
+      "ux-redesign/mockups/connections-system.html",
+      `connections-system-${expectedHealth}-mockup`,
     );
-    assertFinding(
-      healthBar.healthy + healthBar.attention + healthBar.notChecked > 0,
-      "health bar is vacuous",
-    );
-    assertFinding(grouped.length === 3, "health group exact-count summaries are incomplete");
-    assertFinding(
-      grouped.reduce((total, group) => total + group.healthy, 0) === healthBar.healthy &&
-        grouped.reduce((total, group) => total + group.attention, 0) === healthBar.attention &&
-        grouped.reduce((total, group) => total + group.notChecked, 0) === healthBar.notChecked,
-      "health group exact counts do not reconcile with the health bar",
-    );
+
+    await validateLegacyRedirect(page);
+    failOnFindings("legacy redirect validation failed");
+    console.log("connections-drive OK:", OUT);
   }
-  await validateOverviewProviders(page);
-  await validateIntegration(page);
-  failOnFindings("scenario prerequisite failed");
-
-  await validateProviderPage(page);
-  failOnFindings("provider-page validation failed");
-  await timedGoto(page, "/connections");
-  await runHealthCheck(page);
-  failOnFindings("manual health check failed");
-  await timedGoto(page, "/connections");
-  const screenshotHealth = await overviewHealth(page);
-  const screenshotGateway = await overviewGatewayState(page);
-  assertExpectedHealth(screenshotHealth.hero, screenshotGateway, "screenshot");
-  report.heroHealth = screenshotHealth.hero;
-  report.pillHealth = screenshotHealth.pill;
-  report.gatewayState = screenshotGateway;
-  failOnFindings("post-check Overview reload failed");
-  await captureThemes(page, `connections-${expectedHealth}-live`);
-  const overviewMockup =
-    expectedHealth === "healthy"
-      ? "ux-redesign/mockups/connections.html"
-      : `ux-redesign/mockups/connections-${expectedHealth}.html`;
-  await captureStaticMockup(context, overviewMockup, `connections-${expectedHealth}-mockup`);
-
-  await validateSystem(page);
-  failOnFindings("System status validation failed");
-  await captureThemes(page, `connections-system-${expectedHealth}-live`);
-  await captureStaticMockup(
-    context,
-    "ux-redesign/mockups/connections-system.html",
-    `connections-system-${expectedHealth}-mockup`,
-  );
-
-  await validateLegacyRedirect(page);
-  failOnFindings("legacy redirect validation failed");
-  console.log(CAPTURE_BASELINE ? "connections baseline capture OK:" : "connections-drive OK:", OUT);
 } catch (error) {
   const unsafeMessage = error instanceof Error ? error.message : String(error);
   const message = unsafeMessage.replaceAll(BASE, reportBase);
