@@ -89,7 +89,7 @@
 .conn-health-state dd { margin: 0; color: var(--fg-subtle); font-size: var(--text-xs); line-height: var(--lh-normal); }
 .conn-health-state-count { float: right; color: var(--fg); font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
 .conn-health-state--healthy .conn-health-state-icon { color: var(--success); }
-.conn-health-state--attention { border-color: var(--warning); background: var(--warning-soft); }
+.conn-health-state--attention.conn-health-state--active { border-color: var(--warning); background: var(--warning-soft); }
 .conn-health-state--attention .conn-health-state-icon { color: var(--warning); }
 .conn-health-state--unknown { border-style: dashed; background: transparent; }
 .conn-health-state--unknown .conn-health-state-icon { color: var(--fg-subtle); }
