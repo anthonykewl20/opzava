@@ -164,6 +164,10 @@ describe("Connections System status", () => {
     expect(html).toContain("Agents");
     expect(html).toContain("No channel components were reported.");
     expect(html).toContain("No agent components were reported.");
+    expect(html).toContain('id="system-group-system-core"');
+    expect(html).toContain('id="system-group-channels"');
+    expect(html).toContain('id="system-group-agents"');
+    expect(html).toContain("scroll-mt-24");
   });
 
   it("keeps warnings separate from component failures", () => {

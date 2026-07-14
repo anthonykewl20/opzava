@@ -7,7 +7,10 @@ export type OverviewHealthStatus = "healthy" | "attention" | "unknown";
 export interface OverviewHealthGroup {
   readonly id: "system-core" | "channels" | "agents";
   readonly label: "System Core" | "Channels" | "Agents";
-  readonly href: "/connections/system";
+  readonly href:
+    | "/connections/system#system-group-system-core"
+    | "/connections/system#system-group-channels"
+    | "/connections/system#system-group-agents";
   readonly healthy: number;
   readonly attention: number;
   readonly notChecked: number;
@@ -39,6 +42,7 @@ const groupDefinitions = [
   {
     id: "system-core",
     label: "System Core",
+    href: "/connections/system#system-group-system-core",
     kinds: new Set<OpenClawHealthComponent["kind"]>([
       "gateway",
       "event-loop",
@@ -49,9 +53,15 @@ const groupDefinitions = [
   {
     id: "channels",
     label: "Channels",
+    href: "/connections/system#system-group-channels",
     kinds: new Set<OpenClawHealthComponent["kind"]>(["channel"]),
   },
-  { id: "agents", label: "Agents", kinds: new Set<OpenClawHealthComponent["kind"]>(["agent"]) },
+  {
+    id: "agents",
+    label: "Agents",
+    href: "/connections/system#system-group-agents",
+    kinds: new Set<OpenClawHealthComponent["kind"]>(["agent"]),
+  },
 ] as const;
 
 function rollupStatus(attention: number, notChecked: number, total: number): OverviewHealthStatus {
@@ -70,7 +80,7 @@ export function overviewHealthGroups(
     return {
       id: definition.id,
       label: definition.label,
-      href: "/connections/system",
+      href: definition.href,
       healthy,
       attention,
       notChecked,

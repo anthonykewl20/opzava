@@ -959,7 +959,10 @@ describe("Connections page state", () => {
     const overview = await readRepoFile("components/connections/connections-overview.tsx");
     const overviewState = await readRepoFile("lib/connections-overview.ts");
     const autoRefresh = await readRepoFile("components/connections/connections-auto-refresh.tsx");
-    const healthBar = await readRepoFile("components/connections/health-bar.tsx");
+    const healthStatusBreakdown = await readRepoFile(
+      "components/connections/health-status-breakdown.tsx",
+    );
+    const providerBrandIcon = await readRepoFile("components/connections/provider-brand-icon.tsx");
     const systemStatus = await readRepoFile("components/connections/connections-system-status.tsx");
     const accordion = await readRepoFile("components/ui/accordion.tsx");
     const breadcrumb = await readRepoFile("components/ui/breadcrumb.tsx");
@@ -1084,7 +1087,7 @@ describe("Connections page state", () => {
     expect(providersPanel).not.toContain("connections-provider-list");
     expect(overview).toContain("openclawHealthSummary(health)");
     expect(overview).toContain("summary.healthy");
-    expect(overview).toContain("checked components healthy");
+    expect(overview).toContain("HealthStatusBreakdown");
     expect(overview).toContain('aria-label="OpenClaw component groups"');
     expect(overview).toContain("No integrations connected");
     expect(overview).toContain("Add GitHub when this workspace needs repository access");
@@ -1105,9 +1108,14 @@ describe("Connections page state", () => {
     expect(overview).not.toContain("Active connections handled");
     expect(overview).not.toContain("Host uptime");
     expect(overview).not.toContain("Accordion");
-    expect(healthBar).toContain('role="img"');
-    expect(healthBar).toContain('data-health-segment="not-checked"');
-    expect(healthBar).toContain("border-dashed");
+    expect(healthStatusBreakdown).toContain('data-health-breakdown="true"');
+    expect(healthStatusBreakdown).toContain('id: "not-checked"');
+    expect(healthStatusBreakdown).toContain("border-dashed");
+    expect(healthStatusBreakdown).not.toContain('role="img"');
+    expect(healthStatusBreakdown).not.toContain('role="progressbar"');
+    expect(providerBrandIcon).toContain('data-provider-icon="brand"');
+    expect(providerBrandIcon).toContain('source: "simple-icons-16.26.0"');
+    expect(providerBrandIcon).toContain('source: "mainframe-docs-sponsor"');
     expect(autoRefresh).toContain("CONNECTIONS_REFRESH_INTERVAL_MS = 30_000");
     expect(autoRefresh).toContain('window.addEventListener("focus", refresh)');
     expect(autoRefresh).toContain('window.removeEventListener("focus", refresh)');

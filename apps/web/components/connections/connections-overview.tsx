@@ -7,12 +7,12 @@ import {
   GitBranch,
   Plug,
   Server,
-  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 
 import { relativeTime } from "@/app/(app)/connections/_lib/page-data";
 import { HealthCheckSubmitButton } from "@/components/connections/health-check-submit";
+import { ProviderBrandIcon } from "@/components/connections/provider-brand-icon";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ import {
 import { openclawHealthSummary } from "@/lib/connections-state";
 import type { ConnectionsPageData } from "@/lib/connections";
 
-import { HealthBar } from "./health-bar";
+import { HealthStatusBreakdown } from "./health-status-breakdown";
 
 interface ConnectionsOverviewProps {
   readonly data: ConnectionsPageData;
@@ -63,17 +63,12 @@ function healthDescription(input: {
   readonly healthy: number;
   readonly attention: number;
   readonly notChecked: number;
-  readonly percent: number | null;
 }): string {
-  const probed = input.healthy + input.attention;
-  if (input.percent === null) {
-    return `${plural(input.notChecked, "component")} not checked. No health percentage is available.`;
-  }
-
-  const checked = `${input.healthy} of ${probed} checked components healthy (${input.percent}%)`;
-  return input.notChecked > 0
-    ? `${checked}; ${plural(input.notChecked, "component")} not checked.`
-    : `${checked}.`;
+  return [
+    `${plural(input.healthy, "component")} healthy.`,
+    `${plural(input.attention, "component")} ${input.attention === 1 ? "needs" : "need"} attention.`,
+    `${plural(input.notChecked, "component")} not checked.`,
+  ].join(" ");
 }
 
 function groupBadgeVariant(status: OverviewHealthStatus): "success" | "warning" | "muted" {
@@ -90,6 +85,20 @@ function GroupStatusIcon({ status }: { readonly status: OverviewHealthStatus }) 
 
 function HealthGroupLink({ group }: { readonly group: OverviewHealthGroup }) {
   const accessibleStatus = `${group.healthy} healthy, ${group.attention} ${group.attention === 1 ? "needs" : "need"} attention, ${group.notChecked} not checked`;
+  const visibleStatus =
+    group.total === 0
+      ? group.id === "channels"
+        ? "No channels reported"
+        : group.id === "agents"
+          ? "No agents reported"
+          : "No system components reported"
+      : [
+          group.healthy > 0 ? plural(group.healthy, "healthy") : null,
+          group.attention > 0 ? plural(group.attention, "needs attention", "need attention") : null,
+          group.notChecked > 0 ? plural(group.notChecked, "not checked") : null,
+        ]
+          .filter((value) => value !== null)
+          .join(" · ");
 
   return (
     <Button
@@ -106,9 +115,7 @@ function HealthGroupLink({ group }: { readonly group: OverviewHealthGroup }) {
           <GroupStatusIcon status={group.status} />
         </Badge>
         <span>{group.label}</span>
-        <span className="ml-auto tabular-nums text-muted-foreground">
-          {group.healthy}/{group.total}
-        </span>
+        <span className="ml-auto tabular-nums text-muted-foreground">{visibleStatus}</span>
       </Link>
     </Button>
   );
@@ -121,9 +128,9 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
   const affected = health.components.filter((component) => component.status === "attention");
   const firstAffected = affected[0] ?? null;
   const remainingAffected = Math.max(0, affected.length - 1);
-  const liveUnknown = summary.status === "unknown";
   const gatewayUnavailable = data.snapshot.gateway.status === "unavailable";
-  const showLastKnown = (liveUnknown || gatewayUnavailable) && health.lastKnownHealthy !== null;
+  const groupsNotChecked = groups.filter((group) => group.notChecked > 0);
+  const showLastKnown = summary.notChecked > 0 && health.lastKnownHealthy !== null;
 
   return (
     <section aria-labelledby="system-health-title">
@@ -162,33 +169,44 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
             <p className="mt-1 text-sm text-muted-foreground">{healthDescription(summary)}</p>
           </div>
 
-          <HealthBar
+          <HealthStatusBreakdown
             healthy={summary.healthy}
             attention={summary.attention}
             notChecked={summary.notChecked}
           />
 
-          {liveUnknown || gatewayUnavailable ? (
-            <div className="grid gap-2 rounded-lg border border-dashed border-[var(--border-strong)] bg-muted/40 p-4">
-              <p className="font-medium">
-                {gatewayUnavailable ? "Gateway unavailable" : "Live component health is unknown"}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {gatewayUnavailable
-                  ? "The Gateway is unavailable. OpenClaw will retry automatically. Use Refresh to run an immediate live probe."
-                  : "One or more live probes did not return a result. Refresh to retry the live probe."}
-              </p>
-              {showLastKnown && health.lastKnownHealthy !== null ? (
-                <p
-                  className="text-sm"
-                  data-last-known-checked-at={health.lastKnownHealthy.checkedAt}
-                >
-                  <strong>Last known healthy snapshot:</strong> {health.lastKnownHealthy.healthy} of{" "}
-                  {health.lastKnownHealthy.total} components healthy. Checked{" "}
-                  {relativeTime(health.lastKnownHealthy.checkedAt)}.
+          {summary.notChecked > 0 ? (
+            <Alert
+              data-health-missing-guidance="true"
+              className="border-dashed border-[var(--border-strong)] bg-muted/40"
+            >
+              <CircleHelp className="mt-0.5 size-5 text-muted-foreground" aria-hidden="true" />
+              <AlertTitle>{plural(summary.notChecked, "component")} not checked</AlertTitle>
+              <AlertDescription className="grid gap-2">
+                <p>
+                  {gatewayUnavailable
+                    ? "The Gateway is unavailable. OpenClaw will retry automatically. "
+                    : "One or more live probes returned no result. "}
+                  No live result means unknown, not failed. Refresh retries the missing probe.
                 </p>
-              ) : null}
-            </div>
+                <ul className="grid gap-1">
+                  {groupsNotChecked.map((group) => (
+                    <li key={group.id}>
+                      <Link className="font-medium text-primary hover:underline" href={group.href}>
+                        {group.label}: {plural(group.notChecked, "not checked")}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                {showLastKnown && health.lastKnownHealthy !== null ? (
+                  <p data-last-known-checked-at={health.lastKnownHealthy.checkedAt}>
+                    <strong>Last known fully healthy snapshot:</strong>{" "}
+                    {health.lastKnownHealthy.healthy} of {health.lastKnownHealthy.total} components
+                    healthy. Checked {relativeTime(health.lastKnownHealthy.checkedAt)}.
+                  </p>
+                ) : null}
+              </AlertDescription>
+            </Alert>
           ) : null}
 
           {firstAffected !== null ? (
@@ -387,11 +405,7 @@ function ProvidersCard({ data }: { readonly data: ConnectionsPageData }) {
                   className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md py-2"
                 >
                   <div className="flex min-w-0 items-center gap-2">
-                    <Sparkles
-                      data-provider-icon="generic"
-                      className="size-4 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
+                    <ProviderBrandIcon providerId={provider.id} label={provider.label} />
                     <span
                       className={providerDotClass(provider.status, provider.authHealth)}
                       aria-hidden="true"

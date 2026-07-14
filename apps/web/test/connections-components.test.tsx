@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import ConnectionsError from "../app/(app)/connections/error";
 import ConnectionsLoading from "../app/(app)/connections/loading";
 import { ConnectionsOverview } from "../components/connections/connections-overview";
-import { HealthBar } from "../components/connections/health-bar";
+import { HealthStatusBreakdown } from "../components/connections/health-status-breakdown";
 import { ModelProvidersPanel } from "../components/connections/model-providers-panel";
 import {
   overviewHealthGroups,
@@ -110,20 +110,30 @@ describe("Connections components", () => {
     expect(failedHtml).toContain('role="alert"');
   });
 
-  it("renders honest health counts and keeps not-checked components neutral", () => {
+  it("renders an explicit three-state health breakdown without progress semantics", () => {
     const html = renderToStaticMarkup(
-      createElement(HealthBar, { healthy: 2, attention: 1, notChecked: 1 }),
+      createElement(HealthStatusBreakdown, { healthy: 2, attention: 1, notChecked: 1 }),
     );
     const unknownHtml = renderToStaticMarkup(
-      createElement(HealthBar, { healthy: 0, attention: 0, notChecked: 3 }),
+      createElement(HealthStatusBreakdown, { healthy: 0, attention: 0, notChecked: 3 }),
     );
 
-    expect(html).toContain('role="img"');
-    expect(html).toContain('aria-label="2 healthy, 1 needs attention, 1 not checked"');
-    expect(html).toContain('data-health-segment="not-checked"');
-    expect(html).toContain("border-dashed");
-    expect(unknownHtml).toContain('aria-label="0 healthy, 0 need attention, 3 not checked"');
-    expect(unknownHtml).not.toContain('data-health-segment="attention"');
+    expect(html).toContain('<dl data-health-breakdown="true"');
+    expect(html).toContain('data-health-state="healthy"');
+    expect(html).toContain('data-health-state="attention"');
+    expect(html).toContain('data-health-state="not-checked"');
+    expect(html).toContain(">Healthy<");
+    expect(html).toContain(">Needs attention<");
+    expect(html).toContain(">Not checked<");
+    expect(html).toContain(">2<");
+    expect(html).toContain(">1<");
+    expect(html).toContain("Probe succeeded");
+    expect(html).toContain("Reported a problem");
+    expect(html).toContain("No probe result");
+    expect(html).not.toContain('role="img"');
+    expect(html).not.toContain('role="progressbar"');
+    expect(html).not.toContain("%");
+    expect(unknownHtml).toContain('data-health-state-count="3"');
   });
 
   it("groups health facts into linked System Core, Channels, and Agents summaries", () => {
@@ -139,7 +149,11 @@ describe("Connections components", () => {
       expect.objectContaining({ label: "Channels", healthy: 0, total: 1, status: "attention" }),
       expect.objectContaining({ label: "Agents", healthy: 0, total: 1, status: "unknown" }),
     ]);
-    expect(groups.every((group) => group.href === "/connections/system")).toBe(true);
+    expect(groups.map((group) => group.href)).toEqual([
+      "/connections/system#system-group-system-core",
+      "/connections/system#system-group-channels",
+      "/connections/system#system-group-agents",
+    ]);
   });
 
   it("orders useful provider rows by attention, connected, then available suggestion", () => {
@@ -203,6 +217,12 @@ describe("Connections components", () => {
     expect(html).toContain('aria-label="System Core: 1 healthy, 0 need attention, 0 not checked"');
     expect(html).toContain('aria-label="Channels: 0 healthy, 1 needs attention, 0 not checked"');
     expect(html).toContain('aria-label="Agents: 0 healthy, 0 need attention, 1 not checked"');
+    expect(html).toContain("1 needs attention");
+    expect(html).toContain("1 not checked");
+    expect(html).toContain("1 component not checked");
+    expect(html).toContain("No live result means unknown, not failed");
+    expect(html).toContain('href="/connections/system#system-group-agents"');
+    expect(html).toContain("Agents: 1 not checked");
     const channelsPill = html.match(/<a[^>]*data-health-group="channels"[^>]*>/)?.[0];
     expect(channelsPill).toContain('data-slot="button"');
     expect(html).toContain(">Refresh</button>");
@@ -253,7 +273,10 @@ describe("Connections components", () => {
     expect(html).toContain('data-provider-auth-health="expired"');
     expect(html).toContain("Credential expired");
     expect(html).toContain("Credential expired · API key");
-    expect(html).toContain('data-provider-icon="generic"');
+    expect(html).toContain('data-provider-icon="brand"');
+    expect(html).toContain('data-provider-brand="openrouter"');
+    expect(html).not.toContain('data-provider-icon="generic"');
+    expect(html).not.toContain("lucide-sparkles");
     expect(html).toContain(">Fix</a>");
   });
 
@@ -315,8 +338,12 @@ describe("Connections components", () => {
     expect(html).toContain('data-health-status="unknown"');
     expect(html).toContain("System health is not fully checked");
     expect(html).not.toContain("OpenClaw unreachable");
-    expect(html).toContain("No health percentage is available");
+    expect(html).toContain(
+      "0 components healthy. 0 components need attention. 1 component not checked.",
+    );
     expect(html).not.toContain("healthy (0%)");
+    expect(html).not.toContain('role="img"');
+    expect(html).not.toContain('role="progressbar"');
     expect(html).not.toContain("View details");
   });
 
@@ -337,7 +364,7 @@ describe("Connections components", () => {
         checkedAt: null,
         lastKnownHealthy: {
           checkedAt: "2026-07-13T23:59:00.000Z",
-          healthy: 7,
+          healthy: 8,
           total: 8,
         },
       },
@@ -353,11 +380,56 @@ describe("Connections components", () => {
     expect(html).not.toContain("System health is not fully checked");
     expect(html).toContain("The Gateway is unavailable");
     expect(html).toContain("OpenClaw will retry automatically");
-    expect(html).toContain("Use Refresh to run an immediate live probe");
-    expect(html).toContain("Last known healthy snapshot");
-    expect(html).toContain("7 of 8 components healthy");
+    expect(html).toContain("Refresh retries the missing probe");
+    expect(html).toContain("Last known fully healthy snapshot");
+    expect(html).toContain("8 of 8 components healthy");
     expect(html).toContain('data-last-known-checked-at="2026-07-13T23:59:00.000Z"');
     expect(html).not.toContain("healthy (0%)");
+  });
+
+  it("uses direct healthy and empty-group wording", () => {
+    const html = renderToStaticMarkup(
+      createElement(ConnectionsOverview, {
+        data: overviewData(),
+        refreshAction: async () => undefined,
+      }),
+    );
+
+    expect(html).toContain(
+      "1 component healthy. 0 components need attention. 0 components not checked.",
+    );
+    expect(html).toContain("All systems healthy");
+    expect(html).toContain("1 healthy");
+    expect(html).toContain("No channels reported");
+    expect(html).toContain("No agents reported");
+    expect(html).not.toContain("component not checked");
+  });
+
+  it("shows every nonzero state in a mixed group summary", () => {
+    const html = renderToStaticMarkup(
+      createElement(ConnectionsOverview, {
+        data: overviewData({
+          openclawHealth: {
+            components: [
+              healthComponent("channel:slack", "channel", "healthy"),
+              healthComponent("channel:whatsapp", "channel", "attention"),
+              healthComponent("channel:telegram", "channel", "not_checked"),
+            ],
+            warnings: [],
+            runtime: { version: null, uptimeMs: null, hostUptimeMs: null, updateAvailable: null },
+            sessions: { count: null, recent: [] },
+            checkedAt: "2026-07-14T00:00:00.000Z",
+            lastKnownHealthy: null,
+          },
+        }),
+        refreshAction: async () => undefined,
+      }),
+    );
+
+    expect(html).toContain("1 healthy · 1 needs attention · 1 not checked");
+    expect(html).toContain('aria-label="Channels: 1 healthy, 1 needs attention, 1 not checked"');
+    expect(html).toContain('href="/connections/system#system-group-channels"');
+    expect(html).toContain("Channels: 1 not checked");
   });
 
   it("renders only real GitHub integration states", () => {

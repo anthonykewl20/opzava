@@ -179,6 +179,7 @@ function ComponentGroups({
           <section
             key={group.label}
             aria-labelledby={`system-group-${group.label.toLowerCase().replaceAll(" ", "-")}`}
+            className="scroll-mt-24"
           >
             <h2
               id={`system-group-${group.label.toLowerCase().replaceAll(" ", "-")}`}

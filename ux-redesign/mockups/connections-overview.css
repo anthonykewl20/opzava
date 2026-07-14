@@ -223,13 +223,13 @@
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--provider-brand, var(--fg-muted)) 12%, var(--surface-2));
-  color: var(--provider-brand, var(--fg-muted));
+  color: var(--fg);
   font-size: 13px;
 }
 .conn-brand svg { width: 14px; height: 14px; }
 .conn-brand--openai { --provider-brand: #10A37F; }
-.conn-brand--anthropic { --provider-brand: #8A8075; }
-.conn-brand--zai { --provider-brand: #7C8CA5; }
+.conn-brand--anthropic { --provider-brand: #191919; }
+.conn-brand--zai { --provider-brand: #2D2D2D; }
 
 /* ── Panel 3 · System Status ───────────────────────────────────────────────
  * <details>/<summary> gives native disclosure + keyboard + screen-reader

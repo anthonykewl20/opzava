@@ -3148,17 +3148,14 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       if (entry.expiresAt <= nowMs) this.lastFullyHealthy.delete(candidateKey);
     }
 
-    const probedComponents = input.components.filter(
-      (component) => component.status !== "not_checked",
-    );
     if (
       input.checkedAt !== null &&
-      probedComponents.length > 0 &&
-      probedComponents.every((component) => component.status === "healthy")
+      input.components.length > 0 &&
+      input.components.every((component) => component.status === "healthy")
     ) {
       const value = {
         checkedAt: input.checkedAt,
-        healthy: probedComponents.length,
+        healthy: input.components.length,
         total: input.components.length,
       } satisfies OpenClawLastKnownHealthy;
       this.lastFullyHealthy.delete(key);

@@ -8548,7 +8548,7 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
     expect(JSON.stringify(result.value.openclawHealth.sessions)).not.toContain("secret-key");
   });
 
-  it("retains only aggregate last-known healthy data through a later config outage", async () => {
+  it("does not cache a partially checked snapshot as last-known fully healthy", async () => {
     let configReads = 0;
     const admin = new RecordingAdminClient({
       "config.get": () => {
@@ -8578,18 +8578,52 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
     const unavailable = await port.getConnectionsSnapshot(principal());
 
     if (!healthy.ok || !unavailable.ok) throw new Error("expected snapshots");
-    expect(healthy.value.openclawHealth.lastKnownHealthy).toEqual({
-      checkedAt: "2026-07-14T11:59:30.000Z",
-      healthy: 4,
-      total: 5,
-    });
+    expect(healthy.value.openclawHealth.lastKnownHealthy).toBeNull();
     expect(
       healthy.value.openclawHealth.components.find((component) => component.id === "agent:main"),
     ).toMatchObject({ status: "not_checked" });
+    expect(unavailable.value.openclawHealth.lastKnownHealthy).toBeNull();
+    expect(unavailable.value.openclawHealth.sessions).toEqual({ count: null, recent: [] });
+  });
+
+  it("retains an all-checked healthy snapshot through a later config outage", async () => {
+    let configReads = 0;
+    const admin = new RecordingAdminClient({
+      "config.get": () => {
+        configReads += 1;
+        return configReads === 1
+          ? ok({ hash: "health-config", config: {} })
+          : err(new DomainError({ code: "config.failed", message: "gateway unavailable" }));
+      },
+      health: ok({
+        ok: true,
+        ts: Date.parse("2026-07-14T11:59:30.000Z"),
+        eventLoop: { degraded: false },
+        plugins: { loaded: [], errors: [] },
+        contextEngines: { quarantined: [] },
+        channels: {},
+        channelOrder: [],
+        channelLabels: {},
+        agents: [],
+      }),
+      status: ok({ runtimeVersion: null, sessions: { count: 0, recent: [] } }),
+      "models.list": ok({ providers: [], models: [] }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = healthPort(admin);
+
+    const healthy = await port.getConnectionsSnapshot(principal());
+    const unavailable = await port.getConnectionsSnapshot(principal());
+
+    if (!healthy.ok || !unavailable.ok) throw new Error("expected snapshots");
+    expect(healthy.value.openclawHealth.lastKnownHealthy).toEqual({
+      checkedAt: "2026-07-14T11:59:30.000Z",
+      healthy: 4,
+      total: 4,
+    });
     expect(unavailable.value.openclawHealth.lastKnownHealthy).toEqual(
       healthy.value.openclawHealth.lastKnownHealthy,
     );
-    expect(unavailable.value.openclawHealth.sessions).toEqual({ count: null, recent: [] });
   });
 
   it("sanitizes hello metadata before exposing it to snapshot projection", async () => {
