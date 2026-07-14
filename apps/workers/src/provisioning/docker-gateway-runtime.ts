@@ -1076,15 +1076,6 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
         const exitCode = inspected.value.ExitCode;
         return ok(typeof exitCode === "number" && Number.isFinite(exitCode) ? exitCode : 1);
       }
-      if (Date.now() >= deadline) {
-        return err(
-          provisioningError(
-            "provisioning.docker.execStdinInspectTimeout",
-            "Docker exec did not publish a stopped state before the inspect timeout.",
-            { timeoutMs: execStdinInspectTimeoutMs },
-          ),
-        );
-      }
       await new Promise<void>((resolve) => setTimeout(resolve, execStdinInspectPollMs));
     }
   }

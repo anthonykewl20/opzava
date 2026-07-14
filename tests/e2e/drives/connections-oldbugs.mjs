@@ -1,4 +1,4 @@
-// Real-flow driver for the old Connections bugs (#128, #146, #172), rewritten for #183 (#189).
+// Real-flow driver for the old Connections bugs (#128, #146, #172, #185), rewritten for #183 (#189).
 // Real login (NO minted session), real gateway, real credential probe. No mocks.
 //
 // Since #183, connect PROVES the submitted credential against the provider with one real call
@@ -14,6 +14,9 @@
 //         flip when it runs.
 //   #172 (residual) the prior-run cleanup path still fails on a false "Gateway still reports
 //         provider credentials".
+//   #185  every subagent Opzava writes into the live agents.list carries an explicit deny-wins tool
+//         policy and none of the delegation tools -- so the orchestrator's containment cannot be
+//         walked around by spawning a subagent that inherited the gateway default.
 //
 // LOST coverage (#189): the full connect -> gateway reload -> set-main (#146) -> disconnect
 // (#172/#128 connect+disconnect flips) lifecycle now requires a credential that actually
@@ -26,6 +29,7 @@
 // Usage: node tests/e2e/drives/connections-oldbugs.mjs [outDir]
 
 import { chromium } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 import { BASE, realLogin, artifactDir } from "../lib/session.mjs";
@@ -40,6 +44,7 @@ const bogusKey = (tag) => `sk-opzava-drive-${tag}-${"0".repeat(36)}`;
 // The rejection is only reported after the worker has probed AND rolled the credential back, and
 // the rollback paces one gateway logout per agent — the UI poller allows 10 minutes, so we do too.
 const REJECT_WINDOW_MS = 10 * 60 * 1000;
+const GATEWAY = process.env.REAL_GATEWAY_CONTAINER ?? "opzava-openclaw-platform-gateway-1";
 const OUT = process.argv[2] ?? artifactDir("connections-oldbugs");
 
 mkdirSync(OUT, { recursive: true });
@@ -198,6 +203,43 @@ await page.waitForTimeout(600);
 await page.screenshot({ path: `${OUT}/04-final-row.png`, fullPage: true });
 
 note("no console errors", consoleErrors.length === 0, consoleErrors.slice(0, 2).join(" | "));
+
+// -------------------------------------------------- #185: no agent Opzava writes may inherit the
+// gateway's default tool policy. Ask Admin is denied group:runtime/write/edit/apply_patch/group:fs,
+// but delegation hands it sessions_spawn/subagents — so a subagent with no policy of its own would
+// hand that authority straight back (ADR-005, tool-policy-first). This is the issue's own failable
+// check, run against the live gateway config rather than a unit-test fixture.
+const DELEGATION_TOOLS = ["sessions_spawn", "subagents", "group:sessions"];
+const REQUIRED_DENY = ["group:runtime", "write", "edit", "apply_patch", "group:fs"];
+try {
+  const raw = execFileSync(
+    "docker",
+    ["exec", GATEWAY, "sh", "-lc", "openclaw config get agents.list --json"],
+    { encoding: "utf8" },
+  );
+  const parsed = JSON.parse(raw);
+  const agents = Array.isArray(parsed) ? parsed : (parsed?.agents?.list ?? []);
+  const subagents = agents.filter((agent) => String(agent?.id ?? "").startsWith("subagent-"));
+
+  note("#185: the gateway actually has subagents to check", subagents.length > 0, `${subagents.length} found`);
+  for (const subagent of subagents) {
+    const tools = subagent.tools;
+    const allow = tools?.allow ?? [];
+    const deny = tools?.deny ?? [];
+    const policed =
+      tools != null &&
+      tools.profile === "minimal" &&
+      REQUIRED_DENY.every((entry) => deny.includes(entry)) &&
+      !DELEGATION_TOOLS.some((entry) => allow.includes(entry));
+    note(
+      `#185: ${subagent.id} carries an explicit deny-wins policy and no delegation tools`,
+      policed,
+      JSON.stringify(tools),
+    );
+  }
+} catch (error) {
+  note("#185: read agents.list from the live gateway", false, String(error).slice(0, 120));
+}
 
 writeFileSync(`${OUT}/findings.json`, JSON.stringify({ findings, consoleErrors }, null, 2));
 await browser.close();
