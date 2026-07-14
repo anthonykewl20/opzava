@@ -197,25 +197,6 @@ function RailItem({ item, pathname }: { readonly item: NavItem; readonly pathnam
   );
 }
 
-function RailSection({
-  label,
-  items,
-  pathname,
-}: {
-  readonly label: string;
-  readonly items: readonly NavItem[];
-  readonly pathname: string;
-}) {
-  return (
-    <>
-      <div className="section-label nav-section-gap">{label}</div>
-      {items.map((item) => (
-        <RailItem key={item.href} item={item} pathname={pathname} />
-      ))}
-    </>
-  );
-}
-
 function ConnectionsRailGroup({
   connectionsConnected,
   connections,

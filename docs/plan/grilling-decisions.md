@@ -670,8 +670,9 @@ regress them. The "mockup IS the design" directive SURVIVES via this reconciliat
 **Retention + port additions:** Tasks, Issues, and Ask Admin Opzava are all RETAINED (Opzava-native
 family); the admin dashboard = union of native surfaces + the ported gateway-ops views. **CRM is
 NEVER an admin-dashboard surface** (user clarification, same day): its permanent home is the
-user-side dashboard; the `/crm/*` routes currently in the admin app are a temporary Slice-3 parking
-spot pending relocation when the user dashboard exists. OpenClaw's **workboard view is deliberately
+user-side dashboard; the `/crm/*` routes then in the admin app were a temporary Slice-3 parking
+spot *(update 2026-07-15: executed — the parking-spot routes and the CRM backend were removed under
+GitHub issue #200; CRM returns with the user-side dashboard)*. OpenClaw's **workboard view is deliberately
 NOT ported** — Opzava Tasks IS the workboard (Q17). **New port-program row #14: Ask Admin = WebChat
 parity** (`docs/openclaw/web/webchat.md`):
 `chat.history`/`chat.send`/`chat.inject`/`chat.message.get` via the broker, backing-`sessionId`
