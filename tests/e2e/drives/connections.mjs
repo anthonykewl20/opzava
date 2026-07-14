@@ -21,7 +21,7 @@ const CAPTURE_BASELINE = EXECUTION_MODE === "baseline-capture";
 
 if (EXECUTION_MODE === "self-test") {
   runScenarioClassifierSelfTest();
-  console.log("connections scenario classifier self-test OK");
+  console.log("connections scenario and health breakdown self-test OK");
   process.exit(0);
 }
 
@@ -321,6 +321,33 @@ function overviewMockupForScenario(scenario) {
     : `ux-redesign/mockups/connections-${scenario}.html`;
 }
 
+function parseHealthGroupSummaryLabel(label, groupLabel) {
+  const emptyLabels = {
+    Channels: "No channels reported",
+    Agents: "No agents reported",
+  };
+  if (
+    emptyLabels[groupLabel] !== undefined &&
+    label === `${groupLabel}: ${emptyLabels[groupLabel]}`
+  ) {
+    return { healthy: 0, attention: 0, notChecked: 0 };
+  }
+
+  const escapedGroupLabel = groupLabel.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = label.match(
+    new RegExp(
+      `^${escapedGroupLabel}: (\\d+) healthy, (\\d+) (?:needs|need) attention, (\\d+) not checked$`,
+    ),
+  );
+  return match === null
+    ? null
+    : {
+        healthy: Number(match[1]),
+        attention: Number(match[2]),
+        notChecked: Number(match[3]),
+      };
+}
+
 function runScenarioClassifierSelfTest() {
   const cases = [
     {
@@ -418,6 +445,20 @@ function runScenarioClassifierSelfTest() {
     overviewMockupForScenario("partial-unknown") !== "ux-redesign/mockups/connections.html"
   ) {
     throw new Error("partial-unknown scenario contract self-test failed");
+  }
+
+  const emptyChannels = parseHealthGroupSummaryLabel("Channels: No channels reported", "Channels");
+  const emptyAgents = parseHealthGroupSummaryLabel("Agents: No agents reported", "Agents");
+  const systemCore = parseHealthGroupSummaryLabel(
+    "System Core: 3 healthy, 1 needs attention, 2 not checked",
+    "System Core",
+  );
+  if (
+    JSON.stringify(emptyChannels) !== JSON.stringify({ healthy: 0, attention: 0, notChecked: 0 }) ||
+    JSON.stringify(emptyAgents) !== JSON.stringify({ healthy: 0, attention: 0, notChecked: 0 }) ||
+    JSON.stringify(systemCore) !== JSON.stringify({ healthy: 3, attention: 1, notChecked: 2 })
+  ) {
+    throw new Error("health group summary contract self-test failed");
   }
 }
 
@@ -580,51 +621,79 @@ async function validateOverviewStructure(page) {
     );
   }
 
-  const healthBar = page.getByRole("img", {
-    name: /^\d+ healthy, \d+ (?:needs|need) attention, \d+ not checked$/,
-  });
-  assertFinding((await healthBar.count()) === 1, "health bar exact-count accessible label missing");
-  const healthBarLabel = (await healthBar.getAttribute("aria-label")) ?? "";
-  const counts = healthBarLabel.match(
-    /^(\d+) healthy, (\d+) (?:needs|need) attention, (\d+) not checked$/,
+  const healthBreakdown = page.locator('dl[data-health-breakdown="true"]');
+  assertFinding((await healthBreakdown.count()) === 1, "semantic health breakdown missing");
+  assertFinding(
+    (await page.getByRole("progressbar").count()) === 0,
+    "legacy health progressbar is still rendered",
   );
-  assertFinding(counts !== null, "health bar count label could not be parsed");
+  assertFinding(
+    (await page.locator("[data-health-segment]").count()) === 0,
+    "legacy health segments are still rendered",
+  );
 
-  const groupNav = page.getByRole("navigation", { name: "OpenClaw component groups" });
-  const groupCounts = {};
-  for (const group of ["System Core", "Channels", "Agents"]) {
-    const link = groupNav.getByRole("link", {
-      name: new RegExp(`^${group}: \\d+ healthy, \\d+ (?:needs|need) attention, \\d+ not checked$`),
-    });
-    assertFinding((await link.count()) === 1, `${group} summary missing`);
-    if ((await link.count()) === 1) {
+  const breakdownCounts = {};
+  if ((await healthBreakdown.count()) === 1) {
+    assertFinding(
+      (await healthBreakdown.locator("[data-health-state]").count()) === 3,
+      "health breakdown must contain exactly three states",
+    );
+    for (const state of ["healthy", "attention", "not-checked"]) {
+      const stateRow = healthBreakdown.locator(`[data-health-state="${state}"]`);
+      assertFinding((await stateRow.count()) === 1, `${state} health breakdown state missing`);
+      if ((await stateRow.count()) !== 1) continue;
+
+      const countNode = stateRow.locator("[data-health-state-count]");
       assertFinding(
-        (await link.getAttribute("href")) === "/connections/system",
-        `${group} link mismatch`,
+        (await countNode.count()) === 1,
+        `${state} health breakdown count missing or duplicated`,
       );
-      const label = (await link.getAttribute("aria-label")) ?? "";
-      const groupMatch = label.match(
-        new RegExp(
-          `^${group}: (\\d+) healthy, (\\d+) (?:needs|need) attention, (\\d+) not checked$`,
-        ),
+      if ((await countNode.count()) !== 1) continue;
+
+      const rawCount = (await countNode.getAttribute("data-health-state-count")) ?? "";
+      const count = /^\d+$/.test(rawCount) ? Number(rawCount) : Number.NaN;
+      assertFinding(
+        Number.isSafeInteger(count),
+        `${state} health breakdown count is not a nonnegative integer`,
       );
-      assertFinding(groupMatch !== null, `${group} exact-count summary could not be parsed`);
-      if (groupMatch !== null) {
-        groupCounts[group] = {
-          healthy: Number(groupMatch[1]),
-          attention: Number(groupMatch[2]),
-          notChecked: Number(groupMatch[3]),
-        };
-      }
+      if (Number.isSafeInteger(count)) breakdownCounts[state] = count;
     }
   }
 
-  return counts === null
+  const groupNav = page.getByRole("navigation", { name: "OpenClaw component groups" });
+  const groupCounts = {};
+  for (const group of [
+    {
+      id: "system-core",
+      label: "System Core",
+      href: "/connections/system#system-group-system-core",
+    },
+    { id: "channels", label: "Channels", href: "/connections/system#system-group-channels" },
+    { id: "agents", label: "Agents", href: "/connections/system#system-group-agents" },
+  ]) {
+    const link = groupNav.locator(`[data-health-group="${group.id}"]`);
+    assertFinding((await link.count()) === 1, `${group.label} summary missing`);
+    if ((await link.count()) === 1) {
+      assertFinding(
+        (await link.getAttribute("href")) === group.href,
+        `${group.label} link mismatch`,
+      );
+      const label = (await link.getAttribute("aria-label")) ?? "";
+      const parsed = parseHealthGroupSummaryLabel(label, group.label);
+      assertFinding(
+        parsed !== null,
+        `${group.label} exact-count or meaningful empty summary could not be parsed`,
+      );
+      if (parsed !== null) groupCounts[group.label] = parsed;
+    }
+  }
+
+  return Object.keys(breakdownCounts).length !== 3
     ? null
     : {
-        healthy: Number(counts[1]),
-        attention: Number(counts[2]),
-        notChecked: Number(counts[3]),
+        healthy: breakdownCounts.healthy,
+        attention: breakdownCounts.attention,
+        notChecked: breakdownCounts["not-checked"],
         groups: groupCounts,
       };
 }
@@ -925,7 +994,7 @@ try {
     console.log("connections baseline capture OK:", OUT);
   } else {
     await timedGoto(page, "/connections");
-    const healthBar = await validateOverviewStructure(page);
+    const healthBreakdown = await validateOverviewStructure(page);
     const initialHealth = await overviewHealth(page);
     const initialGateway = await overviewGatewayState(page);
     report.heroHealth = initialHealth.hero;
@@ -938,22 +1007,24 @@ try {
       gateway: initialGateway,
     };
     assertExpectedHealth(initialHealth.hero, initialGateway, "observed");
-    if (healthBar !== null) {
-      const grouped = Object.values(healthBar.groups);
+    if (healthBreakdown !== null) {
+      const grouped = Object.values(healthBreakdown.groups);
       assertFinding(
-        healthBar.attention === initialHealth.hero.attentionCount,
-        "health bar attention count does not match health rollup",
+        healthBreakdown.attention === initialHealth.hero.attentionCount,
+        "health breakdown attention count does not match health rollup",
       );
       assertFinding(
-        healthBar.healthy + healthBar.attention + healthBar.notChecked > 0,
-        "health bar is vacuous",
+        healthBreakdown.healthy + healthBreakdown.attention + healthBreakdown.notChecked > 0,
+        "health breakdown is vacuous",
       );
       assertFinding(grouped.length === 3, "health group exact-count summaries are incomplete");
       assertFinding(
-        grouped.reduce((total, group) => total + group.healthy, 0) === healthBar.healthy &&
-          grouped.reduce((total, group) => total + group.attention, 0) === healthBar.attention &&
-          grouped.reduce((total, group) => total + group.notChecked, 0) === healthBar.notChecked,
-        "health group exact counts do not reconcile with the health bar",
+        grouped.reduce((total, group) => total + group.healthy, 0) === healthBreakdown.healthy &&
+          grouped.reduce((total, group) => total + group.attention, 0) ===
+            healthBreakdown.attention &&
+          grouped.reduce((total, group) => total + group.notChecked, 0) ===
+            healthBreakdown.notChecked,
+        "health group exact counts do not reconcile with the health breakdown",
       );
     }
     await validateOverviewProviders(page);
