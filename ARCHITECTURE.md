@@ -79,7 +79,7 @@ It documents every Module, Seam, and port-to-Adapter count, grades each seam rea
 | Port | Purpose | Initial adapter |
 | --- | --- | --- |
 | `OpenClawGatewayPort` | Runtime RPC to OpenClaw capabilities through the ACL, including sessions, streams, tasks, channels, logs, diagnostics, usage, cron, approvals, skills, memory, and Workboard projections. | `gateway-broker` OpenClaw client |
-| `EventBusPort` | Domain events, outbox dispatch, projection notifications, and future broker swaps without changing domain code. | Postgres outbox + `LISTEN/NOTIFY` |
+| `EventBusPort` **(planned — not in code)** | Domain events, outbox dispatch, projection notifications, and future broker swaps without changing domain code. Deleted from `packages/ports` in #160: it had zero implementors and no consumer, and taking it as an optional dependency turned the missing adapter into a silent no-op — the code claimed to emit a domain event nothing could receive. ADR-004 still holds; Q17 S6 (#152) builds the outbox together with its first real consumer (the dispatcher), and re-introduces the port then. | Postgres outbox + `LISTEN/NOTIFY` (to be built with its first consumer) |
 | `GatewayRuntimePort` | Provision, start, stop, health-check, suspend, resume, and deprovision per-tenant Gateway instances. | Rootless Docker runtime |
 | `BillingPort` | Subscription, plan, metered usage, invoice, dunning, and entitlement integration. | Deferred null adapter; payment provider added only when external monetization starts |
 | `PushNotificationPort` | Background notifications for mentions, approvals, assignments, assistant completions, and alerts. | Web Push with VAPID |

@@ -9,7 +9,7 @@ The key invariants it enforces are: every operation returns `Result<T>` from `@o
 ## Modules
 
 ### ports barrel - `packages/ports/src/index.ts`
-- **Interface (the seam):** eleven `export *` lines re-exporting `auth`, `authorization`, `connections-provisioning`, `error-capture`, `event-bus`, `issue-tracker`, `model-provider-taxonomy`, `object-store`, `openclaw-gateway`, `realtime-transport`, and `secrets-vault` (`packages/ports/src/index.ts:1-11`).
+- **Interface (the seam):** ten `export *` lines re-exporting `auth`, `authorization`, `connections-provisioning`, `error-capture`, `issue-tracker`, `model-provider-taxonomy`, `object-store`, `openclaw-gateway`, `realtime-transport`, and `secrets-vault` (`packages/ports/src/index.ts`).
 Callers depend on `@opzava/ports` as a single path; the invariants are "one import for the whole capability surface" and "nothing un-exported is reachable."
 - **Behind the seam (implementation):** none; the file is pure re-export.
 - **Adapters:** n/a (barrel, not a port).
@@ -91,8 +91,8 @@ Deletion test: deleting the port would push MFA orchestration, session lifecycle
 Gap: the MFA-as-return-branch contract (challenge vs session) is the riskiest path and has no dedicated port-level contract test asserting both branches.
 - **Deepening opportunity:** none on the surface; the MFA fold into `signIn` is already a depth win (one operation, two outcomes) and should be preserved.
 
-### EventBusPort - `packages/ports/src/event-bus.ts`
-- **Interface (the seam):** `EventBusPort` exposes three operations (`packages/ports/src/event-bus.ts:47-58`): `publish`, `recordOutbox`, `subscribe`.
+### EventBusPort - DELETED (#160)
+- **Interface (the seam):** none. The port exposed `publish`/`recordOutbox`/`subscribe` and had **zero adapters and zero consumers**; its one caller took it as an optional dependency, so the domain event it claimed to publish went nowhere. It was deleted in #160 (zero adapters, zero consumers — the optional dependency made the missing adapter a silent no-op). ADR-004 stands: Q17 S6 (#152) reintroduces the port together with the Postgres outbox and its first real consumer (the dispatcher worker).
 Invariants: `publish` returns the persisted `OutboxRecord` (`:47-51`), `OutboxRecord` carries attempt count and optional `externalRef` (`:17-27`), `subscribe` returns an `EventSubscription` whose `unsubscribe` is itself async (`:38-40`), and `PublishOptions` carries `idempotencyKey`/`availableAt` (`:29-32`).
 - **Behind the seam (implementation):** hidden behavior is outbox persistence, idempotent publish, scheduled availability, and subscription lifecycle.
 - **Adapters:** 0 class adapters found; the port is consumed only as a dependency-injection parameter (`packages/identity-access/src/application/first-owner-setup.ts:48,154,187`), so it is a planned/speculative seam, not yet a real one.
@@ -164,8 +164,8 @@ Gap: the classification rules (runtime fold, alias fold, non-LLM denylist, defau
 - **Deepening opportunity:** hide the mutable-looking `Record`/`Set` maps behind the functions and export only `classifyModelProvider`/`providerTier`/`isTopLevelLlmProvider`, so the canonicalization rules become the only surface and the data cannot be read around the functions.
 
 ## Cross-cutting notes
-- **Depth heat:** deep = `ObjectStorePort`, `OpenClawGatewayPort`, `AuthPort`, `EventBusPort`, `SecretsVaultPort` (5); moderate = `ConnectionsProvisioningPort`, `AuthorizationPort`, `IssueTrackerPort`, `ErrorCapturePort`, `RealtimeTransportPort`, `model-provider-taxonomy` (6); shallow = ports barrel (1).
-- **Real vs hypothetical seams (adapter-count ground truth):** real seams (2+ adapters) are `ConnectionsProvisioningPort` (4), `AuthorizationPort` (3), `ObjectStorePort` (2); hypothetical (1 adapter) are `AuthPort`, `IssueTrackerPort`, `SecretsVaultPort`, `OpenClawGatewayPort`; not-yet-a-seam (0 class adapters) are `ErrorCapturePort`, `EventBusPort`, `RealtimeTransportPort`.
+- **Depth heat:** deep = `ObjectStorePort`, `OpenClawGatewayPort`, `AuthPort`, `SecretsVaultPort` (4); moderate = `ConnectionsProvisioningPort`, `AuthorizationPort`, `IssueTrackerPort`, `ErrorCapturePort`, `RealtimeTransportPort`, `model-provider-taxonomy` (6); shallow = ports barrel (1).
+- **Real vs hypothetical seams (adapter-count ground truth):** real seams (2+ adapters) are `ConnectionsProvisioningPort` (4), `AuthorizationPort` (3), `ObjectStorePort` (2); hypothetical (1 adapter) are `AuthPort`, `IssueTrackerPort`, `SecretsVaultPort`, `OpenClawGatewayPort`; not-yet-a-seam (0 class adapters) are `ErrorCapturePort` and `RealtimeTransportPort` (`EventBusPort` was deleted in #160 for exactly this reason — see above).
 `OpenClawGatewayPort` is the exception: 1 adapter by count but the single hot-path ACL seam into OpenClaw, so its architectural weight exceeds the count.
 - **Shared coupling and blast radius:** every port returns `Result<T>` from `packages/shared-kernel/src/result`, so that primitive is the widest blast-radius dependency in the layer; `AuthorizationPort` is the next widest because one change to its action/resource vocabulary rewrites three bounded contexts at once.
 - **Patterns observed:** agnostic-ports (the whole layer); two-token boundary (`OpenClawGatewayPort` is the hot-path write+approvals seam, while the JIT admin seam is `OpenClawAdminRpcPort`); tool-policy-first (`OrchestratorDelegationState.toolPolicyExpansion` carries the `sessions_spawn`/`subagents`/`group:sessions` expansion at `packages/ports/src/connections-provisioning.ts:147-150`); projections-are-cache (`ConnectionsSnapshot` is a rebuildable projection of live gateway state); tenant-scoped-everything (every actor principal carries `tenantId`/`orgId`/`workspaceId`/`userId`/`roleKeys`).
@@ -178,7 +178,6 @@ Gap: the classification rules (runtime fold, alias fold, non-LLM denylist, defau
 - `packages/ports/src/authorization.ts` - subject/action/resource policy seam reused by three bounded contexts.
 - `packages/ports/src/object-store.ts` - streaming blob put/get/presign/delete seam.
 - `packages/ports/src/auth.ts` - session, membership, and MFA seam with MFA folded into signIn's return.
-- `packages/ports/src/event-bus.ts` - domain-event publish/outbox/subscribe seam (currently zero adapters).
 - `packages/ports/src/secrets-vault.ts` - tenant-purpose secret reference and audit-tagged resolution seam.
 - `packages/ports/src/issue-tracker.ts` - issue list/get/create/close seam (GitHub-only in practice).
 - `packages/ports/src/error-capture.ts` - structured operational-failure capture seam (inline adapters only).

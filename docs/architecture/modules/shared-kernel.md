@@ -78,7 +78,7 @@ This package is what makes the ports layer small: by concentrating identity, mon
 - **Behind the seam (implementation):** `normalizePart` is the single private helper at `packages/shared-kernel/src/refs/index.ts:15-27` and is the only place the non-empty rule lives.
   Validation is weaker than `ids`: there is no character-class or length cap, so a `value` of arbitrary length or content passes as long as it is non-empty after trim.
 - **Adapters:** n/a (value-object module, not a port).
-  It is consumed by `EventBusPort` and `OpenClawGatewayPort`, which both import `OpaqueExternalRef` at `packages/ports/src/event-bus.ts:2` and `packages/ports/src/openclaw-gateway.ts:2`, so it is the kernel's bridge to external-system identity (GitHub refs, OpenClaw session refs).
+  It is consumed by `OpenClawGatewayPort`, which imports `OpaqueExternalRef` at `packages/ports/src/openclaw-gateway.ts:2`, so it is the kernel's bridge to external-system identity (GitHub refs, OpenClaw session refs). (`EventBusPort` was the other consumer until it was deleted in #160.)
 - **Depth:** moderate.
   Deletion test: deleting this module would move trim-and-non-empty validation and the structural-narrowing parse into the two port consumers, which is a real but small amount of behavior.
   The interface is short and the implementation is nearly as simple, so it does not meet the deep bar set by `ids` or `money`.

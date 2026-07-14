@@ -34,7 +34,7 @@ A port is the deepest kind of seam: a small Interface a lot of behavior sits beh
 | `SecretsVaultPort` | `packages/ports/src/secrets-vault.ts:33` | 1 (`packages/adapters/src/secrets/local-file-secrets-vault.ts`) | real | HYPOTHETICAL today |
 | `GatewayRuntimePort` | `apps/workers/src/provisioning/gateway-admin-connections.ts` (inside the god-module; definition not matched by `export interface` grep) | 1 (`DockerOpenClawGatewayRuntime`) | real (Docker now, K8s or Nomad later per ADR-002) | HYPOTHETICAL today, misplaced (port and Adapter share one file; see smells) |
 | `ErrorCapturePort` | `packages/ports/src/error-capture.ts:21` | 0 class Adapters; used as inline object literals in `apps/web` | real (built-in plus GlitchTip per ADR-013) | NOT-YET-A-SEAM (inline-Adapter smell) |
-| `EventBusPort` | `packages/ports/src/event-bus.ts:47` | 0 | real (outbox plus projection dispatcher per ADR-004) | NOT-YET-A-SEAM |
+| `EventBusPort` **(deleted — not in code)** | _was_ `packages/ports/src/event-bus.ts` | 0 | planned (outbox plus projection dispatcher per ADR-004) | DELETED IN #160 — an uninhabited port is a dead feature, not a seam. Q17 S6 (#152) reintroduces it with its first consumer. |
 | `RealtimeTransportPort` | `packages/ports/src/realtime-transport.ts:41` | 0 | real (broker hub plus managed per ADR-009) | NOT-YET-A-SEAM |
 | `BillingPort` | not yet in `packages/ports` | 0 (null Adapter) | real (Stripe later per ADR-014) | DEFERRED (null Adapter, ships with local entitlements only) |
 

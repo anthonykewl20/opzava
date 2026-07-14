@@ -125,7 +125,7 @@ The single Adapter is the `gateway-broker` OpenClaw client in `apps/gateway-brok
 That is high Leverage (one interface, many capabilities) and high Depth (lots of behavior behind a small interface), and it is the only permitted ACL to OpenClaw (`CLAUDE.md` Non-Negotiables).
 
 Most other ports currently have exactly one Adapter, so by the codebase-design rule they are hypothetical seams preserved for swap, not yet real seams.
-`EventBusPort` has the Postgres outbox and `LISTEN/NOTIFY` as its one adapter (`ARCHITECTURE.md:79`).
+`EventBusPort` claimed the Postgres outbox as its one adapter, but it had **zero** — the adapter was never built, and its only consumer took it as an optional dependency, so the "published" domain event silently went nowhere (#160). The port is deleted from code; ADR-004 stands, and Q17 S6 (#152) reintroduces it with the outbox and its first real consumer. An uninhabited port is not a seam, hypothetical or otherwise: it is a dead feature wearing a seam's clothes.
 `GatewayRuntimePort` has rootless Docker as its one adapter (`ARCHITECTURE.md:80`).
 `PushNotificationPort`, `RealtimeTransportPort`, `AuthPort`, `AuthorizationPort`, `ObjectStorePort`, `ErrorCapturePort`, `EmbeddingProviderPort`, `KnowledgeIndexPort`, `KnowledgeSourcePort`, `SkillCatalogPort`, `SecretsVaultPort`, and `IssueTrackerPort` each list one initial adapter (`ARCHITECTURE.md:82-92`).
 A second adapter at any of these is what would convert the hypothetical seam into a real seam.
