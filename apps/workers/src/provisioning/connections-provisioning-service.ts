@@ -3188,7 +3188,6 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       pluginDiscoveryResult,
       authStatus,
       statusResult,
-      _updateStatusResult,
     ] = await Promise.all([
       this.options.adminClient.request("health", probeHealth ? { probe: true } : {}),
       this.options.adminClient.request("last-heartbeat", {}),
@@ -3367,7 +3366,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       // (older gateways), never a fake pass on the config half.
       const registryOk =
         !input.registryDefWritten ||
-        arrayValue(configProviderEntry({ config, providerId: input.providerId })?.value["models"]).some(
+        arrayValue(
+          configProviderEntry({ config, providerId: input.providerId })?.value["models"],
+        ).some(
           (model) =>
             (typeof model === "string" && model.toLowerCase() === input.modelId.toLowerCase()) ||
             (isRecord(model) &&
@@ -3691,8 +3692,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         return this.modelToggleConnectionState({
           providerId: input.providerId,
           config: postCheck.value.config,
-          modelsPayload:
-            refreshedModels?.ok === true ? refreshedModels.value : modelsResult.value,
+          modelsPayload: refreshedModels?.ok === true ? refreshedModels.value : modelsResult.value,
           discovery,
           modelStatus:
             refreshedStatus?.ok === true && refreshedStatus.value !== null
