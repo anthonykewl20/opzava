@@ -75,11 +75,16 @@ export function ProviderConnectedActions({
   canSetMainOrchestrator,
   isLeadOrchestrator,
   onSetMainOrchestratorSuccess,
+  manageDisabled = false,
 }: {
   readonly provider: ProviderConnectionView;
   readonly canSetMainOrchestrator: boolean;
   readonly isLeadOrchestrator: boolean;
   readonly onSetMainOrchestratorSuccess: (providerId: string) => void;
+  /** A needs-attention provider with no live auth choice cannot open the connect dialog — its
+   * Fix stays visibly disabled with the explanatory copy, while the menu (Disconnect) keeps
+   * working. Never an enabled dead action. */
+  readonly manageDisabled?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
@@ -117,13 +122,14 @@ export function ProviderConnectedActions({
   }, []);
 
   return (
-    <>
+    <div className="grid w-full gap-2">
       <div className="flex w-full items-center gap-2">
         <Button
           ref={manageButtonRef}
           type="button"
           variant={provider.status === "connected" ? "secondary" : "default"}
           className="flex-1"
+          disabled={manageDisabled}
           onClick={() => setManageOpen(true)}
         >
           {actionLabel(provider)}
@@ -162,12 +168,19 @@ export function ProviderConnectedActions({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <ProviderConnectDialog
-        provider={provider}
-        open={manageOpen}
-        onOpenChange={handleManageOpenChange}
-        trigger={null}
-      />
+      {manageDisabled ? (
+        <p className="text-xs text-muted-foreground">
+          No live auth method. Refresh the gateway catalog after enabling this provider&apos;s auth
+          choice.
+        </p>
+      ) : (
+        <ProviderConnectDialog
+          provider={provider}
+          open={manageOpen}
+          onOpenChange={handleManageOpenChange}
+          trigger={null}
+        />
+      )}
       {canSetMainOrchestrator ? (
         <SetMainOrchestratorConfirm
           provider={provider}
@@ -184,7 +197,7 @@ export function ProviderConnectedActions({
         trigger={null}
       />
       {isLeadOrchestrator ? <span className="sr-only">Current main orchestrator</span> : null}
-    </>
+    </div>
   );
 }
 
@@ -381,6 +394,7 @@ export function ProviderCard({
               canSetMainOrchestrator={canSetMainOrchestrator}
               isLeadOrchestrator={isLeadOrchestrator}
               onSetMainOrchestratorSuccess={onSetMainOrchestratorSuccess}
+              manageDisabled={provider.status !== "connected" && noLiveAuth}
             />
           ) : provider.status === "pending" ? (
             <div className="text-xs text-muted-foreground">

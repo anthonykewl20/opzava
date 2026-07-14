@@ -821,6 +821,34 @@ describe("Connections components", () => {
     expect(html).toMatch(/<button[^>]*disabled[^>]*>Connect<\/button>/);
   });
 
+  it("disables Fix with copy when a needs-attention provider has no live auth method", () => {
+    const html = renderToStaticMarkup(
+      createElement(ModelProvidersPanel, {
+        gatewayStatus: "active",
+        orchestratorReconcile: { status: "idle" },
+        providers: [
+          provider({
+            id: "moonshot",
+            label: "Moonshot (Kimi)",
+            status: "needs_attention",
+            statusLabel: "Needs attention",
+            message: "Credential expired.",
+            primaryAuthChoice: null,
+            apiKeyChoices: [],
+            deviceFlowChoices: [],
+          }),
+        ],
+        summary: { ...emptySummary, total: 1, needsAttention: 1 },
+      }),
+    );
+
+    // Never an enabled dead Fix, never a stray Connect from the choice-less dialog fallback.
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>Fix<\/button>/);
+    expect(html).toContain("No live auth method");
+    expect(html).not.toMatch(/<button[^>]*>Connect<\/button>/);
+    expect(html).toContain('aria-label="Row actions for Moonshot (Kimi)"');
+  });
+
   it("does not expose set-main copy for the current lead row", () => {
     const html = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {

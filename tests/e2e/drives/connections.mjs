@@ -723,6 +723,23 @@ async function validateProviderPage(page) {
         (await setMainItem.count()) > 0,
         "connected subagent action menu lacks Set as main orchestrator",
       );
+      // Exercise the set-main confirm like disconnect: open, verify, cancel. Never mutate the
+      // shared gateway's orchestrator from a validation drive.
+      await setMainItem.first().click();
+      const setMainConfirm = page.getByRole("alertdialog");
+      await setMainConfirm.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
+      assertFinding((await setMainConfirm.count()) > 0, "Set-main confirmation missing");
+      assertFinding(
+        /main orchestrator/i.test((await setMainConfirm.textContent()) ?? ""),
+        "Set-main confirmation lacks orchestrator copy",
+      );
+      assertFinding(!postedBeforeConfirm, "Set-main posted before confirmation");
+      await setMainConfirm
+        .getByRole("button", { name: /^cancel$/i })
+        .click()
+        .catch(() => {});
+      await setMainConfirm.waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
+      await rowActions(connectedCard).first().click();
     }
     await disconnectItem.first().click();
     const confirm = page.getByRole("alertdialog");
