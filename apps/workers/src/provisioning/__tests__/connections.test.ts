@@ -364,6 +364,7 @@ function toggleStatusFromAdmin(
         providers: [
           {
             provider: providerId,
+            effective: { kind: "profiles", detail: "agent store" },
             profiles: { count: 1, apiKey: 1, labels: [`${providerId}:manual=API key`] },
           },
         ],
@@ -2526,7 +2527,20 @@ describe("Connections provisioning helpers", () => {
     expect(JSON.stringify(snapshot.value)).not.toContain("private-profile");
   });
 
-  it("honors an explicitly empty aliased auth order instead of raw profile inventory", async () => {
+  it.each([
+    { case: "empty moonshot-ai alias", order: { "moonshot-ai": [] } },
+    { case: "empty moonshotai alias", order: { moonshotai: [] } },
+    {
+      case: "conflicting exact and alias keys",
+      order: { moonshot: ["moonshot:manual"], "moonshot-ai": [] },
+    },
+    {
+      case: "ambiguous alias fallbacks",
+      order: { "moonshot-ai": ["moonshot:manual"], moonshotai: [] },
+    },
+    { case: "missing ordered profile", order: { moonshot: ["missing-profile"] } },
+    { case: "cross-provider ordered profile", order: { moonshot: ["zai:manual"] } },
+  ])("fails closed for $case instead of raw profile inventory", async ({ order }) => {
     const admin = new RecordingAdminClient({
       "config.get": ok({
         auth: {
@@ -2536,8 +2550,9 @@ describe("Connections provisioning helpers", () => {
               authChoiceId: "api-key",
               model: "moonshot/kimi-k2.6",
             },
+            "zai:manual": { providerId: "zai", authChoiceId: "api-key" },
           },
-          order: { "moonshot-ai": [] },
+          order,
         },
         agents: {
           defaults: {
@@ -4977,6 +4992,92 @@ describe("Connections provisioning helpers", () => {
       { provider: "opencode-go" },
       { provider: "opencode", profileIds: ["opencode:default"] },
     ]);
+  });
+
+  it.each(["moonshot-ai", "moonshotai"])(
+    "disconnects %s-owned profiles that are missing from config",
+    async (authProviderAlias) => {
+      const opaqueProfileId = "external-owned-profile";
+      const admin: RecordingAdminClient = new RecordingAdminClient({
+        "models.authLogout": ok({ provider: "moonshot", removedProfiles: [], abortedRunIds: [] }),
+        "config.get": () => {
+          const patched = admin.calls.some((call) => call.method === "config.patch");
+          return ok({
+            hash: "config-hash-moonshot-alias",
+            auth: {
+              profiles: {},
+              order: patched ? { moonshot: [] } : { [authProviderAlias]: [opaqueProfileId] },
+            },
+          });
+        },
+        "models.authStatus": ok({
+          providers: [],
+          // Alias first on purpose: exact ownership still has deterministic precedence and the
+          // shared id must be de-duplicated when the canonical-equivalent entries are merged.
+          ownership: {
+            [authProviderAlias]: [opaqueProfileId, "moonshot:shared"],
+            moonshot: ["moonshot:shared"],
+          },
+        }),
+      });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        now: () => new Date("2026-07-13T00:00:00.000Z"),
+      });
+
+      const result = await port.disconnectModelProvider({
+        ...principal(),
+        providerId: "moonshot",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(
+        admin.calls
+          .filter((call) => call.method === "models.authLogout")
+          .map((call) => call.params),
+      ).toEqual([{ provider: "moonshot" }]);
+      const patch = admin.calls.find((call) => call.method === "config.patch");
+      const raw = JSON.parse(String(patch?.params["raw"]));
+      expect(Object.keys(raw.auth.profiles)).toEqual(["moonshot:shared", opaqueProfileId]);
+      expect(raw.auth.profiles).toEqual({
+        "moonshot:shared": null,
+        [opaqueProfileId]: null,
+      });
+      expect(raw.auth.order).toEqual({ moonshot: [], [authProviderAlias]: null });
+    },
+  );
+
+  it("fails the disconnect post-check when an equivalent alias order survives", async () => {
+    const opaqueProfileId = "external-owned-profile";
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "moonshot", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": ok({
+        hash: "config-hash-stale-moonshot-order",
+        auth: { profiles: {}, order: { moonshotai: [opaqueProfileId] } },
+      }),
+      "models.authStatus": ok({
+        providers: [],
+        ownership: { moonshotai: [opaqueProfileId] },
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-13T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({
+      ...principal(),
+      providerId: "moonshot",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe(
+      "provisioning.connections.providerStillConnected",
+    );
   });
 
   it("does not remove profiles the gateway does not attribute to the disconnected provider", async () => {

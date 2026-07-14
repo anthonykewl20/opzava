@@ -30,6 +30,7 @@ const RUNTIME_PARENTS: Readonly<Record<string, { parentId: string; runtimeLabel:
 const PROVIDER_PARENT_ALIASES: Readonly<Record<string, string>> = {
   "claude-max-api-proxy": "anthropic",
   "moonshot-ai": "moonshot",
+  moonshotai: "moonshot",
   "qwen-oauth": "qwen",
   "anthropic-vertex": "anthropic",
   "gemini-vertex": "google",

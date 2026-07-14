@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { LocalFileSecretsVault } from "@opzava/adapters";
 import {
+  canonicalModelProviderAuthId,
   canonicalProviderLabel,
   type ApplyOrchestratorDelegationInput,
   classifyModelProvider,
@@ -522,36 +523,64 @@ function authOrder(config: Record<string, unknown>): Record<string, unknown> {
 }
 
 function canonicalProviderIdentity(providerId: string): string {
-  const normalized = providerId.trim().toLowerCase();
-  return classifyModelProvider(normalized).parentId ?? normalized;
+  return canonicalModelProviderAuthId(providerId);
 }
 
 function providerIdentitiesMatch(left: string | null, right: string): boolean {
   return left !== null && canonicalProviderIdentity(left) === canonicalProviderIdentity(right);
 }
 
+function providerIdentityEntries<T>(
+  record: Readonly<Record<string, T>>,
+  providerId: string,
+): {
+  readonly exact: readonly (readonly [string, T])[];
+  readonly aliases: readonly (readonly [string, T])[];
+} {
+  const entries = Object.entries(record);
+  const normalizedProviderId = providerId.trim().toLowerCase();
+  return {
+    exact: entries.filter(([candidate]) => candidate.trim().toLowerCase() === normalizedProviderId),
+    aliases: entries.filter(
+      ([candidate]) =>
+        candidate.trim().toLowerCase() !== normalizedProviderId &&
+        providerIdentitiesMatch(candidate, providerId),
+    ),
+  };
+}
+
 function authOrderEntry(
   config: Record<string, unknown>,
   providerId: string,
-): { readonly present: boolean; readonly value: unknown } {
-  const entries = Object.entries(authOrder(config));
-  // Prefer the catalog provider's exact entry if both canonical and legacy-alias keys exist. The
-  // canonical comparison is only a compatibility fallback for Gateway-written auth identities.
-  const normalizedProviderId = providerId.trim().toLowerCase();
-  const entry =
-    entries.find(([candidate]) => candidate.trim().toLowerCase() === normalizedProviderId) ??
-    entries.find(([candidate]) => providerIdentitiesMatch(candidate, providerId));
-  return entry === undefined
-    ? { present: false, value: undefined }
-    : { present: true, value: entry[1] };
+): { readonly present: boolean; readonly value: unknown; readonly ambiguous: boolean } {
+  const entries = providerIdentityEntries(authOrder(config), providerId);
+  // Mainframe currently accepts the first canonical-equivalent key in insertion order. The worker
+  // is intentionally stricter: prefer one exact catalog key, accept one alias fallback, and fail
+  // closed when same-priority keys disagree about which profile is selectable.
+  if (entries.exact.length > 1 || entries.aliases.length > 1) {
+    return { present: true, value: undefined, ambiguous: true };
+  }
+  const exact = entries.exact[0];
+  const alias = entries.aliases[0];
+  if (exact !== undefined && alias !== undefined) {
+    return JSON.stringify(exact[1]) === JSON.stringify(alias[1])
+      ? { present: true, value: exact[1], ambiguous: false }
+      : { present: true, value: undefined, ambiguous: true };
+  }
+  const candidate = exact ?? alias;
+  return candidate === undefined
+    ? { present: false, value: undefined, ambiguous: false }
+    : { present: true, value: candidate[1], ambiguous: false };
 }
 
-function providerHasExplicitEmptyAuthOrder(
+function providerHasBlockingAuthOrder(
   config: Record<string, unknown>,
   providerId: string,
 ): boolean {
   const order = authOrderEntry(config, providerId);
-  return order.present && Array.isArray(order.value) && order.value.length === 0;
+  return (
+    order.ambiguous || (order.present && firstProfileIdForProvider(providerId, config) === null)
+  );
 }
 
 function agentsList(config: Record<string, unknown>): readonly Record<string, unknown>[] {
@@ -609,6 +638,10 @@ function providerIdFromProfile(id: string, profile: Record<string, unknown>): st
     (id.includes(":") ? (id.split(":", 1)[0] ?? null) : null) ??
     (id.includes("-") ? (id.split("-", 1)[0] ?? null) : null)
   );
+}
+
+function providerIdFromProfilePrefix(id: string): string | null {
+  return id.includes(":") ? (id.split(":", 1)[0] ?? null) : null;
 }
 
 function authChoiceIdFromProfile(id: string, profile: Record<string, unknown>): string | null {
@@ -1272,17 +1305,31 @@ function firstProfileIdForProvider(
   const order = authOrderEntry(config, providerId);
   const orderValue = order.value;
   if (Array.isArray(orderValue)) {
-    const ordered = orderValue.find((entry): entry is string => typeof entry === "string");
+    const profiles = authProfiles(config);
+    const ordered = orderValue.find((entry): entry is string => {
+      if (typeof entry !== "string") {
+        return false;
+      }
+      const profile = recordValue(profiles[entry]);
+      return (
+        profile !== null &&
+        providerIdentitiesMatch(providerIdFromProfile(entry, profile), providerId)
+      );
+    });
     if (ordered !== undefined) {
       return ordered;
     }
-    // An explicit empty order disables provider selection. Falling through to inventory here makes
-    // a disconnected provider look connected even though the runtime cannot select its credential.
+    // Empty, ambiguous, missing, or cross-provider orders disable selection. Falling through to
+    // inventory would make a provider look connected when the runtime cannot select its credential.
     return null;
   }
 
   if (typeof orderValue === "string" && orderValue.trim() !== "") {
-    return orderValue;
+    const profile = recordValue(authProfiles(config)[orderValue]);
+    return profile !== null &&
+      providerIdentitiesMatch(providerIdFromProfile(orderValue, profile), providerId)
+      ? orderValue
+      : null;
   }
 
   if (order.present) {
@@ -1829,10 +1876,14 @@ function modelStatusAllowedModels(status: unknown): readonly string[] {
 function modelStatusProvider(status: unknown, providerId: string): Record<string, unknown> | null {
   const auth = recordValue(recordValue(status)?.["auth"]);
   const providers = arrayValue(auth?.["providers"]).filter(isRecord);
+  const requestedProviderId = providerIdFromModel(providerId);
   return (
-    providers.find((provider) => stringValue(provider["provider"]) === providerId) ??
     providers.find(
-      (provider) => stringValue(provider["provider"]) === providerIdFromModel(providerId),
+      (provider) =>
+        stringValue(provider["provider"])?.toLowerCase() === requestedProviderId.toLowerCase(),
+    ) ??
+    providers.find((provider) =>
+      providerIdentitiesMatch(stringValue(provider["provider"]), requestedProviderId),
     ) ??
     null
   );
@@ -1847,9 +1898,8 @@ function modelStatusOAuthProvider(
   return (
     arrayValue(oauth?.["providers"])
       .filter(isRecord)
-      .find(
-        (provider) => stringValue(provider["provider"])?.toLowerCase() === providerId.toLowerCase(),
-      ) ?? null
+      .find((provider) => providerIdentitiesMatch(stringValue(provider["provider"]), providerId)) ??
+    null
   );
 }
 
@@ -1899,7 +1949,7 @@ function modelStatusAuthEvidence(input: {
   const auth = recordValue(root?.["auth"]);
   if (root === null || auth === null) {
     return evidence(
-      providerHasExplicitEmptyAuthOrder(input.config, input.providerId) ? "blocked" : "unknown",
+      providerHasBlockingAuthOrder(input.config, input.providerId) ? "blocked" : "unknown",
     );
   }
 
@@ -1948,7 +1998,7 @@ function modelStatusAuthEvidence(input: {
 
   const providersPresent = Object.hasOwn(auth, "providers");
   if (provider !== null) {
-    if (providerHasExplicitEmptyAuthOrder(input.config, input.providerId)) {
+    if (providerHasBlockingAuthOrder(input.config, input.providerId)) {
       return evidence("blocked");
     }
     return evidence(profileCount > 0 ? "usable" : "absent");
@@ -2464,6 +2514,16 @@ function configCredentialProfileIdsForProvider(
  */
 type ProviderProfileOwnership = Readonly<Record<string, readonly string[]>>;
 
+function ownedProfileIdsForProvider(
+  ownership: ProviderProfileOwnership | null,
+  providerId: string,
+): readonly string[] {
+  const entries = providerIdentityEntries(ownership ?? {}, providerId);
+  return [
+    ...new Set([...entries.exact, ...entries.aliases].flatMap(([, profileIds]) => profileIds)),
+  ];
+}
+
 /**
  * Every profile id whose credential a disconnect of `providerId` must remove.
  *
@@ -2483,7 +2543,7 @@ function disconnectProfileIdsForProvider(input: {
 }): readonly string[] {
   const profiles = authProfiles(input.config);
   const ids = new Set(configCredentialProfileIdsForProvider(input.config, input.providerId));
-  for (const profileId of input.ownership?.[input.providerId] ?? []) {
+  for (const profileId of ownedProfileIdsForProvider(input.ownership, input.providerId)) {
     const profile = profiles[profileId];
     // A declared profile MISSING from config is exactly the state a half-completed disconnect
     // leaves: the config entry is gone but the secret is still in the auth store. Include it so the
@@ -2506,14 +2566,30 @@ function disconnectProfileIdsForProvider(input: {
 function profileOwnersForDisconnect(
   config: Record<string, unknown>,
   profileIds: readonly string[],
+  ownership: ProviderProfileOwnership | null,
+  disconnectedProviderId: string,
 ): ReadonlyMap<string, string> {
   const profiles = authProfiles(config);
   const owners = new Map<string, string>();
   for (const profileId of profileIds) {
     const profile = profiles[profileId];
+    const ownershipEntries = Object.entries(ownership ?? {}).filter(([, ownedProfileIds]) =>
+      ownedProfileIds.includes(profileId),
+    );
+    const identityEntries = providerIdentityEntries(
+      Object.fromEntries(ownershipEntries),
+      disconnectedProviderId,
+    );
+    const declaredOwnerId =
+      identityEntries.exact[0]?.[0] ??
+      identityEntries.aliases[0]?.[0] ??
+      ownershipEntries[0]?.[0] ??
+      null;
     const providerId = isRecord(profile)
       ? providerIdFromProfile(profileId, profile)
-      : providerIdFromProfile(profileId, {});
+      : (providerIdFromProfilePrefix(profileId) ??
+        declaredOwnerId ??
+        providerIdFromProfile(profileId, {}));
     if (providerId !== null) {
       owners.set(profileId, providerId);
     }
@@ -2563,27 +2639,32 @@ function providerStillHasCredentials(input: {
   let connectedAuthMode: ConnectedAuthMode | null = null;
 
   for (const providerId of input.providerIds) {
-    const authStatusProvider = input.authStatus?.get(providerId) ?? null;
-    const managedCredentialSurvived =
-      authStatusProvider !== null &&
-      (authStatusProvider.connectedAuthMode === "oauth" ||
-        authStatusProvider.connectedAuthMode === "token" ||
-        (authStatusProvider.authHealth !== "missing" &&
-          authStatusProvider.status !== "not_connected"));
+    const authStatusProviders = [...(input.authStatus?.values() ?? [])].filter((provider) =>
+      providerIdentitiesMatch(provider.providerId, providerId),
+    );
+    const survivingAuthStatusProvider = authStatusProviders.find(
+      (provider) =>
+        provider.connectedAuthMode === "oauth" ||
+        provider.connectedAuthMode === "token" ||
+        (provider.authHealth !== "missing" && provider.status !== "not_connected"),
+    );
+    const managedCredentialSurvived = survivingAuthStatusProvider !== undefined;
     if (managedCredentialSurvived && !stores.includes("models.authStatus")) {
       stores.push("models.authStatus");
-      connectedAuthMode = authStatusProvider.connectedAuthMode;
+      connectedAuthMode = survivingAuthStatusProvider.connectedAuthMode;
     }
 
-    if (
-      input.modelStatus !== null &&
-      modelStatusProfileCount(modelStatusProvider(input.modelStatus, providerId)) > 0 &&
-      !stores.includes("models.status")
-    ) {
+    const statusProviders = arrayValue(
+      recordValue(recordValue(input.modelStatus)?.["auth"])?.["providers"],
+    )
+      .filter(isRecord)
+      .filter((provider) => providerIdentitiesMatch(stringValue(provider["provider"]), providerId));
+    const survivingStatusProvider = statusProviders.find(
+      (provider) => modelStatusProfileCount(provider) > 0,
+    );
+    if (survivingStatusProvider !== undefined && !stores.includes("models.status")) {
       stores.push("models.status");
-      connectedAuthMode ??= connectedAuthModeFromModelStatus(
-        modelStatusProvider(input.modelStatus, providerId),
-      );
+      connectedAuthMode ??= connectedAuthModeFromModelStatus(survivingStatusProvider);
     }
   }
 
@@ -2594,8 +2675,16 @@ function providerStillHasCredentials(input: {
   const idMatchedSurvives = input.providerIds.some(
     (providerId) => configCredentialProfileIdsForProvider(input.config, providerId).length > 0,
   );
+  const equivalentOrderSurvives = input.providerIds.some((providerId) => {
+    const entries = providerIdentityEntries(authOrder(input.config), providerId);
+    return [...entries.exact, ...entries.aliases].some(
+      ([, value]) =>
+        (Array.isArray(value) && value.some((entry) => typeof entry === "string")) ||
+        (typeof value === "string" && value.trim() !== ""),
+    );
+  });
   if (
-    (survivingProfileIds.length > 0 || idMatchedSurvives) &&
+    (survivingProfileIds.length > 0 || idMatchedSurvives || equivalentOrderSurvives) &&
     !stores.includes(durableCredentialStore)
   ) {
     stores.push(durableCredentialStore);
@@ -5160,14 +5249,23 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     // logout would also destroy any unrelated credential it holds, which is worse than the orphan.
     // So the sibling logout is narrowed to the shared profile ids, while the provider the operator
     // actually disconnected gets the full provider-wide logout they asked for.
-    const profileOwners = profileOwnersForDisconnect(config, profileIds);
+    const profileOwners = profileOwnersForDisconnect(
+      config,
+      profileIds,
+      ownership,
+      input.providerId,
+    );
     const siblingProfileIdsByProvider = new Map<string, string[]>();
     for (const [profileId, ownerId] of profileOwners) {
-      if (ownerId === input.providerId) {
+      // The Gateway resolves auth aliases before removing profiles. A profile whose raw owner is an
+      // alias of the requested provider is therefore covered by the primary provider-wide logout,
+      // not a distinct sibling that needs another rate-limited control-plane write.
+      const canonicalOwnerId = canonicalProviderIdentity(ownerId);
+      if (providerIdentitiesMatch(canonicalOwnerId, input.providerId)) {
         continue;
       }
-      siblingProfileIdsByProvider.set(ownerId, [
-        ...(siblingProfileIdsByProvider.get(ownerId) ?? []),
+      siblingProfileIdsByProvider.set(canonicalOwnerId, [
+        ...(siblingProfileIdsByProvider.get(canonicalOwnerId) ?? []),
         profileId,
       ]);
     }
@@ -5278,7 +5376,16 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     // makes the surface lie about what is connected.
     // The disconnected provider loses its whole auth order. A sibling only loses the SHARED profile
     // ids: wiping its order would strand any unrelated credential it still legitimately holds.
-    const nextAuthOrder = new Map<string, readonly string[]>([[input.providerId, []]]);
+    const disconnectedOrderEntries = providerIdentityEntries(authOrder(config), input.providerId);
+    const nextAuthOrder = new Map<string, readonly string[] | null>([[input.providerId, []]]);
+    for (const [providerId] of [
+      ...disconnectedOrderEntries.exact,
+      ...disconnectedOrderEntries.aliases,
+    ]) {
+      if (providerId !== input.providerId) {
+        nextAuthOrder.set(providerId, null);
+      }
+    }
     for (const providerId of siblingProfileIdsByProvider.keys()) {
       const orderValue = authOrder(config)[providerId];
       const existingOrder = Array.isArray(orderValue)
