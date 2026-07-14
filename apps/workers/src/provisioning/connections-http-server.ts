@@ -316,6 +316,33 @@ async function handleConnectionsRequest(
     return;
   }
 
+  if (route === "/internal/connections/model/device-flow/cancel") {
+    if (!isRecord(body)) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const flowId = stringValue(body["flowId"]);
+    if (
+      flowId === null ||
+      !/^model:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(flowId)
+    ) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const result = await options.provisioningPort.cancelModelProviderDeviceFlow({
+      ...principal,
+      flowId,
+    });
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
+    return;
+  }
+
   if (route === "/internal/connections/device-flow/poll") {
     if (!isRecord(body)) {
       writeJson(response, 400, { error: "invalid_request" });

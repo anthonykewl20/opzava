@@ -105,3 +105,14 @@ exact accordion labels, active rail mapping, and the permanent redirect. Real-lo
 paired screenshots for the Overview scenarios and System detail are owned by #182. The release gate
 remains two consecutive clean runs of `node tests/e2e/gate/real-world-validate.mjs` against the real
 local stack.
+
+### #181 pending-flow cancellation amendment
+
+The approved provider-card mockup requires `Cancel authorisation` on a pending OAuth device flow.
+That action cannot be honest UI-only chrome, so this is the narrow exception to #181's original “no
+ports/worker/API changes” boundary: the card sends only its opaque `model:<uuid>` flow id through an
+authenticated BFF and worker route. The worker derives tenant/provider ownership, makes foreign and
+missing ids indistinguishable, invalidates the flow generation before awaiting, and removes the flow
+only after Docker verifies the login stopped and its private log was securely deleted. A stop that
+cannot be verified keeps the flow retryable and returns a redacted error; cancellation never
+disconnects an already-completed credential.

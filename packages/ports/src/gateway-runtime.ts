@@ -157,6 +157,10 @@ export interface GatewayRuntimePort {
     agentId: string,
   ): Promise<Result<GatewayRuntimeDeviceCodeLogin>>;
   readDeviceCodeLog(logPath: string): Promise<Result<string>>;
+  /**
+   * Resolve only after the exec is confirmed stopped and its private log is securely deleted.
+   * Reject when either condition cannot be verified within the adapter's bounded timeout.
+   */
   stopDeviceCodeLogin(execId: string, logPath: string): Promise<void>;
   startSetupTokenLogin(): Promise<Result<GatewayRuntimeSetupTokenLogin>>;
   readSetupTokenLog(logPath: string): Promise<Result<string>>;

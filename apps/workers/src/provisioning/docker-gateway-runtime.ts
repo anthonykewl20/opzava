@@ -39,6 +39,8 @@ const execStdinConnectionTimeoutMs = 15_000;
 const execStdinExecutionTimeoutMs = 60_000;
 const execStdinInspectTimeoutMs = 5_000;
 const execStdinInspectPollMs = 50;
+const deviceCodeStopInspectTimeoutMs = 5_000;
+const deviceCodeStopInspectPollMs = 100;
 const execStdinMaxOutputBytes = 2 * 1024 * 1024;
 // A probe is one deliberately tiny model call ("Reply with OK", tools disabled). The gateway's own
 // defaults are 8s/8 tokens; give it a little more room than that because the exec has to cold-start
@@ -173,8 +175,8 @@ function secureDeleteCommand(logPath: string): string {
     `if [ -f ${quotedLogPath} ]; then`,
     `if command -v shred >/dev/null 2>&1; then shred -u ${quotedLogPath};`,
     "else",
-    `size=$(wc -c < ${quotedLogPath} 2>/dev/null || echo 0);`,
-    `if [ "$size" -gt 0 ] 2>/dev/null; then dd if=/dev/zero of=${quotedLogPath} bs=4096 count=$(( (size + 4095) / 4096 )) conv=notrunc status=none 2>/dev/null || true; fi;`,
+    `size=$(wc -c < ${quotedLogPath} 2>/dev/null) || exit 1;`,
+    `if [ "$size" -gt 0 ] 2>/dev/null; then dd if=/dev/zero of=${quotedLogPath} bs=4096 count=$(( (size + 4095) / 4096 )) conv=notrunc status=none 2>/dev/null || exit 1; fi;`,
     `rm -f ${quotedLogPath};`,
     "fi;",
     "fi;",
@@ -1032,7 +1034,10 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
           // The credential is already in the transport's hands by here, so the exception text is
           // untrusted: redact it rather than hand a stream error the chance to carry the secret
           // into a DomainError and from there into a log (#191).
-          { error: redactCredential(String(error), credential), timeoutMs: execStdinExecutionTimeoutMs },
+          {
+            error: redactCredential(String(error), credential),
+            timeoutMs: execStdinExecutionTimeoutMs,
+          },
         ),
       );
     } finally {
@@ -1424,20 +1429,72 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
   }
 
   public async stopDeviceCodeLogin(execId: string, logPath: string): Promise<void> {
-    const inspected = await this.dockerRequest<{
+    const initial = await this.dockerRequest<{
       readonly Pid?: unknown;
       readonly Running?: unknown;
     }>(`/exec/${encodeURIComponent(execId)}/json`, { method: "GET" });
-    const pid =
-      inspected.ok && typeof inspected.value.Pid === "number" ? inspected.value.Pid : null;
-    if (pid !== null && pid > 0 && inspected.ok && inspected.value.Running === true) {
-      await this.exec([
+    if (!initial.ok) {
+      throw initial.error;
+    }
+    const pid = typeof initial.value.Pid === "number" ? initial.value.Pid : null;
+    if (initial.value.Running === true && (pid === null || pid <= 0)) {
+      throw provisioningError(
+        "provisioning.docker.deviceCodeStopPidMissing",
+        "Docker reported a running device-code exec without a process id.",
+      );
+    }
+    if (pid !== null && pid > 0 && initial.value.Running === true) {
+      const killed = await this.exec([
         "sh",
         "-lc",
-        `kill -TERM -${pid} 2>/dev/null || kill -TERM ${pid} 2>/dev/null || true`,
-      ]).catch(() => undefined);
+        `if kill -0 ${pid} 2>/dev/null; then kill -TERM -${pid} 2>/dev/null || kill -TERM ${pid}; fi`,
+      ]);
+      if (!killed.ok) {
+        throw killed.error;
+      }
+      if (killed.value.exitCode !== 0) {
+        throw provisioningError(
+          "provisioning.docker.deviceCodeStopKillFailed",
+          "Could not stop the device-code login process.",
+          { exitCode: killed.value.exitCode },
+        );
+      }
     }
-    await this.exec(["sh", "-lc", secureDeleteCommand(logPath)]).catch(() => undefined);
+
+    const deadline = Date.now() + deviceCodeStopInspectTimeoutMs;
+    while (true) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        throw provisioningError(
+          "provisioning.docker.deviceCodeStopTimeout",
+          "Docker did not confirm that the device-code login stopped in time.",
+          { timeoutMs: deviceCodeStopInspectTimeoutMs },
+        );
+      }
+      const inspected = await this.dockerRequest<{ readonly Running?: unknown }>(
+        `/exec/${encodeURIComponent(execId)}/json`,
+        { method: "GET", timeoutMs: remainingMs },
+      );
+      if (!inspected.ok) {
+        throw inspected.error;
+      }
+      if (inspected.value.Running === false) {
+        break;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, deviceCodeStopInspectPollMs));
+    }
+
+    const deleted = await this.exec(["sh", "-lc", secureDeleteCommand(logPath)]);
+    if (!deleted.ok) {
+      throw deleted.error;
+    }
+    if (deleted.value.exitCode !== 0) {
+      throw provisioningError(
+        "provisioning.docker.deviceCodeLogDeleteFailed",
+        "Could not securely delete the device-code login log.",
+        { exitCode: deleted.value.exitCode },
+      );
+    }
   }
 
   public async stopSetupTokenLogin(execId: string, logPath: string): Promise<void> {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { DeviceFlowPoller } from "@/components/connections/device-flow-poller";
 import { ProviderConnectDialog } from "@/components/connections/provider-connect-dialog";
@@ -9,6 +10,7 @@ import { ProviderLogo } from "@/components/connections/provider-logo";
 import { SetMainOrchestratorConfirm } from "@/components/connections/provider-set-main-confirm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +34,13 @@ import {
   statusGuidance,
 } from "@/lib/provider-presentation";
 import { cn } from "@/lib/utils";
+
+export function pendingFlowCancellationMustReset(
+  previousFlowId: string | null,
+  nextFlowId: string | null,
+): boolean {
+  return previousFlowId !== nextFlowId;
+}
 
 export function StatusDot({ status }: { readonly status: ProviderConnectionView["status"] }) {
   if (status === "not_connected") return null;
@@ -234,7 +243,12 @@ export function ProviderCard({
   optimisticLeadProviderId,
   onSetMainOrchestratorSuccess,
 }: ProviderCardProps) {
+  const router = useRouter();
   const headingId = useId();
+  const refreshTimeouts = useRef<readonly number[]>([]);
+  const previousPendingFlowId = useRef(provider.pendingFlow?.flowId ?? null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const models = providerModelParts(provider);
   const allModelIds = (provider.enabledModels ?? provider.models).map((model) => model.id);
   const visibleModels = [models.first, ...models.rest].filter(
@@ -268,6 +282,65 @@ export function ProviderCard({
   // when one exists), but the gateway can also report pending for a flow started elsewhere (CLI,
   // another session). That card renders guidance instead of a poller — it must never crash the page.
   const pendingFlow = provider.pendingFlow;
+  const cancellablePendingFlow =
+    pendingFlow !== null &&
+    /^model:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      pendingFlow.flowId,
+    )
+      ? pendingFlow
+      : null;
+
+  useEffect(() => {
+    const nextFlowId = pendingFlow?.flowId ?? null;
+    if (pendingFlowCancellationMustReset(previousPendingFlowId.current, nextFlowId)) {
+      previousPendingFlowId.current = nextFlowId;
+      setIsCancelling(false);
+      setCancelError(null);
+      for (const timeout of refreshTimeouts.current) window.clearTimeout(timeout);
+      refreshTimeouts.current = [];
+    }
+  }, [pendingFlow?.flowId]);
+
+  useEffect(
+    () => () => {
+      for (const timeout of refreshTimeouts.current) window.clearTimeout(timeout);
+    },
+    [],
+  );
+
+  const cancelAuthorisation = async () => {
+    if (cancellablePendingFlow === null || isCancelling) return;
+    setIsCancelling(true);
+    setCancelError(null);
+    try {
+      const response = await fetch("/api/connections/model/device-flow/cancel", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ flowId: cancellablePendingFlow.flowId }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          readonly message?: unknown;
+        } | null;
+        throw new Error(
+          typeof payload?.message === "string"
+            ? payload.message
+            : "Could not cancel authorisation. Try again.",
+        );
+      }
+      // Both cancelled and not_found are successful idempotent outcomes. Refresh now and twice
+      // more within a bounded window so a credential completion racing cancellation wins visibly.
+      router.refresh();
+      refreshTimeouts.current = [750, 2_000].map((delay) =>
+        window.setTimeout(() => router.refresh(), delay),
+      );
+    } catch (error) {
+      setCancelError(
+        error instanceof Error ? error.message : "Could not cancel authorisation. Try again.",
+      );
+      setIsCancelling(false);
+    }
+  };
 
   return (
     <TooltipProvider>
@@ -365,7 +438,7 @@ export function ProviderCard({
           ) : null}
           {provider.status === "pending" ? (
             <div className="rounded-md bg-[var(--surface-2)] px-3 py-2 text-xs leading-snug text-muted-foreground">
-              {pendingFlow !== null ? (
+              {pendingFlow !== null && !isCancelling ? (
                 <DeviceFlowPoller
                   flowId={pendingFlow.flowId}
                   verificationUri={pendingFlow.verificationUri}
@@ -397,10 +470,31 @@ export function ProviderCard({
               manageDisabled={provider.status !== "connected" && noLiveAuth}
             />
           ) : provider.status === "pending" ? (
-            <div className="text-xs text-muted-foreground">
-              {/* DESCOPE(pending-cancel-authorisation): P8 PRD-013 omits device-flow cancellation until a worker cancel mutation exists; the poller expires codes on its own. */}
-              Authorization continues while this page is open.
-            </div>
+            cancellablePendingFlow === null ? (
+              <div className="text-xs text-muted-foreground">
+                Authorization continues while this page is open.
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  disabled={isCancelling}
+                  aria-busy={isCancelling}
+                  onClick={() => void cancelAuthorisation()}
+                >
+                  {isCancelling ? "Cancelling…" : "Cancel authorisation"}
+                </Button>
+                {cancelError === null ? null : (
+                  <Alert variant="destructive" className="grid-cols-1 px-3 py-2">
+                    <AlertDescription className="col-start-1 text-xs text-current">
+                      {cancelError}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )
           ) : noLiveAuth ? (
             <div className="grid gap-2">
               <Button type="button" disabled className="w-full">

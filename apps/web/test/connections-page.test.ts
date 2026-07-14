@@ -421,6 +421,8 @@ function fakePort(): ConnectionsProvisioningPort {
     submitModelProviderSetupTokenCode: async () => ok({ status: "pending" }),
     startModelProviderDeviceFlow: async (input) =>
       ok(challenge({ providerId: input.providerId, authChoiceId: input.authChoiceId })),
+    cancelModelProviderDeviceFlow: async () =>
+      ok({ status: "cancelled", message: "Device sign-in cancelled." }),
     pollDeviceFlow: async () =>
       ok({ status: "connected", message: "Connected.", connection: providerState() }),
     startModelProviderDisconnect: async () =>
@@ -1313,9 +1315,11 @@ describe("Connections page state", () => {
     expect(systemStatus).not.toContain("Gateway configuration");
     expect(systemStatus).not.toContain("Host port");
     expect(providersPage).toContain("DESCOPE(provider-policy-catalogs): P8 PRD-013");
-    expect(providerCard).toContain(
-      "DESCOPE(pending-cancel-authorisation): P8 PRD-013 omits device-flow cancellation",
-    );
+    expect(providerCard).not.toContain("DESCOPE(pending-cancel-authorisation)");
+    expect(providerCard).toContain("Cancel authorisation");
+    expect(providerCard).toContain("Cancelling…");
+    expect(providerCard).toContain("aria-busy={isCancelling}");
+    expect(providerCard).toContain('"/api/connections/model/device-flow/cancel"');
     expect(addPage).toContain("DESCOPE(agent-tools-mcp): P8 PRD-013");
     expect(addPage).toContain("DESCOPE(channels-services): P8 PRD-013");
     expect(page).not.toContain("Orchestrator and subagents");

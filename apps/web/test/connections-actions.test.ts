@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   startModelProviderSetupTokenFlowForContext: vi.fn(),
   submitModelProviderSetupTokenCodeForContext: vi.fn(),
   pollConnectionDeviceFlowForContext: vi.fn(),
+  cancelModelProviderDeviceFlowForContext: vi.fn(),
 }));
 
 vi.mock("@/lib/session", () => ({
@@ -32,6 +33,7 @@ vi.mock("@/lib/connections", () => ({
   startModelProviderSetupTokenFlowForContext: mocks.startModelProviderSetupTokenFlowForContext,
   submitModelProviderSetupTokenCodeForContext: mocks.submitModelProviderSetupTokenCodeForContext,
   pollConnectionDeviceFlowForContext: mocks.pollConnectionDeviceFlowForContext,
+  cancelModelProviderDeviceFlowForContext: mocks.cancelModelProviderDeviceFlowForContext,
 }));
 
 function disconnectRequest(body: unknown): Request {
@@ -203,6 +205,73 @@ describe("connections device-flow poll route", () => {
     const malformed = await POST(routeRequest("/api/connections/device-flow", "{not json"));
     expect(malformed.status).toBe(400);
     expect(mocks.pollConnectionDeviceFlowForContext).not.toHaveBeenCalled();
+  });
+});
+
+describe("connections model device-flow cancel route", () => {
+  const flowId = "model:00000000-0000-4000-8000-000000000001";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("forwards only the flow id and accepts idempotent not_found", async () => {
+    const { POST } = await import("../app/api/connections/model/device-flow/cancel/route");
+    mocks.getAppSessionContext.mockResolvedValueOnce(context);
+    mocks.cancelModelProviderDeviceFlowForContext.mockResolvedValueOnce({
+      ok: true,
+      value: { status: "not_found", message: "Device sign-in was already finished." },
+    });
+
+    const response = await POST(
+      routeRequest("/api/connections/model/device-flow/cancel", { flowId }),
+    );
+
+    expect(mocks.cancelModelProviderDeviceFlowForContext).toHaveBeenCalledWith({ context, flowId });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ status: "not_found" });
+  });
+
+  it("rejects unauthenticated, malformed, and non-model ids before provisioning", async () => {
+    const { POST } = await import("../app/api/connections/model/device-flow/cancel/route");
+    mocks.getAppSessionContext.mockResolvedValueOnce(null);
+    expect(
+      (await POST(routeRequest("/api/connections/model/device-flow/cancel", { flowId }))).status,
+    ).toBe(401);
+
+    mocks.getAppSessionContext.mockResolvedValue(context);
+    for (const body of [{}, { flowId: "model:not-a-uuid" }, { flowId: flowId.slice(6) }]) {
+      expect(
+        (await POST(routeRequest("/api/connections/model/device-flow/cancel", body))).status,
+      ).toBe(400);
+    }
+    expect(mocks.cancelModelProviderDeviceFlowForContext).not.toHaveBeenCalled();
+  });
+
+  it("maps role denials and safe provisioning failures through the shared contract", async () => {
+    const { POST } = await import("../app/api/connections/model/device-flow/cancel/route");
+    mocks.getAppSessionContext.mockResolvedValue(context);
+    mocks.cancelModelProviderDeviceFlowForContext.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "web.connectionsForbidden", message: "Admins only." },
+    });
+    const forbidden = await POST(
+      routeRequest("/api/connections/model/device-flow/cancel", { flowId }),
+    );
+    expect(forbidden.status).toBe(403);
+
+    mocks.cancelModelProviderDeviceFlowForContext.mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: "provisioning.connections.deviceFlowCancellationFailed",
+        message: "Could not confirm that device sign-in stopped. Try again.",
+      },
+    });
+    const failed = await POST(
+      routeRequest("/api/connections/model/device-flow/cancel", { flowId }),
+    );
+    expect(failed.status).toBe(502);
+    await expect(failed.json()).resolves.not.toHaveProperty("details");
   });
 });
 

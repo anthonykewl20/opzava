@@ -12,6 +12,7 @@ import {
   type ConnectionsSnapshot,
   type ConnectionProvisioningPrincipal,
   type DeviceFlowChallenge,
+  type DeviceFlowCancelState,
   type DeviceFlowPollState,
   type DisconnectGitHubInput,
   type DisconnectModelProviderInput,
@@ -127,6 +128,9 @@ interface PendingModelProviderDeviceFlow {
   readonly intervalSeconds: number;
   readonly execId: string;
   readonly logPath: string;
+  /** Unique lifecycle identity. Post-await writers must still own this generation. */
+  readonly generation: string;
+  readonly lifecycle: "active" | "cancelling";
   readonly timeout: ReturnType<typeof setTimeout>;
 }
 
@@ -181,6 +185,9 @@ const modelDeviceFlowRequiredMessage =
 const modelDeviceFlowStartPollDelayMs = 1_500;
 const modelDeviceFlowStartMaxAttempts = 4;
 const modelDeviceFlowExpiresMs = 15 * 60 * 1000;
+const modelDeviceFlowCleanupRetryMs = 5_000;
+const modelDeviceFlowIdPattern =
+  /^model:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const modelDeviceFlowPollIntervalSeconds = 5;
 // A connect is no longer just a write: it ends with a live auth probe, and a probe that comes back
 // REJECTED then removes the credential again (#183) — a removal that paces one gateway logout per
@@ -3254,6 +3261,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     string,
     Promise<Result<DeviceFlowPollState>>
   >();
+  private readonly modelDeviceFlowCancellations = new Map<
+    string,
+    Promise<Result<DeviceFlowCancelState>>
+  >();
+  private readonly modelDeviceFlowStops = new Map<string, Promise<void>>();
   private readonly modelApiKeyConnects = new Map<string, PendingModelProviderApiKeyConnect>();
   private readonly modelSetupTokenFlows = new Map<string, PendingModelProviderSetupTokenFlow>();
   private readonly modelProviderDisconnects = new Map<string, PendingModelProviderDisconnect>();
@@ -4327,7 +4339,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         // would throw away the outcome and show the operator "expired" in place of the loud
         // provider rejection they need to see. Let it finish and record its own verdict.
         if (current !== undefined && current.completionInFlight !== true) {
-          void this.cleanupSetupTokenFlow(current);
+          void this.cleanupSetupTokenFlow(current).catch(() => undefined);
         }
       }, modelSetupTokenFlowExpiresMs),
       phase: "starting",
@@ -5096,10 +5108,15 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         intervalSeconds: modelDeviceFlowPollIntervalSeconds,
         execId: login.value.execId,
         logPath: login.value.logPath,
+        generation: randomUUID(),
+        lifecycle: "active",
         timeout: setTimeout(() => {
           const flow = this.modelDeviceFlows.get(flowId);
           if (flow !== undefined) {
-            void this.cleanupModelProviderFlow(flow);
+            void this.cleanupModelProviderFlow(flow).catch(() => {
+              // A failed verified stop stays mapped and retryable. The public poll/cancel path will
+              // surface a redacted failure; the timeout must not create an unhandled rejection.
+            });
           }
         }, modelDeviceFlowExpiresMs),
       };
@@ -5111,7 +5128,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           await this.cleanupModelProviderFlow(baseFlow);
           return err(deviceCodeLogReadError(input.providerId));
         }
-        if (!this.modelDeviceFlows.has(baseFlow.flowId)) {
+        if (!this.isCurrentActiveModelFlow(baseFlow)) {
           return err(
             provisioningError(
               "provisioning.connections.deviceFlowCancelled",
@@ -5128,6 +5145,15 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
             verificationUri: parsed.verificationUri,
             userCode: parsed.userCode,
           };
+          if (!this.isCurrentActiveModelFlow(baseFlow)) {
+            return err(
+              provisioningError(
+                "provisioning.connections.deviceFlowCancelled",
+                "Device-code sign-in was cancelled before it completed.",
+                { providerId: input.providerId, authChoiceId: input.authChoiceId },
+              ),
+            );
+          }
           this.modelDeviceFlows.set(flow.flowId, flow);
           return ok(this.challengeFromModelFlow(flow));
         }
@@ -5135,7 +5161,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         await sleep(modelDeviceFlowStartPollDelayMs);
       }
 
-      if (!this.modelDeviceFlows.has(baseFlow.flowId)) {
+      if (!this.isCurrentActiveModelFlow(baseFlow)) {
         return err(
           provisioningError(
             "provisioning.connections.deviceFlowCancelled",
@@ -5174,6 +5200,52 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       status: "failed",
       message: "Device flow is not known or has already completed.",
     });
+  }
+
+  public async cancelModelProviderDeviceFlow(
+    input: { readonly flowId: string } & ConnectionProvisioningPrincipal,
+  ): Promise<Result<DeviceFlowCancelState>> {
+    if (!modelDeviceFlowIdPattern.test(input.flowId)) {
+      return err(
+        provisioningError(
+          "provisioning.connections.invalidDeviceFlowId",
+          "The model-provider device flow id is invalid.",
+        ),
+      );
+    }
+
+    const flow = this.modelDeviceFlows.get(input.flowId);
+    // Unknown and cross-tenant ids are deliberately indistinguishable and mutation-free.
+    if (flow === undefined || flow.orgId !== input.orgId) {
+      return ok({ status: "not_found", message: "Device sign-in was already finished." });
+    }
+
+    const existing = this.modelDeviceFlowCancellations.get(input.flowId);
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    const cancellation = (async (): Promise<Result<DeviceFlowCancelState>> => {
+      try {
+        await this.cleanupModelProviderFlow(flow);
+        return ok({ status: "cancelled", message: "Device sign-in cancelled." });
+      } catch {
+        return err(
+          provisioningError(
+            "provisioning.connections.deviceFlowCancellationFailed",
+            "Could not confirm that device sign-in stopped. Try again.",
+          ),
+        );
+      }
+    })();
+    this.modelDeviceFlowCancellations.set(input.flowId, cancellation);
+    try {
+      return await cancellation;
+    } finally {
+      if (this.modelDeviceFlowCancellations.get(input.flowId) === cancellation) {
+        this.modelDeviceFlowCancellations.delete(input.flowId);
+      }
+    }
   }
 
   /**
@@ -6498,19 +6570,78 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     };
   }
 
+  private isCurrentActiveModelFlow(flow: PendingModelProviderDeviceFlow): boolean {
+    const current = this.modelDeviceFlows.get(flow.flowId);
+    return current?.generation === flow.generation && current.lifecycle === "active";
+  }
+
   private async cleanupModelProviderFlow(flow: PendingModelProviderDeviceFlow): Promise<void> {
+    const activeStop = this.modelDeviceFlowStops.get(flow.flowId);
+    if (activeStop !== undefined) {
+      return activeStop;
+    }
+
+    const current = this.modelDeviceFlows.get(flow.flowId);
+    if (current === undefined || current.generation !== flow.generation) {
+      return;
+    }
+    const cancelling: PendingModelProviderDeviceFlow = {
+      ...current,
+      generation: randomUUID(),
+      lifecycle: "cancelling",
+    };
+    // Publish cancellation synchronously before the first await. Initial log parsing and polls use
+    // the same generation+lifecycle guard, so neither can resurrect a stopped flow.
+    this.modelDeviceFlows.set(flow.flowId, cancelling);
     const reservationKey = configWriteKey(flow.orgId);
     this.acquireProviderWrite(reservationKey);
-    clearTimeout(flow.timeout);
-    try {
-      await this.options.gatewayRuntime?.stopDeviceCodeLogin(flow.execId, flow.logPath);
-    } finally {
-      // Keep the mapped flow visible until the runtime stop settles. If a timeout and a poll clean
-      // the same flow concurrently, ref-counted reservations ensure either owner keeps toggles out.
-      if (this.modelDeviceFlows.get(flow.flowId)?.execId === flow.execId) {
-        this.modelDeviceFlows.delete(flow.flowId);
+    const stop = (async (): Promise<void> => {
+      try {
+        const runtime = this.options.gatewayRuntime;
+        if (runtime === undefined) {
+          throw new Error("Gateway runtime is unavailable.");
+        }
+        await runtime.stopDeviceCodeLogin(cancelling.execId, cancelling.logPath);
+        const mapped = this.modelDeviceFlows.get(flow.flowId);
+        if (mapped?.generation === cancelling.generation && mapped.lifecycle === "cancelling") {
+          clearTimeout(mapped.timeout);
+          this.modelDeviceFlows.delete(flow.flowId);
+        }
+      } catch (error) {
+        const mapped = this.modelDeviceFlows.get(flow.flowId);
+        if (mapped?.generation === cancelling.generation && mapped.lifecycle === "cancelling") {
+          if (this.now().getTime() >= mapped.expiresAt.getTime()) {
+            const retryFlow: PendingModelProviderDeviceFlow = {
+              ...mapped,
+              lifecycle: "active",
+              timeout: setTimeout(() => {
+                const retry = this.modelDeviceFlows.get(flow.flowId);
+                if (retry !== undefined) {
+                  void this.cleanupModelProviderFlow(retry).catch(() => undefined);
+                }
+              }, modelDeviceFlowCleanupRetryMs),
+            };
+            this.modelDeviceFlows.set(flow.flowId, retryFlow);
+          } else {
+            this.modelDeviceFlows.set(flow.flowId, { ...mapped, lifecycle: "active" });
+          }
+        }
+        throw provisioningError(
+          "provisioning.connections.deviceFlowStopUnverified",
+          "Could not confirm that the device-code sign-in stopped.",
+          { causeCode: error instanceof DomainError ? error.code : "runtime_stop_failed" },
+        );
+      } finally {
+        this.releaseProviderWrite(reservationKey);
       }
-      this.releaseProviderWrite(reservationKey);
+    })();
+    this.modelDeviceFlowStops.set(flow.flowId, stop);
+    try {
+      await stop;
+    } finally {
+      if (this.modelDeviceFlowStops.get(flow.flowId) === stop) {
+        this.modelDeviceFlowStops.delete(flow.flowId);
+      }
     }
   }
 
@@ -6525,9 +6656,15 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }
 
   private async cleanupSetupTokenFlow(flow: PendingModelProviderSetupTokenFlow): Promise<void> {
-    this.modelSetupTokenFlows.delete(flow.flowId);
-    clearTimeout(flow.timeout);
-    await this.options.gatewayRuntime?.stopSetupTokenLogin(flow.execId, flow.logPath);
+    const runtime = this.options.gatewayRuntime;
+    if (runtime === undefined) {
+      throw new Error("Gateway runtime is unavailable.");
+    }
+    await runtime.stopSetupTokenLogin(flow.execId, flow.logPath);
+    if (this.modelSetupTokenFlows.get(flow.flowId)?.execId === flow.execId) {
+      this.modelSetupTokenFlows.delete(flow.flowId);
+      clearTimeout(flow.timeout);
+    }
   }
 
   private async cleanupSetupTokenFlowsForProvider(
@@ -6548,6 +6685,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     if (flow.orgId !== input.orgId) {
       return ok({ status: "expired", message: "Device sign-in not found." });
     }
+    if (!this.isCurrentActiveModelFlow(flow)) {
+      return ok({ status: "expired", message: "Device sign-in not found." });
+    }
     if (this.now().getTime() >= flow.expiresAt.getTime()) {
       await this.cleanupModelProviderFlow(flow);
       return ok({
@@ -6563,6 +6703,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       { ...input, providerId: flow.providerId },
       "Waiting for gateway device-code authorization.",
     );
+    if (!this.isCurrentActiveModelFlow(flow)) {
+      return ok({ status: "expired", message: "Device sign-in not found." });
+    }
     if (connection.status === "connected") {
       const activeFinalization = this.modelDeviceFlowFinalizations.get(flow.flowId);
       if (activeFinalization !== undefined) {
@@ -6581,6 +6724,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
 
     let currentFlow = flow;
     const log = await this.options.gatewayRuntime?.readDeviceCodeLog(flow.logPath);
+    if (!this.isCurrentActiveModelFlow(flow)) {
+      return ok({ status: "expired", message: "Device sign-in not found." });
+    }
     if (log !== undefined && !log.ok) {
       await this.cleanupModelProviderFlow(flow);
       return err(deviceCodeLogReadError(flow.providerId));
@@ -6596,7 +6742,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           verificationUri: parsed.verificationUri,
           userCode: parsed.userCode,
         };
-        this.modelDeviceFlows.set(currentFlow.flowId, currentFlow);
+        if (this.isCurrentActiveModelFlow(flow)) {
+          this.modelDeviceFlows.set(currentFlow.flowId, currentFlow);
+        }
       }
     }
     if (log !== undefined && deviceCodeLogTerminalFailure(log.value)) {
@@ -6824,6 +6972,10 @@ export class UnavailableConnectionsProvisioningPort implements ConnectionsProvis
   }
 
   public async startModelProviderDeviceFlow(): Promise<Result<DeviceFlowChallenge>> {
+    return err(this.error());
+  }
+
+  public async cancelModelProviderDeviceFlow(): Promise<Result<DeviceFlowCancelState>> {
     return err(this.error());
   }
 

@@ -7,7 +7,11 @@ import ConnectionsLoading from "../app/(app)/connections/loading";
 import { ConnectionsOverview } from "../components/connections/connections-overview";
 import { HealthStatusBreakdown } from "../components/connections/health-status-breakdown";
 import { ModelProvidersPanel } from "../components/connections/model-providers-panel";
-import { ProviderConnectedActions } from "../components/connections/provider-card";
+import {
+  pendingFlowCancellationMustReset,
+  ProviderCard,
+  ProviderConnectedActions,
+} from "../components/connections/provider-card";
 import { DisconnectConfirm } from "../components/connections/provider-disconnect-confirm";
 import { SetMainOrchestratorConfirm } from "../components/connections/provider-set-main-confirm";
 import {
@@ -76,6 +80,53 @@ function provider(
 }
 
 describe("Connections components", () => {
+  it("renders a real pending model-flow cancellation action and hides it for unowned flow shapes", () => {
+    const pending = provider({
+      id: "openai",
+      label: "OpenAI",
+      status: "pending",
+      pendingFlow: {
+        flowId: "model:00000000-0000-4000-8000-000000000001",
+        kind: "model_provider",
+        providerId: "openai",
+        authChoiceId: "openai-device-code",
+        verificationUri: "https://example.test/device",
+        userCode: "ABCD-EFGH",
+        codePending: false,
+        expiresAt: "2026-07-14T00:15:00.000Z",
+        intervalSeconds: 5,
+      },
+    });
+    const html = renderToStaticMarkup(
+      createElement(ProviderCard, {
+        provider: pending,
+        optimisticLeadProviderId: null,
+        onSetMainOrchestratorSuccess: () => undefined,
+      }),
+    );
+    if (pending.pendingFlow === null) throw new Error("expected pending flow fixture");
+    const unknownShapeHtml = renderToStaticMarkup(
+      createElement(ProviderCard, {
+        provider: {
+          ...pending,
+          pendingFlow: { ...pending.pendingFlow, flowId: "github:opaque" },
+        },
+        optimisticLeadProviderId: null,
+        onSetMainOrchestratorSuccess: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Cancel authorisation");
+    expect(html).toContain('aria-busy="false"');
+    expect(unknownShapeHtml).not.toContain("Cancel authorisation");
+    expect(pendingFlowCancellationMustReset(pending.pendingFlow.flowId, "model:new-flow")).toBe(
+      true,
+    );
+    expect(
+      pendingFlowCancellationMustReset(pending.pendingFlow.flowId, pending.pendingFlow.flowId),
+    ).toBe(false);
+  });
+
   it("renders orchestrator re-election as a separate non-blocking phase", () => {
     const runningHtml = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {

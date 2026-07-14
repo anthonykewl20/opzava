@@ -186,6 +186,8 @@ function fakeProvisioningPort(): ConnectionsProvisioningPort {
       ok({ status: "connected", connection: providerConnection() }),
     submitModelProviderSetupTokenCode: async () => ok({ status: "pending" }),
     startModelProviderDeviceFlow: async () => ok(deviceFlowChallenge()),
+    cancelModelProviderDeviceFlow: async () =>
+      ok({ status: "cancelled", message: "Device sign-in cancelled." }),
     pollDeviceFlow: async () =>
       ok({ status: "connected", message: "Connected.", connection: providerConnection() }),
     startModelProviderDisconnect: async () =>
@@ -557,6 +559,7 @@ class RecordingGatewayRuntime {
   public deviceLogResult: Result<string> | null = null;
   public modelStatusCalls = 0;
   public pluginDiscoveryCalls = 0;
+  public deviceLogBarrier: Promise<void> | undefined;
 
   public constructor(
     private readonly options: {
@@ -576,8 +579,10 @@ class RecordingGatewayRuntime {
       readonly connectDelayMs?: number;
       readonly deviceLoginBarrier?: Promise<void>;
       readonly deviceStopBarrier?: Promise<void>;
+      readonly deviceStopError?: Error;
       readonly deviceCodeLogResult?: Result<string>;
       readonly deviceCodeLog?: string | (() => string);
+      readonly deviceLogBarrier?: Promise<void>;
       readonly setupTokenLog?: string | (() => string);
       /** Force every probe to one verdict, e.g. to simulate a rate-limited provider. */
       readonly authProbeResult?: Result<ProviderAuthProbe> | (() => Result<ProviderAuthProbe>);
@@ -591,7 +596,9 @@ class RecordingGatewayRuntime {
       readonly statusFromStores?: { readonly providerId: string; readonly model: string };
       readonly pluginDiscoveryResult?: Result<PluginModelDiscoveryRead>;
     } = {},
-  ) {}
+  ) {
+    this.deviceLogBarrier = options.deviceLogBarrier;
+  }
 
   public async readPluginModelDiscovery(): Promise<Result<PluginModelDiscoveryRead>> {
     this.pluginDiscoveryCalls += 1;
@@ -823,6 +830,7 @@ class RecordingGatewayRuntime {
 
   public async readDeviceCodeLog(logPath: string): Promise<Result<string>> {
     this.deviceLogReads.push(logPath);
+    await this.deviceLogBarrier;
     if (this.deviceLogResult !== null) {
       return this.deviceLogResult;
     }
@@ -852,6 +860,9 @@ class RecordingGatewayRuntime {
   public async stopDeviceCodeLogin(execId: string, logPath: string): Promise<void> {
     this.deviceStops.push({ execId, logPath });
     await this.options.deviceStopBarrier;
+    if (this.options.deviceStopError !== undefined) {
+      throw this.options.deviceStopError;
+    }
   }
 
   public async startSetupTokenLogin(): Promise<
@@ -1494,6 +1505,56 @@ describe("Connections provisioning helpers", () => {
       });
       expect(refreshed.status).toBe(200);
       expect(refreshInputs).toEqual([expect.objectContaining({ workspaceId: "workspace-1" })]);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it("authenticates, validates, and forwards model device-flow cancellation by flow id only", async () => {
+    const inputs: unknown[] = [];
+    const server = createConnectionsInternalHttpServer({
+      provisioningPort: {
+        ...fakeProvisioningPort(),
+        cancelModelProviderDeviceFlow: async (input) => {
+          inputs.push(input);
+          return ok({ status: "cancelled", message: "Device sign-in cancelled." });
+        },
+      },
+      internalToken: "local-provisioning-token",
+    });
+    const baseUrl = await listen(server);
+    const flowId = "model:00000000-0000-4000-8000-000000000001";
+    const request = (body: unknown, authorized = true) =>
+      fetch(`${baseUrl}/internal/connections/model/device-flow/cancel`, {
+        method: "POST",
+        headers: {
+          ...(authorized ? { authorization: "Bearer local-provisioning-token" } : {}),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          orgId: "org-1",
+          workspaceId: "workspace-1",
+          actorUserId: "user-1",
+          roleKeys: ["admin"],
+          ...(typeof body === "object" && body !== null ? body : {}),
+        }),
+      });
+
+    try {
+      expect((await request({ flowId }, false)).status).toBe(401);
+      expect((await request({ flowId: "model:not-a-uuid" })).status).toBe(400);
+      const response = await request({ flowId, providerId: "must-not-be-forwarded" });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ status: "cancelled" });
+      expect(inputs).toEqual([
+        {
+          orgId: "org-1",
+          workspaceId: "workspace-1",
+          actorUserId: "user-1",
+          roleKeys: ["admin"],
+          flowId,
+        },
+      ]);
     } finally {
       await closeServer(server);
     }
@@ -7093,6 +7154,223 @@ describe("Connections provisioning helpers", () => {
     expect(JSON.stringify(otherPrincipalSnapshot)).not.toContain("secret-dashboard-token");
   });
 
+  it("cancels an owned model-provider flow idempotently and removes it from polling", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+    const started = await port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+    if (!started.ok) throw started.error;
+
+    const cancelled = await port.cancelModelProviderDeviceFlow({
+      ...principal(),
+      flowId: started.value.flowId,
+    });
+    const again = await port.cancelModelProviderDeviceFlow({
+      ...principal(),
+      flowId: started.value.flowId,
+    });
+    const poll = await port.pollDeviceFlow({ ...principal(), flowId: started.value.flowId });
+
+    expect(cancelled).toMatchObject({ ok: true, value: { status: "cancelled" } });
+    expect(again).toMatchObject({ ok: true, value: { status: "not_found" } });
+    expect(poll).toMatchObject({ ok: true, value: { status: "expired" } });
+    expect(gatewayRuntime.deviceStops).toHaveLength(1);
+  });
+
+  it("does not mutate a flow for foreign, unknown, or malformed cancellation ids", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+    const started = await port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+    if (!started.ok) throw started.error;
+
+    const foreign = await port.cancelModelProviderDeviceFlow({
+      ...principal(),
+      orgId: "00000000-0000-4000-8000-000000000099",
+      flowId: started.value.flowId,
+    });
+    const unknown = await port.cancelModelProviderDeviceFlow({
+      ...principal(),
+      flowId: "model:00000000-0000-4000-8000-000000000099",
+    });
+    const malformed = await port.cancelModelProviderDeviceFlow({
+      ...principal(),
+      flowId: "model:not-a-uuid",
+    });
+
+    expect(foreign).toMatchObject({ ok: true, value: { status: "not_found" } });
+    expect(unknown).toEqual(foreign);
+    expect(malformed).toMatchObject({
+      ok: false,
+      error: { code: "provisioning.connections.invalidDeviceFlowId" },
+    });
+    expect(gatewayRuntime.deviceStops).toHaveLength(0);
+    await expect(
+      port.pollDeviceFlow({ ...principal(), flowId: started.value.flowId }),
+    ).resolves.toMatchObject({ ok: true, value: { status: "pending" } });
+  });
+
+  it("shares concurrent cancellation and restores a retryable flow after verified stop failure", async () => {
+    let releaseStop!: () => void;
+    const stopBarrier = new Promise<void>((resolve) => {
+      releaseStop = resolve;
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceStopBarrier: stopBarrier,
+      deviceStopError: new Error("sensitive runtime detail"),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+    const started = await port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+    if (!started.ok) throw started.error;
+
+    const first = port.cancelModelProviderDeviceFlow({
+      ...principal(),
+      flowId: started.value.flowId,
+    });
+    const second = port.cancelModelProviderDeviceFlow({
+      ...principal(),
+      flowId: started.value.flowId,
+    });
+    releaseStop();
+    const results = await Promise.all([first, second]);
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({
+          code: "provisioning.connections.deviceFlowCancellationFailed",
+        }),
+      }),
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({
+          code: "provisioning.connections.deviceFlowCancellationFailed",
+        }),
+      }),
+    ]);
+    expect(JSON.stringify(results)).not.toContain("sensitive runtime detail");
+    expect(gatewayRuntime.deviceStops).toHaveLength(1);
+    await expect(
+      port.pollDeviceFlow({ ...principal(), flowId: started.value.flowId }),
+    ).resolves.toMatchObject({ ok: true, value: { status: "pending" } });
+  });
+
+  it("cannot resurrect a flow cancelled while its initial device-code log read is awaiting", async () => {
+    let releaseLog!: () => void;
+    const logBarrier = new Promise<void>((resolve) => {
+      releaseLog = resolve;
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceLogBarrier: logBarrier,
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const starting = port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+    while (gatewayRuntime.deviceLogReads.length === 0) await Promise.resolve();
+    const flows = (
+      port as unknown as {
+        readonly modelDeviceFlows: Map<string, unknown>;
+      }
+    ).modelDeviceFlows;
+    const flowId = [...flows.keys()][0];
+    if (flowId === undefined) throw new Error("expected mapped flow before initial log read");
+    const cancelled = await port.cancelModelProviderDeviceFlow({ ...principal(), flowId });
+    releaseLog();
+    const started = await starting;
+
+    expect(cancelled).toMatchObject({ ok: true, value: { status: "cancelled" } });
+    expect(started).toMatchObject({
+      ok: false,
+      error: { code: "provisioning.connections.deviceFlowCancelled" },
+    });
+    expect(flows.has(flowId)).toBe(false);
+    expect(gatewayRuntime.deviceStops).toHaveLength(1);
+  });
+
+  it("cannot resurrect a flow cancelled while a poll log read is awaiting", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+    const started = await port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+    if (!started.ok) throw started.error;
+    let releaseLog!: () => void;
+    gatewayRuntime.deviceLogBarrier = new Promise<void>((resolve) => {
+      releaseLog = resolve;
+    });
+    const readsBeforePoll = gatewayRuntime.deviceLogReads.length;
+
+    const polling = port.pollDeviceFlow({ ...principal(), flowId: started.value.flowId });
+    while (gatewayRuntime.deviceLogReads.length === readsBeforePoll) await Promise.resolve();
+    const cancelled = await port.cancelModelProviderDeviceFlow({
+      ...principal(),
+      flowId: started.value.flowId,
+    });
+    releaseLog();
+    const poll = await polling;
+
+    expect(cancelled).toMatchObject({ ok: true, value: { status: "cancelled" } });
+    expect(poll).toMatchObject({ ok: true, value: { status: "expired" } });
+    expect(gatewayRuntime.deviceStops).toHaveLength(1);
+    await expect(
+      port.cancelModelProviderDeviceFlow({ ...principal(), flowId: started.value.flowId }),
+    ).resolves.toMatchObject({ ok: true, value: { status: "not_found" } });
+  });
+
   it("starting a new model-provider device flow supersedes and stops the prior flow", async () => {
     const gatewayRuntime = new RecordingGatewayRuntime({
       choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
@@ -7790,6 +8068,7 @@ describe("Connections provisioning helpers", () => {
       readonly body: Record<string, unknown> | null;
     }[] = [];
     let execNumber = 0;
+    let deviceLoginStopped = false;
     const jsonResponse = (value: unknown) =>
       new Response(JSON.stringify(value), {
         status: 200,
@@ -7802,13 +8081,20 @@ describe("Connections provisioning helpers", () => {
 
       if (String(url).endsWith("/containers/gateway/exec")) {
         execNumber += 1;
+        if (Array.isArray(body?.["Cmd"]) && String(body["Cmd"][2]).includes("kill -TERM")) {
+          deviceLoginStopped = true;
+        }
         return jsonResponse({ Id: `exec-${execNumber}` });
       }
       if (String(url).includes("/start")) {
         return new Response(new Uint8Array(), { status: 200 });
       }
       if (String(url).includes("/json")) {
-        return jsonResponse({ Pid: 123, Running: true, ExitCode: 0 });
+        return jsonResponse({
+          Pid: 123,
+          Running: String(url).includes("/exec/exec-1/") ? !deviceLoginStopped : false,
+          ExitCode: 0,
+        });
       }
       return new Response("not found", { status: 404 });
     };
@@ -7850,6 +8136,77 @@ describe("Connections provisioning helpers", () => {
     expect(cleanupCommand).toContain("rm -f");
     expect(cleanupCommand).toContain("rmdir");
     expect(cleanupCommand).not.toContain("secret");
+  });
+
+  it("fails a device-code stop when Docker never confirms the exec stopped", async () => {
+    vi.useFakeTimers();
+    try {
+      let execNumber = 0;
+      const jsonResponse = (value: unknown) =>
+        new Response(JSON.stringify(value), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      const fetchImpl: typeof fetch = async (url) => {
+        if (String(url).endsWith("/containers/gateway/exec")) {
+          execNumber += 1;
+          return jsonResponse({ Id: `cleanup-${execNumber}` });
+        }
+        if (String(url).includes("/start")) {
+          return new Response(new Uint8Array(), { status: 200 });
+        }
+        if (String(url).includes("/json")) {
+          return jsonResponse({ Pid: 123, Running: true, ExitCode: 0 });
+        }
+        return new Response("not found", { status: 404 });
+      };
+      const runtime = new DockerOpenClawGatewayRuntime({
+        dockerHost: "tcp://docker-socket-proxy:2375",
+        containerName: "gateway",
+        fetch: fetchImpl,
+      });
+
+      const stopping = runtime.stopDeviceCodeLogin("device-exec", "/tmp/device.log");
+      const assertion = expect(stopping).rejects.toMatchObject({
+        code: "provisioning.docker.deviceCodeStopTimeout",
+      });
+      await vi.advanceTimersByTimeAsync(5_100);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails a device-code stop when secure log deletion does not complete", async () => {
+    const jsonResponse = (value: unknown) =>
+      new Response(JSON.stringify(value), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    const fetchImpl: typeof fetch = async (url) => {
+      if (String(url).endsWith("/containers/gateway/exec")) {
+        return jsonResponse({ Id: "delete-exec" });
+      }
+      if (String(url).includes("/start")) {
+        return new Response(new Uint8Array(), { status: 200 });
+      }
+      if (String(url).includes("/exec/device-exec/json")) {
+        return jsonResponse({ Pid: 0, Running: false, ExitCode: 0 });
+      }
+      if (String(url).includes("/exec/delete-exec/json")) {
+        return jsonResponse({ Running: false, ExitCode: 1 });
+      }
+      return new Response("not found", { status: 404 });
+    };
+    const runtime = new DockerOpenClawGatewayRuntime({
+      dockerHost: "tcp://docker-socket-proxy:2375",
+      containerName: "gateway",
+      fetch: fetchImpl,
+    });
+
+    await expect(
+      runtime.stopDeviceCodeLogin("device-exec", "/tmp/device.log"),
+    ).rejects.toMatchObject({ code: "provisioning.docker.deviceCodeLogDeleteFailed" });
   });
 
   it("returns a structured Docker timeout error instead of hanging an exec request", async () => {

@@ -295,6 +295,15 @@ export interface PollDeviceFlowInput extends ConnectionProvisioningPrincipal {
   readonly flowId: string;
 }
 
+export interface CancelModelProviderDeviceFlowInput extends ConnectionProvisioningPrincipal {
+  readonly flowId: string;
+}
+
+export interface DeviceFlowCancelState {
+  readonly status: "cancelled" | "not_found";
+  readonly message: string;
+}
+
 export interface DisconnectModelProviderInput extends ConnectionProvisioningPrincipal {
   readonly providerId: string;
 }
@@ -362,6 +371,9 @@ export interface ModelProviderConnectFlowsPort {
   startModelProviderDeviceFlow(
     input: StartModelProviderDeviceFlowInput,
   ): Promise<Result<DeviceFlowChallenge>>;
+  cancelModelProviderDeviceFlow(
+    input: CancelModelProviderDeviceFlowInput,
+  ): Promise<Result<DeviceFlowCancelState>>;
   pollDeviceFlow(input: PollDeviceFlowInput): Promise<Result<DeviceFlowPollState>>;
   startModelProviderDisconnect(
     input: DisconnectModelProviderInput,

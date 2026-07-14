@@ -3,6 +3,7 @@ import type {
   ConnectionsSnapshot,
   ConnectionProvisioningPrincipal,
   DeviceFlowChallenge,
+  DeviceFlowCancelState,
   DeviceFlowPollState,
   GitHubConnectionState,
   ModelProviderApiKeyConnectPollState,
@@ -239,6 +240,10 @@ class UnavailableConnectionsProvisioningPort implements ConnectionsProvisioningP
     return err(this.error());
   }
 
+  public async cancelModelProviderDeviceFlow(): Promise<Result<DeviceFlowCancelState>> {
+    return err(this.error());
+  }
+
   public async pollDeviceFlow(): Promise<Result<DeviceFlowPollState>> {
     return err(this.error());
   }
@@ -357,6 +362,15 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
     input: ConnectionProvisioningPrincipal & { readonly flowId: string },
   ): Promise<Result<DeviceFlowPollState>> {
     return this.request<DeviceFlowPollState>("/internal/connections/device-flow/poll", input);
+  }
+
+  public async cancelModelProviderDeviceFlow(
+    input: ConnectionProvisioningPrincipal & { readonly flowId: string },
+  ): Promise<Result<DeviceFlowCancelState>> {
+    return this.request<DeviceFlowCancelState>(
+      "/internal/connections/model/device-flow/cancel",
+      input,
+    );
   }
 
   public async startModelProviderDisconnect(input: {
@@ -730,6 +744,21 @@ export async function pollConnectionDeviceFlowForContext(
   }
 
   return dependencies.provisioningPort.pollDeviceFlow({
+    ...principalFromContext(input.context),
+    flowId: input.flowId,
+  });
+}
+
+export async function cancelModelProviderDeviceFlowForContext(
+  input: { readonly context: AppSessionContext; readonly flowId: string },
+  dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
+): Promise<Result<DeviceFlowCancelState>> {
+  const allowed = requireConnectionMutationRole(input.context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
+  return dependencies.provisioningPort.cancelModelProviderDeviceFlow({
     ...principalFromContext(input.context),
     flowId: input.flowId,
   });
