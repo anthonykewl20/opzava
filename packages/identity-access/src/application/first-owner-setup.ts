@@ -1,13 +1,6 @@
 import { assertCurrentTenant, db, mapDatabaseError } from "@opzava/adapters";
-import type { EventBusPort, EventId } from "@opzava/ports";
 import type { AuthPort, AuthSession, MfaChallenge } from "@opzava/ports";
-import {
-  DomainError,
-  err,
-  makeTenantId,
-  ok,
-  type Result
-} from "@opzava/shared-kernel";
+import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 import { sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
@@ -45,7 +38,6 @@ export type FirstOwnerSetupFaultPoint = "after-auth-user-insert";
 export interface FirstOwnerSetupServiceOptions {
   readonly database?: RootDatabase;
   readonly authPort?: AuthPort;
-  readonly eventBus?: EventBusPort;
   readonly fault?: (point: FirstOwnerSetupFaultPoint) => Promise<void> | void;
 }
 
@@ -150,47 +142,14 @@ function isMfaChallenge(value: AuthSession | MfaChallenge): value is MfaChalleng
   return "challengeId" in value;
 }
 
-async function publishSetupCompleted(
-  eventBus: EventBusPort | undefined,
-  rows: CreatedSetupRows,
-  input: FirstOwnerSetupInput
-): Promise<void> {
-  if (eventBus === undefined) {
-    return;
-  }
-
-  const published = await eventBus.publish(
-    {
-      id: randomUUID() as EventId,
-      tenantId: makeTenantId(rows.organizationId),
-      type: "identity-access.first-owner-setup.completed",
-      occurredAt: new Date(),
-      payload: {
-        organizationId: rows.organizationId,
-        workspaceId: rows.workspaceId,
-        ownerUserId: rows.ownerUserId,
-        setupAttemptId: rows.setupAttemptId,
-        timezone: input.timezone
-      }
-    },
-    { idempotencyKey: rows.setupAttemptId }
-  );
-
-  if (!published.ok) {
-    throw published.error;
-  }
-}
-
 export class FirstOwnerSetupService {
   private readonly database: RootDatabase;
   private readonly authPort: AuthPort;
-  private readonly eventBus: EventBusPort | undefined;
   private readonly fault: ((point: FirstOwnerSetupFaultPoint) => Promise<void> | void) | undefined;
 
   public constructor(options: FirstOwnerSetupServiceOptions = {}) {
     this.database = options.database ?? db;
     this.authPort = options.authPort ?? defaultAuthPort;
-    this.eventBus = options.eventBus;
     this.fault = options.fault;
   }
 
@@ -325,18 +284,6 @@ export class FirstOwnerSetupService {
 
     if (createdRows === null) {
       return ok({ status: "already-set-up" });
-    }
-
-    try {
-      await publishSetupCompleted(this.eventBus, createdRows, input);
-    } catch (error) {
-      return err(
-        firstOwnerError(
-          "identityAccess.firstOwnerSetupEventPublishFailed",
-          "First owner setup completed but the completion event could not be published.",
-          error
-        )
-      );
     }
 
     const signIn = await this.authPort.signIn({
