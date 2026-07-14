@@ -969,6 +969,19 @@ describe("Connections page state", () => {
     const separator = await readRepoFile("components/ui/separator.tsx");
     const alert = await readRepoFile("components/ui/alert.tsx");
     const providersPanel = await readRepoFile("components/connections/model-providers-panel.tsx");
+    const providerCard = await readRepoFile("components/connections/provider-card.tsx");
+    const providerGrid = await readRepoFile("components/connections/provider-grid.tsx");
+    const providerToolbar = await readRepoFile("components/connections/provider-toolbar.tsx");
+    const providerConnectDialog = await readRepoFile(
+      "components/connections/provider-connect-dialog.tsx",
+    );
+    const providerDisconnectConfirm = await readRepoFile(
+      "components/connections/provider-disconnect-confirm.tsx",
+    );
+    const connectionDialogNotices = await readRepoFile(
+      "components/connections/connection-dialog-notices.tsx",
+    );
+    const providerPresentation = await readRepoFile("lib/provider-presentation.ts");
     const skeleton = await readRepoFile("components/ui/skeleton.tsx");
     const appLayout = await readRepoFile("app/(app)/layout.tsx");
     const connectionsLib = await readRepoFile("lib/connections.ts");
@@ -999,8 +1012,8 @@ describe("Connections page state", () => {
     expect(appLayout).toContain('data-health-checked-at={state.checkedAt ?? ""}');
     expect(pageData).toContain('redirect("/login")');
     expect(pageData).toContain('redirect("/")');
-    expect(providersPanel).toContain("Model providers");
-    expect(providersPanel).toContain("Provider connection status");
+    expect(providersPanel).toContain("ProviderToolbar");
+    expect(providersPanel).toContain("ProviderGrid");
     expect(page).toContain("ConnectionsOverview");
     expect(page).toContain("ConnectionsAutoRefresh");
     expect(page).toContain("Opzava health, model providers, and third-party integrations");
@@ -1056,7 +1069,8 @@ describe("Connections page state", () => {
     expect(systemLoading).toContain("ConnectionsSystemLoading");
     expect(systemLoading).toContain("aria-busy");
     expect(providersLoading).toContain("ModelProviderConnectionsLoading");
-    expect(providersLoading).toContain("Provider connection status");
+    expect(providersLoading).toContain("grid");
+    expect(providersLoading).not.toContain("Provider connection status");
     expect(githubLoading).toContain("GitHubConnectionsLoading");
     expect(githubLoading).toContain("Loading GitHub connection status");
     expect(addLoading).toContain("AddConnectionLoading");
@@ -1071,7 +1085,7 @@ describe("Connections page state", () => {
     expect(componentsCss).toContain(".rail-item:focus-visible");
     expect(componentsCss).toContain(".btn:focus-visible");
     expect(componentsCss).toContain(".connections-page a:focus-visible");
-    expect(providersPanel).toContain("SUBAGENT");
+    expect(providerCard).toContain("SUBAGENT");
     expect(providersPanel).toContain("Gateway unavailable - retrying automatically");
     expect(providersPanel).toContain("No model providers in the live catalog");
     expect(overview).not.toContain("OpenClaw gateway");
@@ -1079,13 +1093,15 @@ describe("Connections page state", () => {
     expect(systemStatus).not.toContain("OpenClaw gateway");
     expect(systemStatus).not.toContain("Gateway catalog unavailable");
     expect(systemStatus).not.toContain("Region: unknown");
-    // Full shadcn: the panel is driven by the centralized components/ui primitives, not mockup CSS.
-    expect(providersPanel).toContain("@/components/ui/table");
+    // Full shadcn: the provider view composes accessible cards and labelled lists, not a table.
     expect(providersPanel).toContain("@/components/ui/tabs");
-    expect(providersPanel).toContain("@/components/ui/card");
-    expect(providersPanel).toContain(">Models</TableHead>");
-    expect(providersPanel).not.toContain("table table-compact table-cards");
-    expect(providersPanel).toContain("LLM model providers the gateway can route to");
+    expect(providersPanel).not.toContain("@/components/ui/table");
+    expect(providerGrid).toContain('role="list"');
+    expect(providerGrid).toContain("data-provider-tier={tierId}");
+    expect(providerCard).toContain("data-provider-id={provider.id}");
+    expect(providerCard).toContain("data-provider-status={provider.status}");
+    expect(providerCard).toContain("data-model");
+    expect(providerToolbar).toContain("Search providers");
     expect(providersPanel).not.toContain("connections-provider-list");
     expect(overview).toContain("openclawHealthSummary(health)");
     expect(overview).toContain("summary.healthy");
@@ -1132,36 +1148,32 @@ describe("Connections page state", () => {
     expect(alert).toContain('data-slot="alert"');
     expect(systemStatus).not.toContain("ModelProvidersPanel");
     expect(githubPage).not.toContain("ModelProvidersPanel");
-    expect(providersPanel).toContain("Dialog");
-    expect(providersPanel).toContain("Search providers");
-    expect(providersPanel).toContain("Connect provider");
-    expect(providersPanel).toContain("Available to connect.");
-    expect(providersPanel).toContain("Fix: reconnect the account or rotate the credential.");
-    expect(providersPanel).toContain("data-provider-status");
-    expect(providersPanel).toContain("connectedWithoutKeyField");
-    expect(providersPanel).toContain("Connected via");
-    expect(providersPanel).toContain("credentialFormChoice");
-    expect(providersPanel).toContain("Setup token");
-    expect(providersPanel).toContain("SetupTokenConnect");
-    expect(providersPanel).toContain("Already have a setup token?");
-    expect(providersPanel).toContain('type="password"');
-    expect(providersPanel).toContain("It is masked here and never echoed back.");
-    expect(providersPanel).toContain("data-active-model");
-    expect(providersPanel).toContain("data-provider-tier");
+    expect(providerConnectDialog).toContain("Dialog");
+    expect(providerConnectDialog).toContain("Connect provider");
+    expect(providerPresentation).toContain("Fix: reconnect the account or rotate the credential.");
+    expect(providerConnectDialog).toContain("connectedWithoutKeyField");
+    expect(providerConnectDialog).toContain("Connected via");
+    expect(providerConnectDialog).toContain("credentialFormChoice");
+    expect(providerPresentation).toContain("Setup token");
+    expect(providerConnectDialog).toContain("SetupTokenConnect");
+    expect(providerConnectDialog).toContain("Already have a setup token?");
+    expect(providerConnectDialog).toContain('type="password"');
+    expect(providerConnectDialog).toContain("It is masked here and never echoed back.");
+    expect(providerConnectDialog).toContain("data-active-model");
     expect(providersPanel).toContain("groupProviderConnectionsByTier");
-    expect(providersPanel).toContain("DeviceFlowPoller");
-    expect(providersPanel).toContain('"/api/connections/model/device-flow"');
-    expect(providersPanel).toContain('"/api/connections/model/api-key"');
-    expect(providersPanel).toContain("Start device flow");
-    expect(providersPanel).toContain("Retry device flow");
-    expect(providersPanel).toContain("openclaw onboard --auth-choice");
-    expect(providersPanel).not.toContain("no in-browser device flow");
-    expect(providersPanel).toContain("Disconnect");
-    expect(providersPanel).toContain("AlertDialog");
-    expect(providersPanel).toContain("Disconnect {provider.label}?");
-    expect(providersPanel).toContain("LEAD ORCHESTRATOR");
-    expect(providersPanel).toContain("SUBAGENT");
-    expect(providersPanel).toContain("Admin device required");
+    expect(providerCard).toContain("DeviceFlowPoller");
+    expect(providerConnectDialog).toContain('"/api/connections/model/device-flow"');
+    expect(providerConnectDialog).toContain('"/api/connections/model/api-key"');
+    expect(providerConnectDialog).toContain("Start device flow");
+    expect(providerConnectDialog).toContain("Retry device flow");
+    expect(providerConnectDialog).toContain("openclaw onboard --auth-choice");
+    expect(providerConnectDialog).not.toContain("no in-browser device flow");
+    expect(providerCard).toContain("Disconnect");
+    expect(providerDisconnectConfirm).toContain("AlertDialog");
+    expect(providerDisconnectConfirm).toContain("Disconnect {provider.label}?");
+    expect(providerCard).toContain("LEAD ORCHESTRATOR");
+    expect(providerCard).toContain("SUBAGENT");
+    expect(connectionDialogNotices).toContain("Admin device required");
     expect(systemStatus).toContain("HealthCheckSubmitButton");
     expect(healthCheckButton).toContain("Checking...");
     expect(actions).toContain("operator-admin-required");
@@ -1232,6 +1244,9 @@ describe("Connections page state", () => {
 
   it("keeps model-provider disconnect on the fetch mutation client with sad paths", async () => {
     const providersPanel = await readRepoFile("components/connections/model-providers-panel.tsx");
+    const disconnectConfirm = await readRepoFile(
+      "components/connections/provider-disconnect-confirm.tsx",
+    );
     const disconnectPoller = await readRepoFile("components/connections/disconnect-poller.tsx");
     const disconnectRoute = await readRepoFile("app/api/connections/model/disconnect/route.ts");
     const disconnectPollRoute = await readRepoFile(
@@ -1239,17 +1254,18 @@ describe("Connections page state", () => {
     );
 
     // Mutations must ride plain fetch (always settles), never React form-action streams.
-    expect(providersPanel).toContain("postConnectionsMutation");
-    expect(providersPanel).toContain('"/api/connections/model/disconnect"');
-    expect(providersPanel).not.toContain("useActionState");
-    expect(providersPanel).not.toContain("useFormStatus");
-    expect(providersPanel).toContain("<form id={formId} onSubmit={handleSubmit}");
-    expect(providersPanel).toContain("Disconnecting...");
-    expect(providersPanel).toContain("Disconnect failed");
-    expect(providersPanel).toContain("Retry disconnect");
-    expect(providersPanel).not.toContain("AlertDialogAction");
-    expect(providersPanel).toContain('{"This logs the gateway out of "}');
-    expect(providersPanel).toContain('" and stops routing its models.');
+    expect(disconnectConfirm).toContain("postConnectionsMutation");
+    expect(disconnectConfirm).toContain('"/api/connections/model/disconnect"');
+    expect(disconnectConfirm).toContain("provider.connectionProviderId");
+    expect(disconnectConfirm).not.toContain("useActionState");
+    expect(disconnectConfirm).not.toContain("useFormStatus");
+    expect(disconnectConfirm).toContain("<form id={formId} onSubmit={handleSubmit}");
+    expect(disconnectConfirm).toContain("Disconnecting...");
+    expect(disconnectConfirm).toContain("Disconnect failed");
+    expect(disconnectConfirm).toContain("Retry disconnect");
+    expect(disconnectConfirm).not.toContain("AlertDialogAction");
+    expect(disconnectConfirm).toContain('{"This logs the gateway out of "}');
+    expect(disconnectConfirm).toContain('" and stops routing its models.');
     expect(disconnectPoller).toContain("main-orchestrator re-election continues separately");
     expect(providersPanel).toContain("const orchestratorReconcilePollIntervalMs = 5_000;");
     expect(providersPanel).toContain("window.setInterval");
@@ -1257,23 +1273,23 @@ describe("Connections page state", () => {
     // #168: disconnect is start-then-poll. The paced gateway logouts take 60-120s+, which no HTTP
     // request survives, so the panel holds an opId and samples it — there is no synchronous
     // disconnect and no in-request "verify" retry to fall back on.
-    expect(providersPanel).toContain("<DisconnectPoller");
-    expect(providersPanel).not.toContain("Verifying disconnect");
+    expect(disconnectConfirm).toContain("<DisconnectPoller");
+    expect(disconnectConfirm).not.toContain("Verifying disconnect");
     expect(disconnectRoute).toContain("startModelProviderDisconnectForContext({");
     expect(disconnectRoute).toContain("getAppSessionContext");
     expect(disconnectPollRoute).toContain("pollModelProviderDisconnectForContext({");
     expect(disconnectPollRoute).toContain("getAppSessionContext");
   });
 
-  it("restores connected row-action focus after triggerless dialogs close", async () => {
-    const providersPanel = await readRepoFile("components/connections/model-providers-panel.tsx");
+  it("restores connected card-action focus after triggerless dialogs close", async () => {
+    const providerCard = await readRepoFile("components/connections/provider-card.tsx");
 
-    expect(providersPanel).toContain("const triggerRef = useRef<HTMLButtonElement>(null);");
-    expect(providersPanel).toContain("ref={triggerRef}");
-    expect(providersPanel).toContain("triggerRef.current?.focus()");
-    expect(providersPanel).toContain("onOpenChange={handleManageOpenChange}");
-    expect(providersPanel).toContain("onOpenChange={handleSetMainOpenChange}");
-    expect(providersPanel).toContain("onOpenChange={handleDisconnectOpenChange}");
+    expect(providerCard).toContain("const triggerRef = useRef<HTMLButtonElement>(null);");
+    expect(providerCard).toContain("ref={triggerRef}");
+    expect(providerCard).toContain("triggerRef.current?.focus()");
+    expect(providerCard).toContain("onOpenChange={handleManageOpenChange}");
+    expect(providerCard).toContain("onOpenChange={handleSetMainOpenChange}");
+    expect(providerCard).toContain("onOpenChange={handleDisconnectOpenChange}");
   });
 
   it("names the production provisioning-worker env boundary", async () => {
@@ -1288,11 +1304,15 @@ describe("Connections page state", () => {
     const page = await readRepoFile("app/(app)/connections/page.tsx");
     const systemStatus = await readRepoFile("components/connections/connections-system-status.tsx");
     const providersPage = await readRepoFile("app/(app)/connections/providers/page.tsx");
+    const providerCard = await readRepoFile("components/connections/provider-card.tsx");
     const addPage = await readRepoFile("app/(app)/connections/add/page.tsx");
 
     expect(systemStatus).not.toContain("Gateway configuration");
     expect(systemStatus).not.toContain("Host port");
     expect(providersPage).toContain("DESCOPE(provider-policy-catalogs): P8 PRD-013");
+    expect(providerCard).toContain(
+      "DESCOPE(pending-cancel-authorisation): P8 PRD-013 omits device-flow cancellation",
+    );
     expect(addPage).toContain("DESCOPE(agent-tools-mcp): P8 PRD-013");
     expect(addPage).toContain("DESCOPE(channels-services): P8 PRD-013");
     expect(page).not.toContain("Orchestrator and subagents");

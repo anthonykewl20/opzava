@@ -152,7 +152,7 @@ async function findApiKeyConnectRows(page) {
     await tab.first().click();
     await page.waitForTimeout(400);
 
-    const rows = page.locator("tr[data-provider-id]");
+    const rows = page.locator("article[data-provider-id]");
     const count = await rows.count();
     for (let i = 0; i < count; i++) {
       const row = rows.nth(i);
@@ -177,7 +177,7 @@ async function openApiKeyConnectDialog(page) {
   for (const candidate of await findApiKeyConnectRows(page)) {
     await page.getByRole("tab", { name: candidate.tier }).first().click();
     await page.waitForTimeout(400);
-    const row = page.locator(`tr[data-provider-id="${candidate.providerId}"]`).first();
+    const row = page.locator(`article[data-provider-id="${candidate.providerId}"]`).first();
     await row.getByRole("button", { name: /^connect$/i }).first().click();
 
     const dialog = page.getByRole("dialog");

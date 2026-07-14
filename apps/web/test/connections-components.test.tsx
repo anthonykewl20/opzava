@@ -7,6 +7,9 @@ import ConnectionsLoading from "../app/(app)/connections/loading";
 import { ConnectionsOverview } from "../components/connections/connections-overview";
 import { HealthStatusBreakdown } from "../components/connections/health-status-breakdown";
 import { ModelProvidersPanel } from "../components/connections/model-providers-panel";
+import { ProviderConnectedActions } from "../components/connections/provider-card";
+import { DisconnectConfirm } from "../components/connections/provider-disconnect-confirm";
+import { SetMainOrchestratorConfirm } from "../components/connections/provider-set-main-confirm";
 import {
   overviewHealthGroups,
   overviewIntegrations,
@@ -585,7 +588,7 @@ describe("Connections components", () => {
     expect(connectedHtml).not.toContain("integration-logo-strip");
   });
 
-  it("renders provider states with host roles and repair guidance", () => {
+  it("renders provider cards with host roles, status badges, models, and repair guidance", () => {
     const html = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {
         gatewayStatus: "active",
@@ -598,6 +601,7 @@ describe("Connections components", () => {
             statusLabel: "Connected",
             roleLabel: "Lead orchestrator",
             model: "openai/gpt-5.5",
+            enabledModels: [{ id: "openai/gpt-5.5", label: "GPT-5.5" }],
             connectedAuthMode: "oauth",
           }),
           provider({
@@ -607,6 +611,7 @@ describe("Connections components", () => {
             statusLabel: "Connected",
             roleLabel: "Subagent",
             model: "zai/glm-5.2",
+            enabledModels: [{ id: "zai/glm-5.2", label: "GLM-5.2" }],
             connectedAuthMode: "api_key",
           }),
           provider({
@@ -632,11 +637,54 @@ describe("Connections components", () => {
 
     expect(html).toContain("LEAD ORCHESTRATOR");
     expect(html).toContain("SUBAGENT");
-    expect(html).toContain("Needs attention");
-    expect(html).toContain(
-      "Credential expired. Fix: reconnect the account or rotate the credential.",
+    expect(html).toContain('data-provider-id="openai"');
+    expect(html).toContain('data-provider-status="connected"');
+    expect(html).toContain("data-model=");
+    expect(html).toContain("Action required");
+    expect(html).toContain("Credential expired.");
+    expect(html).toContain('data-provider-id="qwen"');
+    expect(html).not.toMatch(/data-provider-id="qwen"[\s\S]*SUBAGENT/);
+  });
+
+  it("keeps pending device authorization and OpenRouter's model fallback on cards", () => {
+    const html = renderToStaticMarkup(
+      createElement(ModelProvidersPanel, {
+        gatewayStatus: "active",
+        orchestratorReconcile: { status: "idle" },
+        providers: [
+          provider({
+            id: "openai",
+            label: "OpenAI",
+            status: "pending",
+            statusLabel: "Waiting for approval",
+            pendingFlow: {
+              flowId: "flow-1",
+              kind: "model_provider",
+              providerId: "openai",
+              authChoiceId: "openai-device-code",
+              verificationUri: "https://example.test/device",
+              userCode: "ABCD-EFGH",
+              expiresAt: "2099-07-03T00:10:00.000Z",
+              intervalSeconds: 2,
+            },
+          }),
+          provider({ id: "openrouter", label: "OpenRouter", models: [], enabledModels: [] }),
+        ],
+        summary: {
+          total: 2,
+          available: 2,
+          connected: 0,
+          needsAttention: 0,
+          pending: 1,
+          notConnected: 1,
+        },
+      }),
     );
-    expect(html).toContain("Available to connect.");
+
+    expect(html).toContain('data-provider-id="openai"');
+    expect(html).toContain('data-provider-status="pending"');
+    expect(html).toContain("ABCD-EFGH");
+    expect(html).toContain("Routes many");
   });
 
   it("hides credential-looking provider account labels", () => {
@@ -675,7 +723,7 @@ describe("Connections components", () => {
     expect(html).toContain("Claude Max");
   });
 
-  it("renders connected row actions as a menu while keeping available connect visible", () => {
+  it("renders visible Manage and connected card menus while keeping available Connect visible", () => {
     const html = renderToStaticMarkup(
       createElement(ModelProvidersPanel, {
         gatewayStatus: "active",
@@ -713,8 +761,64 @@ describe("Connections components", () => {
     expect(html).toContain('aria-label="Row actions for OpenAI / Codex"');
     expect(html).toContain('aria-label="Row actions for z.ai / GLM"');
     expect(html).not.toContain('aria-label="Row actions for Alibaba / Qwen"');
-    expect(html).toContain("Main orchestrator");
+    expect(html).toContain("LEAD ORCHESTRATOR");
+    expect(html).toMatch(/<button[^>]*>Manage<\/button>/);
     expect(html).toMatch(/<button[^>]*>Connect<\/button>/);
+  });
+
+  it("mounts the extracted disconnect, set-main, and connected-action owners", () => {
+    const connectedProvider = provider({
+      id: "zai",
+      label: "Z.AI (GLM)",
+      status: "connected",
+      statusLabel: "Connected",
+      connectedAuthMode: "api_key",
+      roleLabel: "Subagent",
+    });
+    const disconnectHtml = renderToStaticMarkup(
+      createElement(DisconnectConfirm, { provider: connectedProvider }),
+    );
+    const setMainHtml = renderToStaticMarkup(
+      createElement(SetMainOrchestratorConfirm, {
+        provider: connectedProvider,
+        onSetMainSuccess: () => undefined,
+      }),
+    );
+    const actionsHtml = renderToStaticMarkup(
+      createElement(ProviderConnectedActions, {
+        provider: connectedProvider,
+        canSetMainOrchestrator: true,
+        isLeadOrchestrator: false,
+        onSetMainOrchestratorSuccess: () => undefined,
+      }),
+    );
+
+    expect(disconnectHtml).toContain(">Disconnect</button>");
+    expect(setMainHtml).toContain(">Set as main orchestrator</button>");
+    expect(actionsHtml).toContain(">Manage</button>");
+    expect(actionsHtml).toContain('aria-label="Row actions for Z.AI (GLM)"');
+  });
+
+  it("disables Connect and explains providers with no live auth method", () => {
+    const html = renderToStaticMarkup(
+      createElement(ModelProvidersPanel, {
+        gatewayStatus: "active",
+        orchestratorReconcile: { status: "idle" },
+        providers: [
+          provider({
+            id: "local-only",
+            label: "Local only",
+            primaryAuthChoice: null,
+            apiKeyChoices: [],
+            deviceFlowChoices: [],
+          }),
+        ],
+        summary: { ...emptySummary, total: 1, available: 1, notConnected: 1 },
+      }),
+    );
+
+    expect(html).toContain("No live auth method");
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>Connect<\/button>/);
   });
 
   it("does not expose set-main copy for the current lead row", () => {
@@ -743,7 +847,7 @@ describe("Connections components", () => {
       }),
     );
 
-    expect(html).toContain("Main orchestrator");
+    expect(html).toContain("LEAD ORCHESTRATOR");
     expect(html).not.toContain("Set as main orchestrator");
   });
 

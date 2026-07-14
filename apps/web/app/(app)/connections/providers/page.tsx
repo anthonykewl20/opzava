@@ -4,6 +4,7 @@ import {
 } from "@/app/(app)/connections/_components/page-notice";
 import { requireConnectionsPageData } from "@/app/(app)/connections/_lib/page-data";
 import { ModelProvidersPanel } from "@/components/connections/model-providers-panel";
+import { ProviderRulesPopover } from "@/components/connections/provider-rules-popover";
 
 interface ModelProviderConnectionsPageProps {
   readonly searchParams?: Promise<{
@@ -22,8 +23,11 @@ export default async function ModelProviderConnectionsPage({
     <>
       <div className="page-header">
         <div>
-          <h1>Model providers</h1>
-          <p className="page-sub">LLM credentials the gateway can route to.</p>
+          <h1 className="flex items-center gap-1.5">
+            Model providers
+            <ProviderRulesPopover />
+          </h1>
+          <p className="page-sub">Canonical LLM provider credentials the gateway can route to.</p>
         </div>
       </div>
 

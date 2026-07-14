@@ -18,7 +18,7 @@ interface MonogramBrand {
   readonly source: "monogram";
 }
 
-type ProviderBrand = SvgBrand | MonogramBrand;
+export type ProviderBrand = SvgBrand | MonogramBrand;
 
 /*
  * Brand provenance:
@@ -29,7 +29,7 @@ type ProviderBrand = SvgBrand | MonogramBrand;
  * - Five providers without a licensed mark in the locked local asset set use
  *   deterministic monograms. No remote asset lookup is performed.
  */
-const providerBrands = {
+export const providerBrands = {
   anthropic: {
     kind: "brand",
     color: "#191919",
@@ -131,9 +131,9 @@ const providerBrands = {
   },
 } as const satisfies Record<string, ProviderBrand>;
 
-type CanonicalProviderBrand = keyof typeof providerBrands;
+export type CanonicalProviderBrand = keyof typeof providerBrands;
 
-const providerBrandAliases: Readonly<Record<string, CanonicalProviderBrand>> = {
+export const providerBrandAliases: Readonly<Record<string, CanonicalProviderBrand>> = {
   "claude-cli": "anthropic",
   "claude-max-api-proxy": "anthropic",
   "anthropic-vertex": "anthropic",
@@ -157,13 +157,13 @@ function normalizeProviderId(providerId: string): string {
   return providerId.trim().toLowerCase();
 }
 
-function resolveProviderBrand(providerId: string): CanonicalProviderBrand | null {
+export function resolveProviderBrand(providerId: string): CanonicalProviderBrand | null {
   const normalized = normalizeProviderId(providerId);
   if (normalized in providerBrands) return normalized as CanonicalProviderBrand;
   return providerBrandAliases[normalized] ?? null;
 }
 
-function fallbackMonogram(label: string, providerId: string): string {
+export function fallbackMonogram(label: string, providerId: string): string {
   return (
     label.match(/[a-z0-9]/i)?.[0]?.toUpperCase() ??
     providerId.match(/[a-z0-9]/i)?.[0]?.toUpperCase() ??

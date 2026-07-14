@@ -537,17 +537,18 @@ async function openTier(page, tier) {
   await page.waitForTimeout(250);
   const panel = page.locator(`[data-provider-tier="${tier.id}"]`);
   const ids = await panel
-    .locator("tr[data-provider-id]")
-    .evaluateAll((rows) =>
-      rows.map((row) => (row.getAttribute("data-provider-id") ?? "").toLowerCase()),
+    .locator("article[data-provider-id]")
+    .evaluateAll((cards) =>
+      cards.map((card) => (card.getAttribute("data-provider-id") ?? "").toLowerCase()),
     );
-  const connectedModelCount = await panel.locator("tr[data-provider-id]").evaluateAll((rows) =>
-    rows.reduce((count, row) => {
-      const status = row.querySelector('[data-label="Status"]')?.textContent ?? "";
-      if (!/connected/i.test(status) || /not connected/i.test(status)) return count;
-      return count + row.querySelectorAll('[data-label="Models"] .font-mono').length;
-    }, 0),
-  );
+  const connectedModelCount = await panel
+    .locator("article[data-provider-id]")
+    .evaluateAll((cards) =>
+      cards.reduce((count, card) => {
+        if (card.querySelector('[data-provider-status="connected"]') === null) return count;
+        return count + card.querySelectorAll("[data-model]").length;
+      }, 0),
+    );
   return { present: true, ids, connectedModelCount };
 }
 
@@ -563,9 +564,9 @@ async function validateProviderPage(page) {
   );
   const expectation = providerPageExpectation(expectedHealth);
   if (expectation.state === "gateway-unavailable") {
-    const providerRowCount = await page.locator("tr[data-provider-id]").count();
+    const providerCardCount = await page.locator("article[data-provider-id]").count();
     const connectedManagementActionCount = await page
-      .getByRole("button", { name: /^row actions for /i })
+      .getByRole("button", { name: /^manage$/i })
       .count();
     assertFinding(
       (await page.getByText(expectation.headline, { exact: true }).count()) === 1,
@@ -575,22 +576,22 @@ async function validateProviderPage(page) {
       (await page.getByText(expectation.detail, { exact: true }).count()) === 1,
       "providers page does not distinguish an unavailable catalog from zero providers",
     );
-    assertFinding(providerRowCount === 0, "unavailable provider catalog claims provider rows");
+    assertFinding(providerCardCount === 0, "unavailable provider catalog claims provider cards");
     assertFinding(
       connectedManagementActionCount === 0,
       "unavailable provider catalog claims connected management actions",
     );
     report.providerPage = {
       state: expectation.state,
-      providerRowCount,
+      providerCardCount,
       connectedManagementActionCount,
     };
     return;
   }
 
   assertFinding(
-    (await page.getByRole("table", { name: /llm model providers/i }).count()) > 0,
-    "providers table missing",
+    (await page.locator("[data-provider-tier]").count()) > 0,
+    "labelled provider list missing",
   );
   for (const tier of TIERS.slice(0, 3)) {
     assertFinding(
@@ -617,28 +618,85 @@ async function validateProviderPage(page) {
   assertFinding(!allIds.some((id) => NON_LLM_IDS.has(id)), "non-LLM provider present");
   assertFinding(connectedModelCount > 0, "connected provider has no real configured model");
 
-  let connectedRow = null;
-  let connectedTier = null;
+  const search = page.getByRole("searchbox", { name: /search providers/i });
+  await search.fill("OpenRouter");
+  assertFinding(
+    (await page.getByText(/^\d+ results? for /i).count()) > 0,
+    "global provider search results chip missing",
+  );
+  assertFinding(
+    (await page.locator('article[data-provider-id="openrouter"]').count()) > 0,
+    "global provider search did not find a provider outside the active tier",
+  );
+  await page.getByRole("button", { name: /^clear$/i }).click();
+  assertFinding(
+    (await page.getByRole("tab", { name: TIERS[0].tab }).count()) > 0,
+    "clearing provider search did not restore tier tabs",
+  );
+
+  let availableCard = null;
   for (const tier of TIERS) {
     const tab = page.getByRole("tab", { name: tier.tab });
     if ((await tab.count()) === 0) continue;
     await tab.first().click();
+    const cards = page.locator(
+      `[data-provider-tier="${tier.id}"] article[data-provider-id]:has([data-provider-status="not_connected"])`,
+    );
+    for (let index = 0; index < (await cards.count()); index += 1) {
+      const candidate = cards.nth(index);
+      const connect = candidate.getByRole("button", { name: /^connect$/i });
+      if ((await connect.count()) > 0 && (await connect.isEnabled())) {
+        availableCard = candidate;
+        break;
+      }
+    }
+    if (availableCard !== null) break;
+  }
+  assertFinding(availableCard !== null, "no available provider card for Connect coverage");
+  if (availableCard !== null) {
+    await availableCard.getByRole("button", { name: /^connect$/i }).click();
+    const connectDialog = page.getByRole("dialog");
+    await connectDialog.waitFor({ state: "visible", timeout: 5_000 });
+    await connectDialog.getByRole("button", { name: /^close$/i }).click();
+    await connectDialog.waitFor({ state: "hidden", timeout: 5_000 });
+  }
+
+  let connectedCard = null;
+  let connectedTier = null;
+  const reliableConnectedTab = page.getByRole("tab", { name: TIERS[2].tab });
+  if ((await reliableConnectedTab.count()) > 0) {
+    await reliableConnectedTab.first().click();
+    const zaiCard = page.locator(
+      '[data-provider-tier="best-subagents"] article[data-provider-id="zai"]:has([data-provider-status="connected"])',
+    );
+    if ((await rowActions(zaiCard).count()) > 0) {
+      connectedCard = zaiCard;
+      connectedTier = "best-subagents";
+    }
+  }
+  for (const tier of TIERS) {
+    if (connectedCard !== null) break;
+    const tab = page.getByRole("tab", { name: tier.tab });
+    if ((await tab.count()) === 0) continue;
+    await tab.first().click();
     await page.waitForTimeout(250);
-    const rows = page.locator(`[data-provider-tier="${tier.id}"] tr[data-provider-id]`);
-    for (let index = 0; index < (await rows.count()); index += 1) {
-      const row = rows.nth(index);
-      if ((await rowActions(row).count()) > 0) {
-        connectedRow = row;
+    const cards = page.locator(
+      `[data-provider-tier="${tier.id}"] article[data-provider-id]:has([data-provider-status="connected"])`,
+    );
+    for (let index = 0; index < (await cards.count()); index += 1) {
+      const card = cards.nth(index);
+      if ((await rowActions(card).count()) > 0) {
+        connectedCard = card;
         connectedTier = tier.id;
         break;
       }
     }
-    if (connectedRow !== null) break;
+    if (connectedCard !== null) break;
   }
 
-  assertFinding(connectedRow !== null, "no connected provider available for Manage coverage");
-  if (connectedRow !== null) {
-    await openRowAction(page, connectedRow, /^manage$/i);
+  assertFinding(connectedCard !== null, "no connected provider available for Manage coverage");
+  if (connectedCard !== null) {
+    await connectedCard.getByRole("button", { name: /^manage$/i }).click();
     const dialog = page.getByRole("dialog");
     await dialog.waitFor({ state: "visible", timeout: 5_000 });
     const model = (await dialog.locator("[data-active-model]").first().textContent())?.trim() ?? "";
@@ -651,7 +709,22 @@ async function validateProviderPage(page) {
       if (request.method() === "POST") postedBeforeConfirm = true;
     };
     page.on("request", observePost);
-    await openRowAction(page, connectedRow, /^disconnect$/i);
+    await rowActions(connectedCard).first().click();
+    const setMainItem = page.getByRole("menuitem", { name: /^set as main orchestrator$/i });
+    const disconnectItem = page.getByRole("menuitem", { name: /^disconnect$/i });
+    assertFinding(
+      (await disconnectItem.count()) > 0,
+      "connected provider action menu lacks Disconnect",
+    );
+    // Set-as-main only renders on connected NON-lead cards; the current lead legitimately omits it.
+    const isLeadCard = (await connectedCard.getByText("LEAD ORCHESTRATOR").count()) > 0;
+    if (!isLeadCard) {
+      assertFinding(
+        (await setMainItem.count()) > 0,
+        "connected subagent action menu lacks Set as main orchestrator",
+      );
+    }
+    await disconnectItem.first().click();
     const confirm = page.getByRole("alertdialog");
     await confirm.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
     assertFinding((await confirm.count()) > 0, "Disconnect confirmation missing");

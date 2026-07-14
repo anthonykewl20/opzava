@@ -1,4 +1,3 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ModelProviderConnectionsLoading() {
@@ -11,31 +10,35 @@ export default function ModelProviderConnectionsLoading() {
             <p className="page-sub">Loading provider connection status...</p>
           </div>
         </div>
-
-        <Card aria-labelledby="providers-loading-title">
-          <CardHeader>
-            <CardTitle id="providers-loading-title">Provider connection status</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            <div className="flex items-center justify-between gap-3">
-              <Skeleton className="h-9 w-64" />
-              <Skeleton className="h-9 w-36" />
-            </div>
-            <div className="grid gap-2">
-              {[0, 1, 2, 3].map((row) => (
-                <div
-                  className="grid grid-cols-[minmax(10rem,1fr)_8rem_8rem_6rem] gap-4 rounded-lg border border-border p-4"
-                  key={row}
-                >
-                  <Skeleton className="h-5 w-full max-w-48" />
-                  <Skeleton className="h-5 w-24" />
-                  <Skeleton className="h-5 w-24" />
-                  <Skeleton className="h-8 w-20 justify-self-end" />
+        <div className="grid gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <Skeleton className="h-10 w-full sm:w-[34rem]" />
+            <Skeleton className="h-9 w-full sm:w-64" />
+          </div>
+          <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            {[0, 1, 2, 3].map((card) => (
+              <div
+                className="flex min-h-72 flex-col rounded-xl border border-border bg-card p-5"
+                key={card}
+              >
+                <div className="flex items-start gap-3">
+                  <Skeleton className="size-[38px] rounded-md" />
+                  <div className="grid flex-1 gap-2">
+                    <Skeleton className="h-5 w-32" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <Skeleton className="h-[22px] w-20 rounded-full" />
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                <div className="mt-6 grid gap-4">
+                  <Skeleton className="h-[22px] w-28 rounded-full" />
+                  <Skeleton className="h-[22px] w-44 rounded-full" />
+                  <Skeleton className="h-4 w-48" />
+                </div>
+                <Skeleton className="mt-auto h-9 w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
