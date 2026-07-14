@@ -132,8 +132,7 @@ export function ModelProvidersPanel({
           <span>
             <strong>{leadProvider.label}</strong> is the main orchestrator.{" "}
             {subagents.map((provider) => provider.label).join(", ")}{" "}
-            {subagents.length === 1 ? "runs" : "run"} as subagent{subagents.length === 1 ? "" : "s"}
-            .
+            {subagents.length === 1 ? "runs as a subagent." : "run as subagents."}
           </span>
         </div>
       ) : null}

@@ -63,11 +63,11 @@ export function ProviderBacks({
         <span aria-hidden="true" className="text-[var(--accent)]">
           ✦
         </span>
-        LEAD ORCHESTRATOR
+        Lead orchestrator
       </Badge>
     );
   }
-  return <Badge variant="outline">SUBAGENT</Badge>;
+  return <Badge variant="outline">Subagent</Badge>;
 }
 
 export function ProviderConnectedActions({

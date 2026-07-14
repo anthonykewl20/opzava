@@ -717,7 +717,7 @@ async function validateProviderPage(page) {
       "connected provider action menu lacks Disconnect",
     );
     // Set-as-main only renders on connected NON-lead cards; the current lead legitimately omits it.
-    const isLeadCard = (await connectedCard.getByText("LEAD ORCHESTRATOR").count()) > 0;
+    const isLeadCard = (await connectedCard.getByText("Lead orchestrator").count()) > 0;
     if (!isLeadCard) {
       assertFinding(
         (await setMainItem.count()) > 0,

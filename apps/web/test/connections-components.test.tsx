@@ -635,15 +635,15 @@ describe("Connections components", () => {
       }),
     );
 
-    expect(html).toContain("LEAD ORCHESTRATOR");
-    expect(html).toContain("SUBAGENT");
+    expect(html).toContain("Lead orchestrator");
+    expect(html).toContain("Subagent");
     expect(html).toContain('data-provider-id="openai"');
     expect(html).toContain('data-provider-status="connected"');
     expect(html).toContain("data-model=");
     expect(html).toContain("Action required");
     expect(html).toContain("Credential expired.");
     expect(html).toContain('data-provider-id="qwen"');
-    expect(html).not.toMatch(/data-provider-id="qwen"[\s\S]*SUBAGENT/);
+    expect(html).not.toMatch(/data-provider-id="qwen"[\s\S]*Subagent/);
   });
 
   it("keeps pending device authorization and OpenRouter's model fallback on cards", () => {
@@ -761,7 +761,7 @@ describe("Connections components", () => {
     expect(html).toContain('aria-label="Row actions for OpenAI / Codex"');
     expect(html).toContain('aria-label="Row actions for z.ai / GLM"');
     expect(html).not.toContain('aria-label="Row actions for Alibaba / Qwen"');
-    expect(html).toContain("LEAD ORCHESTRATOR");
+    expect(html).toContain("Lead orchestrator");
     expect(html).toMatch(/<button[^>]*>Manage<\/button>/);
     expect(html).toMatch(/<button[^>]*>Connect<\/button>/);
   });
@@ -847,7 +847,7 @@ describe("Connections components", () => {
       }),
     );
 
-    expect(html).toContain("LEAD ORCHESTRATOR");
+    expect(html).toContain("Lead orchestrator");
     expect(html).not.toContain("Set as main orchestrator");
   });
 

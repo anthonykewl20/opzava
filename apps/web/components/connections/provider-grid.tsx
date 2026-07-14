@@ -31,7 +31,7 @@ export function ProviderGrid({
       role="list"
       aria-label={`${tierLabel} providers`}
       data-provider-tier={tierId}
-      className="grid list-none grid-cols-1 items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+      className="grid list-none grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-stretch gap-4"
     >
       {providers.map((provider) => (
         <li key={provider.id} className="flex min-w-0">

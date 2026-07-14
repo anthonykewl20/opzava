@@ -15,7 +15,7 @@ export default function ModelProviderConnectionsLoading() {
             <Skeleton className="h-10 w-full sm:w-[34rem]" />
             <Skeleton className="h-9 w-full sm:w-64" />
           </div>
-          <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-stretch gap-4">
             {[0, 1, 2, 3].map((card) => (
               <div
                 className="flex min-h-72 flex-col rounded-xl border border-border bg-card p-5"

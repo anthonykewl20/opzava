@@ -1085,7 +1085,7 @@ describe("Connections page state", () => {
     expect(componentsCss).toContain(".rail-item:focus-visible");
     expect(componentsCss).toContain(".btn:focus-visible");
     expect(componentsCss).toContain(".connections-page a:focus-visible");
-    expect(providerCard).toContain("SUBAGENT");
+    expect(providerCard).toContain("Subagent");
     expect(providersPanel).toContain("Gateway unavailable - retrying automatically");
     expect(providersPanel).toContain("No model providers in the live catalog");
     expect(overview).not.toContain("OpenClaw gateway");
@@ -1171,8 +1171,8 @@ describe("Connections page state", () => {
     expect(providerCard).toContain("Disconnect");
     expect(providerDisconnectConfirm).toContain("AlertDialog");
     expect(providerDisconnectConfirm).toContain("Disconnect {provider.label}?");
-    expect(providerCard).toContain("LEAD ORCHESTRATOR");
-    expect(providerCard).toContain("SUBAGENT");
+    expect(providerCard).toContain("Lead orchestrator");
+    expect(providerCard).toContain("Subagent");
     expect(connectionDialogNotices).toContain("Admin device required");
     expect(systemStatus).toContain("HealthCheckSubmitButton");
     expect(healthCheckButton).toContain("Checking...");
