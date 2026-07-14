@@ -70,7 +70,7 @@ export type GatewayRequestContext = {
   execApprovalManager?: ExecApprovalManager;
   pluginApprovalManager?: ExecApprovalManager<PluginApprovalRequestPayload>;
   loadGatewayModelCatalog: (params?: { readOnly?: boolean }) => Promise<ModelCatalogEntry[]>;
-  getHealthCache: () => HealthSummary | null;
+  getHealthCache: (opts?: { includeSensitive?: boolean }) => HealthSummary | null;
   refreshHealthSnapshot: (opts?: {
     probe?: boolean;
     includeSensitive?: boolean;

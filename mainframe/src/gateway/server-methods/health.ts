@@ -126,7 +126,7 @@ export const healthHandlers: GatewayRequestHandlers = {
     const scopes = Array.isArray(client?.connect?.scopes) ? client.connect.scopes : [];
     const includeSensitive = scopes.includes(ADMIN_SCOPE);
     const now = Date.now();
-    const cached = getHealthCache();
+    const cached = getHealthCache({ includeSensitive });
     let cachedDiffersFromRuntime = false;
     if (!wantsProbe && cached) {
       try {

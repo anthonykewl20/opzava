@@ -27,7 +27,7 @@ export type NodeEventContext = {
   chatDeltaSentAt: Map<string, number>;
   dedupe: Map<string, DedupeEntry>;
   agentRunSeq: Map<string, number>;
-  getHealthCache: () => HealthSummary | null;
+  getHealthCache: (opts?: { includeSensitive?: boolean }) => HealthSummary | null;
   refreshHealthSnapshot: (opts?: {
     probe?: boolean;
     includeSensitive?: boolean;

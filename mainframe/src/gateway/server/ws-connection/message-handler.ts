@@ -2073,10 +2073,9 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
             );
         }
 
-        const snapshot = buildGatewaySnapshot({
-          includeSensitive: scopes.includes(ADMIN_SCOPE),
-        });
-        const cachedHealth = getHealthCache();
+        const includeSensitive = scopes.includes(ADMIN_SCOPE);
+        const snapshot = buildGatewaySnapshot({ includeSensitive });
+        const cachedHealth = getHealthCache({ includeSensitive });
         if (cachedHealth) {
           snapshot.health = cachedHealth;
           snapshot.stateVersion.health = getHealthVersion();

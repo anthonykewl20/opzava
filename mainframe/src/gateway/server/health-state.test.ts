@@ -53,18 +53,30 @@ describe("refreshGatewayHealthSnapshot", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps refreshes coalesced while preserving the first probe intent", async () => {
+  it("runs one strong follow-up when probe callers arrive during a weak refresh", async () => {
     const healthState = await loadHealthState();
-    let resolveSnapshot: ((summary: HealthSummary) => void) | undefined;
-    getHealthSnapshotMock.mockImplementation(
-      () =>
-        new Promise<HealthSummary>((resolve) => {
-          resolveSnapshot = resolve;
-        }),
-    );
+    const weakSummary = createHealthSummary();
+    const strongSummary = createHealthSummary();
+    let resolveWeak: ((summary: HealthSummary) => void) | undefined;
+    let resolveStrong: ((summary: HealthSummary) => void) | undefined;
+    getHealthSnapshotMock
+      .mockImplementationOnce(
+        () =>
+          new Promise<HealthSummary>((resolve) => {
+            resolveWeak = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<HealthSummary>((resolve) => {
+            resolveStrong = resolve;
+          }),
+      );
 
     const first = healthState.refreshGatewayHealthSnapshot({ probe: false });
-    const second = healthState.refreshGatewayHealthSnapshot({ probe: true });
+    const strongWaiters = Array.from({ length: 5 }, () =>
+      healthState.refreshGatewayHealthSnapshot({ probe: true }),
+    );
 
     expect(getHealthSnapshotMock).toHaveBeenCalledTimes(1);
     expect(getHealthSnapshotMock).toHaveBeenCalledWith({
@@ -73,8 +85,37 @@ describe("refreshGatewayHealthSnapshot", () => {
       runtimeSnapshot: undefined,
     });
     expect(Object.hasOwn(healthSnapshotCallArg() ?? {}, "eventLoop")).toBe(false);
-    resolveSnapshot?.(createHealthSummary());
-    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    resolveWeak?.(weakSummary);
+    await first;
+    await vi.waitFor(() => expect(getHealthSnapshotMock).toHaveBeenCalledTimes(2));
+    expect(healthSnapshotCallArg(1)?.probe).toBe(true);
+    resolveStrong?.(strongSummary);
+    await expect(Promise.all(strongWaiters)).resolves.toEqual(
+      Array.from({ length: 5 }, () => strongSummary),
+    );
+  });
+
+  it("still runs a strong follow-up when the weak predecessor fails", async () => {
+    const healthState = await loadHealthState();
+    const strongSummary = createHealthSummary();
+    let rejectWeak: ((error: Error) => void) | undefined;
+    getHealthSnapshotMock
+      .mockImplementationOnce(
+        () =>
+          new Promise<HealthSummary>((_resolve, reject) => {
+            rejectWeak = reject;
+          }),
+      )
+      .mockResolvedValueOnce(strongSummary);
+
+    const weak = healthState.refreshGatewayHealthSnapshot({ probe: false });
+    const strong = healthState.refreshGatewayHealthSnapshot({ probe: true });
+    rejectWeak?.(new Error("weak refresh failed"));
+
+    await expect(weak).rejects.toThrow("weak refresh failed");
+    await expect(strong).resolves.toBe(strongSummary);
+    expect(getHealthSnapshotMock).toHaveBeenCalledTimes(2);
+    expect(healthSnapshotCallArg(1)?.probe).toBe(true);
   });
 
   it("passes event-loop health only when the hook returns a snapshot", async () => {
@@ -136,7 +177,7 @@ describe("refreshGatewayHealthSnapshot", () => {
     expect(healthSnapshotCallArg(1)?.runtimeSnapshot).toBeUndefined();
   });
 
-  it("does not cache or broadcast sensitive health refreshes", async () => {
+  it("stores sensitive health separately without broadcasting or changing the safe version", async () => {
     const healthState = await loadHealthState();
     const sensitiveSummary = createHealthSummary();
     const safeSummary = createHealthSummary();
@@ -150,14 +191,29 @@ describe("refreshGatewayHealthSnapshot", () => {
     await healthState.refreshGatewayHealthSnapshot({ probe: true, includeSensitive: true });
 
     expect(healthState.getHealthCache()).toBeNull();
+    expect(healthState.getHealthCache({ includeSensitive: true })).toBe(sensitiveSummary);
     expect(healthState.getHealthVersion()).toBe(version);
     expect(broadcast).not.toHaveBeenCalled();
 
     await healthState.refreshGatewayHealthSnapshot({ probe: false });
 
     expect(healthState.getHealthCache()).toBe(safeSummary);
+    expect(healthState.getHealthCache({ includeSensitive: true })).toBe(sensitiveSummary);
     expect(healthState.getHealthVersion()).toBe(version + 1);
     expect(broadcast).toHaveBeenCalledWith(safeSummary);
+  });
+
+  it("serves the latest sensitive probe to later sensitive cache reads", async () => {
+    const healthState = await loadHealthState();
+    const first = createHealthSummary();
+    const probed = { ...createHealthSummary(), ts: first.ts + 1 };
+    getHealthSnapshotMock.mockResolvedValueOnce(first).mockResolvedValueOnce(probed);
+
+    await healthState.refreshGatewayHealthSnapshot({ probe: false, includeSensitive: true });
+    await healthState.refreshGatewayHealthSnapshot({ probe: true, includeSensitive: true });
+
+    expect(healthState.getHealthCache({ includeSensitive: true })).toBe(probed);
+    expect(healthState.getHealthCache()).toBeNull();
   });
 
   it("keeps sensitive and public refreshes on separate in-flight promises", async () => {

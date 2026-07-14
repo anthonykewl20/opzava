@@ -4456,6 +4456,83 @@ describe("gateway healthHandlers.health cache freshness", () => {
     clearContextEngineRuntimeQuarantine();
   });
 
+  it("keeps an admin probe cached for later admins without exposing it to safe callers", async () => {
+    const safe = {
+      ok: true,
+      ts: Date.now(),
+      durationMs: 1,
+      channels: {},
+      channelOrder: [],
+      channelLabels: {},
+      heartbeatSeconds: 0,
+      defaultAgentId: "main",
+      agents: [],
+      sessions: { path: "/tmp/sessions.json", count: 0, recent: [] },
+    };
+    const sensitive = { ...safe, ts: safe.ts + 1 };
+    let sensitiveCache: typeof sensitive | null = null;
+    const getHealthCache = vi.fn((opts?: { includeSensitive?: boolean }) =>
+      opts?.includeSensitive === true ? sensitiveCache : safe,
+    );
+    const refreshHealthSnapshot = vi.fn(
+      async (opts?: { probe?: boolean; includeSensitive?: boolean }) => {
+        if (opts?.probe === true && opts.includeSensitive === true) {
+          sensitiveCache = sensitive;
+        }
+        return opts?.includeSensitive === true ? (sensitiveCache ?? sensitive) : safe;
+      },
+    );
+    const context = {
+      getHealthCache,
+      refreshHealthSnapshot,
+      getRuntimeSnapshot: () => ({ channels: {}, channelAccounts: {} }),
+      logHealth: { error: vi.fn() },
+    } as never;
+    const adminClient = {
+      connect: { role: "operator", scopes: ["operator.admin"] },
+    } as never;
+    const safeClient = {
+      connect: { role: "operator", scopes: ["operator.read"] },
+    } as never;
+    const probeRespond = vi.fn();
+    const cachedAdminRespond = vi.fn();
+    const safeRespond = vi.fn();
+
+    await healthHandlers.health({
+      req: {} as never,
+      params: { probe: true },
+      respond: probeRespond as never,
+      context,
+      client: adminClient,
+      isWebchatConnect: () => false,
+    });
+    await healthHandlers.health({
+      req: {} as never,
+      params: {},
+      respond: cachedAdminRespond as never,
+      context,
+      client: adminClient,
+      isWebchatConnect: () => false,
+    });
+    await healthHandlers.health({
+      req: {} as never,
+      params: {},
+      respond: safeRespond as never,
+      context,
+      client: safeClient,
+      isWebchatConnect: () => false,
+    });
+
+    expect(probeRespond).toHaveBeenCalledWith(true, sensitive, undefined);
+    expect(cachedAdminRespond).toHaveBeenCalledWith(true, sensitive, undefined, {
+      cached: true,
+    });
+    expect(safeRespond).toHaveBeenCalledWith(true, safe, undefined, { cached: true });
+    expect(getHealthCache).toHaveBeenNthCalledWith(1, { includeSensitive: true });
+    expect(getHealthCache).toHaveBeenNthCalledWith(2, { includeSensitive: true });
+    expect(getHealthCache).toHaveBeenNthCalledWith(3, { includeSensitive: false });
+  });
+
   it("refreshes cached health when runtime channel lifecycle has changed", async () => {
     const cached = {
       ok: true,

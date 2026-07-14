@@ -15,8 +15,13 @@ import type { GatewayEventLoopHealth } from "./event-loop-health.js";
 let presenceVersion = 1;
 let healthVersion = 1;
 let healthCache: HealthSummary | null = null;
-let healthRefresh: Promise<HealthSummary> | null = null;
-let sensitiveHealthRefresh: Promise<HealthSummary> | null = null;
+let sensitiveHealthCache: HealthSummary | null = null;
+type HealthRefresh = {
+  probe: boolean;
+  promise: Promise<HealthSummary>;
+};
+let healthRefresh: HealthRefresh | null = null;
+let sensitiveHealthRefresh: HealthRefresh | null = null;
 let broadcastHealthUpdate: ((snap: HealthSummary) => void) | null = null;
 
 export function buildGatewaySnapshot(opts?: { includeSensitive?: boolean }): Snapshot {
@@ -53,8 +58,8 @@ export function buildGatewaySnapshot(opts?: { includeSensitive?: boolean }): Sna
   return snapshot;
 }
 
-export function getHealthCache(): HealthSummary | null {
-  return healthCache;
+export function getHealthCache(opts?: { includeSensitive?: boolean }): HealthSummary | null {
+  return opts?.includeSensitive === true ? sensitiveHealthCache : healthCache;
 }
 
 export function getHealthVersion(): number {
@@ -79,44 +84,60 @@ export async function refreshGatewayHealthSnapshot(opts?: {
   includeSensitive?: boolean;
   getRuntimeSnapshot?: () => ChannelRuntimeSnapshot;
   getEventLoopHealth?: () => GatewayEventLoopHealth | undefined;
-}) {
+}): Promise<HealthSummary> {
   const includeSensitive = opts?.includeSensitive === true;
-  let refresh = includeSensitive ? sensitiveHealthRefresh : healthRefresh;
-  if (!refresh) {
-    refresh = (async () => {
-      let runtimeSnapshot: ChannelRuntimeSnapshot | undefined;
-      try {
-        runtimeSnapshot = opts?.getRuntimeSnapshot?.();
-      } catch {
-        runtimeSnapshot = undefined;
-      }
-      const eventLoop = opts?.getEventLoopHealth?.();
-      const snap = await getHealthSnapshot({
-        probe: opts?.probe,
-        includeSensitive,
-        runtimeSnapshot,
-        ...(eventLoop ? { eventLoop } : {}),
-      });
-      if (!includeSensitive) {
-        healthCache = snap;
-        healthVersion += 1;
-        if (broadcastHealthUpdate) {
-          broadcastHealthUpdate(snap);
-        }
-      }
-      return snap;
-    })().finally(() => {
-      if (includeSensitive) {
-        sensitiveHealthRefresh = null;
-      } else {
-        healthRefresh = null;
-      }
+  const probe = opts?.probe === true;
+  const refresh = includeSensitive ? sensitiveHealthRefresh : healthRefresh;
+  if (refresh) {
+    if (!probe || refresh.probe) {
+      return refresh.promise;
+    }
+    // A live probe cannot inherit a weaker in-flight refresh. Wait for cleanup,
+    // then let the first waiter create the one strong follow-up all others join.
+    try {
+      await refresh.promise;
+    } catch {
+      // A failed weak refresh must not suppress the requested live probe.
+    }
+    return refreshGatewayHealthSnapshot(opts);
+  }
+
+  const promise = (async () => {
+    let runtimeSnapshot: ChannelRuntimeSnapshot | undefined;
+    try {
+      runtimeSnapshot = opts?.getRuntimeSnapshot?.();
+    } catch {
+      runtimeSnapshot = undefined;
+    }
+    const eventLoop = opts?.getEventLoopHealth?.();
+    const snap = await getHealthSnapshot({
+      probe: opts?.probe,
+      includeSensitive,
+      runtimeSnapshot,
+      ...(eventLoop ? { eventLoop } : {}),
     });
     if (includeSensitive) {
-      sensitiveHealthRefresh = refresh;
+      sensitiveHealthCache = snap;
     } else {
-      healthRefresh = refresh;
+      healthCache = snap;
+      healthVersion += 1;
+      if (broadcastHealthUpdate) {
+        broadcastHealthUpdate(snap);
+      }
     }
+    return snap;
+  })().finally(() => {
+    if (includeSensitive) {
+      sensitiveHealthRefresh = null;
+    } else {
+      healthRefresh = null;
+    }
+  });
+  const nextRefresh = { probe, promise };
+  if (includeSensitive) {
+    sensitiveHealthRefresh = nextRefresh;
+  } else {
+    healthRefresh = nextRefresh;
   }
-  return refresh;
+  return promise;
 }
