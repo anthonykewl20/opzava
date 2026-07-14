@@ -118,10 +118,13 @@ export function OrchestratorModelPicker({
       {failure === null ? null : (
         <MutationErrorNotice failure={failure} title="Orchestrator model update failed" />
       )}
-      <div className="flex items-center gap-2">
+      {/* minmax(0,1fr): a native select's min-content width is its longest option, which otherwise
+          inflates the dialog's implicit grid column past the 520px panel — the content then paints
+          on the overlay beside the dialog surface (user-reported). */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
         <select
           aria-label="Orchestrator model"
-          className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-3 font-mono text-sm text-foreground"
+          className="h-9 w-full min-w-0 rounded-md border border-border bg-background px-3 font-mono text-sm text-foreground"
           disabled={pending}
           value={choice}
           onChange={(event) => setChoice(event.target.value)}
