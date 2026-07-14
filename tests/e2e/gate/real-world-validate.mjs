@@ -25,18 +25,32 @@ const posInt = (name, def) => {
   const raw = process.env[name];
   if (raw === undefined) return def;
   const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1) fail(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
+  if (!Number.isInteger(n) || n < 1)
+    fail(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
   return n;
 };
 const MAX_PASSES = posInt("REAL_MAX_PASSES", 5);
 const CLEAN_STREAK = posInt("REAL_CLEAN_STREAK", 2);
 const STORM_THRESHOLD = posInt("REAL_STORM_THRESHOLD", 5);
-const OUT = process.argv[2] ?? `real-validate-artifacts/${new Date().toISOString().replaceAll(":", "-")}`;
+const OUT =
+  process.argv[2] ?? `real-validate-artifacts/${new Date().toISOString().replaceAll(":", "-")}`;
 mkdirSync(OUT, { recursive: true });
 
-const SEED_ROUTES = ["/", "/tasks", "/issues", "/connections", "/connections/system",
-  "/connections/providers", "/connections/github", "/connections/add", "/ask-opzava",
-  "/crm/accounts", "/crm/contacts", "/crm/deals", "/crm/tickets"];
+const SEED_ROUTES = [
+  "/",
+  "/tasks",
+  "/issues",
+  "/connections",
+  "/connections/system",
+  "/connections/providers",
+  "/connections/github",
+  "/connections/add",
+  "/ask-opzava",
+  "/crm/accounts",
+  "/crm/contacts",
+  "/crm/deals",
+  "/crm/tickets",
+];
 // One-shot init containers that legitimately exit 0.
 const ALLOW_EXITED = new Set(["minio-bucket-init"]);
 const HARD_LOG = /unhandled|fatal|panic/i;
@@ -44,7 +58,8 @@ const HARD_LOG = /unhandled|fatal|panic/i;
 // contain "error|exception|..." so the plain log filter never saw them - a live
 // worker->gateway retry-storm greened the gate (2026-07-06). Counted per pass:
 // a storm (>= STORM_THRESHOLD) BLOCKS; a few transient blips only warn.
-const CONN_FAIL = /closed before connect|closed before open|operator device token.*not found|pairing required|device is not approved|handshake (?:failed|rejected)|operator (?:handshake|connect).*(?:reject|denied|unauthor)/i;
+const CONN_FAIL =
+  /closed before connect|closed before open|operator device token.*not found|pairing required|device is not approved|handshake (?:failed|rejected)|operator (?:handshake|connect).*(?:reject|denied|unauthor)/i;
 
 if (process.env.PARITY_COOKIE) {
   console.warn("PARITY_COOKIE is IGNORED: final validation requires a REAL login.");
@@ -60,7 +75,11 @@ function preflight() {
   if (ps.status !== 0) fail(`docker compose ps failed: ${ps.stderr}`);
   let rows;
   try {
-    rows = ps.stdout.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    rows = ps.stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
   } catch (e) {
     fail(`docker compose ps returned unparseable JSON: ${String(e).slice(0, 200)}`);
   }
@@ -68,25 +87,49 @@ function preflight() {
   const problems = [];
   for (const svc of expected) {
     const row = state.get(svc);
-    if (!row) { problems.push(`${svc}: NOT CREATED`); continue; }
+    if (!row) {
+      problems.push(`${svc}: NOT CREATED`);
+      continue;
+    }
     const running = row.State === "running";
     const cleanExit = row.State === "exited" && row.ExitCode === 0 && ALLOW_EXITED.has(svc);
     if (!running && !cleanExit) problems.push(`${svc}: ${row.State} (exit ${row.ExitCode})`);
   }
-  if (problems.length) fail(`Stack incomplete - validation is meaningless:\n  ${problems.join("\n  ")}`);
-  console.log(`preflight OK: ${expected.length} services (${[...ALLOW_EXITED].join(", ")} may be exited 0)`);
+  if (problems.length)
+    fail(`Stack incomplete - validation is meaningless:\n  ${problems.join("\n  ")}`);
+  console.log(
+    `preflight OK: ${expected.length} services (${[...ALLOW_EXITED].join(", ")} may be exited 0)`,
+  );
 }
-function fail(msg) { console.error(`PREFLIGHT FAIL: ${msg}`); process.exit(2); }
+function fail(msg) {
+  console.error(`PREFLIGHT FAIL: ${msg}`);
+  process.exit(2);
+}
 
 // ---------- Findings collection
 function makeCollector(page, pass, findings) {
-  page.on("console", (m) => { if (m.type() === "error") findings.push({ pass, kind: "console-error", where: page.url(), detail: m.text().slice(0, 500) }); });
-  page.on("pageerror", (e) => findings.push({ pass, kind: "pageerror", where: page.url(), detail: String(e).slice(0, 500) }));
+  page.on("console", (m) => {
+    if (m.type() === "error")
+      findings.push({
+        pass,
+        kind: "console-error",
+        where: page.url(),
+        detail: m.text().slice(0, 500),
+      });
+  });
+  page.on("pageerror", (e) =>
+    findings.push({ pass, kind: "pageerror", where: page.url(), detail: String(e).slice(0, 500) }),
+  );
   page.on("response", (r) => {
     const status = r.status();
     const sameOrigin = r.url().startsWith(BASE);
-    if (status >= 500) findings.push({ pass, kind: `http-${status}`, where: page.url(), detail: r.url() });
-    else if (status === 404 && sameOrigin && ["document", "fetch", "xhr"].includes(r.request().resourceType()))
+    if (status >= 500)
+      findings.push({ pass, kind: `http-${status}`, where: page.url(), detail: r.url() });
+    else if (
+      status === 404 &&
+      sameOrigin &&
+      ["document", "fetch", "xhr"].includes(r.request().resourceType())
+    )
       findings.push({ pass, kind: "http-404", where: page.url(), detail: r.url() });
   });
 }
@@ -106,21 +149,46 @@ async function sweepRoute(page, route, pass, findings, screenshot) {
   try {
     await page.goto(`${BASE}${route}`, { waitUntil: "networkidle", timeout: 30000 });
   } catch (e) {
-    findings.push({ pass, kind: "route-load-failed", where: route, detail: String(e).slice(0, 300) });
+    findings.push({
+      pass,
+      kind: "route-load-failed",
+      where: route,
+      detail: String(e).slice(0, 300),
+    });
     return;
   }
   await page.waitForTimeout(500);
   if (new URL(page.url()).pathname.startsWith("/login"))
-    findings.push({ pass, kind: "auth-bounce", where: route, detail: "redirected to /login mid-session" });
+    findings.push({
+      pass,
+      kind: "auth-bounce",
+      where: route,
+      detail: "redirected to /login mid-session",
+    });
   for (const alert of await page.locator('[role="alert"]').all()) {
     const text = ((await alert.textContent()) ?? "").trim();
     if (text && /error|fail|unavailable|not implemented/i.test(text))
       findings.push({ pass, kind: "ui-error-state", where: route, detail: text.slice(0, 300) });
   }
-  const mainText = (await page.locator("main").first().innerText().catch(() => "")).trim();
+  const mainText = (
+    await page
+      .locator("main")
+      .first()
+      .innerText()
+      .catch(() => "")
+  ).trim();
   if (mainText.length < 10)
-    findings.push({ pass, kind: "empty-page", where: route, detail: `main has ${mainText.length} chars of text` });
-  if (screenshot) await page.screenshot({ path: `${OUT}/p${pass}${route.replaceAll("/", "_") || "_root"}.png`, fullPage: true });
+    findings.push({
+      pass,
+      kind: "empty-page",
+      where: route,
+      detail: `main has ${mainText.length} chars of text`,
+    });
+  if (screenshot)
+    await page.screenshot({
+      path: `${OUT}/p${pass}${route.replaceAll("/", "_") || "_root"}.png`,
+      fullPage: true,
+    });
 }
 
 // Real WRITE round-trip: prove the UI -> server -> Postgres -> UI loop with real data.
@@ -128,15 +196,31 @@ async function writeFlowProof(page, pass, findings) {
   const title = `real-validate p${pass} ${Date.now() % 1000000}`;
   try {
     await page.goto(`${BASE}/tasks`, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: /new task/i }).first().click();
+    await page
+      .getByRole("button", { name: /new task/i })
+      .first()
+      .click();
     await page.locator('input[name="title"], textarea[name="title"]').first().fill(title);
-    await page.getByRole("button", { name: /create task/i }).first().click();
+    await page
+      .getByRole("button", { name: /create task/i })
+      .first()
+      .click();
     await page.waitForLoadState("networkidle");
     await page.reload({ waitUntil: "networkidle" });
     if ((await page.getByText(title, { exact: false }).count()) === 0)
-      findings.push({ pass, kind: "write-flow-failed", where: "/tasks", detail: `created task "${title}" not visible after reload` });
+      findings.push({
+        pass,
+        kind: "write-flow-failed",
+        where: "/tasks",
+        detail: `created task "${title}" not visible after reload`,
+      });
   } catch (e) {
-    findings.push({ pass, kind: "write-flow-failed", where: "/tasks", detail: String(e).slice(0, 300) });
+    findings.push({
+      pass,
+      kind: "write-flow-failed",
+      where: "/tasks",
+      detail: String(e).slice(0, 300),
+    });
   }
 }
 
@@ -146,22 +230,44 @@ async function writeFlowProof(page, pass, findings) {
 // blocks the pass, since a broken operator/pairing link is a real failure even
 // when every page still renders; a handful of transient blips only warn.
 function auditLogs(sinceIso, pass, findings, warnings) {
-  const logs = spawnSync("docker", ["compose", "logs", "--since", sinceIso, "--no-color"], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+  const logs = spawnSync("docker", ["compose", "logs", "--since", sinceIso, "--no-color"], {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
   if (logs.status !== 0)
-    findings.push({ pass, kind: "service-log-unavailable", where: "docker compose logs",
-      detail: `log collection failed (status ${logs.status}); logs-as-ground-truth cannot be verified this pass: ${String(logs.stderr ?? "").slice(0, 200)}` });
+    findings.push({
+      pass,
+      kind: "service-log-unavailable",
+      where: "docker compose logs",
+      detail: `log collection failed (status ${logs.status}); logs-as-ground-truth cannot be verified this pass: ${String(logs.stderr ?? "").slice(0, 200)}`,
+    });
   const connFails = [];
   for (const line of (logs.stdout ?? "").split("\n")) {
     if (CONN_FAIL.test(line)) connFails.push(line.trim());
     if (!/error|exception|unhandled|fatal|panic/i.test(line)) continue;
-    const entry = { pass, kind: "service-log", where: "docker compose logs", detail: line.trim().slice(0, 400) };
+    const entry = {
+      pass,
+      kind: "service-log",
+      where: "docker compose logs",
+      detail: line.trim().slice(0, 400),
+    };
     (HARD_LOG.test(line) ? findings : warnings).push(entry);
   }
   if (connFails.length >= STORM_THRESHOLD)
-    findings.push({ pass, kind: "conn-retry-storm", where: "docker compose logs",
-      detail: `${connFails.length} connection-establishment failures in the pass window (>= ${STORM_THRESHOLD} = storm; a service link is down): ${connFails[0].slice(0, 300)}` });
+    findings.push({
+      pass,
+      kind: "conn-retry-storm",
+      where: "docker compose logs",
+      detail: `${connFails.length} connection-establishment failures in the pass window (>= ${STORM_THRESHOLD} = storm; a service link is down): ${connFails[0].slice(0, 300)}`,
+    });
   else
-    for (const l of connFails) warnings.push({ pass, kind: "conn-fail", where: "docker compose logs", detail: l.slice(0, 400) });
+    for (const l of connFails)
+      warnings.push({
+        pass,
+        kind: "conn-fail",
+        where: "docker compose logs",
+        detail: l.slice(0, 400),
+      });
 }
 
 // ---------- Main loop: iterate until CLEAN_STREAK consecutive clean passes.
@@ -172,15 +278,22 @@ let streak = 0;
 
 for (let pass = 1; pass <= MAX_PASSES && streak < CLEAN_STREAK; pass++) {
   const passStart = new Date().toISOString();
-  const findings = [], warnings = [];
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 960 }, colorScheme: "dark" });
+  const findings = [],
+    warnings = [];
+  const ctx = await browser.newContext({
+    viewport: { width: 1440, height: 960 },
+    colorScheme: "dark",
+  });
   let routes = [];
   try {
     const page = await realLogin(ctx, { what: "anything else" });
     makeCollector(page, pass, findings);
     routes = await discoverRoutes(page);
-    console.log(`pass ${pass}: sweeping ${routes.length} routes (discovered from live nav + seeds)`);
-    for (const route of routes) await sweepRoute(page, route, pass, findings, pass === 1 || streak === CLEAN_STREAK - 1);
+    console.log(
+      `pass ${pass}: sweeping ${routes.length} routes (discovered from live nav + seeds)`,
+    );
+    for (const route of routes)
+      await sweepRoute(page, route, pass, findings, pass === 1 || streak === CLEAN_STREAK - 1);
     await writeFlowProof(page, pass, findings);
   } catch (e) {
     findings.push({ pass, kind: "pass-aborted", where: BASE, detail: String(e).slice(0, 500) });
@@ -191,7 +304,9 @@ for (let pass = 1; pass <= MAX_PASSES && streak < CLEAN_STREAK; pass++) {
   const clean = findings.length === 0;
   streak = clean ? streak + 1 : 0;
   report.passes.push({ pass, routes, clean, findings, warnings });
-  console.log(`pass ${pass}: ${clean ? "CLEAN" : `${findings.length} FINDINGS`} (${warnings.length} log warnings) - streak ${streak}/${CLEAN_STREAK}`);
+  console.log(
+    `pass ${pass}: ${clean ? "CLEAN" : `${findings.length} FINDINGS`} (${warnings.length} log warnings) - streak ${streak}/${CLEAN_STREAK}`,
+  );
   for (const f of findings) console.log(`  [${f.kind}] ${f.where} :: ${f.detail}`);
 }
 
