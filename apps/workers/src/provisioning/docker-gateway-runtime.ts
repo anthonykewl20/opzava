@@ -173,11 +173,11 @@ function secureDeleteCommand(logPath: string): string {
   const quotedLogPath = shellQuote(logPath);
   return [
     `if [ -f ${quotedLogPath} ]; then`,
-    `if command -v shred >/dev/null 2>&1; then shred -u ${quotedLogPath};`,
+    `if command -v shred >/dev/null 2>&1; then shred -u ${quotedLogPath} || exit 1;`,
     "else",
     `size=$(wc -c < ${quotedLogPath} 2>/dev/null) || exit 1;`,
     `if [ "$size" -gt 0 ] 2>/dev/null; then dd if=/dev/zero of=${quotedLogPath} bs=4096 count=$(( (size + 4095) / 4096 )) conv=notrunc status=none 2>/dev/null || exit 1; fi;`,
-    `rm -f ${quotedLogPath};`,
+    `rm -f ${quotedLogPath} || exit 1;`,
     "fi;",
     "fi;",
     `rmdir "$(dirname ${quotedLogPath})" 2>/dev/null || true`,

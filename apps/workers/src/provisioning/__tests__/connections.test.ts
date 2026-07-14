@@ -8134,6 +8134,8 @@ describe("Connections provisioning helpers", () => {
       .map((body) => (Array.isArray(body?.["Cmd"]) ? String(body["Cmd"][2]) : ""))
       .find((command) => command.includes("shred -u"));
     expect(cleanupCommand).toContain("rm -f");
+    expect(cleanupCommand).toContain("shred -u");
+    expect(cleanupCommand?.match(/\|\| exit 1/g)).toHaveLength(4);
     expect(cleanupCommand).toContain("rmdir");
     expect(cleanupCommand).not.toContain("secret");
   });
