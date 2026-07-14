@@ -80,16 +80,16 @@ Each card names its source module doc so the claim can be verified against the c
 
 ### 5. Add a shared `authorization-contract.test.ts` run against all three `AuthorizationPort` Adapters
 - Source: [modules/ports.md](modules/ports.md).
-- Files: `packages/crm/src/application/authorization.ts`, `packages/project-management/src/application/authorization.ts`, `packages/runtime-control/src/application/authorization.ts`.
+- Files: `packages/project-management/src/application/authorization.ts`, `packages/runtime-control/src/application/authorization.ts`. The former CRM adapter was removed on 2026-07-15 (GitHub issue #200); reassess this opportunity when CRM returns with the user-side dashboard.
 - Problem: three Adapters share one Interface but have no shared contract test, so they can diverge on edge cases (unknown resource type, cross-workspace `projectId`, owner override) without a common suite catching it.
 - Solution: one contract suite keyed on `AuthorizationPort`, executed against every Adapter, covering the subject or action or resource table.
 - Benefits: makes "the Interface is the test surface" literal; one change to the action or resource vocabulary is validated across all three contexts at once.
 - ADR check: respects ADR-007 (`AuthorizationPort` stays the single fine-grained authority).
 - Strength: STRONG.
 
-### 6. Extract a shared tool-execution harness from the duplicated CRM and task tool runners
+### 6. Deferred: Extract a shared tool-execution harness
 - Source: [modules/runtime-control.md](modules/runtime-control.md).
-- Files: `packages/runtime-control/src/application/crm-tools.ts`, `packages/runtime-control/src/application/task-tools.ts`.
+- The CRM and task runners were removed from the duplication set on 2026-07-15 (GitHub issue #200). Retain this map entry for the future CRM rebuild; `task-tools.ts` is the only current runner.
 - Problem: the two runners share an executor skeleton (record-started, replay short-circuit, parse, perform, record-result) and several helpers verbatim; two near-identical implementations is the signal of a real seam.
 - Solution: extract a shared `runTooledExecution` harness behind a small Interface that both runners use.
 - Benefits: removes duplication; the tool-policy seam becomes explicit; a third tool runner lands cheaply.

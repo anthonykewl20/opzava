@@ -36,7 +36,7 @@ The seam is nonetheless real rather than hypothetical, because it is a wire prot
 
 Leverage is high and Locality is strong at this seam.
 A small WS protocol plus one Docker image gives Opzava all of OpenClaw's runtime without reimplementing it, which is the OpenClaw capability parity principle (`ARCHITECTURE.md` governing principles; `docs/adr/ADR-016-mainframe-tracked-fork.md` context).
-Mainframe changes are Local to the fork: Opzava product features such as marketing automation and CRM assistants are never fork customizations, and instead live in the Opzava app and use the gateway via the broker (`docs/adr/ADR-016-mainframe-tracked-fork.md` decision 3; `mainframe/PATCHES.md`).
+Mainframe changes are Local to the fork: Opzava product features such as marketing automation and the deferred CRM rebuild are never fork customizations, and instead live in the Opzava app and use the gateway via the broker (`docs/adr/ADR-016-mainframe-tracked-fork.md` decision 3; `mainframe/PATCHES.md`). CRM returns with the user-side dashboard (GitHub issue #200).
 The deletion test makes the depth visible: if `mainframe/` were deleted and the upstream image pulled again, the broker contract would survive because the Interface is the protocol and image contract, not the fork source.
 
 ## The customization ladder (rungs 0-3)

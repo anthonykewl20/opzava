@@ -169,7 +169,7 @@ Restore two things that commit changed:
 
 That commit dropped `Automate` on the premise that it "appears nowhere in the roadmap". The premise is false: `docs/plan/roadmap.md:194` ships an **Automation page**, `docs/plan/capability-parity.md:81` lists `automation.html` as an owned screen, and the canonical mockup itself already draws `Automation` as a **sibling of `Connections` under `Automate`**. `Connections` cannot be both the category and a peer inside it.
 
-**No migration to shadcn's `Sidebar` primitive** - that is a whole-rail refactor touching Operate/CRM/Automate and every nav consumer, for zero visual gain, since the tokens already match.
+**No migration to shadcn's `Sidebar` primitive** - that is a whole-rail refactor touching Operate, the future user-side CRM rebuild, Automate, and every nav consumer, for zero visual gain, since the tokens already match. CRM has no current admin surface (GitHub issue #200, 2026-07-15).
 
 ## Design system
 

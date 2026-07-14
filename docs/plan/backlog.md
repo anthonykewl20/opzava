@@ -39,7 +39,7 @@ Proposed priority-ordered backlog derived from the capability-parity map and the
 
 | Id | Title | Covers decisions / contexts | Dependencies | Tier | Effort |
 | --- | --- | --- | --- | --- | --- |
-| ADR-011 | CRM, external channel ACL, and contact identity resolution | Q10, Q7, Q8; CRM, External Channels via ACL; `Contact`, `Ticket`, `ChannelIdentity`, shell contacts, consent, GDPR purge | ADR-003, ADR-008, ADR-010 | P2 | L |
+| ADR-011 | Deferred CRM, external channel ACL, and contact identity resolution | Future user-side dashboard rebuild; `Contact`, `Ticket`, `ChannelIdentity`, shell contacts, consent, GDPR purge | ADR-003, ADR-008, ADR-010 | Deferred | L |
 | ADR-012 | Department workflow engine, approvals, content pipeline, reports | Q11, Q8; Marketing/Dept-Workflows, Finance, CRM; `Workflow`, `Mechanism`, `Approval`, cron/TaskFlow/standing-orders | ADR-008, ADR-009, ADR-010 | P2 | L |
 | ADR-013 | Error-to-admin-card incident pipeline and remediation loop | Q9, Q4, Q7; Notifications/Admin-Observability; `ErrorGroup`, redaction, deadletter, watchdog, Ask Admin remediation approvals | ADR-003, ADR-004, ADR-009 | P2 | L |
 | ADR-014 | Billing, usage metering, plan enforcement, and dunning lifecycle | Q12; Billing, Tenant Provisioning/Platform-Ops; Stripe port, `MeterEvent`, plan limits, suspension/deprovision coupling | ADR-002, ADR-004, ADR-013 | P2 | L |
@@ -57,7 +57,7 @@ Proposed priority-ordered backlog derived from the capability-parity map and the
 | PRD-007 | Knowledge, skills, docs/files, artifacts, and governed skill install | Q4b, Q8; Knowledge Mgmt; screens: memory-skills, docs, upload, card evidence | ADR-010 | P3 | L |
 | PRD-008 | Marketing campaign suite and content production loop | Q11, Q8; Marketing/Dept-Workflows; screens: marketing home, campaigns, new campaign, content pipeline, calendar, event-new | ADR-012, ADR-010 | P3 | L |
 | PRD-009 | Marketing approvals, assets, upload, send-review, reports, performance | Q11; Marketing/Dept-Workflows; screens: approvals, send-review, assets, upload, performance, ads/email/blog reports | ADR-012, PRD-008 | P3 | L |
-| PRD-010 | CRM and customer support workflows | Q10, Q8; CRM, External Channels via ACL, Project Mgmt; screens: customer support boards/cards, reply review, external ticket links | ADR-011, PRD-003, PRD-005 | P3 | L |
+| PRD-010 | Deferred CRM and customer support workflows | Future user-side dashboard rebuild; External Channels via ACL, Project Mgmt; screens: customer support boards/cards, reply review, external ticket links | ADR-011, PRD-003, PRD-005 | Deferred | L |
 | PRD-011 | Finance expense ledger and money-risk approval UX | Q8, Q11; Finance; screens: costs, security approvals for spend/refunds | ADR-005, ADR-012, ADR-014 | P3 | M |
 | PRD-012 | Admin monitoring, logs, issues, security/audit, alerts, debug | Q5, Q9, Q12; Identity&Access, Notifications/Admin-Observability, Platform-Ops; screens: monitoring, logs, issues, security-audit, alerts, debug | ADR-007, ADR-013, ADR-014 | P3 | L |
 | PRD-013 | Connections, providers, channels, tools, MCP, and connect wizard | Q3, Q4b, Q8, Q12; External Channels via ACL, Platform-Ops; screens: connections, settings connections, tools, connect wizard | ADR-003, ADR-005, ADR-010, ADR-014 | P3 | L |

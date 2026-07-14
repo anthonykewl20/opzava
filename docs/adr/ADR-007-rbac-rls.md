@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+> Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
+
 Opzava authorization will use resource-scoped RBAC with roles-as-data behind `AuthorizationPort`, evaluated through a single `can(user, action, resource)` policy path. Organization is the tenant and maps one-to-one to an OpenClaw Gateway; Project is the main child scope; Postgres RLS is a fail-closed backstop behind tenant-scoped repositories so a missing tenant context becomes a hard 403, never a silent empty state.
 
 ## Context

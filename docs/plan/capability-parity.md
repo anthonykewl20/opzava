@@ -8,7 +8,7 @@ under `docs/openclaw`.
 > **Q18 note (2026-07-04):** for ADMIN gateway-ops screens this map is now superseded by the
 > authoritative port program `docs/plan/consensus/port-openclaw-control-ui-program.md` (OpenClaw
 > Control-UI views 1–14, re-implemented through the ACL). Classifications below still govern
-> user-side/product surfaces. CRM is NEVER an admin-dashboard surface (user directive 2026-07-04);
+> user-side/product surfaces. CRM is NEVER an admin-dashboard surface (user directive 2026-07-04); its temporary admin implementation was removed 2026-07-15 under GitHub issue #200 and it returns only with the future user-side dashboard.
 > its permanent home is the user-side dashboard.
 
 ## Classification legend
@@ -100,13 +100,13 @@ under `docs/openclaw`.
 | `essential-mkt-assets.html`, `essential-upload.html` - asset library, approved files, review state                                                           | Opzava-owned (build in Postgres) | Optional artifact projection from `artifacts.*`; actual asset source in Opzava object store.                                                    | Marketing/Dept-Workflows      | M      |
 | `essential-mkt-performance.html`, `essential-mkt-email-report.html`, `essential-mkt-blog-report.html`, `essential-mkt-ads-report.html` - reports/performance | Hybrid                           | Report jobs via `cron.*`/TaskFlow, agent analysis via `sessions.*`, report artifacts via `artifacts.*`; metric data stored/projected in Opzava. | Marketing/Dept-Workflows      | L      |
 
-## CRM / Customer Mgmt
+## CRM / Customer Mgmt (deferred to the user-side dashboard)
 
 | Mockup screen / feature area                                                                                          | Classification | OpenClaw capability / RPC harnessed                                                                                                                    | Owning Opzava bounded context | Effort |
 | --------------------------------------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | ------ |
-| Customer Support project/card surfaces (`essential-project.html`, `essential-card-table.html`, `essential-card.html`) | Hybrid         | External conversation refs from channel ACL; support agent work via `sessions.*`, `tasks.*`, `send`, `channels.status`; Contact/Ticket are Opzava SoT. | CRM                           | L      |
-| Customer-facing card evidence, ticket links, reply draft, approve-send                                                | Hybrid         | OpenClaw external channels own provider connection/transcript runtime; Opzava owns resolved Contact, Ticket, Activity, Consent, approval.              | CRM                           | L      |
-| Unknown sender/contact resolution and external identities (implied by support/customer flows)                         | Hybrid         | Channel plugins emit sender/conversation events through ACL; Opzava resolves `ChannelIdentity(channel, externalId)` to Contact or shell.               | CRM                           | L      |
+| Customer Support project/card surfaces (`essential-project.html`, `essential-card-table.html`, `essential-card.html`) | Deferred | Future user-side dashboard: external conversation refs from channel ACL; the rebuild owns Contact/Ticket truth. | CRM (future user-side dashboard) | L |
+| Customer-facing card evidence, ticket links, reply draft, approve-send | Deferred | Future user-side dashboard: external channels retain provider/transcript runtime; the rebuild owns resolved customer truth and approvals. | CRM (future user-side dashboard) | L |
+| Unknown sender/contact resolution and external identities (implied by support/customer flows) | Deferred | Future user-side dashboard: `ChannelIdentity` resolution returns with ADR-011. | CRM (future user-side dashboard) | L |
 
 ## Finance
 

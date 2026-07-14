@@ -25,7 +25,7 @@ Read `CLAUDE.md` + `docs/plan/EXECUTION.md` + `ARCHITECTURE.md` first. These are
 
 ## Security & agents (ADR-005, ADR-008)
 - **Tool-policy-first:** governance is enforced at tool policy + approval rows, not persona files — *"SOUL can lie; tool policy cannot."* Standard agents run `sandbox.mode: off` + deny `group:runtime` + FS-mutating; allow chat/memory/wiki/web(egress-allowlisted)/messaging/sessions. **No per-project sandbox.** `web_fetch` egress allowlist + sanitize RAG/web input.
-- Autonomy tiers: `T1_DRAFT` (Finance/CRM), `T2_SEND_ON_BEHALF` (Marketing/Support), `T3_PROACTIVE` (non-mutating only). Agents act **on behalf of**, never impersonate.
+- Autonomy tiers: `T1_DRAFT` (Finance; deferred CRM when it returns with the user-side dashboard), `T2_SEND_ON_BEHALF` (Marketing/Support), `T3_PROACTIVE` (non-mutating only). Agents act **on behalf of**, never impersonate. CRM has no current surface: it was removed from the admin app on 2026-07-15 under GitHub issue #200 and must return only with the user-side dashboard.
 
 ## Knowledge (ADR-010) & ports (ADR-001)
 - Knowledge scoping: **employee=workspace, project=shared-corpus, org=corpus**; Opzava owns the KB source, OpenClaw indexes are rebuildable (OKF).

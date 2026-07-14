@@ -2,6 +2,8 @@
 
 Status: Accepted (Q18, 2026-07-04) — implementation lands in the mainframe-move slice (`docs/plan/EXECUTION.md`)
 
+> Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
+
 Opzava owns OpenClaw as a **tracked fork, not a hard fork**: the upstream working tree is squash-imported into
 `mainframe/` at a pinned version, the Platform Gateway image is **built from that source** (`build: ./mainframe`)
 instead of pulled from `ghcr.io/openclaw/openclaw`, and all customization follows a strict ladder that keeps the

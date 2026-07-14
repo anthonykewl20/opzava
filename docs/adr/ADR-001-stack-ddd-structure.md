@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+> Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
+
 Opzava will be built as a pnpm/turborepo monorepo with a Next.js App Router BFF, a separate `gateway-broker` service, background workers, and one TypeScript domain module per bounded context. The stack is locked to Next.js App Router, TypeScript, Postgres, Drizzle, shadcn/ui, Tailwind, pnpm, and turborepo so the product can start with scale-ready modular DDD, keep OpenClaw behind an anti-corruption layer, and avoid an MVP rewrite.
 
 ## Context

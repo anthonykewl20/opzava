@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+> Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
+
 Opzava will use Better Auth as the primary authentication library, behind `AuthPort`, with Auth.js v5 plus the Postgres adapter as the real fallback. Better Auth owns AUTHENTICATION and coarse organization membership only; fine-grained resource authorization stays in ADR-007 `AuthorizationPort`. Sessions are DB-backed and revocable, MFA is org-enforceable, and PWA/Web Push auth is designed around the constraint that service workers cannot read httpOnly cookies.
 
 ## Context

@@ -3,16 +3,16 @@
 
 ## Overview
 Runtime-Control is the application layer that owns the assistant conversation loop: conversation creation, user and assistant turns, delta streaming, finalization, failure, and tool-call outcome recording.
-It sits above the CRM and project-management bounded contexts and the Postgres adapter stack, and it owns the one `AuthorizationPort` adapter in this package plus the Drizzle schema that binds the domain vocabulary to tenant-isolated tables.
+It sits above the project-management bounded context and the Postgres adapter stack, and it owns the one `AuthorizationPort` adapter in this package plus the Drizzle schema that binds the domain vocabulary to tenant-isolated tables. CRM tools were removed on 2026-07-15 and are deferred to the future user-side dashboard (GitHub issue #200).
 The load-bearing invariants are single-writer turn transitions, idempotency-key replay with stable-content comparison, receipt-first tool outcomes, and RLS-enforced tenant isolation where the database row is truth and every returned object is a projection reloaded after each mutation.
 
 ## Modules
 
 ### Package root - `packages/runtime-control/src/index.ts`
 - **Interface (the seam):** re-exports the application and domain surfaces as a single entry (`packages/runtime-control/src/index.ts:1`).
-  Callers get the turn commands (`createConversation`, `appendUserTurn`, `startAssistantTurn`, `appendAssistantDelta`, `finalizeAssistantTurn`, `failAssistantTurn`, `recordToolOutcome`, `recordStartedToolOutcome`), the tool executors (`executeRuntimeControlCrmTool`, `executeRuntimeControlTaskTool`), the registries (`runtimeControlCrmToolRegistry`, `runtimeControlTaskToolRegistry`), the authorization adapter (`RoleKeyRuntimeControlAuthorizationPort`, `defaultRuntimeControlAuthorizationPort`), and all domain types and predicates (`packages/runtime-control/src/index.ts:37`).
+  Callers get the turn commands (`createConversation`, `appendUserTurn`, `startAssistantTurn`, `appendAssistantDelta`, `finalizeAssistantTurn`, `failAssistantTurn`, `recordToolOutcome`, `recordStartedToolOutcome`), the task tool executor and registry, the authorization adapter (`RoleKeyRuntimeControlAuthorizationPort`, `defaultRuntimeControlAuthorizationPort`), and all domain types and predicates. The five CRM tools were removed on 2026-07-15 (GitHub issue #200).
 - **Behind the seam (implementation):** nothing; the file is pure `export` forwarding to `./application/index.js` and `./domain/index.js` (`packages/runtime-control/src/index.ts:36`, `:64`).
-- **Adapters:** re-exports the `AuthorizationPort` adapter from `./application/authorization.ts`; the authoritative map counts 3 `AuthorizationPort` adapters repo-wide (packages/crm, packages/project-management, packages/runtime-control), so this is a REAL seam, and the complexity is policy evaluation, not transport.
+- **Adapters:** re-exports the `AuthorizationPort` adapter from `./application/authorization.ts`; the authoritative map counts 2 current adapters repo-wide (project-management and runtime-control), so this is a REAL seam, and the complexity is policy evaluation, not transport. CRM is deferred to the future user-side dashboard.
 - **Depth:** shallow.
   Deletion test: removing this file only forces callers to import from `application/index.js` and `domain/index.js` directly; no complexity concentrates.
   The inventory frames it as "moderate" because it fronts deep modules, but the file itself hides nothing.
@@ -21,12 +21,12 @@ The load-bearing invariants are single-writer turn transitions, idempotency-key 
 - **Deepening opportunity:** none - already a minimal re-export; the real seams live in the application services.
 
 ### Application index - `packages/runtime-control/src/application/index.ts`
-- **Interface (the seam):** re-export surface for the application module set, splitting exports across `./assistant-conversations.js`, `./authorization.js`, `./crm-tools.js`, and `./task-tools.js` (`packages/runtime-control/src/application/index.ts:1`, `:28`, `:32`, `:47`, `:52`, `:61`).
+- **Interface (the seam):** re-export surface for the current application module set: `./assistant-conversations.js`, `./authorization.js`, and `./task-tools.js`. `./crm-tools.js` was removed on 2026-07-15 and is deferred to the future user-side dashboard (GitHub issue #200).
 - **Behind the seam (implementation):** no logic; the inventory itself notes "pure seam re-export and hides no extra logic."
-- **Adapters:** exposes the `RoleKeyRuntimeControlAuthorizationPort` adapter (`packages/runtime-control/src/application/index.ts:28`), one of the 3 `AuthorizationPort` adapters in the authoritative map.
+- **Adapters:** exposes the `RoleKeyRuntimeControlAuthorizationPort` adapter, one of the 2 current `AuthorizationPort` adapters in the authoritative map.
 - **Depth:** shallow.
-  Deletion test: removing the file pushes callers straight to the four application modules with no loss of behavior.
-- **Seams:** internal seam between the composition entry and the four application services it fronts.
+  Deletion test: removing the file pushes callers straight to the three current application modules with no loss of behavior.
+- **Seams:** internal seam between the composition entry and the three current application services it fronts.
 - **Testing through the interface:** covered by the integration test; no behavior of its own.
 - **Deepening opportunity:** none - already a pure re-export.
 
@@ -63,7 +63,7 @@ The load-bearing invariants are single-writer turn transitions, idempotency-key 
   `roleAllows` maps a required `TenantGrant` onto the subject's `roleKeys`: `guest` requires the `guest` key, `member` requires any of `owner|admin|member`, `admin` requires `owner` or `admin`, and the default requires `owner` (`packages/runtime-control/src/application/authorization.ts:15`).
   For runtime-control, `can` reduces every admitted action to a `member` grant check, so any non-guest tenant member is admitted and guests are excluded (`packages/runtime-control/src/application/authorization.ts:73`).
   `hasTenantGrant` and `hasProjectGrant` honor the requested grant level and the tenant-match guard (`packages/runtime-control/src/application/authorization.ts:79`, `:92`).
-- **Adapters:** this is one of the 3 `AuthorizationPort` adapters in the authoritative map (packages/crm, packages/project-management, packages/runtime-control), making it a REAL seam shared across 3 bounded contexts.
+- **Adapters:** this is one of the 2 current `AuthorizationPort` adapters in the authoritative map (packages/project-management and packages/runtime-control), making it a REAL seam shared across 2 bounded contexts; CRM is deferred to the future user-side dashboard (GitHub issue #200).
   The complexity it hides is policy selection and grant mapping, not transport.
 - **Depth:** moderate.
   Deletion test: removing it would force every command in `assistant-conversations.ts` to inline the role-key matrix and the mismatch checks, so the policy concentrates; the implementation is thin but the semantics are load-bearing.
@@ -71,7 +71,8 @@ The load-bearing invariants are single-writer turn transitions, idempotency-key 
 - **Testing through the interface:** no dedicated tests exist for this module (inventory confirms "Tests: none found"); the can-allow matrix across role keys, resource types, and tenant mismatches is exercised only indirectly through the integration test's denial cases (`packages/runtime-control/src/__tests__/slice2a-runtime-control.integration.test.ts:788`, `:1124`).
 - **Deepening opportunity:** add a focused unit test for the decision matrix (unsupported resource, tenant/org/workspace mismatch, guest denial, owner override); the interface is the test surface and the matrix is currently unverified in isolation.
 
-### CRM tool runner - `packages/runtime-control/src/application/crm-tools.ts`
+### Deferred CRM tool runner (removed 2026-07-15)
+> **Superseded implementation detail:** `packages/runtime-control/src/application/crm-tools.ts` and the five `opzava_crm_*` tools were removed under GitHub issue #200. The retained details below describe the former runner solely to preserve this module map's historical analysis; CRM returns only with the future user-side dashboard.
 - **Interface (the seam):** the tool registry, summary types, and executor.
   `runtimeControlCrmToolNames` and `runtimeControlCrmToolRegistry` declare the five admitted tools and their input shapes (`packages/runtime-control/src/application/crm-tools.ts:28`, `:44`).
   `RuntimeControlCrmToolOutput` is a discriminated union by `kind` (`crm.accounts.list`, `crm.contacts.list`, `crm.deals.list`, `crm.tickets.list`, `crm.contact_timeline.get`) and `RuntimeControlCrmToolExecution` is `succeeded` or `failed` (`packages/runtime-control/src/application/crm-tools.ts:139`, `:176`).
@@ -96,24 +97,24 @@ The load-bearing invariants are single-writer turn transitions, idempotency-key 
 ### Task tool runner - `packages/runtime-control/src/application/task-tools.ts`
 - **Interface (the seam):** the task tool registry and executor.
   `runtimeControlTaskToolNames` declares `opzava_tasks_list`, `opzava_tasks_create`, `opzava_tasks_update` with their input shapes (`packages/runtime-control/src/application/task-tools.ts:25`, `:38`).
-  `RuntimeControlTaskToolOutput` is discriminated by `kind` (`tasks.list`, `tasks.create`, `tasks.update`) and `RuntimeControlTaskToolExecution` mirrors the CRM `succeeded`/`failed` shape (`packages/runtime-control/src/application/task-tools.ts:55`, `:69`).
+  `RuntimeControlTaskToolOutput` is discriminated by `kind` (`tasks.list`, `tasks.create`, `tasks.update`) and `RuntimeControlTaskToolExecution` uses `succeeded`/`failed` results (`packages/runtime-control/src/application/task-tools.ts:55`, `:69`).
   `executeRuntimeControlTaskTool` takes the same `ToolExecutionContext` plus tool name, tool call id, and unknown args (`packages/runtime-control/src/application/task-tools.ts:841`).
-  Ordering and replay invariants are identical to the CRM runner: receipt-first outcomes and replay short-circuit on a known tool call id.
-  Error modes mirror the CRM runner plus `runtimeControl.toolMalformedArgs` for empty updates and non-UUID task ids.
+  Ordering and replay invariants are receipt-first outcomes and replay short-circuit on a known tool call id.
+  Error modes include `runtimeControl.toolMalformedArgs` for empty updates and non-UUID task ids.
 - **Behind the seam (implementation):** stricter-than-service validation, mutation fan-out, and replay.
   `rejectUnknownKeys` admits only the documented fields per tool (`packages/runtime-control/src/application/task-tools.ts:166`).
   `requiredTaskId` validates the id as a UUID before any SQL runs; the inline comment states a non-UUID model id is a malformed argument, not a database probe (`packages/runtime-control/src/application/task-tools.ts:236`).
   `parseUpdateArgs` rejects empty updates with "Task update tool requires at least one field to change," making the no-op case explicit (`packages/runtime-control/src/application/task-tools.ts:467`).
   `performTool` splits an update into a field update (`updateTask`) and a status move (`moveTask`) using the current task as the base for unspecified fields and the persisted `position` for the move (`packages/runtime-control/src/application/task-tools.ts:796`, `:819`).
   Service errors are mapped to tool failures via `failureFromError`, with `projectManagement.taskNotFound` mapping to `not_found` and `projectManagement.forbidden` or a 403 in the cause chain mapping to `forbidden` (`packages/runtime-control/src/application/task-tools.ts:567`).
-  Replay reconstruction (`outputFromOutcome`, `failureFromOutcome`) and the sanitizer are structurally identical to the CRM runner (`packages/runtime-control/src/application/task-tools.ts:513`, `:627`, `:651`).
-- **Adapters:** consumes an optional `taskAuthorizationPort` (falls back to `dependencies.authorizationPort`), one of the 3 `AuthorizationPort` adapters; the real seam is the injected `RuntimeControlTaskServices` plus outcome recording (`packages/runtime-control/src/application/task-tools.ts:93`, `:101`, `:610`).
+  Replay reconstruction (`outputFromOutcome`, `failureFromOutcome`) and the sanitizer preserve task-tool outcomes (`packages/runtime-control/src/application/task-tools.ts:513`, `:627`, `:651`).
+- **Adapters:** consumes an optional `taskAuthorizationPort` (falls back to `dependencies.authorizationPort`), one of the 2 current `AuthorizationPort` adapters; the real seam is the injected `RuntimeControlTaskServices` plus outcome recording (`packages/runtime-control/src/application/task-tools.ts:93`, `:101`, `:610`).
 - **Depth:** deep.
   Deletion test: removing this file pushes argument parsing, UUID gating, update/move fan-out, and replay protection onto callers; the complexity concentrates.
 - **Seams:** external seam is the executor and registry; internal seams are `ToolExecutionContext` and the outcome commands in `assistant-conversations.ts`.
 - **Testing through the interface:** the integration test covers list/create/update through project-management services, malformed-args/auth-denial/row-absence failures, and outcome-first idempotency (`packages/runtime-control/src/__tests__/slice2a-runtime-control.integration.test.ts:640`, `:788`).
   Gaps: the update/move split, UUID gating, and empty-update rejection have no isolated unit tests.
-- **Deepening opportunity:** same shared-skeleton extraction as the CRM runner; additionally, the update/move fan-out (`performTool` at `packages/runtime-control/src/application/task-tools.ts:742`) is a candidate for its own sub-seam so the two-phase mutation can be tested independently.
+- **Deepening opportunity:** the update/move fan-out (`performTool` at `packages/runtime-control/src/application/task-tools.ts:742`) is a candidate for its own sub-seam so the two-phase mutation can be tested independently.
 
 ### Runtime-Control domain model - `packages/runtime-control/src/domain/assistant.ts`
 - **Interface (the seam):** the status vocabularies, entity shapes, and pure predicates.
@@ -148,22 +149,22 @@ The load-bearing invariants are single-writer turn transitions, idempotency-key 
 - **Deepening opportunity:** none - already deep; the schema is the truth layer and its depth is structural.
 
 ## Cross-cutting notes
-- Depth heat: four deep modules (`assistant-conversations.ts`, `crm-tools.ts`, `task-tools.ts`, the schema), two moderate (`authorization.ts`, the domain model), and two shallow re-export entries (`index.ts`, `application/index.ts`).
+- Depth heat: three current deep modules (`assistant-conversations.ts`, `task-tools.ts`, the schema), two moderate (`authorization.ts`, the domain model), and two shallow re-export entries (`index.ts`, `application/index.ts`). `crm-tools.ts` is removed and deferred to the future user-side dashboard (GitHub issue #200).
 - Shared coupling and blast radius: the application commands are hard-coupled to the schema's table and column names through hand-written SQL strings, so a column rename in the schema breaks the application with no compile-time signal; the domain vocabulary is shared upward by both the schema and the application, making it the highest-blast-radius small module.
 - Patterns observed.
   - RLS/withTenant: every command wraps its work in `withTenant(input.orgId, ...)` and the schema enforces `app.current_org_id()` matching, so tenant denial is structural, not a filter (`packages/runtime-control/src/application/assistant-conversations.ts:584`; `packages/runtime-control/src/adapters/postgres/schema/runtime-control.ts:58`).
-  - Projections-are-cache: every mutation re-reads via `RETURNING` or `select`, and tool outputs are reconstructed from stored `resultSummary` JSONB on replay, so the database row is truth and in-memory objects are cache (`packages/runtime-control/src/application/assistant-conversations.ts:848`, `:931`; `packages/runtime-control/src/application/crm-tools.ts:746`).
-  - Tool-policy-first: the tool runners define the admitted tool names, accepted argument shapes, parse failure codes, summary truncation, and unknown-key rejection at the seam, stricter than the underlying CRM and project-management services (`packages/runtime-control/src/application/crm-tools.ts:44`, `:279`; `packages/runtime-control/src/application/task-tools.ts:467`).
-  - Agnostic-ports: `RuntimeControlDependencies`, `RuntimeControlCrmToolDependencies`, and `RuntimeControlTaskToolDependencies` all take optional injected ports and services, with domain defaults wired in (`packages/runtime-control/src/application/assistant-conversations.ts:64`; `packages/runtime-control/src/application/crm-tools.ts:208`; `packages/runtime-control/src/application/task-tools.ts:101`).
+  - Projections-are-cache: every mutation re-reads via `RETURNING` or `select`, and task-tool outputs are reconstructed from stored `resultSummary` JSONB on replay, so the database row is truth and in-memory objects are cache (`packages/runtime-control/src/application/assistant-conversations.ts:848`, `:931`; `packages/runtime-control/src/application/task-tools.ts:513`).
+  - Tool-policy-first: the task runner defines admitted tool names, accepted argument shapes, parse failure codes, summary truncation, and unknown-key rejection at the seam, stricter than underlying project-management services (`packages/runtime-control/src/application/task-tools.ts:467`). CRM tools were removed on 2026-07-15 (GitHub issue #200).
+  - Agnostic-ports: `RuntimeControlDependencies` and `RuntimeControlTaskToolDependencies` take optional injected ports and services, with domain defaults wired in (`packages/runtime-control/src/application/assistant-conversations.ts:64`; `packages/runtime-control/src/application/task-tools.ts:101`).
   - Two-token boundary: not implemented in this package; runtime-control trusts the `RuntimeControlApplicationContext` handed to it and does not itself touch gateway or admin tokens, so the two-token boundary is owned upstream by the broker and identity-access layers.
-- Friction clusters: `crm-tools.ts` and `task-tools.ts` duplicate the executor skeleton and roughly eight helpers verbatim, which is the largest maintenance hazard in the package; `assistant-conversations.ts` at 1273 lines mixes three concerns (conversation, turn lifecycle, tool outcomes) that the inventory itself flags as separable sub-seams; `authorization.ts` carries load-bearing policy with no isolated test.
+- Friction clusters: `assistant-conversations.ts` at 1273 lines mixes three concerns (conversation, turn lifecycle, tool outcomes) that the inventory flags as separable sub-seams; `authorization.ts` carries load-bearing policy with no isolated test. The former CRM/task duplication was removed on 2026-07-15 (GitHub issue #200).
 
 ## File map
 - `packages/runtime-control/src/index.ts` - package entry; re-exports the application and domain surfaces.
 - `packages/runtime-control/src/application/index.ts` - re-export surface for the four application modules.
 - `packages/runtime-control/src/application/assistant-conversations.ts` - conversation and turn commands, single-writer state machine, idempotency, and tool-outcome recording.
 - `packages/runtime-control/src/application/authorization.ts` - `AuthorizationPort` adapter with role-key policy for agent and workspace resources.
-- `packages/runtime-control/src/application/crm-tools.ts` - CRM tool registry, argument parsing, summary compaction, and the CRM executor.
+- `packages/runtime-control/src/application/crm-tools.ts` - removed on 2026-07-15; its deferred replacement belongs with the future user-side CRM dashboard (GitHub issue #200).
 - `packages/runtime-control/src/application/task-tools.ts` - task tool registry, argument parsing, update/move fan-out, and the task executor.
 - `packages/runtime-control/src/domain/assistant.ts` - status vocabularies, entity shapes, enum parsers, and turn state-machine predicates.
 - `packages/runtime-control/src/domain/index.ts` - re-export of the domain surface.

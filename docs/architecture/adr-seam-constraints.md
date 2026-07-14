@@ -77,11 +77,8 @@ OKF bundles plus `wiki okf import` are the portable ingestion contract between t
 The invariant is rebuild-from-source-of-truth: a Gateway, workspace, wiki, or vector index can be deleted or reprovisioned without losing knowledge because Opzava Postgres plus object storage is the only authority (`docs/adr/ADR-010-knowledge-okf.md:52`).
 Repo location: the Knowledge Management Module `packages/knowledge-management/src/`, `packages/ports/src/object-store.ts`, and skill installation routed through the audited provisioning path only (`docs/adr/ADR-010-knowledge-okf.md:48`).
 
-### ADR-011: CRM identity vs channel runtime Seam
-The Seam keeps CRM truth (tenant-scoped `Contact`, `Account`, `Deal`, `Ticket`, `Activity`, `Consent` aggregates in Postgres) separate from OpenClaw channel runtime state (connectivity, credentials, transcripts, conversation refs behind the ACL) (`docs/adr/ADR-011-crm-channel-identity.md:19-33`).
-`ChannelIdentity` is a value object on `Contact` keyed by `(tenantId, channel, channelAccountRef?, externalId)`, and raw provider sender ids never land in Opzava domain tables (`docs/adr/ADR-011-crm-channel-identity.md:31-33`).
-The invariant is conservative resolution: auto-link only on exact verified match, otherwise an `UnknownContact` shell, cross-channel dedupe is suggest-and-confirm only, and dedupe never crosses tenants (`docs/adr/ADR-011-crm-channel-identity.md:39-44`).
-Repo location: the CRM Module `packages/crm/src/` and External Channels `packages/external-channels/src/`.
+### ADR-011: Deferred CRM identity vs channel runtime Seam
+CRM implementation and schema were removed on 2026-07-15 (GitHub issue #200); ADR-011 is retained for the future user-side-dashboard rebuild. Its future Seam keeps CRM truth separate from OpenClaw channel runtime state, with conservative `ChannelIdentity` resolution as specified in `docs/adr/ADR-011-crm-channel-identity.md`. There is no current CRM module, schema, or External Channels package location.
 
 ### ADR-012: workflow definition vs execution Seam
 The Seam is the principle "Opzava defines, OpenClaw executes": `Workflow` (definition, policy, budget, concurrency, approval policy) is the Opzava source of truth, while standing orders, cron, TaskFlow, task-ledger state, sessions, and runtime approvals are OpenClaw execution reached through the ADR-003 hot path (`docs/adr/ADR-012-dept-workflow-engine.md:21-31`).

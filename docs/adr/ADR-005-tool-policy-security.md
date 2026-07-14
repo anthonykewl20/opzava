@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+> Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
+
 Opzava will make OpenClaw tool policy and Opzava approval rows the primary enforcement controls for AI agent authority. Standard agents run without a sandbox and without runtime or filesystem-mutation tools; sandboxing is reserved for the rare code-executing agent. This keeps the security model on OpenClaw's grain while preserving lean VPS operations and avoiding per-project container sprawl.
 
 ## Context

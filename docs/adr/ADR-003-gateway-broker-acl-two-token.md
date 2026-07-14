@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+> Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
+
 Opzava will put all OpenClaw runtime access behind a separate long-lived Node `gateway-broker` service. The broker is the single ACL and anti-corruption layer to OpenClaw, uses one WS-first scoped operator client per active tenant Gateway, and enforces a two-token model: a hot-path paired device token with `operator.write` + `operator.approvals`, plus a separate short-lived JIT `operator.admin` provisioning credential used only by the provisioning worker.
 
 ## Context

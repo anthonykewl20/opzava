@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+> Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
+
 Opzava Postgres is the system of record for all Opzava domain data, while OpenClaw remains the system of record for runtime execution data reached only through the ADR-003 `gateway-broker` ACL. Opzava will use hybrid CQRS: durable UI data is projected into Postgres read models from domain/runtime events, while heavy or ephemeral runtime views are read through the broker from OpenClaw snapshots.
 
 ## Context

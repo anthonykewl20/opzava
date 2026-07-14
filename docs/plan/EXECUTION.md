@@ -30,7 +30,7 @@ Do not let this document become aspirational. If implementation changes the plan
 
 **SeniorQA final validation (user directive, 2026-07-04):** slices were falsely reported complete/working/deployed while the live stack was broken (acceptance passed via mocks + minted sessions). Therefore: the FINAL validation of EVERY slice/issue is the GATE - automated user-level drives of the REAL local docker stack (`http://web.opzava.localhost:18088`) with REAL form login (minted sessions banned), REAL data (mocks/synthetic banned), REAL visual screenshots, and ITERATIVE full sweeps looping until 2 consecutive clean passes (`node tests/e2e/gate/real-world-validate.mjs`; exit 0 = Done-eligible, anything else = NOT Done; routes auto-discovered from the live nav so gaps cannot hide; findings include console errors, 5xx/404s, error states, empty pages, failed write round-trips, and service-log ground truth). TDD (unit/mock/mutation) gates development only - NEVER final acceptance. Every UI slice ships/extends a drive in `tests/e2e/drives/` exercising its own real flows. Exploratory QA (the `qa` skill, plus `node tests/e2e/probes/senior-qa-probe.mjs`) files findings; it never replaces the gate. These instructions are deliberately executor-agnostic with zero ambiguity: any assigned model (Claude, GPT 5.5 via codex-exec, GLM, ...) follows the same WHAT/HOW-TO-TEST/HOW-TO-VALIDATE and the exit code - not the narrative - is the verdict.
 
-**CRM placement (user directive, 2026-07-04):** CRM is NEVER an admin-dashboard surface. Its permanent home is the user-side dashboard (future surface family). The `/crm/*` routes currently in the admin app are a TEMPORARY Slice-3 parking spot pending relocation; no new CRM surfaces may be added to the admin dashboard, and the Control-UI port program excludes CRM entirely.
+**CRM placement (user directive, 2026-07-04):** CRM is NEVER an admin-dashboard surface. Its permanent home is the user-side dashboard (future surface family). The temporary admin `/crm/*` routes were removed on 2026-07-15 under GitHub issue #200; CRM currently has no surface, no new CRM surfaces may be added to the admin dashboard, and the Control-UI port program excludes CRM entirely.
 
 **Ask-surface bounds (user directive, 2026-07-04):** "Ask Admin Opzava" is the ADMIN-facing chat (admin dashboard; WebChat-parity port row #14). "Ask Opzava" is the USER-facing assistant (user-dashboard family, with CRM). Bounded strictly by audience - never mix the names or surfaces. This settles the mockup disagreement in favor of orchestrator-chat.html ("Ask Admin Opzava"); task-board.html corrected per mockup-revision-first. Known naming debt: the admin route/components are still named `/ask-opzava` - rename to match at the row-#14 port slice, not before (live sessions + gate reference the current route).
 
@@ -47,7 +47,7 @@ Do not let this document become aspirational. If implementation changes the plan
 
 ## Operating Mode
 
-Opzava runs single-tenant internally first to market and promote Opzava itself. The scale-ready multi-tenant architecture is retained and runs one tenant now; Opzava is not a public multi-tenant SaaS yet. The first business-value build after the admin-Tasks MVP is Marketing + CRM.
+Opzava runs single-tenant internally first to market and promote Opzava itself. The scale-ready multi-tenant architecture is retained and runs one tenant now; Opzava is not a public multi-tenant SaaS yet. The first business-value build after the admin-Tasks MVP is Marketing; CRM is deferred to the future user-side dashboard (GitHub issue #200).
 
 ## Reference Map
 
@@ -348,11 +348,11 @@ PRD refs: PRD-007
 
 Bounded contexts: Knowledge Management, AI Workforce, Runtime-Control, Project Management, Tenant Provisioning, Platform-Ops, Object Storage adapters
 
-### P4 - CRM
+### P4 - CRM (deferred to the user-side dashboard)
 
 Status: [ ] not-started | [ ] in-progress | [ ] blocked | [ ] done
 
-Goal: Own customer truth in Opzava while projecting external channel observations through the Gateway ACL. See `docs/plan/roadmap.md` P4 for deliverable detail. Note: the CRM core (records + admin surfaces) was pulled forward as Slice 3 (2026-07-02); this phase covers the remainder (channel ingest, projections, governed replies, merge/erasure).
+Goal: rebuild customer truth with the future user-side dashboard while projecting external channel observations through the Gateway ACL. See `docs/plan/roadmap.md` P4 for deliverable detail. The former CRM core and its admin surfaces were removed on 2026-07-15 under GitHub issue #200; this phase is deferred until the user-side dashboard rebuild.
 
 Deliverables:
 
@@ -370,7 +370,7 @@ ADR refs: ADR-011
 
 PRD refs: PRD-010
 
-Bounded contexts: CRM, External Channels, AI Workforce, Runtime-Control, Knowledge Management, Project Management, Internal Collaboration
+Bounded contexts: deferred CRM (future user-side dashboard), External Channels, AI Workforce, Runtime-Control, Knowledge Management, Project Management, Internal Collaboration
 
 ### P5 - Dept-Workflows + Marketing
 
@@ -461,13 +461,13 @@ Deliverables:
 
 Skills: `nodejs`, `senior-frontend`
 
-Acceptance / usable-signal: A tenant admin connects Gmail or Slack, an external message creates CRM support work, Support sends an approved reply, a project manager creates a Guest-Client link, the customer comments in a scoped portal, and a local operator links Codex CLI without long-lived secrets appearing in UI or source.
+Acceptance / usable-signal: A tenant admin connects Gmail or Slack, a future user-side CRM rebuild turns an external message into support work, Support sends an approved reply, a project manager creates a Guest-Client link, the customer comments in a scoped portal, and a local operator links Codex CLI without long-lived secrets appearing in UI or source.
 
 ADR refs: ADR-003 external
 
 PRD refs: PRD-013, PRD-015
 
-Bounded contexts: External Channels, CRM, Identity & Access, Project Management, Runtime-Control, Tenant Provisioning, Platform-Ops, Knowledge Management, Billing, Notifications/Admin-Observability
+Bounded contexts: External Channels, deferred CRM (future user-side dashboard), Identity & Access, Project Management, Runtime-Control, Tenant Provisioning, Platform-Ops, Knowledge Management, Billing, Notifications/Admin-Observability
 
 ## Definition Of Done
 
@@ -482,6 +482,8 @@ Per slice:
 - [ ] Changes are committed.
 
 ## Worklog
+
+- 2026-07-15 (GitHub issue #200; decisions #202, #203, #204) - **CRM REMOVAL EXECUTED.** Deleted the admin CRM UI, `packages/crm`, and the five `opzava_crm_*` Ask Admin tools; dropped the CRM schema with forward migration `0015_crm_removal`; and swept living documentation. CRM has no current surface and returns only with the future user-side dashboard. ADR-011 and PRD-010 are retained as deferred design records.
 
 - 2026-07-14/15 (#195, #196, #197, #198) - **THE ORCHESTRATOR'S MODEL IS NOW CHOSEN FROM THE LIVE CATALOG, NOT BAKED INTO SOURCE.** User connected OpenAI, made it main orchestrator, and it ran `gpt-5.5` while GPT-5.6 sat in the gateway's own catalog, unreachable ("This should be agnostic and NOT hard-coded"). The catalog was never at fault (`suggestedModel` is derived from the gateway); the defects were (a) the orchestrator's model was DERIVED, never selectable - the UI could pick a PROVIDER and toggle models ROUTABLE (#184), but nothing set `agents.defaults.model.primary`, so enabling `gpt-5.6-sol` made it routable while the orchestrator still ran 5.5 - and (b) `openai/gpt-5.5` was HARD-CODED (`ASK_ADMIN_AGENT_MODEL` + the web fallback), pinning a vendor model AND provider into a provider-agnostic default. FIX: `setMainOrchestrator` takes an optional model, validated against the provider's LIVE catalog (unknown id refused, never written blindly), elected in ONE composite `config.patch` (primary + orchestrator agent model + routability - one write because the gateway caps control-plane writes at 3/60s and two could interleave with a concurrent connect). **AUTHORITY INVERTED (the crux, from a consensus plan audit that BLOCKED the first plan):** `onboard` moves the primary on EVERY connect and reconcile used to copy that gateway-written value back onto Ask Admin - so a chosen model would be silently reverted by the next connect while the UI still showed it. The operator's selection (the Ask Admin model, which only Opzava writes) is now authoritative while its provider stays connected, and reconcile PUSHES it into the primary; with no selection the gateway's primary still stands (outranked, not replaced). `orchestratorModel` is now `string | null` - with nothing connected there IS no orchestrator model and we stop inventing one. Failable check passes: `grep '"openai/gpt-'` over packages/apps is EMPTY. Model toggle also got real feedback (it tracked `pending` but only greyed the switch out, so a rate-limited write left a dead control for tens of seconds and read as broken - which is exactly how the user experienced it). **LIVE-PROVEN, and that is what caught the real bug:** the first election returned HTTP 200 and did NOTHING - the model was dropped TWICE in the chain (the web->worker HTTP client never serialized it; the worker's HTTP server never parsed it off the wire), invisible to every unit test because they call the service directly. After fixing both hops, electing `gpt-5.6-sol` through the real authenticated route moved `agents.defaults.model.primary` AND the ask-admin agent to `openai/gpt-5.6-sol`, with the model in `allowed`. A Codex-introduced regression was also caught by a PRE-EXISTING test (it had dropped the gateway primary from the resolution chain, so with no selection the orchestrator would jump to "whatever provider sorts first") - the reason failing tests get fixed, not deleted. **THREE MORE BUGS FILED FROM LIVE EVIDENCE:** #196 disconnect leaves the provider's models ROUTABLE (`agents.defaults.models` still advertises moonshot/xiaomi/deepseek with NO credential - fails silently until something routes there); #197 **disconnect does NOT remove an OAuth credential** - the plan is built only from `auth.profiles`, so the user's ChatGPT/OAuth OpenAI survived a Disconnect that reported success (an unrevokable provider - security teeth); #198 `node_modules` is COMMITTED as a self-referential absolute symlink, breaking `pnpm` (ELOOP) and the web build (Turbopack symlink loop) in every worktree - it hides because `pnpm install` silently repairs it, and "restoring" it re-breaks the repo. #198 fixed here (`git rm --cached node_modules`). Verified by me: typecheck, lint, 153 worker tests, 114 web tests, and the live gateway config. Commits: 937720a1, 1aaeff28.
 

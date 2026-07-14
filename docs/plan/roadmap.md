@@ -75,7 +75,7 @@ Goal: the thinnest real Opzava slice that a user can run locally, sign up for, u
 - [ ] Knowledge/RAG, OKF ingestion, citations from uploaded docs, skill catalog, and governed skill install are out.
 - [ ] Full AI Workforce roster, multiple employees, departments, standing orders, automation, task board, and run trace are out.
 - [ ] Internal team chat, DMs, threads, reactions, presence, typing, Web Push, and PWA offline behavior are out except the stream transport needed for Ask Opzava.
-- [ ] CRM, external channels, marketing, finance, billing checkout, notifications fan-out, admin observability, full error pipeline, and remediation are out.
+- [ ] CRM is deferred to the future user-side dashboard (admin implementation removed 2026-07-15, GitHub issue #200); external channels, marketing, finance, billing checkout, notifications fan-out, admin observability, full error pipeline, and remediation are out.
 - [ ] Stripe/provider billing is stubbed as a local active entitlement record; no provider integration yet.
 - [ ] Dokploy live deployment is not required, but the Compose and Traefik contract must be Dokploy-compatible from day one.
 
@@ -161,9 +161,9 @@ Goal: give people and AI employees governed project/org knowledge without making
 - PRDs: PRD-007.
 - Bounded contexts: Knowledge Management, AI Workforce, Runtime-Control, Project Management, Tenant Provisioning/Platform-Ops, Object Storage adapters.
 
-## P4 - CRM
+## P4 - CRM (future user-side dashboard rebuild)
 
-Goal: own customer truth in Opzava while projecting external channel observations through the Gateway ACL.
+Goal: rebuild customer truth with the future user-side dashboard while projecting external channel observations through the Gateway ACL. The former admin implementation was removed on 2026-07-15 (GitHub issue #200).
 
 ### Deliverables
 
@@ -182,7 +182,7 @@ Goal: own customer truth in Opzava while projecting external channel observation
 
 - ADRs: ADR-011, ADR-003, ADR-004, ADR-008, ADR-010, ADR-007.
 - PRDs: PRD-010.
-- Bounded contexts: CRM, External Channels, AI Workforce, Runtime-Control, Knowledge Management, Project Management, Internal Collaboration.
+- Bounded contexts: deferred CRM (future user-side dashboard), External Channels, AI Workforce, Runtime-Control, Knowledge Management, Project Management, Internal Collaboration.
 
 ## P5 - Department Workflows Plus Marketing
 
@@ -270,13 +270,13 @@ Goal: finish the customer-facing and integration edges: governed channel connect
 
 ### Now-Usable Acceptance Signal
 
-- [ ] A tenant admin connects Gmail or Slack through the Gateway path, an external message creates CRM support work, a Support employee sends an approved reply through the connected channel, the project manager creates a Guest-Client link for that customer, the customer opens a scoped portal and comments on the ticket, and a local operator links Codex CLI without any long-lived secret appearing in UI or source.
+- [ ] A tenant admin connects Gmail or Slack through the Gateway path, a future user-side CRM rebuild turns an external message into support work, a Support employee sends an approved reply through the connected channel, the project manager creates a Guest-Client link for that customer, the customer opens a scoped portal and comments on the ticket, and a local operator links Codex CLI without any long-lived secret appearing in UI or source.
 
 ### ADR / PRD / Contexts
 
 - ADRs: ADR-003 external channel path, ADR-005, ADR-006, ADR-007, ADR-010, ADR-011, ADR-014, ADR-015.
 - PRDs: PRD-013, PRD-015, PRD-017, plus PRD-010 channel-consuming flows.
-- Bounded contexts: External Channels, CRM, Identity & Access, Project Management, Runtime-Control, Tenant Provisioning/Platform-Ops, Knowledge Management, Billing, Notifications/Admin-Observability.
+- Bounded contexts: External Channels, deferred CRM (future user-side dashboard), Identity & Access, Project Management, Runtime-Control, Tenant Provisioning/Platform-Ops, Knowledge Management, Billing, Notifications/Admin-Observability.
 
 ## Definition of Done Per Phase
 

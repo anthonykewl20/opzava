@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+> Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
+
 Opzava will own project and organization knowledge as source documents in Postgres plus object storage, while OpenClaw `memory-wiki` and `memory-lancedb` are rebuildable derived indexes. Knowledge is ingested through versioned OKF bundles and `wiki okf import`, scoped as employee workspaces with project and org corpus overlays, and governed through an admin-only curated skill catalog.
 
 ## Context

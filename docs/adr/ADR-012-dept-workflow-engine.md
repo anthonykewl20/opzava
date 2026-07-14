@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+> Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
+
 Opzava defines department work as versioned `Workflow`/`Playbook` policy, and OpenClaw executes that work through provisioned standing orders, cron, TaskFlow, task-ledger state, sessions, channels, and runtime approvals. The same engine powers Marketing content, Finance events, Support SLA handling, CRM-sensitive actions, send-on-behalf work, and scheduled reports while keeping business approvals in Opzava and exec/plugin gates in OpenClaw.
 
 ## Context

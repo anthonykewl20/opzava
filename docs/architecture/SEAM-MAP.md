@@ -25,7 +25,7 @@ A port is the deepest kind of seam: a small Interface a lot of behavior sits beh
 | Port | Defined at | Adapters today (grep) | By design (ADR) | Verdict |
 | --- | --- | --- | --- | --- |
 | `ConnectionsProvisioningPort` | `packages/ports/src/connections-provisioning.ts:239` | 4 (`apps/web/lib/connections.ts` x2, `apps/workers/.../gateway-admin-connections.ts` x2) | real | REAL, the heaviest seam in the codebase |
-| `AuthorizationPort` | `packages/ports/src/authorization.ts:59` | 3 (`packages/{crm,project-management,runtime-control}/src/application/authorization.ts`) | real | REAL, shared across three bounded contexts |
+| `AuthorizationPort` | `packages/ports/src/authorization.ts:59` | 2 (`packages/{project-management,runtime-control}/src/application/authorization.ts`) | real | REAL, shared across two current bounded contexts; CRM is deferred to the future user-side dashboard (GitHub issue #200) |
 | `ObjectStorePort` | `packages/ports/src/object-store.ts:59` | 2 (`packages/adapters/src/object-store/{in-memory,s3}-object-store.ts`) | real | REAL |
 | `OpenClawAdminRpcPort` | `apps/workers/src/provisioning/openclaw-admin-client.ts:21` (outside `packages/ports`) | 3 (all in `apps/workers`) | real | REAL but misplaced (see smells) |
 | `OpenClawGatewayPort` | `packages/ports/src/openclaw-gateway.ts:114` | 1 (`apps/gateway-broker/src/routing/connection-manager.ts`) | real, the only hot-path ACL | HYPOTHETICAL by count; the port itself is shallow today (only `startAssistantStream`, `getEffectiveTools`, `getHealth` are implemented) |
@@ -55,7 +55,7 @@ apps/mcp-server  (hosted MCP tool registry)
 apps/workers  (admin/JIT path; provisioning, projections, jobs)
    |
    v  depend on
-packages/{identity-access, crm, project-management, runtime-control}  (bounded contexts)
+packages/{identity-access, project-management, runtime-control}  (current bounded contexts; CRM deferred to the future user-side dashboard)
 packages/adapters  (concrete vendor Adapters behind ports)
    |
    v  depend on
@@ -106,7 +106,7 @@ Deep anchors:
 
 - `apps/gateway-broker/src/acl/openclaw/operator-client.ts`, the broker replay and idempotency engine, is the deepest runtime Module.
 - `apps/workers/src/provisioning/gateway-admin-connections.ts` (about 4633 lines) is the largest single Module and mixes Docker runtime control, provisioning orchestration, config mutation, and fallback behavior; it is deep but also a god-module (top deepening candidate).
-- `packages/runtime-control/src/application/*` (assistant conversation, tool runners) and the per-context application services (`packages/project-management/src/application/tasks.ts`, `packages/crm/src/application/shared.ts`) hide command and projection behavior behind small Interfaces.
+- `packages/runtime-control/src/application/*` (assistant conversation, task tool runners) and per-context application services such as `packages/project-management/src/application/tasks.ts` hide command and projection behavior behind small Interfaces. CRM application services were removed and are deferred to the future user-side dashboard (GitHub issue #200).
 - The shared-kernel value objects (`Money`, branded ids, `Result`) are deep: tiny surfaces, invariant-checking factories, wide reuse.
 - `packages/adapters/src/object-store/s3-object-store.ts` hides streaming, presigning, and storage semantics behind `ObjectStorePort`.
 
@@ -134,7 +134,7 @@ Each is a candidate for the [deepening register](DEEPENING-OPPORTUNITIES.md).
 
 ## Cross-context coupling points
 
-- `AuthorizationPort` is implemented by three bounded contexts (`crm`, `project-management`, `runtime-control`), so a change to the authorization Interface or the shared role-key policy touches all three at once.
+- `AuthorizationPort` is implemented by two current bounded contexts (`project-management`, `runtime-control`); the CRM implementation was removed and is deferred to the future user-side dashboard (GitHub issue #200).
 - `packages/shared-kernel/src/result/index.ts` is imported by nearly every Module; it is the widest blast radius in the codebase.
 - `packages/project-management/src/application/issues.ts` couples PM to the issue-tracker capability (`IssueTrackerPort`) beside its task logic, the clearest cross-context coupling inside a package.
 - Every bounded context depends on Identity and Access first (session, `AuthorizationPort`, `withTenant` RLS), and every OpenClaw-bound call funnels through the broker; the dependency graph stays acyclic at the port seam.

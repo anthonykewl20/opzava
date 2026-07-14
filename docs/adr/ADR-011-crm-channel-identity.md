@@ -1,6 +1,8 @@
 # ADR-011: CRM, external channel identity, and Contact resolution
 
-Status: Accepted
+Status: Deferred
+
+> Deferred 2026-07-15: the implementation was removed under [GitHub issue #200](https://github.com/anthonykewl20/opzava/issues/200). This decision is retained for the CRM data-model rebuild with the future user-side dashboard.
 
 Opzava will own CRM truth in tenant-scoped Postgres aggregates, while OpenClaw owns external channel runtime state behind the ADR-003 `gateway-broker` ACL. CRM resolves customer senders through a `ChannelIdentity` value object on `Contact`, auto-links only exact verified sender matches, uses audited manual merge for cross-channel dedupe, and treats conversations as projections into Contact activity and support tickets.
 

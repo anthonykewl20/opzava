@@ -1,5 +1,7 @@
 # PRD-010: CRM and customer support workflows
 
+> **Deferred 2026-07-15:** CRM was removed from the admin app; this PRD targets the future user-side dashboard ([GitHub issue #200](https://github.com/anthonykewl20/opzava/issues/200)).
+
 ## Problem
 
 Opzava has the core project, collaboration, AI workforce, and marketing surfaces defined, but customer-management work still lacks a product contract for durable CRM records, external customer conversations, support tickets, deals, consent, and erasure.

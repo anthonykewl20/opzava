@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+> Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
+
 Opzava will model an AI employee as an OpenClaw delegate agent provisioned with its own persona files, workspace, `agentDir`, memory, skills, isolated auth, channel bindings, and tool policy. AI Workforce owns the Opzava aggregates for employee identity, departments, autonomy tiers, standing orders, channel bindings, and assignments, while `AgentDispatch` remains the bridge from human work such as a `pm.Card` to OpenClaw Workboard/session refs.
 
 ## Context
