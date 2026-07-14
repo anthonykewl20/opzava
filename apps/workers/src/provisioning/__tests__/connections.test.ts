@@ -8365,43 +8365,76 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
   });
 
   it.each([
-    { name: "absent", fields: {} },
-    { name: "malformed", fields: { plugins: { loaded: [] }, contextEngines: [] } },
+    { name: "absent", fields: {}, expectedStatus: "healthy" },
+    {
+      name: "valid empty",
+      fields: { plugins: { loaded: [], errors: [] }, contextEngines: { quarantined: [] } },
+      expectedStatus: "healthy",
+    },
+    {
+      name: "malformed",
+      fields: { plugins: { loaded: [] }, contextEngines: [] },
+      expectedStatus: "not_checked",
+    },
     {
       name: "malformed entries",
       fields: {
         plugins: { loaded: [42], errors: [] },
         contextEngines: { quarantined: [{ arbitrary: true }] },
       },
+      expectedStatus: "not_checked",
     },
-  ])("keeps $name plugin and context-engine facts unchecked", async ({ fields }) => {
-    const admin = new RecordingAdminClient({
-      "config.get": ok({ hash: "health-config", config: {} }),
-      health: ok({
-        ok: true,
-        ts: Date.parse("2026-07-14T11:59:30.000Z"),
-        eventLoop: { degraded: false },
-        channels: {},
-        channelOrder: [],
-        channelLabels: {},
-        agents: [],
-        ...fields,
-      }),
-      status: ok({ runtimeVersion: null, sessions: { count: 0, recent: [] } }),
-      "models.list": ok({ providers: [], models: [] }),
-      "models.authStatus": ok({ providers: [] }),
-    });
+    {
+      name: "valid issues",
+      fields: {
+        plugins: {
+          loaded: [],
+          errors: [{ id: "broken", origin: "extension", activated: true, error: "failed" }],
+        },
+        contextEngines: {
+          quarantined: [
+            {
+              engineId: "memory",
+              operation: "start",
+              reason: "failed",
+              failedAt: Date.parse("2026-07-14T11:59:20.000Z"),
+            },
+          ],
+        },
+      },
+      expectedStatus: "attention",
+    },
+  ])(
+    "projects $name plugin and context-engine facts as $expectedStatus",
+    async ({ fields, expectedStatus }) => {
+      const admin = new RecordingAdminClient({
+        "config.get": ok({ hash: "health-config", config: {} }),
+        health: ok({
+          ok: true,
+          ts: Date.parse("2026-07-14T11:59:30.000Z"),
+          eventLoop: { degraded: false },
+          channels: {},
+          channelOrder: [],
+          channelLabels: {},
+          agents: [],
+          ...fields,
+        }),
+        status: ok({ runtimeVersion: null, sessions: { count: 0, recent: [] } }),
+        "models.list": ok({ providers: [], models: [] }),
+        "models.authStatus": ok({ providers: [] }),
+      });
 
-    const result = await healthPort(admin).getConnectionsSnapshot(principal());
+      const result = await healthPort(admin).getConnectionsSnapshot(principal());
 
-    if (!result.ok) throw result.error;
-    expect(result.value.openclawHealth.components).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "plugins", status: "not_checked" }),
-        expect.objectContaining({ id: "context-engines", status: "not_checked" }),
-      ]),
-    );
-  });
+      if (!result.ok) throw result.error;
+      expect(result.value.openclawHealth.components).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "plugins", status: expectedStatus }),
+          expect.objectContaining({ id: "context-engines", status: expectedStatus }),
+        ]),
+      );
+    },
+  );
 
   it("classifies only allowlisted channel status states and leaves unknown states unchecked", async () => {
     const admin = new RecordingAdminClient({

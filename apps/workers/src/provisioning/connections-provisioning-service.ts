@@ -2667,18 +2667,19 @@ function projectOpenClawComponents(healthResult: Result<unknown>): {
   const pluginLoaded = pluginRecord?.["loaded"];
   const pluginErrors = pluginRecord?.["errors"];
   const validPluginFacts =
-    pluginRecord !== null &&
-    Array.isArray(pluginLoaded) &&
-    pluginLoaded.every((entry) => typeof entry === "string") &&
-    Array.isArray(pluginErrors) &&
-    pluginErrors.every(
-      (entry) =>
-        isRecord(entry) &&
-        stringValue(entry["id"]) !== null &&
-        stringValue(entry["origin"]) !== null &&
-        typeof entry["activated"] === "boolean" &&
-        stringValue(entry["error"]) !== null,
-    );
+    plugins === undefined ||
+    (pluginRecord !== null &&
+      Array.isArray(pluginLoaded) &&
+      pluginLoaded.every((entry) => typeof entry === "string") &&
+      Array.isArray(pluginErrors) &&
+      pluginErrors.every(
+        (entry) =>
+          isRecord(entry) &&
+          stringValue(entry["id"]) !== null &&
+          stringValue(entry["origin"]) !== null &&
+          typeof entry["activated"] === "boolean" &&
+          stringValue(entry["error"]) !== null,
+      ));
   const pluginErrorCount = Array.isArray(pluginErrors) ? pluginErrors.length : 0;
   components.push(
     healthComponent({
@@ -2697,16 +2698,17 @@ function projectOpenClawComponents(healthResult: Result<unknown>): {
   const contextRecord = recordValue(contextEngines);
   const quarantined = contextRecord?.["quarantined"];
   const validContextFacts =
-    contextRecord !== null &&
-    Array.isArray(quarantined) &&
-    quarantined.every(
-      (entry) =>
-        isRecord(entry) &&
-        stringValue(entry["engineId"]) !== null &&
-        stringValue(entry["operation"]) !== null &&
-        stringValue(entry["reason"]) !== null &&
-        numberValue(entry["failedAt"]) !== null,
-    );
+    contextEngines === undefined ||
+    (contextRecord !== null &&
+      Array.isArray(quarantined) &&
+      quarantined.every(
+        (entry) =>
+          isRecord(entry) &&
+          stringValue(entry["engineId"]) !== null &&
+          stringValue(entry["operation"]) !== null &&
+          stringValue(entry["reason"]) !== null &&
+          numberValue(entry["failedAt"]) !== null,
+      ));
   const quarantineCount = Array.isArray(quarantined) ? quarantined.length : 0;
   components.push(
     healthComponent({
