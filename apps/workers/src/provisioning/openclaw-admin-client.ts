@@ -7,7 +7,11 @@ import {
 } from "node:crypto";
 
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
-import type { OpenClawAdminRpcPort, OpenClawOperatorScope } from "@opzava/ports";
+import type {
+  OpenClawAdminConnectionMetadata,
+  OpenClawAdminRpcPort,
+  OpenClawOperatorScope,
+} from "@opzava/ports";
 
 import { ASK_ADMIN_AGENT_VERSION } from "./ask-admin-agent.js";
 
@@ -107,6 +111,7 @@ interface PendingRequest {
 interface OpenClawAdminHello {
   readonly protocol: number;
   readonly scopes: readonly OpenClawOperatorScope[];
+  readonly metadata: OpenClawAdminConnectionMetadata;
 }
 
 interface OpenClawAdminAuthCredential {
@@ -146,6 +151,8 @@ const retryableReadMethods = new Set([
   "last-heartbeat",
   "models.authStatus",
   "models.list",
+  "status",
+  "update.status",
 ]);
 
 function adminError(code: string, message: string, cause?: unknown): DomainError {
@@ -207,6 +214,33 @@ function operatorScopes(value: unknown): readonly OpenClawOperatorScope[] {
     (scope): scope is OpenClawOperatorScope =>
       typeof scope === "string" && scope.startsWith("operator."),
   );
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+function helloConnectionMetadata(value: Record<string, unknown>): OpenClawAdminConnectionMetadata {
+  const server = isRecord(value["server"]) ? value["server"] : null;
+  const snapshot = isRecord(value["snapshot"]) ? value["snapshot"] : null;
+  const update =
+    snapshot !== null && isRecord(snapshot["updateAvailable"]) ? snapshot["updateAvailable"] : null;
+  const currentVersion = update === null ? null : nonEmptyString(update["currentVersion"]);
+  const latestVersion = update === null ? null : nonEmptyString(update["latestVersion"]);
+  const channel = update === null ? null : nonEmptyString(update["channel"]);
+  const uptimeMs = snapshot?.["uptimeMs"];
+
+  return {
+    serverVersion: server === null ? null : nonEmptyString(server["version"]),
+    uptimeMs:
+      typeof uptimeMs === "number" && Number.isSafeInteger(uptimeMs) && uptimeMs >= 0
+        ? uptimeMs
+        : null,
+    updateAvailable:
+      currentVersion !== null && latestVersion !== null && channel !== null
+        ? { currentVersion, latestVersion, channel }
+        : null,
+  };
 }
 
 export function openClawOperatorScopeGranted(
@@ -428,6 +462,7 @@ function helloPayload(value: unknown): Result<OpenClawAdminHello> {
   return ok({
     protocol: openClawProtocolVersion,
     scopes,
+    metadata: helloConnectionMetadata(value),
   });
 }
 
@@ -506,6 +541,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
   private socket: OpenClawAdminWebSocket | null = null;
   private connectPromise: Promise<Result<OpenClawAdminHello>> | null = null;
   private connectedScopes: readonly OpenClawOperatorScope[] | null = null;
+  private connectedMetadata: OpenClawAdminConnectionMetadata | null = null;
   private readonly pendingRequests = new Map<string, PendingRequest>();
   private consecutiveConnectFailures = 0;
   private circuitBreakerState: CircuitBreakerState = "closed";
@@ -647,6 +683,10 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
     return this.connectedScopes;
   }
 
+  public connectionMetadata(): OpenClawAdminConnectionMetadata | null {
+    return this.connectedMetadata;
+  }
+
   private shouldRetryRequest(method: string, error: DomainError): boolean {
     return (
       retryableReadMethods.has(method) &&
@@ -666,7 +706,15 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
   private connect(): Promise<Result<OpenClawAdminHello>> {
     if (this.socket !== null && this.connectedScopes !== null) {
       return Promise.resolve(
-        ok({ protocol: openClawProtocolVersion, scopes: this.connectedScopes }),
+        ok({
+          protocol: openClawProtocolVersion,
+          scopes: this.connectedScopes,
+          metadata: this.connectedMetadata ?? {
+            serverVersion: null,
+            uptimeMs: null,
+            updateAvailable: null,
+          },
+        }),
       );
     }
 
@@ -777,6 +825,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
     this.socket = null;
     this.connectPromise = null;
     this.connectedScopes = null;
+    this.connectedMetadata = null;
     this.lastSocketActivityAt = null;
     this.clearIdleTimer();
     for (const [id, pending] of this.pendingRequests) {
@@ -948,6 +997,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
           const hello = helloPayload(frame.payload);
           if (hello.ok) {
             this.connectedScopes = hello.value.scopes;
+            this.connectedMetadata = hello.value.metadata;
           } else if (hello.error.code === "provisioning.openclawAdmin.readScopeMissing") {
             this.logConnectFailure({
               cause: "scope_rejected",

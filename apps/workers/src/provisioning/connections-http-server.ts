@@ -154,6 +154,16 @@ async function handleConnectionsRequest(
     return;
   }
 
+  if (route === "/internal/connections/refresh") {
+    const result = await options.provisioningPort.refreshConnectionsSnapshot(principal);
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
+    return;
+  }
+
   if (route === "/internal/connections/model/api-key") {
     if (!isRecord(body)) {
       writeJson(response, 400, { error: "invalid_request" });

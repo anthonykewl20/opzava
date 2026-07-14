@@ -120,6 +120,14 @@ function snapshot(overrides: Partial<ConnectionsSnapshot> = {}): ConnectionsSnap
       lastHeartbeatAt: "2026-07-03T00:00:00.000Z",
       message: null,
     },
+    openclawHealth: {
+      components: [],
+      warnings: [],
+      runtime: { version: null, uptimeMs: null, hostUptimeMs: null, updateAvailable: null },
+      sessions: { count: null, recent: [] },
+      checkedAt: null,
+      lastKnownHealthy: null,
+    },
     providerCatalog: [
       {
         id: "openai",
@@ -365,6 +373,7 @@ function snapshot(overrides: Partial<ConnectionsSnapshot> = {}): ConnectionsSnap
 function fakePort(): ConnectionsProvisioningPort {
   return {
     getConnectionsSnapshot: async () => ok(snapshot()),
+    refreshConnectionsSnapshot: async () => ok(snapshot()),
     startModelProviderApiKeyConnect: async () => ok({ opId: "op-1", status: "pending" as const }),
     pollModelProviderApiKeyConnect: async () =>
       ok({

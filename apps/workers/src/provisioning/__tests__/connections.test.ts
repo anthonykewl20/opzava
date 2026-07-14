@@ -13,6 +13,7 @@ import {
   type GatewayRuntimeAgentCredentialWrite,
   type GitHubConnectionState,
   type ModelProviderAuthChoice,
+  type OpenClawAdminConnectionMetadata,
   type OpenClawAdminRpcPort,
   type OpenClawOperatorScope,
   type OrchestratorDelegationState,
@@ -140,6 +141,14 @@ function connectionsSnapshot(): ConnectionsSnapshot {
       lastHeartbeatAt: "2026-07-03T00:00:00.000Z",
       message: null,
     },
+    openclawHealth: {
+      components: [],
+      warnings: [],
+      runtime: { version: null, uptimeMs: null, hostUptimeMs: null, updateAvailable: null },
+      sessions: { count: null, recent: [] },
+      checkedAt: null,
+      lastKnownHealthy: null,
+    },
     providerCatalog: [],
     providerConnections: [providerConnection()],
     pendingDeviceFlows: [],
@@ -165,6 +174,7 @@ function connectionsSnapshot(): ConnectionsSnapshot {
 function fakeProvisioningPort(): ConnectionsProvisioningPort {
   return {
     getConnectionsSnapshot: async () => ok(connectionsSnapshot()),
+    refreshConnectionsSnapshot: async () => ok(connectionsSnapshot()),
     startModelProviderApiKeyConnect: async () => ok({ opId: "op-1", status: "pending" }),
     pollModelProviderApiKeyConnect: async () =>
       ok({ status: "connected", connection: providerConnection() }),
@@ -236,6 +246,7 @@ class RecordingAdminClient implements OpenClawAdminRpcPort {
   public constructor(
     private readonly responses: Record<string, RecordingAdminResponse>,
     private readonly scopes: readonly OpenClawOperatorScope[] = ["operator.read", "operator.admin"],
+    private readonly metadata: OpenClawAdminConnectionMetadata | null = null,
   ) {}
 
   public async request(
@@ -271,6 +282,10 @@ class RecordingAdminClient implements OpenClawAdminRpcPort {
 
   public grantedScopes(): readonly OpenClawOperatorScope[] {
     return this.scopes;
+  }
+
+  public connectionMetadata(): OpenClawAdminConnectionMetadata | null {
+    return this.metadata;
   }
 
   public close(): void {}
@@ -1408,8 +1423,15 @@ describe("Connections provisioning helpers", () => {
   });
 
   it("serves the internal Connections provisioning endpoint behind the shared token", async () => {
+    const refreshInputs: unknown[] = [];
     const server = createConnectionsInternalHttpServer({
-      provisioningPort: fakeProvisioningPort(),
+      provisioningPort: {
+        ...fakeProvisioningPort(),
+        refreshConnectionsSnapshot: async (input) => {
+          refreshInputs.push(input);
+          return ok(connectionsSnapshot());
+        },
+      },
       internalToken: "local-provisioning-token",
     });
     const baseUrl = await listen(server);
@@ -1445,6 +1467,22 @@ describe("Connections provisioning helpers", () => {
         gateway: { status: "active" },
         providerConnections: [{ providerId: "zai" }],
       });
+
+      const refreshed = await fetch(`${baseUrl}/internal/connections/refresh`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer local-provisioning-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          orgId: "org-1",
+          workspaceId: "workspace-1",
+          actorUserId: "user-1",
+          roleKeys: ["admin"],
+        }),
+      });
+      expect(refreshed.status).toBe(200);
+      expect(refreshInputs).toEqual([expect.objectContaining({ workspaceId: "workspace-1" })]);
     } finally {
       await closeServer(server);
     }
@@ -8100,5 +8138,387 @@ describe("setup-token config profile does not suppress the shared write (issue #
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("OpenClaw connections health snapshot (issue #177)", () => {
+  function healthPort(admin: RecordingAdminClient): GatewayAdminConnectionsProvisioningPort {
+    return new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-14T12:00:00.000Z"),
+    });
+  }
+
+  it("projects observable core and channel health while keeping agent schedule config unknown", async () => {
+    const admin = new RecordingAdminClient(
+      {
+        "config.get": ok({ hash: "health-config", config: {} }),
+        health: ok({
+          ok: true,
+          ts: Date.parse("2026-07-14T11:59:30.000Z"),
+          eventLoop: { degraded: false, reasons: [], delayP99Ms: 2 },
+          plugins: { loaded: ["telegram"], errors: [] },
+          contextEngines: { quarantined: [] },
+          channels: {
+            telegram: {
+              accounts: {
+                primary: {
+                  accountId: "primary",
+                  configured: true,
+                  linked: true,
+                  probe: { ok: true },
+                  lastProbeAt: Date.parse("2026-07-14T11:59:25.000Z"),
+                },
+              },
+            },
+          },
+          channelOrder: ["telegram"],
+          channelLabels: { telegram: "Telegram" },
+          agents: [
+            {
+              agentId: "main",
+              name: "Main agent",
+              heartbeat: { enabled: true, every: "30m", everyMs: 1_800_000 },
+            },
+          ],
+        }),
+        status: ok({
+          runtimeVersion: "2026.7.14",
+          sessions: {
+            count: 1,
+            recent: [
+              {
+                agentId: "main",
+                key: "agent:main:secret-recipient",
+                path: "/secret/session.json",
+                model: "secret-model",
+                updatedAt: Date.parse("2026-07-14T11:59:00.000Z"),
+                age: 60_000,
+                arbitrarySecret: "must-not-cross",
+              },
+            ],
+          },
+        }),
+        "update.status": ok({ sentinel: { status: "ok", latestVersion: "must-not-cross" } }),
+        "models.list": ok({ providers: [], models: [] }),
+        "models.authStatus": ok({ providers: [] }),
+      },
+      undefined,
+      {
+        serverVersion: "hello-version",
+        uptimeMs: 45_000,
+        updateAvailable: {
+          currentVersion: "2026.7.14",
+          latestVersion: "2026.7.15",
+          channel: "stable",
+        },
+      },
+    );
+
+    const result = await healthPort(admin).getConnectionsSnapshot(principal());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw result.error;
+    expect(result.value.openclawHealth.components).toEqual([
+      expect.objectContaining({ id: "gateway", kind: "gateway", status: "healthy" }),
+      expect.objectContaining({ id: "event-loop", kind: "event-loop", status: "healthy" }),
+      expect.objectContaining({ id: "plugins", kind: "plugins", status: "healthy" }),
+      expect.objectContaining({
+        id: "context-engines",
+        kind: "context-engines",
+        status: "healthy",
+      }),
+      expect.objectContaining({
+        id: "channel:telegram:primary",
+        kind: "channel",
+        status: "healthy",
+        lastCheckedAt: "2026-07-14T11:59:25.000Z",
+      }),
+      expect.objectContaining({
+        id: "agent:main",
+        kind: "agent",
+        status: "not_checked",
+        lastCheckedAt: null,
+      }),
+    ]);
+    expect(result.value.openclawHealth.runtime.version).toBe("2026.7.14");
+    expect(result.value.openclawHealth.runtime.updateAvailable).toEqual({
+      currentVersion: "2026.7.14",
+      latestVersion: "2026.7.15",
+      channel: "stable",
+    });
+    expect(result.value.openclawHealth.sessions).toEqual({
+      count: 1,
+      recent: [
+        {
+          agentId: "main",
+          updatedAt: "2026-07-14T11:59:00.000Z",
+          ageMs: 60_000,
+        },
+      ],
+    });
+    expect(JSON.stringify(result.value.openclawHealth.sessions)).not.toMatch(
+      /secret-recipient|session\.json|secret-model|must-not-cross/,
+    );
+    expect(admin.calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ method: "health", params: {} }),
+        expect.objectContaining({ method: "status", params: { includeSensitive: true } }),
+        expect.objectContaining({ method: "update.status", params: {} }),
+      ]),
+    );
+  });
+
+  it("uses probe true only for an explicit live refresh", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "health-config", config: {} }),
+      health: ok({
+        ok: true,
+        ts: Date.parse("2026-07-14T11:59:30.000Z"),
+        channels: {},
+        channelOrder: [],
+        channelLabels: {},
+        agents: [],
+      }),
+      status: ok({ runtimeVersion: null, sessions: { count: 0, recent: [] } }),
+      "models.list": ok({ providers: [], models: [] }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = healthPort(admin);
+
+    await port.getConnectionsSnapshot(principal());
+    await port.refreshConnectionsSnapshot(principal());
+
+    expect(
+      admin.calls.filter((call) => call.method === "health").map((call) => call.params),
+    ).toEqual([{}, { probe: true }]);
+  });
+
+  it("marks explicit channel failure as attention and keeps pricing degradation warning-only", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "health-config", config: {} }),
+      health: ok({
+        ok: true,
+        ts: Date.parse("2026-07-14T11:59:30.000Z"),
+        eventLoop: { degraded: false },
+        modelPricing: { state: "degraded", detail: "credential=must-not-cross" },
+        channels: {
+          telegram: {
+            accounts: {
+              dead: {
+                accountId: "dead",
+                configured: true,
+                statusState: "disconnected",
+                lastProbeAt: Date.parse("2026-07-14T11:59:20.000Z"),
+              },
+            },
+          },
+        },
+        channelOrder: ["telegram"],
+        channelLabels: { telegram: "Telegram" },
+        agents: [],
+      }),
+      status: ok({ runtimeVersion: null, sessions: { count: 0, recent: [] } }),
+      "models.list": ok({ providers: [], models: [] }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+
+    const result = await healthPort(admin).getConnectionsSnapshot(principal());
+
+    if (!result.ok) throw result.error;
+    expect(result.value.openclawHealth.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "channel:telegram:dead", status: "attention" }),
+        expect.objectContaining({ id: "plugins", status: "healthy" }),
+        expect.objectContaining({ id: "context-engines", status: "healthy" }),
+      ]),
+    );
+    expect(result.value.openclawHealth.warnings).toEqual([
+      expect.objectContaining({ id: "model-pricing" }),
+    ]);
+    expect(JSON.stringify(result.value.openclawHealth)).not.toContain("must-not-cross");
+  });
+
+  it.each([
+    {
+      name: "health fails",
+      health: err(new DomainError({ code: "health.failed", message: "health failed" })),
+      status: ok({ runtimeVersion: "2026.7.14", sessions: { count: 0, recent: [] } }),
+      expectedVersion: "2026.7.14",
+      expectedCount: 0,
+    },
+    {
+      name: "status fails",
+      health: ok({
+        ok: true,
+        ts: Date.parse("2026-07-14T11:59:30.000Z"),
+        eventLoop: { degraded: false },
+        channels: {},
+        channelOrder: [],
+        channelLabels: {},
+        agents: [],
+        sessions: {
+          count: 1,
+          recent: [{ key: "secret-key", updatedAt: 1_752_493_140_000, age: 60_000 }],
+        },
+      }),
+      status: err(new DomainError({ code: "status.failed", message: "status failed" })),
+      expectedVersion: "hello-fallback",
+      expectedCount: 1,
+    },
+    {
+      name: "both fail",
+      health: err(new DomainError({ code: "health.failed", message: "health failed" })),
+      status: err(new DomainError({ code: "status.failed", message: "status failed" })),
+      expectedVersion: "hello-fallback",
+      expectedCount: null,
+    },
+  ])("degrades honestly when $name", async ({ health, status, expectedVersion, expectedCount }) => {
+    const admin = new RecordingAdminClient(
+      {
+        "config.get": ok({ hash: "health-config", config: {} }),
+        health,
+        status,
+        "models.list": ok({ providers: [], models: [] }),
+        "models.authStatus": ok({ providers: [] }),
+      },
+      undefined,
+      { serverVersion: "hello-fallback", uptimeMs: null, updateAvailable: null },
+    );
+
+    const result = await healthPort(admin).getConnectionsSnapshot(principal());
+
+    if (!result.ok) throw result.error;
+    expect(result.value.openclawHealth.runtime.version).toBe(expectedVersion);
+    expect(result.value.openclawHealth.sessions.count).toBe(expectedCount);
+    if (!health.ok) {
+      expect(result.value.openclawHealth.components).toHaveLength(4);
+      expect(
+        result.value.openclawHealth.components.every((entry) => entry.status === "not_checked"),
+      ).toBe(true);
+      expect(result.value.openclawHealth.checkedAt).toBeNull();
+    }
+    expect(JSON.stringify(result.value.openclawHealth.sessions)).not.toContain("secret-key");
+  });
+
+  it("retains only aggregate last-known healthy data through a later config outage", async () => {
+    let configReads = 0;
+    const admin = new RecordingAdminClient({
+      "config.get": () => {
+        configReads += 1;
+        return configReads === 1
+          ? ok({ hash: "health-config", config: {} })
+          : err(new DomainError({ code: "config.failed", message: "gateway unavailable" }));
+      },
+      health: ok({
+        ok: true,
+        ts: Date.parse("2026-07-14T11:59:30.000Z"),
+        eventLoop: { degraded: false },
+        channels: {},
+        channelOrder: [],
+        channelLabels: {},
+        agents: [],
+      }),
+      status: ok({ runtimeVersion: null, sessions: { count: 0, recent: [] } }),
+      "models.list": ok({ providers: [], models: [] }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = healthPort(admin);
+
+    const healthy = await port.getConnectionsSnapshot(principal());
+    const unavailable = await port.getConnectionsSnapshot(principal());
+
+    if (!healthy.ok || !unavailable.ok) throw new Error("expected snapshots");
+    expect(healthy.value.openclawHealth.lastKnownHealthy).toEqual({
+      checkedAt: "2026-07-14T11:59:30.000Z",
+      healthy: 4,
+      total: 4,
+    });
+    expect(unavailable.value.openclawHealth.lastKnownHealthy).toEqual(
+      healthy.value.openclawHealth.lastKnownHealthy,
+    );
+    expect(unavailable.value.openclawHealth.sessions).toEqual({ count: null, recent: [] });
+  });
+
+  it("sanitizes hello metadata before exposing it to snapshot projection", async () => {
+    const frames: unknown[] = [];
+    const client = new OpenClawAdminRpcClient({
+      url: "ws://127.0.0.1:18789",
+      gatewayToken: "gateway-token",
+      keypair: fakeKeypair(),
+      socketFactory: () => {
+        let onMessage: ((data: string) => void) | null = null;
+        return {
+          send(data) {
+            const frame = JSON.parse(data) as Record<string, unknown>;
+            frames.push(frame);
+            queueMicrotask(() =>
+              onMessage?.(
+                JSON.stringify({
+                  type: "res",
+                  id: frame["id"],
+                  ok: true,
+                  payload:
+                    frame["method"] === "connect"
+                      ? {
+                          type: "hello-ok",
+                          protocol: 4,
+                          server: { version: "2026.7.14", connId: "secret-connection-id" },
+                          snapshot: {
+                            uptimeMs: 12_345,
+                            configPath: "/secret/config.json",
+                            stateDir: "/secret/state",
+                            authMode: "token",
+                            presence: [{ arbitrary: "secret-presence" }],
+                            health: { arbitrary: "secret-health" },
+                            updateAvailable: {
+                              currentVersion: "2026.7.14",
+                              latestVersion: "2026.7.15",
+                              channel: "stable",
+                              arbitrary: "secret-update-field",
+                            },
+                          },
+                          auth: { role: "operator", scopes: ["operator.read"] },
+                        }
+                      : { ok: true },
+                }),
+              ),
+            );
+          },
+          close() {},
+          onMessage(listener) {
+            onMessage = listener;
+            queueMicrotask(() =>
+              listener(
+                JSON.stringify({
+                  type: "event",
+                  event: "connect.challenge",
+                  payload: { nonce: "nonce-1", ts: 1 },
+                }),
+              ),
+            );
+          },
+          onClose() {},
+          onError() {},
+        };
+      },
+    });
+
+    await client.request("health", {});
+
+    expect(client.connectionMetadata()).toEqual({
+      serverVersion: "2026.7.14",
+      uptimeMs: 12_345,
+      updateAvailable: {
+        currentVersion: "2026.7.14",
+        latestVersion: "2026.7.15",
+        channel: "stable",
+      },
+    });
+    expect(JSON.stringify(client.connectionMetadata())).not.toMatch(
+      /configPath|stateDir|authMode|presence|health|connId|arbitrary/,
+    );
   });
 });

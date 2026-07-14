@@ -46,6 +46,9 @@ import {
   type SubmitModelProviderSetupTokenCodeInput,
   type OpenClawOperatorScope,
   type OpenClawAdminRpcPort,
+  type OpenClawHealth,
+  type OpenClawHealthComponent,
+  type OpenClawLastKnownHealthy,
 } from "@opzava/ports";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
@@ -1463,6 +1466,10 @@ class VaultBackedOpenClawAdminRpcClient implements OpenClawAdminRpcPort {
     return this.inner?.grantedScopes() ?? null;
   }
 
+  public connectionMetadata() {
+    return this.inner?.connectionMetadata() ?? null;
+  }
+
   public close(): void {
     this.inner?.close();
     this.inner = null;
@@ -2509,6 +2516,297 @@ function gatewayConnectionState(input: {
   };
 }
 
+const coreHealthComponents = [
+  { id: "gateway", kind: "gateway", label: "Gateway" },
+  { id: "event-loop", kind: "event-loop", label: "Event loop" },
+  { id: "plugins", kind: "plugins", label: "Plugins" },
+  { id: "context-engines", kind: "context-engines", label: "Context engines" },
+] as const;
+
+function healthComponent(input: {
+  readonly id: string;
+  readonly kind: OpenClawHealthComponent["kind"];
+  readonly label: string;
+  readonly status: OpenClawHealthComponent["status"];
+  readonly detail: string | null;
+  readonly lastCheckedAt: string | null;
+}): OpenClawHealthComponent {
+  return input;
+}
+
+function unknownCoreHealthComponents(): readonly OpenClawHealthComponent[] {
+  return coreHealthComponents.map((component) =>
+    healthComponent({
+      ...component,
+      status: "not_checked",
+      detail: "Health data was not available.",
+      lastCheckedAt: null,
+    }),
+  );
+}
+
+function channelAccountRecords(
+  channel: Record<string, unknown>,
+): readonly [string, Record<string, unknown>][] {
+  const accounts = recordValue(channel["accounts"]);
+  if (accounts !== null) {
+    return Object.entries(accounts)
+      .filter((entry): entry is [string, Record<string, unknown>] => isRecord(entry[1]))
+      .filter(([, account]) => account["configured"] === true);
+  }
+
+  const accountId = stringValue(channel["accountId"]);
+  return accountId !== null && channel["configured"] === true ? [[accountId, channel]] : [];
+}
+
+function channelAccountComponent(input: {
+  readonly channelId: string;
+  readonly channelLabel: string;
+  readonly accountId: string;
+  readonly account: Record<string, unknown>;
+  readonly healthCheckedAt: string;
+}): OpenClawHealthComponent {
+  const probe = recordValue(input.account["probe"]);
+  const healthState = stringValue(input.account["healthState"]);
+  const statusState = stringValue(input.account["statusState"]);
+  const explicitlyUnhealthy =
+    input.account["linked"] === false ||
+    input.account["running"] === false ||
+    input.account["connected"] === false ||
+    probe?.["ok"] === false ||
+    (healthState !== null && healthState !== "healthy" && healthState !== "unmanaged") ||
+    (statusState !== null && statusState !== "healthy" && statusState !== "connected");
+  const explicitlyHealthy =
+    input.account["linked"] === true ||
+    input.account["running"] === true ||
+    input.account["connected"] === true ||
+    probe?.["ok"] === true ||
+    healthState === "healthy" ||
+    healthState === "unmanaged" ||
+    statusState === "healthy" ||
+    statusState === "connected";
+  const lastCheckedAt = isoTimestamp(input.account["lastProbeAt"]);
+
+  return healthComponent({
+    id: `channel:${input.channelId}:${input.accountId}`,
+    kind: "channel",
+    label: `${input.channelLabel} (${input.accountId})`,
+    status: explicitlyUnhealthy ? "attention" : explicitlyHealthy ? "healthy" : "not_checked",
+    detail: explicitlyUnhealthy
+      ? "The configured channel account reported an unhealthy state."
+      : explicitlyHealthy
+        ? "The configured channel account is healthy."
+        : "The configured channel account has not been probed.",
+    lastCheckedAt:
+      explicitlyUnhealthy || explicitlyHealthy ? (lastCheckedAt ?? input.healthCheckedAt) : null,
+  });
+}
+
+function projectOpenClawComponents(healthResult: Result<unknown>): {
+  readonly components: readonly OpenClawHealthComponent[];
+  readonly warnings: OpenClawHealth["warnings"];
+  readonly checkedAt: string | null;
+} {
+  if (!healthResult.ok) {
+    return { components: unknownCoreHealthComponents(), warnings: [], checkedAt: null };
+  }
+  const health = recordValue(healthResult.value);
+  const checkedAt = isoTimestamp(health?.["ts"]);
+  if (health === null || health["ok"] !== true || checkedAt === null) {
+    return { components: unknownCoreHealthComponents(), warnings: [], checkedAt: null };
+  }
+
+  const components: OpenClawHealthComponent[] = [
+    healthComponent({
+      ...coreHealthComponents[0],
+      status: "healthy",
+      detail: "The Gateway health RPC responded successfully.",
+      lastCheckedAt: checkedAt,
+    }),
+  ];
+  const eventLoop = recordValue(health["eventLoop"]);
+  components.push(
+    healthComponent({
+      ...coreHealthComponents[1],
+      status:
+        eventLoop?.["degraded"] === true
+          ? "attention"
+          : eventLoop?.["degraded"] === false
+            ? "healthy"
+            : "not_checked",
+      detail:
+        eventLoop?.["degraded"] === true
+          ? "The Gateway reported degraded event-loop health."
+          : eventLoop?.["degraded"] === false
+            ? "Event-loop health is within limits."
+            : "Event-loop health was not checked.",
+      lastCheckedAt: typeof eventLoop?.["degraded"] === "boolean" ? checkedAt : null,
+    }),
+  );
+
+  const plugins = health["plugins"];
+  const pluginRecord = recordValue(plugins);
+  const pluginErrors = pluginRecord?.["errors"];
+  const validPluginFacts =
+    plugins === undefined ||
+    (pluginRecord !== null && Array.isArray(pluginRecord["loaded"]) && Array.isArray(pluginErrors));
+  const pluginErrorCount = Array.isArray(pluginErrors) ? pluginErrors.length : 0;
+  components.push(
+    healthComponent({
+      ...coreHealthComponents[2],
+      status: !validPluginFacts ? "not_checked" : pluginErrorCount > 0 ? "attention" : "healthy",
+      detail: !validPluginFacts
+        ? "Plugin health could not be read."
+        : pluginErrorCount > 0
+          ? `${pluginErrorCount} plugin error${pluginErrorCount === 1 ? "" : "s"} reported.`
+          : "No plugin errors were reported.",
+      lastCheckedAt: validPluginFacts ? checkedAt : null,
+    }),
+  );
+
+  const contextEngines = health["contextEngines"];
+  const contextRecord = recordValue(contextEngines);
+  const quarantined = contextRecord?.["quarantined"];
+  const validContextFacts =
+    contextEngines === undefined || (contextRecord !== null && Array.isArray(quarantined));
+  const quarantineCount = Array.isArray(quarantined) ? quarantined.length : 0;
+  components.push(
+    healthComponent({
+      ...coreHealthComponents[3],
+      status: !validContextFacts ? "not_checked" : quarantineCount > 0 ? "attention" : "healthy",
+      detail: !validContextFacts
+        ? "Context-engine health could not be read."
+        : quarantineCount > 0
+          ? `${quarantineCount} context engine${quarantineCount === 1 ? " is" : "s are"} quarantined.`
+          : "No context engines are quarantined.",
+      lastCheckedAt: validContextFacts ? checkedAt : null,
+    }),
+  );
+
+  const channels = recordValue(health["channels"]);
+  if (channels !== null) {
+    const order = Array.isArray(health["channelOrder"])
+      ? health["channelOrder"].filter((entry): entry is string => typeof entry === "string")
+      : [];
+    const channelIds = [
+      ...order.filter((id) => channels[id] !== undefined),
+      ...Object.keys(channels)
+        .filter((id) => !order.includes(id))
+        .sort(),
+    ];
+    const labels = recordValue(health["channelLabels"]);
+    for (const channelId of channelIds) {
+      const channel = recordValue(channels[channelId]);
+      if (channel === null) continue;
+      for (const [accountId, account] of [...channelAccountRecords(channel)].sort(([a], [b]) =>
+        a.localeCompare(b),
+      )) {
+        components.push(
+          channelAccountComponent({
+            channelId,
+            channelLabel: stringValue(labels?.[channelId]) ?? channelId,
+            accountId,
+            account,
+            healthCheckedAt: checkedAt,
+          }),
+        );
+      }
+    }
+  }
+
+  if (Array.isArray(health["agents"])) {
+    const agents = health["agents"]
+      .filter((agent): agent is Record<string, unknown> => isRecord(agent))
+      .map((agent) => ({ agent, agentId: stringValue(agent["agentId"]) }))
+      .filter(
+        (entry): entry is { agent: Record<string, unknown>; agentId: string } =>
+          entry.agentId !== null,
+      )
+      .sort((left, right) => left.agentId.localeCompare(right.agentId));
+    for (const { agent, agentId } of agents) {
+      components.push(
+        healthComponent({
+          id: `agent:${agentId}`,
+          kind: "agent",
+          label: stringValue(agent["name"]) ?? agentId,
+          status: "not_checked",
+          detail: "Agent schedule configuration is available, but liveness was not checked.",
+          lastCheckedAt: null,
+        }),
+      );
+    }
+  }
+
+  const pricing = recordValue(health["modelPricing"]);
+  const warnings =
+    pricing?.["state"] === "degraded"
+      ? [
+          {
+            id: "model-pricing",
+            label: "Model pricing",
+            detail: "Model pricing refresh is degraded; runtime health is unaffected.",
+          },
+        ]
+      : [];
+  return { components, warnings, checkedAt };
+}
+
+function projectOpenClawRuntimeAndSessions(input: {
+  readonly statusResult: Result<unknown>;
+  readonly healthResult: Result<unknown>;
+  readonly metadata: ReturnType<OpenClawAdminRpcPort["connectionMetadata"]>;
+}): Pick<OpenClawHealth, "runtime" | "sessions"> {
+  const status = input.statusResult.ok ? recordValue(input.statusResult.value) : null;
+  const sessions = recordValue(status?.["sessions"]);
+  const count = sessions?.["count"];
+  const recent = sessions?.["recent"];
+  const validStatus =
+    status !== null &&
+    sessions !== null &&
+    typeof count === "number" &&
+    Number.isSafeInteger(count) &&
+    count >= 0 &&
+    Array.isArray(recent);
+  const health = input.healthResult.ok ? recordValue(input.healthResult.value) : null;
+  const healthSessions = recordValue(health?.["sessions"]);
+  const healthCount = healthSessions?.["count"];
+  const healthRecent = healthSessions?.["recent"];
+  const validHealthSessions =
+    health?.["ok"] === true &&
+    healthSessions !== null &&
+    typeof healthCount === "number" &&
+    Number.isSafeInteger(healthCount) &&
+    healthCount >= 0 &&
+    Array.isArray(healthRecent);
+  const sessionRows = validStatus ? recent : validHealthSessions ? healthRecent : [];
+
+  return {
+    runtime: {
+      version:
+        (validStatus ? stringValue(status["runtimeVersion"]) : null) ??
+        input.metadata?.serverVersion ??
+        null,
+      uptimeMs: input.metadata?.uptimeMs ?? null,
+      hostUptimeMs: null,
+      updateAvailable: input.metadata?.updateAvailable ?? null,
+    },
+    sessions: {
+      count: validStatus ? count : validHealthSessions ? healthCount : null,
+      recent:
+        validStatus || validHealthSessions
+          ? sessionRows.filter(isRecord).map((entry) => {
+              const ageMs = numberValue(entry["ageMs"] ?? entry["age"]);
+              return {
+                agentId: validStatus ? stringValue(entry["agentId"]) : null,
+                updatedAt: isoTimestamp(entry["updatedAt"]),
+                ageMs: ageMs !== null && ageMs >= 0 ? ageMs : null,
+              };
+            })
+          : [],
+    },
+  };
+}
+
 export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvisioningPort {
   private readonly fetchImpl: Fetch;
   private readonly now: () => Date;
@@ -2522,6 +2820,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private orchestratorReconcileQueued = 0;
   /** Ref-counted `${orgId}:${providerId}` reservations. One async owner may release only itself. */
   private readonly providerCredentialWrites = new Map<string, number>();
+  private readonly lastFullyHealthy = new Map<
+    string,
+    { readonly value: OpenClawLastKnownHealthy; readonly expiresAt: number }
+  >();
 
   public constructor(private readonly options: GatewayAdminConnectionsOptions) {
     this.fetchImpl = options.fetch ?? fetch;
@@ -2785,19 +3087,76 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async getConnectionsSnapshot(
     input: ConnectionProvisioningPrincipal,
   ): Promise<Result<ConnectionsSnapshot>> {
+    return this.connectionsSnapshot(input, false);
+  }
+
+  public async refreshConnectionsSnapshot(
+    input: ConnectionProvisioningPrincipal,
+  ): Promise<Result<ConnectionsSnapshot>> {
+    return this.connectionsSnapshot(input, true);
+  }
+
+  private lastKnownHealthy(input: {
+    readonly principal: ConnectionProvisioningPrincipal;
+    readonly components: readonly OpenClawHealthComponent[];
+    readonly checkedAt: string | null;
+    readonly now: Date;
+  }): OpenClawLastKnownHealthy | null {
+    const key = `${input.principal.orgId}\u0000${input.principal.workspaceId}`;
+    const nowMs = input.now.getTime();
+    for (const [candidateKey, entry] of this.lastFullyHealthy) {
+      if (entry.expiresAt <= nowMs) this.lastFullyHealthy.delete(candidateKey);
+    }
+
+    if (
+      input.checkedAt !== null &&
+      input.components.length > 0 &&
+      input.components.every((component) => component.status === "healthy")
+    ) {
+      const value = {
+        checkedAt: input.checkedAt,
+        healthy: input.components.length,
+        total: input.components.length,
+      } satisfies OpenClawLastKnownHealthy;
+      this.lastFullyHealthy.delete(key);
+      this.lastFullyHealthy.set(key, { value, expiresAt: nowMs + 24 * 60 * 60 * 1_000 });
+      while (this.lastFullyHealthy.size > 256) {
+        const oldest = this.lastFullyHealthy.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        this.lastFullyHealthy.delete(oldest);
+      }
+      return value;
+    }
+
+    return this.lastFullyHealthy.get(key)?.value ?? null;
+  }
+
+  private async connectionsSnapshot(
+    input: ConnectionProvisioningPrincipal,
+    probeHealth: boolean,
+  ): Promise<Result<ConnectionsSnapshot>> {
     const now = this.now();
     const configResult = await this.options.adminClient.request("config.get", {});
     if (!configResult.ok) {
-      const snapshot = unavailableSnapshot({
+      const unavailable = unavailableSnapshot({
         now,
         repository: this.options.githubRepository,
         message: configResult.error.message,
       });
       return ok({
-        ...snapshot,
+        ...unavailable,
         orchestrator: {
-          ...snapshot.orchestrator,
+          ...unavailable.orchestrator,
           reconcile: this.orchestratorReconcileState,
+        },
+        openclawHealth: {
+          ...unavailable.openclawHealth,
+          lastKnownHealthy: this.lastKnownHealthy({
+            principal: input,
+            components: unavailable.openclawHealth.components,
+            checkedAt: null,
+            now,
+          }),
         },
       });
     }
@@ -2810,8 +3169,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       modelStatusResult,
       pluginDiscoveryResult,
       authStatus,
+      statusResult,
+      _updateStatusResult,
     ] = await Promise.all([
-      this.options.adminClient.request("health", {}),
+      this.options.adminClient.request("health", probeHealth ? { probe: true } : {}),
       this.options.adminClient.request("last-heartbeat", {}),
       this.options.adminClient.request("models.list", { view: "all" }),
       this.options.gatewayRuntime?.listAuthChoices() ?? ok<readonly GatewayRuntimeAuthChoice[]>([]),
@@ -2822,6 +3183,12 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       this.options.gatewayRuntime?.readPluginModelDiscovery() ??
         ok<PluginModelCatalogDiscovery>({ catalogs: [], plugins: [] }),
       this.modelAuthStatus(),
+      this.options.adminClient.request(
+        "status",
+        { includeSensitive: true },
+        { requiredScope: "operator.admin" },
+      ),
+      this.options.adminClient.request("update.status", {}, { requiredScope: "operator.admin" }),
     ]);
     if (!pluginDiscoveryResult.ok) {
       console.warn("connections.pluginModelDiscovery.unavailable", {
@@ -2854,6 +3221,24 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     // advertise is not routable as a model, so we do not synthesize a phantom connection row for it
     // (review: authStatus is a subset of models.list in practice). The projection is catalog-driven.
     const github = await this.githubState(input, now);
+    const projectedHealth = projectOpenClawComponents(healthResult);
+    const runtimeAndSessions = projectOpenClawRuntimeAndSessions({
+      statusResult,
+      healthResult,
+      metadata: this.options.adminClient.connectionMetadata(),
+    });
+    const openclawHealth: OpenClawHealth = {
+      components: projectedHealth.components,
+      warnings: projectedHealth.warnings,
+      ...runtimeAndSessions,
+      checkedAt: projectedHealth.checkedAt,
+      lastKnownHealthy: this.lastKnownHealthy({
+        principal: input,
+        components: projectedHealth.components,
+        checkedAt: projectedHealth.checkedAt,
+        now,
+      }),
+    };
 
     return ok({
       gateway: gatewayConnectionState({
@@ -2864,6 +3249,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         grantedScopes: this.options.adminClient.grantedScopes(),
         now,
       }),
+      openclawHealth,
       providerCatalog: catalog,
       providerConnections,
       pendingDeviceFlows: [
@@ -5728,6 +6114,10 @@ export class UnavailableConnectionsProvisioningPort implements ConnectionsProvis
         message: this.reason,
       }),
     );
+  }
+
+  public async refreshConnectionsSnapshot(): Promise<Result<ConnectionsSnapshot>> {
+    return this.getConnectionsSnapshot();
   }
 
   public async startModelProviderApiKeyConnect(): Promise<Result<ModelProviderApiKeyConnectStart>> {

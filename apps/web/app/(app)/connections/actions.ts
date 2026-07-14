@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import {
   applyOrchestratorRolesForContext,
   disconnectGitHubForContext,
-  loadConnectionsPageData,
+  refreshConnectionsPageData,
   requireConnectionMutationRole,
   startGitHubDeviceFlowForContext,
 } from "@/lib/connections";
@@ -117,7 +117,7 @@ export async function disconnectGitHubAction(basePath = "/connections/github"): 
 
 export async function refreshConnectionsAction(basePath = "/connections"): Promise<void> {
   const context = await requireConnectionsContext();
-  const result = await loadConnectionsPageData(context);
+  const result = await refreshConnectionsPageData(context);
   if (!result.ok) {
     redirectToConnectionsNotice({ notice: "health-check-error", basePath });
   }

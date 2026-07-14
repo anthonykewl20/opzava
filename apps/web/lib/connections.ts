@@ -148,6 +148,31 @@ function unavailableSnapshot(input: {
       message:
         "Configure PROVISIONING_WORKER_URL and PROVISIONING_WORKER_TOKEN to connect providers.",
     },
+    openclawHealth: {
+      components: (
+        [
+          { id: "gateway", kind: "gateway", label: "Gateway" },
+          { id: "event-loop", kind: "event-loop", label: "Event loop" },
+          { id: "plugins", kind: "plugins", label: "Plugins" },
+          { id: "context-engines", kind: "context-engines", label: "Context engines" },
+        ] as const
+      ).map((component) => ({
+        ...component,
+        status: "not_checked" as const,
+        detail: "Health data was not available.",
+        lastCheckedAt: null,
+      })),
+      warnings: [],
+      runtime: {
+        version: null,
+        uptimeMs: null,
+        hostUptimeMs: null,
+        updateAvailable: null,
+      },
+      sessions: { count: null, recent: [] },
+      checkedAt: null,
+      lastKnownHealthy: null,
+    },
     providerCatalog: [],
     providerConnections: [],
     pendingDeviceFlows: [],
@@ -182,6 +207,10 @@ class UnavailableConnectionsProvisioningPort implements ConnectionsProvisioningP
 
   public async getConnectionsSnapshot(): Promise<Result<ConnectionsSnapshot>> {
     return ok(unavailableSnapshot({ repository: readGitHubIssuesRepository(), now: this.now() }));
+  }
+
+  public async refreshConnectionsSnapshot(): Promise<Result<ConnectionsSnapshot>> {
+    return this.getConnectionsSnapshot();
   }
 
   public async startModelProviderApiKeyConnect(): Promise<Result<ModelProviderApiKeyConnectStart>> {
@@ -259,6 +288,12 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
     input: ConnectionProvisioningPrincipal,
   ): Promise<Result<ConnectionsSnapshot>> {
     return this.request<ConnectionsSnapshot>("/internal/connections/snapshot", input);
+  }
+
+  public async refreshConnectionsSnapshot(
+    input: ConnectionProvisioningPrincipal,
+  ): Promise<Result<ConnectionsSnapshot>> {
+    return this.request<ConnectionsSnapshot>("/internal/connections/refresh", input);
   }
 
   public async startModelProviderApiKeyConnect(input: {
@@ -510,6 +545,26 @@ export async function loadConnectionsPageData(
     snapshot: snapshot.value,
     health: connectionHealthSummary(snapshot.value),
     providerSummary,
+    providers,
+    githubSummary: githubConnectionSummary(snapshot.value.github),
+    provisioningAvailable: snapshot.value.gateway.status === "active",
+  });
+}
+
+export async function refreshConnectionsPageData(
+  context: AppSessionContext,
+  dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
+): Promise<Result<ConnectionsPageData>> {
+  const snapshot = await dependencies.provisioningPort.refreshConnectionsSnapshot(
+    principalFromContext(context),
+  );
+  if (!snapshot.ok) return err(snapshot.error);
+
+  const providers = projectProviderConnections(snapshot.value);
+  return ok({
+    snapshot: snapshot.value,
+    health: connectionHealthSummary(snapshot.value),
+    providerSummary: providerConnectionSummary(snapshot.value),
     providers,
     githubSummary: githubConnectionSummary(snapshot.value.github),
     provisioningAvailable: snapshot.value.gateway.status === "active",

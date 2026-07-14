@@ -163,6 +163,31 @@ export function unavailableSnapshot(input: {
       lastHeartbeatAt: null,
       message: input.message,
     },
+    openclawHealth: {
+      components: (
+        [
+          { id: "gateway", kind: "gateway", label: "Gateway" },
+          { id: "event-loop", kind: "event-loop", label: "Event loop" },
+          { id: "plugins", kind: "plugins", label: "Plugins" },
+          { id: "context-engines", kind: "context-engines", label: "Context engines" },
+        ] as const
+      ).map((component) => ({
+        ...component,
+        status: "not_checked" as const,
+        detail: "Health data was not available.",
+        lastCheckedAt: null,
+      })),
+      warnings: [],
+      runtime: {
+        version: null,
+        uptimeMs: null,
+        hostUptimeMs: null,
+        updateAvailable: null,
+      },
+      sessions: { count: null, recent: [] },
+      checkedAt: null,
+      lastKnownHealthy: null,
+    },
     providerCatalog: [],
     providerConnections: [],
     pendingDeviceFlows: [],

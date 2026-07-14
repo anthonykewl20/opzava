@@ -102,6 +102,65 @@ export interface GatewayConnectionState {
   readonly message: string | null;
 }
 
+export type OpenClawHealthComponentKind =
+  "gateway" | "event-loop" | "plugins" | "context-engines" | "channel" | "agent";
+
+export type OpenClawHealthStatus = "healthy" | "attention" | "not_checked";
+
+export interface OpenClawHealthComponent {
+  readonly id: string;
+  readonly kind: OpenClawHealthComponentKind;
+  readonly label: string;
+  readonly status: OpenClawHealthStatus;
+  readonly detail: string | null;
+  readonly lastCheckedAt: string | null;
+}
+
+export interface OpenClawHealthWarning {
+  readonly id: string;
+  readonly label: string;
+  readonly detail: string;
+}
+
+export interface OpenClawUpdateAvailable {
+  readonly currentVersion: string;
+  readonly latestVersion: string;
+  readonly channel: string;
+}
+
+export interface OpenClawHealthRuntime {
+  readonly version: string | null;
+  readonly uptimeMs: number | null;
+  readonly hostUptimeMs: number | null;
+  readonly updateAvailable: OpenClawUpdateAvailable | null;
+}
+
+export interface OpenClawHealthSession {
+  readonly agentId: string | null;
+  readonly updatedAt: string | null;
+  readonly ageMs: number | null;
+}
+
+export interface OpenClawHealthSessions {
+  readonly count: number | null;
+  readonly recent: readonly OpenClawHealthSession[];
+}
+
+export interface OpenClawLastKnownHealthy {
+  readonly checkedAt: string;
+  readonly healthy: number;
+  readonly total: number;
+}
+
+export interface OpenClawHealth {
+  readonly components: readonly OpenClawHealthComponent[];
+  readonly warnings: readonly OpenClawHealthWarning[];
+  readonly runtime: OpenClawHealthRuntime;
+  readonly sessions: OpenClawHealthSessions;
+  readonly checkedAt: string | null;
+  readonly lastKnownHealthy: OpenClawLastKnownHealthy | null;
+}
+
 export interface GitHubConnectionState {
   readonly status: ConnectionStatus;
   readonly accountLabel: string | null;
@@ -167,6 +226,7 @@ export interface OrchestratorDelegationState {
 
 export interface ConnectionsSnapshot {
   readonly gateway: GatewayConnectionState;
+  readonly openclawHealth: OpenClawHealth;
   readonly providerCatalog: readonly ModelProviderCatalogEntry[];
   readonly providerConnections: readonly ProviderConnectionState[];
   readonly pendingDeviceFlows: readonly DeviceFlowChallenge[];
@@ -275,6 +335,9 @@ export type DisconnectGitHubInput = ConnectionProvisioningPrincipal;
 
 export interface ConnectionsReadPort {
   getConnectionsSnapshot(
+    input: ConnectionProvisioningPrincipal,
+  ): Promise<Result<ConnectionsSnapshot>>;
+  refreshConnectionsSnapshot(
     input: ConnectionProvisioningPrincipal,
   ): Promise<Result<ConnectionsSnapshot>>;
 }
