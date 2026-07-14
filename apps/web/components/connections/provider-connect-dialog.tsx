@@ -387,7 +387,9 @@ export function ProviderConnectDialog({
 
         <div className="grid gap-4">
           <div className="rounded-lg border border-border bg-muted p-3 text-sm">
-            <div className="font-mono font-medium text-foreground" data-active-model>
+            {/* break-all: a model id has no spaces, and an unbreakable font-mono line is the same
+                min-content overflow the orchestrator select had. */}
+            <div className="break-all font-mono font-medium text-foreground" data-active-model>
               {activeModelLabel(provider)}
             </div>
             <p className="mt-1 text-muted-foreground">{provider.message ?? provider.whenToUse}</p>
