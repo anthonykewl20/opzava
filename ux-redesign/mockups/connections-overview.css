@@ -5,7 +5,7 @@
  *
  * Layout ONLY. Colour, font-size, radius and shadow come from tokens.css;
  * components come from app.css (.card/.btn/.badge/.dot/.table) and shadcn.css
- * (.sb-badge/.sb-progress/.sb-separator/.sb-alert).
+ * (.sb-badge/.sb-separator/.sb-alert).
  * ========================================================================== */
 
 /* ── Shell chrome carried over from the mockups' inline <style> blocks ──────
@@ -64,6 +64,49 @@
  * the copy change — so the eye lands in the same place in every state. */
 .conn-hero-metric--attention { color: var(--warning); }
 .conn-hero-metric--unknown { color: var(--fg-muted); }
+
+/* Health is an observation, not a completion task. Each state is always named,
+ * counted and explained so colour and segment width are never the only signal. */
+.conn-health-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+.conn-health-state {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.conn-health-state-icon { width: 20px; height: 20px; grid-row: 1 / span 2; }
+.conn-health-state dt { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--fg); }
+.conn-health-state dd { margin: 0; color: var(--fg-subtle); font-size: var(--text-xs); line-height: var(--lh-normal); }
+.conn-health-state-count { float: right; color: var(--fg); font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
+.conn-health-state--healthy .conn-health-state-icon { color: var(--success); }
+.conn-health-state--attention { border-color: var(--warning); background: var(--warning-soft); }
+.conn-health-state--attention .conn-health-state-icon { color: var(--warning); }
+.conn-health-state--unknown { border-style: dashed; background: transparent; }
+.conn-health-state--unknown .conn-health-state-icon { color: var(--fg-subtle); }
+@media (max-width: 639px) {
+  .conn-health-breakdown { grid-template-columns: minmax(0, 1fr); }
+}
+
+.conn-unknown-guidance {
+  display: grid; gap: var(--space-2);
+  margin-top: var(--space-4); padding: var(--space-4);
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-md);
+  background: var(--surface-2); font-size: var(--text-sm);
+}
+.conn-unknown-guidance strong { color: var(--fg); }
+.conn-unknown-guidance p { color: var(--fg-muted); }
+.conn-unknown-guidance ul { margin: 0; padding-left: var(--space-5); }
+.conn-unknown-guidance a { color: var(--accent); }
 
 /* ── Attention row ─────────────────────────────────────────────────────────
  * Renders ONLY when something is actually wrong. This is the whole reason the
@@ -173,18 +216,20 @@
 /* `Setup` is the row that wants a click — it reads as the action, not a link. */
 .conn-list-action--setup { color: var(--accent); font-weight: var(--fw-medium); }
 
-/* Brand marks. Placeholder glyphs in the mockup; the app swaps in real SVG
- * brand icons. Sized/greyed here so swapping them cannot shift the layout. */
+/* Provider brand manifest mirrored by ProviderBrandIcon in the app. Geometry is
+ * unchanged from the locked local asset set; variables centralise tile tint. */
 .conn-brand {
   width: 22px; height: 22px; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--radius-sm);
-  background: var(--surface-3); color: var(--fg-muted);
+  background: color-mix(in srgb, var(--provider-brand, var(--fg-muted)) 12%, var(--surface-2));
+  color: var(--provider-brand, var(--fg-muted));
   font-size: 13px;
 }
-.conn-brand--openai { color: var(--success); }
-.conn-brand--anthropic { color: var(--warning); }
-.conn-brand--zai { color: var(--accent); }
+.conn-brand svg { width: 14px; height: 14px; }
+.conn-brand--openai { --provider-brand: #10A37F; }
+.conn-brand--anthropic { --provider-brand: #8A8075; }
+.conn-brand--zai { --provider-brand: #7C8CA5; }
 
 /* ── Panel 3 · System Status ───────────────────────────────────────────────
  * <details>/<summary> gives native disclosure + keyboard + screen-reader

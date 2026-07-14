@@ -187,12 +187,25 @@
             </div>
             <div class="card-body">
               <p class="conn-hero-metric">All systems healthy</p>
-              <p class="conn-hero-sub">8 of 8 OpenClaw components responding.</p>
+              <p class="conn-hero-sub">8 components responded healthy. No problems or missing probe results.</p>
 
-              <!-- Multi-segment bar: healthy / attention / not-checked in ONE track. -->
-              <div class="sb-progress" role="img" aria-label="8 of 8 OpenClaw components healthy">
-                <span class="sb-progress-seg sb-progress-seg--healthy" style="width:100%;"></span>
-              </div>
+              <dl class="conn-health-breakdown" aria-label="System health status breakdown">
+                <div class="conn-health-state conn-health-state--healthy">
+                  <svg class="conn-health-state-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="m6.5 10 2.2 2.2 4.8-4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <dt>Healthy <span class="conn-health-state-count">8</span></dt>
+                  <dd>Probe succeeded</dd>
+                </div>
+                <div class="conn-health-state conn-health-state--attention">
+                  <svg class="conn-health-state-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 2.8 18 17H2z" stroke="currentColor" stroke-width="1.6"/><path d="M10 8v3.4" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="14.2" r=".9" fill="currentColor"/></svg>
+                  <dt>Needs attention <span class="conn-health-state-count">0</span></dt>
+                  <dd>Reported a problem</dd>
+                </div>
+                <div class="conn-health-state conn-health-state--unknown">
+                  <svg class="conn-health-state-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M8.2 7.6a2.1 2.1 0 0 1 4 .9c0 1.8-2.2 1.9-2.2 3.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="14.5" r=".9" fill="currentColor"/></svg>
+                  <dt>Not checked <span class="conn-health-state-count">0</span></dt>
+                  <dd>No probe result</dd>
+                </div>
+              </dl>
 
               <!-- NO attention row here: nothing is wrong, so nothing shouts.
                    A page that stays calm when things are fine is a page you believe
@@ -201,17 +214,17 @@
               <!-- Three pills, not eight cards. "Which KIND of thing is unwell" is an
                    overview question; "which exact probe returned what" is not. -->
               <nav class="conn-groups" aria-label="Component groups">
-                <a href="connections-system.html" class="conn-group-pill">
+                <a href="connections-system.html#system-group-system-core" class="conn-group-pill">
                   <span class="dot dot-success" aria-hidden="true"></span>
-                  System Core <span class="conn-group-pill-count">4/4</span>
+                  System Core <span class="conn-group-pill-count">4 healthy</span>
                 </a>
-                <a href="connections-system.html" class="conn-group-pill">
+                <a href="connections-system.html#system-group-channels" class="conn-group-pill">
                   <span class="dot dot-success" aria-hidden="true"></span>
-                  Channels <span class="conn-group-pill-count">2/2</span>
+                  Channels <span class="conn-group-pill-count">2 healthy</span>
                 </a>
-                <a href="connections-system.html" class="conn-group-pill">
+                <a href="connections-system.html#system-group-agents" class="conn-group-pill">
                   <span class="dot dot-success" aria-hidden="true"></span>
-                  Agents <span class="conn-group-pill-count">2/2</span>
+                  Agents <span class="conn-group-pill-count">2 healthy</span>
                 </a>
                 <a href="connections-system.html" class="conn-groups-link">System status &rarr;</a>
               </nav>
@@ -271,19 +284,19 @@
                 <div class="section-label conn-sub-label">Providers</div>
                 <ul class="conn-list" role="list">
                   <li class="conn-list-row">
-                    <span class="conn-brand conn-brand--openai" aria-hidden="true">◍</span>
+                    <span class="conn-brand conn-brand--openai" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365 2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/></svg></span>
                     <span class="conn-list-label">OpenAI</span>
                     <span class="dot dot-success" aria-label="Connected"></span>
                     <a href="connections-providers.html" class="conn-list-action">Manage</a>
                   </li>
                   <li class="conn-list-row">
-                    <span class="conn-brand conn-brand--anthropic" aria-hidden="true">✳</span>
+                    <span class="conn-brand conn-brand--anthropic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"/></svg></span>
                     <span class="conn-list-label">Anthropic</span>
                     <span class="dot dot-success" aria-label="Connected"></span>
                     <a href="connections-providers.html" class="conn-list-action">Manage</a>
                   </li>
                   <li class="conn-list-row">
-                    <span class="conn-brand conn-brand--zai" aria-hidden="true">◆</span>
+                    <span class="conn-brand conn-brand--zai" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.606 1.806l-1.677 2.388c-.258.374-.697.606-1.161.606H.606V1.794c-.012.012 12 .012 12 .012zM24 1.806 9.6 22.206H0l14.4-20.4zM11.394 22.206l1.69-2.4c.258-.374.697-.606 1.161-.606h9.149v3.006z"/></svg></span>
                     <span class="conn-list-label">z.AI</span>
                     <span class="dot" aria-label="Not connected"></span>
                     <a href="connections-providers.html" class="conn-list-action conn-list-action--setup">Setup</a>

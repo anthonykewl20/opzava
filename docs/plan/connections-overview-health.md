@@ -1,6 +1,7 @@
 # Connections Overview: OpenClaw health - locked design
 
-Status: design locked; implementation landed on this branch (2026-07-14). Real healthy,
+Status: design locked; implementation landed on this branch (2026-07-14). User override
+landed 2026-07-15. Real healthy,
 partial-unknown, degraded, and unreachable scenario validation remains pending, blocked on
 dedicated scenario environments.
 Tracks: #175 (parent), #176-#182 (children).
@@ -47,7 +48,26 @@ The single most important thing a status page can get right is the difference be
 | `attention` | Probed, and broken. | Amber. Counts toward attention. |
 | `not_checked` | **Could not probe.** | Grey. Counts toward NEITHER. |
 
-`percent` is computed over **probed components only**. An unreachable Gateway must never render as "0 of 8 healthy" - we do not know that 8 subsystems are broken; we know we could not ask. This mirrors OpenClaw, which marks memory `not checked` rather than "unavailable" when it skips a probe.
+The Overview does **not** render a percentage or progress metaphor. It always renders an
+explicit three-state breakdown: **Healthy**, **Needs attention**, and **Not checked**, each
+with a visible count, icon, label, and short definition. An unreachable Gateway must never
+render as "0 of 8 healthy" - we do not know that 8 subsystems are broken; we know we could
+not ask. This mirrors OpenClaw, which marks memory `not checked` rather than "unavailable"
+when it skips a probe.
+
+### User override: direct status, not progress (2026-07-15)
+
+The segmented progress bar is removed. Its visual language implied completion and forced the
+user to reverse-engineer the grey remainder. The replacement is an always-visible semantic
+three-state breakdown, one column on mobile and three columns from the small breakpoint up.
+It uses icon + text + count (never colour alone), semantic tokens, and no percentage. A mixed
+state says exactly what is healthy, what reported a problem, and what produced no live result.
+
+When any component is `not_checked`, the Overview names every affected group and links directly
+to that group's stable anchor on `/connections/system`. Missing guidance renders even when an
+`attention` component exists: attention has headline precedence, but it must not hide unknown
+coverage. Refresh is the recovery action. A last-known snapshot is labelled separately and can
+only be described as fully healthy when every component in that snapshot was checked and healthy.
 
 ## Key finding: no fork changes needed
 
@@ -67,7 +87,10 @@ The provisioning worker already holds `operator.admin` (durable device-store boo
 
 An earlier revision put a full System Status panel on the Overview. The result: the hero said "8 of 8 healthy", and directly beneath it a second panel said "All 8 components healthy" over eight cards and three tables of sessions, auth, catalog, hosts, uptime and git SHA. The same fact twice, then a console dump, on a page called Overview. That is a Hick's Law / Nielsen-H8 failure and it is corrected here.
 
-1. **System health** (full width) - status headline, dual-segment bar (green healthy / amber attention / grey not-checked), `Checked Ns ago` + Refresh, an **attention row** (only when something is wrong), and three **group pills** (System Core / Channels / Agents) plus one link: `System status →`.
+1. **System health** (full width) - status headline, explicit Healthy / Needs attention / Not
+   checked breakdown, `Checked Ns ago` + Refresh, an **attention row** (only when something is
+   wrong), missing-probe guidance whenever coverage is incomplete, and three **group pills**
+   (System Core / Channels / Agents) plus one link: `System status →`.
 2. **Three-column grid**, equal heights - Opzava Gateway | Model Providers | Third-Party Integrations.
 
 That is all. No component grid, no tables, no accordions on the Overview.
@@ -107,6 +130,13 @@ The check emblem is state-aware for the same reason: green shield + check / **am
 **Opzava Gateway** - `Active` pill, `Healthy` sub-label, heartbeat. Footer action is **`Run health check`** (migrated from the deleted gateway route). The fabricated `Active connections handled: 125` is gone; so is the `Open` button, which would have pointed at a route that no longer exists.
 
 **Model Providers** - `N of 29 connected`, then an **attention-first** list: `needs_attention` / `pending` / expiring first, then connected, then backfilled with suggested providers to 3-4 rows. Every row carries a live status and a real action (`Setup` when not connected, `Manage` when connected). A card that can never show you a problem is just a link with extra steps.
+
+Provider identity uses the reusable app resolver, not a generic glyph. The locked local asset set
+contains 13 unchanged Simple Icons 16.26.0 CC0 paths plus the separately vendored OpenAI sponsor
+mark; their geometry and trademarks are retained for nominative identification. Groq, xAI,
+Cerebras, Together, and Fireworks use deterministic monograms because no licensed local mark is
+available. Unknown providers also fall back deterministically. Logos are local, server-safe,
+monochrome `currentColor` marks on subdued brand-tinted tiles; no remote fetch is allowed.
 
 - **GitHub is NOT in this card.** It is an integration, not a model provider. The proposed mockup double-counted it.
 - The `(0)` counters in the proposed mockup have no backing field and are dropped.
@@ -148,7 +178,9 @@ shadcn and the mockup system are **already reconciled by token aliasing**, so "u
 - `apps/web/app/globals.css:40` maps `--card: var(--surface)`, `--primary: var(--accent)`, `--muted-foreground: var(--fg-muted)`.
 - `ux-redesign/mockups/shadcn.css` carries `sb-*` classes on the same tokens.
 
-Two primitives are missing and must be added in both places: **`progress`** (dual-segment) and **`separator`**. `card`, `badge`, `button`, `tabs` already exist in `apps/web/components/ui/`.
+The Overview uses the existing card, alert, badge, button, and separator primitives. A progress
+primitive is deliberately not used for health because these states describe observations, not
+completion.
 
 ## Amendments to `connections-ia-redesign.md`
 
