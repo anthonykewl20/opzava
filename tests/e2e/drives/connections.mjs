@@ -657,7 +657,9 @@ async function validateProviderPage(page) {
     await availableCard.getByRole("button", { name: /^connect$/i }).click();
     const connectDialog = page.getByRole("dialog");
     await connectDialog.waitFor({ state: "visible", timeout: 5_000 });
-    await connectDialog.getByRole("button", { name: /^close$/i }).click();
+    // Not every connect-dialog branch has a Close button (setup-token leads with the browser
+    // flow); Escape dismisses them all.
+    await page.keyboard.press("Escape");
     await connectDialog.waitFor({ state: "hidden", timeout: 5_000 });
   }
 
