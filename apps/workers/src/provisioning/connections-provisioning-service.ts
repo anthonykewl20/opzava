@@ -274,6 +274,10 @@ function configWriteKey(orgId: string): string {
   return orgId.toLowerCase();
 }
 
+function canReadPendingDeviceFlowCapabilities(principal: ConnectionProvisioningPrincipal): boolean {
+  return principal.roleKeys.includes("owner") || principal.roleKeys.includes("admin");
+}
+
 function providerConnectInFlightError(providerId: string): DomainError {
   return provisioningError(
     "provisioning.connections.providerConnectInFlight",
@@ -3735,23 +3739,25 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       openclawHealth,
       providerCatalog: catalog,
       providerConnections,
-      pendingDeviceFlows: [
-        ...[...this.githubFlows.values()]
-          .filter(
-            (flow) =>
-              flow.principal.orgId === input.orgId &&
-              flow.principal.actorUserId === input.actorUserId,
-          )
-          .map((flow) => this.challengeFromGitHubFlow(flow)),
-        ...[...this.modelDeviceFlows.values()]
-          .filter(
-            (flow) =>
-              flow.orgId === input.orgId &&
-              flow.actorUserId === input.actorUserId &&
-              flow.lifecycle === "active",
-          )
-          .map((flow) => this.challengeFromModelFlow(flow)),
-      ],
+      pendingDeviceFlows: canReadPendingDeviceFlowCapabilities(input)
+        ? [
+            ...[...this.githubFlows.values()]
+              .filter(
+                (flow) =>
+                  flow.principal.orgId === input.orgId &&
+                  flow.principal.actorUserId === input.actorUserId,
+              )
+              .map((flow) => this.challengeFromGitHubFlow(flow)),
+            ...[...this.modelDeviceFlows.values()]
+              .filter(
+                (flow) =>
+                  flow.orgId === input.orgId &&
+                  flow.actorUserId === input.actorUserId &&
+                  flow.lifecycle === "active",
+              )
+              .map((flow) => this.challengeFromModelFlow(flow)),
+          ]
+        : [],
       github,
       orchestrator: currentOrchestratorState({
         config,

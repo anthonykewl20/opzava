@@ -7135,6 +7135,10 @@ describe("Connections provisioning helpers", () => {
     }
 
     const samePrincipalSnapshot = await port.getConnectionsSnapshot(principal());
+    const demotedStarterSnapshot = await port.getConnectionsSnapshot({
+      ...principal(),
+      roleKeys: ["member"],
+    });
     const sameOrgRolePeerSnapshot = await port.getConnectionsSnapshot({
       ...principal(),
       actorUserId: "00000000-0000-4000-8000-000000000098",
@@ -7152,6 +7156,9 @@ describe("Connections provisioning helpers", () => {
     expect(samePrincipalSnapshot.ok ? samePrincipalSnapshot.value.pendingDeviceFlows : []).toEqual([
       challenge.value,
     ]);
+    expect(
+      demotedStarterSnapshot.ok ? demotedStarterSnapshot.value.pendingDeviceFlows : [],
+    ).toEqual([]);
     expect(
       otherPrincipalSnapshot.ok ? otherPrincipalSnapshot.value.pendingDeviceFlows : [],
     ).toEqual([]);
@@ -8676,6 +8683,10 @@ describe("Connections provisioning helpers", () => {
     }
 
     const ownerSnapshot = await port.getConnectionsSnapshot(principal());
+    const demotedStarterSnapshot = await port.getConnectionsSnapshot({
+      ...principal(),
+      roleKeys: ["member"],
+    });
     const rolePeerPrincipal = {
       ...principal(),
       actorUserId: "00000000-0000-4000-8000-000000000098",
@@ -8690,6 +8701,9 @@ describe("Connections provisioning helpers", () => {
       }),
     ]);
     expect(peerSnapshot.ok ? peerSnapshot.value.pendingDeviceFlows : []).toEqual([]);
+    expect(
+      demotedStarterSnapshot.ok ? demotedStarterSnapshot.value.pendingDeviceFlows : [],
+    ).toEqual([]);
 
     const peerPoll = await port.pollDeviceFlow({
       ...rolePeerPrincipal,
