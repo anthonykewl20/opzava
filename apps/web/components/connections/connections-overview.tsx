@@ -192,34 +192,35 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
           ) : null}
 
           {firstAffected !== null ? (
-            <div className="flex flex-col gap-3 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning-soft)] p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 gap-3">
-                <AlertTriangle
-                  className="mt-0.5 size-5 shrink-0 text-[var(--warning)]"
-                  aria-hidden="true"
-                />
-                <div>
-                  <p className="font-medium">{firstAffected.label} needs attention</p>
-                  <p className="text-sm text-muted-foreground">
-                    {firstAffected.detail ?? "A live health probe reported a problem."}
+            <Alert
+              variant="warning"
+              className="grid-cols-[1.25rem_minmax(0,1fr)] sm:grid-cols-[1.25rem_minmax(0,1fr)_auto]"
+            >
+              <AlertTriangle
+                className="mt-0.5 size-5 shrink-0 text-[var(--warning)]"
+                aria-hidden="true"
+              />
+              <AlertTitle>{firstAffected.label} needs attention</AlertTitle>
+              <AlertDescription className="grid gap-0.5">
+                <p>{firstAffected.detail ?? "A live health probe reported a problem."}</p>
+                <p>No repair metadata is available for this component.</p>
+                {remainingAffected > 0 ? (
+                  <p>
+                    and {plural(remainingAffected, "more component")}{" "}
+                    {remainingAffected === 1 ? "needs" : "need"} attention.
                   </p>
-                  <p className="text-sm text-muted-foreground">
-                    No repair metadata is available for this component.
-                  </p>
-                  {remainingAffected > 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      and {plural(remainingAffected, "more component")}{" "}
-                      {remainingAffected === 1 ? "needs" : "need"} attention.
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-              <Button asChild variant="outline" className="h-11 w-full shrink-0 sm:h-9 sm:w-auto">
+                ) : null}
+              </AlertDescription>
+              <Button
+                asChild
+                variant="outline"
+                className="col-start-2 mt-2 h-11 w-full shrink-0 sm:col-start-3 sm:row-span-2 sm:row-start-1 sm:mt-0 sm:h-9 sm:w-auto sm:self-center"
+              >
                 <Link href="/connections/system">
                   {inspectionActionLabel(firstAffected.kind)} <ArrowRight aria-hidden="true" />
                 </Link>
               </Button>
-            </div>
+            </Alert>
           ) : null}
 
           {health.warnings.map((warning) => (

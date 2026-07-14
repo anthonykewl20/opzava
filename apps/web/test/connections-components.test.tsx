@@ -290,6 +290,7 @@ describe("Connections components", () => {
     expect(html).toContain("and 1 more component");
     expect(html).toContain("Inspect channel");
     expect(html).toContain("No repair metadata is available for this component.");
+    expect(html).toContain('data-slot="alert"');
     expect(html).not.toContain(">Fix</a>");
   });
 
