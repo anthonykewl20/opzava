@@ -3735,6 +3735,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       providerConnections,
       pendingDeviceFlows: [
         ...[...this.githubFlows.values()].map((flow) => this.challengeFromGitHubFlow(flow)),
+        ...[...this.modelDeviceFlows.values()]
+          .filter((flow) => flow.orgId === input.orgId && flow.lifecycle === "active")
+          .map((flow) => this.challengeFromModelFlow(flow)),
       ],
       github,
       orchestrator: currentOrchestratorState({

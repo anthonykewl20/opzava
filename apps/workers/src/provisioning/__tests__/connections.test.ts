@@ -7111,7 +7111,7 @@ describe("Connections provisioning helpers", () => {
     expect(JSON.stringify(result.value)).not.toContain("secret-access-token");
   });
 
-  it("does not surface model-provider device flows from catalog reads", async () => {
+  it("surfaces active model-provider flows only in their owning organization snapshot", async () => {
     const gatewayRuntime = new RecordingGatewayRuntime({
       choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
       deviceCodeLog:
@@ -7137,16 +7137,16 @@ describe("Connections provisioning helpers", () => {
     const samePrincipalSnapshot = await port.getConnectionsSnapshot(principal());
     const otherPrincipalSnapshot = await port.getConnectionsSnapshot({
       ...principal(),
-      actorUserId: "00000000-0000-4000-8000-000000000099",
+      orgId: "00000000-0000-4000-8000-000000000099",
     });
 
     expect(challenge.value).toMatchObject({
       kind: "model_provider",
       userCode: "NRK5-7IPKG",
     });
-    expect(samePrincipalSnapshot.ok ? samePrincipalSnapshot.value.pendingDeviceFlows : []).toEqual(
-      [],
-    );
+    expect(samePrincipalSnapshot.ok ? samePrincipalSnapshot.value.pendingDeviceFlows : []).toEqual([
+      challenge.value,
+    ]);
     expect(
       otherPrincipalSnapshot.ok ? otherPrincipalSnapshot.value.pendingDeviceFlows : [],
     ).toEqual([]);
@@ -7264,8 +7264,10 @@ describe("Connections provisioning helpers", () => {
       ...principal(),
       flowId: started.value.flowId,
     });
+    const cancellingSnapshot = await port.getConnectionsSnapshot(principal());
     releaseStop();
     const results = await Promise.all([first, second]);
+    const retryableSnapshot = await port.getConnectionsSnapshot(principal());
 
     expect(results).toEqual([
       expect.objectContaining({
@@ -7283,6 +7285,10 @@ describe("Connections provisioning helpers", () => {
     ]);
     expect(JSON.stringify(results)).not.toContain("sensitive runtime detail");
     expect(gatewayRuntime.deviceStops).toHaveLength(1);
+    expect(cancellingSnapshot.ok ? cancellingSnapshot.value.pendingDeviceFlows : []).toEqual([]);
+    expect(retryableSnapshot.ok ? retryableSnapshot.value.pendingDeviceFlows : []).toEqual([
+      expect.objectContaining({ flowId: started.value.flowId }),
+    ]);
     await expect(
       port.pollDeviceFlow({ ...principal(), flowId: started.value.flowId }),
     ).resolves.toMatchObject({ ok: true, value: { status: "pending" } });
@@ -8069,6 +8075,7 @@ describe("Connections provisioning helpers", () => {
     }[] = [];
     let execNumber = 0;
     let deviceLoginStopped = false;
+    const commandsByExecId = new Map<string, string>();
     const jsonResponse = (value: unknown) =>
       new Response(JSON.stringify(value), {
         status: 200,
@@ -8081,17 +8088,25 @@ describe("Connections provisioning helpers", () => {
 
       if (String(url).endsWith("/containers/gateway/exec")) {
         execNumber += 1;
-        if (Array.isArray(body?.["Cmd"]) && String(body["Cmd"][2]).includes("kill -TERM")) {
+        const execId = `exec-${execNumber}`;
+        const command = Array.isArray(body?.["Cmd"]) ? String(body["Cmd"][2]) : "";
+        commandsByExecId.set(execId, command);
+        if (command.includes("kill -TERM")) {
           deviceLoginStopped = true;
         }
-        return jsonResponse({ Id: `exec-${execNumber}` });
+        return jsonResponse({ Id: execId });
       }
       if (String(url).includes("/start")) {
+        const execId = String(url).match(/\/exec\/([^/]+)\/start/)?.[1] ?? "";
+        const command = commandsByExecId.get(execId) ?? "";
+        if (command.includes("session.pid") && command.includes("cat")) {
+          return new Response("21533\n", { status: 200 });
+        }
         return new Response(new Uint8Array(), { status: 200 });
       }
       if (String(url).includes("/json")) {
         return jsonResponse({
-          Pid: 123,
+          Pid: String(url).includes("/exec/exec-1/") ? 3_144_061 : 123,
           Running: String(url).includes("/exec/exec-1/") ? !deviceLoginStopped : false,
           ExitCode: 0,
         });
@@ -8125,9 +8140,11 @@ describe("Connections provisioning helpers", () => {
     );
     expect(startCommand).toContain("mkdir -m 700 '/tmp/opzava-df-");
     expect(startCommand).toContain("umask 077");
+    expect(startCommand).toContain("setsid sh -c");
+    expect(startCommand).toContain("session.pid");
     expect(startCommand).toContain("/usr/bin/script -qfc");
     expect(startCommand).toContain("/dev/null | sed");
-    expect(startCommand).toContain(">> '/tmp/opzava-df-");
+    expect(startCommand).toContain("device.log");
     expect(startCommand).not.toContain("secret");
 
     const cleanupCommand = execBodies
@@ -8138,23 +8155,208 @@ describe("Connections provisioning helpers", () => {
     expect(cleanupCommand?.match(/\|\| exit 1/g)).toHaveLength(4);
     expect(cleanupCommand).toContain("rmdir");
     expect(cleanupCommand).not.toContain("secret");
+    const killCommand = [...commandsByExecId.values()].find((command) =>
+      command.includes("kill -TERM"),
+    );
+    expect(killCommand).toContain("kill -TERM -21533");
+    expect(killCommand).not.toContain("3144061");
+  });
+
+  it("starts and verifies setup-token cleanup through the in-container session control pid", async () => {
+    let execNumber = 0;
+    let setupStopped = false;
+    const commandsByExecId = new Map<string, string>();
+    const jsonResponse = (value: unknown) =>
+      new Response(JSON.stringify(value), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    const fetchImpl: typeof fetch = async (url, init) => {
+      if (String(url).endsWith("/containers/gateway/exec")) {
+        execNumber += 1;
+        const execId = `setup-${execNumber}`;
+        const body =
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as Record<string, unknown>)
+            : null;
+        const command = Array.isArray(body?.["Cmd"]) ? String(body["Cmd"][2]) : "";
+        commandsByExecId.set(execId, command);
+        if (command.includes("kill -TERM")) setupStopped = true;
+        return jsonResponse({ Id: execId });
+      }
+      if (String(url).includes("/start")) {
+        const execId = String(url).match(/\/exec\/([^/]+)\/start/)?.[1] ?? "";
+        if ((commandsByExecId.get(execId) ?? "").includes("session.pid")) {
+          return new Response("22500\n", { status: 200 });
+        }
+        return new Response(new Uint8Array(), { status: 200 });
+      }
+      if (String(url).includes("/json")) {
+        return jsonResponse({
+          Pid: String(url).includes("/exec/setup-1/") ? 3_144_061 : 123,
+          Running: String(url).includes("/exec/setup-1/") ? !setupStopped : false,
+          ExitCode: 0,
+        });
+      }
+      return new Response("not found", { status: 404 });
+    };
+    const runtime = new DockerOpenClawGatewayRuntime({
+      dockerHost: "tcp://docker-socket-proxy:2375",
+      containerName: "gateway",
+      fetch: fetchImpl,
+    });
+
+    const started = await runtime.startSetupTokenLogin();
+    if (!started.ok) throw started.error;
+    await runtime.stopSetupTokenLogin(started.value.execId, started.value.logPath);
+
+    const commands = [...commandsByExecId.values()];
+    expect(commands[0]).toContain("setsid sh -c");
+    expect(commands[0]).toContain("session.pid");
+    expect(commands[0]).toContain("mkfifo -m 600");
+    expect(commands.find((command) => command.includes("kill -TERM"))).toContain(
+      "kill -TERM -22500",
+    );
+    const cleanup = commands.find((command) => command.includes("shred -u"));
+    expect(cleanup).toContain("/stdin");
+    expect(cleanup).toContain("session.pid");
+    expect(cleanup).toContain("rmdir");
+  });
+
+  it("removes inactive artifacts when Docker start or control-pid readiness fails", async () => {
+    for (const failure of ["start", "readiness"] as const) {
+      let execNumber = 0;
+      const commandsByExecId = new Map<string, string>();
+      const jsonResponse = (value: unknown, status = 200) =>
+        new Response(JSON.stringify(value), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      const fetchImpl: typeof fetch = async (url, init) => {
+        if (String(url).endsWith("/containers/gateway/exec")) {
+          execNumber += 1;
+          const execId = `${failure}-${execNumber}`;
+          const body =
+            typeof init?.body === "string"
+              ? (JSON.parse(init.body) as Record<string, unknown>)
+              : null;
+          commandsByExecId.set(execId, Array.isArray(body?.["Cmd"]) ? String(body["Cmd"][2]) : "");
+          return jsonResponse({ Id: execId });
+        }
+        if (String(url).includes(`/${failure}-1/start`) && failure === "start") {
+          return jsonResponse({ message: "start failed" }, 500);
+        }
+        if (String(url).includes("/start")) {
+          return new Response(new Uint8Array(), { status: 200 });
+        }
+        if (String(url).includes(`/${failure}-1/json`)) {
+          return jsonResponse({ Pid: 3_144_061, Running: false, ExitCode: 1 });
+        }
+        const execId = String(url).match(/\/exec\/([^/]+)\/json/)?.[1] ?? "";
+        return jsonResponse({
+          Running: false,
+          ExitCode:
+            failure === "readiness" && (commandsByExecId.get(execId) ?? "").includes("attempt=0")
+              ? 3
+              : 0,
+        });
+      };
+      const runtime = new DockerOpenClawGatewayRuntime({
+        dockerHost: "tcp://docker-socket-proxy:2375",
+        containerName: "gateway",
+        fetch: fetchImpl,
+      });
+
+      const result = await runtime.startDeviceCodeLogin("openai", "main");
+
+      expect(result.ok).toBe(false);
+      expect([...commandsByExecId.values()].some((command) => command.includes("shred -u"))).toBe(
+        true,
+      );
+      if (failure === "readiness") {
+        expect(result.ok ? null : result.error.code).toBe(
+          "provisioning.docker.flowControlUnavailable",
+        );
+      }
+    }
+  });
+
+  it("fails loudly without claiming cleanup when a running exec has no trusted control pid", async () => {
+    let execNumber = 0;
+    const commandsByExecId = new Map<string, string>();
+    const jsonResponse = (value: unknown) =>
+      new Response(JSON.stringify(value), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    const fetchImpl: typeof fetch = async (url, init) => {
+      if (String(url).endsWith("/containers/gateway/exec")) {
+        execNumber += 1;
+        const execId = `orphan-${execNumber}`;
+        const body =
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as Record<string, unknown>)
+            : null;
+        commandsByExecId.set(execId, Array.isArray(body?.["Cmd"]) ? String(body["Cmd"][2]) : "");
+        return jsonResponse({ Id: execId });
+      }
+      if (String(url).includes("/start")) {
+        return new Response(new Uint8Array(), { status: 200 });
+      }
+      if (String(url).includes("/exec/orphan-1/json")) {
+        return jsonResponse({ Pid: 3_144_061, Running: true, ExitCode: null });
+      }
+      const execId = String(url).match(/\/exec\/([^/]+)\/json/)?.[1] ?? "";
+      return jsonResponse({
+        Running: false,
+        ExitCode: (commandsByExecId.get(execId) ?? "").includes("attempt=0") ? 3 : 0,
+      });
+    };
+    const runtime = new DockerOpenClawGatewayRuntime({
+      dockerHost: "tcp://docker-socket-proxy:2375",
+      containerName: "gateway",
+      fetch: fetchImpl,
+    });
+
+    const result = await runtime.startDeviceCodeLogin("openai", "main");
+
+    expect(result.ok ? null : result.error.code).toBe(
+      "provisioning.docker.flowControlUnavailableRunning",
+    );
+    expect([...commandsByExecId.values()].some((command) => command.includes("shred -u"))).toBe(
+      false,
+    );
   });
 
   it("fails a device-code stop when Docker never confirms the exec stopped", async () => {
     vi.useFakeTimers();
     try {
       let execNumber = 0;
+      const commandsByExecId = new Map<string, string>();
       const jsonResponse = (value: unknown) =>
         new Response(JSON.stringify(value), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
-      const fetchImpl: typeof fetch = async (url) => {
+      const fetchImpl: typeof fetch = async (url, init) => {
         if (String(url).endsWith("/containers/gateway/exec")) {
           execNumber += 1;
-          return jsonResponse({ Id: `cleanup-${execNumber}` });
+          const execId = `cleanup-${execNumber}`;
+          const body =
+            typeof init?.body === "string"
+              ? (JSON.parse(init.body) as Record<string, unknown>)
+              : null;
+          commandsByExecId.set(execId, Array.isArray(body?.["Cmd"]) ? String(body["Cmd"][2]) : "");
+          return jsonResponse({ Id: execId });
         }
         if (String(url).includes("/start")) {
+          const execId = String(url).match(/\/exec\/([^/]+)\/start/)?.[1] ?? "";
+          if ((commandsByExecId.get(execId) ?? "").includes("cat '/tmp/session.pid'")) {
+            return new Response("21533\n", { status: 200 });
+          }
+          if ((commandsByExecId.get(execId) ?? "").includes("session.pid")) {
+            return new Response("21533\n", { status: 200 });
+          }
           return new Response(new Uint8Array(), { status: 200 });
         }
         if (String(url).includes("/json")) {
@@ -8185,18 +8387,38 @@ describe("Connections provisioning helpers", () => {
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    const fetchImpl: typeof fetch = async (url) => {
+    let execNumber = 0;
+    const commandsByExecId = new Map<string, string>();
+    const fetchImpl: typeof fetch = async (url, init) => {
       if (String(url).endsWith("/containers/gateway/exec")) {
-        return jsonResponse({ Id: "delete-exec" });
+        execNumber += 1;
+        const execId = `delete-${execNumber}`;
+        const body =
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as Record<string, unknown>)
+            : null;
+        commandsByExecId.set(execId, Array.isArray(body?.["Cmd"]) ? String(body["Cmd"][2]) : "");
+        return jsonResponse({ Id: execId });
       }
       if (String(url).includes("/start")) {
+        const execId = String(url).match(/\/exec\/([^/]+)\/start/)?.[1] ?? "";
+        if ((commandsByExecId.get(execId) ?? "").includes("cat '/tmp/session.pid'")) {
+          return new Response("21533\n", { status: 200 });
+        }
+        if ((commandsByExecId.get(execId) ?? "").includes("session.pid")) {
+          return new Response("21533\n", { status: 200 });
+        }
         return new Response(new Uint8Array(), { status: 200 });
       }
       if (String(url).includes("/exec/device-exec/json")) {
         return jsonResponse({ Pid: 0, Running: false, ExitCode: 0 });
       }
-      if (String(url).includes("/exec/delete-exec/json")) {
-        return jsonResponse({ Running: false, ExitCode: 1 });
+      const execId = String(url).match(/\/exec\/([^/]+)\/json/)?.[1] ?? "";
+      if (execId.startsWith("delete-")) {
+        return jsonResponse({
+          Running: false,
+          ExitCode: (commandsByExecId.get(execId) ?? "").includes("shred -u") ? 1 : 0,
+        });
       }
       return new Response("not found", { status: 404 });
     };

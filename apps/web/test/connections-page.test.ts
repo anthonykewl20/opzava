@@ -1168,6 +1168,8 @@ describe("Connections page state", () => {
     expect(providerConnectDialog).toContain('"/api/connections/model/api-key"');
     expect(providerConnectDialog).toContain("Start device flow");
     expect(providerConnectDialog).toContain("Retry device flow");
+    expect(providerConnectDialog).toContain("setDevicePhase({ step: \"started\"");
+    expect(providerConnectDialog).toContain("router.refresh()");
     expect(providerConnectDialog).toContain("openclaw onboard --auth-choice");
     expect(providerConnectDialog).not.toContain("no in-browser device flow");
     expect(providerCard).toContain("Disconnect");

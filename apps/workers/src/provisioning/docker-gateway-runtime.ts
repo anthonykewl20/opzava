@@ -41,6 +41,7 @@ const execStdinInspectTimeoutMs = 5_000;
 const execStdinInspectPollMs = 50;
 const deviceCodeStopInspectTimeoutMs = 5_000;
 const deviceCodeStopInspectPollMs = 100;
+const flowControlReadyTimeoutMs = 5_000;
 const execStdinMaxOutputBytes = 2 * 1024 * 1024;
 // A probe is one deliberately tiny model call ("Reply with OK", tools disabled). The gateway's own
 // defaults are 8s/8 tokens; give it a little more room than that because the exec has to cold-start
@@ -182,6 +183,43 @@ function secureDeleteCommand(logPath: string): string {
     "fi;",
     `rmdir "$(dirname ${quotedLogPath})" 2>/dev/null || true`,
   ].join(" ");
+}
+
+function flowControlPath(logPath: string): string {
+  const separator = logPath.lastIndexOf("/");
+  if (separator <= 0) {
+    throw provisioningError(
+      "provisioning.docker.flowPathInvalid",
+      "The provider authorization flow path is invalid.",
+    );
+  }
+  return `${logPath.slice(0, separator)}/session.pid`;
+}
+
+function sessionWrappedCommand(controlPath: string, command: string): string {
+  const temporaryControlPath = `${controlPath}.tmp`;
+  const sessionCommand = [
+    "set -eu",
+    "umask 077",
+    `printf '%s\\n' "$$" > ${shellQuote(temporaryControlPath)}`,
+    `chmod 600 ${shellQuote(temporaryControlPath)}`,
+    `mv ${shellQuote(temporaryControlPath)} ${shellQuote(controlPath)}`,
+    command,
+  ].join("; ");
+  // The outer Docker exec remains alive in `wait`, while the inner shell becomes a fresh session
+  // leader. Its in-container PID is the process-group id that cancellation may safely signal.
+  return `setsid sh -c ${shellQuote(sessionCommand)} & session_pid=$!; wait "$session_pid"`;
+}
+
+function secureDeleteFlowArtifactsCommand(logPath: string): string {
+  const controlPath = flowControlPath(logPath);
+  const flowDir = logPath.slice(0, logPath.lastIndexOf("/"));
+  return [
+    "set -eu",
+    secureDeleteCommand(logPath),
+    `rm -f ${shellQuote(controlPath)} ${shellQuote(`${controlPath}.tmp`)} ${shellQuote(`${flowDir}/stdin`)}`,
+    `rmdir ${shellQuote(flowDir)}`,
+  ].join("; ");
 }
 
 function redactDeviceCodeLog(value: string): string {
@@ -1239,6 +1277,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
   ): Promise<Result<GatewayRuntimeDeviceCodeLogin>> {
     const flowDir = `/tmp/opzava-df-${randomUUID()}`;
     const logPath = `${flowDir}/device.log`;
+    const controlPath = flowControlPath(logPath);
     const command = `node openclaw.mjs models auth --agent ${shellQuote(
       agentId,
     )} login --provider ${shellQuote(providerId)} --device-code`;
@@ -1256,7 +1295,10 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       "set -eu",
       `mkdir -m 700 ${shellQuote(flowDir)}`,
       `umask 077; : > ${shellQuote(logPath)}`,
-      `/usr/bin/script -qfc ${shellQuote(ptySized(command))} /dev/null | ${redactor} >> ${shellQuote(logPath)}`,
+      sessionWrappedCommand(
+        controlPath,
+        `/usr/bin/script -qfc ${shellQuote(ptySized(command))} /dev/null | ${redactor} >> ${shellQuote(logPath)}`,
+      ),
     ].join("; ");
     const containerId = await this.resolveContainerId();
     if (!containerId.ok) {
@@ -1297,8 +1339,13 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       },
     });
     if (!started.ok) {
-      await this.stopDeviceCodeLogin(execId, logPath);
-      return err(started.error);
+      const cleanup = await this.cleanupInactiveFlowArtifacts(logPath);
+      return cleanup.ok ? err(started.error) : err(cleanup.error);
+    }
+
+    const controlPid = await this.waitForFlowControlPid(logPath);
+    if (!controlPid.ok) {
+      return this.cleanupAfterFlowReadinessFailure(execId, logPath, controlPid.error);
     }
 
     return ok({ execId, logPath });
@@ -1326,14 +1373,18 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     const flowDir = `/tmp/opzava-st-${randomUUID()}`;
     const logPath = `${flowDir}/setup.log`;
     const stdinPath = `${flowDir}/stdin`;
+    const controlPath = flowControlPath(logPath);
     const shellCommand = [
       "set -eu",
       `mkdir -m 700 ${shellQuote(flowDir)}`,
       `mkfifo -m 600 ${shellQuote(stdinPath)}`,
       `umask 077; : > ${shellQuote(logPath)}`,
-      `exec 3<>${shellQuote(stdinPath)}; /usr/bin/script -qfc ${shellQuote(
-        ptySized("claude setup-token"),
-      )} /dev/null <&3 >> ${shellQuote(logPath)} 2>&1`,
+      sessionWrappedCommand(
+        controlPath,
+        `exec 3<>${shellQuote(stdinPath)}; /usr/bin/script -qfc ${shellQuote(
+          ptySized("claude setup-token"),
+        )} /dev/null <&3 >> ${shellQuote(logPath)} 2>&1`,
+      ),
     ].join("; ");
     const containerId = await this.resolveContainerId();
     if (!containerId.ok) {
@@ -1374,8 +1425,13 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       },
     });
     if (!started.ok) {
-      await this.stopSetupTokenLogin(execId, logPath);
-      return err(started.error);
+      const cleanup = await this.cleanupInactiveFlowArtifacts(logPath);
+      return cleanup.ok ? err(started.error) : err(cleanup.error);
+    }
+
+    const controlPid = await this.waitForFlowControlPid(logPath);
+    if (!controlPid.ok) {
+      return this.cleanupAfterFlowReadinessFailure(execId, logPath, controlPid.error);
     }
 
     return ok({ execId, logPath, stdinPath });
@@ -1428,26 +1484,146 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     return started.ok ? ok(undefined) : err(started.error);
   }
 
+  private async waitForFlowControlPid(logPath: string): Promise<Result<number>> {
+    const controlPath = flowControlPath(logPath);
+    const attempts = Math.ceil(flowControlReadyTimeoutMs / 100);
+    const result = await this.exec(
+      [
+        "sh",
+        "-lc",
+        [
+          "set -eu",
+          "attempt=0",
+          `while [ "$attempt" -lt ${attempts} ]; do`,
+          `if [ -s ${shellQuote(controlPath)} ]; then`,
+          `pid=$(cat ${shellQuote(controlPath)})`,
+          `case "$pid" in ''|*[!0-9]*) exit 2;; esac`,
+          `if [ "$pid" -gt 0 ] 2>/dev/null && kill -0 "$pid" 2>/dev/null; then printf '%s\\n' "$pid"; exit 0; fi`,
+          "exit 2",
+          "fi",
+          "attempt=$((attempt + 1))",
+          "sleep 0.1",
+          "done",
+          "exit 3",
+        ].join("; "),
+      ],
+      undefined,
+      flowControlReadyTimeoutMs + 2_000,
+    );
+    if (!result.ok || result.value.exitCode !== 0) {
+      return err(
+        provisioningError(
+          "provisioning.docker.flowControlUnavailable",
+          "The provider authorization process did not publish a valid control pid in time.",
+          { timeoutMs: flowControlReadyTimeoutMs },
+        ),
+      );
+    }
+    return this.validatedFlowControlPid(result.value.stdout);
+  }
+
+  private async readFlowControlPid(logPath: string): Promise<number> {
+    const controlPath = flowControlPath(logPath);
+    const result = await this.exec(["sh", "-lc", `cat ${shellQuote(controlPath)}`]);
+    if (!result.ok) {
+      throw result.error;
+    }
+    if (result.value.exitCode !== 0) {
+      throw provisioningError(
+        "provisioning.docker.flowControlUnavailable",
+        "The provider authorization control pid could not be read.",
+      );
+    }
+    const pid = this.validatedFlowControlPid(result.value.stdout);
+    if (!pid.ok) {
+      throw pid.error;
+    }
+    return pid.value;
+  }
+
+  private validatedFlowControlPid(value: string): Result<number> {
+    const normalized = value.trim();
+    if (!/^[1-9][0-9]*$/.test(normalized)) {
+      return err(
+        provisioningError(
+          "provisioning.docker.flowControlInvalid",
+          "The provider authorization control pid is invalid.",
+        ),
+      );
+    }
+    const pid = Number(normalized);
+    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 2_147_483_647) {
+      return err(
+        provisioningError(
+          "provisioning.docker.flowControlInvalid",
+          "The provider authorization control pid is invalid.",
+        ),
+      );
+    }
+    return ok(pid);
+  }
+
+  private async cleanupInactiveFlowArtifacts(logPath: string): Promise<Result<void>> {
+    const controlPath = flowControlPath(logPath);
+    const flowDir = logPath.slice(0, logPath.lastIndexOf("/"));
+    const command = [
+      "set -eu",
+      `if [ -d ${shellQuote(flowDir)} ]; then`,
+      secureDeleteCommand(logPath),
+      `rm -f ${shellQuote(controlPath)} ${shellQuote(`${controlPath}.tmp`)} ${shellQuote(`${flowDir}/stdin`)}`,
+      `rmdir ${shellQuote(flowDir)}`,
+      "fi",
+    ].join("; ");
+    const removed = await this.exec(["sh", "-lc", command]);
+    if (!removed.ok) return err(removed.error);
+    if (removed.value.exitCode !== 0) {
+      return err(
+        provisioningError(
+          "provisioning.docker.flowArtifactCleanupFailed",
+          "Could not remove provider authorization artifacts after startup failed.",
+          { exitCode: removed.value.exitCode },
+        ),
+      );
+    }
+    return ok(undefined);
+  }
+
+  private async cleanupAfterFlowReadinessFailure(
+    execId: string,
+    logPath: string,
+    readinessError: DomainError,
+  ): Promise<Result<never>> {
+    const inspected = await this.dockerRequest<{ readonly Running?: unknown }>(
+      `/exec/${encodeURIComponent(execId)}/json`,
+      { method: "GET" },
+    );
+    if (!inspected.ok) return err(inspected.error);
+    if (inspected.value.Running === true) {
+      return err(
+        provisioningError(
+          "provisioning.docker.flowControlUnavailableRunning",
+          "The provider authorization process is running without a trusted control pid; manual container intervention is required.",
+          { execId, originalCode: readinessError.code },
+        ),
+      );
+    }
+    const cleanup = await this.cleanupInactiveFlowArtifacts(logPath);
+    return cleanup.ok ? err(readinessError) : err(cleanup.error);
+  }
+
   public async stopDeviceCodeLogin(execId: string, logPath: string): Promise<void> {
+    const controlPid = await this.readFlowControlPid(logPath);
     const initial = await this.dockerRequest<{
-      readonly Pid?: unknown;
       readonly Running?: unknown;
     }>(`/exec/${encodeURIComponent(execId)}/json`, { method: "GET" });
     if (!initial.ok) {
       throw initial.error;
     }
-    const pid = typeof initial.value.Pid === "number" ? initial.value.Pid : null;
-    if (initial.value.Running === true && (pid === null || pid <= 0)) {
-      throw provisioningError(
-        "provisioning.docker.deviceCodeStopPidMissing",
-        "Docker reported a running device-code exec without a process id.",
-      );
-    }
-    if (pid !== null && pid > 0 && initial.value.Running === true) {
+    if (initial.value.Running === true) {
       const killed = await this.exec([
         "sh",
         "-lc",
-        `if kill -0 ${pid} 2>/dev/null; then kill -TERM -${pid} 2>/dev/null || kill -TERM ${pid}; fi`,
+        `if kill -0 ${controlPid} 2>/dev/null; then kill -TERM -${controlPid}; fi`,
       ]);
       if (!killed.ok) {
         throw killed.error;
@@ -1484,7 +1660,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       await new Promise<void>((resolve) => setTimeout(resolve, deviceCodeStopInspectPollMs));
     }
 
-    const deleted = await this.exec(["sh", "-lc", secureDeleteCommand(logPath)]);
+    const deleted = await this.exec(["sh", "-lc", secureDeleteFlowArtifactsCommand(logPath)]);
     if (!deleted.ok) {
       throw deleted.error;
     }
@@ -1499,9 +1675,6 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
 
   public async stopSetupTokenLogin(execId: string, logPath: string): Promise<void> {
     await this.stopDeviceCodeLogin(execId, logPath);
-    await this.exec(["sh", "-lc", `rm -rf "$(dirname ${shellQuote(logPath)})"`]).catch(
-      () => undefined,
-    );
   }
 
   private async exec(

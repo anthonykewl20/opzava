@@ -713,7 +713,7 @@ describe("Connections components", () => {
             status: "pending",
             statusLabel: "Waiting for approval",
             pendingFlow: {
-              flowId: "flow-1",
+              flowId: "model:00000000-0000-4000-8000-000000000001",
               kind: "model_provider",
               providerId: "openai",
               authChoiceId: "openai-device-code",
@@ -738,6 +738,7 @@ describe("Connections components", () => {
 
     expect(html).toContain('data-provider-id="openai"');
     expect(html).toContain('data-provider-status="pending"');
+    expect(html).toContain("Cancel authorisation");
     expect(html).toContain("ABCD-EFGH");
     expect(html).toContain("Routes many");
   });

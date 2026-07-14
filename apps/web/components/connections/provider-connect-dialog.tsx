@@ -341,7 +341,9 @@ export function ProviderConnectDialog({
       return;
     }
     setDevicePhase({ step: "started", challenge: result.data });
-  }, [choice, deviceBusy]);
+    onOpenChange?.(false);
+    router.refresh();
+  }, [choice, deviceBusy, onOpenChange, router]);
 
   if (choice === null && provider.status !== "connected") {
     return (
