@@ -321,6 +321,16 @@ function overviewMockupForScenario(scenario) {
     : `ux-redesign/mockups/connections-${scenario}.html`;
 }
 
+function providerPageExpectation(scenario) {
+  return scenario === "unreachable"
+    ? {
+        state: "gateway-unavailable",
+        headline: "Gateway unavailable - retrying automatically",
+        detail: "The backend reconnects on its own. This is not a zero-provider configuration.",
+      }
+    : { state: "live-catalog" };
+}
+
 function parseHealthGroupSummaryLabel(label, groupLabel) {
   const emptyLabels = {
     Channels: "No channels reported",
@@ -447,6 +457,18 @@ function runScenarioClassifierSelfTest() {
     throw new Error("partial-unknown scenario contract self-test failed");
   }
 
+  const unavailableProviderPage = providerPageExpectation("unreachable");
+  const reachableProviderPage = providerPageExpectation("healthy");
+  if (
+    unavailableProviderPage.state !== "gateway-unavailable" ||
+    unavailableProviderPage.headline !== "Gateway unavailable - retrying automatically" ||
+    unavailableProviderPage.detail !==
+      "The backend reconnects on its own. This is not a zero-provider configuration." ||
+    reachableProviderPage.state !== "live-catalog"
+  ) {
+    throw new Error("provider page scenario contract self-test failed");
+  }
+
   const emptyChannels = parseHealthGroupSummaryLabel("Channels: No channels reported", "Channels");
   const emptyAgents = parseHealthGroupSummaryLabel("Agents: No agents reported", "Agents");
   const systemCore = parseHealthGroupSummaryLabel(
@@ -530,6 +552,48 @@ async function openTier(page, tier) {
 
 async function validateProviderPage(page) {
   await timedGoto(page, "/connections/providers");
+  assertFinding(
+    new URL(page.url()).pathname === "/connections/providers",
+    "providers route did not load",
+  );
+  assertFinding(
+    (await page.getByRole("heading", { name: "Model providers", exact: true }).count()) === 1,
+    "providers page heading missing",
+  );
+  assertFinding(
+    (await page
+      .getByRole("heading", { name: "Provider connection status", exact: true })
+      .count()) === 1,
+    "provider connection status heading missing",
+  );
+
+  const expectation = providerPageExpectation(expectedHealth);
+  if (expectation.state === "gateway-unavailable") {
+    const providerRowCount = await page.locator("tr[data-provider-id]").count();
+    const connectedManagementActionCount = await page
+      .getByRole("button", { name: /^row actions for /i })
+      .count();
+    assertFinding(
+      (await page.getByText(expectation.headline, { exact: true }).count()) === 1,
+      "providers page does not explain that the Gateway catalog is unavailable",
+    );
+    assertFinding(
+      (await page.getByText(expectation.detail, { exact: true }).count()) === 1,
+      "providers page does not distinguish an unavailable catalog from zero providers",
+    );
+    assertFinding(providerRowCount === 0, "unavailable provider catalog claims provider rows");
+    assertFinding(
+      connectedManagementActionCount === 0,
+      "unavailable provider catalog claims connected management actions",
+    );
+    report.providerPage = {
+      state: expectation.state,
+      providerRowCount,
+      connectedManagementActionCount,
+    };
+    return;
+  }
+
   assertFinding(
     (await page.getByRole("table", { name: /llm model providers/i }).count()) > 0,
     "providers table missing",
