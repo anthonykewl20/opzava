@@ -14,6 +14,7 @@ vi.mock("next/navigation", () => ({
 
 type Health = ConnectionsPageData["snapshot"]["openclawHealth"];
 type Component = Health["components"][number];
+type ProviderCatalog = ConnectionsPageData["snapshot"]["providerCatalog"];
 
 function component(
   id: string,
@@ -31,7 +32,7 @@ function component(
   };
 }
 
-function data(openclawHealth: Health): ConnectionsPageData {
+function data(openclawHealth: Health, providerCatalog: ProviderCatalog = []): ConnectionsPageData {
   return {
     snapshot: {
       gateway: {
@@ -42,7 +43,7 @@ function data(openclawHealth: Health): ConnectionsPageData {
         message: "Gateway is serving admin reads.",
       },
       openclawHealth,
-      providerCatalog: [],
+      providerCatalog,
       providerConnections: [],
       pendingDeviceFlows: [],
       github: {
@@ -83,10 +84,10 @@ function data(openclawHealth: Health): ConnectionsPageData {
   };
 }
 
-function render(health: Health): string {
+function render(health: Health, providerCatalog: ProviderCatalog = []): string {
   return renderToStaticMarkup(
     createElement(ConnectionsSystemStatus, {
-      data: data(health),
+      data: data(health, providerCatalog),
       refreshAction: async () => undefined,
     }),
   );
@@ -191,7 +192,55 @@ describe("Connections System status", () => {
     expect(html).toContain("2026.7.2");
     expect(html).toContain("stable");
     expect(html).not.toMatch(/session key|raw path|prompt|model/i);
-    expect(html).not.toContain("Host uptime");
+    expect(html).toContain("Host uptime");
+    expect(html).toContain("Not reported");
+  });
+
+  it("renders the exact live provider catalog count in Gateway detail", () => {
+    const catalog: ProviderCatalog = [
+      {
+        id: "openai",
+        label: "OpenAI",
+        vendor: "OpenAI",
+        authChoices: [],
+        suggestedModel: "openai/gpt-5.5",
+        roleStrength: "orchestration",
+        whenToUse: "Lead orchestration",
+      },
+      {
+        id: "zai",
+        label: "z.ai",
+        vendor: "z.ai",
+        authChoices: [],
+        suggestedModel: "zai/glm-5.2",
+        roleStrength: "implementation",
+        whenToUse: "Implementation",
+      },
+    ];
+    const html = render(health(), catalog);
+
+    expect(html).toContain("Provider catalog");
+    expect(html).toContain("2 providers advertised");
+  });
+
+  it("renders every Runtime DTO fact honestly when all values are null", () => {
+    const html = render(
+      health({
+        runtime: {
+          version: null,
+          uptimeMs: null,
+          hostUptimeMs: null,
+          updateAvailable: null,
+        },
+      }),
+    );
+
+    expect(html).toContain("Version");
+    expect(html).toContain("Gateway uptime");
+    expect(html).toContain("Host uptime");
+    expect(html).toContain("Update available");
+    expect(html.match(/Not reported/g)).toHaveLength(3);
+    expect(html).toContain("Not checked");
   });
 
   it("renders partial and empty session facts without inventing rows", () => {

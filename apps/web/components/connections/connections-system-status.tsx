@@ -256,8 +256,10 @@ function SessionsSection({
 
 function GatewaySection({
   gateway,
+  providerCatalogCount,
 }: {
   readonly gateway: ConnectionsPageData["snapshot"]["gateway"];
+  readonly providerCatalogCount: number;
 }) {
   return (
     <dl className="grid grid-cols-[minmax(7rem,auto)_minmax(0,1fr)] gap-x-5 gap-y-3">
@@ -268,6 +270,10 @@ function GatewaySection({
       <dt className="text-muted-foreground">Last heartbeat</dt>
       <dd>
         <CheckedTime value={gateway.lastHeartbeatAt} />
+      </dd>
+      <dt className="text-muted-foreground">Provider catalog</dt>
+      <dd>
+        {providerCatalogCount} {providerCatalogCount === 1 ? "provider" : "providers"} advertised
       </dd>
       {gateway.region === null ? null : (
         <>
@@ -290,42 +296,27 @@ function RuntimeSection({
 }: {
   readonly runtime: ConnectionsPageData["snapshot"]["openclawHealth"]["runtime"];
 }) {
-  const hasFacts =
-    runtime.version !== null ||
-    runtime.uptimeMs !== null ||
-    runtime.hostUptimeMs !== null ||
-    runtime.updateAvailable !== null;
-  if (!hasFacts) return <p>No runtime facts were reported.</p>;
-
   return (
     <dl className="grid grid-cols-[minmax(7rem,auto)_minmax(0,1fr)] gap-x-5 gap-y-3">
-      {runtime.version === null ? null : (
-        <>
-          <dt className="text-muted-foreground">Version</dt>
-          <dd>{runtime.version}</dd>
-        </>
-      )}
-      {runtime.uptimeMs === null ? null : (
-        <>
-          <dt className="text-muted-foreground">Gateway uptime</dt>
-          <dd>{formatDuration(runtime.uptimeMs)}</dd>
-        </>
-      )}
-      {runtime.hostUptimeMs === null ? null : (
-        <>
-          <dt className="text-muted-foreground">Host uptime</dt>
-          <dd>{formatDuration(runtime.hostUptimeMs)}</dd>
-        </>
-      )}
-      {runtime.updateAvailable === null ? null : (
-        <>
-          <dt className="text-muted-foreground">Update available</dt>
-          <dd>
+      <dt className="text-muted-foreground">Version</dt>
+      <dd>{runtime.version ?? "Not reported"}</dd>
+      <dt className="text-muted-foreground">Gateway uptime</dt>
+      <dd>{runtime.uptimeMs === null ? "Not reported" : formatDuration(runtime.uptimeMs)}</dd>
+      <dt className="text-muted-foreground">Host uptime</dt>
+      <dd>
+        {runtime.hostUptimeMs === null ? "Not reported" : formatDuration(runtime.hostUptimeMs)}
+      </dd>
+      <dt className="text-muted-foreground">Update available</dt>
+      <dd>
+        {runtime.updateAvailable === null ? (
+          "Not checked"
+        ) : (
+          <>
             {runtime.updateAvailable.currentVersion} → {runtime.updateAvailable.latestVersion} (
             {runtime.updateAvailable.channel})
-          </dd>
-        </>
-      )}
+          </>
+        )}
+      </dd>
     </dl>
   );
 }
@@ -400,7 +391,10 @@ export function ConnectionsSystemStatus({ data, refreshAction }: ConnectionsSyst
             <AccordionItem value="gateway">
               <AccordionTrigger>Gateway detail</AccordionTrigger>
               <AccordionContent forceMount>
-                <GatewaySection gateway={data.snapshot.gateway} />
+                <GatewaySection
+                  gateway={data.snapshot.gateway}
+                  providerCatalogCount={data.snapshot.providerCatalog.length}
+                />
               </AccordionContent>
             </AccordionItem>
             <AccordionItem value="runtime">
