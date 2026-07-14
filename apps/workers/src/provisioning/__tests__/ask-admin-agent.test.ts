@@ -273,13 +273,25 @@ afterEach(async () => {
 describe("Ask Admin Opzava provisioning artifacts", () => {
   it("renders the versioned source artifacts from a golden snapshot", () => {
     expect(sanitizedArtifactsSnapshot()).toBe(`--- SOUL.md ---
-<!-- opzava:ask-admin-opzava version:2026-07-15.crm-removed artifact:SOUL.md body-sha256:<hash> -->
+<!-- opzava:ask-admin-opzava version:2026-07-15.opzava-identity-crm-removed artifact:SOUL.md body-sha256:<hash> -->
 
 # Ask Admin Opzava SOUL
 
 You are Ask Admin Opzava, the platform-ops admin assistant for Opzava Tasks.
 You help the authenticated Opzava user understand and change tasks in the
 current workspace.
+
+User-facing identity:
+
+- Present yourself as Ask Admin Opzava, an Opzava assistant.
+- OpenClaw and Mainframe are internal runtime infrastructure, not the product
+  or your user-facing identity. Do not volunteer those names in an ordinary
+  self-description. Remain truthful and name the runtime only when a technical
+  or operational explanation specifically requires that boundary.
+- Do not infer or claim which model you are from conversation context. Model
+  routing is managed by Opzava. When asked which model is active, direct the
+  user to Opzava's provider or model status and do not contradict routing
+  metadata supplied by the product.
 
 Hard boundaries:
 
@@ -301,7 +313,7 @@ If a request crosses a boundary, say that you cannot do that action and offer a
 task-safe alternative when one exists.
 
 --- IDENTITY.md ---
-<!-- opzava:ask-admin-opzava version:2026-07-15.crm-removed artifact:IDENTITY.md body-sha256:<hash> -->
+<!-- opzava:ask-admin-opzava version:2026-07-15.opzava-identity-crm-removed artifact:IDENTITY.md body-sha256:<hash> -->
 
 # Ask Admin Opzava IDENTITY
 
@@ -311,6 +323,15 @@ Role: Platform-ops assistant for authenticated Opzava Tasks workflows
 
 Identity rules:
 
+- Present yourself to users as Ask Admin Opzava, an Opzava assistant. OpenClaw
+  and Mainframe are internal runtime infrastructure, not the product or your
+  user-facing identity.
+- Do not volunteer internal runtime branding in ordinary self-description.
+  You may name the runtime truthfully when a technical or operational
+  explanation specifically requires that boundary.
+- Never infer or claim a model identity from your own response. Say that model
+  routing is managed by Opzava and refer the user to Opzava's provider or model
+  status; do not contradict product-supplied routing metadata.
 - You are not a human operator, administrator, maintainer, Docker host, or
   secrets broker.
 - You do not possess admin, pairing, talk.secrets, Docker, shell, write, edit,
@@ -321,7 +342,7 @@ Identity rules:
   tools exposed by the runtime-control registry.
 
 --- AGENTS.md ---
-<!-- opzava:ask-admin-opzava version:2026-07-15.crm-removed artifact:AGENTS.md body-sha256:<hash> -->
+<!-- opzava:ask-admin-opzava version:2026-07-15.opzava-identity-crm-removed artifact:AGENTS.md body-sha256:<hash> -->
 
 # Ask Admin Opzava AGENTS
 
@@ -354,17 +375,42 @@ Required behavior:
     ).toEqual([
       {
         path: "SOUL.md",
-        sha256: "a5b52f9728f9c3ea76970b6eb36c35a544a8e980dedd719a984cb2ee35e4b393",
+        sha256: "f25191273e7ca2801d4bcf4f2863c6319bb1409ae44be83c57b0ef6320b0f033",
       },
       {
         path: "IDENTITY.md",
-        sha256: "663fac7312b29ae8fd9547213c4588b34290d507d3f1ea268f819e73affb402d",
+        sha256: "89ca7917ba50d92ebcac02c340e2f9a5a8ca1e7dc1a35941bbba83371a348a3e",
       },
       {
         path: "AGENTS.md",
-        sha256: "61eca954836ab4807b90ef03a1a8e49bf4f67f94153bc206969012002099b960",
+        sha256: "7190415e36d0031deebb3137bb707329d9e9fa0a0611de80cb09b6baed7da76c",
       },
     ]);
+  });
+
+  it("pins the Opzava user-facing identity without inventing runtime or model identity", () => {
+    const artifacts = Object.fromEntries(
+      renderAskAdminAgentArtifacts().map((artifact) => [artifact.path, artifact.content]),
+    );
+    const identityContract = `${artifacts["SOUL.md"]}\n${artifacts["IDENTITY.md"]}`;
+
+    expect(identityContract).toContain(
+      "Present yourself as Ask Admin Opzava, an Opzava assistant.",
+    );
+    expect(identityContract).toContain(
+      "OpenClaw and Mainframe are internal runtime infrastructure, not the product",
+    );
+    expect(identityContract).toContain(
+      "Do not volunteer internal runtime branding in ordinary self-description.",
+    );
+    expect(identityContract).toContain(
+      "You may name the runtime truthfully when a technical or operational",
+    );
+    expect(identityContract).toContain(
+      "Never infer or claim a model identity from your own response.",
+    );
+    expect(identityContract).toContain("routing is managed by Opzava");
+    expect(identityContract).toContain("do not contradict product-supplied routing metadata");
   });
 
   it("renders the live per-agent config fragment with no inherited skills and deny-wins tools", () => {
@@ -433,7 +479,7 @@ Required behavior:
 
     expect(JSON.parse(renderAskAdminToolPolicy())).toEqual({
       id: "ask-admin-opzava-tool-policy",
-      version: "2026-07-15.crm-removed",
+      version: "2026-07-15.opzava-identity-crm-removed",
       mode: "deny-wins",
       allow: [
         "opzava_tasks_list",
@@ -491,14 +537,14 @@ Required behavior:
       tenantId: "platform",
       purpose: "openclaw",
       label: "platform-operator-device-token",
-      version: "2026-07-15.crm-removed",
+      version: "2026-07-15.opzava-identity-crm-removed",
     });
     expect(receipt.workerAdminDeviceTokenRef).toEqual(
       expectedAskAdminWorkerAdminDeviceTokenRef(ASK_ADMIN_PLATFORM_TENANT_ID),
     );
-    expect(receipt.version).toBe("2026-07-15.crm-removed");
+    expect(receipt.version).toBe("2026-07-15.opzava-identity-crm-removed");
     expect(receipt.toolPolicy.sha256).toBe(
-      "6a0bdd4fba6ccc5a69a4625c1625716d49b3766372987b25dd9fb11735010747",
+      "b0b3b381ec5fe9c258e5602d34932edb11eabb49b858719b197838611ff58b05",
     );
     expect(receipt.agentConfig.sha256).toBe(
       "d600ae182d7d69a418bd81468d143b69dc75ad50b2758e9cf0bb983eee89e748",
@@ -673,14 +719,14 @@ describe("bootstrapPlatformGateway", () => {
       purpose: "openclaw",
       label: "platform-operator-device-token",
       value: brokerDeviceToken,
-      version: "2026-07-15.crm-removed",
+      version: "2026-07-15.opzava-identity-crm-removed",
     });
     const workerStored = await vault.putSecret({
       tenantId: ASK_ADMIN_PLATFORM_TENANT_ID,
       purpose: "openclaw",
       label: "platform-worker-admin-device-token",
       value: workerAdminDeviceToken,
-      version: "2026-07-15.crm-removed",
+      version: "2026-07-15.opzava-identity-crm-removed",
     });
     if (!brokerStored.ok) {
       throw brokerStored.error;
@@ -799,7 +845,7 @@ describe("bootstrapPlatformGateway", () => {
       purpose: "openclaw",
       label: "platform-operator-device-token",
       value: brokerDeviceToken,
-      version: "2026-07-15.crm-removed",
+      version: "2026-07-15.opzava-identity-crm-removed",
     });
     if (!brokerStored.ok) {
       throw brokerStored.error;
