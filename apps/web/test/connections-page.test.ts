@@ -1287,6 +1287,9 @@ describe("Connections page state", () => {
     expect(providerCard).toContain("const triggerRef = useRef<HTMLButtonElement>(null);");
     expect(providerCard).toContain("ref={triggerRef}");
     expect(providerCard).toContain("triggerRef.current?.focus()");
+    // Manage opens from the visible footer button, so closing it restores THAT button's focus.
+    expect(providerCard).toContain("ref={manageButtonRef}");
+    expect(providerCard).toContain("manageButtonRef.current?.focus()");
     expect(providerCard).toContain("onOpenChange={handleManageOpenChange}");
     expect(providerCard).toContain("onOpenChange={handleSetMainOpenChange}");
     expect(providerCard).toContain("onOpenChange={handleDisconnectOpenChange}");

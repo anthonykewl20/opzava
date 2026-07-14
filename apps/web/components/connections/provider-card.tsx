@@ -86,16 +86,16 @@ export function ProviderConnectedActions({
   const [setMainOpen, setSetMainOpen] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const manageButtonRef = useRef<HTMLButtonElement>(null);
   const restoreRowActionTriggerFocus = useCallback(() => {
     window.setTimeout(() => triggerRef.current?.focus(), 0);
   }, []);
-  const handleManageOpenChange = useCallback(
-    (nextOpen: boolean) => {
-      setManageOpen(nextOpen);
-      if (!nextOpen) restoreRowActionTriggerFocus();
-    },
-    [restoreRowActionTriggerFocus],
-  );
+  // Manage opens from the visible footer button, so focus returns there; set-main and disconnect
+  // open from the ⋮ menu, so those restore the menu trigger.
+  const handleManageOpenChange = useCallback((nextOpen: boolean) => {
+    setManageOpen(nextOpen);
+    if (!nextOpen) window.setTimeout(() => manageButtonRef.current?.focus(), 0);
+  }, []);
   const handleSetMainOpenChange = useCallback(
     (nextOpen: boolean) => {
       setSetMainOpen(nextOpen);
@@ -120,6 +120,7 @@ export function ProviderConnectedActions({
     <>
       <div className="flex w-full items-center gap-2">
         <Button
+          ref={manageButtonRef}
           type="button"
           variant={provider.status === "connected" ? "secondary" : "default"}
           className="flex-1"
@@ -366,7 +367,10 @@ export function ProviderCard({
             </div>
           ) : null}
           {provider.status === "connected" && connectedMeta !== null ? (
-            <p className="text-xs leading-snug text-muted-foreground">{connectedMeta}</p>
+            <p className="text-xs leading-snug text-muted-foreground">
+              <span className="sr-only">Account details: </span>
+              {connectedMeta}
+            </p>
           ) : null}
         </div>
 
