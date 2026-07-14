@@ -8,10 +8,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocalFileSecretsVault } from "@opzava/adapters";
 
 import {
+  ASK_ADMIN_TOOL_POLICY_DENY,
   ASK_ADMIN_FORBIDDEN_OPERATOR_SCOPES,
   ASK_ADMIN_HOT_PATH_OPERATOR_SCOPES,
   ASK_ADMIN_PLATFORM_TENANT_ID,
   ASK_ADMIN_WORKER_ADMIN_OPERATOR_SCOPES,
+  SUBAGENT_TOOL_POLICY_ALLOW,
+  SUBAGENT_TOOL_POLICY_DENY,
+  buildSubagentAgentEntry,
   createAskAdminProvisioningReceipt,
   expectedAskAdminDeviceTokenRef,
   expectedAskAdminWorkerAdminDeviceTokenRef,
@@ -478,6 +482,28 @@ Required behavior:
       "operator.pairing",
       "operator.talk.secrets",
     ]);
+  });
+
+  it("gives every subagent an explicit containment policy without orchestrator authority", () => {
+    const entry = buildSubagentAgentEntry({
+      agentId: "subagent-zai",
+      providerId: "zai",
+      providerLabel: "z.ai / GLM",
+      model: "zai/glm-5.2",
+      strength: "coding plan context",
+      whenToUse: "large implementation work",
+    });
+
+    expect(SUBAGENT_TOOL_POLICY_DENY).toBe(ASK_ADMIN_TOOL_POLICY_DENY);
+    expect(SUBAGENT_TOOL_POLICY_ALLOW).toEqual([]);
+    expect(entry.tools).toEqual({
+      profile: "minimal",
+      allow: [],
+      deny: [...ASK_ADMIN_TOOL_POLICY_DENY],
+    });
+    expect(entry.tools.allow).not.toContain("sessions_spawn");
+    expect(entry.tools.allow).not.toContain("subagents");
+    expect(entry.tools.allow).not.toContain("group:sessions");
   });
 
   it("computes a provisioning receipt with refs and hashes only", () => {

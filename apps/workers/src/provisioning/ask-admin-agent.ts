@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { SecretReference } from "@opzava/ports";
+import type { OrchestratorSubagentRole, SecretReference } from "@opzava/ports";
 import { makeTenantId, type TenantId } from "@opzava/shared-kernel";
 
 export const ASK_ADMIN_AGENT_ID = "ask-admin-opzava";
@@ -34,6 +34,12 @@ export const ASK_ADMIN_TOOL_POLICY_DENY = [
   "apply_patch",
   "group:fs",
 ] as const;
+
+// Subagents must not inherit the gateway default policy and thereby recover authority that Ask
+// Admin deliberately lacks. Q17 will widen this per role only after the delegation engine proves
+// a concrete need (issue #185).
+export const SUBAGENT_TOOL_POLICY_DENY = ASK_ADMIN_TOOL_POLICY_DENY;
+export const SUBAGENT_TOOL_POLICY_ALLOW = [] as const;
 
 export const ASK_ADMIN_TOOL_POLICY_ALLOW = [
   "opzava_tasks_list",
@@ -312,6 +318,26 @@ export function buildAskAdminAgentEntry(input: AskAdminAgentEntryInput = {}) {
           ? [...base.tools.allow]
           : [...base.tools.allow, ...ASK_ADMIN_DELEGATION_TOOL_ALLOW],
       deny: [...base.tools.deny],
+    },
+  };
+}
+
+/**
+ * The one place an `agents.list` entry for an orchestrator subagent is built.
+ *
+ * Delegation authority belongs to Ask Admin alone. Leaving a subagent without an explicit policy
+ * lets it inherit the gateway default and bypass Ask Admin's deny-wins containment (ADR-005),
+ * while forwarding the delegation tools would let it extend that bypass (issue #185). Q17 S3/S7
+ * must make any later per-role authority expansion explicit here.
+ */
+export function buildSubagentAgentEntry(subagent: OrchestratorSubagentRole) {
+  return {
+    id: subagent.agentId,
+    model: subagent.model,
+    tools: {
+      profile: "minimal" as const,
+      allow: [...SUBAGENT_TOOL_POLICY_ALLOW],
+      deny: [...SUBAGENT_TOOL_POLICY_DENY],
     },
   };
 }

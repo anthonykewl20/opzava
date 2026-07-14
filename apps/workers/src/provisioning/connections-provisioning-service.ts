@@ -4925,10 +4925,14 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       connectedProviderIds: connectedProviders,
       orchestratorProviderId,
     });
-    const agentConfig = buildOrchestratorAgentConfig({
+    const agentConfigResult = buildOrchestratorAgentConfig({
       subagents,
       orchestratorModel,
     });
+    if (!agentConfigResult.ok) {
+      return err(agentConfigResult.error);
+    }
+    const agentConfig = agentConfigResult.value;
     const existingAgents = agentsList(config).filter((agent) => {
       const id = stringValue(agent["id"]);
       return id !== ASK_ADMIN_AGENT_ID && id?.startsWith("subagent-") !== true;
@@ -5118,7 +5122,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       connectedProviderIds: connectedProviders,
       orchestratorProviderId: input.providerId,
     });
-    const agentConfig = buildOrchestratorAgentConfig({ subagents, orchestratorModel });
+    const agentConfigResult = buildOrchestratorAgentConfig({ subagents, orchestratorModel });
+    if (!agentConfigResult.ok) {
+      return err(agentConfigResult.error);
+    }
+    const agentConfig = agentConfigResult.value;
     const existingAgents = agentsList(config).filter((agent) => {
       const id = stringValue(agent["id"]);
       return id !== ASK_ADMIN_AGENT_ID && id?.startsWith("subagent-") !== true;

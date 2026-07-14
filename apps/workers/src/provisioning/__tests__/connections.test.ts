@@ -26,11 +26,13 @@ import { DomainError, err, ok, type Result, type TenantId } from "@opzava/shared
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ASK_ADMIN_AGENT_ID,
   ASK_ADMIN_AGENT_DIR,
   ASK_ADMIN_AGENT_WORKSPACE,
   ASK_ADMIN_DELEGATION_TOOL_ALLOW,
   ASK_ADMIN_TOOL_POLICY_ALLOW,
   ASK_ADMIN_TOOL_POLICY_DENY,
+  SUBAGENT_TOOL_POLICY_DENY,
 } from "../ask-admin-agent.js";
 import {
   buildGitHubConnectionProvisioningReceipt,
@@ -1310,20 +1312,40 @@ describe("Connections provisioning helpers", () => {
         strength: "coding plan context",
         whenToUse: "large implementation work",
       },
+      {
+        agentId: "subagent-openai",
+        providerId: "openai",
+        providerLabel: "OpenAI",
+        model: "openai/gpt-5.5",
+        strength: "general orchestration",
+        whenToUse: "cross-provider work",
+      },
     ];
-    const config = buildOrchestratorAgentConfig({ subagents });
+    const result = buildOrchestratorAgentConfig({ subagents });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw result.error;
+    }
+    const config = result.value;
 
     expect(config.receipt).toMatchObject({
       delegationMode: "prefer",
-      allowAgents: ["subagent-zai"],
+      allowAgents: ["subagent-zai", "subagent-openai"],
       toolPolicyExpansion: ["sessions_spawn", "subagents", "group:sessions"],
+      subagentToolPolicy: {
+        profile: "minimal",
+        allow: [],
+        deny: [...SUBAGENT_TOOL_POLICY_DENY],
+        denyWins: true,
+      },
       note: "delegation-engine-deferred-to-p1",
     });
     expect(config.agents.list[0]).toMatchObject({
       id: "ask-admin-opzava",
       workspace: ASK_ADMIN_AGENT_WORKSPACE,
       agentDir: ASK_ADMIN_AGENT_DIR,
-      subagents: { delegationMode: "prefer", allowAgents: ["subagent-zai"] },
+      subagents: { delegationMode: "prefer", allowAgents: ["subagent-zai", "subagent-openai"] },
       // Delegation ADDS to the canonical policy (#146): the task/CRM allow-list, the minimal
       // profile and the deny-wins lock-down all survive alongside the delegation tools.
       tools: {
@@ -1331,6 +1353,42 @@ describe("Connections provisioning helpers", () => {
         allow: [...ASK_ADMIN_TOOL_POLICY_ALLOW, ...ASK_ADMIN_DELEGATION_TOOL_ALLOW],
         deny: [...ASK_ADMIN_TOOL_POLICY_DENY],
       },
+    });
+    for (const entry of config.agents.list) {
+      expect(entry.tools).toMatchObject({
+        profile: "minimal",
+        deny: [...ASK_ADMIN_TOOL_POLICY_DENY],
+      });
+    }
+    for (const entry of config.agents.list.slice(1)) {
+      expect(entry.tools.allow).toEqual([]);
+      expect(entry.tools.allow).not.toContain("sessions_spawn");
+      expect(entry.tools.allow).not.toContain("subagents");
+      expect(entry.tools.allow).not.toContain("group:sessions");
+    }
+  });
+
+  it("rejects subagent ids that would make the canonical agents.list ambiguous", () => {
+    const subagent: OrchestratorSubagentRole = {
+      agentId: "subagent-zai",
+      providerId: "zai",
+      providerLabel: "z.ai / GLM",
+      model: "zai/glm-5.2",
+      strength: "coding plan context",
+      whenToUse: "large implementation work",
+    };
+
+    expect(buildOrchestratorAgentConfig({ subagents: [subagent, subagent] })).toMatchObject({
+      ok: false,
+      error: { code: "provisioning.connections.duplicateSubagentAgentId" },
+    });
+    expect(
+      buildOrchestratorAgentConfig({
+        subagents: [{ ...subagent, agentId: ASK_ADMIN_AGENT_ID }],
+      }),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "provisioning.connections.reservedSubagentAgentId" },
     });
   });
 
