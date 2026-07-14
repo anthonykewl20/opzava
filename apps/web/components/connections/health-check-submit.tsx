@@ -11,6 +11,7 @@ export function HealthCheckSubmitButton({ describedBy }: { readonly describedBy:
     <Button
       type="submit"
       variant="secondary"
+      className="h-11 w-full sm:h-9"
       aria-busy={pending}
       aria-describedby={describedBy}
       disabled={pending}

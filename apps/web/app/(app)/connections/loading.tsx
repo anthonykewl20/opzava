@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ConnectionsLoading() {
@@ -8,42 +8,48 @@ export default function ConnectionsLoading() {
         <div className="page-header connections-header">
           <div>
             <h1>Connections</h1>
-            <p className="page-sub">Loading connection summary...</p>
+            <p className="page-sub">Loading current OpenClaw health and connections…</p>
           </div>
         </div>
 
         <Card aria-labelledby="connections-overview-loading-title">
-          <CardHeader>
-            <CardTitle id="connections-overview-loading-title">Overview</CardTitle>
+          <CardHeader className="border-b">
+            <h2 id="connections-overview-loading-title" className="font-semibold">
+              System health
+            </h2>
           </CardHeader>
           <CardContent className="grid gap-5">
-            <div role="list" aria-label="Loading platform connections">
-              {["gateway", "providers"].map((id) => (
-                <div
-                  className="grid gap-3 border-b border-border py-4 first:pt-0 last:border-b-0 last:pb-0"
+            <Skeleton className="h-8 w-64 max-w-full motion-reduce:animate-none" />
+            <Skeleton className="h-4 w-full max-w-xl motion-reduce:animate-none" />
+            <Skeleton className="h-3 w-full rounded-full motion-reduce:animate-none" />
+            <div className="grid gap-2 md:grid-cols-3">
+              {["system", "channels", "agents"].map((id) => (
+                <Skeleton
+                  className="h-11 w-full rounded-full motion-reduce:animate-none"
                   key={id}
-                  role="listitem"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <Skeleton className="h-5 w-40" />
-                    <Skeleton className="h-8 w-16" />
-                  </div>
-                  <Skeleton className="h-4 w-full max-w-lg" />
-                </div>
+                />
               ))}
-            </div>
-            <div className="grid gap-3">
-              <Skeleton className="h-5 w-28" />
-              <div className="grid gap-2 rounded-lg border border-border p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <Skeleton className="h-5 w-36" />
-                  <Skeleton className="h-8 w-16" />
-                </div>
-                <Skeleton className="h-4 w-full max-w-md" />
-              </div>
             </div>
           </CardContent>
         </Card>
+
+        <div
+          className="grid grid-cols-1 gap-6 lg:grid-cols-3"
+          aria-label="Loading connection cards"
+        >
+          {["gateway", "providers", "integrations"].map((id) => (
+            <Card key={id}>
+              <CardHeader className="border-b">
+                <Skeleton className="h-5 w-40 motion-reduce:animate-none" />
+              </CardHeader>
+              <CardContent className="grid gap-4">
+                <Skeleton className="h-8 w-28 motion-reduce:animate-none" />
+                <Skeleton className="h-4 w-full motion-reduce:animate-none" />
+                <Skeleton className="h-24 w-full motion-reduce:animate-none" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     </div>
   );
