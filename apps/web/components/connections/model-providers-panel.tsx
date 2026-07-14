@@ -795,6 +795,101 @@ type DeviceFlowStartPhase =
   | { readonly step: "started"; readonly challenge: DeviceFlowChallenge }
   | { readonly step: "failed"; readonly message: string; readonly code: string | null };
 
+/**
+ * Elects which model the main orchestrator actually runs (#195).
+ *
+ * Enabling a model only makes it ROUTABLE (`agents.defaults.models`); the orchestrator runs
+ * `agents.defaults.model.primary`. Before this, nothing in the product could set the primary, so a
+ * provider connected with `onboard`'s default model was stuck on it — a newly released model could
+ * be toggled on and still never be used. The options come from the live catalog, never a list in our
+ * source, so a model is electable the moment the gateway knows about it.
+ */
+function OrchestratorModelPicker({ provider }: { readonly provider: ProviderRow }) {
+  const router = useRouter();
+  const catalogModels = provider.catalogModels ?? provider.models;
+  const currentModel = provider.model ?? null;
+  const [choice, setChoice] = useState<string>(currentModel ?? "");
+  const [pending, setPending] = useState(false);
+  const [failure, setFailure] = useState<{
+    readonly message: string;
+    readonly code: string | null;
+  } | null>(null);
+
+  const elect = useCallback(async () => {
+    if (pending || choice === "" || choice === currentModel) {
+      return;
+    }
+    setPending(true);
+    setFailure(null);
+    const result = await postConnectionsMutation<unknown>(
+      "/api/connections/orchestrator/set-main",
+      { providerId: provider.connectionProviderId, model: choice },
+      { timeoutMs: 120_000 },
+    );
+    setPending(false);
+    if (!result.ok) {
+      setFailure({ message: result.message, code: result.code });
+      return;
+    }
+    router.refresh();
+  }, [choice, currentModel, pending, provider.connectionProviderId, router]);
+
+  if (catalogModels.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="grid gap-2" aria-labelledby={`${provider.id}-orchestrator-model`}>
+      <div>
+        <h3
+          id={`${provider.id}-orchestrator-model`}
+          className="font-medium text-foreground"
+        >
+          Orchestrator model
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          The model the main orchestrator runs. Electing one also makes it routable and makes this
+          provider the main orchestrator.
+        </p>
+      </div>
+      {failure === null ? null : (
+        <MutationErrorNotice failure={failure} title="Orchestrator model update failed" />
+      )}
+      <div className="flex items-center gap-2">
+        <select
+          aria-label="Orchestrator model"
+          className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-3 font-mono text-sm text-foreground"
+          disabled={pending}
+          value={choice}
+          onChange={(event) => setChoice(event.target.value)}
+        >
+          {currentModel === null ? <option value="">Select a model</option> : null}
+          {catalogModels.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.label} ({model.id})
+            </option>
+          ))}
+        </select>
+        <Button
+          type="button"
+          size="sm"
+          disabled={pending || choice === "" || choice === currentModel}
+          onClick={() => void elect()}
+        >
+          {pending ? (
+            <span className="flex items-center gap-1.5">
+              <span className="sb-spinner sb-spinner--sm" aria-hidden="true" />
+              Electing…
+            </span>
+          ) : (
+            "Use for orchestrator"
+          )}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function ProviderModelsSection({ provider }: { readonly provider: ProviderRow }) {
   const router = useRouter();
   const [pendingModelIds, setPendingModelIds] = useState<ReadonlySet<string>>(new Set());
@@ -852,12 +947,14 @@ function ProviderModelsSection({ provider }: { readonly provider: ProviderRow })
 
   return (
     <section className="grid gap-3" aria-labelledby={`${provider.id}-models-heading`}>
+      <OrchestratorModelPicker provider={provider} />
       <div>
         <h3 id={`${provider.id}-models-heading`} className="font-medium text-foreground">
           Models
         </h3>
         <p className="text-sm text-muted-foreground">
-          Choose which catalog models this provider can route.
+          Choose which catalog models this provider can route. The gateway paces these writes, so a
+          change can take a moment to land.
         </p>
       </div>
       {failure === null ? null : (
@@ -879,12 +976,22 @@ function ProviderModelsSection({ provider }: { readonly provider: ProviderRow })
                   <p className="truncate text-sm font-medium text-foreground">{model.label}</p>
                   <p className="truncate font-mono text-xs text-muted-foreground">{model.id}</p>
                 </div>
-                <Switch
-                  checked={checked}
-                  disabled={pending || anyTogglePending}
-                  label={model.label}
-                  onCheckedChange={(nextChecked) => void toggleModel(model.id, nextChecked)}
-                />
+                <div className="flex shrink-0 items-center gap-2">
+                  {/* The gateway paces control-plane writes, so this round-trip can run for tens of
+                      seconds. A switch that only greys out reads as broken — say what is happening. */}
+                  {pending ? (
+                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span className="sb-spinner sb-spinner--sm" aria-hidden="true" />
+                      {checked ? "Disabling…" : "Enabling…"}
+                    </span>
+                  ) : null}
+                  <Switch
+                    checked={checked}
+                    disabled={pending || anyTogglePending}
+                    label={model.label}
+                    onCheckedChange={(nextChecked) => void toggleModel(model.id, nextChecked)}
+                  />
+                </div>
               </div>
             );
           })}

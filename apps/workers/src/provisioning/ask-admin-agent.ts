@@ -12,7 +12,6 @@ export const ASK_ADMIN_AGENT_VERSION = "2026-07-04.slice3-crm-read";
 const ASK_ADMIN_AGENT_ARTIFACT_VERSION = "2026-07-04.slice3-crm-read";
 export const ASK_ADMIN_AGENT_WORKSPACE = "/home/node/.openclaw/workspace/ask-admin-opzava";
 export const ASK_ADMIN_AGENT_DIR = "/home/node/.openclaw/agents/ask-admin-opzava/agent";
-export const ASK_ADMIN_AGENT_MODEL = "openai/gpt-5.5";
 export const ASK_ADMIN_TOOL_POLICY_ID = "ask-admin-opzava-tool-policy";
 export const ASK_ADMIN_DEVICE_TOKEN_LABEL = "platform-operator-device-token";
 export const ASK_ADMIN_WORKER_ADMIN_DEVICE_TOKEN_LABEL = "platform-worker-admin-device-token";
@@ -89,7 +88,6 @@ export interface AskAdminAgentConfigFragment {
         readonly contextInjection: "continuation-skip";
         readonly bootstrapMaxChars: 20000;
         readonly default: true;
-        readonly model: typeof ASK_ADMIN_AGENT_MODEL;
         readonly tools: {
           readonly profile: "minimal";
           readonly allow: typeof ASK_ADMIN_TOOL_POLICY_ALLOW;
@@ -266,7 +264,6 @@ export const ASK_ADMIN_AGENT_CONFIG_FRAGMENT: AskAdminAgentConfigFragment = {
         contextInjection: "continuation-skip",
         bootstrapMaxChars: 20000,
         default: true,
-        model: ASK_ADMIN_AGENT_MODEL,
         tools: {
           profile: "minimal",
           allow: ASK_ADMIN_TOOL_POLICY_ALLOW,
@@ -302,7 +299,7 @@ export function buildAskAdminAgentEntry(input: AskAdminAgentEntryInput = {}) {
 
   return {
     ...base,
-    model: input.model ?? base.model,
+    ...(input.model === undefined ? {} : { model: input.model }),
     ...(delegation === undefined
       ? {}
       : {

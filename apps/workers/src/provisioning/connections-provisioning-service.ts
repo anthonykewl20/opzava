@@ -54,7 +54,6 @@ import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import {
   ASK_ADMIN_AGENT_ID,
-  ASK_ADMIN_AGENT_MODEL,
   ASK_ADMIN_WORKER_ADMIN_OPERATOR_SCOPES,
   ASK_ADMIN_WORKER_ADMIN_DEVICE_TOKEN_LABEL,
 } from "./ask-admin-agent.js";
@@ -239,8 +238,8 @@ interface StoredProviderCredential {
   readonly providerId: string;
 }
 
-function credentialWriteKey(orgId: string, providerId: string): string {
-  return `${orgId.toLowerCase()}:${providerId.toLowerCase()}`;
+function configWriteKey(orgId: string): string {
+  return orgId.toLowerCase();
 }
 
 function providerConnectInFlightError(providerId: string): DomainError {
@@ -682,6 +681,12 @@ function gatewayPrimaryModel(config: Record<string, unknown>): string | null {
   return modelSelectorPrimary(defaults?.["model"]);
 }
 
+/** The routable set: `agents.defaults.models` keys are exactly what the gateway will route to. */
+function gatewayDefaultModels(config: Record<string, unknown>): Record<string, unknown> {
+  const defaults = recordValue(recordValue(config["agents"])?.["defaults"]);
+  return recordValue(defaults?.["models"]) ?? {};
+}
+
 function providerModelRef(providerId: string, modelId: string): string {
   return modelId.includes("/") ? modelId : `${providerId}/${modelId}`;
 }
@@ -942,6 +947,65 @@ function pluginModelRecord(input: {
       modelRecordId(entry, input.providerId)?.toLowerCase() === input.modelId.toLowerCase(),
   );
   return provider === null || model === undefined ? null : { provider, model };
+}
+
+function providerRegistryPatchForModel(input: {
+  readonly config: Record<string, unknown>;
+  readonly modelsPayload: unknown;
+  readonly discovery: PluginModelCatalogDiscovery | null;
+  readonly providerId: string;
+  readonly modelId: string;
+}): Result<Record<string, unknown> | null> {
+  const modelsListHasDefinition = modelsListRecords(input.modelsPayload).some(
+    (model) =>
+      modelRecordProviderId(model)?.toLowerCase() === input.providerId.toLowerCase() &&
+      modelRecordId(model, input.providerId)?.toLowerCase() === input.modelId.toLowerCase(),
+  );
+  if (modelsListHasDefinition) {
+    return ok(null);
+  }
+
+  const pluginRecord = pluginModelRecord(input);
+  if (pluginRecord === null) {
+    return err(
+      provisioningError(
+        "provisioning.connections.modelDefinitionUnavailable",
+        "The model catalog did not provide the registry definition required to enable it.",
+        { providerId: input.providerId, modelId: input.modelId },
+      ),
+    );
+  }
+
+  const existingProvider = configProviderEntry({
+    config: input.config,
+    providerId: input.providerId,
+  });
+  const existingModels = arrayValue(existingProvider?.value["models"]);
+  const alreadyRegistered = existingModels.some((model) => {
+    if (typeof model === "string") {
+      return model.toLowerCase() === input.modelId.toLowerCase();
+    }
+    return (
+      isRecord(model) &&
+      modelRecordId(model, input.providerId)?.toLowerCase() === input.modelId.toLowerCase()
+    );
+  });
+  if (alreadyRegistered) {
+    return ok(null);
+  }
+
+  const providerKey = existingProvider?.key ?? input.providerId;
+  return ok({
+    [providerKey]: {
+      ...(existingProvider === null && pluginRecord.provider.baseUrl !== undefined
+        ? { baseUrl: pluginRecord.provider.baseUrl }
+        : {}),
+      ...(existingProvider === null && pluginRecord.provider.api !== undefined
+        ? { api: pluginRecord.provider.api }
+        : {}),
+      models: [...existingModels, pluginRecord.model],
+    },
+  });
 }
 
 // The configured models for one provider (e.g. openai -> [gpt-5.5], zai -> [glm-5.2]).
@@ -1255,6 +1319,26 @@ function orchestratorProviderIdFromConnections(input: {
   return connection?.providerId ?? modelProviderId(input.primaryModel);
 }
 
+function connectedProviderIdForModel(input: {
+  readonly model: string | null;
+  readonly providerConnections: readonly ProviderConnectionState[];
+}): string | null {
+  if (input.model === null) {
+    return null;
+  }
+
+  const providerId = orchestratorProviderIdFromConnections({
+    primaryModel: input.model,
+    providerConnections: input.providerConnections,
+  });
+  return providerId !== null &&
+    input.providerConnections.some(
+      (connection) => connection.providerId === providerId && connection.status === "connected",
+    )
+    ? providerId
+    : null;
+}
+
 function currentOrchestratorState(input: {
   readonly config: Record<string, unknown>;
   readonly catalog: readonly ModelProviderCatalogEntry[];
@@ -1288,14 +1372,22 @@ function currentOrchestratorState(input: {
     .filter((entry): entry is OrchestratorSubagentRole => entry !== null);
   const subagentConfig = recordValue(askAdmin?.["subagents"]);
   const allowAgents = stringArrayValue(subagentConfig?.["allowAgents"]);
+  const selectedModel = modelSelectorPrimary(askAdmin?.["model"]);
+  const selectedProviderId = connectedProviderIdForModel({
+    model: selectedModel,
+    providerConnections: input.providerConnections,
+  });
+  const primaryProviderId = connectedProviderIdForModel({
+    model: primaryModel,
+    providerConnections: input.providerConnections,
+  });
+  const orchestratorModel =
+    selectedProviderId !== null ? selectedModel : primaryProviderId !== null ? primaryModel : null;
 
   return {
     orchestratorAgentId: ASK_ADMIN_AGENT_ID,
-    orchestratorModel: primaryModel ?? ASK_ADMIN_AGENT_MODEL,
-    orchestratorProviderId: orchestratorProviderIdFromConnections({
-      primaryModel,
-      providerConnections: input.providerConnections,
-    }),
+    orchestratorModel,
+    orchestratorProviderId: selectedProviderId ?? primaryProviderId,
     delegationMode: "prefer",
     allowAgents,
     subagents,
@@ -1350,6 +1442,13 @@ function orchestratorConfigIsCurrent(input: {
   if (input.orchestratorModel !== input.primaryModel) {
     return false;
   }
+  if (
+    !enabledDefaultModelEntries(input.config).some(
+      ({ key }) => key.toLowerCase() === input.orchestratorModel.toLowerCase(),
+    )
+  ) {
+    return false;
+  }
 
   const agents = agentsList(input.config);
   const askAdmin = agents.find((agent) => stringValue(agent["id"]) === ASK_ADMIN_AGENT_ID);
@@ -1402,7 +1501,7 @@ function orchestratorModelForProvider(input: {
 }
 
 function orchestratorDelegationState(input: {
-  readonly orchestratorModel: string;
+  readonly orchestratorModel: string | null;
   readonly orchestratorProviderId: string | null;
   readonly subagents: readonly OrchestratorSubagentRole[];
   readonly now: Date;
@@ -2858,7 +2957,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private orchestratorReconcileState: OrchestratorReconcileState = { status: "idle" };
   private orchestratorReconcileTail: Promise<void> = Promise.resolve();
   private orchestratorReconcileQueued = 0;
-  /** Ref-counted `${orgId}:${providerId}` reservations. One async owner may release only itself. */
+  /** Ref-counted organization-wide reservations. One async owner may release only itself. */
   private readonly providerCredentialWrites = new Map<string, number>();
   private readonly lastFullyHealthy = new Map<
     string,
@@ -3447,7 +3546,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async setModelProviderModelEnabled(
     input: SetModelProviderModelEnabledInput,
   ): Promise<Result<ProviderConnectionState>> {
-    const guardKey = credentialWriteKey(input.orgId, input.providerId);
+    const guardKey = configWriteKey(input.orgId);
     const busy = this.providerConnectInFlight(input.orgId, input.providerId);
     if (busy !== null) {
       return err(busy);
@@ -4113,7 +4212,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     readonly authChoice: ModelProviderAuthChoice;
     readonly authChoices: readonly GatewayRuntimeAuthChoice[];
   }): Promise<Result<ProviderConnectionState>> {
-    const writeKey = credentialWriteKey(input.op.orgId, input.op.providerId);
+    const writeKey = configWriteKey(input.op.orgId);
     if (this.providerWriteReserved(writeKey)) {
       return err(providerConnectInFlightError(input.op.providerId));
     }
@@ -4388,7 +4487,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     if (
       !pendingConnect &&
       !activeDeviceConnect &&
-      !this.providerWriteReserved(credentialWriteKey(orgId, providerId))
+      !this.providerWriteReserved(configWriteKey(orgId))
     ) {
       return null;
     }
@@ -4643,7 +4742,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     if (busy !== null) {
       return err(busy);
     }
-    const reservationKey = credentialWriteKey(input.orgId, input.providerId);
+    const reservationKey = configWriteKey(input.orgId);
     this.acquireProviderWrite(reservationKey);
 
     try {
@@ -4781,7 +4880,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(busy);
     }
 
-    const writeKey = credentialWriteKey(input.orgId, input.providerId);
+    const writeKey = configWriteKey(input.orgId);
     this.acquireProviderWrite(writeKey);
     const opId = `model-disconnect:${randomUUID()}`;
     const op: PendingModelProviderDisconnect = {
@@ -5273,13 +5372,22 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async applyOrchestratorDelegation(
     input: ApplyOrchestratorDelegationInput,
   ): Promise<Result<OrchestratorDelegationState>> {
-    const reconciled = await this.reconcileOrchestrator({
-      connectedProviderIds: input.connectedProviderIds,
-    });
-    if (reconciled.ok) {
-      this.orchestratorReconcileState = { status: "idle" };
+    const writeKey = configWriteKey(input.orgId);
+    if (this.providerWriteReserved(writeKey)) {
+      return err(providerConnectInFlightError("gateway config"));
     }
-    return reconciled;
+    this.acquireProviderWrite(writeKey);
+    try {
+      const reconciled = await this.reconcileOrchestrator({
+        connectedProviderIds: input.connectedProviderIds,
+      });
+      if (reconciled.ok) {
+        this.orchestratorReconcileState = { status: "idle" };
+      }
+      return reconciled;
+    } finally {
+      this.releaseProviderWrite(writeKey);
+    }
   }
 
   /**
@@ -5299,10 +5407,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
    * that would have repaired it was hidden precisely BECAUSE the row already claimed to be the lead
    * (#186).
    *
-   * The primary is authoritative only while its provider still holds a credential. Disconnecting the
-   * orchestrator leaves the primary pointing at a provider that can no longer answer, so the
-   * orchestrator falls back to a provider that is actually connected, and the primary is moved with
-   * it -- the gateway is never left routing to a credential we just removed.
+   * The Ask Admin model is the operator's selection and remains authoritative while its provider
+   * holds a credential. `onboard` may rewrite the gateway primary during any later connect, so
+   * trusting that primary would silently undo a deliberate model choice. When the selected
+   * credential is gone, the connected catalog supplies a deterministic fallback and the gateway is
+   * never left routing to a credential we just removed.
    */
   private async reconcileOrchestrator(
     input: {
@@ -5332,7 +5441,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     ) {
       return ok(
         orchestratorDelegationState({
-          orchestratorModel: gatewayPrimaryModel(config) ?? ASK_ADMIN_AGENT_MODEL,
+          orchestratorModel: null,
           orchestratorProviderId: null,
           subagents: [],
           now: this.now(),
@@ -5340,13 +5449,20 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
-    const [modelsResult, modelStatusResult, authStatus] = await Promise.all([
+    const [modelsResult, discoveryResult, modelStatusResult, authStatus] = await Promise.all([
       this.options.adminClient.request("models.list", { view: "all" }),
+      this.options.gatewayRuntime?.readPluginModelDiscovery() ??
+        ok<PluginModelCatalogDiscovery>({ catalogs: [], plugins: [] }),
       this.options.gatewayRuntime?.modelStatus() ??
         ok<unknown>({ auth: { providers: [] }, allowed: [] }),
       this.modelAuthStatus(),
     ]);
-    const catalog = providerCatalogFromModels(modelsResult.ok ? modelsResult.value : {}, config);
+    const discovery = discoveryResult.ok ? discoveryResult.value : null;
+    const catalog = providerCatalogFromModels(
+      modelsResult.ok ? modelsResult.value : {},
+      config,
+      discovery,
+    );
     const providerConnections = catalog.map((provider) =>
       providerConnectionFromConnectionSources({
         provider,
@@ -5366,25 +5482,56 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     );
 
     const primaryModel = gatewayPrimaryModel(config);
-    const primaryProviderId = orchestratorProviderIdFromConnections({
-      primaryModel,
+    const askAdmin = agentsList(config).find(
+      (agent) => stringValue(agent["id"]) === ASK_ADMIN_AGENT_ID,
+    );
+    const operatorSelectedModel = modelSelectorPrimary(askAdmin?.["model"]);
+    const operatorSelectedProviderId = connectedProviderIdForModel({
+      model: operatorSelectedModel,
+      providerConnections,
+    });
+    const operatorSelectionIsConnected =
+      operatorSelectedProviderId !== null && connectedProviders.has(operatorSelectedProviderId);
+    // With no operator selection the gateway's own primary still stands: `onboard` sets it, and
+    // overriding it with "whatever provider sorts first" would silently re-route a tenant that never
+    // asked for it. The selection only OUTRANKS it — it does not replace it as the fallback.
+    const primaryProviderId = connectedProviderIdForModel({
+      model: primaryModel,
       providerConnections,
     });
     const primaryIsConnected =
       primaryProviderId !== null && connectedProviders.has(primaryProviderId);
-    // Catalog order, not Set order: the fallback must be deterministic.
+    // Catalog order, not Set order: the last-resort fallback must be deterministic.
     const fallbackProviderId =
       providerConnections.find(
         (connection) =>
           connection.status === "connected" && connectedProviders.has(connection.providerId),
       )?.providerId ?? null;
 
-    const orchestratorProviderId = primaryIsConnected ? primaryProviderId : fallbackProviderId;
+    const orchestratorProviderId = operatorSelectionIsConnected
+      ? operatorSelectedProviderId
+      : primaryIsConnected
+        ? primaryProviderId
+        : fallbackProviderId;
     const orchestratorModel =
-      primaryIsConnected && primaryModel !== null
-        ? primaryModel
-        : (orchestratorModelForProvider({ providerId: orchestratorProviderId, catalog, config }) ??
-          ASK_ADMIN_AGENT_MODEL);
+      operatorSelectionIsConnected && operatorSelectedModel !== null
+        ? operatorSelectedModel
+        : primaryIsConnected && primaryModel !== null
+          ? primaryModel
+          : orchestratorModelForProvider({ providerId: orchestratorProviderId, catalog, config });
+
+    // With no connected provider there is no valid orchestrator model. Preserve the gateway's own
+    // stale/default config rather than inventing a credential-backed route that does not exist.
+    if (orchestratorModel === null || orchestratorProviderId === null) {
+      return ok(
+        orchestratorDelegationState({
+          orchestratorModel: null,
+          orchestratorProviderId: null,
+          subagents: [],
+          now: this.now(),
+        }),
+      );
+    }
 
     const subagents = connectedProviderSubagents({
       catalog,
@@ -5400,6 +5547,26 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(agentConfigResult.error);
     }
     const agentConfig = agentConfigResult.value;
+    const orchestratorCatalogModel = catalog
+      .find((provider) => provider.id === orchestratorProviderId)
+      ?.catalogModels?.find(
+        (model) =>
+          providerModelRef(orchestratorProviderId, model.id).toLowerCase() ===
+          orchestratorModel.toLowerCase(),
+      );
+    const providerRegistryPatch =
+      orchestratorCatalogModel === undefined
+        ? ok<Record<string, unknown> | null>(null)
+        : providerRegistryPatchForModel({
+            config,
+            modelsPayload: modelsResult.ok ? modelsResult.value : {},
+            discovery,
+            providerId: orchestratorProviderId,
+            modelId: orchestratorCatalogModel.id,
+          });
+    if (!providerRegistryPatch.ok) {
+      return err(providerRegistryPatch.error);
+    }
     const existingAgents = agentsList(config).filter((agent) => {
       const id = stringValue(agent["id"]);
       return id !== ASK_ADMIN_AGENT_ID && id?.startsWith("subagent-") !== true;
@@ -5431,13 +5598,17 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       configGetPayload: configResult.value,
       patch: {
         agents: {
-          // Move the primary only when it is wrong: it is what the gateway routes on, and rewriting
-          // it on every reconcile would fight the operator's own choice of main orchestrator.
-          ...(orchestratorModel === primaryModel
-            ? {}
-            : { defaults: { model: { primary: orchestratorModel } } }),
+          defaults: {
+            ...(orchestratorModel === primaryModel
+              ? {}
+              : { model: { primary: orchestratorModel } }),
+            models: { [orchestratorModel]: {} },
+          },
           list: [...existingAgents, ...agentConfig.agents.list],
         },
+        ...(providerRegistryPatch.value === null
+          ? {}
+          : { models: { providers: providerRegistryPatch.value } }),
       },
       replacePaths: ["agents.list"],
     });
@@ -5603,12 +5774,37 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       config,
       models: provider?.models,
     });
-    const orchestratorModel =
+    // The operator's choice wins over the derived default, but only after the gateway's own catalog
+    // vouches for it: a model id we cannot see in the catalog is refused rather than written blindly,
+    // because electing a model the provider cannot serve would route the orchestrator into a wall.
+    const electedModel = input.model?.trim();
+    if (electedModel !== undefined && electedModel !== "") {
+      const known = (provider?.catalogModels ?? provider?.models ?? []).some(
+        (model) =>
+          model.id.trim().toLowerCase() === electedModel.toLowerCase() ||
+          providerModelRef(input.providerId, model.id).toLowerCase() ===
+            electedModel.toLowerCase(),
+      );
+      if (!known) {
+        return err(
+          provisioningError(
+            "provisioning.connections.orchestratorModelUnknown",
+            "The selected model is not in this provider's catalog.",
+            { providerId: input.providerId, model: electedModel },
+          ),
+        );
+      }
+    }
+    const derivedModel =
       configuredModel === null
         ? provider?.suggestedModel === undefined
           ? null
           : providerModelRef(input.providerId, provider.suggestedModel)
         : providerModelRef(input.providerId, configuredModel);
+    const orchestratorModel =
+      electedModel === undefined || electedModel === ""
+        ? derivedModel
+        : providerModelRef(input.providerId, electedModel);
     if (orchestratorModel === null) {
       return err(
         provisioningError(
@@ -5639,6 +5835,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       const id = stringValue(agent["id"]);
       return id !== ASK_ADMIN_AGENT_ID && id?.startsWith("subagent-") !== true;
     });
+    // Electing a model must also make it ROUTABLE — `agents.defaults.models` is what the gateway
+    // will actually route to, so a primary that is absent from it points at nothing. Both land in
+    // ONE patch: the gateway caps control-plane writes (3/60s), and two writes could interleave with
+    // a concurrent connect and leave the primary and the routable set disagreeing.
     const patchParams = configPatchParams({
       configGetPayload: configResult.value,
       patch: {
@@ -5646,6 +5846,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           defaults: {
             model: {
               primary: orchestratorModel,
+            },
+            models: {
+              ...gatewayDefaultModels(config),
+              [orchestratorModel]: gatewayDefaultModels(config)[orchestratorModel] ?? {},
             },
           },
           list: [...existingAgents, ...agentConfig.agents.list],
@@ -5902,7 +6106,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }
 
   private async cleanupModelProviderFlow(flow: PendingModelProviderDeviceFlow): Promise<void> {
-    const reservationKey = credentialWriteKey(flow.orgId, flow.providerId);
+    const reservationKey = configWriteKey(flow.orgId);
     this.acquireProviderWrite(reservationKey);
     clearTimeout(flow.timeout);
     try {
@@ -5967,7 +6171,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       "Waiting for gateway device-code authorization.",
     );
     if (connection.status === "connected") {
-      const reservationKey = credentialWriteKey(flow.orgId, flow.providerId);
+      const reservationKey = configWriteKey(flow.orgId);
       this.acquireProviderWrite(reservationKey);
       try {
         // The device-code login onboards through the same gateway path as the api-key connect, so it

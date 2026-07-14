@@ -8,6 +8,9 @@ export const dynamic = "force-dynamic";
 
 interface SetMainOrchestratorBody {
   readonly providerId?: unknown;
+  // Optional: the operator's chosen model. Omitted means "keep deriving it" (the provider's
+  // configured model, else its suggested one) — the worker owns that derivation, not this route.
+  readonly model?: unknown;
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -24,7 +27,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const result = await setMainOrchestratorForContext(context, body.providerId);
+  const model =
+    typeof body.model === "string" && body.model.trim() !== "" ? body.model.trim() : undefined;
+  const result = await setMainOrchestratorForContext(context, body.providerId, model);
   if (!result.ok) {
     return connectionsMutationErrorResponse(result.error);
   }

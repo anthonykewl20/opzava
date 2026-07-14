@@ -452,9 +452,12 @@ async function handleConnectionsRequest(
       return;
     }
 
+    // Optional: absent means "keep deriving the model" — the service owns that derivation.
+    const model = stringValue(body["model"]);
     const result = await options.provisioningPort.setMainOrchestrator({
       ...principal,
       providerId,
+      ...(model === null ? {} : { model }),
     });
     writeJson(
       response,

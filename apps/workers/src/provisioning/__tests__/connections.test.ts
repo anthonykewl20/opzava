@@ -5706,7 +5706,96 @@ describe("Connections provisioning helpers", () => {
     expect(JSON.stringify(rawPatch(patchCall!.params))).not.toContain("subagent-zai");
   });
 
-  it("sets the main orchestrator by patching the gateway primary model", async () => {
+  // The whole fix stands or falls here. `onboard` moves `agents.defaults.model.primary` on every
+  // connect, and reconcile used to copy that gateway-written value back onto Ask Admin — so a model
+  // the operator chose was silently reverted by the next connect, while the UI still showed their
+  // choice. The operator's selection (the Ask Admin `model`, which only Opzava writes) is the
+  // authority while its provider is connected; reconcile must PUSH it into the primary, not read
+  // from it.
+  it("keeps the operator's elected model when a later connect moves the gateway primary", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({
+        hash: "config-hash-selection-survives",
+        auth: {
+          profiles: {
+            "openai-device": { providerId: "openai", authChoiceId: "openai-device-code" },
+            "zai-zai-api-key": {
+              providerId: "zai",
+              authChoiceId: "zai-api-key",
+              model: "zai/glm-5.2",
+            },
+          },
+          order: { openai: ["openai-device"], zai: ["zai-zai-api-key"] },
+        },
+        agents: {
+          defaults: {
+            // A later `zai` connect onboarded and dragged the gateway primary onto zai...
+            model: { primary: "zai/glm-5.2" },
+            models: { "openai/gpt-5.6-sol": {}, "zai/glm-5.2": {} },
+          },
+          // ...but the operator chose gpt-5.6-sol, and that selection lives here.
+          list: [{ id: "ask-admin-opzava", model: "openai/gpt-5.6-sol" }],
+        },
+      }),
+      "models.list": ok({
+        providers: [
+          {
+            id: "openai",
+            label: "OpenAI",
+            suggestedModel: "openai/gpt-5.5",
+            authChoices: [
+              apiKeyChoice({
+                id: "openai-device-code",
+                providerId: "openai",
+                keyFlag: "openai-api-key",
+              }),
+            ],
+          },
+          {
+            id: "zai",
+            label: "z.ai / GLM",
+            suggestedModel: "zai/glm-5.2",
+            authChoices: [apiKeyChoice()],
+          },
+        ],
+        models: [
+          { id: "gpt-5.5", name: "GPT 5.5", provider: "openai", available: true },
+          { id: "gpt-5.6-sol", name: "GPT 5.6 Sol", provider: "openai", available: true },
+          { id: "glm-5.2", name: "GLM 5.2", provider: "zai", available: true },
+        ],
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-14T00:00:00.000Z"),
+    });
+
+    const result = await port.applyOrchestratorDelegation({
+      ...principal(),
+      connectedProviderIds: ["openai", "zai"],
+    });
+
+    expect(result.ok).toBe(true);
+    // The selection survives the connect that moved the primary...
+    expect(result.ok ? result.value.orchestratorModel : null).toBe("openai/gpt-5.6-sol");
+    expect(result.ok ? result.value.orchestratorProviderId : null).toBe("openai");
+
+    // ...and the gateway is corrected back onto it, rather than Ask Admin being dragged onto zai.
+    const patchCall = admin.calls.find((call) => call.method === "config.patch");
+    expect(rawPatch(patchCall!.params)).toMatchObject({
+      agents: {
+        defaults: { model: { primary: "openai/gpt-5.6-sol" } },
+        list: expect.arrayContaining([
+          expect.objectContaining({ id: "ask-admin-opzava", model: "openai/gpt-5.6-sol" }),
+        ]),
+      },
+    });
+  });
+
+  it("elects a catalog model through one composite orchestrator patch", async () => {
     const admin = new RecordingAdminClient({
       "config.get": ok({
         hash: "config-hash-set-main",
@@ -5753,6 +5842,11 @@ describe("Connections provisioning helpers", () => {
             authChoices: [apiKeyChoice()],
           },
         ],
+        models: [
+          { id: "gpt-5.5", name: "GPT 5.5", provider: "openai", available: true },
+          { id: "gpt-5.6-sol", name: "GPT 5.6 Sol", provider: "openai", available: true },
+          { id: "glm-5.2", name: "GLM 5.2", provider: "zai", available: true },
+        ],
       }),
       "config.patch": ok({ ok: true }),
     });
@@ -5763,13 +5857,17 @@ describe("Connections provisioning helpers", () => {
       now: () => new Date("2026-07-03T00:00:00.000Z"),
     });
 
-    const result = await port.setMainOrchestrator({ ...principal(), providerId: "zai" });
+    const result = await port.setMainOrchestrator({
+      ...principal(),
+      providerId: "openai",
+      model: "gpt-5.6-sol",
+    });
 
     expect(result.ok).toBe(true);
     expect(result.ok ? result.value : null).toMatchObject({
-      orchestratorModel: "zai/glm-5.2",
-      orchestratorProviderId: "zai",
-      allowAgents: ["subagent-openai"],
+      orchestratorModel: "openai/gpt-5.6-sol",
+      orchestratorProviderId: "openai",
+      allowAgents: ["subagent-zai"],
     });
     const patchCall = admin.calls.find((call) => call.method === "config.patch");
     expect(patchCall?.params).toMatchObject({
@@ -5778,14 +5876,18 @@ describe("Connections provisioning helpers", () => {
     });
     expect(rawPatch(patchCall!.params)).toMatchObject({
       agents: {
-        defaults: { model: { primary: "zai/glm-5.2" } },
+        defaults: {
+          model: { primary: "openai/gpt-5.6-sol" },
+          models: { "openai/gpt-5.6-sol": {} },
+        },
         list: expect.arrayContaining([
           expect.objectContaining({ id: "other-agent" }),
-          expect.objectContaining({ id: "ask-admin-opzava", model: "zai/glm-5.2" }),
-          expect.objectContaining({ id: "subagent-openai", model: "openai/gpt-5.5" }),
+          expect.objectContaining({ id: "ask-admin-opzava", model: "openai/gpt-5.6-sol" }),
+          expect.objectContaining({ id: "subagent-zai", model: "zai/glm-5.2" }),
         ]),
       },
     });
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
   });
 
   it("keeps the Ask Admin tool policy when set-main rebuilds agents.list (#146)", async () => {

@@ -211,7 +211,7 @@ export interface OrchestratorReconcileState {
 
 export interface OrchestratorDelegationState {
   readonly orchestratorAgentId: string;
-  readonly orchestratorModel: string;
+  readonly orchestratorModel: string | null;
   readonly orchestratorProviderId: string | null;
   readonly delegationMode: "prefer";
   readonly allowAgents: readonly string[];
@@ -328,6 +328,7 @@ export interface ApplyOrchestratorDelegationInput extends ConnectionProvisioning
 
 export interface SetMainOrchestratorInput extends ConnectionProvisioningPrincipal {
   readonly providerId: string;
+  readonly model?: string;
 }
 
 export type StartGitHubDeviceFlowInput = ConnectionProvisioningPrincipal;

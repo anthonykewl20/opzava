@@ -20,7 +20,6 @@ import {
 
 import {
   ASK_ADMIN_AGENT_ID,
-  ASK_ADMIN_AGENT_MODEL,
   ASK_ADMIN_PLATFORM_TENANT_ID,
   ASK_ADMIN_WORKER_ADMIN_DEVICE_TOKEN_LABEL,
 } from "./ask-admin-agent.js";
@@ -201,7 +200,7 @@ export function unavailableSnapshot(input: {
     },
     orchestrator: {
       orchestratorAgentId: ASK_ADMIN_AGENT_ID,
-      orchestratorModel: ASK_ADMIN_AGENT_MODEL,
+      orchestratorModel: null,
       orchestratorProviderId: null,
       delegationMode: "prefer",
       allowAgents: [],
