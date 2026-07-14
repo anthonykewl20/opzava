@@ -14,7 +14,7 @@ import { pathToFileURL } from "node:url";
 
 import { BASE, artifactDir, realLogin } from "../lib/session.mjs";
 
-const HEALTH_SCENARIOS = new Set(["healthy", "degraded", "unreachable"]);
+const HEALTH_SCENARIOS = new Set(["healthy", "degraded", "partial-unknown", "unreachable"]);
 const INTEGRATION_SCENARIOS = new Set(["empty", "connected"]);
 const EXECUTION_MODE = connectionsExecutionMode(process.argv.slice(2));
 const CAPTURE_BASELINE = EXECUTION_MODE === "baseline-capture";
@@ -293,7 +293,10 @@ function classifyObservedScenario(input) {
   ) {
     return "unreachable";
   }
-  return "partial-unknown";
+  if (input.health.status === "unknown" && input.gateway.connectionStatus === "active") {
+    return "partial-unknown";
+  }
+  return "inconsistent";
 }
 
 function connectionsExecutionMode(argumentsList) {
@@ -310,6 +313,12 @@ function healthCheckExpectation(scenario) {
 
 function unknownHealthHeadline(scenario) {
   return scenario === "unreachable" ? "OpenClaw unreachable" : "System health is not fully checked";
+}
+
+function overviewMockupForScenario(scenario) {
+  return scenario === "healthy" || scenario === "partial-unknown"
+    ? "ux-redesign/mockups/connections.html"
+    : `ux-redesign/mockups/connections-${scenario}.html`;
 }
 
 function runScenarioClassifierSelfTest() {
@@ -355,12 +364,12 @@ function runScenarioClassifierSelfTest() {
       expected: "unreachable",
     },
     {
-      name: "stale checkedAt does not prove unreachable",
+      name: "unavailable Gateway with stale checkedAt is inconsistent",
       input: {
         health: { status: "unknown", checkedAt: "2026-07-14T00:00:00.000Z" },
         gateway: { connectionStatus: "unavailable", componentStatus: "not_checked" },
       },
-      expected: "partial-unknown",
+      expected: "inconsistent",
     },
   ];
   for (const testCase of cases) {
@@ -385,10 +394,12 @@ function runScenarioClassifierSelfTest() {
 
   const reachableCheck = healthCheckExpectation("healthy");
   const degradedCheck = healthCheckExpectation("degraded");
+  const partialCheck = healthCheckExpectation("partial-unknown");
   const unreachableCheck = healthCheckExpectation("unreachable");
   if (
     reachableCheck.reportNotice !== "complete" ||
     degradedCheck.checkedAt !== "changed" ||
+    partialCheck.reportNotice !== "complete" ||
     unreachableCheck.noticeParam !== "health-check-error" ||
     unreachableCheck.checkedAt !== "unchanged-null"
   ) {
@@ -396,10 +407,17 @@ function runScenarioClassifierSelfTest() {
   }
   if (
     unknownHealthHeadline("unreachable") !== "OpenClaw unreachable" ||
+    unknownHealthHeadline("partial-unknown") !== "System health is not fully checked" ||
     unknownHealthHeadline("healthy") !== "System health is not fully checked" ||
     unknownHealthHeadline(null) !== "System health is not fully checked"
   ) {
     throw new Error("unknown health headline contract self-test failed");
+  }
+  if (
+    !HEALTH_SCENARIOS.has("partial-unknown") ||
+    overviewMockupForScenario("partial-unknown") !== "ux-redesign/mockups/connections.html"
+  ) {
+    throw new Error("partial-unknown scenario contract self-test failed");
   }
 }
 
@@ -425,6 +443,16 @@ function assertExpectedHealth(health, gateway, label) {
     assertFinding(
       health.checkedAt === null,
       `${label} unreachable scenario requires no successful health checkedAt`,
+    );
+  }
+  if (expectedHealth === "partial-unknown") {
+    assertFinding(
+      health.status === "unknown",
+      `${label} partial-unknown scenario requires an unknown rollup`,
+    );
+    assertFinding(
+      gateway.connectionStatus === "active",
+      `${label} partial-unknown scenario requires a reachable Gateway`,
     );
   }
 }
@@ -946,10 +974,7 @@ try {
     report.gatewayState = screenshotGateway;
     failOnFindings("post-check Overview reload failed");
     await captureThemes(page, `connections-${expectedHealth}-live`);
-    const overviewMockup =
-      expectedHealth === "healthy"
-        ? "ux-redesign/mockups/connections.html"
-        : `ux-redesign/mockups/connections-${expectedHealth}.html`;
+    const overviewMockup = overviewMockupForScenario(expectedHealth);
     await captureStaticMockup(context, overviewMockup, `connections-${expectedHealth}-mockup`);
 
     await validateSystem(page);

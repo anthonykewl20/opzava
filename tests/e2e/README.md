@@ -80,6 +80,10 @@ REAL_CONNECTIONS_HEALTH=degraded REAL_CONNECTIONS_ATTENTION=1 REAL_CONNECTIONS_I
   node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-degraded-empty
 REAL_CONNECTIONS_HEALTH=degraded REAL_CONNECTIONS_ATTENTION=1 REAL_CONNECTIONS_INTEGRATIONS=connected \
   node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-degraded-connected
+REAL_CONNECTIONS_HEALTH=partial-unknown REAL_CONNECTIONS_INTEGRATIONS=empty \
+  node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-partial-unknown-empty
+REAL_CONNECTIONS_HEALTH=partial-unknown REAL_CONNECTIONS_INTEGRATIONS=connected \
+  node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-partial-unknown-connected
 REAL_CONNECTIONS_HEALTH=unreachable REAL_CONNECTIONS_INTEGRATIONS=empty \
   node tests/e2e/drives/connections.mjs real-validate-artifacts/connections-unreachable-empty
 REAL_CONNECTIONS_HEALTH=unreachable REAL_CONNECTIONS_INTEGRATIONS=connected \
@@ -88,9 +92,10 @@ REAL_CONNECTIONS_HEALTH=unreachable REAL_CONNECTIONS_INTEGRATIONS=connected \
 
 Each successful validation run records numeric navigation timings and the numeric baseline contract,
 and writes matched 1440x960 light/dark live and static-mockup screenshots plus
-`connections-report.json` to its output directory. The three health states require three genuinely
-prepared real environments or three separate preparations; one ambient run does not cover the
-matrix.
+`connections-report.json` to its output directory. `partial-unknown` is the honest state for a
+reachable Gateway with an unknown rollup, such as an intentionally unobservable agent; it is not an
+unreachable Gateway. The four health states require genuinely prepared real environments or separate
+preparations; one ambient run does not cover the matrix.
 
 These scripts used to sit loose in the repo root as `*.local.mjs`. Docs frozen before 2026-07-14
 (`docs/plan/consensus/`, `docs/plan/audits/`) still cite those old paths; the mapping is
