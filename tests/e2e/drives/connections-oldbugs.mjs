@@ -1,20 +1,27 @@
-// Real-flow driver for the old Connections bugs: #128, #146, #172.
-// Real login (NO minted session), real gateway, real config.patch reloads. No mocks.
+// Real-flow driver for the old Connections bugs (#128, #146, #172), rewritten for #183 (#189).
+// Real login (NO minted session), real gateway, real credential probe. No mocks.
 //
-// What it proves, at user level:
-//   #172  a disconnect the gateway ALREADY APPLIED is not reported as "Gateway still reports
-//         provider credentials". Providers are connected with an api-key, which writes a
-//         config.auth.profiles entry -- removing it makes the gateway RELOAD, which is the race.
-//   #128  the provider row flips on connect AND on disconnect with NO page reload. The script never
-//         reloads before asserting, so a row that only settles after F5 fails here.
-//   #146  "Set as main orchestrator" rebuilds agents.list. The live ask-admin entry must keep its
-//         canonical tool policy (profile: minimal, opzava_* allow-list, deny-wins) ALONGSIDE the
-//         delegation tools. Asserted against the gateway config by the caller (see the runbook
-//         command in the issue), because it is a gateway-side fact, not a DOM fact.
+// Since #183, connect PROVES the submitted credential against the provider with one real call
+// before keeping it. A deliberately bogus api key can therefore no longer reach Connected — the
+// previous version of this drive asserted that it did, which #183 correctly made false (#189).
 //
-// The api keys are deliberately bogus: this exercises OUR credential lifecycle (write profile ->
-// gateway reload -> remove profile), not any provider's API. Nothing real is spent or revoked.
-// The drive leaves the gateway as it found it: both providers disconnected.
+// What it proves now, at user level:
+//   #183  an api-key connect with a bogus key is REJECTED: the connect dialog surfaces the
+//         rollback message ("The provider rejected the credential ... not connected"), the
+//         credential is not kept, and the provider row ends NOT connected.
+//   #128 (residual) the page is NEVER reloaded: the failed connect must leave the row un-flipped
+//         live in the DOM, and the prior-run cleanup path still asserts the realtime disconnect
+//         flip when it runs.
+//   #172 (residual) the prior-run cleanup path still fails on a false "Gateway still reports
+//         provider credentials".
+//
+// LOST coverage (#189): the full connect -> gateway reload -> set-main (#146) -> disconnect
+// (#172/#128 connect+disconnect flips) lifecycle now requires a credential that actually
+// authenticates. Restoring it needs a dedicated low-value real key for the dev stack
+// (issue #189, option 2); a probe bypass for drives was rejected there as a mock by another name.
+//
+// The bogus key is deliberate: it exercises the #183 reject-and-remove path end to end. Nothing
+// real is spent or revoked, and the drive leaves the gateway as it found it: provider disconnected.
 //
 // Usage: node tests/e2e/drives/connections-oldbugs.mjs [outDir]
 
@@ -25,10 +32,14 @@ import { BASE, realLogin, artifactDir } from "../lib/session.mjs";
 
 const TIER = /best subagents/i;
 const P1 = "Moonshot";
-// Xiaomi is api-key-only, so its connect dialog opens straight on the key field (MiniMax defaults to
-// its OAuth panel). Z.AI is deliberately NOT used here: it holds a real credential.
+// Xiaomi is only touched by the prior-run cleanup: the reject path is gateway-side and
+// provider-agnostic, so driving it once (Moonshot) is enough — a second pass would only double a
+// minutes-long rollback. Z.AI is deliberately NOT used here: it holds a real credential.
 const P2 = "Xiaomi";
 const bogusKey = (tag) => `sk-opzava-drive-${tag}-${"0".repeat(36)}`;
+// The rejection is only reported after the worker has probed AND rolled the credential back, and
+// the rollback paces one gateway logout per agent — the UI poller allows 10 minutes, so we do too.
+const REJECT_WINDOW_MS = 10 * 60 * 1000;
 const OUT = process.argv[2] ?? artifactDir("connections-oldbugs");
 
 mkdirSync(OUT, { recursive: true });
@@ -63,7 +74,8 @@ async function waitForRow(page, provider, matcher, timeoutMs) {
   return { ok: false, text: last };
 }
 
-const isConnected = async (page, provider) => /connected/i.test(await rowText(page, provider));
+const showsConnected = (text) => /connected/i.test(text) && !/not connected/i.test(text);
+const isConnected = async (page, provider) => showsConnected(await rowText(page, provider));
 
 async function openRowMenu(page, provider) {
   // aria-label is `Row actions for ${provider.label}` and the label is fuller than the id
@@ -74,13 +86,49 @@ async function openRowMenu(page, provider) {
     .click();
 }
 
-async function connect(page, provider, tag) {
+async function submitBogusKey(page, provider, tag) {
   await row(page, provider).getByRole("button", { name: /^connect$/i }).click();
   const keyInput = page.locator('input[placeholder*="Paste"]').first();
   await keyInput.waitFor({ state: "visible", timeout: 15_000 });
   await keyInput.fill(bogusKey(tag));
   await page.getByRole("button", { name: /^(connect|save|update)/i }).last().click();
-  return waitForRow(page, provider, /connected/i, 120_000);
+}
+
+// Watch the open connect dialog until the operation is terminal. Terminal states:
+//   rejected      the #183 rollback message is on screen — the expected outcome. "rejected the
+//                 credential" alone is NOT enough: the rollback-FAILED message ("... could not
+//                 remove it again") starts the same way, so this demands the "has not been kept"
+//                 tail that only the clean reject-and-remove path produces.
+//   connected     the success notice appeared, i.e. a bogus key was kept — #183 regressed.
+//   failed-other  the connect failed any other way (rollback failure, worker down, timeout, ...):
+//                 the run cannot say anything good about #183, so it fails loudly with that text.
+// A transient Connected row mid-window is recorded but not judged here: while the probe runs the
+// credential IS briefly inside the gateway, so a realtime snapshot may honestly show it.
+async function watchForRejection(page, provider, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let sawTransientConnected = false;
+  let lastAlert = "";
+  while (Date.now() < deadline) {
+    lastAlert = (await page.getByRole("alert").allInnerTexts().catch(() => []))
+      .join(" | ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (/rejected the credential/i.test(lastAlert) && /has not been kept/i.test(lastAlert)) {
+      return { outcome: "rejected", text: lastAlert, sawTransientConnected };
+    }
+    if (lastAlert !== "") {
+      return { outcome: "failed-other", text: lastAlert, sawTransientConnected };
+    }
+    const body = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ");
+    if (/Connection updated|Provider connected in Opzava Gateway/i.test(body)) {
+      return { outcome: "connected", text: "success notice shown", sawTransientConnected };
+    }
+    if (showsConnected(await rowText(page, provider))) {
+      sawTransientConnected = true;
+    }
+    await page.waitForTimeout(1_000);
+  }
+  return { outcome: "timeout", text: lastAlert, sawTransientConnected };
 }
 
 async function disconnect(page, provider) {
@@ -108,7 +156,9 @@ await page.getByRole("tab", { name: TIER }).click();
 await page.waitForTimeout(600);
 await page.screenshot({ path: `${OUT}/01-providers.png`, fullPage: true });
 
-// -------------------------------------------------- reset: leave no provider connected from a prior run
+// -------------------------------------------------- reset: leave no provider connected from a prior
+// (pre-#183) run. This is the residual #172/#128-disconnect coverage: when it runs, it must settle
+// realtime with no reload and no false credential warning.
 for (const provider of [P1, P2]) {
   if (await isConnected(page, provider)) {
     const { settled, falseFailure } = await disconnect(page, provider);
@@ -116,44 +166,36 @@ for (const provider of [P1, P2]) {
   }
 }
 
-// -------------------------------------------------- connect both (#128 connect side)
-const c1 = await connect(page, P1, "p1");
-note(`#128 connect: ${P1} row flips to Connected with no reload`, c1.ok, c1.text.slice(0, 70));
-const c2 = await connect(page, P2, "p2");
-note(`#128 connect: ${P2} row flips to Connected with no reload`, c2.ok, c2.text.slice(0, 70));
-await page.screenshot({ path: `${OUT}/02-both-connected.png`, fullPage: true });
+// -------------------------------------------------- #183: a bogus key must be rejected, not kept
+await submitBogusKey(page, P1, "p1");
+await page.screenshot({ path: `${OUT}/02-reject-submitted.png`, fullPage: true });
 
-// -------------------------------------------------- set main orchestrator (this is what runs #146's code)
-await openRowMenu(page, P2);
-const setMain = page.getByRole("menuitem", { name: /set as main orchestrator/i });
-const canSetMain = await setMain.count();
-if (canSetMain > 0) {
-  await setMain.click();
-  // The confirm button is "Set <provider label> as main".
-  await page.getByRole("button", { name: /as main$/i }).last().click();
-  const lead = await waitForRow(page, P2, /main orchestrator|lead orchestrator/i, 120_000);
-  note(`#146 set-main applied for ${P2} (rebuilds agents.list)`, lead.ok, lead.text.slice(0, 70));
-} else {
-  await page.keyboard.press("Escape");
-  note("#146 set-main menu item present", false, "menu item not offered");
-}
-await page.screenshot({ path: `${OUT}/03-main-orchestrator.png`, fullPage: true });
-
-// -------------------------------------------------- disconnect both (#172 + #128 disconnect side)
-for (const provider of [P2, P1]) {
-  const { settled, falseFailure } = await disconnect(page, provider);
-  note(
-    `#172 ${provider}: no false "Gateway still reports provider credentials"`,
-    !falseFailure,
-    falseFailure ? "THE BUG REPRODUCED" : "clean",
-  );
-  note(
-    `#128 disconnect: ${provider} row flips back with no reload`,
-    settled.ok,
-    settled.text.slice(0, 70),
+const verdict = await watchForRejection(page, P1, REJECT_WINDOW_MS);
+note(
+  `#183 reject: ${P1} bogus key refused with the rollback message`,
+  verdict.outcome === "rejected",
+  verdict.outcome === "connected"
+    ? "BOGUS KEY REPORTED CONNECTED — #183 regressed"
+    : verdict.text.slice(0, 140) || `no terminal state within ${REJECT_WINDOW_MS / 60_000} min`,
+);
+if (verdict.sawTransientConnected) {
+  console.log(
+    `INFO  ${P1} row showed Connected transiently while the probe held the credential (not judged)`,
   );
 }
-await page.screenshot({ path: `${OUT}/04-disconnected.png`, fullPage: true });
+await page.screenshot({ path: `${OUT}/03-rejection-notice.png`, fullPage: true });
+
+// The rejected credential must not survive: the row ends not connected, live in the DOM, no reload.
+const rolledBack = await waitForRow(page, P1, /not connected|available/i, 60_000);
+note(
+  `#183 rollback: ${P1} row ends not connected with no reload`,
+  rolledBack.ok,
+  rolledBack.text.slice(0, 70),
+);
+
+await page.getByRole("button", { name: /^close$/i }).last().click().catch(() => {});
+await page.waitForTimeout(600);
+await page.screenshot({ path: `${OUT}/04-final-row.png`, fullPage: true });
 
 note("no console errors", consoleErrors.length === 0, consoleErrors.slice(0, 2).join(" | "));
 
