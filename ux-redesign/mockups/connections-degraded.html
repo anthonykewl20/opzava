@@ -26,9 +26,8 @@
     ATTENTION   = we probed it, and it is broken   → amber, counts against you
     NOT CHECKED = we could not probe it            → grey, counts against NOTHING
 
-  So the percentage is computed over PROBED components only (6 of 7 = 86%), and
-  the not-checked component is reported separately rather than being quietly
-  scored as healthy or loudly scored as broken.
+  So the status uses direct component counts: 6 healthy, 1 needs attention,
+  and 1 not checked.
 
   Also drawn here: the Third-Party Integrations EMPTY state, and the attention-
   first Model Providers list (the expiring key sorts ABOVE the healthy rows).
@@ -163,12 +162,12 @@
 
           <!-- ══ PANEL 1 · SYSTEM HEALTH (degraded) ════════════════════════════
                ONE panel. The attention row is the point of the whole page, so it
-               sits right under the bar with the fix one click away — and it exists
+               sits right under the status breakdown with the fix one click away — and it exists
                ONLY because something is actually wrong. On the healthy page there is
                no such row, and no empty container where one would be.
 
-               Percentage is over PROBED components (6 of 7), NOT all 8. The
-               not-checked component is reported separately: never folded into
+               Direct counts show every state without implying progress. The
+               not-checked component remains separate: never folded into
                "healthy" (which hides it) and never into "attention" (a lie — we did
                not observe it fail, we failed to look).
           ═══════════════════════════════════════════════════════════════════ -->

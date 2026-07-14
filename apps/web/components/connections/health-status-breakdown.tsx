@@ -56,7 +56,9 @@ export function HealthStatusBreakdown({
             data-health-state={state.id}
             className={cn(
               "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-lg border bg-muted/30 p-3",
-              state.id === "attention" && attention > 0 && "border-[var(--warning)] bg-warning/5",
+              state.id === "attention" &&
+                attention > 0 &&
+                "border-[var(--warning)] bg-[var(--warning-soft)]",
               state.id === "not-checked" && "border-dashed bg-transparent",
             )}
           >

@@ -84,14 +84,16 @@ function GroupStatusIcon({ status }: { readonly status: OverviewHealthStatus }) 
 }
 
 function HealthGroupLink({ group }: { readonly group: OverviewHealthGroup }) {
+  const emptyStatus =
+    group.id === "channels"
+      ? "No channels reported"
+      : group.id === "agents"
+        ? "No agents reported"
+        : "No system components reported";
   const accessibleStatus = `${group.healthy} healthy, ${group.attention} ${group.attention === 1 ? "needs" : "need"} attention, ${group.notChecked} not checked`;
   const visibleStatus =
     group.total === 0
-      ? group.id === "channels"
-        ? "No channels reported"
-        : group.id === "agents"
-          ? "No agents reported"
-          : "No system components reported"
+      ? emptyStatus
       : [
           group.healthy > 0 ? `${group.healthy} healthy` : null,
           group.attention > 0
@@ -111,7 +113,7 @@ function HealthGroupLink({ group }: { readonly group: OverviewHealthGroup }) {
       <Link
         href={group.href}
         data-health-group={group.id}
-        aria-label={`${group.label}: ${accessibleStatus}`}
+        aria-label={`${group.label}: ${group.total === 0 ? emptyStatus : accessibleStatus}`}
       >
         <Badge variant={groupBadgeVariant(group.status)} className="size-5 justify-center p-0">
           <GroupStatusIcon status={group.status} />

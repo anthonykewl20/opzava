@@ -1112,6 +1112,8 @@ describe("Connections page state", () => {
     expect(healthStatusBreakdown).toContain('data-health-breakdown="true"');
     expect(healthStatusBreakdown).toContain('id: "not-checked"');
     expect(healthStatusBreakdown).toContain("border-dashed");
+    expect(healthStatusBreakdown).toContain("bg-[var(--warning-soft)]");
+    expect(healthStatusBreakdown).not.toContain("bg-warning/5");
     expect(healthStatusBreakdown).not.toContain('role="img"');
     expect(healthStatusBreakdown).not.toContain('role="progressbar"');
     expect(providerBrandIcon).toContain('data-provider-icon="brand"');

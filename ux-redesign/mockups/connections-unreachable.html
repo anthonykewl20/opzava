@@ -27,8 +27,8 @@
   way to teach a user that the status page cries wolf, after which they stop
   reading it and the page is worthless in the outage it exists for.
 
-  So: grey bar, "OpenClaw unreachable", and a LAST-KNOWN-GOOD timestamp so the
-  user can judge staleness for themselves.
+  So: an explicit three-state breakdown, "OpenClaw unreachable", and a
+  LAST-KNOWN-GOOD timestamp so the user can judge staleness for themselves.
 
   The three cards below keep rendering from the last snapshot, clearly marked
   stale. They are NOT blanked: a stale-but-labelled provider list is more useful
@@ -172,8 +172,8 @@
                page cries wolf, after which they stop reading it and it is worthless
                in the outage it exists for.
 
-               Grey bar, dashed pills, and a LAST-KNOWN-GOOD timestamp so the user can
-               judge staleness for themselves.
+               An explicit Not checked count, dashed pills, and a LAST-KNOWN-GOOD
+               timestamp let the user judge staleness for themselves.
           ═══════════════════════════════════════════════════════════════════ -->
           <section class="card" aria-labelledby="health-title">
             <div class="card-header">

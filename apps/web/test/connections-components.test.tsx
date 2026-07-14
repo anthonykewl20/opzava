@@ -130,6 +130,8 @@ describe("Connections components", () => {
     expect(html).toContain("Probe succeeded");
     expect(html).toContain("Reported a problem");
     expect(html).toContain("No probe result");
+    expect(html).toContain("border-[var(--warning)] bg-[var(--warning-soft)]");
+    expect(html).not.toContain("bg-warning/5");
     expect(html).not.toContain('role="img"');
     expect(html).not.toContain('role="progressbar"');
     expect(html).not.toContain("%");
@@ -402,6 +404,10 @@ describe("Connections components", () => {
     expect(html).toContain("1 healthy");
     expect(html).toContain("No channels reported");
     expect(html).toContain("No agents reported");
+    expect(html).toContain('aria-label="Channels: No channels reported"');
+    expect(html).toContain('aria-label="Agents: No agents reported"');
+    expect(html).not.toContain('aria-label="Channels: 0 healthy, 0 need attention, 0 not checked"');
+    expect(html).not.toContain('aria-label="Agents: 0 healthy, 0 need attention, 0 not checked"');
     expect(html).not.toContain("component not checked");
   });
 

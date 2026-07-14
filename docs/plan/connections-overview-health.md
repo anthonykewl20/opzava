@@ -101,7 +101,7 @@ The Overview shows the **shape** of the problem; `/connections/system` shows **t
 
 | Question | Answered on |
 | --- | --- |
-| Is anything wrong? | Overview - headline + bar |
+| Is anything wrong? | Overview - headline + explicit three-state breakdown |
 | What is wrong, and how do I fix it? | Overview - the attention row, with its action |
 | Which *kind* of thing is unwell? | Overview - the three group pills |
 | Which exact probe returned what, when? | **`/connections/system`** |
