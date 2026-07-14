@@ -1,8 +1,8 @@
 # Connections Overview: OpenClaw health - locked design
 
-Status: design locked; implementation landed on this branch (2026-07-14). User override
-landed 2026-07-15. Real healthy,
-partial-unknown, degraded, and unreachable scenario validation remains pending, blocked on
+Status: design locked; implementation, user override, and follow-up Mainframe fixes landed
+(2026-07-14 through 2026-07-15). Local Docker partial-unknown real E2E is green. The healthy,
+degraded, and unreachable scenario matrix remains pending; those states have not been run in
 dedicated scenario environments.
 Tracks: #175 (parent), #176-#182 (children).
 Governs the Connections **Overview** route (`/connections`). Supersedes parts of `docs/plan/connections-ia-redesign.md` (see "Amendments" below).
@@ -69,9 +69,9 @@ to that group's stable anchor on `/connections/system`. Missing guidance renders
 coverage. Refresh is the recovery action. A last-known snapshot is labelled separately and can
 only be described as fully healthy when every component in that snapshot was checked and healthy.
 
-## Key finding: no fork changes needed
+## Gateway authority and minimal tracked fork fixes
 
-Every RPC required already exists, and **the worker already calls `health` and throws the payload away** - `connections-provisioning-service.ts:2110` fetches the full `HealthSummary`, and `gatewayConnectionState` (line 1864) collapses it to a boolean via `healthPayloadIsUnavailable` (line 1835). The data is already crossing the wire; we simply stop discarding it.
+Every data RPC required already existed, and **the worker already called `health` and threw the payload away** - `connections-provisioning-service.ts:2110` fetched the full `HealthSummary`, and `gatewayConnectionState` (line 1864) collapsed it to a boolean via `healthPayloadIsUnavailable` (line 1835). The initial implementation therefore projected data already crossing the wire instead of inventing a parallel health system.
 
 | RPC | Returns | Scope |
 | --- | --- | --- |
@@ -79,7 +79,12 @@ Every RPC required already exists, and **the worker already calls `health` and t
 | `status` | `StatusSummary`: `runtimeVersion`, `heartbeat.agents`, `channelSummary`, `queuedSystemEvents`, `tasks`, `sessions.byAgent` (`includeSensitive` gated on admin) | `operator.admin` |
 | `update.status` | Update-available hint | - |
 
-The provisioning worker already holds `operator.admin` (durable device-store bootstrap). **`mainframe/` is NOT modified** - this honors the OpenClaw-parity non-negotiable: harness real capabilities, do not reinvent them.
+The provisioning worker already holds `operator.admin` (durable device-store bootstrap). Live QA then exposed two defects in behavior owned by the Gateway, requiring minimal tracked Mainframe fork fixes:
+
+1. **PATCHES rung 4:** safe and admin-sensitive health caches are scoped separately, and probe-strength-aware coalescing prevents a weak background refresh from absorbing a requested live probe or replacing its sensitive result with an older safe snapshot.
+2. **PATCHES rung 5:** a successful explicit provider login re-enables a matching configured empty auth order and promotes the exact profile just written, so disconnect/reconnect cannot leave a valid credential present but ineligible for runtime selection.
+
+This preserves the ownership boundary in `docs/openclaw/concepts/architecture.md`: the Gateway is the authority for live provider connections, credential selection, and health snapshots; the worker projects those typed results and orchestrates Opzava workflows. Neither defect can be reliably repaired in the worker without duplicating or racing Gateway state.
 
 ## Layout
 
@@ -208,6 +213,14 @@ The three Overview mockups link to `connections-providers.html`, `connections-gi
 Extract them from `connections-legacy-pre-ia.html` (which still holds the Model Providers panel design) as a follow-up. Do not silently retarget the links to the legacy file - that would hide the gap.
 
 ## Verification bar
+
+Verified locally against the Docker stack (2026-07-15):
+
+- The partial-unknown real E2E drive completed with zero findings.
+- Manual health refresh advanced `checkedAt`, proving that the requested live probe was not swallowed by cached background work.
+- The OpenAI OAuth `gpt-5.5` probe succeeded, and a real Ask Admin run reached `READY`.
+
+The healthy, degraded, and unreachable scenario matrix remains pending and is not claimed by this evidence.
 
 - Side-by-side screenshots (mockup vs live), light + dark, for all three states.
 - Every element functions live with real data - no dead chrome, no placeholder numbers. Any metric on the page maps to a real field in the RPC table above.
