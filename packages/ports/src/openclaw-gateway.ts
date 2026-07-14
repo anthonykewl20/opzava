@@ -112,10 +112,32 @@ export interface OpenClawGatewayHealthSnapshot {
   readonly degradedReason?: string;
 }
 
-export interface OpenClawGatewayPort {
+export interface OpenClawGatewayRoute {
   startAssistantStream(
-    input: StartAssistantStreamInput
+    input: Omit<StartAssistantStreamInput, "routeId" | "actingPrincipal">,
   ): Promise<Result<StartAssistantStreamReceipt>>;
-  getEffectiveTools(input: ExpectedToolInventory): Promise<Result<ToolInventorySnapshot>>;
-  getHealth(routeId: OpenClawGatewayRouteId): Promise<Result<OpenClawGatewayHealthSnapshot>>;
+  getEffectiveTools(
+    input: Omit<ExpectedToolInventory, "routeId">,
+  ): Promise<Result<ToolInventorySnapshot>>;
+}
+
+export interface OpenClawGatewayPort {
+  /**
+   * The only tenant-scoped Gateway acquisition path. Binding the route to a
+   * principal here prevents accidental omission of that check from current or
+   * future handle methods. This is not impersonation defence: a holder of the
+   * shared internal token can assert any tenant principal because those claims
+   * are not verified against a session.
+   */
+  forPrincipal(input: {
+    readonly routeId: OpenClawGatewayRouteId;
+    readonly actingPrincipal: OpenClawActingPrincipal;
+  }): Promise<Result<OpenClawGatewayRoute>>;
+
+  /**
+   * Operations/liveness capability exposing per-route existence, reachability,
+   * circuit state, and degradation metadata. It is not gated on a principal and
+   * is not tenant-proof; the shared internal token holder remains trusted.
+   */
+  getHealthForOps(routeId: OpenClawGatewayRouteId): Promise<Result<OpenClawGatewayHealthSnapshot>>;
 }

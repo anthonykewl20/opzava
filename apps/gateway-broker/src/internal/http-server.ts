@@ -12,7 +12,8 @@ import type {
 } from "@opzava/ports";
 import type { OrgId, TenantId, UserId, WorkspaceId } from "@opzava/shared-kernel";
 
-interface VerifiedPrincipalBlock {
+interface AssertedPrincipalBlock {
+  /** Correlation only; the broker does not verify this value against a session. */
   readonly sessionId: string;
   readonly tenantId: TenantId;
   readonly orgId: OrgId;
@@ -28,7 +29,7 @@ interface InternalAssistantStreamRequest {
   readonly turnId: string;
   readonly prompt: string;
   readonly idempotencyKey: string;
-  readonly principal: VerifiedPrincipalBlock;
+  readonly principal: AssertedPrincipalBlock;
   readonly sessionRef?: OpenClawSessionRef;
 }
 
@@ -142,7 +143,12 @@ async function readJsonBody(request: IncomingMessage, maxBodyBytes: number): Pro
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-function parseVerifiedPrincipal(value: unknown): VerifiedPrincipalBlock | null {
+/**
+ * These claims are asserted by a holder of the trusted internal token. This
+ * parser only checks their shape; it does not verify them against any session,
+ * so that token holder can assert any tenant principal.
+ */
+function parseAssertedPrincipal(value: unknown): AssertedPrincipalBlock | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -201,7 +207,7 @@ function parseInternalRequest(value: unknown): InternalAssistantStreamRequest | 
   const turnId = stringValue(value["turnId"]);
   const prompt = stringValue(value["prompt"]);
   const idempotencyKey = stringValue(value["idempotencyKey"]);
-  const principal = parseVerifiedPrincipal(value["principal"]);
+  const principal = parseAssertedPrincipal(value["principal"]);
 
   if (
     routeId === null ||
@@ -229,21 +235,27 @@ function parseInternalRequest(value: unknown): InternalAssistantStreamRequest | 
   };
 }
 
-function toGatewayInput(input: InternalAssistantStreamRequest): StartAssistantStreamInput {
+function toActingPrincipal(
+  input: InternalAssistantStreamRequest,
+): StartAssistantStreamInput["actingPrincipal"] {
   return {
-    routeId: input.routeId,
+    tenantId: input.principal.tenantId,
+    orgId: input.principal.orgId,
+    workspaceId: input.principal.workspaceId,
+    userId: input.principal.userId,
+    roleKeys: input.principal.roleKeys,
+  };
+}
+
+function toGatewayInput(
+  input: InternalAssistantStreamRequest,
+): Omit<StartAssistantStreamInput, "routeId" | "actingPrincipal"> {
+  return {
     assistantKey: input.assistantKey,
     conversationId: input.conversationId,
     turnId: input.turnId,
     prompt: input.prompt,
     idempotencyKey: input.idempotencyKey,
-    actingPrincipal: {
-      tenantId: input.principal.tenantId,
-      orgId: input.principal.orgId,
-      workspaceId: input.principal.workspaceId,
-      userId: input.principal.userId,
-      roleKeys: input.principal.roleKeys,
-    },
     ...(input.sessionRef === undefined ? {} : { sessionRef: input.sessionRef }),
   };
 }
@@ -344,9 +356,9 @@ async function handleAssistantStream(
     return;
   }
 
-  // Trust boundary: apps/web is the authenticated BFF and constructs this
-  // principal from its verified session. The broker validates the shape and
-  // internal token, then treats the principal as the only tenant authority.
+  // The internal token authenticates its holder, not the principal claims in
+  // this body. The holder can assert any tenant; binding the asserted principal
+  // to the route prevents accidental omission, not impersonation by that holder.
   response.writeHead(200, {
     "cache-control": "no-store, no-transform",
     connection: "keep-alive",
@@ -354,7 +366,21 @@ async function handleAssistantStream(
     "x-accel-buffering": "no",
   });
 
-  const receipt = await options.gatewayPort.startAssistantStream(toGatewayInput(parsed));
+  const route = await options.gatewayPort.forPrincipal({
+    routeId: parsed.routeId,
+    actingPrincipal: toActingPrincipal(parsed),
+  });
+  if (!route.ok) {
+    writeSse(response, {
+      type: "failed",
+      turnId: parsed.turnId,
+      ...sanitizedError(route.error),
+    });
+    response.end();
+    return;
+  }
+
+  const receipt = await route.value.startAssistantStream(toGatewayInput(parsed));
   if (!receipt.ok) {
     writeSse(response, {
       type: "failed",
@@ -406,7 +432,7 @@ async function handleGatewayHealth(
     return;
   }
 
-  const health = await options.gatewayPort.getHealth(routeId as OpenClawGatewayRouteId);
+  const health = await options.gatewayPort.getHealthForOps(routeId as OpenClawGatewayRouteId);
   if (!health.ok) {
     writeJson(response, 503, sanitizedError(health.error));
     return;

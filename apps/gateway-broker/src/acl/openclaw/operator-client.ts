@@ -340,6 +340,9 @@ export class OpenClawOperatorClient {
   public async startAssistantStream(
     input: StartAssistantStreamInput,
   ): Promise<Result<StartAssistantStreamReceipt>> {
+    // Route handles perform the primary check at acquisition. Repeating it at
+    // this broker-internal boundary catches an accidental bypass or refactor;
+    // it cannot stop an internal-token holder from asserting another principal.
     if (input.actingPrincipal.tenantId !== this.route.tenantId) {
       return err(
         gatewayBrokerError(

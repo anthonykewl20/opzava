@@ -98,6 +98,40 @@ afterEach(async () => {
 });
 
 describe("GatewayConnectionManager route isolation", () => {
+  it("does not grant a route handle to a principal from another tenant", async () => {
+    const route = "tenant-a-openclaw" as OpenClawGatewayRouteId;
+    const a = await createGateway();
+    const broker = createBroker([
+      {
+        routeId: route,
+        tenantId: makeTenantId("tenant-a"),
+        url: a.gateway.url,
+        authMode: "paired-device",
+        pairedDeviceToken,
+        deviceKeypair: a.deviceKeypair,
+        clientVersion: "0.0.0",
+      },
+    ]);
+    const mismatched = startInput({
+      routeId: route,
+      tenantId: "tenant-b",
+      conversationId: "conversation-b",
+    });
+
+    const access = await broker.forPrincipal({
+      routeId: route,
+      actingPrincipal: mismatched.actingPrincipal,
+    });
+
+    expect(access).toMatchObject({
+      ok: false,
+      error: { code: "gatewayBroker.tenantMismatch" },
+    });
+    expect("startAssistantStream" in broker).toBe(false);
+    expect("getEffectiveTools" in broker).toBe(false);
+    expect(a.gateway.connectionCount).toBe(0);
+  });
+
   it("asks only the addressed tenant's Gateway for effective tools", async () => {
     const routeA = "tenant-a-openclaw" as OpenClawGatewayRouteId;
     const routeB = "tenant-b-openclaw" as OpenClawGatewayRouteId;
@@ -126,28 +160,54 @@ describe("GatewayConnectionManager route isolation", () => {
     ]);
 
     // Tenant B connects first, so it is the first client the manager iterates.
-    const streamB = await broker.startAssistantStream(
-      startInput({ routeId: routeB, tenantId: "tenant-b", conversationId: "conversation-b" }),
-    );
-    const streamA = await broker.startAssistantStream(
-      startInput({ routeId: routeA, tenantId: "tenant-a", conversationId: "conversation-a" }),
-    );
+    const inputB = startInput({
+      routeId: routeB,
+      tenantId: "tenant-b",
+      conversationId: "conversation-b",
+    });
+    const inputA = startInput({
+      routeId: routeA,
+      tenantId: "tenant-a",
+      conversationId: "conversation-a",
+    });
+    const accessB = await broker.forPrincipal({
+      routeId: inputB.routeId,
+      actingPrincipal: inputB.actingPrincipal,
+    });
+    const accessA = await broker.forPrincipal({
+      routeId: inputA.routeId,
+      actingPrincipal: inputA.actingPrincipal,
+    });
+    expect(accessB.ok).toBe(true);
+    expect(accessA.ok).toBe(true);
+    if (!accessB.ok) {
+      throw accessB.error;
+    }
+    if (!accessA.ok) {
+      throw accessA.error;
+    }
+
+    const { routeId: _routeB, actingPrincipal: _principalB, ...streamInputB } = inputB;
+    const { routeId: _routeA, actingPrincipal: _principalA, ...streamInputA } = inputA;
+    void _routeB;
+    void _principalB;
+    void _routeA;
+    void _principalA;
+    const streamB = await accessB.value.startAssistantStream(streamInputB);
+    const streamA = await accessA.value.startAssistantStream(streamInputA);
     expect(streamB.ok).toBe(true);
     expect(streamA.ok).toBe(true);
     if (!streamA.ok) {
       throw streamA.error;
     }
 
-    const tools = await broker.getEffectiveTools({
-      routeId: routeA,
+    const tools = await accessA.value.getEffectiveTools({
       sessionRef: streamA.value.sessionRef,
       toolNames: expectedToolNames,
     });
 
     expect(tools).toMatchObject({ ok: true, value: { toolNames: expectedToolNames } });
-    expect(a.gateway.toolsEffectiveSessionKeys).toEqual([
-      "agent:ask-admin-opzava:conversation-a",
-    ]);
+    expect(a.gateway.toolsEffectiveSessionKeys).toEqual(["agent:ask-admin-opzava:conversation-a"]);
     expect(b.gateway.toolsEffectiveSessionKeys).toEqual([]);
   });
 
@@ -179,16 +239,76 @@ describe("GatewayConnectionManager route isolation", () => {
       },
     ]);
 
-    const first = await broker.startAssistantStream(
-      startInput({ routeId: primary, tenantId: "tenant-a", conversationId: "conversation-1" }),
-    );
-    const second = await broker.startAssistantStream(
-      startInput({ routeId: secondary, tenantId: "tenant-a", conversationId: "conversation-2" }),
-    );
+    const firstInput = startInput({
+      routeId: primary,
+      tenantId: "tenant-a",
+      conversationId: "conversation-1",
+    });
+    const secondInput = startInput({
+      routeId: secondary,
+      tenantId: "tenant-a",
+      conversationId: "conversation-2",
+    });
+    const firstAccess = await broker.forPrincipal({
+      routeId: firstInput.routeId,
+      actingPrincipal: firstInput.actingPrincipal,
+    });
+    const secondAccess = await broker.forPrincipal({
+      routeId: secondInput.routeId,
+      actingPrincipal: secondInput.actingPrincipal,
+    });
+    expect(firstAccess.ok).toBe(true);
+    expect(secondAccess.ok).toBe(true);
+    if (!firstAccess.ok) {
+      throw firstAccess.error;
+    }
+    if (!secondAccess.ok) {
+      throw secondAccess.error;
+    }
+
+    const {
+      routeId: _firstRoute,
+      actingPrincipal: _firstPrincipal,
+      ...firstStreamInput
+    } = firstInput;
+    const {
+      routeId: _secondRoute,
+      actingPrincipal: _secondPrincipal,
+      ...secondStreamInput
+    } = secondInput;
+    void _firstRoute;
+    void _firstPrincipal;
+    void _secondRoute;
+    void _secondPrincipal;
+    const first = await firstAccess.value.startAssistantStream(firstStreamInput);
+    const second = await secondAccess.value.startAssistantStream(secondStreamInput);
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
 
     expect(a.gateway.sessionRequestCount).toBe(1);
     expect(b.gateway.sessionRequestCount).toBe(1);
+  });
+
+  it("exposes per-route health only through the explicit ops capability", async () => {
+    const route = "tenant-a-openclaw" as OpenClawGatewayRouteId;
+    const a = await createGateway();
+    const broker = createBroker([
+      {
+        routeId: route,
+        tenantId: makeTenantId("tenant-a"),
+        url: a.gateway.url,
+        authMode: "paired-device",
+        pairedDeviceToken,
+        deviceKeypair: a.deviceKeypair,
+        clientVersion: "0.0.0",
+      },
+    ]);
+
+    const health = await broker.getHealthForOps(route);
+
+    expect(health).toMatchObject({
+      ok: true,
+      value: { routeId: route, reachable: false, circuitOpen: false },
+    });
   });
 });

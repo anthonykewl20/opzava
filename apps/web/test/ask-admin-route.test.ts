@@ -1,6 +1,5 @@
 import type {
   ErrorCapturePort,
-  OpenClawGatewayHealthSnapshot,
   OpenClawGatewayPort,
   OpenClawRunRef,
   OpenClawSessionRef,
@@ -8,7 +7,6 @@ import type {
   OpenClawToolCallId,
   StartAssistantStreamInput,
   StartAssistantStreamReceipt,
-  ToolInventorySnapshot,
 } from "@opzava/ports";
 import type { AssistantTurn } from "@opzava/runtime-control";
 import { toolExecutionContextFromSessionPrincipal } from "@opzava/runtime-control";
@@ -101,19 +99,23 @@ function gatewayPort(
   capture?: (input: StartAssistantStreamInput) => void,
 ): OpenClawGatewayPort {
   return {
-    async startAssistantStream(
-      input: StartAssistantStreamInput,
-    ): Promise<Result<StartAssistantStreamReceipt>> {
-      capture?.(input);
+    async forPrincipal(binding) {
       return ok({
-        sessionRef: sessionRef(),
-        events: streamEvents(events),
+        async startAssistantStream(
+          input: Omit<StartAssistantStreamInput, "routeId" | "actingPrincipal">,
+        ): Promise<Result<StartAssistantStreamReceipt>> {
+          capture?.({ ...input, ...binding });
+          return ok({
+            sessionRef: sessionRef(),
+            events: streamEvents(events),
+          });
+        },
+        async getEffectiveTools() {
+          throw new Error("not used");
+        },
       });
     },
-    async getEffectiveTools(): Promise<Result<ToolInventorySnapshot>> {
-      throw new Error("not used");
-    },
-    async getHealth(): Promise<Result<OpenClawGatewayHealthSnapshot>> {
+    async getHealthForOps() {
       throw new Error("not used");
     },
   };
@@ -121,13 +123,10 @@ function gatewayPort(
 
 function failingGatewayPort(error: DomainError): OpenClawGatewayPort {
   return {
-    async startAssistantStream(): Promise<Result<StartAssistantStreamReceipt>> {
+    async forPrincipal() {
       return { ok: false, error };
     },
-    async getEffectiveTools(): Promise<Result<ToolInventorySnapshot>> {
-      throw new Error("not used");
-    },
-    async getHealth(): Promise<Result<OpenClawGatewayHealthSnapshot>> {
+    async getHealthForOps() {
       throw new Error("not used");
     },
   };
@@ -480,6 +479,47 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
       operation: "tasks.ask_admin.turn",
       code: "gatewayBroker.gatewayUnavailable",
       details: { state: "gateway_unavailable", turnId: "assistant-turn-1" },
+    });
+  });
+
+  it("does not stream when the principal cannot obtain the tenant route handle", async () => {
+    const captured = capturedErrors();
+    const handler = createAskAdminTurnPostHandler({
+      getSessionContext: async () => context,
+      createGatewayPort: () =>
+        failingGatewayPort(
+          new DomainError({
+            code: "gatewayBroker.tenantMismatch",
+            message: "Gateway route tenant does not match the asserted principal.",
+          }),
+        ),
+      runtime: successfulRuntime(),
+      errorCapture: captured.port,
+      revalidateTasks: () => undefined,
+    });
+
+    const response = await handler(
+      new Request("http://web.test/api/tasks/ask-admin/turn", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: "conversation-1",
+          prompt: "Create a task",
+          idempotencyKey: "idempotency-1",
+        }),
+      }),
+    );
+    const events = await readEvents(response);
+
+    expect(events.map((event) => event.type)).toEqual(["queued", "failed"]);
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "gatewayBroker.tenantMismatch",
+      state: "policy_denied",
+    });
+    expect(captured.captures[0]).toMatchObject({
+      code: "gatewayBroker.tenantMismatch",
+      details: { state: "policy_denied", turnId: "assistant-turn-1" },
     });
   });
 

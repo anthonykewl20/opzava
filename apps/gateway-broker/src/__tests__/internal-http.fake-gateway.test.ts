@@ -203,6 +203,38 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
     }
   });
 
+  it("does not grant a route handle for an asserted principal from another tenant", async () => {
+    const { broker, gateway } = await createFixture();
+    const internalToken = randomUUID();
+    const server = createBrokerInternalHttpServer({
+      gatewayPort: broker,
+      internalToken,
+    });
+    const baseUrl = await listen(server);
+    const body = requestBody();
+
+    try {
+      const response = await fetch(`${baseUrl}/internal/assistant/stream`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${internalToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          ...body,
+          principal: { ...body.principal, tenantId: makeTenantId("tenant-other") },
+        }),
+      });
+      const responseBody = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(responseBody).toContain("gatewayBroker.tenantMismatch");
+      expect(gateway.connectionCount).toBe(0);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   it("streams normalized events through the authenticated internal endpoint", async () => {
     const { broker } = await createFixture();
     const internalToken = randomUUID();

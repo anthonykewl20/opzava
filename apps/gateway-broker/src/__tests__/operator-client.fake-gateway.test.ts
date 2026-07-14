@@ -1,9 +1,18 @@
 import type {
+  ExpectedToolInventory,
   OpenClawGatewayRouteId,
   OpenClawStreamEvent,
   StartAssistantStreamInput,
+  StartAssistantStreamReceipt,
+  ToolInventorySnapshot,
 } from "@opzava/ports";
-import { makeOrgId, makeTenantId, makeUserId, makeWorkspaceId } from "@opzava/shared-kernel";
+import {
+  makeOrgId,
+  makeTenantId,
+  makeUserId,
+  makeWorkspaceId,
+  type Result,
+} from "@opzava/shared-kernel";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
@@ -124,6 +133,41 @@ function startInput(idempotencyKey = `idem-${randomUUID()}`): StartAssistantStre
       roleKeys: ["admin"],
     },
   };
+}
+
+async function startAssistantStream(
+  broker: GatewayConnectionManager,
+  input: StartAssistantStreamInput,
+): Promise<Result<StartAssistantStreamReceipt>> {
+  const route = await broker.forPrincipal({
+    routeId: input.routeId,
+    actingPrincipal: input.actingPrincipal,
+  });
+  if (!route.ok) {
+    return route;
+  }
+
+  const { routeId: _routeId, actingPrincipal: _actingPrincipal, ...routeInput } = input;
+  void _routeId;
+  void _actingPrincipal;
+  return route.value.startAssistantStream(routeInput);
+}
+
+async function getEffectiveTools(
+  broker: GatewayConnectionManager,
+  input: ExpectedToolInventory,
+): Promise<Result<ToolInventorySnapshot>> {
+  const route = await broker.forPrincipal({
+    routeId: input.routeId,
+    actingPrincipal: startInput().actingPrincipal,
+  });
+  if (!route.ok) {
+    return route;
+  }
+
+  const { routeId: _routeId, ...routeInput } = input;
+  void _routeId;
+  return route.value.getEffectiveTools(routeInput);
 }
 
 async function collectUntilTerminal(
@@ -520,7 +564,7 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("negotiates protocol v4 and streams one idempotent session request", async () => {
     const { broker, gateway } = await createBrokerFixture();
-    const first = await broker.startAssistantStream(startInput("same-idempotency-key"));
+    const first = await startAssistantStream(broker, startInput("same-idempotency-key"));
     expect(first.ok).toBe(true);
     if (!first.ok) {
       throw first.error;
@@ -535,7 +579,11 @@ describe("[fake-gateway] broker operator client", () => {
         type: "final",
         turnId: "turn-1",
         content: { text: "Created the task." },
-        sessionRef: { system: "openclaw", kind: "session", value: "agent:ask-admin-opzava:conversation-1" },
+        sessionRef: {
+          system: "openclaw",
+          kind: "session",
+          value: "agent:ask-admin-opzava:conversation-1",
+        },
         runRef: { system: "openclaw", kind: "run", value: "run:same-idempotency-key" },
       },
     ]);
@@ -547,7 +595,7 @@ describe("[fake-gateway] broker operator client", () => {
     });
     expect(gateway.sessionCreateCount).toBe(1);
 
-    const tools = await broker.getEffectiveTools({
+    const tools = await getEffectiveTools(broker, {
       routeId,
       sessionRef: first.value.sessionRef,
       toolNames: [
@@ -577,7 +625,7 @@ describe("[fake-gateway] broker operator client", () => {
       },
     });
 
-    const replay = await broker.startAssistantStream(startInput("same-idempotency-key"));
+    const replay = await startAssistantStream(broker, startInput("same-idempotency-key"));
     expect(replay).toMatchObject({
       ok: true,
       value: {
@@ -587,7 +635,7 @@ describe("[fake-gateway] broker operator client", () => {
     expect(gateway.sessionRequestCount).toBe(2);
     expect(gateway.sessionCreateCount).toBe(1);
 
-    const driftedTools = await broker.getEffectiveTools({
+    const driftedTools = await getEffectiveTools(broker, {
       routeId,
       sessionRef: first.value.sessionRef,
       toolNames: ["opzava_tasks_list"],
@@ -600,13 +648,13 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("rejects a concurrent active turn for the same session while the first completes", async () => {
     const { broker, gateway } = await createBrokerFixture({ mode: "deferred-final" });
-    const first = await broker.startAssistantStream(startInput("first-active-turn"));
+    const first = await startAssistantStream(broker, startInput("first-active-turn"));
     expect(first.ok).toBe(true);
     if (!first.ok) {
       throw first.error;
     }
 
-    const second = await broker.startAssistantStream({
+    const second = await startAssistantStream(broker, {
       ...startInput("second-active-turn"),
       turnId: "turn-2",
     });
@@ -626,14 +674,18 @@ describe("[fake-gateway] broker operator client", () => {
       type: "final",
       turnId: "turn-1",
       content: { text: "Created the task." },
-      sessionRef: { system: "openclaw", kind: "session", value: "agent:ask-admin-opzava:conversation-1" },
+      sessionRef: {
+        system: "openclaw",
+        kind: "session",
+        value: "agent:ask-admin-opzava:conversation-1",
+      },
       runRef: { system: "openclaw", kind: "run", value: "run:first-active-turn" },
     });
   });
 
   it("ignores chat events whose runId does not match the active session run", async () => {
     const { broker } = await createBrokerFixture({ mode: "mismatched-run-event" });
-    const result = await broker.startAssistantStream(startInput("run-id-correlation"));
+    const result = await startAssistantStream(broker, startInput("run-id-correlation"));
     expect(result.ok).toBe(true);
     if (!result.ok) {
       throw result.error;
@@ -648,7 +700,11 @@ describe("[fake-gateway] broker operator client", () => {
         type: "final",
         turnId: "turn-1",
         content: { text: "Created the task." },
-        sessionRef: { system: "openclaw", kind: "session", value: "agent:ask-admin-opzava:conversation-1" },
+        sessionRef: {
+          system: "openclaw",
+          kind: "session",
+          value: "agent:ask-admin-opzava:conversation-1",
+        },
         runRef: { system: "openclaw", kind: "run", value: "run:run-id-correlation" },
       },
     ]);
@@ -660,14 +716,14 @@ describe("[fake-gateway] broker operator client", () => {
       mode: "deferred-final",
       idleDisconnectMs: 20,
     });
-    const result = await broker.startAssistantStream(startInput("slow-active-turn"));
+    const result = await startAssistantStream(broker, startInput("slow-active-turn"));
     expect(result.ok).toBe(true);
     if (!result.ok) {
       throw result.error;
     }
 
     await sleep(60);
-    const activeHealth = await broker.getHealth(routeId);
+    const activeHealth = await broker.getHealthForOps(routeId);
     expect(activeHealth).toMatchObject({
       ok: true,
       value: { reachable: true },
@@ -679,7 +735,7 @@ describe("[fake-gateway] broker operator client", () => {
     expect(events.at(-1)).toMatchObject({ type: "final" });
 
     await sleep(60);
-    const idleHealth = await broker.getHealth(routeId);
+    const idleHealth = await broker.getHealthForOps(routeId);
     expect(idleHealth).toMatchObject({
       ok: true,
       value: { reachable: false },
@@ -688,7 +744,7 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("streams scripted task tool-call intents without exposing OpenClaw frames", async () => {
     const { broker } = await createBrokerFixture({ mode: "scripted-task-tool-call" });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
     expect(result.ok).toBe(true);
     if (!result.ok) {
       throw result.error;
@@ -712,7 +768,7 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("retries startup-sidecars UNAVAILABLE within the connection budget", async () => {
     const { broker, gateway } = await createBrokerFixture({ mode: "startup-sidecars-once" });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
 
     expect(result.ok).toBe(true);
     expect(gateway.connectionCount).toBeGreaterThanOrEqual(2);
@@ -722,7 +778,7 @@ describe("[fake-gateway] broker operator client", () => {
     const { broker, gateway } = await createBrokerFixture({
       mode: "session-pruned-once-before-send",
     });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
     expect(result.ok).toBe(true);
     if (!result.ok) {
       throw result.error;
@@ -738,7 +794,7 @@ describe("[fake-gateway] broker operator client", () => {
     const { broker, gateway } = await createBrokerFixture({
       mode: "session-pruned-always-before-send",
     });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
 
     expect(result).toMatchObject({
       ok: false,
@@ -753,7 +809,7 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("maps live chat aborted state to a failed stream event", async () => {
     const { broker } = await createBrokerFixture({ mode: "chat-aborted" });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
     expect(result.ok).toBe(true);
     if (!result.ok) {
       throw result.error;
@@ -771,7 +827,7 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("maps live chat error state to a sanitized failed stream event", async () => {
     const { broker } = await createBrokerFixture({ mode: "chat-error" });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
     expect(result.ok).toBe(true);
     if (!result.ok) {
       throw result.error;
@@ -789,7 +845,7 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("rejects shared-secret hot-path configuration before connecting", async () => {
     const { broker, gateway } = await createBrokerFixture({ authMode: "shared-secret" });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
 
     expect(result).toMatchObject({
       ok: false,
@@ -801,7 +857,7 @@ describe("[fake-gateway] broker operator client", () => {
   it("rejects caller tenant drift before connecting", async () => {
     const { broker, gateway } = await createBrokerFixture();
     const input = startInput();
-    const result = await broker.startAssistantStream({
+    const result = await startAssistantStream(broker, {
       ...input,
       actingPrincipal: {
         ...input.actingPrincipal,
@@ -818,7 +874,7 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("maps AUTH_SCOPE_MISMATCH without treating it as a bad-token retry", async () => {
     const { broker } = await createBrokerFixture({ mode: "auth-scope-mismatch" });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
 
     expect(result).toMatchObject({
       ok: false,
@@ -830,7 +886,7 @@ describe("[fake-gateway] broker operator client", () => {
     const { broker } = await createBrokerFixture({
       deviceKeypair: createMismatchedDeviceKeypair(),
     });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
 
     expect(result).toMatchObject({
       ok: false,
@@ -840,7 +896,7 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("fails closed when hello-ok scopes are inflated", async () => {
     const { broker } = await createBrokerFixture({ mode: "scope-inflated" });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
 
     expect(result).toMatchObject({
       ok: false,
@@ -850,7 +906,7 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("fails closed on protocol range mismatch", async () => {
     const { broker } = await createBrokerFixture({ mode: "protocol-mismatch" });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
 
     expect(result).toMatchObject({
       ok: false,
@@ -860,7 +916,7 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("ignores unknown event families without projecting them and finishes the run", async () => {
     const { broker } = await createBrokerFixture({ mode: "unknown-event-family" });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
     expect(result.ok).toBe(true);
     if (!result.ok) {
       throw result.error;
@@ -874,7 +930,7 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("fails the stream when the socket dies mid-stream", async () => {
     const { broker } = await createBrokerFixture({ mode: "mid-stream-close" });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
     expect(result.ok).toBe(true);
     if (!result.ok) {
       throw result.error;
@@ -890,7 +946,7 @@ describe("[fake-gateway] broker operator client", () => {
 
   it("fails safe on duplicate response ids", async () => {
     const { broker } = await createBrokerFixture({ mode: "duplicate-response" });
-    const result = await broker.startAssistantStream(startInput());
+    const result = await startAssistantStream(broker, startInput());
     expect(result.ok).toBe(true);
     if (!result.ok) {
       throw result.error;

@@ -251,84 +251,88 @@ export function createBrokerOpenClawGatewayPort(config: BrokerGatewayConfig): Op
   const fetchImpl = config.fetchImpl ?? fetch;
 
   return {
-    async startAssistantStream(
-      input: StartAssistantStreamInput,
-    ): Promise<Result<StartAssistantStreamReceipt>> {
-      let response: Response;
-      try {
-        response = await fetchImpl(streamEndpoint(config.baseUrl), {
-          method: "POST",
-          headers: {
-            accept: "text/event-stream",
-            authorization: `Bearer ${config.internalToken}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            routeId: input.routeId,
-            assistantKey: input.assistantKey,
-            conversationId: input.conversationId,
-            turnId: input.turnId,
-            prompt: input.prompt,
-            idempotencyKey: input.idempotencyKey,
-            principal: {
-              sessionId: config.principalSessionId,
-              tenantId: input.actingPrincipal.tenantId,
-              orgId: input.actingPrincipal.orgId,
-              workspaceId: input.actingPrincipal.workspaceId,
-              userId: input.actingPrincipal.userId,
-              roleKeys: input.actingPrincipal.roleKeys,
-            },
-            ...(input.sessionRef === undefined ? {} : { sessionRef: input.sessionRef }),
-          }),
-        });
-      } catch (error) {
-        return err(
-          gatewayError(
-            "webGateway.gatewayUnavailable",
-            "Gateway broker internal stream endpoint is unreachable.",
-            undefined,
-            error,
-          ),
-        );
-      }
-
-      if (!response.ok) {
-        return err(
-          gatewayError(
-            response.status === 401
-              ? "webGateway.internalUnauthorized"
-              : "webGateway.requestFailed",
-            "Gateway broker internal stream request failed.",
-            { status: response.status },
-          ),
-        );
-      }
-
-      if (response.body === null) {
-        return err(
-          gatewayError(
-            "webGateway.emptyStream",
-            "Gateway broker returned an empty stream response.",
-          ),
-        );
-      }
-
+    async forPrincipal(binding) {
       return ok({
-        sessionRef: input.sessionRef ?? sessionRef(input.conversationId),
-        events: brokerEventStream(response.body),
+        async startAssistantStream(
+          input: Omit<StartAssistantStreamInput, "routeId" | "actingPrincipal">,
+        ): Promise<Result<StartAssistantStreamReceipt>> {
+          let response: Response;
+          try {
+            response = await fetchImpl(streamEndpoint(config.baseUrl), {
+              method: "POST",
+              headers: {
+                accept: "text/event-stream",
+                authorization: `Bearer ${config.internalToken}`,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                routeId: binding.routeId,
+                assistantKey: input.assistantKey,
+                conversationId: input.conversationId,
+                turnId: input.turnId,
+                prompt: input.prompt,
+                idempotencyKey: input.idempotencyKey,
+                principal: {
+                  sessionId: config.principalSessionId,
+                  tenantId: binding.actingPrincipal.tenantId,
+                  orgId: binding.actingPrincipal.orgId,
+                  workspaceId: binding.actingPrincipal.workspaceId,
+                  userId: binding.actingPrincipal.userId,
+                  roleKeys: binding.actingPrincipal.roleKeys,
+                },
+                ...(input.sessionRef === undefined ? {} : { sessionRef: input.sessionRef }),
+              }),
+            });
+          } catch (error) {
+            return err(
+              gatewayError(
+                "webGateway.gatewayUnavailable",
+                "Gateway broker internal stream endpoint is unreachable.",
+                undefined,
+                error,
+              ),
+            );
+          }
+
+          if (!response.ok) {
+            return err(
+              gatewayError(
+                response.status === 401
+                  ? "webGateway.internalUnauthorized"
+                  : "webGateway.requestFailed",
+                "Gateway broker internal stream request failed.",
+                { status: response.status },
+              ),
+            );
+          }
+
+          if (response.body === null) {
+            return err(
+              gatewayError(
+                "webGateway.emptyStream",
+                "Gateway broker returned an empty stream response.",
+              ),
+            );
+          }
+
+          return ok({
+            sessionRef: input.sessionRef ?? sessionRef(input.conversationId),
+            events: brokerEventStream(response.body),
+          });
+        },
+
+        async getEffectiveTools(): Promise<Result<ToolInventorySnapshot>> {
+          return err(
+            gatewayError(
+              "webGateway.unsupported",
+              "The web Gateway adapter only supports assistant streaming.",
+            ),
+          );
+        },
       });
     },
 
-    async getEffectiveTools(): Promise<Result<ToolInventorySnapshot>> {
-      return err(
-        gatewayError(
-          "webGateway.unsupported",
-          "The web Gateway adapter only supports assistant streaming.",
-        ),
-      );
-    },
-
-    async getHealth(
+    async getHealthForOps(
       routeId: OpenClawGatewayRouteId,
     ): Promise<Result<OpenClawGatewayHealthSnapshot>> {
       let response: Response;

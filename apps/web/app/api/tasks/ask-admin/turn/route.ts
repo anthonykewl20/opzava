@@ -53,9 +53,7 @@ interface RuntimeControlServices {
   readonly toolExecutionContextFromSessionPrincipal: typeof toolExecutionContextFromSessionPrincipal;
 }
 
-type AskAdminToolExecution =
-  | RuntimeControlCrmToolExecution
-  | RuntimeControlTaskToolExecution;
+type AskAdminToolExecution = RuntimeControlCrmToolExecution | RuntimeControlTaskToolExecution;
 
 export interface AskAdminTurnPostDependencies {
   readonly getSessionContext: (headers: Headers) => Promise<AppSessionContext | null>;
@@ -147,6 +145,7 @@ function failureState(
     code === "gatewayBroker.authModeForbidden" ||
     code === "gatewayBroker.authScopeMismatch" ||
     code === "gatewayBroker.scopeMismatch" ||
+    code === "gatewayBroker.tenantMismatch" ||
     code === "gatewayBroker.toolInventoryMismatch" ||
     code === "webGateway.internalUnauthorized"
   ) {
@@ -255,27 +254,27 @@ async function safeFailAssistantTurn(
 }
 
 function streamInput(
-  context: AppSessionContext,
   conversationId: string,
   turnId: string,
   prompt: string,
   idempotencyKey: string,
-): StartAssistantStreamInput {
+): Omit<StartAssistantStreamInput, "routeId" | "actingPrincipal"> {
   return {
-    routeId: askAdminRouteId as OpenClawGatewayRouteId,
     assistantKey: askAdminAssistantKey,
     conversationId,
     turnId,
     prompt,
     idempotencyKey,
-    actingPrincipal: {
-      tenantId: context.orgId as StartAssistantStreamInput["actingPrincipal"]["tenantId"],
-      orgId: context.orgId as StartAssistantStreamInput["actingPrincipal"]["orgId"],
-      workspaceId:
-        context.workspaceId as StartAssistantStreamInput["actingPrincipal"]["workspaceId"],
-      userId: context.user.id as StartAssistantStreamInput["actingPrincipal"]["userId"],
-      roleKeys: context.roleKeys,
-    },
+  };
+}
+
+function actingPrincipal(context: AppSessionContext): StartAssistantStreamInput["actingPrincipal"] {
+  return {
+    tenantId: context.orgId as StartAssistantStreamInput["actingPrincipal"]["tenantId"],
+    orgId: context.orgId as StartAssistantStreamInput["actingPrincipal"]["orgId"],
+    workspaceId: context.workspaceId as StartAssistantStreamInput["actingPrincipal"]["workspaceId"],
+    userId: context.user.id as StartAssistantStreamInput["actingPrincipal"]["userId"],
+    roleKeys: context.roleKeys,
   };
 }
 
@@ -577,10 +576,20 @@ async function runAssistantStream(
     state: "queued",
   });
 
-  const gateway = deps.createGatewayPort(context);
-  const receipt = await gateway.startAssistantStream(
+  const gatewayPort = deps.createGatewayPort(context);
+  const gateway = await gatewayPort.forPrincipal({
+    routeId: askAdminRouteId as OpenClawGatewayRouteId,
+    actingPrincipal: actingPrincipal(context),
+  });
+  if (!gateway.ok) {
+    const failure = failureEvent(gateway.error, assistantTurnValue.id);
+    await safeFailAssistantTurn(deps.runtime, context, assistantTurnValue.id, failure);
+    await writeFailureEvent(controller, deps, context, failure, gateway.error);
+    return;
+  }
+
+  const receipt = await gateway.value.startAssistantStream(
     streamInput(
-      context,
       input.conversationId,
       assistantTurnValue.id,
       input.prompt,

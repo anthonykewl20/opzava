@@ -1,11 +1,13 @@
 import type {
   ExpectedToolInventory,
+  OpenClawActingPrincipal,
   OpenClawGatewayHealthSnapshot,
   OpenClawGatewayPort,
+  OpenClawGatewayRoute,
   OpenClawGatewayRouteId,
   StartAssistantStreamInput,
   StartAssistantStreamReceipt,
-  ToolInventorySnapshot
+  ToolInventorySnapshot,
 } from "@opzava/ports";
 import { err, ok, type Result } from "@opzava/shared-kernel";
 
@@ -14,7 +16,7 @@ import type { BrokerLogger } from "../acl/openclaw/logger.js";
 import { silentBrokerLogger } from "../acl/openclaw/logger.js";
 import {
   OpenClawOperatorClient,
-  type OpenClawOperatorClientOptions
+  type OpenClawOperatorClientOptions,
 } from "../acl/openclaw/operator-client.js";
 import type { GatewayRouteConfig, GatewayRoutingTable } from "./routes.js";
 
@@ -40,9 +42,7 @@ export interface GatewayConnectionManagerOptions {
   readonly jitter?: () => number;
   readonly now?: () => number;
   readonly logger?: BrokerLogger;
-  readonly clientOptions?: Partial<
-    Omit<OpenClawOperatorClientOptions, "route" | "logger" | "now">
-  >;
+  readonly clientOptions?: Partial<Omit<OpenClawOperatorClientOptions, "route" | "logger" | "now">>;
 }
 
 export class GatewayConnectionManager implements OpenClawGatewayPort {
@@ -56,8 +56,7 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
   private readonly now: () => number;
   private readonly logger: BrokerLogger;
   private readonly clientOptions:
-    | Partial<Omit<OpenClawOperatorClientOptions, "route" | "logger" | "now">>
-    | undefined;
+    Partial<Omit<OpenClawOperatorClientOptions, "route" | "logger" | "now">> | undefined;
   private readonly clients = new Map<OpenClawGatewayRouteId, ManagedClient>();
   private readonly circuits = new Map<OpenClawGatewayRouteId, CircuitState>();
 
@@ -74,8 +73,73 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
     this.clientOptions = options.clientOptions;
   }
 
-  public async startAssistantStream(
-    input: StartAssistantStreamInput
+  public async forPrincipal(input: {
+    readonly routeId: OpenClawGatewayRouteId;
+    readonly actingPrincipal: OpenClawActingPrincipal;
+  }): Promise<Result<OpenClawGatewayRoute>> {
+    const route = this.routingTable.getRoute(input.routeId);
+    if (route === undefined) {
+      return err(
+        gatewayBrokerError("gatewayBroker.gatewayUnavailable", "Gateway route was not found."),
+      );
+    }
+
+    if (input.actingPrincipal.tenantId !== route.tenantId) {
+      return err(
+        gatewayBrokerError(
+          "gatewayBroker.tenantMismatch",
+          "Gateway route tenant does not match the authenticated principal.",
+        ),
+      );
+    }
+
+    return ok({
+      startAssistantStream: (streamInput) =>
+        this.startAssistantStreamForRoute({
+          ...streamInput,
+          routeId: input.routeId,
+          actingPrincipal: input.actingPrincipal,
+        }),
+      getEffectiveTools: (toolInput) =>
+        this.getEffectiveToolsForRoute({ ...toolInput, routeId: input.routeId }),
+    });
+  }
+
+  public async getHealthForOps(
+    routeId: OpenClawGatewayRouteId,
+  ): Promise<Result<OpenClawGatewayHealthSnapshot>> {
+    const route = this.routingTable.getRoute(routeId);
+    if (route === undefined) {
+      return err(
+        gatewayBrokerError("gatewayBroker.gatewayUnavailable", "Gateway route was not found."),
+      );
+    }
+
+    const circuit = this.circuits.get(routeId);
+    const managed = this.clients.get(routeId);
+    if (managed !== undefined) {
+      return ok(managed.client.health());
+    }
+
+    return ok({
+      routeId,
+      reachable: false,
+      circuitOpen: circuit !== undefined && circuit.openedUntil > this.now(),
+      checkedAt: new Date(),
+      ...(circuit === undefined ? {} : { degradedReason: circuit.reason }),
+    });
+  }
+
+  public disconnectAll(): void {
+    for (const managed of this.clients.values()) {
+      this.clearIdleTimer(managed);
+      managed.client.disconnect();
+    }
+    this.clients.clear();
+  }
+
+  private async startAssistantStreamForRoute(
+    input: StartAssistantStreamInput,
   ): Promise<Result<StartAssistantStreamReceipt>> {
     const client = this.getOrCreateClient(input.routeId);
     if (!client.ok) {
@@ -91,8 +155,8 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
     return result;
   }
 
-  public async getEffectiveTools(
-    input: ExpectedToolInventory
+  private async getEffectiveToolsForRoute(
+    input: ExpectedToolInventory,
   ): Promise<Result<ToolInventorySnapshot>> {
     const client = this.getOrCreateClient(input.routeId);
     if (!client.ok) {
@@ -108,44 +172,11 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
     return result;
   }
 
-  public async getHealth(
-    routeId: OpenClawGatewayRouteId
-  ): Promise<Result<OpenClawGatewayHealthSnapshot>> {
-    const route = this.routingTable.getRoute(routeId);
-    if (route === undefined) {
-      return err(
-        gatewayBrokerError("gatewayBroker.gatewayUnavailable", "Gateway route was not found.")
-      );
-    }
-
-    const circuit = this.circuits.get(routeId);
-    const managed = this.clients.get(routeId);
-    if (managed !== undefined) {
-      return ok(managed.client.health());
-    }
-
-    return ok({
-      routeId,
-      reachable: false,
-      circuitOpen: circuit !== undefined && circuit.openedUntil > this.now(),
-      checkedAt: new Date(),
-      ...(circuit === undefined ? {} : { degradedReason: circuit.reason })
-    });
-  }
-
-  public disconnectAll(): void {
-    for (const managed of this.clients.values()) {
-      this.clearIdleTimer(managed);
-      managed.client.disconnect();
-    }
-    this.clients.clear();
-  }
-
   private getOrCreateClient(routeId: OpenClawGatewayRouteId): Result<ManagedClient> {
     const route = this.routingTable.getRoute(routeId);
     if (route === undefined) {
       return err(
-        gatewayBrokerError("gatewayBroker.gatewayUnavailable", "Gateway route was not found.")
+        gatewayBrokerError("gatewayBroker.gatewayUnavailable", "Gateway route was not found."),
       );
     }
 
@@ -155,8 +186,8 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
         gatewayBrokerError(
           "gatewayBroker.circuitOpen",
           "Tenant Gateway route circuit breaker is open.",
-          { routeId: route.routeId, tenantId: route.tenantId, reason: circuit.reason }
-        )
+          { routeId: route.routeId, tenantId: route.tenantId, reason: circuit.reason },
+        ),
       );
     }
 
@@ -175,12 +206,12 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
         if (current !== undefined) {
           this.scheduleIdleDisconnect(current);
         }
-      }
+      },
     });
     const managed: ManagedClient = {
       route,
       idleTimer: undefined,
-      client
+      client,
     };
     this.clients.set(routeId, managed);
     return ok(managed);
@@ -204,19 +235,19 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
       this.circuits.set(routeId, {
         failures,
         openedUntil: this.now() + backoff,
-        reason: result.error.code
+        reason: result.error.code,
       });
       return;
     }
 
     this.logger.warn(
       { routeId, tenantId, reason: result.error.code },
-      "Tenant Gateway route circuit opened."
+      "Tenant Gateway route circuit opened.",
     );
     this.circuits.set(routeId, {
       failures,
       openedUntil: this.now() + this.circuitOpenMs,
-      reason: result.error.code
+      reason: result.error.code,
     });
   }
 
