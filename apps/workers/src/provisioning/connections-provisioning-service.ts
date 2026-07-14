@@ -2664,10 +2664,21 @@ function projectOpenClawComponents(healthResult: Result<unknown>): {
 
   const plugins = health["plugins"];
   const pluginRecord = recordValue(plugins);
+  const pluginLoaded = pluginRecord?.["loaded"];
   const pluginErrors = pluginRecord?.["errors"];
   const validPluginFacts =
-    plugins === undefined ||
-    (pluginRecord !== null && Array.isArray(pluginRecord["loaded"]) && Array.isArray(pluginErrors));
+    pluginRecord !== null &&
+    Array.isArray(pluginLoaded) &&
+    pluginLoaded.every((entry) => typeof entry === "string") &&
+    Array.isArray(pluginErrors) &&
+    pluginErrors.every(
+      (entry) =>
+        isRecord(entry) &&
+        stringValue(entry["id"]) !== null &&
+        stringValue(entry["origin"]) !== null &&
+        typeof entry["activated"] === "boolean" &&
+        stringValue(entry["error"]) !== null,
+    );
   const pluginErrorCount = Array.isArray(pluginErrors) ? pluginErrors.length : 0;
   components.push(
     healthComponent({
@@ -2686,7 +2697,16 @@ function projectOpenClawComponents(healthResult: Result<unknown>): {
   const contextRecord = recordValue(contextEngines);
   const quarantined = contextRecord?.["quarantined"];
   const validContextFacts =
-    contextEngines === undefined || (contextRecord !== null && Array.isArray(quarantined));
+    contextRecord !== null &&
+    Array.isArray(quarantined) &&
+    quarantined.every(
+      (entry) =>
+        isRecord(entry) &&
+        stringValue(entry["engineId"]) !== null &&
+        stringValue(entry["operation"]) !== null &&
+        stringValue(entry["reason"]) !== null &&
+        numberValue(entry["failedAt"]) !== null,
+    );
   const quarantineCount = Array.isArray(quarantined) ? quarantined.length : 0;
   components.push(
     healthComponent({
@@ -3126,14 +3146,17 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       if (entry.expiresAt <= nowMs) this.lastFullyHealthy.delete(candidateKey);
     }
 
+    const probedComponents = input.components.filter(
+      (component) => component.status !== "not_checked",
+    );
     if (
       input.checkedAt !== null &&
-      input.components.length > 0 &&
-      input.components.every((component) => component.status === "healthy")
+      probedComponents.length > 0 &&
+      probedComponents.every((component) => component.status === "healthy")
     ) {
       const value = {
         checkedAt: input.checkedAt,
-        healthy: input.components.length,
+        healthy: probedComponents.length,
         total: input.components.length,
       } satisfies OpenClawLastKnownHealthy;
       this.lastFullyHealthy.delete(key);
@@ -3156,6 +3179,14 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     const now = this.now();
     const configResult = await this.options.adminClient.request("config.get", {});
     if (!configResult.ok) {
+      if (probeHealth) {
+        return err(
+          provisioningError(
+            "provisioning.connections.healthProbeUnavailable",
+            "OpenClaw did not return a checked result for the live health probe.",
+          ),
+        );
+      }
       const unavailable = unavailableSnapshot({
         now,
         repository: this.options.githubRepository,
@@ -3205,8 +3236,16 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         { includeSensitive: true },
         { requiredScope: "operator.admin" },
       ),
-      this.options.adminClient.request("update.status", {}, { requiredScope: "operator.admin" }),
     ]);
+    const projectedHealth = projectOpenClawComponents(healthResult);
+    if (probeHealth && projectedHealth.checkedAt === null) {
+      return err(
+        provisioningError(
+          "provisioning.connections.healthProbeUnavailable",
+          "OpenClaw did not return a checked result for the live health probe.",
+        ),
+      );
+    }
     if (!pluginDiscoveryResult.ok) {
       console.warn("connections.pluginModelDiscovery.unavailable", {
         code: pluginDiscoveryResult.error.code,
@@ -3238,7 +3277,6 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     // advertise is not routable as a model, so we do not synthesize a phantom connection row for it
     // (review: authStatus is a subset of models.list in practice). The projection is catalog-driven.
     const github = await this.githubState(input, now);
-    const projectedHealth = projectOpenClawComponents(healthResult);
     const runtimeAndSessions = projectOpenClawRuntimeAndSessions({
       statusResult,
       healthResult,

@@ -8202,7 +8202,6 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
             ],
           },
         }),
-        "update.status": ok({ sentinel: { status: "ok", latestVersion: "must-not-cross" } }),
         "models.list": ok({ providers: [], models: [] }),
         "models.authStatus": ok({ providers: [] }),
       },
@@ -8267,9 +8266,9 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
       expect.arrayContaining([
         expect.objectContaining({ method: "health", params: {} }),
         expect.objectContaining({ method: "status", params: { includeSensitive: true } }),
-        expect.objectContaining({ method: "update.status", params: {} }),
       ]),
     );
+    expect(admin.calls.some((call) => call.method === "update.status")).toBe(false);
   });
 
   it("uses probe true only for an explicit live refresh", async () => {
@@ -8297,6 +8296,27 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
     ).toEqual([{}, { probe: true }]);
   });
 
+  it("fails an explicit refresh when the live health probe returns no checked result", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "health-config", config: {} }),
+      health: err(new DomainError({ code: "health.failed", message: "health failed" })),
+      status: ok({ runtimeVersion: null, sessions: { count: 0, recent: [] } }),
+      "models.list": ok({ providers: [], models: [] }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = healthPort(admin);
+
+    const cachedRead = await port.getConnectionsSnapshot(principal());
+    const liveRefresh = await port.refreshConnectionsSnapshot(principal());
+
+    expect(cachedRead.ok).toBe(true);
+    expect(liveRefresh.ok).toBe(false);
+    if (liveRefresh.ok) throw new Error("expected live health probe failure");
+    expect(liveRefresh.error).toMatchObject({
+      code: "provisioning.connections.healthProbeUnavailable",
+    });
+  });
+
   it("marks explicit channel failure as attention and keeps pricing degradation warning-only", async () => {
     const admin = new RecordingAdminClient({
       "config.get": ok({ hash: "health-config", config: {} }),
@@ -8304,6 +8324,8 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
         ok: true,
         ts: Date.parse("2026-07-14T11:59:30.000Z"),
         eventLoop: { degraded: false },
+        plugins: { loaded: [], errors: [] },
+        contextEngines: { quarantined: [] },
         modelPricing: { state: "degraded", detail: "credential=must-not-cross" },
         channels: {
           telegram: {
@@ -8340,6 +8362,45 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
       expect.objectContaining({ id: "model-pricing" }),
     ]);
     expect(JSON.stringify(result.value.openclawHealth)).not.toContain("must-not-cross");
+  });
+
+  it.each([
+    { name: "absent", fields: {} },
+    { name: "malformed", fields: { plugins: { loaded: [] }, contextEngines: [] } },
+    {
+      name: "malformed entries",
+      fields: {
+        plugins: { loaded: [42], errors: [] },
+        contextEngines: { quarantined: [{ arbitrary: true }] },
+      },
+    },
+  ])("keeps $name plugin and context-engine facts unchecked", async ({ fields }) => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "health-config", config: {} }),
+      health: ok({
+        ok: true,
+        ts: Date.parse("2026-07-14T11:59:30.000Z"),
+        eventLoop: { degraded: false },
+        channels: {},
+        channelOrder: [],
+        channelLabels: {},
+        agents: [],
+        ...fields,
+      }),
+      status: ok({ runtimeVersion: null, sessions: { count: 0, recent: [] } }),
+      "models.list": ok({ providers: [], models: [] }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+
+    const result = await healthPort(admin).getConnectionsSnapshot(principal());
+
+    if (!result.ok) throw result.error;
+    expect(result.value.openclawHealth.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "plugins", status: "not_checked" }),
+        expect.objectContaining({ id: "context-engines", status: "not_checked" }),
+      ]),
+    );
   });
 
   it("classifies only allowlisted channel status states and leaves unknown states unchecked", async () => {
@@ -8397,6 +8458,8 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
         ok: true,
         ts: Date.parse("2026-07-14T11:59:30.000Z"),
         eventLoop: { degraded: false },
+        plugins: { loaded: [], errors: [] },
+        contextEngines: { quarantined: [] },
         channels: {},
         channelOrder: [],
         channelLabels: {},
@@ -8465,10 +8528,12 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
         ok: true,
         ts: Date.parse("2026-07-14T11:59:30.000Z"),
         eventLoop: { degraded: false },
+        plugins: { loaded: [], errors: [] },
+        contextEngines: { quarantined: [] },
         channels: {},
         channelOrder: [],
         channelLabels: {},
-        agents: [],
+        agents: [{ agentId: "main", name: "Main agent" }],
       }),
       status: ok({ runtimeVersion: null, sessions: { count: 0, recent: [] } }),
       "models.list": ok({ providers: [], models: [] }),
@@ -8483,8 +8548,11 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
     expect(healthy.value.openclawHealth.lastKnownHealthy).toEqual({
       checkedAt: "2026-07-14T11:59:30.000Z",
       healthy: 4,
-      total: 4,
+      total: 5,
     });
+    expect(
+      healthy.value.openclawHealth.components.find((component) => component.id === "agent:main"),
+    ).toMatchObject({ status: "not_checked" });
     expect(unavailable.value.openclawHealth.lastKnownHealthy).toEqual(
       healthy.value.openclawHealth.lastKnownHealthy,
     );
