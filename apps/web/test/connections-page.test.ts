@@ -957,6 +957,7 @@ describe("Connections page state", () => {
     );
     const healthCheckButton = await readRepoFile("components/connections/health-check-submit.tsx");
     const overview = await readRepoFile("components/connections/connections-overview.tsx");
+    const overviewState = await readRepoFile("lib/connections-overview.ts");
     const autoRefresh = await readRepoFile("components/connections/connections-auto-refresh.tsx");
     const healthBar = await readRepoFile("components/connections/health-bar.tsx");
     const systemStatus = await readRepoFile("components/connections/connections-system-status.tsx");
@@ -1001,7 +1002,8 @@ describe("Connections page state", () => {
     expect(page).toContain('refreshConnectionsAction.bind(null, "/connections")');
     expect(overview).not.toContain('href="/connections/gateway"');
     expect(overview).toContain('href="/connections/providers"');
-    expect(overview).toContain('href="/connections/github"');
+    expect(overview).toContain("overviewIntegrations(data.snapshot.github)");
+    expect(overviewState).toContain('href: "/connections/github"');
     expect(overview).toContain('href="/connections/add"');
     expect(overview).toContain('href="/connections/system"');
     expect(overview).toContain("Opzava Gateway");

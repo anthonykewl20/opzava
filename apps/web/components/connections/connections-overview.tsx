@@ -7,6 +7,7 @@ import {
   GitBranch,
   Plug,
   Server,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -19,6 +20,7 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator";
 import {
   overviewHealthGroups,
+  overviewIntegrations,
   overviewProviders,
   type OverviewHealthGroup,
   type OverviewHealthStatus,
@@ -77,26 +79,38 @@ function HealthGroupLink({ group }: { readonly group: OverviewHealthGroup }) {
   const accessibleStatus = `${group.healthy} healthy, ${group.attention} ${group.attention === 1 ? "needs" : "need"} attention, ${group.notChecked} not checked`;
 
   return (
-    <Link
-      href={group.href}
-      className="flex min-h-11 items-center gap-2 rounded-full border border-border px-3 py-2 text-sm font-medium outline-none transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:min-h-9 sm:py-1.5"
-      aria-label={`${group.label}: ${accessibleStatus}`}
+    <Button
+      asChild
+      variant="outline"
+      className="h-auto min-h-11 w-full justify-start rounded-full bg-transparent px-3 py-2 sm:min-h-9 sm:py-1.5"
     >
-      <Badge variant={groupBadgeVariant(group.status)} className="size-5 justify-center p-0">
-        <GroupStatusIcon status={group.status} />
-      </Badge>
-      <span>{group.label}</span>
-      <span className="ml-auto tabular-nums text-muted-foreground">
-        {group.healthy}/{group.total}
-      </span>
-    </Link>
+      <Link
+        href={group.href}
+        data-health-group={group.id}
+        aria-label={`${group.label}: ${accessibleStatus}`}
+      >
+        <Badge variant={groupBadgeVariant(group.status)} className="size-5 justify-center p-0">
+          <GroupStatusIcon status={group.status} />
+        </Badge>
+        <span>{group.label}</span>
+        <span className="ml-auto tabular-nums text-muted-foreground">
+          {group.healthy}/{group.total}
+        </span>
+      </Link>
+    </Button>
   );
 }
 
-function SystemHealthPanel({ data }: { readonly data: ConnectionsPageData }) {
+function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
   const health = data.snapshot.openclawHealth;
   const summary = openclawHealthSummary(health);
   const groups = overviewHealthGroups(health.components);
+  const affected = health.components.filter((component) => component.status === "attention");
+  const firstAffected = affected[0] ?? null;
+  const remainingAffected = Math.max(0, affected.length - 1);
+  const liveUnknown = summary.status === "unknown";
+  const gatewayUnavailable = data.snapshot.gateway.status === "unavailable";
+  const showLastKnown = (liveUnknown || gatewayUnavailable) && health.lastKnownHealthy !== null;
 
   return (
     <section aria-labelledby="system-health-title">
@@ -109,11 +123,23 @@ function SystemHealthPanel({ data }: { readonly data: ConnectionsPageData }) {
           <h2 id="system-health-title" className="text-lg font-semibold leading-none">
             System health
           </h2>
-          <p className="text-sm text-muted-foreground sm:text-right">
-            {health.checkedAt === null
-              ? "Not checked"
-              : `Checked ${relativeTime(health.checkedAt)}`}
-          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <p className="text-sm text-muted-foreground sm:text-right">
+              {health.checkedAt === null
+                ? "Not checked"
+                : `Checked ${relativeTime(health.checkedAt)}`}
+            </p>
+            <form action={refreshAction} aria-describedby="system-health-check-copy">
+              <span id="system-health-check-copy" className="sr-only">
+                Runs a live OpenClaw health probe.
+              </span>
+              <HealthCheckSubmitButton
+                describedBy="system-health-check-copy"
+                idleLabel="Refresh"
+                pendingLabel="Refreshing..."
+              />
+            </form>
+          </div>
         </CardHeader>
         <CardContent className="grid gap-5">
           <div>
@@ -129,7 +155,30 @@ function SystemHealthPanel({ data }: { readonly data: ConnectionsPageData }) {
             notChecked={summary.notChecked}
           />
 
-          {summary.attention > 0 ? (
+          {liveUnknown || gatewayUnavailable ? (
+            <div className="grid gap-2 rounded-lg border border-dashed border-[var(--border-strong)] bg-muted/40 p-4">
+              <p className="font-medium">
+                {gatewayUnavailable ? "Gateway unavailable" : "Live component health is unknown"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {gatewayUnavailable
+                  ? "Live component health is unknown because the Gateway could not be reached. Refresh to retry the live probe."
+                  : "One or more live probes did not return a result. Refresh to retry the live probe."}
+              </p>
+              {showLastKnown && health.lastKnownHealthy !== null ? (
+                <p
+                  className="text-sm"
+                  data-last-known-checked-at={health.lastKnownHealthy.checkedAt}
+                >
+                  <strong>Last known healthy snapshot:</strong> {health.lastKnownHealthy.healthy} of{" "}
+                  {health.lastKnownHealthy.total} components healthy. Checked{" "}
+                  {relativeTime(health.lastKnownHealthy.checkedAt)}.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {firstAffected !== null ? (
             <div className="flex flex-col gap-3 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning-soft)] p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 gap-3">
                 <AlertTriangle
@@ -137,13 +186,16 @@ function SystemHealthPanel({ data }: { readonly data: ConnectionsPageData }) {
                   aria-hidden="true"
                 />
                 <div>
-                  <p className="font-medium">
-                    {plural(summary.attention, "component")}{" "}
-                    {summary.attention === 1 ? "needs" : "need"} attention
-                  </p>
+                  <p className="font-medium">{firstAffected.label} needs attention</p>
                   <p className="text-sm text-muted-foreground">
-                    Open System status for the exact probes and repair context.
+                    {firstAffected.detail ?? "A live health probe reported a problem."}
                   </p>
+                  {remainingAffected > 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      and {plural(remainingAffected, "more component")}{" "}
+                      {remainingAffected === 1 ? "needs" : "need"} attention.
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <Button asChild variant="outline" className="h-11 w-full shrink-0 sm:h-9 sm:w-auto">
@@ -318,6 +370,11 @@ function ProvidersCard({ data }: { readonly data: ConnectionsPageData }) {
                   className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md py-2"
                 >
                   <div className="flex min-w-0 items-center gap-2">
+                    <Sparkles
+                      data-provider-icon="generic"
+                      className="size-4 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
                     <span
                       className={providerDotClass(provider.status, provider.authHealth)}
                       aria-hidden="true"
@@ -352,8 +409,8 @@ function ProvidersCard({ data }: { readonly data: ConnectionsPageData }) {
 }
 
 function IntegrationsCard({ data }: { readonly data: ConnectionsPageData }) {
-  const github = data.snapshot.github;
-  const connected = github.status === "connected";
+  const integrations = overviewIntegrations(data.snapshot.github);
+  const connected = integrations.filter((integration) => integration.status === "connected").length;
   return (
     <section aria-labelledby="integrations-card-title" className="min-w-0">
       <Card className="h-full">
@@ -365,7 +422,7 @@ function IntegrationsCard({ data }: { readonly data: ConnectionsPageData }) {
         <CardContent className="grid flex-1 gap-5">
           <div>
             <p className="text-2xl font-semibold tabular-nums">
-              {connected ? 1 : 0}{" "}
+              {connected}{" "}
               <span className="text-sm font-normal text-muted-foreground">connected</span>
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -373,28 +430,33 @@ function IntegrationsCard({ data }: { readonly data: ConnectionsPageData }) {
             </p>
           </div>
           <Separator />
-          {connected ? (
-            <div
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2"
-              data-integration-id="github"
-              data-integration-status={github.status}
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <GitBranch className="size-5 shrink-0" aria-hidden="true" />
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium">GitHub</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    Connected · {github.repository}
-                  </span>
-                </span>
-              </div>
-              <Link
-                href="/connections/github"
-                className="inline-flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-primary outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:min-h-9"
-              >
-                Open
-              </Link>
-            </div>
+          {integrations.length > 0 ? (
+            <ul className="grid gap-1" aria-label="Workspace integrations">
+              {integrations.map((integration) => (
+                <li
+                  key={integration.id}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2"
+                  data-integration-id={integration.id}
+                  data-integration-status={integration.status}
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <GitBranch className="size-5 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">{integration.label}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {integration.statusLabel} · {integration.detail}
+                      </span>
+                    </span>
+                  </div>
+                  <Link
+                    href={integration.href}
+                    className="inline-flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-primary outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:min-h-9"
+                  >
+                    Open
+                  </Link>
+                </li>
+              ))}
+            </ul>
           ) : (
             <div className="grid justify-items-center gap-3 py-4 text-center">
               <span className="grid size-11 place-items-center rounded-full bg-muted">
@@ -412,7 +474,7 @@ function IntegrationsCard({ data }: { readonly data: ConnectionsPageData }) {
         <CardFooter className="mt-auto border-t">
           <Button
             asChild
-            variant={connected ? "outline" : "default"}
+            variant={integrations.length > 0 ? "outline" : "default"}
             className="h-11 w-full sm:h-9"
           >
             <Link href="/connections/add">Add integration</Link>
@@ -426,7 +488,7 @@ function IntegrationsCard({ data }: { readonly data: ConnectionsPageData }) {
 export function ConnectionsOverview({ data, refreshAction }: ConnectionsOverviewProps) {
   return (
     <div className="grid min-w-0 gap-6 overflow-x-hidden">
-      <SystemHealthPanel data={data} />
+      <SystemHealthPanel data={data} refreshAction={refreshAction} />
       <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-3">
         <GatewayCard data={data} refreshAction={refreshAction} />
         <ProvidersCard data={data} />

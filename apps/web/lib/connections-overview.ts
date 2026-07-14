@@ -1,4 +1,4 @@
-import type { OpenClawHealthComponent } from "@opzava/ports";
+import type { GitHubConnectionState, OpenClawHealthComponent } from "@opzava/ports";
 
 import type { ProviderConnectionView } from "@/lib/connections-state";
 
@@ -24,6 +24,15 @@ export interface OverviewProviderRow {
   readonly statusLabel: string;
   readonly actionLabel: "Setup" | "Fix" | "Manage";
   readonly href: "/connections/providers";
+}
+
+export interface OverviewIntegrationRow {
+  readonly id: "github";
+  readonly label: "GitHub";
+  readonly status: Exclude<GitHubConnectionState["status"], "not_connected">;
+  readonly statusLabel: string;
+  readonly detail: string;
+  readonly href: "/connections/github";
 }
 
 const groupDefinitions = [
@@ -129,4 +138,28 @@ export function overviewProviders(
       actionLabel: providerActionLabel(provider),
       href: "/connections/providers",
     }));
+}
+
+export function overviewIntegrations(
+  github: GitHubConnectionState,
+): readonly OverviewIntegrationRow[] {
+  if (github.status === "not_connected") return [];
+
+  const statusLabel =
+    github.status === "connected"
+      ? "Connected"
+      : github.status === "pending"
+        ? "Connecting"
+        : "Needs attention";
+
+  return [
+    {
+      id: "github",
+      label: "GitHub",
+      status: github.status,
+      statusLabel,
+      detail: github.repository,
+      href: "/connections/github",
+    },
+  ];
 }

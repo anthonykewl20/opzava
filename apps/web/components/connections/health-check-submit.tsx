@@ -4,7 +4,15 @@ import { useFormStatus } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 
-export function HealthCheckSubmitButton({ describedBy }: { readonly describedBy: string }) {
+export function HealthCheckSubmitButton({
+  describedBy,
+  idleLabel = "Run health check",
+  pendingLabel = "Checking...",
+}: {
+  readonly describedBy: string;
+  readonly idleLabel?: string;
+  readonly pendingLabel?: string;
+}) {
   const { pending } = useFormStatus();
 
   return (
@@ -17,7 +25,7 @@ export function HealthCheckSubmitButton({ describedBy }: { readonly describedBy:
       disabled={pending}
     >
       {pending ? <span className="sb-spinner sb-spinner--sm" aria-hidden="true" /> : null}
-      {pending ? "Checking..." : "Run health check"}
+      {pending ? pendingLabel : idleLabel}
     </Button>
   );
 }

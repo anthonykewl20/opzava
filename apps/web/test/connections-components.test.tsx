@@ -7,7 +7,11 @@ import ConnectionsLoading from "../app/(app)/connections/loading";
 import { ConnectionsOverview } from "../components/connections/connections-overview";
 import { HealthBar } from "../components/connections/health-bar";
 import { ModelProvidersPanel } from "../components/connections/model-providers-panel";
-import { overviewHealthGroups, overviewProviders } from "../lib/connections-overview";
+import {
+  overviewHealthGroups,
+  overviewIntegrations,
+  overviewProviders,
+} from "../lib/connections-overview";
 import type { ConnectionsPageData } from "../lib/connections";
 
 vi.mock("next/navigation", () => ({
@@ -199,6 +203,9 @@ describe("Connections components", () => {
     expect(html).toContain('aria-label="System Core: 1 healthy, 0 need attention, 0 not checked"');
     expect(html).toContain('aria-label="Channels: 0 healthy, 1 needs attention, 0 not checked"');
     expect(html).toContain('aria-label="Agents: 0 healthy, 0 need attention, 1 not checked"');
+    const channelsPill = html.match(/<a[^>]*data-health-group="channels"[^>]*>/)?.[0];
+    expect(channelsPill).toContain('data-slot="button"');
+    expect(html).toContain(">Refresh</button>");
     expect(html).toContain("Pricing refresh failed.");
     expect(html).toContain("Health warning");
     expect(html).toContain("View details");
@@ -246,7 +253,43 @@ describe("Connections components", () => {
     expect(html).toContain('data-provider-auth-health="expired"');
     expect(html).toContain("Credential expired");
     expect(html).toContain("Credential expired · API key");
+    expect(html).toContain('data-provider-icon="generic"');
     expect(html).toContain(">Fix</a>");
+  });
+
+  it("shows the first affected component detail without inventing a repair action", () => {
+    const first = {
+      ...healthComponent("channel:slack", "channel", "attention"),
+      label: "Slack workspace",
+      detail: "Probe timed out after 5 seconds.",
+    };
+    const second = {
+      ...healthComponent("plugins", "plugins", "attention"),
+      label: "Plugins",
+      detail: "One plugin failed to load.",
+    };
+    const data = overviewData({
+      openclawHealth: {
+        components: [first, second],
+        warnings: [],
+        runtime: { version: null, uptimeMs: null, hostUptimeMs: null, updateAvailable: null },
+        sessions: { count: null, recent: [] },
+        checkedAt: "2026-07-14T00:00:00.000Z",
+        lastKnownHealthy: null,
+      },
+    });
+    const html = renderToStaticMarkup(
+      createElement(ConnectionsOverview, {
+        data,
+        refreshAction: async () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Slack workspace");
+    expect(html).toContain("Probe timed out after 5 seconds.");
+    expect(html).toContain("and 1 more component");
+    expect(html).toContain("View details");
+    expect(html).not.toContain(">Fix</a>");
   });
 
   it("never presents an unprobed system as zero-percent unhealthy", () => {
@@ -274,7 +317,53 @@ describe("Connections components", () => {
     expect(html).not.toContain("View details");
   });
 
+  it("keeps last-known-good aggregate separate when the live Gateway is unavailable", () => {
+    const data = overviewData({
+      gateway: {
+        status: "unavailable",
+        region: null,
+        authLabel: "Opzava Gateway unavailable",
+        lastHeartbeatAt: null,
+        message: "Gateway could not be reached.",
+      },
+      openclawHealth: {
+        components: [healthComponent("gateway", "gateway", "not_checked")],
+        warnings: [],
+        runtime: { version: null, uptimeMs: null, hostUptimeMs: null, updateAvailable: null },
+        sessions: { count: null, recent: [] },
+        checkedAt: null,
+        lastKnownHealthy: {
+          checkedAt: "2026-07-13T23:59:00.000Z",
+          healthy: 7,
+          total: 8,
+        },
+      },
+    });
+    const html = renderToStaticMarkup(
+      createElement(ConnectionsOverview, {
+        data,
+        refreshAction: async () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Gateway unavailable");
+    expect(html).toContain("Live component health is unknown");
+    expect(html).toContain("Last known healthy snapshot");
+    expect(html).toContain("7 of 8 components healthy");
+    expect(html).toContain('data-last-known-checked-at="2026-07-13T23:59:00.000Z"');
+    expect(html).not.toContain("healthy (0%)");
+  });
+
   it("renders only real GitHub integration states", () => {
+    const emptyState = overviewData().snapshot.github;
+    const connectedState = {
+      status: "connected" as const,
+      accountLabel: "opzava-bot",
+      scopes: ["repo"],
+      repository: "anthonykewl20/opzava",
+      lastCheckedAt: "2026-07-14T00:00:00.000Z",
+      message: null,
+    };
     const emptyHtml = renderToStaticMarkup(
       createElement(ConnectionsOverview, {
         data: overviewData(),
@@ -284,18 +373,16 @@ describe("Connections components", () => {
     const connectedHtml = renderToStaticMarkup(
       createElement(ConnectionsOverview, {
         data: overviewData({
-          github: {
-            status: "connected",
-            accountLabel: "opzava-bot",
-            scopes: ["repo"],
-            repository: "anthonykewl20/opzava",
-            lastCheckedAt: "2026-07-14T00:00:00.000Z",
-            message: null,
-          },
+          github: connectedState,
         }),
         refreshAction: async () => undefined,
       }),
     );
+
+    expect(overviewIntegrations(emptyState)).toEqual([]);
+    expect(overviewIntegrations(connectedState)).toEqual([
+      expect.objectContaining({ id: "github", label: "GitHub", status: "connected" }),
+    ]);
 
     expect(emptyHtml).toContain("No integrations connected");
     expect(emptyHtml).toContain("Add integration");
