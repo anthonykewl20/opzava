@@ -20,3 +20,10 @@ playwright-report/
 
 # SeniorQA live-validation run artifacts (screenshots/reports) - regenerated per run
 real-validate-artifacts/
+
+# Agent-session scratch. `.claude/skills/` is tracked on purpose; these two are not.
+# `tmp/` catches temp dirs a test opens through os.tmpdir() when a session points TMPDIR inside the
+# checkout -- ask-admin-agent.test.ts mkdtemp's an `opzava-openclaw-bootstrap-*` there and writes a
+# local-dev secrets file into it, which is untracked but stageable by a `git add -A`.
+.claude/tmp/
+.claude/worktrees/
