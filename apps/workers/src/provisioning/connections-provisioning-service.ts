@@ -35,6 +35,7 @@ import {
   type ProviderAuthHealth,
   type ProviderConnectionState,
   type SecretsVaultPort,
+  type SetModelProviderModelEnabledInput,
   type SetMainOrchestratorInput,
   type StartGitHubDeviceFlowInput,
   type StartModelProviderDeviceFlowInput,
@@ -181,6 +182,12 @@ const disconnectTransientMaxAttempts = 3;
 // The deliberate inter-logout pacing below is planned work and must NOT be charged against it —
 // doing so made any tenant with 8+ agents fail with disconnectRetryExhausted (#168).
 const disconnectTransientMaxTotalWaitMs = 150_000;
+// A model toggle is a config-only patch (no credential writes, no per-agent logouts), so its
+// post-check budget must fit inside the BFF's synchronous request window — a toggle that waits
+// out a full gateway restart would commit server-side while the browser has already given up,
+// which is the disconnect sync-cliff all over again. Beyond this budget the op reports honestly
+// ambiguous and the UI refreshes from the gateway instead of trusting its optimistic state.
+const modelToggleTransientMaxTotalWaitMs = 12_000;
 const disconnectAuthLogoutInterCallDelayMs = 20_000;
 // Raised by exactly one because disconnect now always carries one extra target — the shared `main`
 // store that connect writes the credential into. Shifting the threshold in step keeps the pacing
@@ -204,6 +211,7 @@ const orchestratorReconcileRateLimitMarginMs = 1_000;
 // those reads a few chances to converge on the durable store before calling the disconnect failed:
 // a credential that genuinely survived keeps reporting forever, so it still fails closed (#172).
 const disconnectStaleStatusMaxAttempts = 3;
+const modelToggleMaxMutationAttempts = 3;
 // The only store that persists a credential. The other two are live reads of a running gateway, so
 // they can be stale; this one cannot.
 const durableCredentialStore = "config.auth.profiles";
@@ -228,7 +236,7 @@ interface StoredProviderCredential {
 }
 
 function credentialWriteKey(orgId: string, providerId: string): string {
-  return `${orgId}:${providerId}`;
+  return `${orgId.toLowerCase()}:${providerId.toLowerCase()}`;
 }
 
 function providerConnectInFlightError(providerId: string): DomainError {
@@ -638,6 +646,33 @@ function modelSelectorPrimary(value: unknown): string | null {
   return record === null ? null : stringValue(record["primary"]);
 }
 
+function modelSelectorRefs(value: unknown): readonly string[] {
+  if (typeof value === "string") {
+    const ref = stringValue(value);
+    return ref === null ? [] : [ref];
+  }
+
+  const record = recordValue(value);
+  if (record === null) {
+    return [];
+  }
+  const primary = stringValue(record["primary"]);
+  const fallbacks = arrayValue(record["fallbacks"])
+    .map((entry) => stringValue(entry))
+    .filter((entry): entry is string => entry !== null);
+  return primary === null ? fallbacks : [primary, ...fallbacks];
+}
+
+const agentModelSelectorKeys = [
+  "model",
+  "imageModel",
+  "imageGenerationModel",
+  "videoGenerationModel",
+  "musicGenerationModel",
+  "voiceModel",
+  "pdfModel",
+] as const;
+
 function gatewayPrimaryModel(config: Record<string, unknown>): string | null {
   const defaults = recordValue(recordValue(config["agents"])?.["defaults"]);
   return modelSelectorPrimary(defaults?.["model"]);
@@ -681,10 +716,9 @@ function firstConfiguredProviderModel(
   return configuredModel === undefined ? null : providerModelRef(providerId, configuredModel);
 }
 
-// All model refs the gateway is CONFIGURED to route to, from the agent config where they actually
-// live: `agents.defaults.model.primary`, `agents.defaults.models` keys, and each agent's model +
-// `models` keys (e.g. "openai/gpt-5.5", "zai/glm-5.2"). This is the real enabled set — NOT the full
-// `models.list` catalog.
+// All protected/configured model refs from primaries, fallbacks, model maps, and auth profiles.
+// This is deliberately broader than the enabled/routable set: only `agents.defaults.models` keys
+// are enabled, while these references prevent disabling a model that another selector still uses.
 function configuredModelRefs(config: Record<string, unknown>): readonly string[] {
   const refs = new Set<string>();
   const agents = recordValue(config["agents"]);
@@ -693,9 +727,10 @@ function configuredModelRefs(config: Record<string, unknown>): readonly string[]
     if (rec === null) {
       return;
     }
-    const primary = modelSelectorPrimary(rec["model"]);
-    if (primary !== null) {
-      refs.add(primary);
+    for (const key of agentModelSelectorKeys) {
+      for (const ref of modelSelectorRefs(rec[key])) {
+        refs.add(ref);
+      }
     }
     for (const key of Object.keys(recordValue(rec["models"]) ?? {})) {
       refs.add(key);
@@ -716,6 +751,195 @@ function configuredModelRefs(config: Record<string, unknown>): readonly string[]
   return [...refs];
 }
 
+function enabledDefaultModelEntries(config: Record<string, unknown>): readonly {
+  readonly key: string;
+  readonly value: unknown;
+}[] {
+  const defaults = recordValue(recordValue(config["agents"])?.["defaults"]);
+  return Object.entries(recordValue(defaults?.["models"]) ?? {}).map(([key, value]) => ({
+    key,
+    value,
+  }));
+}
+
+function protectedModelRefs(config: Record<string, unknown>): ReadonlySet<string> {
+  const refs = new Set<string>();
+  const agents = recordValue(config["agents"]);
+  const collect = (agentLike: unknown): void => {
+    const record = recordValue(agentLike);
+    if (record === null) {
+      return;
+    }
+    for (const key of agentModelSelectorKeys) {
+      for (const ref of modelSelectorRefs(record[key])) {
+        refs.add(ref.toLowerCase());
+      }
+    }
+  };
+  collect(recordValue(agents?.["defaults"]));
+  for (const agent of arrayValue(agents?.["list"])) {
+    collect(agent);
+  }
+  for (const profile of Object.values(authProfiles(config))) {
+    if (!isRecord(profile)) {
+      continue;
+    }
+    for (const ref of modelSelectorRefs(profile["model"])) {
+      refs.add(ref.toLowerCase());
+    }
+  }
+  return refs;
+}
+
+function providerHasAuthProfile(config: Record<string, unknown>, providerId: string): boolean {
+  return Object.entries(authProfiles(config)).some(
+    ([profileId, profile]) =>
+      isRecord(profile) &&
+      providerIdFromProfile(profileId, profile)?.toLowerCase() === providerId.toLowerCase(),
+  );
+}
+
+function configProviderEntry(input: {
+  readonly config: Record<string, unknown>;
+  readonly providerId: string;
+}): { readonly key: string; readonly value: Record<string, unknown> } | null {
+  const providers = recordValue(recordValue(input.config["models"])?.["providers"]);
+  if (providers === null) {
+    return null;
+  }
+  const entry = Object.entries(providers).find(
+    ([key]) => key.toLowerCase() === input.providerId.toLowerCase(),
+  );
+  return entry === undefined || !isRecord(entry[1]) ? null : { key: entry[0], value: entry[1] };
+}
+
+interface PluginModelProviderCatalog {
+  readonly baseUrl?: string;
+  readonly api?: string;
+  readonly models: readonly Record<string, unknown>[];
+}
+
+interface PluginModelCatalogDiscovery {
+  readonly catalogs: readonly {
+    readonly pluginId: string;
+    readonly providers: Readonly<Record<string, PluginModelProviderCatalog>>;
+  }[];
+  readonly plugins: readonly { readonly id: string; readonly enabled: boolean }[];
+}
+
+function modelsListRecords(payload: unknown): readonly Record<string, unknown>[] {
+  const root = recordValue(payload) ?? {};
+  return [...arrayValue(root["models"]), ...(Array.isArray(payload) ? payload : [])].filter(
+    isRecord,
+  );
+}
+
+function modelRecordProviderId(model: Record<string, unknown>): string | null {
+  const id = stringValue(model["id"]) ?? stringValue(model["model"]);
+  return (
+    stringValue(model["providerId"]) ??
+    stringValue(model["provider"]) ??
+    (id?.includes("/") === true ? (id.split("/", 1)[0] ?? null) : null)
+  );
+}
+
+function modelRecordId(model: Record<string, unknown>, providerId: string): string | null {
+  const raw = stringValue(model["id"]) ?? stringValue(model["model"]);
+  if (raw === null) {
+    return null;
+  }
+  const prefix = `${providerId}/`;
+  return raw.toLowerCase().startsWith(prefix.toLowerCase()) ? raw.slice(prefix.length) : raw;
+}
+
+function modelSummaryFromRecord(
+  model: Record<string, unknown>,
+  providerId: string,
+): ModelSummary | null {
+  const id = modelRecordId(model, providerId);
+  if (id === null || id === "") {
+    return null;
+  }
+  return {
+    id,
+    label: stringValue(model["name"]) ?? stringValue(model["label"]) ?? id,
+  };
+}
+
+function enabledPluginCatalogProvider(input: {
+  readonly discovery: PluginModelCatalogDiscovery | null;
+  readonly providerId: string;
+}): PluginModelProviderCatalog | null {
+  if (input.discovery === null) {
+    return null;
+  }
+  const normalizedProvider = input.providerId.toLowerCase();
+  const enabledPlugins = new Set(
+    input.discovery.plugins
+      .filter((plugin) => plugin.enabled)
+      .map((plugin) => plugin.id.toLowerCase()),
+  );
+  for (const catalog of input.discovery.catalogs) {
+    if (
+      catalog.pluginId.toLowerCase() !== normalizedProvider ||
+      !enabledPlugins.has(catalog.pluginId.toLowerCase())
+    ) {
+      continue;
+    }
+    const providerEntry = Object.entries(catalog.providers).find(
+      ([providerId]) => providerId.toLowerCase() === normalizedProvider,
+    );
+    if (providerEntry !== undefined) {
+      return providerEntry[1];
+    }
+  }
+  return null;
+}
+
+function catalogModelsForProvider(input: {
+  readonly modelsPayload: unknown;
+  readonly discovery: PluginModelCatalogDiscovery | null;
+  readonly providerId: string;
+}): readonly ModelSummary[] {
+  const seen = new Map<string, ModelSummary>();
+  for (const model of modelsListRecords(input.modelsPayload)) {
+    if (modelRecordProviderId(model)?.toLowerCase() !== input.providerId.toLowerCase()) {
+      continue;
+    }
+    const summary = modelSummaryFromRecord(model, input.providerId);
+    if (summary !== null) {
+      seen.set(summary.id.toLowerCase(), summary);
+    }
+  }
+  const pluginProvider = enabledPluginCatalogProvider({
+    discovery: input.discovery,
+    providerId: input.providerId,
+  });
+  for (const model of pluginProvider?.models ?? []) {
+    const summary = modelSummaryFromRecord(model, input.providerId);
+    if (summary !== null && !seen.has(summary.id.toLowerCase())) {
+      seen.set(summary.id.toLowerCase(), summary);
+    }
+  }
+  return [...seen.values()];
+}
+
+function pluginModelRecord(input: {
+  readonly discovery: PluginModelCatalogDiscovery | null;
+  readonly providerId: string;
+  readonly modelId: string;
+}): {
+  readonly provider: PluginModelProviderCatalog;
+  readonly model: Record<string, unknown>;
+} | null {
+  const provider = enabledPluginCatalogProvider(input);
+  const model = provider?.models.find(
+    (entry) =>
+      modelRecordId(entry, input.providerId)?.toLowerCase() === input.modelId.toLowerCase(),
+  );
+  return provider === null || model === undefined ? null : { provider, model };
+}
+
 // The configured models for one provider (e.g. openai -> [gpt-5.5], zai -> [glm-5.2]).
 function configuredModelsForProvider(
   providerId: string,
@@ -729,6 +953,23 @@ function configuredModelsForProvider(
     const id = ref.includes("/") ? ref.slice(ref.indexOf("/") + 1) : ref;
     if (id !== "" && !seen.has(id)) {
       seen.set(id, { id, label: id });
+    }
+  }
+  return [...seen.values()];
+}
+
+function enabledModelsForProvider(
+  providerId: string,
+  config: Record<string, unknown>,
+): readonly ModelSummary[] {
+  const seen = new Map<string, ModelSummary>();
+  for (const { key } of enabledDefaultModelEntries(config)) {
+    if (!modelRefMatchesProvider(key, providerId)) {
+      continue;
+    }
+    const id = key.slice(key.indexOf("/") + 1);
+    if (id !== "" && !seen.has(id.toLowerCase())) {
+      seen.set(id.toLowerCase(), { id, label: id });
     }
   }
   return [...seen.values()];
@@ -757,6 +998,8 @@ function configuredModelForProvider(input: {
 function withModelProviderClassification(
   provider: ModelProviderCatalogEntry,
   config: Record<string, unknown>,
+  modelsPayload: unknown,
+  discovery: PluginModelCatalogDiscovery | null,
 ): ModelProviderCatalogEntry {
   const classification = classifyModelProvider(provider.id);
 
@@ -769,13 +1012,21 @@ function withModelProviderClassification(
     // Models come ONLY from the gateway CONFIG (the models it actually routes to) — never a raw
     // `models.list` catalog dump. Agnostic (no hardcoding) + aligned: a connected provider shows its
     // configured model(s); an unconfigured/unconnected provider shows none.
-    models: configuredModelsForProvider(provider.id, config),
+    // `agents.defaults.models` is the gateway's routable allow-list. Primaries and fallbacks are
+    // protected references, but they do not become enabled choices merely by being referenced.
+    models: enabledModelsForProvider(provider.id, config),
+    catalogModels: catalogModelsForProvider({
+      modelsPayload,
+      discovery,
+      providerId: provider.id,
+    }),
   };
 }
 
 function providerCatalogFromModels(
   payload: unknown,
   config: Record<string, unknown>,
+  discovery: PluginModelCatalogDiscovery | null = null,
 ): readonly ModelProviderCatalogEntry[] {
   const root = recordValue(payload) ?? {};
   const providerSources = [
@@ -895,7 +1146,7 @@ function providerCatalogFromModels(
           }
         : provider;
 
-    return withModelProviderClassification(withAuthChoices, config);
+    return withModelProviderClassification(withAuthChoices, config, payload, discovery);
   });
 }
 
@@ -1809,6 +2060,23 @@ function disconnectPostCheckTransient(error: DomainError): boolean {
   );
 }
 
+function staleConfigBaseHashError(error: DomainError): boolean {
+  const text = `${error.code} ${error.message}`.toLowerCase();
+  return (
+    text.includes("stalebasehash") ||
+    (text.includes("basehash") &&
+      (text.includes("stale") ||
+        text.includes("mismatch") ||
+        text.includes("changed") ||
+        text.includes("conflict") ||
+        text.includes("rejected")))
+  );
+}
+
+function ambiguousConfigPatchOutcome(error: DomainError): boolean {
+  return closedBeforeResponseError(error, "config.patch") || disconnectPostCheckTransient(error);
+}
+
 function authLogoutUnavailable(error: DomainError): boolean {
   const text = `${error.code} ${error.message}`.toLowerCase();
   return (
@@ -2245,12 +2513,29 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private readonly modelApiKeyConnects = new Map<string, PendingModelProviderApiKeyConnect>();
   private readonly modelSetupTokenFlows = new Map<string, PendingModelProviderSetupTokenFlow>();
   private readonly modelProviderDisconnects = new Map<string, PendingModelProviderDisconnect>();
-  /** `${orgId}:${providerId}` of every credential write currently running. See {@link providerConnectInFlight}. */
-  private readonly providerCredentialWrites = new Set<string>();
+  /** Ref-counted `${orgId}:${providerId}` reservations. One async owner may release only itself. */
+  private readonly providerCredentialWrites = new Map<string, number>();
 
   public constructor(private readonly options: GatewayAdminConnectionsOptions) {
     this.fetchImpl = options.fetch ?? fetch;
     this.now = options.now ?? (() => new Date());
+  }
+
+  private acquireProviderWrite(key: string): void {
+    this.providerCredentialWrites.set(key, (this.providerCredentialWrites.get(key) ?? 0) + 1);
+  }
+
+  private releaseProviderWrite(key: string): void {
+    const count = this.providerCredentialWrites.get(key) ?? 0;
+    if (count <= 1) {
+      this.providerCredentialWrites.delete(key);
+      return;
+    }
+    this.providerCredentialWrites.set(key, count - 1);
+  }
+
+  private providerWriteReserved(key: string): boolean {
+    return (this.providerCredentialWrites.get(key) ?? 0) > 0;
   }
 
   private async refreshedProviderConnection(
@@ -2511,6 +2796,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       modelsResult,
       authChoicesResult,
       modelStatusResult,
+      pluginDiscoveryResult,
       authStatus,
     ] = await Promise.all([
       this.options.adminClient.request("health", {}),
@@ -2521,13 +2807,24 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       // `models.authStatus` RPC under-reports as "missing" for openai. It is the connected-truth.
       this.options.gatewayRuntime?.modelStatus() ??
         ok<unknown>({ auth: { providers: [] }, allowed: [] }),
+      this.options.gatewayRuntime?.readPluginModelDiscovery() ??
+        ok<PluginModelCatalogDiscovery>({ catalogs: [], plugins: [] }),
       this.modelAuthStatus(),
     ]);
+    if (!pluginDiscoveryResult.ok) {
+      console.warn("connections.pluginModelDiscovery.unavailable", {
+        code: pluginDiscoveryResult.error.code,
+      });
+    }
     const config = configPayload(configResult.value);
     const runtimeChoices = authChoicesResult.ok ? authChoicesResult.value : [];
     const catalog = ensureCanonicalLlmProviders({
       catalog: mergeRuntimeAuthChoices({
-        catalog: providerCatalogFromModels(modelsResult.ok ? modelsResult.value : {}, config),
+        catalog: providerCatalogFromModels(
+          modelsResult.ok ? modelsResult.value : {},
+          config,
+          pluginDiscoveryResult.ok ? pluginDiscoveryResult.value : null,
+        ),
         choices: runtimeChoices,
       }),
       choices: runtimeChoices,
@@ -2569,6 +2866,434 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       }),
       refreshedAt: now.toISOString(),
     });
+  }
+
+  private modelToggleConnectionState(input: {
+    readonly providerId: string;
+    readonly config: Record<string, unknown>;
+    readonly modelsPayload: unknown;
+    readonly discovery: PluginModelCatalogDiscovery | null;
+    readonly modelStatus: unknown | null;
+    readonly authStatus: ReadonlyMap<string, ModelAuthStatusConnection> | null;
+  }): Result<ProviderConnectionState> {
+    const provider = providerCatalogFromModels(
+      input.modelsPayload,
+      input.config,
+      input.discovery,
+    ).find((entry) => entry.id.toLowerCase() === input.providerId.toLowerCase());
+    if (provider === undefined) {
+      return err(
+        provisioningError(
+          "provisioning.connections.providerStateUnavailable",
+          "The refreshed gateway catalog no longer exposes that provider.",
+          { providerId: input.providerId },
+        ),
+      );
+    }
+    // Config alone under-reports connection state (an OAuth provider's profiles live in the
+    // runtime agent store), so the returned row is assembled from the same sources the snapshot
+    // uses — otherwise a successful toggle would flip a Connected row back to Available.
+    return ok(
+      providerConnectionFromConnectionSources({
+        provider,
+        config: input.config,
+        modelStatus: input.modelStatus,
+        authStatus: input.authStatus,
+        now: this.now(),
+      }),
+    );
+  }
+
+  private async modelTogglePostCheck(input: {
+    readonly providerId: string;
+    readonly modelId: string;
+    readonly enabled: boolean;
+    readonly registryDefWritten: boolean;
+    readonly waitForTransient: (delayMs: number) => Promise<boolean>;
+  }): Promise<
+    Result<{ readonly config: Record<string, unknown>; readonly modelStatus: unknown | null }>
+  > {
+    const ref = `${input.providerId}/${input.modelId}`.toLowerCase();
+    while (true) {
+      const [result, statusResult] = await Promise.all([
+        this.options.adminClient.request("config.get", {}),
+        this.options.gatewayRuntime?.modelStatus() ?? ok<unknown>(null),
+      ]);
+      if (!result.ok) {
+        if (
+          disconnectPostCheckTransient(result.error) &&
+          (await input.waitForTransient(disconnectPostCheckRetryDelayMs))
+        ) {
+          continue;
+        }
+        return err(
+          provisioningError(
+            "provisioning.connections.modelTogglePostCheckUnavailable",
+            "Gateway model setting could not be verified after the config reload.",
+            { providerId: input.providerId, modelId: input.modelId },
+          ),
+        );
+      }
+
+      const config = configPayload(result.value);
+      const present = enabledDefaultModelEntries(config).some(({ key }) => {
+        if (!modelRefMatchesProvider(key, input.providerId)) {
+          return false;
+        }
+        const id = key.slice(key.indexOf("/") + 1);
+        return id.toLowerCase() === input.modelId.toLowerCase();
+      });
+      // The defaults key alone is not routability. When this call had to register the model's
+      // definition, prove the def survived under models.providers; and in both directions prove
+      // the gateway's own `models status` allowed set agrees — an enabled-but-unroutable model is
+      // exactly the lie #184 exists to kill. A missing/failed status read stays a soft signal
+      // (older gateways), never a fake pass on the config half.
+      const registryOk =
+        !input.registryDefWritten ||
+        arrayValue(configProviderEntry({ config, providerId: input.providerId })?.value["models"]).some(
+          (model) =>
+            (typeof model === "string" && model.toLowerCase() === input.modelId.toLowerCase()) ||
+            (isRecord(model) &&
+              modelRecordId(model, input.providerId)?.toLowerCase() ===
+                input.modelId.toLowerCase()),
+        );
+      const modelStatus = statusResult.ok ? statusResult.value : null;
+      const allowedRefs = modelStatusAllowedModels(modelStatus).map((entry) => entry.toLowerCase());
+      const allowedOk =
+        modelStatus === null || allowedRefs.length === 0
+          ? true
+          : allowedRefs.includes(ref) === input.enabled;
+      if (present === input.enabled && registryOk && allowedOk) {
+        return ok({ config, modelStatus });
+      }
+      // A successful read can still be the old process answering during the reload window. Treat
+      // the undesired value as stale evidence until the same bounded cadence disconnect uses is
+      // exhausted; only then is it proof that the mutation did not stick.
+      if (await input.waitForTransient(disconnectPostCheckRetryDelayMs)) {
+        continue;
+      }
+      return err(
+        provisioningError(
+          "provisioning.connections.modelTogglePostCheckFailed",
+          "Gateway config did not retain the requested model setting.",
+          {
+            providerId: input.providerId,
+            modelId: input.modelId,
+            enabled: input.enabled,
+            defaultsKeyPresent: present,
+            registryOk,
+            allowedOk,
+          },
+        ),
+      );
+    }
+  }
+
+  public async setModelProviderModelEnabled(
+    input: SetModelProviderModelEnabledInput,
+  ): Promise<Result<ProviderConnectionState>> {
+    const guardKey = credentialWriteKey(input.orgId, input.providerId);
+    const busy = this.providerConnectInFlight(input.orgId, input.providerId);
+    if (busy !== null) {
+      return err(busy);
+    }
+    this.acquireProviderWrite(guardKey);
+
+    try {
+      for (let attempt = 1; attempt <= modelToggleMaxMutationAttempts; attempt += 1) {
+        const [configResult, modelsResult, discoveryResult, modelStatusResult, authStatus] =
+          await Promise.all([
+            this.options.adminClient.request("config.get", {}),
+            this.options.adminClient.request("models.list", { view: "all" }),
+            this.options.gatewayRuntime?.readPluginModelDiscovery() ??
+              ok<PluginModelCatalogDiscovery>({ catalogs: [], plugins: [] }),
+            this.options.gatewayRuntime?.modelStatus() ??
+              ok<unknown>({ auth: { providers: [] }, allowed: [] }),
+            this.modelAuthStatus(),
+          ]);
+        if (!configResult.ok) {
+          return err(configResult.error);
+        }
+        if (!modelsResult.ok) {
+          return err(modelsResult.error);
+        }
+        if (!discoveryResult.ok) {
+          console.warn("connections.pluginModelDiscovery.unavailable", {
+            code: discoveryResult.error.code,
+          });
+        }
+
+        const config = configPayload(configResult.value);
+        // Connection truth mirrors the snapshot: a provider is connected when config holds an auth
+        // profile OR the runtime agent store does (`models status` profiles) — OAuth providers can
+        // be fully connected with an EMPTY config.auth.profiles, and refusing their toggles would
+        // strand every switch the UI just rendered for them.
+        const runtimeStoreConnected =
+          modelStatusProfileCount(
+            modelStatusProvider(
+              modelStatusResult.ok ? modelStatusResult.value : null,
+              input.providerId,
+            ),
+          ) > 0;
+        if (!providerHasAuthProfile(config, input.providerId) && !runtimeStoreConnected) {
+          return err(
+            provisioningError(
+              "provisioning.connections.providerNotConnected",
+              "Connect the provider before changing its enabled models.",
+              { providerId: input.providerId },
+            ),
+          );
+        }
+
+        const discovery = discoveryResult.ok ? discoveryResult.value : null;
+        const catalogModels = catalogModelsForProvider({
+          modelsPayload: modelsResult.value,
+          discovery,
+          providerId: input.providerId,
+        });
+        const requestedModelId = input.modelId
+          .toLowerCase()
+          .startsWith(`${input.providerId.toLowerCase()}/`)
+          ? input.modelId.slice(input.providerId.length + 1)
+          : input.modelId;
+        const catalogModel = catalogModels.find(
+          (model) => model.id.toLowerCase() === requestedModelId.toLowerCase(),
+        );
+        if (input.enabled && catalogModel === undefined) {
+          return err(
+            provisioningError(
+              "provisioning.connections.modelNotInCatalog",
+              "The live gateway catalog does not advertise that model for this provider.",
+              { providerId: input.providerId, modelId: input.modelId },
+            ),
+          );
+        }
+
+        const enabledEntries = enabledDefaultModelEntries(config).filter(({ key }) =>
+          modelRefMatchesProvider(key, input.providerId),
+        );
+        const existingEnabled = enabledEntries.find(({ key }) => {
+          const id = key.slice(key.indexOf("/") + 1);
+          return id.toLowerCase() === requestedModelId.toLowerCase();
+        });
+        const canonicalModelId = catalogModel?.id ?? requestedModelId;
+        const canonicalRef = `${input.providerId}/${canonicalModelId}`;
+
+        // The idempotent no-op returns BEFORE the disable guardrails run: disabling an
+        // already-absent model must succeed without mutation even when the ref is still a
+        // configured primary or fallback — the guardrails exist to protect an actual removal,
+        // not to reject a request that changes nothing.
+        if (
+          (input.enabled && existingEnabled !== undefined) ||
+          (!input.enabled && existingEnabled === undefined)
+        ) {
+          return this.modelToggleConnectionState({
+            providerId: input.providerId,
+            config,
+            modelsPayload: modelsResult.value,
+            discovery,
+            modelStatus: modelStatusResult.ok ? modelStatusResult.value : null,
+            authStatus,
+          });
+        }
+
+        if (!input.enabled) {
+          const protectedRef = existingEnabled?.key ?? canonicalRef;
+          if (protectedModelRefs(config).has(protectedRef.toLowerCase())) {
+            return err(
+              provisioningError(
+                "provisioning.connections.modelInUse",
+                "That model is a configured primary or fallback and cannot be disabled.",
+                { providerId: input.providerId, modelId: requestedModelId },
+              ),
+            );
+          }
+          if (enabledEntries.length <= 1) {
+            return err(
+              provisioningError(
+                "provisioning.connections.lastEnabledModel",
+                "A connected provider must keep at least one model enabled.",
+                { providerId: input.providerId, modelId: requestedModelId },
+              ),
+            );
+          }
+        }
+
+        const modelsListHasDefinition = modelsListRecords(modelsResult.value).some(
+          (model) =>
+            modelRecordProviderId(model)?.toLowerCase() === input.providerId.toLowerCase() &&
+            modelRecordId(model, input.providerId)?.toLowerCase() ===
+              canonicalModelId.toLowerCase(),
+        );
+        let providerRegistryPatch: Record<string, unknown> | undefined;
+        if (input.enabled && !modelsListHasDefinition) {
+          const pluginRecord = pluginModelRecord({
+            discovery,
+            providerId: input.providerId,
+            modelId: canonicalModelId,
+          });
+          if (pluginRecord === null) {
+            return err(
+              provisioningError(
+                "provisioning.connections.modelDefinitionUnavailable",
+                "The model catalog did not provide the registry definition required to enable it.",
+                { providerId: input.providerId, modelId: canonicalModelId },
+              ),
+            );
+          }
+          const existingProvider = configProviderEntry({ config, providerId: input.providerId });
+          const existingModels = arrayValue(existingProvider?.value["models"]);
+          const alreadyRegistered = existingModels.some((model) => {
+            if (typeof model === "string") {
+              return model.toLowerCase() === canonicalModelId.toLowerCase();
+            }
+            return (
+              isRecord(model) &&
+              modelRecordId(model, input.providerId)?.toLowerCase() ===
+                canonicalModelId.toLowerCase()
+            );
+          });
+          if (!alreadyRegistered) {
+            const providerKey = existingProvider?.key ?? input.providerId;
+            providerRegistryPatch = {
+              [providerKey]: {
+                ...(existingProvider === null && pluginRecord.provider.baseUrl !== undefined
+                  ? { baseUrl: pluginRecord.provider.baseUrl }
+                  : {}),
+                ...(existingProvider === null && pluginRecord.provider.api !== undefined
+                  ? { api: pluginRecord.provider.api }
+                  : {}),
+                models: [...existingModels, pluginRecord.model],
+              },
+            };
+          }
+        }
+
+        const targetRef = existingEnabled?.key ?? canonicalRef;
+        const patch = {
+          agents: {
+            defaults: {
+              models: {
+                [targetRef]: input.enabled ? {} : null,
+              },
+            },
+          },
+          ...(providerRegistryPatch === undefined
+            ? {}
+            : { models: { providers: providerRegistryPatch } }),
+        };
+        // Disabling deliberately leaves models.providers metadata in place: registry visibility is
+        // not routability, which is controlled solely by agents.defaults.models.
+        const patchParams = configPatchParams({ configGetPayload: configResult.value, patch });
+        if (!patchParams.ok) {
+          return err(patchParams.error);
+        }
+        const patchResult = await this.options.adminClient.request(
+          "config.patch",
+          patchParams.value,
+          { requiredScope: "operator.admin" },
+        );
+        let patchOutcomeWasAmbiguous = false;
+        if (!patchResult.ok) {
+          if (staleConfigBaseHashError(patchResult.error)) {
+            if (attempt < modelToggleMaxMutationAttempts) {
+              continue;
+            }
+            return err(
+              provisioningError(
+                "provisioning.connections.configConflict",
+                "Gateway config changed repeatedly while updating the model setting.",
+                { providerId: input.providerId, modelId: canonicalModelId },
+              ),
+            );
+          }
+          if (!ambiguousConfigPatchOutcome(patchResult.error)) {
+            return err(patchResult.error);
+          }
+          patchOutcomeWasAmbiguous = true;
+          console.warn("connections.modelToggle.configPatch.ambiguous", {
+            providerId: input.providerId,
+            modelId: canonicalModelId,
+            code: patchResult.error.code,
+          });
+        }
+
+        // WALL-CLOCK deadline, not a sleep budget: the reads between retries (config.get +
+        // modelStatus, up to 15s each against a restarting container) must count too, or the
+        // op could keep verifying long after the BFF's request window aborted — committing a
+        // toggle the browser was already told failed.
+        const deadlineAt = Date.now() + modelToggleTransientMaxTotalWaitMs;
+        const waitForTransient = async (delayMs: number): Promise<boolean> => {
+          const boundedDelayMs = Math.max(0, Math.ceil(delayMs));
+          if (Date.now() + boundedDelayMs > deadlineAt) {
+            return false;
+          }
+          await sleep(boundedDelayMs);
+          return true;
+        };
+        const gatewayReady = await this.waitForGatewayReady(waitForTransient);
+        if (!gatewayReady) {
+          return err(
+            provisioningError(
+              "provisioning.connections.modelTogglePostCheckUnavailable",
+              "Gateway model setting could not be verified after the config reload.",
+              {
+                providerId: input.providerId,
+                modelId: canonicalModelId,
+                patchOutcomeWasAmbiguous,
+              },
+            ),
+          );
+        }
+        const postCheck = await this.modelTogglePostCheck({
+          providerId: input.providerId,
+          modelId: canonicalModelId,
+          enabled: input.enabled,
+          registryDefWritten: providerRegistryPatch !== undefined,
+          waitForTransient,
+        });
+        if (!postCheck.ok) {
+          return err(postCheck.error);
+        }
+        // The returned row must reflect the POST-mutation gateway, not the pre-patch reads: the
+        // catalog, allowed set, and runtime auth stores all just changed under this op's feet.
+        // Past the deadline the refresh is skipped — the post-check already proved the mutation,
+        // and one more read round-trip would spend the BFF window on cosmetics.
+        const [refreshedModels, refreshedStatus] =
+          Date.now() < deadlineAt
+            ? await Promise.all([
+                this.options.adminClient.request("models.list", { view: "all" }),
+                this.options.gatewayRuntime?.modelStatus() ?? ok<unknown>(null),
+              ])
+            : [null, null];
+        // Status fallback chain: fresh read → post-check read → PRE-mutation read. Never null when
+        // an earlier read succeeded — a runtime-store-connected provider projected from config
+        // alone would falsely flip its row to not_connected on a transient status failure.
+        const fallbackStatus =
+          postCheck.value.modelStatus ?? (modelStatusResult.ok ? modelStatusResult.value : null);
+        return this.modelToggleConnectionState({
+          providerId: input.providerId,
+          config: postCheck.value.config,
+          modelsPayload:
+            refreshedModels?.ok === true ? refreshedModels.value : modelsResult.value,
+          discovery,
+          modelStatus:
+            refreshedStatus?.ok === true && refreshedStatus.value !== null
+              ? refreshedStatus.value
+              : fallbackStatus,
+          authStatus,
+        });
+      }
+
+      return err(
+        provisioningError(
+          "provisioning.connections.configConflict",
+          "Gateway config changed repeatedly while updating the model setting.",
+        ),
+      );
+    } finally {
+      this.releaseProviderWrite(guardKey);
+    }
   }
 
   public async startModelProviderApiKeyConnect(
@@ -2935,15 +3660,15 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     readonly authChoices: readonly GatewayRuntimeAuthChoice[];
   }): Promise<Result<ProviderConnectionState>> {
     const writeKey = credentialWriteKey(input.op.orgId, input.op.providerId);
-    if (this.providerCredentialWrites.has(writeKey)) {
+    if (this.providerWriteReserved(writeKey)) {
       return err(providerConnectInFlightError(input.op.providerId));
     }
 
-    this.providerCredentialWrites.add(writeKey);
+    this.acquireProviderWrite(writeKey);
     try {
       return await this.writeAndProveProviderCredential(input);
     } finally {
-      this.providerCredentialWrites.delete(writeKey);
+      this.releaseProviderWrite(writeKey);
     }
   }
 
@@ -3181,13 +3906,28 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
    * authorize in their browser. That one has written nothing yet, and starting a fresh flow is
    * meant to supersede it (see `cleanupSetupTokenFlowsForProvider`).
    */
-  private providerConnectInFlight(orgId: string, providerId: string): DomainError | null {
+  private providerConnectInFlight(
+    orgId: string,
+    providerId: string,
+    options: { readonly includeDeviceFlows?: boolean } = {},
+  ): DomainError | null {
     const pendingConnect = [...this.modelApiKeyConnects.values()].some(
-      (op) => op.orgId === orgId && op.providerId === providerId && op.outcome === undefined,
+      (op) =>
+        op.orgId.toLowerCase() === orgId.toLowerCase() &&
+        op.providerId.toLowerCase() === providerId.toLowerCase() &&
+        op.outcome === undefined,
     );
+    const activeDeviceConnect =
+      options.includeDeviceFlows !== false &&
+      [...this.modelDeviceFlows.values()].some(
+        (flow) =>
+          flow.orgId.toLowerCase() === orgId.toLowerCase() &&
+          flow.providerId.toLowerCase() === providerId.toLowerCase(),
+      );
     if (
       !pendingConnect &&
-      !this.providerCredentialWrites.has(credentialWriteKey(orgId, providerId))
+      !activeDeviceConnect &&
+      !this.providerWriteReserved(credentialWriteKey(orgId, providerId))
     ) {
       return null;
     }
@@ -3436,55 +4176,89 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     }
 
-    // The device-code login writes the OAuth profile itself when the user finishes authorizing, so
-    // the shared store has to exist and be named BEFORE the flow starts — there is no later hook to
-    // move the credential from wherever the CLI decided to put it.
-    const configResult = await this.options.adminClient.request("config.get", {});
-    if (!configResult.ok) {
-      return err(configResult.error);
+    const busy = this.providerConnectInFlight(input.orgId, input.providerId, {
+      includeDeviceFlows: false,
+    });
+    if (busy !== null) {
+      return err(busy);
     }
-    const sharedAgent = await this.ensureSharedCredentialAgent(configResult.value);
-    if (!sharedAgent.ok) {
-      return err(sharedAgent.error);
-    }
+    const reservationKey = credentialWriteKey(input.orgId, input.providerId);
+    this.acquireProviderWrite(reservationKey);
 
-    await this.cleanupModelProviderFlowsForProvider(input.providerId, input.orgId);
-    const login = await gatewayRuntime.startDeviceCodeLogin(
-      deviceCodeProviderArg({
+    try {
+      // The device-code login writes the OAuth profile itself when the user finishes authorizing, so
+      // the shared store has to exist and be named BEFORE the flow starts — there is no later hook to
+      // move the credential from wherever the CLI decided to put it.
+      const configResult = await this.options.adminClient.request("config.get", {});
+      if (!configResult.ok) {
+        return err(configResult.error);
+      }
+      const sharedAgent = await this.ensureSharedCredentialAgent(configResult.value);
+      if (!sharedAgent.ok) {
+        return err(sharedAgent.error);
+      }
+
+      await this.cleanupModelProviderFlowsForProvider(input.providerId, input.orgId);
+      const login = await gatewayRuntime.startDeviceCodeLogin(
+        deviceCodeProviderArg({
+          providerId: input.providerId,
+          authChoiceId: input.authChoiceId,
+        }),
+        sharedCredentialAgentId,
+      );
+      if (!login.ok) {
+        return err(login.error);
+      }
+
+      const flowId = `model:${randomUUID()}`;
+      const baseFlow: PendingModelProviderDeviceFlow = {
+        flowId,
+        orgId: input.orgId,
         providerId: input.providerId,
         authChoiceId: input.authChoiceId,
-      }),
-      sharedCredentialAgentId,
-    );
-    if (!login.ok) {
-      return err(login.error);
-    }
+        expiresAt: new Date(this.now().getTime() + modelDeviceFlowExpiresMs),
+        intervalSeconds: modelDeviceFlowPollIntervalSeconds,
+        execId: login.value.execId,
+        logPath: login.value.logPath,
+        timeout: setTimeout(() => {
+          const flow = this.modelDeviceFlows.get(flowId);
+          if (flow !== undefined) {
+            void this.cleanupModelProviderFlow(flow);
+          }
+        }, modelDeviceFlowExpiresMs),
+      };
+      this.modelDeviceFlows.set(baseFlow.flowId, baseFlow);
 
-    const flowId = `model:${randomUUID()}`;
-    const baseFlow: PendingModelProviderDeviceFlow = {
-      flowId,
-      orgId: input.orgId,
-      providerId: input.providerId,
-      authChoiceId: input.authChoiceId,
-      expiresAt: new Date(this.now().getTime() + modelDeviceFlowExpiresMs),
-      intervalSeconds: modelDeviceFlowPollIntervalSeconds,
-      execId: login.value.execId,
-      logPath: login.value.logPath,
-      timeout: setTimeout(() => {
-        const flow = this.modelDeviceFlows.get(flowId);
-        if (flow !== undefined) {
-          void this.cleanupModelProviderFlow(flow);
+      for (let attempt = 0; attempt < modelDeviceFlowStartMaxAttempts; attempt += 1) {
+        const log = await gatewayRuntime.readDeviceCodeLog(login.value.logPath);
+        if (!log.ok) {
+          await this.cleanupModelProviderFlow(baseFlow);
+          return err(deviceCodeLogReadError(input.providerId));
         }
-      }, modelDeviceFlowExpiresMs),
-    };
-    this.modelDeviceFlows.set(baseFlow.flowId, baseFlow);
+        if (!this.modelDeviceFlows.has(baseFlow.flowId)) {
+          return err(
+            provisioningError(
+              "provisioning.connections.deviceFlowCancelled",
+              "Device-code sign-in was cancelled before it completed.",
+              { providerId: input.providerId, authChoiceId: input.authChoiceId },
+            ),
+          );
+        }
 
-    for (let attempt = 0; attempt < modelDeviceFlowStartMaxAttempts; attempt += 1) {
-      const log = await gatewayRuntime.readDeviceCodeLog(login.value.logPath);
-      if (!log.ok) {
-        await this.cleanupModelProviderFlow(baseFlow);
-        return err(deviceCodeLogReadError(input.providerId));
+        const parsed = parseDeviceCodeLog(log.value);
+        if (parsed !== null) {
+          const flow: PendingModelProviderDeviceFlow = {
+            ...baseFlow,
+            verificationUri: parsed.verificationUri,
+            userCode: parsed.userCode,
+          };
+          this.modelDeviceFlows.set(flow.flowId, flow);
+          return ok(this.challengeFromModelFlow(flow));
+        }
+
+        await sleep(modelDeviceFlowStartPollDelayMs);
       }
+
       if (!this.modelDeviceFlows.has(baseFlow.flowId)) {
         return err(
           provisioningError(
@@ -3494,31 +4268,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           ),
         );
       }
-
-      const parsed = parseDeviceCodeLog(log.value);
-      if (parsed !== null) {
-        const flow: PendingModelProviderDeviceFlow = {
-          ...baseFlow,
-          verificationUri: parsed.verificationUri,
-          userCode: parsed.userCode,
-        };
-        this.modelDeviceFlows.set(flow.flowId, flow);
-        return ok(this.challengeFromModelFlow(flow));
-      }
-
-      await sleep(modelDeviceFlowStartPollDelayMs);
+      return ok(this.challengeFromModelFlow(baseFlow));
+    } finally {
+      this.releaseProviderWrite(reservationKey);
     }
-
-    if (!this.modelDeviceFlows.has(baseFlow.flowId)) {
-      return err(
-        provisioningError(
-          "provisioning.connections.deviceFlowCancelled",
-          "Device-code sign-in was cancelled before it completed.",
-          { providerId: input.providerId, authChoiceId: input.authChoiceId },
-        ),
-      );
-    }
-    return ok(this.challengeFromModelFlow(baseFlow));
   }
 
   public async pollDeviceFlow(
@@ -3562,10 +4315,13 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     // operator is watching. The write always finishes in bounded time; make the disconnect wait for
     // it rather than fight it. (The rollback calls `disconnectModelProvider` directly and so does
     // not gate itself here.)
-    if (this.providerCredentialWrites.has(credentialWriteKey(input.orgId, input.providerId))) {
-      return err(providerConnectInFlightError(input.providerId));
+    const busy = this.providerConnectInFlight(input.orgId, input.providerId);
+    if (busy !== null) {
+      return err(busy);
     }
 
+    const writeKey = credentialWriteKey(input.orgId, input.providerId);
+    this.acquireProviderWrite(writeKey);
     const opId = `model-disconnect:${randomUUID()}`;
     const op: PendingModelProviderDisconnect = {
       opId,
@@ -3578,7 +4334,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       }, modelProviderDisconnectExpiresMs),
     };
     this.modelProviderDisconnects.set(opId, op);
-    void this.runModelProviderDisconnect({ op, input });
+    void this.runModelProviderDisconnect({ op, input, writeKey });
 
     return ok({ opId, status: "pending" });
   }
@@ -3618,6 +4374,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private async runModelProviderDisconnect(input: {
     readonly op: PendingModelProviderDisconnect;
     readonly input: DisconnectModelProviderInput;
+    readonly writeKey: string;
   }): Promise<void> {
     const { op } = input;
     // The disconnect is the unit of work; it outlives the request that started it. A throw here
@@ -3641,6 +4398,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         message: "Disconnect failed unexpectedly in the provisioning worker.",
         code: "provisioning.connections.disconnectFailed",
       };
+    } finally {
+      this.releaseProviderWrite(input.writeKey);
     }
   }
 
@@ -4623,9 +5382,19 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }
 
   private async cleanupModelProviderFlow(flow: PendingModelProviderDeviceFlow): Promise<void> {
-    this.modelDeviceFlows.delete(flow.flowId);
+    const reservationKey = credentialWriteKey(flow.orgId, flow.providerId);
+    this.acquireProviderWrite(reservationKey);
     clearTimeout(flow.timeout);
-    await this.options.gatewayRuntime?.stopDeviceCodeLogin(flow.execId, flow.logPath);
+    try {
+      await this.options.gatewayRuntime?.stopDeviceCodeLogin(flow.execId, flow.logPath);
+    } finally {
+      // Keep the mapped flow visible until the runtime stop settles. If a timeout and a poll clean
+      // the same flow concurrently, ref-counted reservations ensure either owner keeps toggles out.
+      if (this.modelDeviceFlows.get(flow.flowId)?.execId === flow.execId) {
+        this.modelDeviceFlows.delete(flow.flowId);
+      }
+      this.releaseProviderWrite(reservationKey);
+    }
   }
 
   private async cleanupModelProviderFlowsForProvider(
@@ -4678,21 +5447,31 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       "Waiting for gateway device-code authorization.",
     );
     if (connection.status === "connected") {
-      await this.cleanupModelProviderFlow(flow);
-      // The device-code login onboards through the same gateway path as the api-key connect, so it
-      // moves the primary the same way and needs the same reconcile (#186).
-      await this.reconcileOrchestratorAfterCredentialChange({
-        reason: "deviceFlowConnect",
-        providerId: flow.providerId,
-      });
-      return ok({
-        status: "connected",
-        message: `${flow.providerId} connected in Opzava Gateway.`,
-        connection: {
-          ...connection,
-          authChoiceId: connection.authChoiceId ?? flow.authChoiceId,
-        },
-      });
+      const reservationKey = credentialWriteKey(flow.orgId, flow.providerId);
+      this.acquireProviderWrite(reservationKey);
+      try {
+        // The device-code login onboards through the same gateway path as the api-key connect, so it
+        // moves the primary the same way and needs the same reconcile (#186). Keep the flow in the
+        // guard map until reconcile finishes so a toggle cannot interleave with its config.patch.
+        await this.reconcileOrchestratorAfterCredentialChange({
+          reason: "deviceFlowConnect",
+          providerId: flow.providerId,
+        });
+        return ok({
+          status: "connected",
+          message: `${flow.providerId} connected in Opzava Gateway.`,
+          connection: {
+            ...connection,
+            authChoiceId: connection.authChoiceId ?? flow.authChoiceId,
+          },
+        });
+      } finally {
+        try {
+          await this.cleanupModelProviderFlow(flow);
+        } finally {
+          this.releaseProviderWrite(reservationKey);
+        }
+      }
     }
 
     let currentFlow = flow;
@@ -4915,6 +5694,10 @@ export class UnavailableConnectionsProvisioningPort implements ConnectionsProvis
   }
 
   public async pollModelProviderDisconnect(): Promise<Result<ModelProviderDisconnectPollState>> {
+    return err(this.error());
+  }
+
+  public async setModelProviderModelEnabled(): Promise<Result<ProviderConnectionState>> {
     return err(this.error());
   }
 

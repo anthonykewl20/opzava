@@ -378,6 +378,34 @@ async function handleConnectionsRequest(
     return;
   }
 
+  if (route === "/internal/connections/model/models") {
+    if (!isRecord(body)) {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const providerId = stringValue(body["providerId"]);
+    const modelId = stringValue(body["modelId"]);
+    const enabled = body["enabled"];
+    if (providerId === null || modelId === null || typeof enabled !== "boolean") {
+      writeJson(response, 400, { error: "invalid_request" });
+      return;
+    }
+
+    const result = await options.provisioningPort.setModelProviderModelEnabled({
+      ...principal,
+      providerId,
+      modelId,
+      enabled,
+    });
+    writeJson(
+      response,
+      result.ok ? 200 : 502,
+      result.ok ? result.value : errorPayload(result.error),
+    );
+    return;
+  }
+
   if (route === "/internal/connections/orchestrator/apply") {
     if (!isRecord(body)) {
       writeJson(response, 400, { error: "invalid_request" });

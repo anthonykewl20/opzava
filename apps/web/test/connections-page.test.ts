@@ -390,6 +390,7 @@ function fakePort(): ConnectionsProvisioningPort {
         status: "disconnected",
         connection: providerState({ providerId: "openai", status: "not_connected" }),
       }),
+    setModelProviderModelEnabled: async () => ok(providerState()),
     applyOrchestratorDelegation: async (input) =>
       ok({
         orchestratorAgentId: "ask-admin-opzava",

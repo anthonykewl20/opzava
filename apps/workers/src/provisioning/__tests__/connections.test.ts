@@ -17,6 +17,7 @@ import {
   type OpenClawOperatorScope,
   type OrchestratorDelegationState,
   type OrchestratorSubagentRole,
+  type PluginModelDiscoveryRead,
   type ProviderAuthProbe,
   type ProviderConnectionState,
   type SecretReference,
@@ -178,6 +179,7 @@ function fakeProvisioningPort(): ConnectionsProvisioningPort {
         status: "disconnected",
         connection: { ...providerConnection(), status: "not_connected" },
       }),
+    setModelProviderModelEnabled: async () => ok(providerConnection()),
     applyOrchestratorDelegation: async () =>
       ok({
         orchestratorAgentId: "ask-admin-opzava",
@@ -267,6 +269,157 @@ class RecordingAdminClient implements OpenClawAdminRpcPort {
   }
 
   public close(): void {}
+}
+
+function applyJsonMergePatch(target: unknown, patch: unknown): unknown {
+  if (typeof patch !== "object" || patch === null || Array.isArray(patch)) {
+    return patch;
+  }
+  const next: Record<string, unknown> =
+    typeof target === "object" && target !== null && !Array.isArray(target)
+      ? { ...(target as Record<string, unknown>) }
+      : {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) {
+      delete next[key];
+    } else {
+      next[key] = applyJsonMergePatch(next[key], value);
+    }
+  }
+  return next;
+}
+
+function modelToggleAdmin(input: {
+  readonly config: Record<string, unknown>;
+  readonly models: unknown;
+  readonly patchResults?: readonly Result<unknown>[];
+  readonly retainPatch?: boolean;
+  readonly applyFailedPatch?: boolean;
+}): RecordingAdminClient & { currentConfig(): Record<string, unknown> } {
+  let config: Record<string, unknown> = input.config;
+  let hash = 1;
+  let patchAttempt = 0;
+  const admin = new RecordingAdminClient({
+    "config.get": () => ok({ hash: `toggle-hash-${hash}`, config }),
+    "models.list": ok(input.models),
+    "config.patch": () => {
+      const forced = input.patchResults?.[patchAttempt];
+      patchAttempt += 1;
+      const call = admin.calls.at(-1);
+      const raw = typeof call?.params["raw"] === "string" ? call.params["raw"] : "{}";
+      if (
+        input.retainPatch !== false &&
+        (forced === undefined || forced.ok || input.applyFailedPatch === true)
+      ) {
+        config = applyJsonMergePatch(config, JSON.parse(raw)) as Record<string, unknown>;
+      }
+      if (forced !== undefined && !forced.ok) {
+        return forced;
+      }
+      hash += 1;
+      return forced ?? ok({ ok: true });
+    },
+  });
+  return Object.assign(admin, { currentConfig: () => config });
+}
+
+/**
+ * `models status` derived from the toggle admin's LIVE config: `allowed` mirrors the
+ * agents.defaults.models keys the last patch wrote. The post-check refuses an allowed set that
+ * disagrees with the toggle, so a STATIC fake here would fail honest enables (allowed never gains
+ * the ref) or vacuously pass broken ones — the fake must move when the config moves.
+ */
+function toggleStatusFromAdmin(
+  admin: { currentConfig(): Record<string, unknown> },
+  providerId = "opencode-go",
+): () => Result<unknown> {
+  return () => {
+    const agents = admin.currentConfig()["agents"] as Record<string, unknown> | undefined;
+    const defaults = agents?.["defaults"] as Record<string, unknown> | undefined;
+    const models = defaults?.["models"] as Record<string, unknown> | undefined;
+    return ok({
+      allowed: Object.keys(models ?? {}),
+      auth: {
+        providers: [
+          {
+            provider: providerId,
+            profiles: { count: 1, apiKey: 1, labels: [`${providerId}:manual=API key`] },
+          },
+        ],
+      },
+    });
+  };
+}
+
+const bundleModelsPayload = {
+  providers: [{ id: "opencode-go", label: "OpenCode Go", suggestedModel: "opencode-go/base" }],
+  models: [
+    { id: "base", name: "Base", provider: "opencode-go" },
+    { id: "visible", name: "Registry Visible", provider: "opencode-go" },
+  ],
+};
+
+const bundleDiscovery: PluginModelDiscoveryRead = {
+  plugins: [{ id: "opencode-go", enabled: true }],
+  catalogs: [
+    {
+      pluginId: "opencode-go",
+      providers: {
+        "opencode-go": {
+          baseUrl: "https://opencode.example/v1",
+          api: "openai-completions",
+          models: [
+            { id: "visible", name: "Plugin duplicate must lose" },
+            { id: "kimi-k2.6", name: "Kimi K2.6", reasoning: true, custom: { kept: true } },
+          ],
+        },
+      },
+    },
+  ],
+};
+
+function bundleConfig(
+  input: {
+    readonly enabled?: readonly string[];
+    readonly profileModel?: string;
+    readonly defaultsModel?: unknown;
+    readonly imageModel?: unknown;
+    readonly connected?: boolean;
+  } = {},
+): Record<string, unknown> {
+  return {
+    auth: {
+      profiles:
+        input.connected === false
+          ? {}
+          : {
+              "opencode-go:manual": {
+                providerId: "opencode-go",
+                authChoiceId: "api-key",
+                model: input.profileModel ?? "opencode-go/base",
+              },
+            },
+      order: { "opencode-go": ["opencode-go:manual"] },
+    },
+    agents: {
+      defaults: {
+        model: input.defaultsModel ?? { primary: "other/default" },
+        ...(input.imageModel === undefined ? {} : { imageModel: input.imageModel }),
+        models: Object.fromEntries(
+          (input.enabled ?? ["base"]).map((id) => [`opencode-go/${id}`, {}]),
+        ),
+      },
+      list: [],
+    },
+    models: {
+      providers: {
+        "opencode-go": {
+          baseUrl: "https://existing.example/v1",
+          models: [{ id: "base", existing: true }],
+        },
+      },
+    },
+  };
 }
 
 class MemorySecretsVault {
@@ -372,6 +525,7 @@ class RecordingGatewayRuntime {
   public connectedDeviceProviderId: string | null = null;
   public deviceLogResult: Result<string> | null = null;
   public modelStatusCalls = 0;
+  public pluginDiscoveryCalls = 0;
 
   public constructor(
     private readonly options: {
@@ -389,6 +543,8 @@ class RecordingGatewayRuntime {
         readonly stderr: string;
       }>;
       readonly connectDelayMs?: number;
+      readonly deviceLoginBarrier?: Promise<void>;
+      readonly deviceStopBarrier?: Promise<void>;
       readonly deviceCodeLogResult?: Result<string>;
       readonly deviceCodeLog?: string | (() => string);
       readonly setupTokenLog?: string | (() => string);
@@ -402,8 +558,14 @@ class RecordingGatewayRuntime {
        * still connected after its credential is gone, and a rollback could not be tested honestly.
        */
       readonly statusFromStores?: { readonly providerId: string; readonly model: string };
+      readonly pluginDiscoveryResult?: Result<PluginModelDiscoveryRead>;
     } = {},
   ) {}
+
+  public async readPluginModelDiscovery(): Promise<Result<PluginModelDiscoveryRead>> {
+    this.pluginDiscoveryCalls += 1;
+    return this.options.pluginDiscoveryResult ?? ok({ catalogs: [], plugins: [] });
+  }
 
   public async listAuthChoices(): Promise<
     Result<
@@ -623,6 +785,7 @@ class RecordingGatewayRuntime {
   ): Promise<Result<{ readonly execId: string; readonly logPath: string }>> {
     this.deviceLoginCalls.push(providerId);
     this.deviceLoginAgentIds.push(agentId);
+    await this.options.deviceLoginBarrier;
     this.storeFor(agentId).add(this.connectedDeviceProviderId ?? providerId);
     return ok({ execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" });
   }
@@ -657,6 +820,7 @@ class RecordingGatewayRuntime {
 
   public async stopDeviceCodeLogin(execId: string, logPath: string): Promise<void> {
     this.deviceStops.push({ execId, logPath });
+    await this.options.deviceStopBarrier;
   }
 
   public async startSetupTokenLogin(): Promise<
@@ -1225,6 +1389,52 @@ describe("Connections provisioning helpers", () => {
     }
   });
 
+  it("validates and forwards synchronous model toggle requests", async () => {
+    const inputs: unknown[] = [];
+    const server = createConnectionsInternalHttpServer({
+      provisioningPort: {
+        ...fakeProvisioningPort(),
+        setModelProviderModelEnabled: async (input) => {
+          inputs.push(input);
+          return ok(providerConnection());
+        },
+      },
+      internalToken: "local-provisioning-token",
+    });
+    const baseUrl = await listen(server);
+    const request = (enabled: unknown) =>
+      fetch(`${baseUrl}/internal/connections/model/models`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer local-provisioning-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          orgId: "org-1",
+          workspaceId: "workspace-1",
+          actorUserId: "user-1",
+          roleKeys: ["admin"],
+          providerId: "opencode-go",
+          modelId: "kimi-k2.6",
+          enabled,
+        }),
+      });
+
+    try {
+      expect((await request("true")).status).toBe(400);
+      expect((await request(true)).status).toBe(200);
+      expect(inputs).toEqual([
+        expect.objectContaining({
+          providerId: "opencode-go",
+          modelId: "kimi-k2.6",
+          enabled: true,
+        }),
+      ]);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   it("resolves provisioning-worker runtime config from the production env names", () => {
     expect(
       resolveProvisioningWorkerRuntimeConfig({
@@ -1785,7 +1995,10 @@ describe("Connections provisioning helpers", () => {
             order: { zai: ["zai-zai-api-key"] },
           },
           agents: {
-            defaults: { model: { primary: "zai/glm-5.2" } },
+            defaults: {
+              model: { primary: "zai/glm-5.2" },
+              models: { "zai/glm-5.2": {} },
+            },
             list: [{ id: "ask-admin-opzava", model: "openai/gpt-5.5" }],
           },
           models: {
@@ -1888,7 +2101,7 @@ describe("Connections provisioning helpers", () => {
       id: "zai",
       label: "Z.AI (GLM)",
       category: "llm",
-      // configured model (agents.defaults.model.primary zai/glm-5.2), not the raw catalog list
+      // Enabled model from agents.defaults.models, not the raw catalog list.
       models: expect.arrayContaining([expect.objectContaining({ id: "glm-5.2" })]),
     });
     expect(
@@ -5772,16 +5985,24 @@ describe("Connections provisioning helpers", () => {
       providerId: "openai",
       authChoiceId: "openai-device-code",
     });
+    const toggle = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "openai",
+      modelId: "gpt-5.5",
+      enabled: true,
+    });
     if (!first.ok) {
       throw first.error;
     }
     if (!second.ok) {
       throw second.error;
     }
-
     const firstPoll = await port.pollDeviceFlow({ ...principal(), flowId: first.value.flowId });
     const secondPoll = await port.pollDeviceFlow({ ...principal(), flowId: second.value.flowId });
 
+    expect(toggle.ok ? null : toggle.error).toMatchObject({
+      code: "provisioning.connections.providerConnectInFlight",
+    });
     expect(gatewayRuntime.deviceLoginCalls).toEqual(["openai", "openai"]);
     expect(gatewayRuntime.deviceStops).toEqual([
       { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
@@ -5795,6 +6016,105 @@ describe("Connections provisioning helpers", () => {
       verificationUri: "https://auth.openai.com/codex/device",
       userCode: "NRK5-7IPKG",
     });
+  });
+
+  it("reserves the provider while a device-code login is starting", async () => {
+    let releaseLogin!: () => void;
+    const deviceLoginBarrier = new Promise<void>((resolve) => {
+      releaseLogin = resolve;
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLog: "Open https://auth.openai.com/codex/device\nCode: NRK5-7IPKG\n",
+      deviceLoginBarrier,
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    });
+
+    const starting = port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+    while (gatewayRuntime.deviceLoginCalls.length === 0) {
+      await Promise.resolve();
+    }
+    const toggle = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "openai",
+      modelId: "gpt-5.5",
+      enabled: true,
+    });
+    const disconnect = await port.startModelProviderDisconnect({
+      ...principal(),
+      providerId: "openai",
+    });
+    releaseLogin();
+    const started = await starting;
+
+    expect(started.ok).toBe(true);
+    expect(toggle.ok ? null : toggle.error.code).toBe(
+      "provisioning.connections.providerConnectInFlight",
+    );
+    expect(disconnect.ok ? null : disconnect.error.code).toBe(
+      "provisioning.connections.providerConnectInFlight",
+    );
+  });
+
+  it("keeps toggle and disconnect blocked until expired device-flow cleanup stops the runtime", async () => {
+    let releaseStop!: () => void;
+    const deviceStopBarrier = new Promise<void>((resolve) => {
+      releaseStop = resolve;
+    });
+    let now = new Date("2026-07-03T00:00:00.000Z");
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [{ id: "openai-device-code", label: "OpenAI OAuth", mode: "device-flow" }],
+      deviceCodeLog: "Open https://auth.openai.com/codex/device\nCode: NRK5-7IPKG\n",
+      deviceStopBarrier,
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: openAiDeviceFlowAdmin(),
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => now,
+    });
+    const started = await port.startModelProviderDeviceFlow({
+      ...principal(),
+      providerId: "openai",
+      authChoiceId: "openai-device-code",
+    });
+    if (!started.ok) throw started.error;
+    now = new Date("2026-07-03T00:16:00.000Z");
+
+    const cleanup = port.pollDeviceFlow({ ...principal(), flowId: started.value.flowId });
+    while (gatewayRuntime.deviceStops.length === 0) {
+      await Promise.resolve();
+    }
+    const toggle = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "openai",
+      modelId: "gpt-5.5",
+      enabled: true,
+    });
+    const disconnect = await port.startModelProviderDisconnect({
+      ...principal(),
+      providerId: "openai",
+    });
+
+    expect(toggle.ok ? null : toggle.error.code).toBe(
+      "provisioning.connections.providerConnectInFlight",
+    );
+    expect(disconnect.ok ? null : disconnect.error.code).toBe(
+      "provisioning.connections.providerConnectInFlight",
+    );
+    releaseStop();
+    await expect(cleanup).resolves.toMatchObject({ ok: true, value: { status: "expired" } });
   });
 
   it("cleans up model-provider device-flow exec and log when the first log read fails", async () => {
@@ -6910,5 +7230,655 @@ describe("setup-token config profile does not suppress the shared write (issue #
     expect(logoutTargets).toEqual(
       expect.arrayContaining(["default", "ask-admin-opzava", "subagent-anthropic", "main"]),
     );
+  });
+
+  it("unions models.list with only the enabled owning plugin catalog and dedupes by model id", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "catalog-hash", config: bundleConfig() }),
+      health: ok({ status: "ok" }),
+      "last-heartbeat": ok({}),
+      "models.list": ok(bundleModelsPayload),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      pluginDiscoveryResult: ok({
+        ...bundleDiscovery,
+        plugins: [...bundleDiscovery.plugins, { id: "disabled-provider", enabled: false }],
+        catalogs: [
+          ...bundleDiscovery.catalogs,
+          {
+            pluginId: "disabled-provider",
+            providers: {
+              "disabled-provider": { models: [{ id: "must-not-appear", name: "Disabled" }] },
+            },
+          },
+        ],
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+    });
+
+    const result = await port.getConnectionsSnapshot(principal());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw result.error;
+    expect(
+      result.value.providerCatalog.find((entry) => entry.id === "opencode-go")?.catalogModels,
+    ).toEqual([
+      { id: "base", label: "Base" },
+      { id: "visible", label: "Registry Visible" },
+      { id: "kimi-k2.6", label: "Kimi K2.6" },
+    ]);
+    expect(result.value.providerCatalog.some((entry) => entry.id === "disabled-provider")).toBe(
+      false,
+    );
+    expect(gatewayRuntime.pluginDiscoveryCalls).toBe(1);
+  });
+
+  it("excludes catalog-only models when the matching owning plugin is disabled", async () => {
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "catalog-hash", config: bundleConfig() }),
+      health: ok({ status: "ok" }),
+      "last-heartbeat": ok({}),
+      "models.list": ok(bundleModelsPayload),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      pluginDiscoveryResult: ok({
+        catalogs: bundleDiscovery.catalogs,
+        plugins: [{ id: "opencode-go", enabled: false }],
+      }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+    });
+
+    const result = await port.getConnectionsSnapshot(principal());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw result.error;
+    expect(
+      result.value.providerCatalog.find((entry) => entry.id === "opencode-go")?.catalogModels,
+    ).toEqual([
+      { id: "base", label: "Base" },
+      { id: "visible", label: "Registry Visible" },
+    ]);
+  });
+
+  it("warns once and falls back to models.list when plugin catalog discovery fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const admin = new RecordingAdminClient({
+      "config.get": ok({ hash: "catalog-hash", config: bundleConfig() }),
+      health: ok({ status: "ok" }),
+      "last-heartbeat": ok({}),
+      "models.list": ok(bundleModelsPayload),
+      "models.authStatus": ok({
+        providers: [{ provider: "opencode-go", status: "missing", profiles: [] }],
+      }),
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      pluginDiscoveryResult: err(
+        new DomainError({ code: "gateway.catalogReadFailed", message: "catalog read failed" }),
+      ),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+    });
+
+    const result = await port.getConnectionsSnapshot(principal());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw result.error;
+    expect(
+      result.value.providerCatalog.find((entry) => entry.id === "opencode-go")?.catalogModels,
+    ).toEqual([
+      { id: "base", label: "Base" },
+      { id: "visible", label: "Registry Visible" },
+    ]);
+    expect(gatewayRuntime.pluginDiscoveryCalls).toBe(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("connections.pluginModelDiscovery.unavailable", {
+      code: "gateway.catalogReadFailed",
+    });
+  });
+
+  it("enables a plugin-catalog model with the full registry definition without clobbering entries", async () => {
+    const admin = modelToggleAdmin({ config: bundleConfig(), models: bundleModelsPayload });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      pluginDiscoveryResult: ok(bundleDiscovery),
+      statusResult: toggleStatusFromAdmin(admin),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "kimi-k2.6",
+      enabled: true,
+    });
+
+    expect(result.ok).toBe(true);
+    const patch = JSON.parse(
+      String(admin.calls.find((call) => call.method === "config.patch")?.params["raw"]),
+    ) as Record<string, unknown>;
+    expect(patch).toMatchObject({
+      agents: { defaults: { models: { "opencode-go/kimi-k2.6": {} } } },
+      models: {
+        providers: {
+          "opencode-go": {
+            models: [
+              { id: "base", existing: true },
+              {
+                id: "kimi-k2.6",
+                name: "Kimi K2.6",
+                reasoning: true,
+                custom: { kept: true },
+              },
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  it("enables an already registry-visible model by changing only agents.defaults.models", async () => {
+    const admin = modelToggleAdmin({ config: bundleConfig(), models: bundleModelsPayload });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({
+        pluginDiscoveryResult: ok(bundleDiscovery),
+        statusResult: toggleStatusFromAdmin(admin),
+      }),
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "visible",
+      enabled: true,
+    });
+
+    expect(result.ok).toBe(true);
+    const raw = admin.calls.find((call) => call.method === "config.patch")?.params["raw"];
+    expect(JSON.parse(String(raw))).toEqual({
+      agents: { defaults: { models: { "opencode-go/visible": {} } } },
+    });
+  });
+
+  it("disables only the defaults key and keeps registry metadata", async () => {
+    const admin = modelToggleAdmin({
+      config: bundleConfig({ enabled: ["base", "kimi-k2.6"] }),
+      models: bundleModelsPayload,
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "kimi-k2.6",
+      enabled: false,
+    });
+
+    expect(result.ok).toBe(true);
+    const raw = admin.calls.find((call) => call.method === "config.patch")?.params["raw"];
+    expect(JSON.parse(String(raw))).toEqual({
+      agents: { defaults: { models: { "opencode-go/kimi-k2.6": null } } },
+    });
+  });
+
+  it.each([
+    [
+      "last enabled",
+      bundleConfig({ enabled: ["kimi-k2.6"] }),
+      "provisioning.connections.lastEnabledModel",
+    ],
+    [
+      "primary",
+      bundleConfig({ enabled: ["base", "kimi-k2.6"], defaultsModel: "opencode-go/kimi-k2.6" }),
+      "provisioning.connections.modelInUse",
+    ],
+    [
+      "fallback",
+      bundleConfig({
+        enabled: ["base", "kimi-k2.6"],
+        defaultsModel: { primary: "other/default", fallbacks: ["opencode-go/kimi-k2.6"] },
+      }),
+      "provisioning.connections.modelInUse",
+    ],
+    [
+      "image fallback",
+      bundleConfig({
+        enabled: ["base", "kimi-k2.6"],
+        imageModel: { fallbacks: ["opencode-go/kimi-k2.6"] },
+      }),
+      "provisioning.connections.modelInUse",
+    ],
+    [
+      "auth profile",
+      bundleConfig({
+        enabled: ["base", "kimi-k2.6"],
+        profileModel: "opencode-go/kimi-k2.6",
+      }),
+      "provisioning.connections.modelInUse",
+    ],
+  ])("refuses to disable a %s model", async (_case, config, expectedCode) => {
+    const admin = modelToggleAdmin({ config, models: bundleModelsPayload });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "kimi-k2.6",
+      enabled: false,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected refusal");
+    expect(result.error.code).toBe(expectedCode);
+    expect(admin.calls.some((call) => call.method === "config.patch")).toBe(false);
+  });
+
+  it("treats enable and disable requests that already hold as idempotent no-ops", async () => {
+    const enableAdmin = modelToggleAdmin({
+      config: bundleConfig({ enabled: ["base", "visible"] }),
+      models: bundleModelsPayload,
+    });
+    const disableAdmin = modelToggleAdmin({ config: bundleConfig(), models: bundleModelsPayload });
+    const makePort = (admin: RecordingAdminClient) =>
+      new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+      });
+
+    const enabled = await makePort(enableAdmin).setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "visible",
+      enabled: true,
+    });
+    const disabled = await makePort(disableAdmin).setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "kimi-k2.6",
+      enabled: false,
+    });
+
+    expect(enabled.ok).toBe(true);
+    expect(disabled.ok).toBe(true);
+    expect(enableAdmin.calls.some((call) => call.method === "config.patch")).toBe(false);
+    expect(disableAdmin.calls.some((call) => call.method === "config.patch")).toBe(false);
+  });
+
+  it("retries a stale base hash but not other mutation failures", async () => {
+    const admin = modelToggleAdmin({
+      config: bundleConfig(),
+      models: bundleModelsPayload,
+      patchResults: [
+        err(new DomainError({ code: "gateway.staleBaseHash", message: "baseHash is stale" })),
+        ok({ ok: true }),
+      ],
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({
+        pluginDiscoveryResult: ok(bundleDiscovery),
+        statusResult: toggleStatusFromAdmin(admin),
+      }),
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "visible",
+      enabled: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(2);
+    expect(admin.calls.filter((call) => call.method === "config.get").length).toBeGreaterThan(2);
+  });
+
+  it("returns a typed config conflict after stale base-hash retries are exhausted", async () => {
+    const stale = () =>
+      err(new DomainError({ code: "gateway.staleBaseHash", message: "baseHash is stale" }));
+    const admin = modelToggleAdmin({
+      config: bundleConfig(),
+      models: bundleModelsPayload,
+      patchResults: [stale(), stale(), stale()],
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "visible",
+      enabled: true,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected config conflict");
+    expect(result.error.code).toBe("provisioning.connections.configConflict");
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(3);
+  });
+
+  it("refuses to enable a model absent from the fresh provider catalog", async () => {
+    const admin = modelToggleAdmin({ config: bundleConfig(), models: bundleModelsPayload });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "not-real",
+      enabled: true,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected catalog refusal");
+    expect(result.error.code).toBe("provisioning.connections.modelNotInCatalog");
+    expect(admin.calls.some((call) => call.method === "config.patch")).toBe(false);
+  });
+
+  it("refuses a provider without an owned auth profile", async () => {
+    const admin = modelToggleAdmin({
+      config: bundleConfig({ connected: false }),
+      models: bundleModelsPayload,
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "visible",
+      enabled: true,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected refusal");
+    expect(result.error.code).toBe("provisioning.connections.providerNotConnected");
+  });
+
+  it("allows a toggle for a provider connected only through the runtime agent store", async () => {
+    // OAuth-style connections keep config.auth.profiles EMPTY; the runtime agent store is the
+    // truth (`models status` profiles). The guard must mirror the snapshot's notion of connected
+    // or every switch the UI renders for such a provider bounces with providerNotConnected.
+    const admin = modelToggleAdmin({
+      config: bundleConfig({ connected: false }),
+      models: bundleModelsPayload,
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({
+        pluginDiscoveryResult: ok(bundleDiscovery),
+        statusResult: toggleStatusFromAdmin(admin),
+      }),
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "visible",
+      enabled: true,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw result.error;
+    // The RETURNED row must also read the runtime store: projected from config alone it would
+    // report not_connected the moment the toggle succeeded.
+    expect(result.value.status).toBe("connected");
+    const raw = admin.calls.find((call) => call.method === "config.patch")?.params["raw"];
+    expect(JSON.parse(String(raw))).toEqual({
+      agents: { defaults: { models: { "opencode-go/visible": {} } } },
+    });
+  });
+
+  it("treats disabling an absent-but-protected model as an idempotent no-op", async () => {
+    // The no-op check runs BEFORE the disable guardrails: a model that is already absent from the
+    // enabled set must disable successfully without mutation even while a primary/fallback still
+    // references it — the guardrails protect a real removal, not a request that changes nothing.
+    const admin = modelToggleAdmin({
+      config: bundleConfig({ enabled: ["base"], defaultsModel: "opencode-go/kimi-k2.6" }),
+      models: bundleModelsPayload,
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "kimi-k2.6",
+      enabled: false,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(admin.calls.some((call) => call.method === "config.patch")).toBe(false);
+  });
+
+  it("fails typed when the allowed set never reflects an enabled model", async () => {
+    // The defaults key landing in config is NOT routability: when the gateway's own
+    // `models status` allowed set keeps disagreeing past the transient budget, the op must
+    // report failure rather than declare an enabled-but-unroutable model connected.
+    vi.useFakeTimers();
+    try {
+      const admin = modelToggleAdmin({ config: bundleConfig(), models: bundleModelsPayload });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        gatewayRuntime: new RecordingGatewayRuntime({
+          pluginDiscoveryResult: ok(bundleDiscovery),
+          // Static allowed list that never gains the ref — e.g. the reload dropped the model.
+          statusResult: ok({ allowed: ["opencode-go/base"], auth: { providers: [] } }),
+        }),
+      });
+
+      const pending = port.setModelProviderModelEnabled({
+        ...principal(),
+        providerId: "opencode-go",
+        modelId: "visible",
+        enabled: true,
+      });
+      await vi.advanceTimersByTimeAsync(151_000);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected allowed-set failure");
+      expect(result.error.code).toBe("provisioning.connections.modelTogglePostCheckFailed");
+      expect(result.error.details).toMatchObject({ allowedOk: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts a config patch that committed before the reload closed the response socket", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const admin = modelToggleAdmin({
+      config: bundleConfig(),
+      models: bundleModelsPayload,
+      patchResults: [
+        err(
+          new DomainError({
+            code: "gateway.closedBeforeResponse",
+            message: "config.patch closed before a response",
+          }),
+        ),
+      ],
+      applyFailedPatch: true,
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({
+        pluginDiscoveryResult: ok(bundleDiscovery),
+        statusResult: toggleStatusFromAdmin(admin),
+      }),
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "visible",
+      enabled: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(admin.calls.some((call) => call.method === "health")).toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      "connections.modelToggle.configPatch.ambiguous",
+      expect.objectContaining({ providerId: "opencode-go", modelId: "visible" }),
+    );
+  });
+
+  it("fails typed when an ambiguous config patch never appears in refreshed config", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const admin = modelToggleAdmin({
+        config: bundleConfig(),
+        models: bundleModelsPayload,
+        patchResults: [
+          err(
+            new DomainError({
+              code: "gateway.closedBeforeResponse",
+              message: "config.patch closed before a response",
+            }),
+          ),
+        ],
+      });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+      });
+
+      const pending = port.setModelProviderModelEnabled({
+        ...principal(),
+        providerId: "opencode-go",
+        modelId: "visible",
+        enabled: true,
+      });
+      await vi.advanceTimersByTimeAsync(151_000);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected ambiguous failure");
+      expect(result.error.code).toBe("provisioning.connections.modelTogglePostCheckFailed");
+      expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not post-check a definitive config patch refusal", async () => {
+    const admin = modelToggleAdmin({
+      config: bundleConfig(),
+      models: bundleModelsPayload,
+      patchResults: [
+        err(new DomainError({ code: "gateway.permissionDenied", message: "permission denied" })),
+      ],
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+    });
+
+    const result = await port.setModelProviderModelEnabled({
+      ...principal(),
+      providerId: "opencode-go",
+      modelId: "visible",
+      enabled: true,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected definitive failure");
+    expect(result.error.code).toBe("gateway.permissionDenied");
+    expect(admin.calls.some((call) => call.method === "health")).toBe(false);
+  });
+
+  it("surfaces a typed post-check error when the gateway does not retain the patch", async () => {
+    vi.useFakeTimers();
+    try {
+      const admin = modelToggleAdmin({
+        config: bundleConfig(),
+        models: bundleModelsPayload,
+        retainPatch: false,
+      });
+      const port = new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        gatewayRuntime: new RecordingGatewayRuntime({ pluginDiscoveryResult: ok(bundleDiscovery) }),
+      });
+
+      const pending = port.setModelProviderModelEnabled({
+        ...principal(),
+        providerId: "opencode-go",
+        modelId: "visible",
+        enabled: true,
+      });
+      await vi.advanceTimersByTimeAsync(151_000);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected post-check failure");
+      expect(result.error.code).toBe("provisioning.connections.modelTogglePostCheckFailed");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

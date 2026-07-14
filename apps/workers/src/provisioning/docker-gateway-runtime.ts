@@ -10,9 +10,13 @@ import {
   type GatewayRuntimeDeviceCodeLogin,
   type GatewayRuntimePort,
   type GatewayRuntimeSetupTokenLogin,
+  type PluginModelCatalog,
+  type PluginModelDiscoveryRead,
   type ProviderAuthProbe,
 } from "@opzava/ports";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
+
+import { ASK_ADMIN_AGENT_DIR } from "./ask-admin-agent.js";
 
 type Fetch = typeof fetch;
 
@@ -25,6 +29,11 @@ const authProbeMaxTokens = 8;
 // The exec must outlive the probe's own timeout, or we would time the docker request out while the
 // gateway is still deciding — which reads as "unproven" and silently disarms the guard.
 const authProbeExecTimeoutMs = 60_000;
+const pluginModelDiscoveryTimeoutMs = 15_000;
+const pluginModelDiscoveryMaxOutputBytes = 2 * 1024 * 1024;
+const pluginModelDiscoveryTruncatedExitCode = 73;
+const pluginModelDiscoveryMagic = "OPZAVA_PLUGIN_DISCOVERY_V1";
+const generatedPluginModelCatalogVersion = "openclaw-plugin-model-catalog-v1";
 
 function provisioningError(
   code: string,
@@ -100,6 +109,198 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function recordValue(value: unknown): Record<string, unknown> | null {
   return isRecord(value) ? value : null;
+}
+
+function pluginModelDiscoveryCommand(): string {
+  const outputLimit = pluginModelDiscoveryMaxOutputBytes;
+  const outputLimitWithSentinel = outputLimit + 1;
+  const catalogGlob = `${shellQuote(ASK_ADMIN_AGENT_DIR)}/plugins/*/catalog.json`;
+
+  // Build the framed document before emitting it so stdout can be capped with one sentinel byte.
+  // The sentinel plus a dedicated exit code lets the caller distinguish truncation from an honest
+  // empty directory; silently accepting a partial catalog would under-report paid-for models.
+  return [
+    "set -u",
+    "out=$(mktemp /tmp/opzava-plugin-discovery.XXXXXX)",
+    "plugins=$(mktemp /tmp/opzava-plugin-list.XXXXXX)",
+    'cleanup() { rm -f "$out" "$plugins"; }',
+    "trap cleanup EXIT HUP INT TERM",
+    'node openclaw.mjs plugins list --json > "$plugins" || exit 1',
+    `printf '${pluginModelDiscoveryMagic}\\n' > "$out"`,
+    'plugin_size=$(wc -c < "$plugins" | tr -d "[:space:]")',
+    'printf "P %s\\n" "$plugin_size" >> "$out"',
+    'cat "$plugins" >> "$out"',
+    `for f in ${catalogGlob}; do`,
+    '[ -f "$f" ] || continue',
+    'path_size=$(printf "%s" "$f" | wc -c | tr -d "[:space:]")',
+    'body_size=$(wc -c < "$f" | tr -d "[:space:]")',
+    'printf "C %s %s\\n" "$path_size" "$body_size" >> "$out"',
+    'printf "%s" "$f" >> "$out"',
+    'cat "$f" >> "$out"',
+    "done",
+    'printf "E\\n" >> "$out"',
+    'output_size=$(wc -c < "$out" | tr -d "[:space:]")',
+    `if [ "$output_size" -gt ${outputLimit} ]; then head -c ${outputLimitWithSentinel} "$out"; exit ${pluginModelDiscoveryTruncatedExitCode}; fi`,
+    'cat "$out"',
+  ].join("\n");
+}
+
+interface PluginDiscoveryFrameRead {
+  readonly pluginJson: string;
+  readonly catalogs: readonly { readonly path: string; readonly json: string }[];
+}
+
+function framedLine(
+  bytes: Buffer,
+  offset: number,
+): { readonly line: string; readonly nextOffset: number } | null {
+  const newline = bytes.indexOf(0x0a, offset);
+  if (newline < 0) {
+    return null;
+  }
+  return {
+    line: bytes.subarray(offset, newline).toString("utf8"),
+    nextOffset: newline + 1,
+  };
+}
+
+function framedBytes(
+  bytes: Buffer,
+  offset: number,
+  length: number,
+): { readonly value: string; readonly nextOffset: number } | null {
+  const nextOffset = offset + length;
+  if (!Number.isSafeInteger(length) || length < 0 || nextOffset > bytes.length) {
+    return null;
+  }
+  return { value: bytes.subarray(offset, nextOffset).toString("utf8"), nextOffset };
+}
+
+function parsePluginDiscoveryFrames(stdout: string): PluginDiscoveryFrameRead | null {
+  const bytes = Buffer.from(stdout, "utf8");
+  const magic = framedLine(bytes, 0);
+  if (magic === null || magic.line !== pluginModelDiscoveryMagic) {
+    return null;
+  }
+
+  const pluginHeader = framedLine(bytes, magic.nextOffset);
+  const pluginHeaderMatch = pluginHeader?.line.match(/^P (\d+)$/) ?? null;
+  if (pluginHeader === null || pluginHeaderMatch?.[1] === undefined) {
+    return null;
+  }
+  const pluginPayload = framedBytes(bytes, pluginHeader.nextOffset, Number(pluginHeaderMatch[1]));
+  if (pluginPayload === null) {
+    return null;
+  }
+
+  let offset = pluginPayload.nextOffset;
+  const catalogs: { path: string; json: string }[] = [];
+  while (offset < bytes.length) {
+    const header = framedLine(bytes, offset);
+    if (header === null) {
+      return null;
+    }
+    if (header.line === "E") {
+      return header.nextOffset === bytes.length
+        ? { pluginJson: pluginPayload.value, catalogs }
+        : null;
+    }
+
+    const catalogHeaderMatch = header.line.match(/^C (\d+) (\d+)$/);
+    if (catalogHeaderMatch?.[1] === undefined || catalogHeaderMatch[2] === undefined) {
+      return null;
+    }
+    const path = framedBytes(bytes, header.nextOffset, Number(catalogHeaderMatch[1]));
+    if (path === null) {
+      return null;
+    }
+    const json = framedBytes(bytes, path.nextOffset, Number(catalogHeaderMatch[2]));
+    if (json === null) {
+      return null;
+    }
+    catalogs.push({ path: path.value, json: json.value });
+    offset = json.nextOffset;
+  }
+
+  return null;
+}
+
+function parsePluginSummaries(json: string): PluginModelDiscoveryRead["plugins"] | null {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  const plugins = recordValue(payload)?.["plugins"];
+  if (!Array.isArray(plugins)) {
+    return null;
+  }
+
+  return plugins.flatMap((plugin) => {
+    const entry = recordValue(plugin);
+    const id = stringValue(entry?.["id"]);
+    const enabled = entry?.["enabled"];
+    return id === null || typeof enabled !== "boolean" ? [] : [{ id, enabled }];
+  });
+}
+
+function pluginIdFromCatalogPath(path: string): string | null {
+  const encodedPluginId = path.match(/\/plugins\/([^/]+)\/catalog\.json$/)?.[1];
+  if (encodedPluginId === undefined) {
+    return null;
+  }
+  try {
+    return stringValue(decodeURIComponent(encodedPluginId));
+  } catch {
+    return null;
+  }
+}
+
+function parsePluginModelCatalog(input: {
+  readonly path: string;
+  readonly json: string;
+}): PluginModelCatalog | null {
+  const pluginId = pluginIdFromCatalogPath(input.path);
+  if (pluginId === null) {
+    return null;
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(input.json);
+  } catch {
+    return null;
+  }
+  const catalog = recordValue(payload);
+  if (
+    catalog?.["generatedBy"] !== generatedPluginModelCatalogVersion ||
+    !isRecord(catalog["providers"])
+  ) {
+    return null;
+  }
+
+  const providers: PluginModelCatalog["providers"] = {};
+  for (const [providerId, rawProvider] of Object.entries(catalog["providers"])) {
+    const provider = recordValue(rawProvider);
+    const models = provider?.["models"];
+    if (
+      provider === null ||
+      !Array.isArray(models) ||
+      !models.every(isRecord) ||
+      ("baseUrl" in provider && typeof provider["baseUrl"] !== "string") ||
+      ("api" in provider && typeof provider["api"] !== "string")
+    ) {
+      continue;
+    }
+    providers[providerId] = {
+      ...(typeof provider["baseUrl"] === "string" ? { baseUrl: provider["baseUrl"] } : {}),
+      ...(typeof provider["api"] === "string" ? { api: provider["api"] } : {}),
+      models,
+    };
+  }
+
+  return Object.keys(providers).length === 0 ? null : { pluginId, providers };
 }
 
 function commandFailureError(input: {
@@ -504,6 +705,62 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
         ),
       );
     }
+  }
+
+  public async readPluginModelDiscovery(): Promise<Result<PluginModelDiscoveryRead>> {
+    const result = await this.exec(
+      ["sh", "-lc", pluginModelDiscoveryCommand()],
+      undefined,
+      pluginModelDiscoveryTimeoutMs,
+    );
+    if (!result.ok) {
+      return err(result.error);
+    }
+    if (result.value.exitCode === pluginModelDiscoveryTruncatedExitCode) {
+      return err(
+        provisioningError(
+          "provisioning.connections.pluginModelDiscoveryOutputTooLarge",
+          "Plugin model discovery exceeded the bounded output limit.",
+          { maxOutputBytes: pluginModelDiscoveryMaxOutputBytes },
+        ),
+      );
+    }
+    if (result.value.exitCode !== 0) {
+      return err(
+        provisioningError(
+          "provisioning.connections.pluginModelDiscoveryFailed",
+          "Gateway plugin model discovery failed.",
+          { exitCode: result.value.exitCode },
+        ),
+      );
+    }
+
+    const frames = parsePluginDiscoveryFrames(result.value.stdout);
+    if (frames === null) {
+      return err(
+        provisioningError(
+          "provisioning.connections.pluginModelDiscoveryInvalidOutput",
+          "Gateway plugin model discovery returned an invalid framed document.",
+        ),
+      );
+    }
+    const plugins = parsePluginSummaries(frames.pluginJson);
+    if (plugins === null) {
+      return err(
+        provisioningError(
+          "provisioning.connections.pluginListInvalidJson",
+          "Gateway plugin list JSON was invalid.",
+        ),
+      );
+    }
+
+    return ok({
+      plugins,
+      catalogs: frames.catalogs.flatMap((catalog) => {
+        const parsed = parsePluginModelCatalog(catalog);
+        return parsed === null ? [] : [parsed];
+      }),
+    });
   }
 
   public async connectApiKey(input: {

@@ -10,6 +10,7 @@ import type {
   ModelProviderDisconnectPollState,
   ModelProviderDisconnectStart,
   OrchestratorDelegationState,
+  ProviderConnectionState,
   SetupTokenFlowPollState,
   SetupTokenFlowStart,
 } from "@opzava/ports";
@@ -47,6 +48,11 @@ interface InternalProvisioningConfig {
 }
 
 const workerRequestTimeoutMs = 20_000;
+// The model toggle op verifies routability against a possibly-reloading gateway before answering
+// (bounded by its own 12s wall-clock budget plus one read round-trip), so its request window must
+// sit ABOVE the worker's worst case — a shorter window would abort a mutation that then commits
+// server-side, which is the sync-cliff this route exists to avoid.
+const modelToggleRequestTimeoutMs = 30_000;
 
 function connectionsError(code: string, message: string, cause?: unknown): DomainError {
   return new DomainError({
@@ -217,6 +223,10 @@ class UnavailableConnectionsProvisioningPort implements ConnectionsProvisioningP
     return err(this.error());
   }
 
+  public async setModelProviderModelEnabled(): Promise<Result<ProviderConnectionState>> {
+    return err(this.error());
+  }
+
   public async applyOrchestratorDelegation(): Promise<Result<OrchestratorDelegationState>> {
     return err(this.error());
   }
@@ -337,6 +347,18 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
     );
   }
 
+  public async setModelProviderModelEnabled(
+    input: ConnectionProvisioningPrincipal & {
+      readonly providerId: string;
+      readonly modelId: string;
+      readonly enabled: boolean;
+    },
+  ): Promise<Result<ProviderConnectionState>> {
+    return this.request<ProviderConnectionState>("/internal/connections/model/models", input, {
+      timeoutMs: modelToggleRequestTimeoutMs,
+    });
+  }
+
   public async applyOrchestratorDelegation(input: {
     readonly orgId: string;
     readonly workspaceId: string;
@@ -371,9 +393,16 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
     return this.request<GitHubConnectionState>("/internal/connections/github/disconnect", input);
   }
 
-  private async request<T>(path: string, body: unknown): Promise<Result<T>> {
+  private async request<T>(
+    path: string,
+    body: unknown,
+    options?: { readonly timeoutMs?: number },
+  ): Promise<Result<T>> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), workerRequestTimeoutMs);
+    const timeout = setTimeout(
+      () => controller.abort(),
+      options?.timeoutMs ?? workerRequestTimeoutMs,
+    );
     try {
       const response = await fetch(`${this.config.url}${path}`, {
         method: "POST",
@@ -638,6 +667,28 @@ export async function pollModelProviderDisconnectForContext(
   return dependencies.provisioningPort.pollModelProviderDisconnect({
     ...principalFromContext(input.context),
     opId: input.opId,
+  });
+}
+
+export async function setModelProviderModelEnabledForContext(
+  input: {
+    readonly context: AppSessionContext;
+    readonly providerId: string;
+    readonly modelId: string;
+    readonly enabled: boolean;
+  },
+  dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
+): Promise<Result<ProviderConnectionState>> {
+  const allowed = requireConnectionMutationRole(input.context);
+  if (!allowed.ok) {
+    return err(allowed.error);
+  }
+
+  return dependencies.provisioningPort.setModelProviderModelEnabled({
+    ...principalFromContext(input.context),
+    providerId: input.providerId,
+    modelId: input.modelId,
+    enabled: input.enabled,
   });
 }
 

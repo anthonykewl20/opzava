@@ -54,8 +54,13 @@ export interface ModelProviderCatalogEntry {
   readonly parentId?: string | null;
   /** Human label when this entry is a CLI runtime folded under its parent (e.g. "Claude CLI", "Codex CLI"). */
   readonly runtimeLabel?: string | null;
-  /** Real, current models advertised by the gateway (`models.list`); empty allowed, never faked. */
+  /** Models currently enabled for routing in the gateway config; empty allowed, never faked. */
   readonly models?: readonly ModelSummary[];
+  /**
+   * Full catalog advertised by the gateway (`models.list` plus enabled-plugin generated catalogs).
+   * `models` remains the enabled/configured set; absent or empty means honestly unknown, never faked.
+   */
+  readonly catalogModels?: readonly ModelSummary[];
 }
 
 export interface ProviderConnectionState {
@@ -225,6 +230,12 @@ export interface DisconnectModelProviderInput extends ConnectionProvisioningPrin
   readonly providerId: string;
 }
 
+export interface SetModelProviderModelEnabledInput extends ConnectionProvisioningPrincipal {
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly enabled: boolean;
+}
+
 // Disconnect logs the provider out of every configured agent, and the gateway caps control-plane
 // writes at 3 per 60s — so a tenant with 3+ agents needs 60-120s+ of paced writes. That cannot fit
 // in an HTTP request, hence start-then-poll (like the api-key connect flow) rather than one call.
@@ -285,6 +296,9 @@ export interface ModelProviderConnectFlowsPort {
   pollModelProviderDisconnect(
     input: PollModelProviderDisconnectInput,
   ): Promise<Result<ModelProviderDisconnectPollState>>;
+  setModelProviderModelEnabled(
+    input: SetModelProviderModelEnabledInput,
+  ): Promise<Result<ProviderConnectionState>>;
   startGitHubDeviceFlow(input: StartGitHubDeviceFlowInput): Promise<Result<DeviceFlowChallenge>>;
   disconnectGitHub(input: DisconnectGitHubInput): Promise<Result<GitHubConnectionState>>;
 }

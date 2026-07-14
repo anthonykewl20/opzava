@@ -48,6 +48,11 @@ export interface ProviderConnectionView {
   readonly roleLabel: "Lead orchestrator" | "Subagent";
   readonly model: string | null;
   readonly runtimeLabels: readonly string[];
+  /** Full enabled set; optional only for compatibility with callers holding older serialized views. */
+  readonly enabledModels?: readonly ModelSummary[];
+  /** Full advertised catalog; absent means the gateway did not provide one. */
+  readonly catalogModels?: readonly ModelSummary[];
+  readonly catalogModelCount?: number;
   readonly models: readonly ModelSummary[];
   readonly authHealth: ProviderAuthHealth | null;
   readonly expiryLabel: string | null;
@@ -187,8 +192,32 @@ interface ProviderGroupAccumulator {
   whenToUse: string;
   readonly authChoices: Map<string, ModelProviderAuthChoice>;
   readonly runtimeLabels: Set<string>;
-  readonly models: Map<string, ModelSummary>;
+  readonly enabledModelsByProvider: Map<string, Map<string, ModelSummary>>;
+  readonly catalogModelsByProvider: Map<string, Map<string, ModelSummary>>;
   readonly providerIds: Set<string>;
+}
+
+function modelKey(modelId: string): string {
+  return modelId.trim().toLowerCase();
+}
+
+function modelsById(models: readonly ModelSummary[]): Map<string, ModelSummary> {
+  const result = new Map<string, ModelSummary>();
+  for (const model of models) {
+    const key = modelKey(model.id);
+    if (key !== "" && !result.has(key)) {
+      result.set(key, model);
+    }
+  }
+  return result;
+}
+
+function sortedModels(
+  models: ReadonlyMap<string, ModelSummary> | undefined,
+): readonly ModelSummary[] {
+  return [...(models?.values() ?? [])].sort(
+    (left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
+  );
 }
 
 function providerClassification(provider: ModelProviderCatalogEntry): ProviderClassificationView {
@@ -216,7 +245,8 @@ function createProviderGroup(
     whenToUse: provider.whenToUse,
     authChoices: new Map(),
     runtimeLabels: new Set(),
-    models: new Map(),
+    enabledModelsByProvider: new Map(),
+    catalogModelsByProvider: new Map(),
     providerIds: new Set([provider.id]),
   };
 }
@@ -241,9 +271,8 @@ function addProviderToGroup(
     group.authChoices.set(`${choice.mode}:${choice.id}`, choice);
   }
 
-  for (const model of provider.models ?? []) {
-    group.models.set(model.id, model);
-  }
+  group.enabledModelsByProvider.set(provider.id, modelsById(provider.models ?? []));
+  group.catalogModelsByProvider.set(provider.id, modelsById(provider.catalogModels ?? []));
 
   if (folded) {
     const runtimeLabel =
@@ -289,7 +318,11 @@ function pendingFlowForGroup(
   );
 }
 
-function providerGroupToCatalogEntry(group: ProviderGroupAccumulator): ModelProviderCatalogEntry {
+function providerGroupToCatalogEntry(
+  group: ProviderGroupAccumulator,
+  enabledModels: readonly ModelSummary[],
+  catalogModels: readonly ModelSummary[],
+): ModelProviderCatalogEntry {
   return {
     id: group.id,
     label: group.label,
@@ -298,7 +331,8 @@ function providerGroupToCatalogEntry(group: ProviderGroupAccumulator): ModelProv
     suggestedModel: group.suggestedModel,
     roleStrength: group.roleStrength,
     whenToUse: group.whenToUse,
-    models: [...group.models.values()],
+    models: enabledModels,
+    catalogModels,
   };
 }
 
@@ -348,21 +382,21 @@ export function projectModelProviders(
         group.id,
         snapshot.providerConnections,
       );
-      const provider = providerGroupToCatalogEntry(group);
+      const connectionProviderId = state?.providerId ?? group.id;
+      // Folded rows may contain a canonical parent plus one or more runtime providers. Model state
+      // belongs to the same raw provider that supplied the connection; combining siblings would
+      // make the Manage dialog mutate a different provider from the catalog it displays.
+      const enabledModels = sortedModels(group.enabledModelsByProvider.get(connectionProviderId));
+      const catalogModels = sortedModels(group.catalogModelsByProvider.get(connectionProviderId));
+      const provider = providerGroupToCatalogEntry(group, enabledModels, catalogModels);
       const apiKeyChoices = provider.authChoices.filter((choice) => choice.mode === "api-key");
       const deviceFlowChoices = provider.authChoices.filter(
         (choice) => choice.mode === "device-flow",
       );
       const pendingFlow = pendingFlowForGroup(group.providerIds, snapshot.pendingDeviceFlows);
       const status = pendingFlow === null ? (state?.status ?? "not_connected") : "pending";
-      const models = [...group.models.values()]
-        .sort(
-          (left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
-        )
-        .slice(0, 6);
-      const model = state?.model ?? models[0]?.id ?? null;
+      const model = state?.model ?? enabledModels[0]?.id ?? null;
       const tier = providerTier(group.id);
-      const connectionProviderId = state?.providerId ?? group.id;
 
       return {
         id: group.id,
@@ -382,7 +416,10 @@ export function projectModelProviders(
             : "Subagent",
         model,
         runtimeLabels: [...group.runtimeLabels].sort((left, right) => left.localeCompare(right)),
-        models,
+        enabledModels,
+        catalogModels,
+        catalogModelCount: catalogModels.length,
+        models: enabledModels,
         authHealth: state?.authHealth ?? null,
         expiryLabel: state?.expiryLabel ?? null,
         planLabel: state?.planLabel ?? null,

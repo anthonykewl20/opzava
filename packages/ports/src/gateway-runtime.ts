@@ -32,6 +32,37 @@ export interface GatewayRuntimeAgentCredential {
   readonly apiKey: string;
 }
 
+export interface PluginModelCatalog {
+  readonly pluginId: string;
+  readonly providers: Record<
+    string,
+    {
+      readonly baseUrl?: string;
+      readonly api?: string;
+      readonly models: readonly Record<string, unknown>[];
+    }
+  >;
+}
+
+export interface PluginModelCatalogRead {
+  readonly catalogs: readonly PluginModelCatalog[];
+}
+
+export interface GatewayRuntimePluginSummary {
+  readonly id: string;
+  readonly enabled: boolean;
+}
+
+/**
+ * Catalogs and their owning plugin state from one runtime observation.
+ *
+ * Keeping these together prevents a plugin enable/disable between separate reads from making a
+ * generated catalog appear to belong to an enabled plugin when it did not at discovery time.
+ */
+export interface PluginModelDiscoveryRead extends PluginModelCatalogRead {
+  readonly plugins: readonly GatewayRuntimePluginSummary[];
+}
+
 /**
  * What the gateway says it just stored, read back from its own stdout.
  *
@@ -81,6 +112,7 @@ export interface GatewayRuntimeAuthProbeQuery {
 export interface GatewayRuntimePort {
   listAuthChoices(): Promise<Result<readonly GatewayRuntimeAuthChoice[]>>;
   modelStatus(): Promise<Result<unknown>>;
+  readPluginModelDiscovery(): Promise<Result<PluginModelDiscoveryRead>>;
   connectApiKey(input: {
     readonly providerId: string;
     readonly authChoiceId: string;

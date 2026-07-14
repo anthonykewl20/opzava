@@ -33,6 +33,7 @@ function fakeDocker(input: {
   /** A function answers per command, for flows that exec more than once (onboard reads `--help` first). */
   readonly stdout: string | ((cmd: readonly string[]) => string);
   readonly exitCode?: number;
+  readonly startStatus?: number;
 }): FakeDocker {
   const commands: string[][] = [];
   const execs: DockerExec[] = [];
@@ -51,7 +52,9 @@ function fakeDocker(input: {
     }
     if (path.endsWith("/start")) {
       const current = execs.at(-1)?.cmd ?? [];
-      return new Response(dockerStdoutFrame(stdoutFor(current)), { status: 200 });
+      return new Response(dockerStdoutFrame(stdoutFor(current)), {
+        status: input.startStatus ?? 200,
+      });
     }
     if (path.endsWith("/json")) {
       return new Response(JSON.stringify({ ExitCode: input.exitCode ?? 0 }), { status: 200 });
@@ -69,6 +72,211 @@ function fakeDocker(input: {
     execs,
   };
 }
+
+function pluginDiscoveryStdout(input: {
+  readonly plugins: unknown;
+  readonly catalogs?: readonly { readonly path: string; readonly body: string }[];
+}): string {
+  const pluginJson = JSON.stringify(input.plugins);
+  return [
+    "OPZAVA_PLUGIN_DISCOVERY_V1\n",
+    `P ${Buffer.byteLength(pluginJson, "utf8")}\n`,
+    pluginJson,
+    ...(input.catalogs ?? []).flatMap(({ path, body }) => [
+      `C ${Buffer.byteLength(path, "utf8")} ${Buffer.byteLength(body, "utf8")}\n`,
+      path,
+      body,
+    ]),
+    "E\n",
+  ].join("");
+}
+
+function generatedCatalog(providers: Record<string, unknown>): string {
+  return JSON.stringify({
+    generatedBy: "openclaw-plugin-model-catalog-v1",
+    providers,
+  });
+}
+
+describe("DockerOpenClawGatewayRuntime plugin model discovery (#184)", () => {
+  it("reads enabled plugins and parses multiple generated catalogs in one exec", async () => {
+    const docker = fakeDocker({
+      stdout: pluginDiscoveryStdout({
+        plugins: {
+          plugins: [
+            { id: "opencode-go", enabled: true, status: "loaded" },
+            { id: "disabled-bundle", enabled: false, status: "disabled" },
+          ],
+        },
+        catalogs: [
+          {
+            path: "/home/node/.openclaw/agents/ask-admin-opzava/agent/plugins/opencode-go/catalog.json",
+            body: generatedCatalog({
+              "opencode-go": {
+                baseUrl: "https://opencode.ai/zen/v1",
+                api: "openai-completions",
+                models: [{ id: "kimi-k2.6", name: "Kimi K2.6", contextWindow: 262_144 }],
+              },
+            }),
+          },
+          {
+            path: "/home/node/.openclaw/agents/ask-admin-opzava/agent/plugins/disabled-bundle/catalog.json",
+            body: generatedCatalog({
+              "disabled-bundle": { models: [{ id: "one" }] },
+            }),
+          },
+        ],
+      }),
+    });
+
+    const discovered = await docker.runtime.readPluginModelDiscovery();
+
+    expect(discovered).toEqual({
+      ok: true,
+      value: {
+        plugins: [
+          { id: "opencode-go", enabled: true },
+          { id: "disabled-bundle", enabled: false },
+        ],
+        catalogs: [
+          {
+            pluginId: "opencode-go",
+            providers: {
+              "opencode-go": {
+                baseUrl: "https://opencode.ai/zen/v1",
+                api: "openai-completions",
+                models: [{ id: "kimi-k2.6", name: "Kimi K2.6", contextWindow: 262_144 }],
+              },
+            },
+          },
+          {
+            pluginId: "disabled-bundle",
+            providers: { "disabled-bundle": { models: [{ id: "one" }] } },
+          },
+        ],
+      },
+    });
+    expect(docker.execs).toHaveLength(1);
+    expect(docker.commands[0]?.slice(0, 2)).toEqual(["sh", "-lc"]);
+    expect(docker.commands[0]?.[2]).toContain("node openclaw.mjs plugins list --json");
+    expect(docker.commands[0]?.[2]).toContain(
+      "'/home/node/.openclaw/agents/ask-admin-opzava/agent'/plugins/*/catalog.json",
+    );
+  });
+
+  it("skips non-generated, malformed, invalid-path, and invalid-provider catalogs", async () => {
+    const docker = fakeDocker({
+      stdout: pluginDiscoveryStdout({
+        plugins: { plugins: [] },
+        catalogs: [
+          {
+            path: "/home/node/.openclaw/agents/ask-admin-opzava/agent/plugins/user-file/catalog.json",
+            body: JSON.stringify({ generatedBy: "someone-else", providers: {} }),
+          },
+          {
+            path: "/home/node/.openclaw/agents/ask-admin-opzava/agent/plugins/malformed/catalog.json",
+            body: "{not json",
+          },
+          {
+            path: "/home/node/.openclaw/agents/ask-admin-opzava/agent/plugins/bad%ZZ/catalog.json",
+            body: generatedCatalog({ bad: { models: [{ id: "ignored" }] } }),
+          },
+          {
+            path: "/home/node/.openclaw/agents/ask-admin-opzava/agent/plugins/invalid-provider/catalog.json",
+            body: generatedCatalog({ invalid: { baseUrl: 42, models: [{ id: "ignored" }] } }),
+          },
+          {
+            path: "/home/node/.openclaw/agents/ask-admin-opzava/agent/plugins/bundle%20provider/catalog.json",
+            body: generatedCatalog({ bundle: { models: [{ id: "valid" }] } }),
+          },
+        ],
+      }),
+    });
+
+    const discovered = await docker.runtime.readPluginModelDiscovery();
+
+    expect(discovered.ok && discovered.value.catalogs).toEqual([
+      {
+        pluginId: "bundle provider",
+        providers: { bundle: { models: [{ id: "valid" }] } },
+      },
+    ]);
+  });
+
+  it("returns an honest empty catalog list when the plugin directory is empty", async () => {
+    const docker = fakeDocker({
+      stdout: pluginDiscoveryStdout({ plugins: { plugins: [{ id: "core", enabled: true }] } }),
+    });
+
+    const read = await docker.runtime.readPluginModelDiscovery();
+
+    expect(read.ok).toBe(true);
+    expect(read.ok ? read.value.catalogs : null).toEqual([]);
+  });
+
+  it("returns a typed error when the discovery command exits non-zero", async () => {
+    const docker = fakeDocker({ stdout: "plugin list failed", exitCode: 1 });
+
+    const discovered = await docker.runtime.readPluginModelDiscovery();
+
+    expect(discovered.ok).toBe(false);
+    expect(!discovered.ok && discovered.error.code).toBe(
+      "provisioning.connections.pluginModelDiscoveryFailed",
+    );
+  });
+
+  it("returns a typed error when a successful exec emits a truncated framed document", async () => {
+    const docker = fakeDocker({
+      stdout: 'OPZAVA_PLUGIN_DISCOVERY_V1\nP 999\n{"plugins":[]}',
+    });
+
+    const discovered = await docker.runtime.readPluginModelDiscovery();
+
+    expect(discovered.ok).toBe(false);
+    expect(!discovered.ok && discovered.error.code).toBe(
+      "provisioning.connections.pluginModelDiscoveryInvalidOutput",
+    );
+  });
+
+  it("returns a typed error when a framed plugin-list payload is invalid JSON", async () => {
+    const invalidPluginJson = "{not json";
+    const docker = fakeDocker({
+      stdout: [
+        "OPZAVA_PLUGIN_DISCOVERY_V1\n",
+        `P ${Buffer.byteLength(invalidPluginJson, "utf8")}\n`,
+        invalidPluginJson,
+        "E\n",
+      ].join(""),
+    });
+
+    const discovered = await docker.runtime.readPluginModelDiscovery();
+
+    expect(discovered.ok).toBe(false);
+    expect(!discovered.ok && discovered.error.code).toBe(
+      "provisioning.connections.pluginListInvalidJson",
+    );
+  });
+
+  it("returns a typed error when Docker cannot start the discovery exec", async () => {
+    const docker = fakeDocker({ stdout: "", startStatus: 500 });
+
+    const discovered = await docker.runtime.readPluginModelDiscovery();
+
+    expect(discovered.ok).toBe(false);
+    expect(!discovered.ok && discovered.error.code).toBe("provisioning.docker.requestRejected");
+  });
+
+  it("returns a typed error instead of treating capped output as an empty catalog", async () => {
+    const docker = fakeDocker({ stdout: "partial-frame", exitCode: 73 });
+
+    const discovered = await docker.runtime.readPluginModelDiscovery();
+
+    expect(discovered.ok).toBe(false);
+    expect(!discovered.ok && discovered.error.code).toBe(
+      "provisioning.connections.pluginModelDiscoveryOutputTooLarge",
+    );
+  });
+});
 
 function probePayload(results: readonly Record<string, unknown>[]): string {
   return JSON.stringify({
@@ -292,7 +500,7 @@ describe("DockerOpenClawGatewayRuntime onboard connect (#187)", () => {
 
     const onboard = docker.execs.at(-1);
     expect(onboard?.cmd.join(" ")).toContain("--credential-stdin");
-    expect(onboard?.cmd.join(" ")).toContain('printf \'%s\' "$OPZAVA_CREDENTIAL" |');
+    expect(onboard?.cmd.join(" ")).toContain("printf '%s' \"$OPZAVA_CREDENTIAL\" |");
     expect(onboard?.env).toEqual(["OPZAVA_CREDENTIAL=sk-super-secret"]);
   });
 

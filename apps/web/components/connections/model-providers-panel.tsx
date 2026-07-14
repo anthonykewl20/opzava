@@ -10,6 +10,7 @@ import type {
   ModelProviderAuthChoice,
   ModelProviderDisconnectStart,
   OrchestratorDelegationState,
+  ProviderConnectionState,
 } from "@opzava/ports";
 
 import { ApiKeyConnectPoller } from "@/components/connections/api-key-connect-poller";
@@ -55,6 +56,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -148,6 +150,7 @@ function filterProviders(providers: readonly ProviderRow[], query: string): read
       provider.id,
       ...provider.runtimeLabels,
       ...provider.models.map((model) => model.id),
+      ...(provider.catalogModels ?? []).map((model) => model.id),
     ]
       .join(" ")
       .toLowerCase()
@@ -303,7 +306,7 @@ function providerModelParts(provider: ProviderRow): {
   readonly rest: readonly string[];
   readonly more: number;
 } {
-  const ids = provider.models.map((model) => model.id);
+  const ids = (provider.enabledModels ?? provider.models).map((model) => model.id);
   return {
     first: ids[0] ?? null,
     rest: ids.slice(1, 3),
@@ -357,6 +360,7 @@ function StatusDot({ status }: { readonly status: ProviderRow["status"] }) {
     />
   );
 }
+
 
 const ALERT_TONE = {
   success: "border-[color-mix(in_oklab,var(--success)_35%,transparent)] bg-[var(--success-soft)]",
@@ -787,6 +791,105 @@ type DeviceFlowStartPhase =
   | { readonly step: "started"; readonly challenge: DeviceFlowChallenge }
   | { readonly step: "failed"; readonly message: string; readonly code: string | null };
 
+function ProviderModelsSection({ provider }: { readonly provider: ProviderRow }) {
+  const router = useRouter();
+  const [pendingModelIds, setPendingModelIds] = useState<ReadonlySet<string>>(new Set());
+  const [failure, setFailure] = useState<{
+    readonly message: string;
+    readonly code: string | null;
+  } | null>(null);
+  const enabledModels = provider.enabledModels ?? provider.models;
+  const catalogModels = provider.catalogModels ?? [];
+  const enabledModelIds = useMemo(
+    () => new Set(enabledModels.map((model) => model.id.trim().toLowerCase())),
+    [enabledModels],
+  );
+
+  const toggleModel = useCallback(
+    async (modelId: string, enabled: boolean) => {
+      const normalizedModelId = modelId.trim().toLowerCase();
+      if (pendingModelIds.has(normalizedModelId)) {
+        return;
+      }
+
+      setFailure(null);
+      setPendingModelIds((current) => new Set(current).add(normalizedModelId));
+      const result = await postConnectionsMutation<ProviderConnectionState>(
+        "/api/connections/model/models",
+        {
+          providerId: provider.connectionProviderId,
+          modelId,
+          enabled,
+        },
+        // Above the BFF's 30s window for this route, which itself sits above the worker's
+        // bounded verification budget — each hop times out only after the one below it.
+        { timeoutMs: 35_000 },
+      );
+      setPendingModelIds((current) => {
+        const next = new Set(current);
+        next.delete(normalizedModelId);
+        return next;
+      });
+      if (!result.ok) {
+        setFailure({ message: result.message, code: result.code });
+        // A timeout or gateway-restart failure is AMBIGUOUS — the patch may still have applied
+        // server-side. Refresh so the switches show the gateway's truth, not the optimistic UI.
+        router.refresh();
+        return;
+      }
+
+      router.refresh();
+    },
+    [pendingModelIds, provider.connectionProviderId, router],
+  );
+  // One provider-scoped mutation runs at a time worker-side; a second concurrent toggle would
+  // only bounce off the in-flight guard with a confusing error, so the whole group waits.
+  const anyTogglePending = pendingModelIds.size > 0;
+
+  return (
+    <section className="grid gap-3" aria-labelledby={`${provider.id}-models-heading`}>
+      <div>
+        <h3 id={`${provider.id}-models-heading`} className="font-medium text-foreground">
+          Models
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Choose which catalog models this provider can route.
+        </p>
+      </div>
+      {failure === null ? null : (
+        <MutationErrorNotice failure={failure} title="Model update failed" />
+      )}
+      {catalogModels.length === 0 ? (
+        <p className="rounded-lg border border-border bg-muted p-3 text-sm text-muted-foreground">
+          This provider has not advertised a model catalog.
+        </p>
+      ) : (
+        <div className="max-h-64 divide-y divide-border overflow-y-auto rounded-lg border border-border">
+          {catalogModels.map((model) => {
+            const normalizedModelId = model.id.trim().toLowerCase();
+            const checked = enabledModelIds.has(normalizedModelId);
+            const pending = pendingModelIds.has(normalizedModelId);
+            return (
+              <div key={normalizedModelId} className="flex items-center justify-between gap-4 p-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-foreground">{model.label}</p>
+                  <p className="truncate font-mono text-xs text-muted-foreground">{model.id}</p>
+                </div>
+                <Switch
+                  checked={checked}
+                  disabled={pending || anyTogglePending}
+                  label={model.label}
+                  onCheckedChange={(nextChecked) => void toggleModel(model.id, nextChecked)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ProviderConnectDialog({
   provider,
   open,
@@ -912,6 +1015,8 @@ function ProviderConnectDialog({
             </div>
             <p className="mt-1 text-muted-foreground">{provider.message ?? provider.whenToUse}</p>
           </div>
+
+          {provider.status === "connected" ? <ProviderModelsSection provider={provider} /> : null}
 
           {connectedWithoutKeyField ? (
             <div className="grid gap-4">
@@ -1239,6 +1344,11 @@ function ProviderTableRow({
   const guidance = statusGuidance(provider);
   const accountLabel = safeAccountLabel(provider.accountLabel);
   const modelOverflowCount = models.rest.length + models.more;
+  const catalogOnlyCount = Math.max(
+    0,
+    (provider.catalogModelCount ?? provider.catalogModels?.length ?? 0) -
+      (provider.enabledModels ?? provider.models).length,
+  );
   const statusDetails = [healthLabel, accountLabel, ...meta, guidance].filter(
     (detail): detail is string => detail !== null,
   );
@@ -1281,9 +1391,14 @@ function ProviderTableRow({
       </TableCell>
       <TableCell data-label="Models" className="min-w-0 align-middle py-4">
         {models.first === null ? (
-          <span className="text-muted-foreground">
-            {provider.id === "openrouter" ? "Routes many" : "—"}
-          </span>
+          <div className="grid min-w-0 gap-1">
+            <span className="text-muted-foreground">
+              {provider.id === "openrouter" ? "Routes many" : "—"}
+            </span>
+            {catalogOnlyCount === 0 ? null : (
+              <span className="text-xs text-muted-foreground">+{catalogOnlyCount} in catalog</span>
+            )}
+          </div>
         ) : (
           <div className="grid min-w-0 gap-1">
             <span className="break-words font-mono text-sm leading-tight" data-model>
@@ -1291,6 +1406,9 @@ function ProviderTableRow({
             </span>
             {modelOverflowCount === 0 ? null : (
               <span className="text-xs text-muted-foreground">+{modelOverflowCount} more</span>
+            )}
+            {catalogOnlyCount === 0 ? null : (
+              <span className="text-xs text-muted-foreground">+{catalogOnlyCount} in catalog</span>
             )}
           </div>
         )}
