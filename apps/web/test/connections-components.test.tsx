@@ -208,7 +208,7 @@ describe("Connections components", () => {
     expect(html).toContain(">Refresh</button>");
     expect(html).toContain("Pricing refresh failed.");
     expect(html).toContain("Health warning");
-    expect(html).toContain("View details");
+    expect(html).toContain("Inspect channel");
     expect(html).toContain("Opzava Gateway");
     expect(html).toContain("Model Providers");
     expect(html).toContain("Third-Party Integrations");
@@ -288,7 +288,8 @@ describe("Connections components", () => {
     expect(html).toContain("Slack workspace");
     expect(html).toContain("Probe timed out after 5 seconds.");
     expect(html).toContain("and 1 more component");
-    expect(html).toContain("View details");
+    expect(html).toContain("Inspect channel");
+    expect(html).toContain("No repair metadata is available for this component.");
     expect(html).not.toContain(">Fix</a>");
   });
 
@@ -312,6 +313,7 @@ describe("Connections components", () => {
 
     expect(html).toContain('data-health-status="unknown"');
     expect(html).toContain("System health is not fully checked");
+    expect(html).not.toContain("OpenClaw unreachable");
     expect(html).toContain("No health percentage is available");
     expect(html).not.toContain("healthy (0%)");
     expect(html).not.toContain("View details");
@@ -346,8 +348,11 @@ describe("Connections components", () => {
       }),
     );
 
-    expect(html).toContain("Gateway unavailable");
-    expect(html).toContain("Live component health is unknown");
+    expect(html).toContain("OpenClaw unreachable");
+    expect(html).not.toContain("System health is not fully checked");
+    expect(html).toContain("The Gateway is unavailable");
+    expect(html).toContain("OpenClaw will retry automatically");
+    expect(html).toContain("Use Refresh to run an immediate live probe");
     expect(html).toContain("Last known healthy snapshot");
     expect(html).toContain("7 of 8 components healthy");
     expect(html).toContain('data-last-known-checked-at="2026-07-13T23:59:00.000Z"');

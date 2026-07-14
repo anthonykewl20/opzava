@@ -39,11 +39,24 @@ function plural(count: number, singular: string, pluralValue = `${singular}s`): 
   return `${count} ${count === 1 ? singular : pluralValue}`;
 }
 
-function healthHeadline(status: OverviewHealthStatus, attention: number): string {
+function healthHeadline(
+  status: OverviewHealthStatus,
+  attention: number,
+  gatewayUnavailable: boolean,
+): string {
   if (status === "attention")
     return `${plural(attention, "component")} ${attention === 1 ? "needs" : "need"} attention`;
+  if (status === "unknown" && gatewayUnavailable) return "OpenClaw unreachable";
   if (status === "unknown") return "System health is not fully checked";
   return "All systems healthy";
+}
+
+function inspectionActionLabel(
+  kind: ConnectionsPageData["snapshot"]["openclawHealth"]["components"][number]["kind"],
+): string {
+  if (kind === "channel") return "Inspect channel";
+  if (kind === "agent") return "Inspect agent";
+  return "Inspect component";
 }
 
 function healthDescription(input: {
@@ -144,7 +157,7 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
         <CardContent className="grid gap-5">
           <div>
             <p className="text-2xl font-semibold tracking-tight">
-              {healthHeadline(summary.status, summary.attention)}
+              {healthHeadline(summary.status, summary.attention, gatewayUnavailable)}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">{healthDescription(summary)}</p>
           </div>
@@ -162,7 +175,7 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
               </p>
               <p className="text-sm text-muted-foreground">
                 {gatewayUnavailable
-                  ? "Live component health is unknown because the Gateway could not be reached. Refresh to retry the live probe."
+                  ? "The Gateway is unavailable. OpenClaw will retry automatically. Use Refresh to run an immediate live probe."
                   : "One or more live probes did not return a result. Refresh to retry the live probe."}
               </p>
               {showLastKnown && health.lastKnownHealthy !== null ? (
@@ -190,6 +203,9 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
                   <p className="text-sm text-muted-foreground">
                     {firstAffected.detail ?? "A live health probe reported a problem."}
                   </p>
+                  <p className="text-sm text-muted-foreground">
+                    No repair metadata is available for this component.
+                  </p>
                   {remainingAffected > 0 ? (
                     <p className="text-sm text-muted-foreground">
                       and {plural(remainingAffected, "more component")}{" "}
@@ -200,7 +216,7 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
               </div>
               <Button asChild variant="outline" className="h-11 w-full shrink-0 sm:h-9 sm:w-auto">
                 <Link href="/connections/system">
-                  View details <ArrowRight aria-hidden="true" />
+                  {inspectionActionLabel(firstAffected.kind)} <ArrowRight aria-hidden="true" />
                 </Link>
               </Button>
             </div>
