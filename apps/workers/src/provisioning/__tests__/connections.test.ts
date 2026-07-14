@@ -6298,6 +6298,13 @@ describe("Connections provisioning helpers", () => {
     expect(result.ok).toBe(true);
     const patchCall = admin.calls.find((call) => call.method === "config.patch");
     expect(patchCall).toBeDefined();
+    expect(patchCall?.params["replacePaths"]).toEqual([
+      "agents.list",
+      "agents.list[].skills",
+      "agents.list[].tools.allow",
+      "agents.list[].tools.deny",
+      "agents.list[].subagents.allowAgents",
+    ]);
     const patch = rawPatch(patchCall!.params) as {
       agents: { list: readonly Record<string, unknown>[] };
     };
@@ -6789,7 +6796,13 @@ describe("Connections provisioning helpers", () => {
     const patchCall = admin.calls.find((call) => call.method === "config.patch");
     expect(patchCall?.params).toMatchObject({
       baseHash: "config-hash-set-main",
-      replacePaths: ["agents.list"],
+      replacePaths: [
+        "agents.list",
+        "agents.list[].skills",
+        "agents.list[].tools.allow",
+        "agents.list[].tools.deny",
+        "agents.list[].subagents.allowAgents",
+      ],
     });
     expect(rawPatch(patchCall!.params)).toMatchObject({
       agents: {

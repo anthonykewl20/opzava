@@ -222,6 +222,17 @@ const disconnectGatewayReadyRetryDelayMs = 1_000;
 const orchestratorReconcileMaxAttempts = 3;
 const orchestratorReconcileMaxWaitMs = 150_000;
 const orchestratorReconcileRateLimitMarginMs = 1_000;
+// Mainframe's config.patch protects every array independently, including arrays nested below an
+// array wildcard. Canonical orchestrator rebuilds intentionally shrink all of these when policy or
+// provider delegation is removed, so every patch site that writes the canonical agents list must
+// carry the same complete declaration.
+const canonicalAgentListReplacePaths = [
+  "agents.list",
+  "agents.list[].skills",
+  "agents.list[].tools.allow",
+  "agents.list[].tools.deny",
+  "agents.list[].subagents.allowAgents",
+] as const;
 // A status read taken while the gateway is reloading reports the credential we just removed. Give
 // those reads a few chances to converge on the durable store before calling the disconnect failed:
 // a credential that genuinely survived keeps reporting forever, so it still fails closed (#172).
@@ -5994,7 +6005,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           ? {}
           : { models: { providers: providerRegistryPatch.value } }),
       },
-      replacePaths: ["agents.list"],
+      replacePaths: canonicalAgentListReplacePaths,
     });
     if (!patchParams.ok) {
       return err(patchParams.error);
@@ -6237,7 +6248,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           list: [...existingAgents, ...agentConfig.agents.list],
         },
       },
-      replacePaths: ["agents.list"],
+      replacePaths: canonicalAgentListReplacePaths,
     });
     if (!patchParams.ok) {
       return err(patchParams.error);
