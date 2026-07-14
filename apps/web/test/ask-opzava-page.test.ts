@@ -73,9 +73,7 @@ describe("Ask Opzava page state", () => {
   it("keeps chat timestamp text hydration-safe before switching to browser-local time", async () => {
     expect(hydrationSafeAskOpzavaTimeZone).toBe("UTC");
     expect(formatAskOpzavaTurnTime("2026-07-04T08:16:00.000Z")).toBe("8:16 AM");
-    expect(formatAskOpzavaTurnTime("2026-07-04T08:16:00.000Z", "Asia/Manila")).toBe(
-      "4:16 PM",
-    );
+    expect(formatAskOpzavaTurnTime("2026-07-04T08:16:00.000Z", "Asia/Manila")).toBe("4:16 PM");
 
     const component = await readRepoFile("components/ask-opzava/ask-opzava-chat.tsx");
     expect(component).toContain("useState(hydrationSafeAskOpzavaTimeZone)");
@@ -101,33 +99,32 @@ describe("Ask Opzava page state", () => {
     expect(nav).toContain("pathname.startsWith(href)");
   });
 
-  it("keeps the Ask Opzava chat on the orchestrator mockup class contract and live SSE loop", async () => {
+  it("keeps the Ask Opzava chat on the shadcn transcript contract and live SSE loop", async () => {
     const component = await readRepoFile("components/ask-opzava/ask-opzava-chat.tsx");
 
-    for (const className of [
-      ".chat-canvas",
-      ".chat-log-inner",
-      ".chat-tool-card",
-      ".chat-status-pill",
-      ".action-bubble",
-      ".composer-wrap",
-      ".example-chip",
-      ".chat-title-strip",
-    ]) {
-      expect(component).toContain(className);
-    }
-
-    expect(component).toContain("chat-row chat-row--user");
-    expect(component).toContain('className="composer"');
+    expect(component).toContain("MessageScrollerProvider autoScroll");
+    expect(component).toContain('defaultScrollPosition="last-anchor"');
+    expect(component).toContain("<MessageScrollerContent");
+    expect(component).toContain("aria-busy={status.isBusy}");
+    expect(component).toContain('scrollAnchor={turn.role === "user"}');
+    expect(component).toContain("messageId={`ask-opzava-turn-${turn.id}`}");
+    expect(component).toContain('messageId="ask-opzava-active-response"');
+    expect(component).toContain("<Bubble");
+    expect(component).toContain("<Message");
+    expect(component).toContain("<Textarea");
+    expect(component).toContain("<Accordion");
+    expect(component).not.toContain("logRef");
+    expect(component).not.toContain('role="log"');
     expect(component).toContain('id="composerForm"');
     expect(component).toContain('id="msgInput"');
+    expect(component).toContain("event.nativeEvent.isComposing");
     expect(component).toContain('fetch("/api/tasks/ask-admin/turn"');
     expect(component).toContain("parseAskAdminSseBuffer");
     expect(component).toContain("upsertToolReceipt");
     expect(component).toContain("router.refresh()");
     expect(component).toContain("setDraft(emptyAskAdminDraft())");
     expect(component).toContain("No reply — the turn did not complete.");
-    expect(component).toContain("u-muted");
+    expect(component).toContain("text-muted-foreground");
     expect(component).not.toContain("Conversation states and recovery paths");
     expect(component).not.toContain('className="ops-state-panel"');
     expect(component).toContain("DESCOPE(proactive-digest)");

@@ -1,15 +1,45 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type FormEvent,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
+import {
+  AlertCircleIcon,
+  CheckIcon,
+  ExternalLinkIcon,
+  LoaderCircleIcon,
+  SendIcon,
+  SparklesIcon,
+  WrenchIcon,
+} from "lucide-react";
+
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Avatar, AvatarBadge, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
+import {
+  Message,
+  MessageAvatar,
+  MessageContent,
+  MessageFooter,
+  MessageHeader,
+} from "@/components/ui/message";
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@/components/ui/message-scroller";
+import { Textarea } from "@/components/ui/textarea";
 
 import type { AskAdminTurnView } from "@/lib/ask-admin-history";
 import {
@@ -53,391 +83,7 @@ interface StreamToolReceipt {
   readonly message?: string;
 }
 
-const assistantStackStyle: CSSProperties = { maxWidth: "80%" };
-const assistantAvatarStyle: CSSProperties = { background: "var(--chart-6)", flex: "none" };
-const userAvatarStyle: CSSProperties = { background: "var(--chart-2)", flex: "none" };
 const emptyAssistantReply = "No reply — the turn did not complete.";
-
-const askOpzavaPageStyles = `
-    /* Page-specific LAYOUT only — no color, font-size, radius, or shadow overrides */
-
-    .nav-section-gap { margin-top: var(--space-2); }
-    .header-avatar {
-      width: 32px; height: 32px;
-      border-radius: var(--radius-full);
-      background: var(--surface-3);
-      border: 1px solid var(--border-strong);
-      display: flex; align-items: center; justify-content: center;
-      font-size: var(--text-xs); color: var(--fg-muted);
-      font-weight: var(--fw-semibold); flex: none; cursor: pointer;
-    }
-
-    /* ── Chat canvas ── */
-    .chat-canvas {
-      display: flex;
-      flex-direction: column;
-      height: calc(100vh - 56px); /* subtract header (tools bar is essential-only) */
-      overflow: hidden;
-    }
-    .chat-log {
-      flex: 1;
-      overflow-y: auto;
-      padding: var(--space-6) var(--space-4);
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-5);
-    }
-    .chat-log-inner {
-      max-width: 860px;
-      width: 100%;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-5);
-    }
-
-    /* ── Chat rows ── */
-    .chat-row {
-      display: flex;
-      align-items: flex-start;
-      gap: var(--space-3);
-      min-width: 0;
-    }
-    .chat-row--user {
-      flex-direction: row-reverse;
-    }
-    .chat-stack {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-1);
-      max-width: 72%;
-      min-width: 0;
-    }
-    .chat-row--user .chat-stack {
-      align-items: flex-end;
-    }
-    .chat-meta {
-      display: flex;
-      align-items: center;
-      gap: var(--space-2);
-      font-size: var(--text-xs);
-      color: var(--fg-subtle);
-    }
-    .chat-meta strong {
-      color: var(--fg-muted);
-      font-weight: var(--fw-semibold);
-    }
-    .chat-row--user .chat-meta {
-      flex-direction: row-reverse;
-    }
-    .chat-time {
-      font-family: var(--font-mono);
-      font-size: var(--text-xs);
-      color: var(--fg-subtle);
-    }
-    .chat-bubble {
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: var(--space-3) var(--space-4);
-      font-size: var(--text-sm);
-      line-height: var(--lh-normal);
-      color: var(--fg);
-      min-width: 0;
-      overflow-wrap: anywhere;
-    }
-    .chat-bubble--user {
-      background: var(--accent-soft);
-      border-color: var(--accent-soft);
-      color: var(--fg);
-    }
-
-    /* ── Tool card ── */
-    .chat-tool-card {
-      background: var(--surface-3);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      overflow: hidden;
-      font-size: var(--text-sm);
-    }
-    .chat-tool-head {
-      display: flex;
-      align-items: center;
-      gap: var(--space-2);
-      padding: var(--space-2) var(--space-3);
-      cursor: pointer;
-      user-select: none;
-    }
-    .chat-tool-head:hover { background: var(--surface-2); }
-    .chat-tool-head .tname { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-muted); }
-    .chat-tool-body {
-      border-top: 1px solid var(--border);
-      padding: var(--space-3);
-      font-family: var(--font-mono);
-      font-size: var(--text-xs);
-      color: var(--fg-muted);
-      line-height: 1.6;
-      display: none;
-    }
-    .chat-tool-body.is-open { display: block; }
-
-    /* ── Status pill ── */
-    .chat-status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: var(--space-2);
-      padding: 4px var(--space-3);
-      border-radius: var(--radius-full);
-      background: var(--surface-3);
-      border: 1px solid var(--border);
-      font-size: var(--text-xs);
-      color: var(--fg-subtle);
-      width: fit-content;
-    }
-
-    /* ── Digest card inside bubble ── */
-    .digest-card {
-      background: var(--surface-3);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      overflow: hidden;
-      margin-top: var(--space-3);
-      max-width: 100%;
-    }
-    .digest-row {
-      display: flex;
-      align-items: center;
-      gap: var(--space-3);
-      padding: var(--space-3) var(--space-4);
-      border-bottom: 1px solid var(--border);
-      font-size: var(--text-sm);
-    }
-    .digest-row:last-of-type { border-bottom: 0; }
-    .digest-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 2px 8px;
-      border-radius: var(--radius-full);
-      font-size: var(--text-xs);
-      font-weight: var(--fw-semibold);
-      white-space: nowrap;
-      flex: none;
-      min-width: 96px;
-      justify-content: center;
-    }
-    .digest-pill--ok   { background: var(--success-soft); color: var(--success); }
-    .digest-pill--warn { background: var(--warning-soft); color: var(--warning); }
-    .digest-pill--err  { background: var(--danger-soft);  color: var(--danger);  }
-    .digest-summary { flex: 1; min-width: 0; color: var(--fg-muted); font-size: var(--text-sm); }
-    .digest-actions { display: flex; gap: var(--space-2); flex: none; }
-
-    /* ── Inline action bubble ── */
-    .action-bubble {
-      background: var(--surface-2);
-      border: 1px solid var(--border-strong);
-      border-left: 3px solid var(--accent);
-      border-radius: var(--radius-lg);
-      padding: var(--space-4);
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-3);
-      font-size: var(--text-sm);
-      line-height: var(--lh-normal);
-    }
-    .action-bubble-title {
-      font-weight: var(--fw-semibold);
-      color: var(--fg);
-    }
-    .action-row { display: flex; gap: var(--space-2); align-items: center; }
-
-    /* ── Composer ── */
-    .composer-wrap {
-      border-top: 1px solid var(--border);
-      padding: var(--space-4);
-      background: var(--surface);
-    }
-    .composer {
-      max-width: 860px;
-      margin: 0 auto;
-      display: flex;
-      align-items: flex-end;
-      gap: var(--space-3);
-      background: var(--surface-2);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-lg);
-      padding: var(--space-2) var(--space-3);
-    }
-    .composer textarea {
-      flex: 1;
-      background: transparent;
-      border: 0;
-      outline: none;
-      resize: none;
-      color: var(--fg);
-      font-size: var(--text-sm);
-      font-family: var(--font-sans);
-      line-height: var(--lh-normal);
-      padding: var(--space-2) 0;
-      min-height: 40px;
-      max-height: 160px;
-    }
-    .composer textarea::placeholder { color: var(--fg-subtle); }
-    .composer-hint { font-size: var(--text-xs); color: var(--fg-subtle); white-space: nowrap; padding-bottom: var(--space-2); }
-    .composer-send {
-      flex: none;
-      width: 34px; height: 34px;
-      border-radius: var(--radius-md);
-      background: var(--accent);
-      color: var(--accent-fg);
-      border: 0;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 15px;
-    }
-    .composer-send:hover { opacity: .88; }
-
-    /* ── Example chips (cold-start) ── */
-    .example-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2);
-      justify-content: center;
-      margin-top: var(--space-4);
-    }
-    .example-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: var(--space-2);
-      padding: var(--space-2) var(--space-3);
-      border-radius: var(--radius-full);
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      color: var(--fg-muted);
-      font-size: var(--text-sm);
-      cursor: pointer;
-    }
-    .example-chip:hover { background: var(--surface-3); color: var(--fg); border-color: var(--border-strong); }
-
-    .chat-title-strip {
-      border-bottom: 1px solid var(--border);
-      padding: var(--space-3) var(--space-6);
-    }
-    .chat-title-inner {
-      max-width: 860px;
-      margin: 0 auto;
-    }
-    .chat-title-row {
-      display: flex;
-      gap: var(--space-3);
-      align-items: center;
-      min-width: 0;
-    }
-    .chat-title-name {
-      font-size: var(--text-md);
-      font-weight: var(--fw-semibold);
-      color: var(--fg);
-      white-space: nowrap;
-    }
-    .chat-title-sub {
-      color: var(--fg-subtle);
-      font-size: var(--text-xs);
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    /* ── Mobile collapse ── */
-    @media (max-width: 640px) {
-      /* Rail collapses to hidden; a mobile nav/hamburger would replace it.
-         Chat log goes full-width; chat-stack max-width relaxes.
-         Composer pinned at bottom of viewport. */
-      .app {
-        grid-template-columns: 1fr;
-        height: auto;
-        min-height: 100vh;
-      }
-      .rail { display: none; }
-      .main-col,
-      .main {
-        width: 100%;
-        min-width: 0;
-      }
-      .header {
-        gap: var(--space-2);
-        min-width: 0;
-      }
-      .header .sb-breadcrumb,
-      .header > .u-row,
-      .header .health-pill {
-        display: none;
-      }
-      .chat-title-strip {
-        padding: var(--space-3) var(--space-4);
-      }
-      .chat-title-row {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 2px;
-      }
-      .chat-title-name {
-        white-space: normal;
-      }
-      .chat-title-row > .u-subtle[aria-hidden="true"] {
-        display: none;
-      }
-      .chat-title-sub {
-        white-space: normal;
-        overflow: visible;
-        text-overflow: clip;
-        line-height: var(--lh-snug);
-      }
-      .chat-canvas,
-      .main[style] {
-        height: calc(100vh - 56px);
-        min-height: 0;
-        overflow: hidden;
-      }
-      .chat-stack { max-width: 90%; }
-      .digest-actions { display: none; } /* actions overflow to a tap-through link */
-      .digest-row {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: var(--space-2);
-        align-items: start;
-      }
-      .digest-pill {
-        min-width: 0;
-        width: fit-content;
-      }
-      .digest-summary span {
-        display: block;
-        margin-left: 0 !important;
-        margin-top: 2px;
-      }
-      .composer-hint { display: none; }
-      .chat-log { padding: var(--space-4); }
-      .chat-log {
-        min-height: 0;
-        padding-bottom: 104px;
-      }
-      .chat-stack,
-      .chat-stack[style] { max-width: 100% !important; }
-      .composer-wrap {
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: 40px;
-        z-index: var(--z-sticky);
-        padding: var(--space-3) var(--space-4);
-      }
-    }
-`;
-
-function AskOpzavaPageStyles() {
-  return <style>{askOpzavaPageStyles}</style>;
-}
 
 function idempotencyKey(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -504,6 +150,14 @@ function draftText(draft: AskAdminDraft): string {
   return askOpzavaStatusView(draft.status).detail;
 }
 
+export function shouldSubmitAskOpzavaComposerKey(input: {
+  readonly key: string;
+  readonly shiftKey: boolean;
+  readonly isComposing: boolean;
+}): boolean {
+  return input.key === "Enter" && !input.shiftKey && !input.isComposing;
+}
+
 function safeDomId(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]/g, "-");
 }
@@ -527,18 +181,18 @@ function toolBodyText(receipt: StreamToolReceipt): string {
 }
 
 function toolBadge(receipt: StreamToolReceipt): {
-  readonly className: string;
+  readonly variant: "destructive" | "success" | "secondary";
   readonly label: string;
 } {
   if (receipt.status === "failed") {
-    return { className: "sb-badge sb-badge--destructive", label: "failed" };
+    return { variant: "destructive", label: "Failed" };
   }
 
   if (receipt.status === "running") {
-    return { className: "sb-badge sb-badge--accent", label: "running" };
+    return { variant: "secondary", label: "Running" };
   }
 
-  return { className: "sb-badge sb-badge--success", label: "done" };
+  return { variant: "success", label: "Done" };
 }
 
 function upsertToolReceipt(
@@ -575,76 +229,54 @@ function upsertToolReceipt(
 function AskOpzavaAvatar({ role, name }: { readonly role: ChatRole; readonly name: string }) {
   if (role === "assistant" || role === "tool" || role === "draft") {
     return (
-      <span className="sb-avatar sb-avatar--ai" style={assistantAvatarStyle} aria-label="Opzava AI">
-        O
-      </span>
+      <Avatar aria-label="Opzava AI" className="rounded-lg bg-[var(--chart-6)]">
+        <AvatarFallback className="rounded-lg bg-[var(--chart-6)] text-white">O</AvatarFallback>
+        <AvatarBadge aria-hidden="true">
+          <SparklesIcon />
+        </AvatarBadge>
+      </Avatar>
     );
   }
 
   return (
-    <span className="sb-avatar" style={userAvatarStyle} aria-label={name}>
-      {initials(name)}
-    </span>
+    <Avatar aria-label={name} className="bg-[var(--chart-2)]">
+      <AvatarFallback className="bg-[var(--chart-2)] text-white">{initials(name)}</AvatarFallback>
+    </Avatar>
   );
 }
 
 function ChatToolCard({ receipt }: { readonly receipt: StreamToolReceipt }) {
-  const [open, setOpen] = useState(false);
   const badge = toolBadge(receipt);
-  const bodyId = `toolBody-${safeDomId(receipt.id)}`;
-  const headId = `toolHead-${safeDomId(receipt.id)}`;
-
-  const toggleTool = () => {
-    setOpen((value) => !value);
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      toggleTool();
-    }
-  };
 
   return (
-    <div className="chat-tool-card" role="group" aria-label={`Tool call: ${receipt.toolName}`}>
-      <div
-        className="chat-tool-head"
-        id={headId}
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        aria-controls={bodyId}
-        onClick={toggleTool}
-        onKeyDown={handleKeyDown}
-      >
-        <span aria-hidden="true" style={{ color: "var(--fg-subtle)" }}>
-          ⚙
-        </span>
-        <span className="tname">{receipt.toolName}</span>
-        <span className={badge.className} style={{ marginLeft: "auto" }}>
-          {receipt.status === "succeeded" ? "✓ " : ""}
-          {badge.label}
-        </span>
-        <span
-          aria-hidden="true"
-          style={{
-            color: "var(--fg-subtle)",
-            fontSize: "var(--text-xs)",
-            marginLeft: "var(--space-2)",
-          }}
-        >
-          {open ? "▾" : "▸"}
-        </span>
-      </div>
-      <div
-        className={open ? "chat-tool-body is-open" : "chat-tool-body"}
-        id={bodyId}
-        role="region"
-        aria-label={`${receipt.toolName} output`}
-      >
-        <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{toolBodyText(receipt)}</pre>
-      </div>
-    </div>
+    <Accordion
+      type="single"
+      collapsible
+      className="w-full overflow-hidden rounded-lg border bg-muted/40"
+      aria-label={`Tool call: ${receipt.toolName}`}
+    >
+      <AccordionItem value={safeDomId(receipt.id)}>
+        <AccordionTrigger className="min-h-11 px-3 py-2 hover:no-underline">
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <WrenchIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="truncate font-mono text-xs text-muted-foreground">
+              {receipt.toolName}
+            </span>
+            <Badge variant={badge.variant} className="ml-auto">
+              {receipt.status === "succeeded" ? (
+                <CheckIcon className="size-3" aria-hidden="true" />
+              ) : null}
+              {badge.label}
+            </Badge>
+          </span>
+        </AccordionTrigger>
+        <AccordionContent className="border-t px-3 py-3">
+          <pre className="m-0 whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted-foreground">
+            {toolBodyText(receipt)}
+          </pre>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   );
 }
 
@@ -661,7 +293,7 @@ function persistedToolReceipt(turn: AskAdminTurnView): StreamToolReceipt {
   };
 }
 
-function AskOpzavaTurn({
+export function AskOpzavaTurn({
   turn,
   currentUserName,
   timeZone,
@@ -674,42 +306,76 @@ function AskOpzavaTurn({
   const text = messageText(turn);
   const isUser = turn.role === "user";
   const mutedFallback = isEmptyAssistantTurn(turn);
+  const failed = turn.status === "failed";
 
   if (turn.role === "tool") {
     return (
-      <article className="chat-row" aria-label="Opzava tool result">
-        <AskOpzavaAvatar role={turn.role} name={label} />
-        <div className="chat-stack" style={assistantStackStyle}>
-          <div className="chat-meta">
-            <strong>{label}</strong>
-            <span className="sb-badge sb-badge--secondary">tool</span>
-            <span className="chat-time">{formatAskOpzavaTurnTime(turn.createdAt, timeZone)}</span>
-          </div>
-          <ChatToolCard receipt={persistedToolReceipt(turn)} />
-        </div>
-      </article>
+      <Message align="start" aria-label="Opzava tool result">
+        <MessageAvatar>
+          <AskOpzavaAvatar role={turn.role} name={label} />
+        </MessageAvatar>
+        <MessageContent>
+          <MessageHeader className="gap-2 px-0">
+            <span>{label}</span>
+            <Badge variant="outline">Tool</Badge>
+          </MessageHeader>
+          <Bubble variant="outline" className="w-full max-w-[min(44rem,90%)]">
+            <BubbleContent className="w-full p-0">
+              <ChatToolCard receipt={persistedToolReceipt(turn)} />
+            </BubbleContent>
+          </Bubble>
+          <MessageFooter className="px-0 font-mono">
+            {formatAskOpzavaTurnTime(turn.createdAt, timeZone)}
+          </MessageFooter>
+        </MessageContent>
+      </Message>
     );
   }
 
   return (
-    <article className={isUser ? "chat-row chat-row--user" : "chat-row"}>
-      <AskOpzavaAvatar role={turn.role} name={label} />
-      <div className="chat-stack" style={isUser ? undefined : assistantStackStyle}>
-        <div className="chat-meta">
-          <strong>{isUser ? "You" : label}</strong>
+    <Message
+      align={isUser ? "end" : "start"}
+      aria-label={`${isUser ? "You" : label}${failed ? ", failed" : ""}`}
+    >
+      <MessageAvatar>
+        <AskOpzavaAvatar role={turn.role} name={label} />
+      </MessageAvatar>
+      <MessageContent>
+        <MessageHeader className="gap-2">
+          <span>{isUser ? "You" : label}</span>
           {turn.role === "assistant" ? (
-            <span className="sb-badge sb-badge--accent">✦ AI</span>
+            <Badge variant="secondary">
+              <SparklesIcon className="size-3" aria-hidden="true" />
+              AI
+            </Badge>
           ) : null}
-          {turn.status === "failed" ? (
-            <span className="sb-badge sb-badge--destructive">Failed</span>
+          {failed ? (
+            <Badge variant="destructive">
+              <AlertCircleIcon className="size-3" aria-hidden="true" />
+              Failed
+            </Badge>
           ) : null}
-          <span className="chat-time">{formatAskOpzavaTurnTime(turn.createdAt, timeZone)}</span>
-        </div>
-        <div className={isUser ? "chat-bubble chat-bubble--user" : "chat-bubble"}>
-          {mutedFallback ? <span className="u-muted">{text}</span> : text}
-        </div>
-      </div>
-    </article>
+        </MessageHeader>
+        <Bubble variant={failed ? "destructive" : isUser ? "default" : "secondary"}>
+          <BubbleContent className={mutedFallback ? "text-muted-foreground" : undefined}>
+            {failed ? (
+              <span className="flex items-start gap-2">
+                <AlertCircleIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                <span>
+                  <span className="font-medium">Failed. </span>
+                  {text}
+                </span>
+              </span>
+            ) : (
+              text
+            )}
+          </BubbleContent>
+        </Bubble>
+        <MessageFooter className="font-mono">
+          {formatAskOpzavaTurnTime(turn.createdAt, timeZone)}
+        </MessageFooter>
+      </MessageContent>
+    </Message>
   );
 }
 
@@ -721,49 +387,78 @@ function AskOpzavaToolReceiptRow({
   readonly timeZone: string;
 }) {
   return (
-    <article className="chat-row" aria-label={`Opzava tool receipt: ${receipt.toolName}`}>
-      <AskOpzavaAvatar role="tool" name="Opzava tool" />
-      <div className="chat-stack" style={assistantStackStyle}>
-        <div className="chat-meta">
-          <strong>Opzava</strong>
-          <span className="sb-badge sb-badge--secondary">tool</span>
-          <span className="chat-time">{formatAskOpzavaTurnTime(receipt.createdAt, timeZone)}</span>
-        </div>
-        {/* DESCOPE(standup.report-sample): the mockup's canned trace is replaced by live Runtime-Control tool receipts; a named admin digest tool arrives with the P2 admin-attention projection. */}
-        <ChatToolCard receipt={receipt} />
-      </div>
-    </article>
+    <Message align="start" aria-label={`Opzava tool receipt: ${receipt.toolName}`}>
+      <MessageAvatar>
+        <AskOpzavaAvatar role="tool" name="Opzava tool" />
+      </MessageAvatar>
+      <MessageContent>
+        <MessageHeader className="gap-2 px-0">
+          <span>Opzava</span>
+          <Badge variant="outline">Tool</Badge>
+        </MessageHeader>
+        <Bubble variant="outline" className="w-full max-w-[min(44rem,90%)]">
+          <BubbleContent className="w-full p-0">
+            {/* DESCOPE(standup.report-sample): the mockup's canned trace is replaced by live Runtime-Control tool receipts; a named admin digest tool arrives with the P2 admin-attention projection. */}
+            <ChatToolCard receipt={receipt} />
+          </BubbleContent>
+        </Bubble>
+        <MessageFooter className="px-0 font-mono">
+          {formatAskOpzavaTurnTime(receipt.createdAt, timeZone)}
+        </MessageFooter>
+      </MessageContent>
+    </Message>
   );
 }
 
-function AskOpzavaDraftMessage({ draft }: { readonly draft: AskAdminDraft }) {
+export function AskOpzavaDraftMessage({ draft }: { readonly draft: AskAdminDraft }) {
   const status = askOpzavaStatusView(draft.status);
+  const failed = draft.errorMessage !== null;
+  const visibleText = draft.text.trim() !== "" || failed;
 
   return (
-    <article className="chat-row">
-      <AskOpzavaAvatar role="draft" name="Opzava" />
-      <div className="chat-stack" style={assistantStackStyle}>
-        <div className="chat-meta">
-          <strong>{askOpzavaDraftTitle(draft)}</strong>
-          <span className={status.badgeClassName}>{status.label}</span>
-        </div>
-        <div className="chat-bubble">
-          <p style={{ margin: 0 }}>{draftText(draft)}</p>
-        </div>
+    <Message align="start" aria-label={`Opzava response, ${status.label}`}>
+      <MessageAvatar>
+        <AskOpzavaAvatar role="draft" name="Opzava" />
+      </MessageAvatar>
+      <MessageContent>
+        <MessageHeader className="gap-2">
+          <span>{askOpzavaDraftTitle(draft)}</span>
+          <Badge variant={failed ? "destructive" : "secondary"}>{status.label}</Badge>
+        </MessageHeader>
+        <Bubble variant={failed ? "destructive" : "secondary"}>
+          <BubbleContent
+            {...(status.isBusy
+              ? { role: "status", "aria-label": `${status.label}: ${status.detail}` }
+              : {})}
+          >
+            {visibleText ? <span>{draftText(draft)}</span> : null}
+            {status.isBusy ? (
+              <span
+                className={
+                  visibleText
+                    ? "ml-2 inline-flex items-center gap-1"
+                    : "inline-flex items-center gap-1"
+                }
+                aria-hidden="true"
+                data-loading-dots="true"
+              >
+                <span className="size-1.5 animate-pulse rounded-full bg-current motion-reduce:animate-none" />
+                <span className="size-1.5 animate-pulse rounded-full bg-current delay-150 motion-reduce:animate-none" />
+                <span className="size-1.5 animate-pulse rounded-full bg-current delay-300 motion-reduce:animate-none" />
+              </span>
+            ) : null}
+          </BubbleContent>
+        </Bubble>
         {draft.activeToolName === null ? null : (
-          <div className="chat-status-pill" role="status">
-            <span aria-hidden="true">◔</span>
-            running {draft.activeToolName}
-          </div>
+          <Marker role="status" aria-label={`Running tool ${draft.activeToolName}`}>
+            <MarkerIcon>
+              <LoaderCircleIcon className="animate-spin motion-reduce:animate-none" />
+            </MarkerIcon>
+            <MarkerContent>Running {draft.activeToolName}</MarkerContent>
+          </Marker>
         )}
-        {status.isBusy ? (
-          <div className="chat-status-pill" role="status">
-            <span aria-hidden="true">◔</span>
-            coordinating downstream agents…
-          </div>
-        ) : null}
-      </div>
-    </article>
+      </MessageContent>
+    </Message>
   );
 }
 
@@ -779,47 +474,60 @@ function AskOpzavaColdStart({
   readonly onSendPrompt: (prompt: string) => void;
 }) {
   return (
-    <article className="chat-row">
-      <AskOpzavaAvatar role="assistant" name="Opzava" />
-      <div className="chat-stack" style={assistantStackStyle}>
-        <div className="chat-meta">
-          <strong>Opzava</strong>
-          <span className="sb-badge sb-badge--accent">✦ AI</span>
-          <span className="chat-time">Ready</span>
-        </div>
-        <div className="chat-bubble">
-          {/* DESCOPE(proactive-digest): all-project status digest needs the P2 admin-attention projection; until then this cold-start message only offers live prompts backed by the existing Ask Admin SSE loop. */}
-          <p style={{ margin: "0 0 var(--space-2)" }}>
-            Ask me to check {workspaceName} tasks, blockers, approvals, or recent changes. I will
-            use the live Opzava assistant stream and governed task tools for the request.
-          </p>
-          <div className="example-chips" aria-label="Example prompts">
-            {askOpzavaPromptActions.map((action) => (
-              <button
-                className="example-chip"
-                type="button"
-                key={action.id}
-                onClick={() => onChoosePrompt(action.prompt)}
-                title={action.description}
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
-        </div>
+    <Message align="start" aria-label="Opzava is ready">
+      <MessageAvatar>
+        <AskOpzavaAvatar role="assistant" name="Opzava" />
+      </MessageAvatar>
+      <MessageContent>
+        <MessageHeader className="gap-2">
+          <span>Opzava</span>
+          <Badge variant="secondary">
+            <SparklesIcon className="size-3" aria-hidden="true" />
+            AI
+          </Badge>
+        </MessageHeader>
+        <Bubble variant="secondary" className="max-w-[min(44rem,90%)]">
+          <BubbleContent className="space-y-4">
+            {/* DESCOPE(proactive-digest): all-project status digest needs the P2 admin-attention projection; until then this cold-start message only offers live prompts backed by the existing Ask Admin SSE loop. */}
+            <p>
+              Ask me to check {workspaceName} tasks, blockers, approvals, or recent changes. I will
+              use the live Opzava assistant stream and governed task tools for the request.
+            </p>
+            <div className="flex flex-wrap gap-2" aria-label="Example prompts">
+              {askOpzavaPromptActions.map((action) => (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  key={action.id}
+                  onClick={() => onChoosePrompt(action.prompt)}
+                  title={action.description}
+                >
+                  {action.label}
+                </Button>
+              ))}
+            </div>
+          </BubbleContent>
+        </Bubble>
 
-        <div className="action-bubble" role="group" aria-label="Ask Admin Opzava quick actions">
+        <Card
+          className="w-full max-w-[min(44rem,90%)] gap-4 border-l-4 border-l-primary py-4 shadow-none"
+          role="group"
+          aria-label="Ask Admin Opzava quick actions"
+        >
           {/* DESCOPE(inline-approval-action): approval-specific records and send authority arrive with the P2 approval projection; these controls submit live assistant requests instead of rendering a dead Approve & send button. */}
-          <div className="action-bubble-title">
-            <span aria-hidden="true">▲</span> Admin attention checks
-          </div>
-          <p style={{ color: "var(--fg-muted)", fontSize: "var(--text-sm)", margin: 0 }}>
-            Start with a real workspace scan, then Opzava will surface any actual task or approval
-            action it is authorized to take.
-          </p>
-          <div className="action-row">
-            <button
-              className="btn btn-primary"
+          <CardHeader className="px-4">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <SparklesIcon className="size-4 text-primary" aria-hidden="true" />
+              Admin attention checks
+            </CardTitle>
+            <CardDescription>
+              Start with a real workspace scan, then Opzava will surface any actual task or approval
+              action it is authorized to take.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-2 px-4">
+            <Button
               type="button"
               disabled={sending}
               onClick={() =>
@@ -828,10 +536,11 @@ function AskOpzavaColdStart({
                 )
               }
             >
-              <span aria-hidden="true">✓</span> Yes
-            </button>
-            <button
-              className="btn btn-ghost"
+              <CheckIcon aria-hidden="true" />
+              Yes
+            </Button>
+            <Button
+              variant="ghost"
               type="button"
               disabled={sending}
               onClick={() =>
@@ -841,18 +550,18 @@ function AskOpzavaColdStart({
               }
             >
               No
-            </button>
-            <a
-              href="/tasks"
-              className="btn btn-ghost btn-sm u-subtle"
-              style={{ marginLeft: "auto" }}
-            >
-              View tasks ↗
-            </a>
-          </div>
-        </div>
-      </div>
-    </article>
+            </Button>
+            <Button variant="ghost" size="sm" asChild className="ml-auto text-muted-foreground">
+              <a href="/tasks">
+                View tasks
+                <ExternalLinkIcon aria-hidden="true" />
+              </a>
+            </Button>
+          </CardContent>
+        </Card>
+        <MessageFooter>Ready</MessageFooter>
+      </MessageContent>
+    </Message>
   );
 }
 
@@ -871,7 +580,6 @@ export function AskOpzavaChat({
   const [sending, setSending] = useState(false);
   const [turnTimeZone, setTurnTimeZone] = useState(hydrationSafeAskOpzavaTimeZone);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const logRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     // Keep SSR and the first client render on UTC, then switch to the
@@ -884,10 +592,6 @@ export function AskOpzavaChat({
   useEffect(() => {
     setTurns(initialTurns);
   }, [initialTurns]);
-
-  useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-  }, [turns, toolReceipts, draft]);
 
   useEffect(() => {
     if (prompt === "") {
@@ -1031,7 +735,13 @@ export function AskOpzavaChat({
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (
+      shouldSubmitAskOpzavaComposerKey({
+        key: event.key,
+        shiftKey: event.shiftKey,
+        isComposing: event.nativeEvent.isComposing,
+      })
+    ) {
       event.preventDefault();
       void sendPrompt(prompt);
     }
@@ -1048,98 +758,125 @@ export function AskOpzavaChat({
   };
 
   return (
-    <section className="chat-canvas" aria-label="Ask Admin Opzava">
-      <AskOpzavaPageStyles />
-
-      <div className="chat-title-strip">
-        <div className="chat-title-inner">
-          <div className="chat-title-row" title={`${organizationName} · ${workspaceName}`}>
-            <span className="chat-title-name">Ask Admin Opzava</span>
-            <span className="u-subtle" style={{ fontSize: "var(--text-xs)" }} aria-hidden="true">
-              ·
-            </span>
-            <span className="chat-title-sub">
-              Platform oversight across projects, agents, integrations, and admin decisions
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div
-        className="chat-log"
-        ref={logRef}
-        role="log"
-        aria-live="polite"
-        aria-label="Conversation with Opzava"
-        aria-busy={status.isBusy}
-      >
-        <div className="chat-log-inner">
-          {visibleTurns.length === 0 ? (
-            <AskOpzavaColdStart
-              workspaceName={workspaceName}
-              sending={sending}
-              onChoosePrompt={choosePromptAction}
-              onSendPrompt={(nextPrompt) => void sendPrompt(nextPrompt)}
-            />
-          ) : (
-            visibleTurns.map((turn) => (
-              <AskOpzavaTurn
-                key={turn.id}
-                turn={turn}
-                currentUserName={currentUserName}
-                timeZone={turnTimeZone}
-              />
-            ))
-          )}
-
-          {toolReceipts.map((receipt) => (
-            <AskOpzavaToolReceiptRow key={receipt.id} receipt={receipt} timeZone={turnTimeZone} />
-          ))}
-
-          {shouldShowAskOpzavaDraft(draft) ? <AskOpzavaDraftMessage draft={draft} /> : null}
-
-          {/* DESCOPE(conversation-state-annotation): the mockup's explanatory loading/offline/empty row is not product UI; the real queued, gateway_unavailable, and cold-start states render above from live stream state. */}
-        </div>
-      </div>
-
-      <div className="composer-wrap">
-        <form
-          className="composer"
-          id="composerForm"
-          onSubmit={submitPrompt}
-          aria-label="Message Ask Admin Opzava"
+    <section
+      className="flex h-[calc(100dvh-56px)] min-h-0 flex-col overflow-hidden bg-background"
+      aria-label="Ask Admin Opzava"
+    >
+      <header className="shrink-0 border-b px-4 py-3 sm:px-6">
+        <div
+          className="mx-auto flex max-w-[860px] min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-3"
+          title={`${organizationName} · ${workspaceName}`}
         >
-          <label htmlFor="msgInput" className="u-sr-only">
-            Message Ask Admin Opzava
-          </label>
-          <textarea
-            id="msgInput"
-            ref={inputRef}
-            rows={1}
-            value={prompt}
-            onChange={(event) => {
-              setPrompt(event.target.value);
-              resizeComposer(event.target);
-            }}
-            onKeyDown={handleComposerKeyDown}
-            placeholder="Message Ask Admin Opzava..."
-            aria-label="Message Ask Admin Opzava"
-            autoComplete="off"
-            maxLength={4000}
-          />
-          <span className="composer-hint" aria-hidden="true">
-            <kbd className="kbd">↵</kbd> send
+          <h1 className="shrink-0 font-semibold">Ask Admin Opzava</h1>
+          <span className="hidden text-xs text-muted-foreground sm:inline" aria-hidden="true">
+            ·
           </span>
-          <button
-            className="composer-send"
-            type="submit"
-            aria-label="Send message"
-            disabled={sending || prompt.trim() === ""}
+          <p className="min-w-0 text-xs text-muted-foreground sm:truncate">
+            Platform oversight across projects, agents, integrations, and admin decisions
+          </p>
+        </div>
+      </header>
+
+      <MessageScrollerProvider autoScroll defaultScrollPosition="last-anchor">
+        <MessageScroller className="min-h-0 flex-1">
+          <MessageScrollerViewport aria-label="Conversation with Opzava">
+            <MessageScrollerContent
+              className="mx-auto w-full max-w-[892px] gap-5 px-4 py-6 sm:px-6"
+              aria-busy={status.isBusy}
+            >
+              {visibleTurns.length === 0 ? (
+                <MessageScrollerItem messageId="ask-opzava-cold-start">
+                  <AskOpzavaColdStart
+                    workspaceName={workspaceName}
+                    sending={sending}
+                    onChoosePrompt={choosePromptAction}
+                    onSendPrompt={(nextPrompt) => void sendPrompt(nextPrompt)}
+                  />
+                </MessageScrollerItem>
+              ) : (
+                visibleTurns.map((turn) => (
+                  <MessageScrollerItem
+                    key={turn.id}
+                    messageId={`ask-opzava-turn-${turn.id}`}
+                    scrollAnchor={turn.role === "user"}
+                  >
+                    <AskOpzavaTurn
+                      turn={turn}
+                      currentUserName={currentUserName}
+                      timeZone={turnTimeZone}
+                    />
+                  </MessageScrollerItem>
+                ))
+              )}
+
+              {toolReceipts.map((receipt) => (
+                <MessageScrollerItem key={receipt.id} messageId={`ask-opzava-tool-${receipt.id}`}>
+                  <AskOpzavaToolReceiptRow receipt={receipt} timeZone={turnTimeZone} />
+                </MessageScrollerItem>
+              ))}
+
+              {shouldShowAskOpzavaDraft(draft) ? (
+                <MessageScrollerItem messageId="ask-opzava-active-response">
+                  <AskOpzavaDraftMessage draft={draft} />
+                </MessageScrollerItem>
+              ) : null}
+
+              {/* DESCOPE(conversation-state-annotation): the mockup's explanatory loading/offline/empty row is not product UI; the real queued, gateway_unavailable, and cold-start states render above from live stream state. */}
+            </MessageScrollerContent>
+          </MessageScrollerViewport>
+          <MessageScrollerButton />
+        </MessageScroller>
+
+        <footer className="shrink-0 border-t bg-background px-4 py-3 sm:px-6 sm:py-4">
+          <form
+            className="mx-auto flex max-w-[860px] items-end gap-2 rounded-xl border bg-muted/40 p-2 shadow-sm focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50"
+            id="composerForm"
+            onSubmit={submitPrompt}
+            aria-label="Message Ask Admin Opzava"
           >
-            ↑
-          </button>
-        </form>
-      </div>
+            <label htmlFor="msgInput" className="sr-only">
+              Message Ask Admin Opzava
+            </label>
+            <Textarea
+              id="msgInput"
+              ref={inputRef}
+              rows={1}
+              value={prompt}
+              onChange={(event) => {
+                setPrompt(event.target.value);
+                resizeComposer(event.target);
+              }}
+              onKeyDown={handleComposerKeyDown}
+              placeholder="Message Ask Admin Opzava..."
+              aria-label="Message Ask Admin Opzava"
+              autoComplete="off"
+              maxLength={4000}
+              className="max-h-40 min-h-10 flex-1 resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
+            />
+            <span
+              className="hidden pb-2 text-xs whitespace-nowrap text-muted-foreground sm:inline"
+              aria-hidden="true"
+            >
+              <kbd className="kbd">↵</kbd> send
+            </span>
+            <Button
+              size="icon"
+              type="submit"
+              aria-label="Send message"
+              disabled={sending || prompt.trim() === ""}
+            >
+              {sending ? (
+                <LoaderCircleIcon
+                  className="animate-spin motion-reduce:animate-none"
+                  aria-hidden="true"
+                />
+              ) : (
+                <SendIcon aria-hidden="true" />
+              )}
+            </Button>
+          </form>
+        </footer>
+      </MessageScrollerProvider>
     </section>
   );
 }
