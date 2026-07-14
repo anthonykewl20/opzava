@@ -93,9 +93,11 @@ function HealthGroupLink({ group }: { readonly group: OverviewHealthGroup }) {
           ? "No agents reported"
           : "No system components reported"
       : [
-          group.healthy > 0 ? plural(group.healthy, "healthy") : null,
-          group.attention > 0 ? plural(group.attention, "needs attention", "need attention") : null,
-          group.notChecked > 0 ? plural(group.notChecked, "not checked") : null,
+          group.healthy > 0 ? `${group.healthy} healthy` : null,
+          group.attention > 0
+            ? `${group.attention} ${group.attention === 1 ? "needs" : "need"} attention`
+            : null,
+          group.notChecked > 0 ? `${group.notChecked} not checked` : null,
         ]
           .filter((value) => value !== null)
           .join(" · ");
@@ -104,7 +106,7 @@ function HealthGroupLink({ group }: { readonly group: OverviewHealthGroup }) {
     <Button
       asChild
       variant="outline"
-      className="h-auto min-h-11 w-full justify-start rounded-full bg-transparent px-3 py-2 sm:min-h-9 sm:py-1.5"
+      className="h-auto min-h-11 min-w-0 w-full justify-start whitespace-normal rounded-full bg-transparent px-3 py-2 text-left sm:min-h-9 sm:py-1.5"
     >
       <Link
         href={group.href}
@@ -115,7 +117,9 @@ function HealthGroupLink({ group }: { readonly group: OverviewHealthGroup }) {
           <GroupStatusIcon status={group.status} />
         </Badge>
         <span>{group.label}</span>
-        <span className="ml-auto tabular-nums text-muted-foreground">{visibleStatus}</span>
+        <span className="ml-auto min-w-0 text-right leading-tight tabular-nums text-muted-foreground">
+          {visibleStatus}
+        </span>
       </Link>
     </Button>
   );
@@ -175,40 +179,6 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
             notChecked={summary.notChecked}
           />
 
-          {summary.notChecked > 0 ? (
-            <Alert
-              data-health-missing-guidance="true"
-              className="border-dashed border-[var(--border-strong)] bg-muted/40"
-            >
-              <CircleHelp className="mt-0.5 size-5 text-muted-foreground" aria-hidden="true" />
-              <AlertTitle>{plural(summary.notChecked, "component")} not checked</AlertTitle>
-              <AlertDescription className="grid gap-2">
-                <p>
-                  {gatewayUnavailable
-                    ? "The Gateway is unavailable. OpenClaw will retry automatically. "
-                    : "One or more live probes returned no result. "}
-                  No live result means unknown, not failed. Refresh retries the missing probe.
-                </p>
-                <ul className="grid gap-1">
-                  {groupsNotChecked.map((group) => (
-                    <li key={group.id}>
-                      <Link className="font-medium text-primary hover:underline" href={group.href}>
-                        {group.label}: {plural(group.notChecked, "not checked")}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-                {showLastKnown && health.lastKnownHealthy !== null ? (
-                  <p data-last-known-checked-at={health.lastKnownHealthy.checkedAt}>
-                    <strong>Last known fully healthy snapshot:</strong>{" "}
-                    {health.lastKnownHealthy.healthy} of {health.lastKnownHealthy.total} components
-                    healthy. Checked {relativeTime(health.lastKnownHealthy.checkedAt)}.
-                  </p>
-                ) : null}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
           {firstAffected !== null ? (
             <Alert
               variant="warning"
@@ -238,6 +208,40 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
                   {inspectionActionLabel(firstAffected.kind)} <ArrowRight aria-hidden="true" />
                 </Link>
               </Button>
+            </Alert>
+          ) : null}
+
+          {summary.notChecked > 0 ? (
+            <Alert
+              data-health-missing-guidance="true"
+              className="border-dashed border-[var(--border-strong)] bg-muted/40"
+            >
+              <CircleHelp className="mt-0.5 size-5 text-muted-foreground" aria-hidden="true" />
+              <AlertTitle>{plural(summary.notChecked, "component")} not checked</AlertTitle>
+              <AlertDescription className="grid gap-2">
+                <p>
+                  {gatewayUnavailable
+                    ? "The Gateway is unavailable. OpenClaw will retry automatically. "
+                    : "One or more live probes returned no result. "}
+                  No live result means unknown, not failed. Refresh retries the missing probe.
+                </p>
+                <ul className="grid gap-1">
+                  {groupsNotChecked.map((group) => (
+                    <li key={group.id}>
+                      <Link className="font-medium text-primary hover:underline" href={group.href}>
+                        {group.label}: {group.notChecked} not checked
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                {showLastKnown && health.lastKnownHealthy !== null ? (
+                  <p data-last-known-checked-at={health.lastKnownHealthy.checkedAt}>
+                    <strong>Last known fully healthy snapshot:</strong>{" "}
+                    {health.lastKnownHealthy.healthy} of {health.lastKnownHealthy.total} components
+                    healthy. Checked {relativeTime(health.lastKnownHealthy.checkedAt)}.
+                  </p>
+                ) : null}
+              </AlertDescription>
             </Alert>
           ) : null}
 

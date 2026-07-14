@@ -175,14 +175,17 @@ function ComponentGroups({
     <div className="grid gap-8">
       {componentGroups.map((group) => {
         const items = components.filter((component) => group.kinds.includes(component.kind));
+        const groupId = `system-group-${group.label.toLowerCase().replaceAll(" ", "-")}`;
+        const headingId = `${groupId}-heading`;
         return (
           <section
             key={group.label}
-            aria-labelledby={`system-group-${group.label.toLowerCase().replaceAll(" ", "-")}`}
+            id={groupId}
+            aria-labelledby={headingId}
             className="scroll-mt-24"
           >
             <h2
-              id={`system-group-${group.label.toLowerCase().replaceAll(" ", "-")}`}
+              id={headingId}
               className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground"
             >
               {group.label}

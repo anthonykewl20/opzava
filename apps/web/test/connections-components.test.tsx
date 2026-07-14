@@ -430,6 +430,44 @@ describe("Connections components", () => {
     expect(html).toContain('aria-label="Channels: 1 healthy, 1 needs attention, 1 not checked"');
     expect(html).toContain('href="/connections/system#system-group-channels"');
     expect(html).toContain("Channels: 1 not checked");
+    expect(html.indexOf("channel:whatsapp needs attention")).toBeLessThan(
+      html.indexOf('data-health-missing-guidance="true"'),
+    );
+    const channelsLink = html.match(/<a[^>]*data-health-group="channels"[^>]*>/)?.[0];
+    expect(channelsLink).toContain("min-w-0");
+    expect(channelsLink).toContain("whitespace-normal");
+    expect(channelsLink).toContain("text-left");
+  });
+
+  it("pluralizes multi-count group and outage guidance without inventing words", () => {
+    const html = renderToStaticMarkup(
+      createElement(ConnectionsOverview, {
+        data: overviewData({
+          openclawHealth: {
+            components: [
+              healthComponent("channel:slack", "channel", "healthy"),
+              healthComponent("channel:teams", "channel", "healthy"),
+              healthComponent("channel:whatsapp", "channel", "attention"),
+              healthComponent("channel:discord", "channel", "attention"),
+              healthComponent("channel:telegram", "channel", "not_checked"),
+              healthComponent("channel:signal", "channel", "not_checked"),
+            ],
+            warnings: [],
+            runtime: { version: null, uptimeMs: null, hostUptimeMs: null, updateAvailable: null },
+            sessions: { count: null, recent: [] },
+            checkedAt: "2026-07-14T00:00:00.000Z",
+            lastKnownHealthy: null,
+          },
+        }),
+        refreshAction: async () => undefined,
+      }),
+    );
+
+    expect(html).toContain("2 healthy · 2 need attention · 2 not checked");
+    expect(html).toContain("2 components not checked");
+    expect(html).toContain("Channels: 2 not checked");
+    expect(html).not.toContain("healthys");
+    expect(html).not.toContain("not checkeds");
   });
 
   it("renders only real GitHub integration states", () => {

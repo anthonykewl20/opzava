@@ -976,6 +976,7 @@ describe("Connections page state", () => {
     const route = await readRepoFile("app/api/connections/device-flow/route.ts");
     const nav = await readRepoFile("components/shell/admin-nav.tsx");
     const componentsCss = await readRepoFile("app/styles/components.css");
+    const systemMockup = await readRepoFile("../../ux-redesign/mockups/connections-system.html");
 
     expect(layout).toContain('export const dynamic = "force-dynamic"');
     expect(layout).toContain("connectionsPageStyles");
@@ -1116,6 +1117,9 @@ describe("Connections page state", () => {
     expect(providerBrandIcon).toContain('data-provider-icon="brand"');
     expect(providerBrandIcon).toContain('source: "simple-icons-16.26.0"');
     expect(providerBrandIcon).toContain('source: "mainframe-docs-sponsor"');
+    expect(systemMockup).toContain('id="system-group-system-core"');
+    expect(systemMockup).toContain('id="system-group-channels"');
+    expect(systemMockup).toContain('id="system-group-agents"');
     expect(autoRefresh).toContain("CONNECTIONS_REFRESH_INTERVAL_MS = 30_000");
     expect(autoRefresh).toContain('window.addEventListener("focus", refresh)');
     expect(autoRefresh).toContain('window.removeEventListener("focus", refresh)');
