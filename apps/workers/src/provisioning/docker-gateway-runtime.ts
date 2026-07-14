@@ -1492,20 +1492,20 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
         "sh",
         "-lc",
         [
-          "set -eu",
+          "set -u",
           "attempt=0",
           `while [ "$attempt" -lt ${attempts} ]; do`,
           `if [ -s ${shellQuote(controlPath)} ]; then`,
           `pid=$(cat ${shellQuote(controlPath)})`,
           `case "$pid" in ''|*[!0-9]*) exit 2;; esac`,
-          `if [ "$pid" -gt 0 ] 2>/dev/null && kill -0 "$pid" 2>/dev/null; then printf '%s\\n' "$pid"; exit 0; fi`,
+          `if [ "$pid" -gt 0 ] 2>/dev/null; then printf '%s\\n' "$pid"; exit 0; fi`,
           "exit 2",
           "fi",
           "attempt=$((attempt + 1))",
           "sleep 0.1",
           "done",
           "exit 3",
-        ].join("; "),
+        ].join("\n"),
       ],
       undefined,
       flowControlReadyTimeoutMs + 2_000,
@@ -1573,7 +1573,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       `rm -f ${shellQuote(controlPath)} ${shellQuote(`${controlPath}.tmp`)} ${shellQuote(`${flowDir}/stdin`)}`,
       `rmdir ${shellQuote(flowDir)}`,
       "fi",
-    ].join("; ");
+    ].join("\n");
     const removed = await this.exec(["sh", "-lc", command]);
     if (!removed.ok) return err(removed.error);
     if (removed.value.exitCode !== 0) {
@@ -1620,10 +1620,23 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       throw initial.error;
     }
     if (initial.value.Running === true) {
+      const flowDir = logPath.slice(0, logPath.lastIndexOf("/"));
       const killed = await this.exec([
         "sh",
         "-lc",
-        `if kill -0 ${controlPid} 2>/dev/null; then kill -TERM -${controlPid}; fi`,
+        [
+          "set -u",
+          `pid=${controlPid}`,
+          `expected_dir=${shellQuote(flowDir)}`,
+          `if kill -0 "$pid" 2>/dev/null; then`,
+          `identity=$(ps -o pgid= -o sid= -p "$pid" 2>/dev/null) || identity=""`,
+          `set -- $identity`,
+          `if [ "\${1:-}" = "$pid" ] && [ "\${2:-}" = "$pid" ]; then`,
+          `cmdline=$(tr '\\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null) || cmdline=""`,
+          `case "$cmdline" in *"$expected_dir"*) kill -TERM -"$pid" 2>/dev/null || true;; esac`,
+          "fi",
+          "fi",
+        ].join("\n"),
       ]);
       if (!killed.ok) {
         throw killed.error;

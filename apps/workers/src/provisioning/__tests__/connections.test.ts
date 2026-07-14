@@ -8158,8 +8158,11 @@ describe("Connections provisioning helpers", () => {
     const killCommand = [...commandsByExecId.values()].find((command) =>
       command.includes("kill -TERM"),
     );
-    expect(killCommand).toContain("kill -TERM -21533");
+    expect(killCommand).toContain("pid=21533");
+    expect(killCommand).toContain('kill -TERM -"$pid"');
     expect(killCommand).not.toContain("3144061");
+    expect(killCommand).toContain("ps -o pgid= -o sid=");
+    expect(killCommand).toContain("/proc/$pid/cmdline");
   });
 
   it("starts and verifies setup-token cleanup through the in-container session control pid", async () => {
@@ -8214,13 +8217,69 @@ describe("Connections provisioning helpers", () => {
     expect(commands[0]).toContain("setsid sh -c");
     expect(commands[0]).toContain("session.pid");
     expect(commands[0]).toContain("mkfifo -m 600");
-    expect(commands.find((command) => command.includes("kill -TERM"))).toContain(
-      "kill -TERM -22500",
-    );
+    const killCommand = commands.find((command) => command.includes("kill -TERM"));
+    expect(killCommand).toContain("pid=22500");
+    expect(killCommand).toContain('kill -TERM -"$pid"');
     const cleanup = commands.find((command) => command.includes("shred -u"));
     expect(cleanup).toContain("/stdin");
     expect(cleanup).toContain("session.pid");
     expect(cleanup).toContain("rmdir");
+  });
+
+  it("accepts a published control pid that already exited while the Docker wrapper is reaping", async () => {
+    let execNumber = 0;
+    let primaryInspects = 0;
+    const commandsByExecId = new Map<string, string>();
+    const jsonResponse = (value: unknown) =>
+      new Response(JSON.stringify(value), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    const fetchImpl: typeof fetch = async (url, init) => {
+      if (String(url).endsWith("/containers/gateway/exec")) {
+        execNumber += 1;
+        const execId = `dead-${execNumber}`;
+        const body =
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as Record<string, unknown>)
+            : null;
+        commandsByExecId.set(execId, Array.isArray(body?.["Cmd"]) ? String(body["Cmd"][2]) : "");
+        return jsonResponse({ Id: execId });
+      }
+      if (String(url).includes("/start")) {
+        const execId = String(url).match(/\/exec\/([^/]+)\/start/)?.[1] ?? "";
+        if ((commandsByExecId.get(execId) ?? "").includes("session.pid")) {
+          return new Response("23598\n", { status: 200 });
+        }
+        return new Response(new Uint8Array(), { status: 200 });
+      }
+      if (String(url).includes("/exec/dead-1/json")) {
+        primaryInspects += 1;
+        return jsonResponse({
+          Pid: 3_144_061,
+          Running: primaryInspects === 1,
+          ExitCode: primaryInspects === 1 ? null : 0,
+        });
+      }
+      return jsonResponse({ Running: false, ExitCode: 0 });
+    };
+    const runtime = new DockerOpenClawGatewayRuntime({
+      dockerHost: "tcp://docker-socket-proxy:2375",
+      containerName: "gateway",
+      fetch: fetchImpl,
+    });
+
+    const started = await runtime.startDeviceCodeLogin("qwen", "main");
+    if (!started.ok) throw started.error;
+    await expect(
+      runtime.stopDeviceCodeLogin(started.value.execId, started.value.logPath),
+    ).resolves.toBeUndefined();
+
+    const readinessCommand = [...commandsByExecId.values()].find((command) =>
+      command.includes("attempt=0"),
+    );
+    expect(readinessCommand).not.toContain("kill -0");
+    expect(primaryInspects).toBe(2);
   });
 
   it("removes inactive artifacts when Docker start or control-pid readiness fails", async () => {
