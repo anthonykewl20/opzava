@@ -511,6 +511,10 @@ describe("Connections components", () => {
     expect(html.indexOf("channel:whatsapp needs attention")).toBeLessThan(
       html.indexOf('data-health-missing-guidance="true"'),
     );
+    // The not-checked notice is informational ("unknown, not failed") — role="status", never an
+    // assertive role="alert" (which also reads as an error state to the gate's sweep).
+    const missingGuidance = html.match(/<div[^>]*data-health-missing-guidance="true"[^>]*>/)?.[0];
+    expect(missingGuidance).toContain('role="status"');
     const channelsLink = html.match(/<a[^>]*data-health-group="channels"[^>]*>/)?.[0];
     expect(channelsLink).toContain("min-w-0");
     expect(channelsLink).toContain("whitespace-normal");

@@ -216,7 +216,10 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
           ) : null}
 
           {summary.notChecked > 0 ? (
+            // role="status": this notice is informational by its own copy ("unknown, not failed") —
+            // an assertive role="alert" misrepresents it to assistive tech and to error classifiers.
             <Alert
+              role="status"
               data-health-missing-guidance="true"
               className="border-dashed border-[var(--border-strong)] bg-muted/40"
             >
