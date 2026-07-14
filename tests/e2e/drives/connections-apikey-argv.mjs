@@ -286,12 +286,15 @@ if (!environReadLines.some(isThisConnect)) {
 // also leaves the canary nowhere, which would read as a pass. The worker logs the verdict for this
 // provider; require it, rather than inferring completion from a fixed wait.
 // The #183 liveness probe publishes the verdict once onboard has actually run and the credential was
-// filed. Match the event, not a phrase: the worker pretty-prints its payloads across several lines,
-// so provider and verdict never share one.
+// filed. Correlate the verdict to THIS provider: the worker pretty-prints its payload across several
+// lines, so the event name and the providerId never share one — but accepting "some authProbe event
+// happened, and the provider is named somewhere in the window" would let an unrelated probe stand in
+// for ours, which is the same vacuous pass the controls above exist to prevent. Take the event's own
+// payload block and require the provider inside it.
+const probeVerdictBlocks = [...workerLogs.matchAll(/connections\.authProbe\.(rejected|verified)\s*\{([^}]*)\}/gi)];
 const connectSettled =
-  /connections\.authProbe\.(rejected|verified)/i.test(workerLogs) &&
   providerId !== null &&
-  workerLogs.includes(providerId);
+  probeVerdictBlocks.some((block) => new RegExp(`providerId:\\s*'${providerId}'`).test(block[2]));
 if (!connectSettled) {
   findings.push("control-connect-never-reached-a-terminal-outcome=true");
 }
