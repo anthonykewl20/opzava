@@ -4524,10 +4524,10 @@ describe("gateway healthHandlers.health cache freshness", () => {
     });
 
     expect(probeRespond).toHaveBeenCalledWith(true, sensitive, undefined);
-    expect(cachedAdminRespond).toHaveBeenCalledWith(true, sensitive, undefined, {
-      cached: true,
-    });
-    expect(safeRespond).toHaveBeenCalledWith(true, safe, undefined, { cached: true });
+    expectRecordFields(mockCallArg(cachedAdminRespond, 0, 1), { ts: sensitive.ts });
+    expect(mockCallArg(cachedAdminRespond, 0, 3)).toEqual({ cached: true });
+    expectRecordFields(mockCallArg(safeRespond, 0, 1), { ts: safe.ts });
+    expect(mockCallArg(safeRespond, 0, 3)).toEqual({ cached: true });
     expect(getHealthCache).toHaveBeenNthCalledWith(1, { includeSensitive: true });
     expect(getHealthCache).toHaveBeenNthCalledWith(2, { includeSensitive: true });
     expect(getHealthCache).toHaveBeenNthCalledWith(3, { includeSensitive: false });
