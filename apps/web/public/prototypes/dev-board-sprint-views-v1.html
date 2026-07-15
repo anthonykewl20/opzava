@@ -1,0 +1,906 @@
+<!doctype html>
+<!--
+  THROWAWAY UI PROTOTYPE — not production code.
+  Question: How should a human identify an Opzava Sprint and its goal within seconds while
+  still understanding its relationship to the normal Dev Board and durable project docs?
+  Three structurally different variants are switchable with ?variant=A, ?variant=B, and ?variant=C:
+  A — dedicated Sprints view; B — normal Board stacked above Sprint; C — Board with a Sprint side cockpit.
+  Selected direction: Variant A — Dedicated Sprints View. Variant A remains the default.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Opzava Sprint views — throwaway prototype</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #080c13;
+        --chrome: #0b1018;
+        --surface: #101721;
+        --surface-2: #141d28;
+        --surface-3: #192431;
+        --line: #263342;
+        --line-strong: #34475a;
+        --text: #edf3f7;
+        --muted: #94a3b5;
+        --subtle: #8495a9;
+        --cyan: #45c6df;
+        --cyan-soft: #123541;
+        --blue: #6ea8fe;
+        --blue-soft: #182d49;
+        --amber: #f0b65d;
+        --amber-soft: #382b17;
+        --red: #ef6b73;
+        --red-soft: #3b1c23;
+        --green: #57c690;
+        --green-soft: #153427;
+        --violet: #a68af9;
+        --violet-soft: #292242;
+        --sidebar: 216px;
+        --topbar: 54px;
+        --radius: 10px;
+        --shadow: 0 16px 42px rgba(0, 0, 0, .28);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      body.light {
+        color-scheme: light;
+        --bg: #f3f5f7;
+        --chrome: #ffffff;
+        --surface: #ffffff;
+        --surface-2: #f7f9fb;
+        --surface-3: #edf1f5;
+        --line: #d7dde4;
+        --line-strong: #b9c4d0;
+        --text: #17212b;
+        --muted: #5d6b79;
+        --subtle: #526171;
+        --cyan: #006b82;
+        --cyan-soft: #dff3f7;
+        --blue: #2f72cf;
+        --blue-soft: #e4effd;
+        --amber: #a96408;
+        --amber-soft: #fff1da;
+        --red: #c83e49;
+        --red-soft: #fde8ea;
+        --green: #237951;
+        --green-soft: #e2f4eb;
+        --violet: #7055ce;
+        --violet-soft: #eee9ff;
+        --shadow: 0 16px 42px rgba(31, 43, 55, .16);
+      }
+      body.light .button.primary, body.light .brand-mark { color: #ffffff; }
+
+      * { box-sizing: border-box; }
+      html { min-width: 0; background: var(--bg); scroll-behavior: smooth; }
+      body { margin: 0; min-width: 0; min-height: 100vh; overflow-x: hidden; background: var(--bg); color: var(--text); }
+      button, input { font: inherit; }
+      button { color: inherit; }
+      button:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+        outline: 2px solid var(--cyan); outline-offset: 2px;
+      }
+      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; flex: none; }
+      .eyebrow { color: var(--subtle); font-size: 9px; line-height: 1.2; font-weight: 820; letter-spacing: .11em; text-transform: uppercase; }
+      .healthy { color: var(--green); }
+      .online { color: var(--cyan); }
+
+      .shell { display: grid; grid-template-columns: var(--sidebar) minmax(0, 1fr); min-height: 100vh; }
+      .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 12; width: var(--sidebar); background: var(--chrome); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+      .brand { height: var(--topbar); display: flex; align-items: center; gap: 10px; padding: 0 15px; border-bottom: 1px solid var(--line); font-weight: 760; }
+      .brand-mark { width: 27px; height: 27px; border-radius: 7px; display: grid; place-items: center; transform: rotate(-4deg); background: var(--cyan); color: #061016; font-weight: 900; }
+      .brand small { margin-left: auto; color: var(--subtle); font-size: 10px; }
+      .assistant { margin: 12px 10px 7px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text); font-size: 11px; display: flex; gap: 8px; align-items: center; }
+      .nav { padding: 6px 8px; overflow: auto; }
+      .nav-title { margin: 13px 8px 6px; color: var(--subtle); font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+      .nav-item { width: 100%; min-height: 36px; padding: 0 9px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); display: flex; align-items: center; gap: 10px; font-size: 12px; text-align: left; cursor: pointer; }
+      .nav-item:hover { background: var(--surface-2); color: var(--text); }
+      .nav-item.active { background: var(--cyan-soft); color: var(--cyan); }
+      .nav-icon { width: 17px; text-align: center; flex: none; }
+      .nav-count { margin-left: auto; min-width: 21px; padding: 2px 6px; border-radius: 10px; background: var(--surface-3); font-size: 9px; text-align: center; }
+      .sidebar-foot { margin-top: auto; padding: 10px; border-top: 1px solid var(--line); }
+      .jump { padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); font-size: 10px; display: flex; justify-content: space-between; }
+      .drawer-close, .drawer-backdrop { display: none; }
+      .drawer-close { width: 31px; height: 31px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text); cursor: pointer; }
+      body.drawer-open { overflow: hidden; }
+
+      .app { grid-column: 2; min-width: 0; }
+      .topbar { position: sticky; top: 0; z-index: 10; height: var(--topbar); padding: 0 17px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--chrome) 94%, transparent); backdrop-filter: blur(12px); display: flex; align-items: center; gap: 10px; }
+      .menu, .icon-button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+      .menu { display: none; }
+      .menu:hover, .icon-button:hover { border-color: var(--line); background: var(--surface); color: var(--text); }
+      .global-search { width: min(340px, 32vw); height: 34px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text); font-size: 11px; }
+      .spacer { flex: 1; }
+      .health { min-height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--muted); display: inline-flex; align-items: center; gap: 7px; font-size: 10px; white-space: nowrap; cursor: pointer; }
+      .avatar { width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center; flex: none; background: #d4a66f; color: #25180b; font-size: 9px; font-weight: 900; }
+
+      .project-head { background: var(--chrome); border-bottom: 1px solid var(--line); }
+      .project-row { min-height: 58px; padding: 10px 22px 5px; display: flex; align-items: center; gap: 10px; }
+      .project-mark { width: 29px; height: 29px; border-radius: 7px; display: grid; place-items: center; background: var(--cyan-soft); color: var(--cyan); font-weight: 900; }
+      .project-name { font-size: 15px; font-weight: 780; }
+      .project-meta { color: var(--muted); font-size: 9px; }
+      .project-actions { margin-left: auto; display: flex; gap: 5px; }
+      .view-tabs { min-width: 0; padding: 0 20px; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: thin; }
+      .view-tab { flex: none; min-height: 38px; padding: 0 11px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; }
+      .view-tab:hover { color: var(--text); background: var(--surface); }
+      .view-tab[aria-current="page"] { color: var(--cyan); border-bottom-color: var(--cyan); font-weight: 740; }
+      .doc-count { margin-left: 4px; padding: 1px 5px; border-radius: 9px; background: var(--violet-soft); color: var(--violet); font-size: 8px; font-weight: 800; }
+
+      #prototype-root { min-width: 0; }
+      .page { min-width: 0; padding-bottom: 90px; }
+      .content { width: min(1530px, calc(100% - 36px)); margin: 0 auto; }
+      .page-titlebar { padding: 20px 0 13px; display: flex; align-items: flex-start; gap: 14px; }
+      .title-block { min-width: 0; }
+      h1, h2, h3, p { overflow-wrap: anywhere; }
+      h1 { margin: 2px 0 4px; font-size: 25px; line-height: 1.16; letter-spacing: -.035em; }
+      .subtitle { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+      .actions { margin-left: auto; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+      .button { min-height: 33px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text); font-size: 10px; font-weight: 680; cursor: pointer; }
+      .button:hover { border-color: var(--line-strong); background: var(--surface-2); }
+      .button.primary { background: var(--cyan); border-color: var(--cyan); color: #071318; }
+      .button.warning { background: var(--amber-soft); border-color: color-mix(in srgb, var(--amber) 45%, var(--line)); color: var(--amber); }
+      .button.ghost { background: transparent; }
+
+      .sprint-identity { border: 1px solid var(--line-strong); border-radius: 12px; background: linear-gradient(118deg, var(--surface), var(--surface-2)); box-shadow: var(--shadow); overflow: hidden; }
+      .identity-main { padding: 18px 19px 16px; display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(350px, .9fr); gap: 22px; }
+      .identity-kicker { display: flex; align-items: center; gap: 7px; color: var(--green); font-size: 9px; font-weight: 830; letter-spacing: .11em; text-transform: uppercase; }
+      .identity-main h2 { margin: 8px 0 5px; font-size: 20px; line-height: 1.18; letter-spacing: -.025em; }
+      .goal-label { margin-top: 13px; color: var(--subtle); font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+      .goal { margin: 4px 0 0; max-width: 850px; font-size: 15px; line-height: 1.4; font-weight: 650; }
+      .identity-meta { margin-top: 13px; display: flex; gap: 6px; flex-wrap: wrap; }
+      .chip { display: inline-flex; align-items: center; gap: 5px; min-height: 23px; padding: 0 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-3); color: var(--muted); font-size: 9px; font-weight: 720; }
+      .chip.locked { background: var(--green-soft); border-color: color-mix(in srgb, var(--green) 40%, var(--line)); color: var(--green); }
+      .identity-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-content: center; }
+      .metric { min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+      .metric b { display: block; font-size: 18px; line-height: 1.1; letter-spacing: -.03em; }
+      .metric span { display: block; margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.25; letter-spacing: .07em; text-transform: uppercase; }
+      .metric.violet b { color: var(--violet); }
+      .progress { height: 5px; margin-top: 8px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+      .progress > i { display: block; width: 57.14%; height: 100%; background: var(--green); }
+      .identity-foot { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; border-top: 1px solid var(--line); }
+      .identity-foot > div, .identity-foot > button { min-height: 45px; padding: 8px 14px; border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 9px; text-align: left; }
+      .identity-foot strong { display: block; color: var(--text); font-size: 10px; }
+      .identity-foot button { cursor: pointer; }
+      .identity-foot button:hover { background: var(--surface-3); color: var(--text); }
+      .doc-bundle { color: var(--violet) !important; }
+
+      .section-head { min-height: 47px; padding: 10px 0 8px; display: flex; align-items: center; gap: 8px; }
+      .section-head h2 { margin: 0; font-size: 13px; letter-spacing: -.01em; }
+      .section-note { color: var(--muted); font-size: 9px; }
+      .section-head .actions { margin-left: auto; }
+      .count { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: inline-grid; place-items: center; background: var(--surface-3); color: var(--muted); font-size: 9px; font-weight: 800; }
+
+      .scope-rail { margin-top: 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); display: grid; grid-template-columns: 176px minmax(0, 1fr); overflow: hidden; }
+      .scope-label { padding: 13px 14px; border-right: 1px solid var(--line); background: var(--surface-2); }
+      .scope-label h3 { margin: 3px 0 5px; font-size: 12px; }
+      .scope-label p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
+      .scope-list { min-width: 0; display: flex; overflow-x: auto; }
+      .scope-item { min-width: 154px; padding: 10px 11px; border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+      .scope-item:hover { background: var(--surface-2); }
+      .scope-item .order { color: var(--cyan); font-size: 9px; font-weight: 850; }
+      .scope-item strong { display: block; margin: 5px 0 3px; font-size: 10px; }
+      .mini-state { color: var(--muted); font-size: 8px; }
+
+      .board-scroll { min-width: 0; overflow-x: auto; padding-bottom: 7px; }
+      .board-scroll:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; border-radius: 8px; }
+      .board { min-width: 1220px; display: grid; grid-template-columns: repeat(5, minmax(225px, 1fr)); gap: 9px; }
+      .lane { min-width: 0; border: 1px solid var(--line); border-radius: 9px; background: color-mix(in srgb, var(--surface) 72%, var(--bg)); overflow: hidden; }
+      .lane-head { min-height: 56px; padding: 10px; border-bottom: 1px solid var(--line); display: flex; align-items: flex-start; gap: 7px; flex-wrap: wrap; }
+      .lane-name { font-size: 11px; font-weight: 790; }
+      .lane-sub { width: 100%; margin-top: -4px; color: var(--subtle); font-size: 8px; line-height: 1.3; }
+      .lane.review-lane { border-color: color-mix(in srgb, var(--violet) 44%, var(--line)); }
+      .lane.review-lane .lane-head { background: var(--violet-soft); }
+      .wip { margin-left: auto; display: inline-flex; gap: 3px; }
+      .wip i { width: 8px; height: 8px; border: 1px solid var(--violet); border-radius: 2px; }
+      .wip i.used { background: var(--violet); }
+      .cards { min-height: 105px; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+      .empty-lane { min-height: 82px; border: 1px dashed var(--line); border-radius: 7px; display: grid; place-items: center; color: var(--subtle); font-size: 9px; text-align: center; padding: 10px; }
+
+      .card { position: relative; width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); text-align: left; box-shadow: 0 3px 12px rgba(0,0,0,.09); cursor: pointer; transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
+      .card:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+      .card:focus-within { border-color: var(--cyan); box-shadow: 0 0 0 2px color-mix(in srgb, var(--cyan) 34%, transparent); }
+      .card::before { content: ""; position: absolute; top: 9px; bottom: 9px; left: -1px; width: 2px; border-radius: 2px; background: var(--subtle); }
+      .card.progress-card::before { background: var(--cyan); }
+      .card.review-card::before { background: var(--violet); }
+      .card.done-card::before { background: var(--green); }
+      .card.todo-card::before { background: var(--blue); }
+      .card.blocked-card::before { background: var(--red); }
+      .card.highlight { border-color: var(--cyan); box-shadow: 0 0 0 2px color-mix(in srgb, var(--cyan) 38%, transparent), 0 10px 30px rgba(0,0,0,.18); }
+      .card-open { position: absolute; z-index: 2; inset: 0; width: 100%; border: 0; border-radius: inherit; background: transparent; color: inherit; cursor: pointer; }
+      .card-top { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 8px; }
+      .order-chip { min-width: 28px; padding: 2px 5px; border-radius: 4px; background: var(--cyan-soft); color: var(--cyan); font-weight: 850; text-align: center; }
+      .gh { font-weight: 760; }
+      .card-spacer { flex: 1; }
+      .tag { padding: 2px 5px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-3); color: var(--muted); font-size: 7px; font-weight: 780; }
+      .tag.p1 { background: var(--red-soft); border-color: color-mix(in srgb, var(--red) 35%, var(--line)); color: var(--red); }
+      .card h3 { margin: 7px 0 8px; font-size: 11px; line-height: 1.35; letter-spacing: -.01em; }
+      .labels { display: flex; flex-wrap: wrap; gap: 4px; }
+      .label { padding: 2px 5px; border-radius: 4px; background: var(--surface-3); color: var(--muted); font-size: 7px; }
+      .card-state { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 8px; }
+      .card-state strong { margin-left: auto; color: var(--text); }
+      .status-text.progress-text { color: var(--cyan); }
+      .status-text.review-text { color: var(--violet); }
+      .status-text.done-text { color: var(--green); }
+
+      /* A: dedicated command deck */
+      .variant-a .page { background: radial-gradient(circle at 70% 0%, color-mix(in srgb, var(--cyan-soft) 58%, transparent), transparent 38%), var(--bg); }
+      .focus-deck { margin-top: 12px; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(320px, .7fr); gap: 10px; }
+      .now-panel, .review-panel { padding: 13px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+      .deck-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+      .now-title { margin: 8px 0 6px; font-size: 13px; font-weight: 730; }
+      .actor-line { color: var(--muted); font-size: 9px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+      .actor-icon { width: 23px; height: 23px; border-radius: 6px; display: inline-grid; place-items: center; background: var(--cyan-soft); color: var(--cyan); font-weight: 850; }
+      .review-panel { border-color: color-mix(in srgb, var(--violet) 42%, var(--line)); background: linear-gradient(135deg, var(--surface), var(--violet-soft)); }
+      .independent { margin-top: 8px; padding: 7px 8px; border-left: 2px solid var(--violet); background: var(--surface); color: var(--muted); font-size: 9px; line-height: 1.4; }
+
+      /* B: stacked board */
+      .stack-jump { position: sticky; top: calc(var(--topbar) + 1px); z-index: 8; margin: 0 -18px; padding: 7px 18px; border-block: 1px solid var(--line); background: color-mix(in srgb, var(--chrome) 94%, transparent); backdrop-filter: blur(10px); display: flex; align-items: center; gap: 7px; }
+      .jump-label { margin-right: 3px; color: var(--muted); font-size: 9px; }
+      .stack-section { scroll-margin-top: 110px; }
+      .manual-section { margin-top: 10px; padding: 0 12px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+      .manual-section.collapsed .board-scroll, .manual-section.collapsed .manual-explainer { display: none; }
+      .manual-explainer { margin: -3px 0 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--blue-soft); color: var(--muted); font-size: 9px; }
+      .manual-explainer strong { color: var(--blue); }
+      .manual-board { min-width: 900px; grid-template-columns: repeat(4, minmax(210px, 1fr)); }
+      .sprint-stack { margin-top: 14px; padding-top: 3px; border-top: 2px solid var(--cyan); }
+      .tradeoff { margin-left: auto; padding: 5px 8px; border-radius: 5px; background: var(--amber-soft); color: var(--amber); font-size: 8px; font-weight: 720; }
+
+      /* C: canonical Board + reference cockpit */
+      .cockpit-layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; align-items: start; }
+      .canonical { min-width: 0; }
+      .canonical .board { min-width: 1220px; grid-template-columns: repeat(5, minmax(225px, 1fr)); }
+      .cockpit { position: sticky; top: calc(var(--topbar) + 12px); max-height: calc(100vh - var(--topbar) - 28px); overflow: auto; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); box-shadow: var(--shadow); }
+      .cockpit-head { padding: 14px; border-bottom: 1px solid var(--line); background: linear-gradient(135deg, var(--cyan-soft), var(--surface)); }
+      .cockpit-head { position: relative; padding-right: 86px; }
+      .cockpit-head h2 { margin: 6px 0 4px; font-size: 15px; }
+      .cockpit-goal { margin: 10px 0 0; color: var(--text); font-size: 11px; line-height: 1.4; font-weight: 620; }
+      .cockpit-metrics { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line); }
+      .cockpit-metrics .metric { border: 0; border-right: 1px solid var(--line); border-radius: 0; padding: 10px; }
+      .cockpit-section { padding: 11px 12px; border-bottom: 1px solid var(--line); }
+      .cockpit-section h3 { margin: 0 0 8px; color: var(--muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+      .current-item { padding: 9px; border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line)); border-radius: 7px; background: var(--cyan-soft); font-size: 10px; line-height: 1.4; }
+      .queue { display: grid; gap: 3px; }
+      .queue-row { width: 100%; min-height: 31px; padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); display: grid; grid-template-columns: 31px minmax(0,1fr) auto; align-items: center; gap: 5px; text-align: left; font-size: 8px; cursor: pointer; }
+      .queue-row:hover { border-color: var(--line); background: var(--surface-2); color: var(--text); }
+      .queue-order { color: var(--cyan); font-weight: 850; }
+      .queue-state { font-weight: 750; }
+      .actor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      .actor-box { padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--muted); font-size: 8px; }
+      .actor-box b { display: block; margin-top: 3px; color: var(--text); font-size: 9px; }
+      .cockpit-toggle { position: absolute; top: 11px; right: 11px; min-height: 29px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 8px; font-weight: 750; cursor: pointer; }
+      .cockpit[data-collapsed="true"] .cockpit-body { display: none; }
+      .cockpit[data-collapsed="true"] .cockpit-head .goal-label,
+      .cockpit[data-collapsed="true"] .cockpit-head .cockpit-goal,
+      .cockpit[data-collapsed="true"] .cockpit-head .identity-meta { display: none; }
+
+      .prototype-switcher { position: fixed; z-index: 40; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(390px, calc(100vw - 18px)); padding: 6px; border: 1px solid #cbd3da; border-radius: 13px; background: #f5f7f9; color: #16222c; box-shadow: 0 14px 40px rgba(0,0,0,.36); display: grid; grid-template-columns: 34px minmax(0,1fr) 34px; align-items: center; gap: 6px; }
+      .switch-button { width: 34px; height: 32px; border: 1px solid #ccd4db; border-radius: 7px; background: white; color: #1c2b36; font-weight: 850; cursor: pointer; }
+      .prototype-label { min-width: 0; text-align: center; }
+      .prototype-label small { display: block; color: #566774; font-size: 7px; font-weight: 830; letter-spacing: .1em; text-transform: uppercase; }
+      .prototype-label strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+      .toast { position: fixed; z-index: 50; right: 16px; bottom: 70px; max-width: min(340px, calc(100vw - 30px)); padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); box-shadow: var(--shadow); font-size: 10px; opacity: 0; transform: translateY(8px); pointer-events: none; transition: .18s ease; }
+      .toast.show { opacity: 1; transform: translateY(0); }
+      dialog.history-dialog { width: min(940px, calc(100vw - 32px)); max-height: calc(100vh - 40px); padding: 0; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); color: var(--text); box-shadow: 0 28px 90px rgba(0,0,0,.52); overflow: auto; }
+      dialog.history-dialog::backdrop { background: rgba(2, 7, 13, .76); backdrop-filter: blur(3px); }
+      .history-head { position: sticky; top: 0; z-index: 2; padding: 16px 18px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 96%, transparent); display: flex; align-items: flex-start; gap: 12px; }
+      .history-head h2 { margin: 4px 0 3px; font-size: 19px; }
+      .history-close { margin-left: auto; }
+      .history-list { padding: 12px; display: grid; gap: 9px; }
+      .history-item { border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); overflow: hidden; }
+      .history-item-head { padding: 11px 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .history-item-head h3 { margin: 0; font-size: 12px; }
+      .history-state { margin-left: auto; color: var(--green); font-size: 8px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+      .history-grid { display: grid; grid-template-columns: minmax(240px, 1.4fr) repeat(3, minmax(100px, .45fr)); }
+      .history-cell { padding: 10px 12px; border-right: 1px solid var(--line); color: var(--muted); font-size: 8px; line-height: 1.4; }
+      .history-cell:last-child { border-right: 0; }
+      .history-cell b { display: block; margin-top: 3px; color: var(--text); font-size: 10px; }
+      .history-links { padding: 8px 10px; border-top: 1px solid var(--line); display: flex; gap: 6px; flex-wrap: wrap; }
+
+      @media (max-width: 1180px) {
+        :root { --sidebar: 176px; }
+        .identity-main { grid-template-columns: minmax(0,1.3fr) minmax(300px,.7fr); }
+        .cockpit-layout { grid-template-columns: minmax(0, 1fr) 330px; }
+        .runner-health { display: none; }
+      }
+      @media (max-width: 900px) {
+        :root { --sidebar: 62px; }
+        .brand { justify-content: center; padding: 0; }
+        .brand > span:not(.brand-mark), .brand small, .assistant span:last-child, .nav-title, .sidebar-foot, .nav-count { display: none; }
+        .assistant { justify-content: center; padding-inline: 0; }
+        .nav-item { justify-content: center; padding: 0; font-size: 0; }
+        .nav-icon { font-size: 13px; }
+        .content { width: min(100% - 24px, 1530px); }
+        .identity-main { grid-template-columns: 1fr; }
+        .focus-deck { grid-template-columns: 1fr; }
+        .scope-rail { grid-template-columns: 145px minmax(0,1fr); }
+        .cockpit-layout { grid-template-columns: 1fr; }
+        .cockpit { position: relative; top: auto; max-height: none; order: -1; }
+        .stack-jump { margin-inline: -12px; padding-inline: 12px; }
+      }
+      @media (max-width: 700px) {
+        :root { --sidebar: 0px; }
+        .shell { grid-template-columns: minmax(0, 1fr); }
+        .sidebar { display: flex; width: min(280px, 86vw); transform: translateX(-102%); transition: transform .18s ease; box-shadow: var(--shadow); }
+        body.drawer-open .sidebar { transform: translateX(0); }
+        .drawer-backdrop { position: fixed; z-index: 11; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(2, 8, 14, .68); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .18s ease, visibility .18s ease; }
+        body.drawer-open .drawer-backdrop { display: block; opacity: 1; visibility: visible; pointer-events: auto; }
+        .drawer-close { display: grid; place-items: center; margin-left: 3px; }
+        .brand { justify-content: flex-start; padding: 0 12px; }
+        .brand > span:not(.brand-mark), .brand small, .assistant span:last-child, .nav-title, .sidebar-foot, .nav-count { display: revert; }
+        .brand small { margin-left: auto; }
+        .assistant { justify-content: flex-start; padding-inline: 11px; }
+        .nav-item { justify-content: flex-start; padding: 0 9px; font-size: 12px; }
+        .nav-icon { font-size: 12px; }
+        .app { grid-column: 1; }
+        .topbar { padding-inline: 8px; }
+        .menu { display: grid; }
+        .global-search { width: min(210px, 45vw); }
+        .health { display: none; }
+        .project-row { padding-inline: 12px; }
+        .view-tabs { padding-inline: 8px; }
+        .content { width: calc(100% - 20px); }
+        .page-titlebar { padding-top: 14px; flex-direction: column; }
+        .actions { width: 100%; margin-left: 0; justify-content: flex-start; }
+        .identity-main { padding: 14px; }
+        .identity-main h2 { font-size: 17px; }
+        .goal { font-size: 13px; }
+        .identity-metrics { grid-template-columns: 1fr 1fr; }
+        .identity-foot { grid-template-columns: 1fr; }
+        .identity-foot > div, .identity-foot > button { border-right: 0; border-bottom: 1px solid var(--line); }
+        .scope-rail { grid-template-columns: 1fr; }
+        .scope-label { border-right: 0; border-bottom: 1px solid var(--line); }
+        .scope-item { min-width: 140px; }
+        .board-scroll { overflow: visible; }
+        .board, .manual-board, .canonical .board { min-width: 0; grid-template-columns: 1fr; }
+        .lane { overflow: visible; }
+        .cards { min-height: 0; }
+        .manual-section { padding-inline: 8px; }
+        .stack-jump { top: var(--topbar); margin-inline: -10px; padding-inline: 10px; }
+        .jump-label, .tradeoff { display: none; }
+        .cockpit-layout { display: flex; flex-direction: column; }
+        .cockpit, .canonical { width: 100%; }
+        .project-meta { display: none; }
+        .history-grid { grid-template-columns: 1fr 1fr; }
+        .history-cell { border-bottom: 1px solid var(--line); }
+      }
+      @media (max-width: 430px) {
+        .global-search { width: 130px; }
+        .project-actions { display: none; }
+        .identity-metrics { grid-template-columns: 1fr 1fr; }
+        .metric b { font-size: 16px; }
+        .cockpit-metrics { grid-template-columns: 1fr 1fr 1fr; }
+        .actor-grid { grid-template-columns: 1fr; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html { scroll-behavior: auto; }
+        *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar" id="primary-sidebar" aria-label="Primary navigation">
+        <div class="brand"><span class="brand-mark">O</span><span>Opzava</span><small>v2.1</small><button class="drawer-close" data-action="close-drawer" aria-label="Close navigation">×</button></div>
+        <div class="assistant"><span aria-hidden="true">✦</span><span>Ask Admin Opzava</span></div>
+        <nav class="nav">
+          <div class="nav-title">OPERATE</div>
+          <button class="nav-item" data-fake="Overview"><span class="nav-icon">⌂</span>Overview</button>
+          <button class="nav-item active"><span class="nav-icon">▦</span>Dev Board<span class="nav-count">24</span></button>
+          <div class="nav-title">CRM</div>
+          <button class="nav-item" data-fake="Contacts"><span class="nav-icon">○</span>Contacts</button>
+          <button class="nav-item" data-fake="Accounts"><span class="nav-icon">□</span>Accounts</button>
+          <button class="nav-item" data-fake="Deals"><span class="nav-icon">◇</span>Deals</button>
+          <div class="nav-title">AUTOMATE</div>
+          <button class="nav-item" data-fake="Connections"><span class="nav-icon">∞</span>Connections</button>
+          <button class="nav-item" data-fake="GitHub"><span class="nav-icon">GH</span>GitHub<span class="nav-count">✓</span></button>
+          <button class="nav-item" data-fake="Dev Runners"><span class="nav-icon">▣</span>Dev Runners<span class="nav-count">1</span></button>
+        </nav>
+        <div class="sidebar-foot"><div class="jump"><span>Jump to…</span><span>⌘K</span></div></div>
+      </aside>
+      <button class="drawer-backdrop" data-action="close-drawer" aria-label="Close navigation" aria-hidden="true" tabindex="-1"></button>
+
+      <div class="app">
+        <header class="topbar">
+          <button class="menu" id="nav-menu-button" aria-label="Open navigation" aria-controls="primary-sidebar" aria-expanded="false">☰</button>
+          <input class="global-search" aria-label="Global search" placeholder="Search cards, docs, runs…" />
+          <div class="spacer"></div>
+          <button class="health runner-health" data-fake="Local runner status"><span class="dot online"></span>Local runner online</button>
+          <button class="health" data-fake="GitHub integration status"><span class="dot healthy"></span>GitHub healthy</button>
+          <button class="icon-button" id="theme-toggle" aria-label="Switch to light theme" aria-pressed="false" title="Toggle light or dark theme">☼</button>
+          <span class="avatar" title="Human Owner · Anthony">AG</span>
+        </header>
+
+        <header class="project-head">
+          <div class="project-row">
+            <span class="project-mark">D</span>
+            <div><div class="project-name">Opzava Development</div><div class="project-meta">GitHub-backed delivery · Human Owner Anthony</div></div>
+            <div class="project-actions"><button class="icon-button" data-fake="Share project" aria-label="Share project">↗</button><button class="icon-button" data-fake="Project settings" aria-label="Project settings">⚙</button></div>
+          </div>
+          <nav class="view-tabs" aria-label="Development project views">
+            <button class="view-tab" data-view="Summary">Summary</button>
+            <button class="view-tab" data-view="List">List</button>
+            <button class="view-tab" data-view="Board">Board</button>
+            <button class="view-tab" data-view="Sprints">Sprints</button>
+            <button class="view-tab" data-view="Docs">Docs <span class="doc-count">12</span></button>
+            <button class="view-tab" data-view="Development">Development</button>
+          </nav>
+        </header>
+
+        <main id="prototype-root"></main>
+      </div>
+    </div>
+
+    <template id="variant-a">
+      <article class="page variant-a" aria-labelledby="a-title">
+        <div class="content">
+          <header class="page-titlebar">
+            <div class="title-block"><div class="eyebrow">Recommended · focused execution surface</div><h1 id="a-title">Sprints</h1><p class="subtitle">A dedicated command view keeps Sprint identity, goal, queue, and independent review unmistakable.</p></div>
+            <div class="actions"><button class="button" data-action="open-history" aria-haspopup="dialog" aria-controls="sprint-history-dialog">Sprint history</button><button class="button warning" data-fake="Pause Sprint safely">Pause safely</button><button class="button primary" data-fake="Create Sprint">＋ Create Sprint</button></div>
+          </header>
+
+          <section class="sprint-identity" aria-labelledby="a-sprint-name">
+            <div class="identity-main">
+              <div>
+                <div class="identity-kicker"><span class="dot"></span>Active Sprint · running</div>
+                <h2 id="a-sprint-name">S-024 · GitHub-backed Sprint execution</h2>
+                <div class="goal-label">Sprint goal</div>
+                <p class="goal">Ship safe GitHub-backed Sprint execution with a durable audit trail</p>
+                <div class="identity-meta"><span class="chip mono">autonomous_serial</span><span class="chip locked">▣ Plan v3 locked</span><span class="chip">7 scoped cards</span><span class="chip">Owner · Anthony</span></div>
+              </div>
+              <div class="identity-metrics">
+                <div class="metric"><b>4 / 7</b><span>Done</span><div class="progress"><i></i></div></div>
+                <div class="metric"><b class="online">1 / 1</b><span>Implementation WIP</span></div>
+                <div class="metric violet"><b>2 / 3</b><span>Independent Review</span></div>
+                <div class="metric"><b>Plan v3</b><span>Locked scope</span></div>
+              </div>
+            </div>
+            <div class="identity-foot">
+              <div><span>Human Owner</span><strong>Anthony</strong></div>
+              <button class="doc-bundle" data-view="Docs"><span>Durable Sprint docs</span><strong>PRD · grilling &amp; plans · research · ADRs · contracts · reports →</strong></button>
+              <button data-fake="Open Sprint audit trail"><span>GitHub record</span><strong>Milestone + tracking issue ↗</strong></button>
+            </div>
+          </section>
+
+          <section class="scope-rail" aria-labelledby="scope-heading">
+            <div class="scope-label"><div class="eyebrow">Locked ordering</div><h3 id="scope-heading">Sprint scope</h3><p>S01 → S07 is the approved plan. Select an item to locate its status card.</p></div>
+            <div class="scope-list" data-scope-list></div>
+          </section>
+
+          <section class="focus-deck" aria-label="Sprint execution and review status">
+            <article class="now-panel"><div class="deck-label"><span class="dot online"></span>Now implementing · WIP 1/1</div><div class="now-title"><span class="mono">S07 · GH-835</span> — Verify immutable Review evidence</div><div class="actor-line"><span class="actor-icon">CX</span><b>Local Runner · Codex CLI</b><span class="mono">opz/s024-review-evidence</span><span class="online">● heartbeat 9s</span></div></article>
+            <article class="review-panel"><div class="deck-label" style="color:var(--violet)"><span class="dot"></span>Independent Review · 2/3</div><div class="now-title">S05 and S06 are reviewed outside the serial implementation lease.</div><div class="independent"><b>Local Reviewer · Claude Code</b><br />Review capacity is independent: implementation stays 1/1 while up to three cards can be reviewed.</div></article>
+          </section>
+
+          <section aria-labelledby="a-board-heading">
+            <header class="section-head"><h2 id="a-board-heading">Sprint-only status board</h2><span class="count">7</span><span class="section-note">Only approved S-024 scope appears here</span><div class="actions"><button class="button" data-fake="Filter Sprint cards">Filter</button><button class="button" data-fake="Sprint board settings">•••</button></div></header>
+            <div class="board-scroll" tabindex="0" role="region" aria-label="Sprint status board; scroll horizontally to inspect all lanes"><div class="board" data-sprint-board="five"></div></div>
+          </section>
+        </div>
+      </article>
+    </template>
+
+    <template id="variant-b">
+      <article class="page variant-b" aria-labelledby="b-title">
+        <div class="content">
+          <header class="page-titlebar">
+            <div class="title-block"><div class="eyebrow">One board · two stacked work contexts</div><h1 id="b-title">Board</h1><p class="subtitle">Manual work stays familiar; the active Sprint is a clearly bounded board below it.</p></div>
+            <div class="actions"><button class="button primary" data-fake="Create work item">＋ Create work item</button></div>
+          </header>
+          <nav class="stack-jump" aria-label="Jump between stacked boards"><span class="jump-label">On this page</span><button class="button" data-jump="manual-section">↑ Normal work</button><button class="button" data-jump="sprint-section">↓ Active Sprint S-024</button><button class="button ghost" data-action="collapse-manual" aria-expanded="true">Collapse normal work</button><span class="tradeoff">Longer page · two visual contexts</span></nav>
+
+          <section class="stack-section manual-section" id="manual-section" aria-labelledby="normal-heading">
+            <header class="section-head"><h2 id="normal-heading">Normal work · manual &amp; unscheduled</h2><span class="count">4</span><span class="section-note">Triage, support, and backlog outside the locked Sprint</span><div class="actions"><button class="button" data-fake="Normal work filter">Filter</button></div></header>
+            <div class="manual-explainer"><strong>No Sprint cards are duplicated here.</strong> All seven S-024 cards live exclusively in the active Sprint section below.</div>
+            <div class="board-scroll" tabindex="0" role="region" aria-label="Normal work board; scroll horizontally to inspect all lanes"><div class="board manual-board" data-manual-board></div></div>
+          </section>
+
+          <section class="stack-section sprint-stack" id="sprint-section" aria-labelledby="b-sprint-name">
+            <div class="sprint-identity">
+              <div class="identity-main">
+                <div><div class="identity-kicker"><span class="dot"></span>Active Sprint · S-024</div><h2 id="b-sprint-name">GitHub-backed Sprint execution</h2><div class="goal-label">Sprint goal</div><p class="goal">Ship safe GitHub-backed Sprint execution with a durable audit trail</p><div class="identity-meta"><span class="chip mono">autonomous_serial</span><span class="chip locked">▣ Plan v3 locked</span><span class="chip">7 scoped cards</span><span class="chip">Owner · Anthony</span><span class="chip">Local Runner · Codex CLI</span><span class="chip">Local Reviewer · Claude Code</span></div></div>
+                <div class="identity-metrics"><div class="metric"><b>4 / 7</b><span>Done</span><div class="progress"><i></i></div></div><div class="metric"><b class="online">1 / 1</b><span>Implementation</span></div><div class="metric violet"><b>2 / 3</b><span>Independent Review</span></div><div class="metric"><b>Plan v3</b><span>Locked</span></div></div>
+              </div>
+              <div class="identity-foot"><div><span>Human Owner</span><strong>Anthony</strong></div><button class="doc-bundle" data-view="Docs"><span>Durable Sprint docs</span><strong>PRD · plans · research · ADRs · contracts · reports →</strong></button><button data-fake="Open Sprint tracking issue"><span>GitHub record</span><strong>Milestone + tracking issue ↗</strong></button></div>
+            </div>
+            <section class="scope-rail" aria-label="Ordered Sprint scope"><div class="scope-label"><div class="eyebrow">Plan v3 · locked</div><h3>Ordered scope</h3><p>Seven cards, S01 through S07.</p></div><div class="scope-list" data-scope-list></div></section>
+            <header class="section-head"><h2>Sprint S-024 status</h2><span class="count">7</span><span class="section-note">Review 2/3 is independent of implementation WIP 1/1</span></header>
+            <div class="board-scroll" tabindex="0" role="region" aria-label="Sprint status board; scroll horizontally to inspect all lanes"><div class="board" data-sprint-board="five"></div></div>
+          </section>
+        </div>
+      </article>
+    </template>
+
+    <template id="variant-c">
+      <article class="page variant-c" aria-labelledby="c-title">
+        <div class="content">
+          <header class="page-titlebar"><div class="title-block"><div class="eyebrow">Canonical board + reference cockpit</div><h1 id="c-title">Board</h1><p class="subtitle">Every card exists once on the board; the Sprint cockpit controls and locates without duplicating draggable work.</p></div><div class="actions"><button class="button" data-fake="Board filter">Filter</button><button class="button primary" data-fake="Create work item">＋ Create work item</button></div></header>
+
+          <div class="cockpit-layout">
+            <section class="canonical" aria-labelledby="canonical-heading">
+              <header class="section-head"><h2 id="canonical-heading">Canonical Kanban</h2><span class="count">11</span><span class="section-note">Sprint cards carry S-order chips; manual work has no S-order</span></header>
+              <div class="board-scroll" tabindex="0" role="region" aria-label="Canonical Kanban board; scroll horizontally to inspect all lanes"><div class="board" data-canonical-board></div></div>
+            </section>
+
+            <aside class="cockpit" data-cockpit data-collapsed="false" aria-labelledby="cockpit-name">
+              <header class="cockpit-head">
+                <div class="identity-kicker"><span class="dot"></span>Active Sprint · S-024</div><h2 id="cockpit-name">GitHub-backed Sprint execution</h2><div class="goal-label">Sprint goal</div><p class="cockpit-goal">Ship safe GitHub-backed Sprint execution with a durable audit trail</p><div class="identity-meta"><span class="chip mono">autonomous_serial</span><span class="chip locked">Plan v3 locked</span><span class="chip">Anthony</span></div>
+                <button class="cockpit-toggle" data-action="toggle-cockpit" aria-expanded="true" aria-controls="cockpit-body">Collapse</button>
+              </header>
+              <div class="cockpit-body" id="cockpit-body">
+                <div class="cockpit-metrics"><div class="metric"><b>4/7</b><span>Done</span></div><div class="metric violet"><b>2/3</b><span>Review</span></div><div class="metric"><b class="online">1/1</b><span>Implement</span></div></div>
+                <section class="cockpit-section"><h3>Current implementation</h3><div class="current-item"><b>S07 · GH-835</b><br />Verify immutable Review evidence<br /><span class="online">● Codex CLI · local runner</span></div></section>
+                <section class="cockpit-section"><h3>Plan v3 queue · select to locate canonical card</h3><div class="queue" data-queue></div></section>
+                <section class="cockpit-section"><h3>Execution roles</h3><div class="actor-grid"><div class="actor-box">Local Runner<b>Codex CLI</b>Implementation · 1/1</div><div class="actor-box">Local Reviewer<b>Claude Code</b>Independent · 2/3</div></div></section>
+                <section class="cockpit-section"><h3>Durable knowledge</h3><button class="button doc-bundle" data-view="Docs">Open Docs · PRD, plans, research, ADRs, contracts, reports</button></section>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <dialog class="history-dialog" id="sprint-history-dialog" aria-labelledby="history-title">
+      <header class="history-head">
+        <div><div class="eyebrow">Completed Sprint archive</div><h2 id="history-title">Sprint history</h2><p class="subtitle">Final plans, delivery outcomes, interruptions, Docs, and durable GitHub records.</p></div>
+        <button class="button history-close" data-action="close-history" aria-label="Close Sprint history">Close</button>
+      </header>
+      <div class="history-list">
+        <article class="history-item">
+          <header class="history-item-head"><span class="mono">S-023</span><h3>Independent review evidence</h3><span class="chip locked">Plan v5 final</span><span class="history-state">Completed · 7 Jul</span></header>
+          <div class="history-grid"><div class="history-cell">Sprint goal<b>Make every merged change independently reviewable.</b></div><div class="history-cell">Dates<b>1–7 Jul 2026</b></div><div class="history-cell">Outcome<b>6 Done · 1 deferred</b></div><div class="history-cell">Interruptions<b>2 · both resumed</b></div></div>
+          <footer class="history-links"><button class="button doc-bundle" data-view="Docs">Final report in Docs</button><button class="button" data-fake="Open S-023 GitHub milestone">GitHub milestone</button><button class="button" data-fake="Open S-023 tracking issue">Tracking issue</button></footer>
+        </article>
+        <article class="history-item">
+          <header class="history-item-head"><span class="mono">S-022</span><h3>Runner lease recovery</h3><span class="chip locked">Plan v3 final</span><span class="history-state">Completed · 27 Jun</span></header>
+          <div class="history-grid"><div class="history-cell">Sprint goal<b>Recover local execution safely after runner loss.</b></div><div class="history-cell">Dates<b>20–27 Jun 2026</b></div><div class="history-cell">Outcome<b>5 Done · 0 deferred</b></div><div class="history-cell">Interruptions<b>1 · auto-resumed</b></div></div>
+          <footer class="history-links"><button class="button doc-bundle" data-view="Docs">Final report in Docs</button><button class="button" data-fake="Open S-022 GitHub milestone">GitHub milestone</button><button class="button" data-fake="Open S-022 tracking issue">Tracking issue</button></footer>
+        </article>
+        <article class="history-item">
+          <header class="history-item-head"><span class="mono">S-021</span><h3>GitHub card synchronization</h3><span class="chip locked">Plan v4 final</span><span class="history-state">Completed · 14 Jun</span></header>
+          <div class="history-grid"><div class="history-cell">Sprint goal<b>Keep Opzava and GitHub card state consistent.</b></div><div class="history-cell">Dates<b>6–14 Jun 2026</b></div><div class="history-cell">Outcome<b>8 Done · 2 deferred</b></div><div class="history-cell">Interruptions<b>3 · 1 human pause</b></div></div>
+          <footer class="history-links"><button class="button doc-bundle" data-view="Docs">Final report in Docs</button><button class="button" data-fake="Open S-021 GitHub milestone">GitHub milestone</button><button class="button" data-fake="Open S-021 tracking issue">Tracking issue</button></footer>
+        </article>
+      </div>
+    </dialog>
+
+    <div class="prototype-switcher" aria-label="Prototype variant switcher">
+      <button class="switch-button" data-switch="prev" aria-label="Previous variant">←</button>
+      <div class="prototype-label" role="status" aria-live="polite" aria-atomic="true"><small>Throwaway prototype · use Alt + ← →</small><strong id="variant-label">A — Dedicated Sprints View</strong></div>
+      <button class="switch-button" data-switch="next" aria-label="Next variant">→</button>
+    </div>
+    <div class="toast" role="status" aria-live="polite"></div>
+
+    <script>
+      (function () {
+        var variants = {
+          A: { label: "Dedicated Sprints View", template: "variant-a", view: "Sprints" },
+          B: { label: "Stacked Board", template: "variant-b", view: "Board" },
+          C: { label: "Board + Sprint Side Cockpit", template: "variant-c", view: "Board" }
+        };
+        var order = ["A", "B", "C"];
+        var cards = [
+          { order: "S01", gh: "GH-812", title: "Create durable Sprint tracking issue", type: "Technical Task", priority: "P1", labels: ["github", "audit"], state: "done", stateLabel: "Done" },
+          { order: "S02", gh: "GH-816", title: "Sync locked Plan revisions to GitHub", type: "Improvement", priority: "P1", labels: ["sync", "planning"], state: "done", stateLabel: "Done" },
+          { order: "S03", gh: "GH-819", title: "Record pause and resume audit events", type: "Bug", priority: "P1", labels: ["audit", "safety"], state: "done", stateLabel: "Done" },
+          { order: "S04", gh: "GH-823", title: "Publish final Sprint report to Docs", type: "Improvement", priority: "P2", labels: ["docs", "reporting"], state: "done", stateLabel: "Done" },
+          { order: "S05", gh: "GH-827", title: "Enforce one implementation lease", type: "Technical Task", priority: "P1", labels: ["runner", "serial"], state: "review", stateLabel: "Review · independent" },
+          { order: "S06", gh: "GH-831", title: "Recover interrupted GitHub synchronization", type: "Bug", priority: "P1", labels: ["github", "recovery"], state: "review", stateLabel: "Review · independent" },
+          { order: "S07", gh: "GH-835", title: "Verify immutable Review evidence", type: "Improvement", priority: "P2", labels: ["review", "evidence"], state: "progress", stateLabel: "In Progress · 1/1" }
+        ];
+        var manualCards = [
+          { gh: "GH-847", title: "Triage login timeout report", type: "Bug", priority: "P1", labels: ["support", "auth"], state: "todo", stateLabel: "Todo" },
+          { gh: "GH-849", title: "Refresh repository connection copy", type: "Improvement", priority: "P2", labels: ["ui", "connections"], state: "todo", stateLabel: "Todo" },
+          { gh: "GH-851", title: "Investigate flaky preview cleanup", type: "Technical Task", priority: "P2", labels: ["infra", "preview"], state: "progress", stateLabel: "In Progress" },
+          { gh: "GH-853", title: "Permission downgrade needs product input", type: "Bug", priority: "P1", labels: ["github", "permissions"], state: "blocked", stateLabel: "Blocked" }
+        ];
+        var root = document.getElementById("prototype-root");
+        var toastTimer;
+        var menuButton = document.getElementById("nav-menu-button");
+        var sidebar = document.getElementById("primary-sidebar");
+        var appSurface = document.querySelector(".app");
+        var drawerBackdrop = document.querySelector(".drawer-backdrop");
+        var historyDialog = document.getElementById("sprint-history-dialog");
+        var lastHistoryTrigger = null;
+        var mobileMedia = matchMedia("(max-width: 700px)");
+        var drawerOpen = false;
+        var manualCollapsed = mobileMedia.matches;
+        var manualCollapseTouched = false;
+
+        function currentVariant() {
+          var value = new URLSearchParams(location.search).get("variant");
+          return variants[value] ? value : "A";
+        }
+
+        function esc(value) {
+          return String(value).replace(/[&<>\"]/g, function (char) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" })[char]; });
+        }
+
+        function cardMarkup(card, sprint) {
+          var statusClass = card.state === "progress" ? "progress-text" : card.state === "review" ? "review-text" : card.state === "done" ? "done-text" : "";
+          var key = card.order || card.gh;
+          return '<article class="card ' + card.state + '-card" data-card-key="' + esc(key) + '">' +
+            '<div class="card-top">' + (sprint ? '<span class="order-chip">' + esc(card.order) + '</span>' : '') + '<span class="gh mono">' + esc(card.gh) + '</span><span class="card-spacer"></span><span class="tag">' + esc(card.type) + '</span><span class="tag ' + (card.priority === "P1" ? "p1" : "") + '">' + esc(card.priority) + '</span></div>' +
+            '<h3>' + esc(card.title) + '</h3><div class="labels">' + card.labels.map(function (label) { return '<span class="label">' + esc(label) + '</span>'; }).join("") + '</div>' +
+            '<div class="card-state"><span class="dot ' + (card.state === "done" ? "healthy" : card.state === "progress" ? "online" : "") + '"></span><span class="status-text ' + statusClass + '">' + esc(card.stateLabel) + '</span><strong>' + (sprint ? "Anthony" : "Manual") + '</strong></div>' +
+            '<button class="card-open" data-fake="Open ' + esc(card.gh) + '"><span class="sr-only">Open ' + esc(key) + ' ' + esc(card.gh) + ': ' + esc(card.title) + '</span></button></article>';
+        }
+
+        function laneMarkup(name, items, options) {
+          options = options || {};
+          var review = name === "Review";
+          var subtitle = options.subtitle || (review ? "Independent from implementation" : "Sprint workflow state");
+          var count = options.count || String(items.length);
+          var wip = review ? '<span class="wip" aria-label="2 of 3 Review slots used"><i class="used"></i><i class="used"></i><i></i></span>' : '';
+          var body = items.length ? items.map(function (card) { return cardMarkup(card, options.sprint !== false); }).join("") : '<div class="empty-lane">No S-024 cards<br />in this state</div>';
+          return '<section class="lane ' + (review ? "review-lane" : "") + '" aria-label="' + esc(name) + ' lane"><header class="lane-head"><span class="lane-name">' + esc(name) + '</span><span class="count">' + esc(count) + '</span>' + wip + '<span class="lane-sub">' + esc(subtitle) + '</span></header><div class="cards">' + body + '</div></section>';
+        }
+
+        function buildSprintBoard(board) {
+          board.innerHTML = laneMarkup("Todo", [], { count: "0" }) +
+            laneMarkup("Blocked", [], { count: "0", subtitle: "No hard blockers" }) +
+            laneMarkup("In Progress", cards.filter(function (c) { return c.state === "progress"; }), { count: "1 / 1", subtitle: "Serial implementation lease" }) +
+            laneMarkup("Review", cards.filter(function (c) { return c.state === "review"; }), { count: "2 / 3", subtitle: "Claude Code · independent review" }) +
+            laneMarkup("Done", cards.filter(function (c) { return c.state === "done"; }), { count: "4", subtitle: "Merged and audit-recorded" });
+        }
+
+        function buildManualBoard(board) {
+          board.innerHTML = laneMarkup("Todo", manualCards.filter(function (c) { return c.state === "todo"; }), { sprint: false, subtitle: "Unscheduled and triaged" }) +
+            laneMarkup("Blocked", manualCards.filter(function (c) { return c.state === "blocked"; }), { sprint: false, subtitle: "Needs human input" }) +
+            laneMarkup("In Progress", manualCards.filter(function (c) { return c.state === "progress"; }), { sprint: false, subtitle: "Manual work" }) +
+            laneMarkup("Done", [], { sprint: false, count: "0", subtitle: "Completed normal work" });
+        }
+
+        function buildCanonicalBoard(board) {
+          var all = manualCards.concat(cards);
+          board.innerHTML = laneMarkup("Todo", all.filter(function (c) { return c.state === "todo"; }), { sprint: false, subtitle: "Manual / unscheduled" }) +
+            laneMarkup("Blocked", all.filter(function (c) { return c.state === "blocked"; }), { sprint: false, subtitle: "Manual / needs input" }) +
+            '<section class="lane" aria-label="In Progress lane"><header class="lane-head"><span class="lane-name">In Progress</span><span class="count">2</span><span class="lane-sub">Sprint implementation is marked S07</span></header><div class="cards">' + all.filter(function (c) { return c.state === "progress"; }).map(function (c) { return cardMarkup(c, Boolean(c.order)); }).join("") + '</div></section>' +
+            '<section class="lane review-lane" aria-label="Review lane"><header class="lane-head"><span class="lane-name">Review</span><span class="count">2 / 3</span><span class="wip" aria-label="2 of 3 review slots used"><i class="used"></i><i class="used"></i><i></i></span><span class="lane-sub">Claude Code · independent review</span></header><div class="cards">' + all.filter(function (c) { return c.state === "review"; }).map(function (c) { return cardMarkup(c, Boolean(c.order)); }).join("") + '</div></section>' +
+            '<section class="lane" aria-label="Done lane"><header class="lane-head"><span class="lane-name">Done</span><span class="count">4</span><span class="lane-sub">Merged and audit-recorded</span></header><div class="cards">' + all.filter(function (c) { return c.state === "done"; }).map(function (c) { return cardMarkup(c, Boolean(c.order)); }).join("") + '</div></section>';
+        }
+
+        function buildScope(list) {
+          list.innerHTML = cards.map(function (card) { return '<button class="scope-item" data-locate="' + card.order + '"><span class="order">' + card.order + '</span><strong>' + card.gh + '</strong><span class="mini-state">' + card.stateLabel + '</span></button>'; }).join("");
+        }
+
+        function buildQueue(queue) {
+          queue.innerHTML = cards.map(function (card) { return '<button class="queue-row" data-locate="' + card.order + '"><span class="queue-order">' + card.order + '</span><span>' + card.gh + ' · ' + card.title + '</span><span class="queue-state ' + (card.state === "review" ? "review-text" : card.state === "done" ? "done-text" : "progress-text") + '">' + card.stateLabel.split(" · ")[0] + '</span></button>'; }).join("");
+        }
+
+        function setActiveView(view) {
+          document.querySelectorAll(".view-tab").forEach(function (button) {
+            if (button.dataset.view === view) button.setAttribute("aria-current", "page");
+            else button.removeAttribute("aria-current");
+          });
+        }
+
+        function render(key, userTriggered) {
+          var info = variants[key];
+          root.replaceChildren(document.getElementById(info.template).content.cloneNode(true));
+          root.querySelectorAll("[data-sprint-board]").forEach(buildSprintBoard);
+          root.querySelectorAll("[data-manual-board]").forEach(buildManualBoard);
+          root.querySelectorAll("[data-canonical-board]").forEach(buildCanonicalBoard);
+          root.querySelectorAll("[data-scope-list]").forEach(buildScope);
+          root.querySelectorAll("[data-queue]").forEach(buildQueue);
+          setActiveView(info.view);
+          document.getElementById("variant-label").textContent = key + " — " + info.label;
+          var url = new URL(location.href);
+          url.searchParams.set("variant", key);
+          history.replaceState({}, "", url);
+          window.scrollTo({ top: 0, behavior: "auto" });
+          syncManualCollapse();
+          if (userTriggered) {
+            var heading = root.querySelector("h1");
+            if (heading) {
+              heading.setAttribute("tabindex", "-1");
+              heading.focus({ preventScroll: true });
+            }
+            showToast("Variant " + key + " loaded: " + info.label);
+          }
+        }
+
+        function showToast(message) {
+          var toast = document.querySelector(".toast");
+          toast.textContent = message + " — prototype interaction only";
+          toast.classList.add("show");
+          clearTimeout(toastTimer);
+          toastTimer = setTimeout(function () { toast.classList.remove("show"); }, 2200);
+        }
+
+        function switchRelative(direction) {
+          var index = order.indexOf(currentVariant());
+          render(order[(index + direction + order.length) % order.length], true);
+        }
+
+        function scrollBehavior() {
+          return matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+        }
+
+        function syncManualCollapse() {
+          var manual = root.querySelector(".manual-section");
+          var button = root.querySelector('[data-action="collapse-manual"]');
+          if (!manual || !button) return;
+          manual.classList.toggle("collapsed", manualCollapsed);
+          button.setAttribute("aria-expanded", manualCollapsed ? "false" : "true");
+          button.textContent = manualCollapsed ? "Expand normal work" : "Collapse normal work";
+        }
+
+        function syncDrawerViewport() {
+          if (!mobileMedia.matches) {
+            drawerOpen = false;
+            document.body.classList.remove("drawer-open");
+            sidebar.removeAttribute("aria-hidden");
+            sidebar.inert = false;
+            appSurface.removeAttribute("aria-hidden");
+            appSurface.inert = false;
+            drawerBackdrop.setAttribute("aria-hidden", "true");
+            drawerBackdrop.tabIndex = -1;
+            menuButton.setAttribute("aria-expanded", "false");
+            menuButton.setAttribute("aria-label", "Open navigation");
+            return;
+          }
+          document.body.classList.toggle("drawer-open", drawerOpen);
+          sidebar.setAttribute("aria-hidden", drawerOpen ? "false" : "true");
+          sidebar.inert = !drawerOpen;
+          if (drawerOpen) appSurface.setAttribute("aria-hidden", "true");
+          else appSurface.removeAttribute("aria-hidden");
+          appSurface.inert = drawerOpen;
+          drawerBackdrop.setAttribute("aria-hidden", drawerOpen ? "false" : "true");
+          drawerBackdrop.tabIndex = drawerOpen ? 0 : -1;
+          menuButton.setAttribute("aria-expanded", drawerOpen ? "true" : "false");
+          menuButton.setAttribute("aria-label", drawerOpen ? "Navigation open" : "Open navigation");
+        }
+
+        function setDrawer(open, restoreFocus) {
+          drawerOpen = Boolean(open && mobileMedia.matches);
+          syncDrawerViewport();
+          if (drawerOpen) {
+            requestAnimationFrame(function () {
+              var firstNavControl = sidebar.querySelector(".nav-item");
+              if (firstNavControl) firstNavControl.focus();
+            });
+          } else if (restoreFocus && mobileMedia.matches) {
+            menuButton.focus();
+          }
+        }
+
+        function locateCard(key) {
+          var card = root.querySelector('[data-card-key="' + key + '"]');
+          if (!card) { showToast("That item is represented only in the Sprint queue"); return; }
+          root.querySelectorAll(".card.highlight").forEach(function (item) {
+            item.classList.remove("highlight");
+            var oldControl = item.querySelector(".card-open");
+            if (oldControl) oldControl.removeAttribute("aria-current");
+          });
+          var control = card.querySelector(".card-open");
+          card.classList.add("highlight");
+          if (control) control.setAttribute("aria-current", "true");
+          card.scrollIntoView({ behavior: scrollBehavior(), block: "center", inline: "center" });
+          if (control) control.focus({ preventScroll: true });
+          setTimeout(function () {
+            card.classList.remove("highlight");
+            if (control) control.removeAttribute("aria-current");
+          }, 2600);
+          showToast("Located " + key + " on the " + (currentVariant() === "C" ? "canonical board" : "Sprint status board"));
+        }
+
+        document.addEventListener("click", function (event) {
+          var switcher = event.target.closest("[data-switch]");
+          if (switcher) { switchRelative(switcher.dataset.switch === "next" ? 1 : -1); return; }
+
+          var menu = event.target.closest("#nav-menu-button");
+          if (menu) { setDrawer(true, false); return; }
+
+          var theme = event.target.closest("#theme-toggle");
+          if (theme) {
+            document.body.classList.toggle("light");
+            var light = document.body.classList.contains("light");
+            theme.setAttribute("aria-pressed", light ? "true" : "false");
+            theme.setAttribute("aria-label", light ? "Switch to dark theme" : "Switch to light theme");
+            theme.textContent = light ? "☾" : "☼";
+            showToast(light ? "Light theme enabled" : "Dark theme enabled");
+            return;
+          }
+
+          var view = event.target.closest("[data-view]");
+          if (view) {
+            if (historyDialog.open && view.closest("#sprint-history-dialog")) historyDialog.close();
+            setActiveView(view.dataset.view);
+            if (view.dataset.view === "Docs") {
+              showToast("Docs opens PRDs, grilling and plans, research, ADRs, contracts, and Sprint reports");
+            } else if (view.dataset.view === "List") {
+              showToast("List groups by Work Area; regroup by Type, Sprint, Lane, or Owner; saved views: Bugs, Incidents, Blocked, Needs Human Approval");
+            } else {
+              showToast(view.dataset.view + " view selected");
+            }
+            return;
+          }
+
+          var locate = event.target.closest("[data-locate]");
+          if (locate) { locateCard(locate.dataset.locate); return; }
+
+          var jump = event.target.closest("[data-jump]");
+          if (jump) {
+            var destination = document.getElementById(jump.dataset.jump);
+            if (destination) destination.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
+            return;
+          }
+
+          var action = event.target.closest("[data-action]");
+          if (action) {
+            if (action.dataset.action === "open-history") {
+              lastHistoryTrigger = action;
+              historyDialog.showModal();
+              historyDialog.querySelector('[data-action="close-history"]').focus();
+            } else if (action.dataset.action === "close-history") {
+              historyDialog.close();
+            } else if (action.dataset.action === "close-drawer") {
+              setDrawer(false, true);
+            } else if (action.dataset.action === "collapse-manual") {
+              manualCollapseTouched = true;
+              manualCollapsed = !manualCollapsed;
+              syncManualCollapse();
+              showToast(manualCollapsed ? "Normal work collapsed" : "Normal work expanded");
+            } else if (action.dataset.action === "toggle-cockpit") {
+              var cockpit = document.querySelector("[data-cockpit]");
+              if (cockpit) {
+                var collapsed = cockpit.getAttribute("data-collapsed") !== "true";
+                cockpit.setAttribute("data-collapsed", collapsed ? "true" : "false");
+                action.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                action.textContent = collapsed ? "Expand" : "Collapse";
+                showToast(collapsed ? "Sprint cockpit collapsed" : "Sprint cockpit expanded");
+              }
+            }
+            return;
+          }
+
+          var fake = event.target.closest("[data-fake]");
+          if (fake) {
+            if (historyDialog.open && fake.closest("#sprint-history-dialog")) historyDialog.close();
+            showToast(fake.dataset.fake);
+            if (drawerOpen && fake.closest(".sidebar")) setDrawer(false, true);
+          }
+        });
+
+        document.addEventListener("keydown", function (event) {
+          if (event.key === "Escape" && drawerOpen) {
+            event.preventDefault();
+            setDrawer(false, true);
+            return;
+          }
+          if (event.key === "Tab" && drawerOpen) {
+            var drawerControls = Array.from(sidebar.querySelectorAll("button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])"));
+            if (drawerControls.length) {
+              var first = drawerControls[0];
+              var last = drawerControls[drawerControls.length - 1];
+              if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+              else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+            }
+            return;
+          }
+          var target = event.target;
+          var interactive = target && target.closest("input, textarea, select, button, [contenteditable='true'], [role='button']");
+          if (interactive) return;
+          if (event.altKey && event.key === "ArrowLeft") { event.preventDefault(); switchRelative(-1); }
+          if (event.altKey && event.key === "ArrowRight") { event.preventDefault(); switchRelative(1); }
+        });
+
+        mobileMedia.addEventListener("change", function (event) {
+          if (!manualCollapseTouched) manualCollapsed = event.matches;
+          syncManualCollapse();
+          setDrawer(false, false);
+        });
+
+        historyDialog.addEventListener("close", function () {
+          if (lastHistoryTrigger && lastHistoryTrigger.isConnected) lastHistoryTrigger.focus();
+          lastHistoryTrigger = null;
+        });
+
+        syncDrawerViewport();
+        render(currentVariant(), false);
+      })();
+    </script>
+  </body>
+</html>
