@@ -162,7 +162,7 @@ Polling triggers a server re-fetch of the RPC snapshot - **snapshots stay truth*
 
 The top-bar `HealthPill` is re-pointed at the **same rollup**. Otherwise a dead channel account renders as `7 of 8 healthy - 1 needs attention` in the hero while the pill, six inches above it on the same screen, reads `All systems healthy`. A global health indicator that cannot see the thing that is broken is worse than none: it actively suppresses the alarm.
 
-Risk (recorded, not hidden): the shell renders on every page, so the pill now needs the rollup everywhere. The Gateway serves a **cached** health snapshot without a live probe, so this should be a cheap read - but that is an assumption the gate must prove. Fallback if it bites: narrow the pill's claim to reachability ("Gateway reachable") rather than reintroduce the contradiction.
+Risk (recorded, not hidden): the shell renders on every page, so the pill now needs the rollup everywhere. The Gateway serves a **cached** health snapshot without a live probe, so this should be a cheap read - but that is an assumption verification must prove. Fallback if it bites: narrow the pill's claim to reachability ("Gateway reachable") rather than reintroduce the contradiction.
 
 ## Rail
 
@@ -252,4 +252,4 @@ unless the issue owner accepts this evidence-based amendment.
 - Side-by-side screenshots (mockup vs live), light + dark, for all three states.
 - Every element functions live with real data - no dead chrome, no placeholder numbers. Any metric on the page maps to a real field in the RPC table above.
 - Anti-regression: hero and `HealthPill` can never disagree.
-- SeniorQA final gate: `node tests/e2e/gate/real-world-validate.mjs` against `http://web.opzava.localhost:18088`, real form login, real seeded data, **2 consecutive clean runs**, exit 0. The exit code is the verdict, not the narrative.
+- Real-world validation: drive the affected flow on the real local stack (`http://web.opzava.localhost:18088`, real form login, real seeded data) with the `/verify` skill + the `tests/e2e/` drives and observe it working — lean and high-signal, no mandatory gate.

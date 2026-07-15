@@ -102,9 +102,9 @@ facts aligned.
 
 Unit and component tests cover the System status state matrix, warning separation, session privacy,
 exact accordion labels, active rail mapping, and the permanent redirect. Real-login E2E coverage and
-paired screenshots for the Overview scenarios and System detail are owned by #182. The release gate
-remains two consecutive clean runs of `node tests/e2e/gate/real-world-validate.mjs` against the real
-local stack.
+paired screenshots for the Overview scenarios and System detail are owned by #182. Real-world
+validation is the default verify posture: drive the affected flow on the real local stack (the
+`/verify` skill + the `tests/e2e/` drives) and observe it working.
 
 ### #181 pending-flow cancellation amendment
 

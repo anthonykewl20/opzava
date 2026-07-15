@@ -3,37 +3,41 @@
 Concise, project-specific, scannable. Claude treats this as guidance, not enforcement; use hooks or scripts for hard guarantees.
 
 ## Start Here
-- Dev Board migration work is governed by `docs/prd/PRD-019-dev-board.md`,
-  `docs/adr/ADR-017-dev-board-authority-sync-execution.md`,
-  `docs/plan/dev-board-foundation-decisions.md`, and
-  `docs/plan/dev-board-migration-manifest.md`. Read all four before changing the legacy Tasks,
-  Issues, MCP task-tool, execution-ledger, GitHub-integration, or card-detail paths.
-- `docs/plan/EXECUTION.md` preserves the prior slice plan and dated worklog as historical evidence;
-  its old "first unchecked slice" instruction is void. When changing legacy Tasks, Issues, MCP
-  task-tool, execution, GitHub-integration, card-detail, or Dev Board migration paths, work only an
-  approved replacement issue from the Dev Board migration manifest. General repository work remains
-  allowed from its current approved GitHub issue or PRD.
-- For Dev Board migration, Q17 and GitHub issues #147–#157 are superseded/quarantined. Do not
-  implement, rewrite, or claim them as current authority; replacement tickets require explicit human
-  approval before publishing.
-- Work one current approved issue at a time; never skip its dependency or readiness gates.
-- Record current progress in the current approved issue. Dev Board migration work also updates the
-  migration manifest. Preserve the historical `EXECUTION.md` worklog verbatim.
+
+Two focused sprints own current work. Everything else is shared foundation or frozen history.
+
+- **Ask Admin Opzava** — the admin-facing assistant / Lead-Orchestrator chat (the WebChat-parity
+  port; `chat.*` RPCs through the broker). Contract: `docs/prd/PRD-005-assistants-chat.md`; live
+  spec work in the wayfinder map (GitHub #210) and `docs/plan/research/` (`wf*-ask-admin-*`,
+  `slice2-ask-admin-opzava.md`). Read these before changing the admin chat, orchestrator, or
+  broker `chat.*` paths.
+- **Dev Board** — the Opzava-primary developer-operations surface. Governed by
+  `docs/prd/PRD-019-dev-board.md`, `docs/adr/ADR-017-dev-board-authority-sync-execution.md`,
+  `docs/plan/dev-board-foundation-decisions.md`, and `docs/plan/dev-board-migration-manifest.md`;
+  read all four before touching the legacy Tasks, Issues, MCP task-tool, execution-ledger,
+  GitHub-integration, card-detail, or migration paths. Its observability/remediation surface
+  (PRD-012, PRD-018, ADR-013) feeds Dev Board Incidents and belongs to this umbrella.
+- Work one current approved GitHub issue at a time; never skip its dependency or readiness gates.
+  Record progress in that issue; Dev Board migration work also updates the migration manifest.
+- Q17 and GitHub issues #147–#157 are superseded/quarantined historical evidence — never an
+  executable brief. Replacement tickets require explicit human approval before publishing.
+- `docs/plan/EXECUTION.md`, `docs/plan/grilling-decisions.md`, `docs/plan/consensus/`, and
+  `docs/plan/audits/` are frozen historical evidence: preserve verbatim, never read as current
+  instructions.
 - Use the `handoff` skill for clean stop, resume, and transfer.
 
 ## Source Map
 - `ARCHITECTURE.md`: system overview, bounded contexts, ports, invariants, deployment, ADR index.
 - `CONTEXT.md`: canonical glossary; use these terms exactly.
 - `docs/adr/`, `docs/prd/`: architecture decisions and product specs.
+- `docs/prd/PRD-005-assistants-chat.md`: Ask Admin Opzava contract (co-houses the deferred user-side Ask Opzava).
 - `docs/prd/PRD-019-dev-board.md`: target Dev Board product contract.
 - `docs/adr/ADR-017-dev-board-authority-sync-execution.md`: DevTicket authority, sync, runner, and review boundaries.
 - `docs/plan/dev-board-foundation-decisions.md`: detailed locked decision ledger from the Dev Board grilling.
 - `docs/plan/dev-board-migration-manifest.md`: legacy-to-target inventory, quarantine mapping, and approved migration sequence.
 - `docs/plan/official-docs.md`: official docs registry; validate APIs here before coding.
-- `docs/plan/roadmap.md`: post-MVP product roadmap.
-- `docs/plan/grilling-decisions.md`: design record Q1-Q18 plus the locked Dev Board pivot; Q17 is frozen historical evidence.
 - `docs/plan/capability-parity.md`: screen ownership and parity map.
-- `docs/plan/backlog.md`: planning catalogue only; the Dev Board migration manifest and approved replacement issues control work order.
+- `docs/plan/grilling-decisions.md`: frozen design record Q1-Q18 plus the locked Dev Board pivot.
 - `docs/plan/consensus/`, `docs/plan/research/`: frozen evidence, not current truth.
 - `docs/plan/audits/`, `docs/runbooks/`: audits and ops runbooks.
 - `docs/openclaw/`: vendored OpenClaw docs; design to these.
@@ -45,35 +49,27 @@ Concise, project-specific, scannable. Claude treats this as guidance, not enforc
 - OpenClaw parity: harness OpenClaw's real capabilities; do not reinvent.
 - Official-docs: verify current official docs for OpenClaw, frameworks, languages, libraries, and APIs before coding.
 - Gateway: one static per-tenant `openclaw-platform-gateway`; dynamic provisioning waits for multi-tenant.
-- Token: hot path uses `write` + `approvals`; JIT path uses `admin`.
-- ACL: `gateway-broker` is the only ACL to OpenClaw.
+- Token: hot path uses `write` + `approvals`; the JIT admin path uses `admin`.
+- ACL: `gateway-broker` is the only hot-path ACL to OpenClaw; the provisioning-worker owns the admin/JIT path. Browser code never calls OpenClaw or sees Gateway DTOs/secrets.
 - Data: Opzava Postgres is product/workflow truth; GitHub owns native issue number/URL and PR/commit/check/merge facts; OpenClaw RPC snapshots own runtime truth; projections are rebuildable and WS events are hints.
 - Security: tool policy beats SOUL claims; RLS denial is a hard 403, never an empty result.
 - Ops: local docker-compose stays in parity with live Dokploy; no routable orphan Gateway.
 - Architecture: scale-ready modular DDD, agnostic ports, sad-path-first behavior, lean VPS ops.
-- Mockup parity: only a mockup/prototype linked by the current PRD and approved issue is a design contract. Legacy `task-board.html`/`issues.html` are migration evidence, not the Dev Board target. For an active contract, match structure/tokens and make every visible element work live with real data; prove with side-by-side screenshots.
+- Mockup parity: only a mockup/prototype linked by the current PRD and approved issue is a design contract; the legacy `task-board.html`/`issues.html` are migration evidence, not the Dev Board target. Match its structure and tokens, make every visible element work live with real data, and prove it with side-by-side screenshots.
 
 ## Repo Hygiene
 - Keep files clean, clearly named, and easy to delete or reuse.
 - Contain scratch work, prototypes, probes, generated artifacts, and disposable scripts in one folder that can be cleaned wholesale; never scatter `.local.*`, screenshot, log, fixture, or validation files across the repo root.
-- Keep E2E scripts, fixtures, helpers, screenshots, and validation flows in `tests/e2e/` (gate, drives, probes, shared `lib/session.mjs`; see `tests/e2e/README.md`) so they stay available for future slices; promote useful probes into it rather than leaving ad hoc copies at the repo root.
+- Keep E2E scripts, fixtures, helpers, and drives in `tests/e2e/` (drives, probes, shared `lib/session.mjs`; see `tests/e2e/README.md`) so they stay available for future slices; promote useful probes into it rather than leaving ad hoc copies at the repo root.
 
-## Workflow
-1. Orient: read this file, the current approved issue or PRD, and its required skills. For Dev Board
-   migration, also read the four Dev Board authority documents named under Start Here.
-2. Scope: work only the current approved issue. For Dev Board migration, it must be an approved
-   replacement issue from the migration manifest; never use Q17 or #147–#157 as an executable brief.
-3. Validate docs: check `docs/plan/official-docs.md`, `docs/openclaw`, vendor docs, and validation tools before coding APIs.
-4. Build: implement only the behavior linked by the current issue or PRD; for Dev Board migration,
-   also honor the migration slice. Keep local style and architecture.
-5. Prove: run `tdd`, `code-review`, and `qa`, then the final gate.
-6. Record: update the current approved issue; Dev Board migration also updates the migration
-   manifest. Never rewrite the historical EXECUTION worklog. Then commit on a branch off
-   `development`.
-
-**Final validation gate:** `node tests/e2e/gate/real-world-validate.mjs` against `http://web.opzava.localhost:18088` with real login, real seeded data, and real screenshots, passing 2 consecutive clean runs. Procedure: `docs/runbooks/senior-qa-gate.md`. The script does not replace Dev Board's independent Review contract; a DevTicket becomes Done only after the exact reviewed change passes every applicable gate and is merged into `development`.
-
-Done means every workflow gate passed. Missing a required skill means authoring it with `writing-great-skills` first.
+## Working here
+No rigid workflow is imposed right now — use good default judgment. The essentials:
+- Orient from this file, the current approved GitHub issue or PRD, and any skills it names.
+- Scope to that one issue; keep local style and architecture; honor the Non-Negotiables.
+- Validate current docs (`docs/plan/official-docs.md`, `docs/openclaw`, vendor docs) before coding APIs.
+- **Verify before done:** drive the affected flow on the real local stack (`http://web.opzava.localhost:18088`, real login, real seeded data) and observe it working — the `/verify` skill plus the real `tests/e2e/` drives. Keep it lean and high-signal: prove the exact behavior that changed, with real accuracy, not a broad ritual. Then commit on a branch off `development`.
+- Record progress in the approved issue; Dev Board migration also updates the migration manifest. Never rewrite the frozen `EXECUTION.md` worklog.
+- Missing a required skill means authoring it with `writing-great-skills` first.
 
 ## Agent skills
 
