@@ -2004,7 +2004,7 @@ export function TaskCardDetail({
                   )}
                 </div>
                 <div style={{ marginTop: "var(--space-5)" }}>
-                  {/* DESCOPE(customer-send): governed sends arrive P4 (PRD-010); keep this local approval copy until a real send command exists. */}
+                  {/* DESCOPE(customer-send): governed sends arrive with the deferred user-side CRM/support surface; keep this local approval copy until a real send command exists. */}
                   <button
                     className="btn btn-primary"
                     type="button"

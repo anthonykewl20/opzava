@@ -21,9 +21,10 @@ Two focused sprints own current work. Everything else is shared foundation or fr
   Record progress in that issue; Dev Board migration work also updates the migration manifest.
 - Q17 and GitHub issues #147–#157 are superseded/quarantined historical evidence — never an
   executable brief. Replacement tickets require explicit human approval before publishing.
-- `docs/plan/EXECUTION.md`, `docs/plan/grilling-decisions.md`, `docs/plan/consensus/`, and
-  `docs/plan/audits/` are frozen historical evidence: preserve verbatim, never read as current
-  instructions.
+- `docs/plan/EXECUTION.md`, `docs/plan/grilling-decisions.md`, and the remaining
+  `docs/plan/consensus/` + `docs/plan/audits/` are frozen historical evidence: don't rewrite them
+  or read them as current instructions. (The out-of-scope CRM/billing/marketing consensus records
+  were removed in the 2026-07-16 focus cleanup.)
 - Use the `handoff` skill for clean stop, resume, and transfer.
 
 ## Source Map
