@@ -1,0 +1,460 @@
+<!doctype html>
+<!--
+  THROWAWAY UI PROTOTYPE — not production code.
+  Question: Which dedicated Dev Board card-detail hierarchy best supports humans and AI agents?
+  A = Jira Workspace, B = Review Command Center, C = Contract Ledger.
+  Switch with ?variant=A, ?variant=B, or ?variant=C.
+  Selected direction: Variant A — Jira Workspace (user selection, 2026-07-15).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dev Board card detail — Opzava prototype</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #080d14; --chrome: #0b111a; --surface: #111923; --surface2: #16212d;
+        --line: #263443; --line2: #35475a; --text: #eef4f8; --muted: #96a5b6;
+        --cyan: #46c8df; --cyan2: #143641; --green: #63d39b; --green2: #163629;
+        --amber: #f1bc64; --amber2: #3a2c18; --red: #f07880; --red2: #3e1d24;
+        --violet: #b29afc; --violet2: #2e2748; --blue: #74aefd; --radius: 9px;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+      body { overflow: hidden; }
+      button, input, textarea { font: inherit; }
+      button { color: inherit; }
+      button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible, [tabindex]:focus-visible {
+        outline: 2px solid var(--cyan); outline-offset: 2px;
+      }
+      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+      .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+      .shell { min-height: 100vh; display: grid; grid-template-columns: 212px minmax(0,1fr); }
+      .sidebar { height: 100vh; background: #0a1018; border-right: 1px solid #202c39; display: flex; flex-direction: column; }
+      .brand { height: 54px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid #202c39; font-weight: 800; }
+      .brand-mark { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 7px; background: var(--cyan); color: #061218; transform: rotate(-4deg); }
+      .brand small { color: #657487; font-size: 10px; margin-left: auto; }
+      .ask { margin: 12px 9px; padding: 9px; border: 1px solid #263443; border-radius: 7px; color: #d8e2e9; font-size: 11px; background: #101823; }
+      nav { padding: 4px 8px; }
+      .nav-label { color: #647489; font-size: 9px; letter-spacing: .12em; font-weight: 800; margin: 13px 8px 6px; }
+      .nav-item { width: 100%; min-height: 35px; border: 0; border-radius: 6px; background: transparent; color: #a6b3c2; text-align: left; padding: 0 9px; font-size: 11px; display: flex; align-items: center; gap: 9px; }
+      .nav-item.active { color: #77dced; background: #11313b; }
+      .nav-count { margin-left: auto; background: #202c39; border-radius: 10px; padding: 2px 6px; font-size: 9px; }
+      .side-foot { margin-top: auto; padding: 10px; border-top: 1px solid #202c39; }
+      .runner-mini { border: 1px solid #293746; background: #101721; padding: 9px; border-radius: 7px; font-size: 10px; color: var(--muted); line-height: 1.5; }
+      .runner-mini strong { color: #dce6ed; }
+      .main { min-width: 0; height: 100vh; display: grid; grid-template-rows: 54px minmax(0,1fr); }
+      .topbar { background: #0a0f17; border-bottom: 1px solid #202b38; display: flex; align-items: center; gap: 10px; padding: 0 16px; }
+      .search { height: 33px; width: min(330px,36vw); border-radius: 7px; border: 1px solid #263443; background: #111823; color: var(--text); padding: 0 11px; font-size: 11px; }
+      .top-spacer { flex: 1; }
+      .health { display: inline-flex; gap: 7px; align-items: center; border: 1px solid #293746; border-radius: 16px; padding: 7px 10px; font-size: 10px; color: #b8c5d1; white-space: nowrap; }
+      .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: currentColor; }
+      .ok { color: var(--green); } .pending { color: var(--amber); } .danger { color: var(--red); } .info { color: var(--cyan); }
+      .top-avatar, .avatar { display: inline-grid; place-items: center; flex: none; font-weight: 850; }
+      .top-avatar { width: 27px; height: 27px; border-radius: 50%; background: #d3aa78; color: #24180d; font-size: 9px; }
+      .avatar { width: 28px; height: 28px; border-radius: 50%; background: #d3aa78; color: #24180d; font-size: 9px; }
+      .avatar.bot { border-radius: 7px; background: #153844; color: #7adeee; }
+      .avatar.orch { border-radius: 7px; background: #30294b; color: #c4b8ff; }
+      #root { min-height: 0; overflow: auto; }
+
+      .page { min-height: 100%; padding-bottom: 84px; }
+      .breadcrumb { font-size: 11px; color: var(--muted); display: flex; gap: 7px; align-items: center; }
+      .issue-head { display: flex; gap: 18px; align-items: flex-start; }
+      .issue-head h1 { font-size: clamp(24px,2.4vw,34px); line-height: 1.14; letter-spacing: -.035em; margin: 6px 0 9px; }
+      .head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+      .badge { display: inline-flex; align-items: center; gap: 5px; min-height: 23px; padding: 3px 8px; border-radius: 5px; border: 1px solid var(--line); font-size: 10px; font-weight: 720; white-space: nowrap; }
+      .badge.security { color: #ff9aa1; background: var(--red2); border-color: #71313a; }
+      .badge.review { color: #c8bcff; background: var(--violet2); border-color: #514779; }
+      .badge.approval { color: #ffd083; background: var(--amber2); border-color: #6e5125; }
+      .badge.sync { color: #84dfad; background: var(--green2); border-color: #275941; }
+      .btn { min-height: 34px; border: 1px solid var(--line2); background: #15202b; border-radius: 7px; padding: 7px 11px; font-size: 11px; font-weight: 720; cursor: pointer; }
+      .btn:hover { border-color: #51677e; background: #1a2734; }
+      .btn.primary { background: var(--cyan); color: #061318; border-color: var(--cyan); }
+      .btn.amber { background: #d99f44; color: #1b1205; border-color: #e7ae52; }
+      .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+      .btn:disabled { cursor: not-allowed; opacity: .58; }
+      .linkbtn { border: 0; background: transparent; padding: 0; color: var(--blue); cursor: pointer; font-size: inherit; text-align: left; }
+      .section-title { margin: 0 0 10px; font-size: 14px; letter-spacing: -.01em; }
+      .card { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); }
+      .callout { border: 1px solid #6b4f25; background: #251d12; border-radius: 7px; padding: 11px 12px; color: #f4c676; font-size: 11px; line-height: 1.5; }
+      .meta-line { color: var(--muted); font-size: 11px; line-height: 1.55; }
+      .role { display: flex; gap: 9px; align-items: center; }
+      .role strong { display: block; color: var(--text); font-size: 11px; }
+      .role small { color: var(--muted); font-size: 9px; line-height: 1.35; display: block; }
+      .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+      .tab { flex: none; border: 0; background: transparent; color: var(--muted); padding: 10px 12px; font-size: 11px; cursor: pointer; border-bottom: 2px solid transparent; }
+      .tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--cyan); }
+      .tabpanel { padding: 14px 4px 4px; }
+      .tabpanel[hidden] { display: none; }
+      .activity-row { display: grid; grid-template-columns: 30px minmax(0,1fr) auto; gap: 10px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 11px; line-height: 1.45; }
+      .activity-row time { color: var(--muted); font-size: 9px; white-space: nowrap; }
+
+      /* A — familiar Jira workspace */
+      .variant-a { color-scheme: light; background: #f6f7f9; color: #172b4d; }
+      .a-wrap { max-width: 1450px; margin: 0 auto; padding: 22px 28px 80px; }
+      .variant-a .breadcrumb, .variant-a .meta-line { color: #667085; }
+      .variant-a .ok { color: #216e4e; }
+      .variant-a .pending { color: #7a4d00; }
+      .variant-a .danger { color: #ae2a19; }
+      .variant-a .info { color: #0055b8; }
+      .variant-a .linkbtn { color: #0c66e4; }
+      .variant-a button:focus-visible, .variant-a input:focus-visible, .variant-a a:focus-visible, .variant-a [tabindex]:focus-visible { outline-color: #0c66e4; }
+      .variant-a .badge { border-color: #d9dde5; background: #eef1f5; color: #344054; }
+      .variant-a .badge.security { background: #ffebe6; color: #ae2a19; border-color: #ffd2cc; }
+      .variant-a .badge.review { background: #e9f2ff; color: #0c66e4; border-color: #c7ddff; }
+      .variant-a .badge.approval { background: #fff1cf; color: #7f4e00; border-color: #f1d285; }
+      .variant-a .badge.sync { background: #dcfff1; color: #216e4e; border-color: #b5efd6; }
+      .variant-a .btn { background: white; border-color: #c7cdd7; color: #172b4d; }
+      .variant-a .btn.primary { background: #0c66e4; color: white; border-color: #0c66e4; }
+      .a-grid { display: grid; grid-template-columns: minmax(0,1fr) 360px; gap: 26px; margin-top: 24px; align-items: start; }
+      .a-main, .a-main > section { min-width: 0; }
+      .a-main > section { background: white; border: 1px solid #dfe2e8; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+      .a-main p, .a-main li { font-size: 13px; line-height: 1.55; color: #344054; }
+      .contract-head { display: flex; gap: 10px; align-items: center; border-bottom: 1px solid #e5e7eb; padding-bottom: 13px; margin-bottom: 13px; }
+      .contract-head h2 { margin: 0; font-size: 16px; }
+      .contract-head .badge { margin-left: auto; }
+      .criteria { display: grid; gap: 7px; margin-top: 14px; }
+      .criterion { display: grid; grid-template-columns: 20px minmax(0,1fr) auto; gap: 8px; align-items: start; padding: 9px 0; border-top: 1px solid #edf0f3; font-size: 12px; }
+      .criterion .proof { color: #0c66e4; font-size: 10px; }
+      .variant-a .tabs { border-color: #dfe2e8; }
+      .variant-a .tab { color: #5e6c84; }
+      .variant-a .tab[aria-selected="true"] { color: #0c66e4; border-bottom-color: #0c66e4; }
+      .variant-a .tabpanel, .variant-a .role strong { color: #172b4d; }
+      .variant-a .role small { color: #667085; }
+      .variant-a .activity-row { border-color: #e4e7ec; }
+      .a-side { position: sticky; top: 18px; display: grid; gap: 12px; }
+      .a-panel { background: white; border: 1px solid #dfe2e8; border-radius: 8px; padding: 16px; }
+      .a-panel h2 { margin: 0 0 13px; font-size: 14px; }
+      .detail-grid { display: grid; grid-template-columns: 108px minmax(0,1fr); gap: 11px 8px; font-size: 11px; align-items: center; }
+      .detail-grid dt { color: #667085; }
+      .detail-grid dd { margin: 0; font-weight: 680; }
+      .delivery-row { display: grid; grid-template-columns: 18px minmax(0,1fr) auto; align-items: center; gap: 8px; min-height: 31px; border-bottom: 1px solid #edf0f3; font-size: 11px; }
+      .delivery-row:last-child { border-bottom: 0; }
+      .merge-lock { border: 1px solid #edc968; background: #fff7df; color: #7a4d00; border-radius: 6px; padding: 9px; font-size: 10px; line-height: 1.4; margin-top: 10px; }
+
+      /* B — review command center */
+      .variant-b { background: #080d14; padding: 20px 22px 80px; }
+      .b-wrap { max-width: 1540px; margin: 0 auto; }
+      .b-head { border-bottom: 1px solid var(--line); padding-bottom: 16px; }
+      .pipeline { display: grid; grid-template-columns: repeat(7,minmax(110px,1fr)); margin: 18px 0 15px; border: 1px solid var(--line); border-radius: 9px; overflow-x: auto; background: #0e151f; }
+      .gate { min-width: 110px; min-height: 72px; border: 0; border-right: 1px solid var(--line); background: transparent; padding: 10px; text-align: left; cursor: pointer; }
+      .gate:last-child { border-right: 0; }
+      .gate[aria-pressed="true"] { background: #182431; box-shadow: inset 0 -2px var(--cyan); }
+      .gate-num { display: flex; align-items: center; justify-content: space-between; font-size: 9px; color: var(--muted); }
+      .gate strong { display: block; margin-top: 7px; font-size: 11px; }
+      .gate small { color: var(--muted); font-size: 9px; }
+      .b-grid { display: grid; grid-template-columns: minmax(0,1.55fr) minmax(310px,.72fr); gap: 14px; align-items: start; }
+      .command { overflow: hidden; }
+      .command-head { padding: 13px 15px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+      .command-head h2 { margin: 0; font-size: 13px; }
+      .run-state { margin-left: auto; font-size: 10px; color: var(--green); }
+      .terminal { background: #0a1018; min-height: 254px; padding: 12px 15px; font: 11px/1.7 "SFMono-Regular",Consolas,monospace; color: #b9c6d2; }
+      .event { display: grid; grid-template-columns: 70px 16px minmax(0,1fr) auto; gap: 8px; border-bottom: 1px solid #18232f; padding: 7px 0; }
+      .event time, .event small { color: #6e7f92; }
+      .b-subgrid { display: grid; grid-template-columns: minmax(0,1fr) minmax(280px,.75fr); gap: 14px; margin-top: 14px; }
+      .evidence { padding: 15px; }
+      .evidence-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+      .evidence-item { border: 1px solid var(--line); background: #0d151e; padding: 10px; border-radius: 7px; }
+      .evidence-item strong { font-size: 11px; display: block; }
+      .evidence-item small { font-size: 9px; color: var(--muted); }
+      .preview { padding: 15px; }
+      .preview-shot { min-height: 112px; margin: 9px 0 11px; border: 1px solid #304052; border-radius: 7px; background: linear-gradient(145deg,#172430,#0b1119); display: grid; place-items: center; color: #8192a5; font-size: 10px; position: relative; overflow: hidden; }
+      .preview-shot::before { content:""; position:absolute; inset:13px; border:1px solid #334558; border-radius:4px; box-shadow: inset 0 18px #1d2a37; }
+      .decision { position: sticky; top: 16px; padding: 16px; }
+      .decision h2 { margin: 0 0 5px; font-size: 17px; }
+      .decision-status { font-size: 11px; color: var(--amber); line-height: 1.45; }
+      .proof-totals { display: grid; grid-template-columns: repeat(3,1fr); gap: 7px; margin: 13px 0; }
+      .proof-total { border: 1px solid var(--line); border-radius: 6px; text-align: center; padding: 8px 3px; }
+      .proof-total strong { display: block; font-size: 14px; }
+      .proof-total small { color: var(--muted); font-size: 8px; }
+      .roles { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 8px 0; display: grid; gap: 9px; }
+      .decision-actions { display: grid; grid-template-columns: 1fr 1.25fr; gap: 8px; margin-top: 13px; }
+      .absolute-stop { border-left: 2px solid var(--red); margin-top: 13px; padding: 7px 9px; background: #20151a; color: #dba8ad; font-size: 9px; line-height: 1.45; }
+      .b-activity { margin-top: 14px; padding: 14px 16px; }
+
+      /* C — contract ledger */
+      .variant-c { background: #0a0f17; }
+      .c-dock { position: sticky; top: 0; z-index: 3; min-height: 58px; border-bottom: 1px solid #2b3745; background: rgba(10,15,23,.96); display: flex; align-items: center; gap: 10px; padding: 10px 24px; }
+      .c-dock strong { font-size: 12px; }
+      .c-dock .head-actions { margin-left: auto; }
+      .c-mast { max-width: 1260px; margin: 0 auto; padding: 26px 28px 19px; }
+      .c-mast h1 { font-family: Georgia,serif; font-size: clamp(30px,3.2vw,44px); font-weight: 600; max-width: 900px; margin: 10px 0 12px; line-height: 1.08; letter-spacing: -.025em; }
+      .c-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .c-layout { max-width: 1370px; margin: 0 auto; display: grid; grid-template-columns: 188px minmax(520px,820px) 280px; gap: 18px; padding: 0 24px 90px; align-items: start; }
+      .outline { position: sticky; top: 77px; border-top: 1px solid #334253; padding-top: 12px; }
+      .outline h2 { font-size: 10px; color: #748499; text-transform: uppercase; letter-spacing: .12em; }
+      .outline button { width: 100%; border: 0; background: transparent; color: #a8b4c2; text-align: left; padding: 7px 5px; font-size: 10px; border-left: 2px solid transparent; cursor: pointer; }
+      .outline button:hover { color: white; border-left-color: var(--cyan); }
+      .paper { color-scheme: light; background: #fbf8f1; color: #292a2c; border: 1px solid #d5cec0; box-shadow: 0 18px 50px rgba(0,0,0,.28); min-height: 1000px; padding: 46px clamp(28px,5vw,66px) 55px; }
+      .paper-kicker { color: #7d7467; text-transform: uppercase; letter-spacing: .13em; font-size: 9px; }
+      .paper h2 { font: 600 21px/1.25 Georgia,serif; margin: 4px 0 10px; }
+      .paper p, .paper li { color: #484744; font: 13px/1.65 Georgia,serif; }
+      .paper section { position: relative; border-top: 1px solid #d9d3c8; padding: 25px 0 20px; scroll-margin-top: 80px; }
+      .clause-num { position: absolute; left: -42px; top: 28px; color: #a39a8c; font: 11px "SFMono-Regular",monospace; }
+      .paper ul { padding-left: 18px; }
+      .scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+      .scope-grid h3 { font: 700 11px ui-sans-serif,system-ui; text-transform: uppercase; letter-spacing: .08em; }
+      .gherkin { border-left: 3px solid #5c7090; background: #f0ede6; padding: 14px 16px; font: 11px/1.75 "SFMono-Regular",monospace; }
+      .paper-proof { display: inline-flex; background: #e7edf5; color: #31557b; padding: 2px 6px; border-radius: 3px; font: 9px ui-sans-serif,system-ui; }
+      .paper .tabs { border-color: #d8d1c5; }
+      .paper .tab { color: #6d665c; }
+      .paper .tab[aria-selected="true"] { color: #264b72; border-color: #315f8e; }
+      .paper .tabpanel { color: #45423d; font-size: 11px; }
+      .ledger { position: sticky; top: 77px; display: grid; gap: 12px; }
+      .ledger-card { border: 1px solid #334253; background: #101822; padding: 14px; border-radius: 7px; }
+      .ledger-card h2 { margin: 0 0 10px; font-size: 12px; }
+      .ledger-row { display: grid; grid-template-columns: 17px minmax(0,1fr) auto; gap: 7px; padding: 8px 0; border-bottom: 1px solid #253241; font-size: 10px; }
+      .ledger-row:last-child { border-bottom: 0; }
+      .timeline { border-left: 1px solid #3a4b5e; margin-left: 5px; padding-left: 13px; }
+      .time-event { position: relative; margin-bottom: 13px; font-size: 10px; line-height: 1.4; }
+      .time-event::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--cyan); position:absolute; left:-17px; top:4px; }
+      .time-event small { display: block; color: var(--muted); font-size: 8px; margin-top: 2px; }
+
+      .switcher { position: fixed; z-index: 20; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; background: #0a111a; border: 1px solid #3a4a5c; border-radius: 12px; box-shadow: 0 12px 35px rgba(0,0,0,.4); padding: 7px; }
+      .switcher button { min-width: 34px; height: 31px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #9ba9b8; font-size: 11px; cursor: pointer; }
+      .switcher button[aria-pressed="true"] { background: var(--cyan); color: #071319; font-weight: 850; }
+      .switcher .variant-name { min-width: 156px; text-align: center; font-size: 10px; color: #d7e1e8; padding: 0 4px; }
+      .toast { position: fixed; z-index: 30; top: 70px; right: 18px; max-width: 330px; background: #15212d; border: 1px solid #41546a; border-radius: 8px; padding: 11px 13px; box-shadow: 0 15px 40px rgba(0,0,0,.35); color: #e9f0f5; font-size: 11px; opacity: 0; transform: translateY(-8px); pointer-events: none; transition: .16s ease; }
+      .toast.show { opacity: 1; transform: translateY(0); }
+      dialog { width: min(720px,calc(100vw - 28px)); border: 1px solid #3b4d60; border-radius: 10px; background: #101822; color: var(--text); padding: 0; box-shadow: 0 24px 80px rgba(0,0,0,.6); }
+      dialog::backdrop { background: rgba(3,6,10,.72); }
+      .modal-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+      .modal-head h2 { font-size: 14px; margin: 0; }
+      .modal-head .btn { margin-left: auto; }
+      .modal-body { padding: 16px; }
+      .modal-preview { aspect-ratio: 16/8; border: 1px solid #35475a; border-radius: 8px; background: #e8edf0; color: #1a2935; display: grid; place-items: center; text-align: center; }
+      .modal-preview strong { display: block; font-size: 19px; }
+
+      @media (max-width: 1100px) {
+        .a-grid { grid-template-columns: minmax(0,1fr) 320px; }
+        .b-subgrid { grid-template-columns: 1fr; }
+        .c-layout { grid-template-columns: 150px minmax(0,1fr); }
+        .ledger { position: static; grid-column: 2; grid-row: 2; grid-template-columns: 1fr 1fr; }
+      }
+      @media (max-width: 860px) {
+        body { overflow: auto; }
+        .shell { display: block; }
+        .sidebar { display: none; }
+        .main { height: auto; min-height: 100vh; display: block; }
+        .topbar { height: 52px; position: sticky; top: 0; z-index: 10; }
+        #root { overflow: visible; }
+        .health.runner-health { display: none; }
+        .a-wrap, .variant-b { padding-left: 15px; padding-right: 15px; }
+        .issue-head { display: block; }
+        .head-actions { margin: 12px 0 0; justify-content: flex-start; }
+        .a-grid, .b-grid { grid-template-columns: 1fr; }
+        .a-side, .decision { position: static; }
+        .a-side { grid-template-columns: 1fr 1fr; }
+        .pipeline { grid-template-columns: repeat(7,130px); }
+        .b-subgrid { grid-template-columns: 1fr 1fr; }
+        .c-dock { padding: 9px 13px; flex-wrap: wrap; }
+        .c-dock .head-actions { width: 100%; margin: 0; }
+        .c-layout { display: block; padding: 0 13px 90px; }
+        .outline { position: static; display: flex; overflow-x: auto; border: 1px solid #334253; border-radius: 7px; padding: 4px; margin-bottom: 12px; }
+        .outline h2 { display: none; }
+        .outline button { width: auto; flex: none; border-left: 0; border-bottom: 2px solid transparent; }
+        .paper { padding-left: 47px; padding-right: 28px; }
+        .ledger { display: grid; grid-template-columns: 1fr 1fr; margin-top: 13px; }
+      }
+      @media (max-width: 590px) {
+        .topbar .health { display: none; }
+        .search { width: 100%; }
+        .a-wrap { padding: 15px 11px 80px; }
+        .a-side, .b-subgrid, .ledger { grid-template-columns: 1fr; }
+        .variant-b { padding: 14px 11px 80px; }
+        .issue-head h1 { font-size: 25px; }
+        .event { grid-template-columns: 58px 13px minmax(0,1fr); }
+        .event small { display: none; }
+        .scope-grid { grid-template-columns: 1fr; gap: 4px; }
+        .paper { padding: 33px 20px 38px 42px; }
+        .switcher { bottom: 8px; max-width: calc(100vw - 12px); }
+        .switcher .variant-name { min-width: 108px; max-width: 108px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      }
+      @media (max-width: 420px) {
+        .switcher { gap: 3px; padding: 5px; }
+        .switcher button { min-width: 28px; width: 28px; }
+        .switcher .variant-name { min-width: 72px; max-width: 72px; }
+        .tabs { max-width: 100%; }
+      }
+      @media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior: auto !important; transition: none !important; } }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="brand"><span class="brand-mark">↗</span> Opzava <small>v2.1</small></div>
+        <div class="ask">✦ &nbsp; Ask Admin Opzava</div>
+        <nav>
+          <div class="nav-label">OPERATE</div>
+          <button class="nav-item">▦ Overview</button>
+          <button class="nav-item active">▤ Dev Board <span class="nav-count">24</span></button>
+          <div class="nav-label">AUTOMATE</div>
+          <button class="nav-item">⌁ Connections</button>
+          <button class="nav-item">◉ GitHub <span class="nav-count">✓</span></button>
+          <div class="nav-label">ADMIN</div>
+          <button class="nav-item">⌘ Local machine</button>
+          <button class="nav-item">◇ Reviewer setup</button>
+          <button class="nav-item">◈ Local Docker</button>
+        </nav>
+        <div class="side-foot"><div class="runner-mini"><span class="dot ok"></span> <strong>Local runner online</strong><br />Codex CLI · Elementary OS</div></div>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <label class="sr-only" for="global-search">Search Opzava</label>
+          <input id="global-search" class="search" placeholder="Search agents, Dev Board cards, runs…" />
+          <div class="top-spacer"></div>
+          <span class="health runner-health"><span class="dot info"></span> Local runner online</span>
+          <span class="health"><span class="dot ok"></span> GitHub healthy</span>
+          <span class="top-avatar" aria-label="Anthony Garces">AG</span>
+        </header>
+        <main id="root" tabindex="-1"></main>
+      </div>
+    </div>
+
+    <div class="switcher" role="group" aria-label="Card detail design variants">
+      <button type="button" data-cycle="-1" aria-label="Previous variant">←</button>
+      <button type="button" data-variant="A">A</button>
+      <button type="button" data-variant="B">B</button>
+      <button type="button" data-variant="C">C</button>
+      <span class="variant-name" aria-live="polite"></span>
+      <button type="button" data-cycle="1" aria-label="Next variant">→</button>
+    </div>
+    <div class="toast" role="status" aria-live="polite"></div>
+    <dialog id="preview-dialog" aria-labelledby="preview-title">
+      <div class="modal-head"><h2 id="preview-title">Authenticated local Docker preview</h2><button class="btn" data-close-dialog>Close</button></div>
+      <div class="modal-body">
+        <div class="modal-preview"><div><strong>GH #404 preview</strong>Built from locked SHA <span class="mono">c81e74a</span><br /><br /><span class="ok">● Web, DB, Gateway and Worker healthy</span></div></div>
+        <p class="meta-line">Expiring, authenticated tunnel · read-only session · URL contains no credential · logs sanitized before attachment.</p>
+      </div>
+    </dialog>
+
+    <script>
+      const root = document.querySelector('#root');
+      const dialog = document.querySelector('#preview-dialog');
+      const toast = document.querySelector('.toast');
+      const names = { A: 'Jira Workspace', B: 'Review Command Center', C: 'Contract Ledger' };
+      const variants = ['A','B','C'];
+      let current = new URLSearchParams(location.search).get('variant')?.toUpperCase();
+      if (!variants.includes(current)) current = 'A';
+
+      const roles = `
+        <div class="role"><span class="avatar">AG</span><div><strong>Human Owner · Anthony G.</strong><small>Owns scope · only role permitted to approve or reject</small></div></div>
+        <div class="role"><span class="avatar bot">CX</span><div><strong>Execution Assignee · Codex CLI</strong><small>Local · gpt-5.6-sol · implements, reruns and attaches evidence</small></div></div>
+        <div class="role"><span class="avatar orch">AO</span><div><strong>Lead Orchestrator · Ask Admin Opzava</strong><small>Cloud · independent review passed · cannot approve or execute</small></div></div>`;
+
+      function issueHeader(light = false) {
+        return `<div class="breadcrumb">Dev Board <span>/</span> Review <span>/</span> <span class="mono">GH #404</span></div>
+          <div class="issue-head"><div><h1>Fence stale runner execution leases</h1><div style="display:flex;gap:6px;flex-wrap:wrap">
+          <span class="badge review">◈ Review</span><span class="badge security">⬟ Security · P1</span><span class="badge approval">◷ Needs Human Approval</span><span class="badge sync">● GitHub synced 2m ago</span></div></div>
+          <div class="head-actions"><button class="btn" data-action="Changes requested form opened">Request changes</button><button class="btn ${light ? 'primary':'amber'}" data-approve>Approve locked SHA</button><button class="btn ghost" data-action="More card actions">•••</button></div></div>`;
+      }
+
+      function commonActivity(id, tabs) {
+        return `<div class="tabs" role="tablist" aria-label="Card activity">${tabs.map((t,i)=>`<button class="tab" role="tab" id="${id}-tab-${i}" aria-controls="${id}-panel-${i}" aria-selected="${i===0}" tabindex="${i===0?0:-1}" data-tab="${i}">${t}</button>`).join('')}</div>
+          ${tabs.map((t,i)=>`<div class="tabpanel" role="tabpanel" id="${id}-panel-${i}" aria-labelledby="${id}-tab-${i}" ${i?'hidden':''}>${activityContent(t)}</div>`).join('')}`;
+      }
+
+      function activityContent(name) {
+        const content = {
+          Comments: `<div class="activity-row"><span class="avatar">AG</span><div><strong>Anthony G.</strong><br />Please confirm the stale runner cannot publish a late success after takeover.</div><time>10:42</time></div><div class="activity-row"><span class="avatar orch">AO</span><div><strong>Ask Admin Opzava</strong><br />Confirmed by E2E-06. Human approval is still required for this high-risk merge.</div><time>10:49</time></div>`,
+          History: `<div class="activity-row"><span class="avatar orch">AO</span><div><strong>Lead Orchestrator · via Opzava</strong><br />Moved In Progress → Review. Contract v4 and SHA c81e74a locked.</div><time>10:31</time></div><div class="activity-row"><span class="avatar bot">GH</span><div><strong>GitHub webhook</strong><br />PR #182 checks synchronized: 12 passed.</div><time>10:36</time></div>`,
+          Worklog: `<div class="activity-row"><span class="avatar bot">CX</span><div><strong>Codex CLI · run-404-08</strong><br />Implementation 31m · automated verification 18m · local worktree opz-404-lease-fence.</div><time>49m</time></div>`,
+          'Agent Execution': `<div class="activity-row"><span class="avatar bot">CX</span><div><strong>Execution Assignee · local-runner-01</strong><br />5 milestones complete · 0 retries · branch opz-404/lease-fence · logs sanitized.</div><time>Complete</time></div>`,
+          'Review Evidence': `<div class="activity-row"><span class="avatar orch">AO</span><div><strong>Evidence bound to c81e74a</strong><br />CI 12/12 · Behavior 8/8 · User E2E 6/6 · Docker healthy · reviewer verdict passed.</div><time>10:49</time></div>`,
+          All: `<div class="activity-row"><span class="avatar orch">AO</span><div><strong>Review cycle 4</strong><br />Automated proof complete. Waiting for Anthony G. to approve contract v4 at c81e74a.</div><time>Now</time></div>`,
+          Runs: `<div class="activity-row"><span class="avatar bot">CX</span><div><strong>run-404-08 · Local Codex CLI</strong><br />Completed 5 implementation milestones and handed off immutable evidence.</div><time>49m</time></div>`,
+          Evidence: `<div class="activity-row"><span class="avatar orch">AO</span><div><strong>Evidence package ev-404-4</strong><br />18 artifacts · exact SHA match · latest artifact at 10:49.</div><time>Valid</time></div>`,
+          'Review notes': `<div class="activity-row"><span class="avatar orch">AO</span><div><strong>Independent reviewer</strong><br />All contract clauses have direct proof. No unresolved change requests.</div><time>10:49</time></div>`,
+          Audit: `<div class="activity-row"><span class="avatar">AG</span><div><strong>Authority record</strong><br />Human Owner is the only role authorized to approve. Merge remains locked.</div><time>Current</time></div>`,
+          Chronology: `<strong>Execution</strong> — contract pinned → worktree acquired → PR opened → SHA locked.<br /><br /><strong>Review</strong> — CI → Behavior → Docker → E2E → independent verdict → human checkpoint.`,
+        };
+        return content[name] || `<p>No ${name.toLowerCase()} entries.</p>`;
+      }
+
+      function variantA() {
+        return `<article class="page variant-a"><div class="a-wrap">${issueHeader(true)}
+          <div class="a-grid"><div class="a-main">
+            <section aria-labelledby="a-description"><h2 class="section-title" id="a-description">Description</h2><p>Prevent an expired or superseded local runner from mutating repository or Dev Board state after another runner has acquired the work lease.</p></section>
+            <section aria-labelledby="a-contract"><div class="contract-head"><div><h2 id="a-contract">Ready-for-Work Contract</h2><span class="meta-line">Version 4 · approved sections · locked to review cycle</span></div><span class="badge sync">✓ 8/8 complete</span></div>
+              <p><strong>Outcome.</strong> Stale execution is rejected while the valid successor continues without duplicate commits, comments, or lane changes.</p>
+              <p><strong>Scope.</strong> Lease validation, fencing tokens, observable failure, recovery, and regression coverage. Runner scheduling redesign is out of scope.</p>
+              <div class="criteria"><div class="criterion"><span class="ok">✓</span><span>Expired lease cannot publish output or alter GitHub/Opzava.</span><button class="linkbtn" data-action="Opened proof BEH-07">BEH-07</button></div><div class="criterion"><span class="ok">✓</span><span>Takeover issues a newer fencing token atomically.</span><button class="linkbtn" data-action="Opened proof CI-04">CI-04</button></div><div class="criterion"><span class="ok">✓</span><span>Late success is rejected and appears in immutable History.</span><button class="linkbtn" data-action="Opened proof E2E-06">E2E-06</button></div></div>
+              <p class="meta-line">Material edits create contract v5 and invalidate approval/evidence. <button class="linkbtn" data-action="Contract version comparison opened">Compare versions</button></p></section>
+            <section aria-labelledby="a-activity"><h2 class="section-title" id="a-activity">Activity</h2>${commonActivity('a',['Comments','History','Worklog','Agent Execution','Review Evidence'])}</section>
+          </div><aside class="a-side" aria-label="Card details and delivery">
+            <section class="a-panel"><h2>Details</h2><dl class="detail-grid"><dt>Lane</dt><dd>Review</dd><dt>Repository</dt><dd>opzava/opzava</dd><dt>Branch</dt><dd class="mono">opz-404/lease-fence</dd><dt>Sprint</dt><dd>Sprint 04</dd><dt>Contract</dt><dd>v4 · locked</dd><dt>Target</dt><dd class="mono">c81e74a 🔒</dd><dt>Dependency</dt><dd>#401 · Done</dd><dt>Sync</dt><dd class="ok">✓ Healthy</dd></dl></section>
+            <section class="a-panel"><h2>People & execution</h2><div style="display:grid;gap:12px">${roles}</div></section>
+            <section class="a-panel"><h2>GitHub delivery</h2>${[['✓','PR #182','Open'],['✓','CI','12/12'],['✓','Behavior','8/8'],['✓','User E2E','6/6'],['✓','Local Docker','Healthy'],['◷','Human approval','Pending'],['🔒','Merge','Locked']].map(x=>`<div class="delivery-row"><span class="${x[0]==='◷'?'pending':'ok'}">${x[0]}</span><strong>${x[1]}</strong><span>${x[2]}</span></div>`).join('')}<div class="merge-lock">All evidence matches contract v4 + <span class="mono">c81e74a</span>, but passing checks do not authorize merge. Secret exposure or unverifiable GitHub is an absolute stop.</div><button class="btn" style="width:100%;margin-top:10px" data-preview>Open authenticated preview</button></section>
+          </aside></div></div></article>`;
+      }
+
+      function variantB() {
+        const gates = [['✓','Contract','v4 locked'],['✓','Docker','Healthy'],['✓','PR #182','Open'],['✓','CI','12/12'],['✓','Behavior','8/8'],['✓','User E2E','6/6'],['◷','Human','Pending']];
+        return `<article class="page variant-b"><div class="b-wrap"><div class="b-head">${issueHeader(false)}</div>
+          <section class="pipeline" aria-label="Review pipeline">${gates.map((g,i)=>`<button class="gate" aria-pressed="${i===6}" data-gate="${g[1]}"><span class="gate-num"><span>0${i+1}</span><span class="${i===6?'pending':'ok'}">${g[0]}</span></span><strong>${g[1]}</strong><small>${g[2]}</small></button>`).join('')}</section>
+          <div class="b-grid"><div><section class="card command" aria-labelledby="command-title"><div class="command-head"><h2 id="command-title">Execution command center</h2><span class="mono meta-line">run-404-08 · c81e74a</span><span class="run-state">✓ Complete</span></div><div class="terminal" aria-label="Structured execution events">
+            <div class="event"><time>10:31:04</time><span class="ok">●</span><span>Lease acquired · worktree <strong>opz-404-lease-fence</strong></span><small>Codex CLI</small></div><div class="event"><time>10:34:18</time><span class="ok">●</span><span>Fencing behavior suite passed · <strong>8/8</strong></span><small>BEH-01…08</small></div><div class="event"><time>10:36:42</time><span class="ok">●</span><span>GitHub checks synchronized · <strong>12/12</strong></span><small>PR #182</small></div><div class="event"><time>10:41:07</time><span class="ok">●</span><span>Local Docker stack healthy · exact SHA match</span><small>4 services</small></div><div class="event"><time>10:46:51</time><span class="ok">●</span><span>User-level E2E passed · stale success rejected</span><small>E2E-06</small></div><div class="event"><time>10:49:12</time><span class="pending">●</span><span>Awaiting Human Owner approval</span><small>Merge locked</small></div></div></section>
+            <div class="b-subgrid"><section class="card evidence"><h2 class="section-title">Acceptance evidence</h2><div class="evidence-grid"><div class="evidence-item"><strong>✓ Stale mutation rejected</strong><small>BEH-07 · 10:34 · exact SHA</small></div><div class="evidence-item"><strong>✓ Successor unaffected</strong><small>E2E-04 · 10:45 · exact SHA</small></div><div class="evidence-item"><strong>✓ Immutable audit event</strong><small>E2E-06 · 10:46 · exact SHA</small></div><div class="evidence-item"><strong>✓ Idempotent retry</strong><small>CI-04 · 10:36 · exact SHA</small></div></div><button class="btn" style="margin-top:11px" data-action="Full evidence matrix opened">Inspect all 18 artifacts</button></section>
+            <section class="card preview"><h2 class="section-title">Local Docker preview</h2><div class="meta-line"><span class="ok">● Available</span> · authenticated tunnel · expires in 27m</div><div class="preview-shot">Stable preview snapshot<br /><span class="mono">c81e74a</span></div><button class="btn" data-preview>Open preview</button> <button class="btn" data-action="Fresh screenshot captured">Capture</button></section></div>
+          </div><aside class="card decision" aria-labelledby="decision-title"><div class="eyebrow pending">REVIEW DECISION</div><h2 id="decision-title">Automated proof complete</h2><div class="decision-status">One Human Owner approval remains. Passing checks never authorize merge by themselves.</div><div class="proof-totals"><div class="proof-total"><strong>12/12</strong><small>CI</small></div><div class="proof-total"><strong>8/8</strong><small>BEHAVIOR</small></div><div class="proof-total"><strong>6/6</strong><small>USER E2E</small></div></div><div class="meta-line">Contract v4 · PR #182 · <span class="mono">c81e74a</span> 🔒 · GitHub healthy</div><div class="roles" style="margin-top:12px">${roles}</div><div class="decision-actions"><button class="btn" data-action="Changes requested form opened">Request changes</button><button class="btn amber" data-approve>Approve SHA</button></div><button class="btn" disabled style="width:100%;margin-top:8px">🔒 Merge locked until approval</button><div class="absolute-stop"><strong>Absolute stops:</strong> secret exposure or unhealthy/unverifiable GitHub cannot be bypassed. Evidence/logs are sanitized.</div></aside></div>
+          <section class="card b-activity" aria-labelledby="b-activity"><h2 class="section-title" id="b-activity">Durable activity ledger</h2>${commonActivity('b',['All','Runs','Evidence','Review notes','Audit'])}</section></div></article>`;
+      }
+
+      function variantC() {
+        const sections = [['outcome','Approved outcome'],['scope','Bounded scope'],['sad','Sad paths'],['edge','Edge cases'],['acceptance','Acceptance'],['dependencies','Dependencies'],['e2e','User-level E2E'],['behavior','Behavioral contract']];
+        return `<article class="page variant-c"><header class="c-dock"><button class="btn ghost" data-action="Returned to Review lane">← Review</button><strong class="mono">GH #404</strong><span class="badge security">Security · P1</span><span class="badge sync">Contract v4 · 8/8 · locked</span><span class="mono meta-line">SHA c81e74a 🔒</span><div class="head-actions"><button class="btn" data-preview>Preview</button><button class="btn" data-action="Changes requested form opened">Request changes</button><button class="btn amber" data-approve>Approve</button></div></header>
+          <div class="c-mast"><div class="breadcrumb">DEV BOARD / REVIEW / SIGNED TECHNICAL DOSSIER</div><h1>Fence stale runner execution leases</h1><div class="c-meta"><span class="badge approval">◷ Final human approval pending</span><span class="badge sync">● GitHub synced</span><span class="meta-line">opzava/opzava · PR #182 · branch <span class="mono">opz-404/lease-fence</span></span></div></div>
+          <div class="c-layout"><nav class="outline" aria-label="Contract contents"><h2>Contract contents</h2>${sections.map((s,i)=>`<button data-scroll="${s[0]}">${String(i+1).padStart(2,'0')} · ${s[1]}</button>`).join('')}</nav>
+          <div class="paper" role="document" aria-label="Approved and locked Ready-for-Work contract"><div class="paper-kicker">Approved sections · Ready-for-Work contract v4 · locked</div><h2 style="font-size:28px;margin-top:8px">The agreement agents executed and reviewers proved</h2><p>These sections are approved and locked as the work contract. They do not constitute final approval of the resulting code. Final approval is bound separately to PR #182 at <span class="mono">c81e74a</span>.</p>
+            <section id="outcome"><span class="clause-num">01</span><div class="paper-kicker">Approved outcome</div><h2>A stale runner cannot change durable state.</h2><p>A runner whose execution lease is expired, revoked, or superseded must be fenced from repository, PR, comment, worklog, and Dev Board mutations. The valid successor proceeds without duplication.</p></section>
+            <section id="scope"><span class="clause-num">02</span><div class="paper-kicker">Bounded scope</div><h2>Where this change begins and ends</h2><div class="scope-grid"><div><h3>In scope</h3><p>Lease validation, monotonic fencing token, rejection event, recovery and regression proof.</p></div><div><h3>Out of scope</h3><p>General runner scheduling, multi-repository orchestration, and cloud failover.</p></div></div></section>
+            <section id="sad"><span class="clause-num">03</span><div class="paper-kicker">Sad paths</div><h2>Failure must remain safe and visible</h2><ul><li>Missed heartbeat during a write.</li><li>Runner crashes, restarts, and replays completion.</li><li>Network partition heals after takeover.</li><li>Authenticated preview expires during review.</li></ul></section>
+            <section id="edge"><span class="clause-num">04</span><div class="paper-kicker">Edge cases</div><h2>Ordering, time and repetition</h2><p>Cover lease rollover mid-mutation, clock skew, identical retries, and a stale success arriving after the successor has started.</p></section>
+            <section id="acceptance"><span class="clause-num">05</span><div class="paper-kicker">Acceptance</div><h2>Every claim points to exact proof</h2><p>Expired tokens reject every mutation <span class="paper-proof">BEH-07</span> · takeover is atomic <span class="paper-proof">CI-04</span> · late success creates only an audit event <span class="paper-proof">E2E-06</span>.</p></section>
+            <section id="dependencies"><span class="clause-num">06</span><div class="paper-kicker">Dependencies</div><h2>No locked predecessor remains</h2><p><strong>#401 Runner identity envelope</strong> is Done. Reopening it invalidates readiness and pauses this review before approval.</p></section>
+            <section id="e2e"><span class="clause-num">07</span><div class="paper-kicker">User-level E2E</div><h2>The administrator can trust the handoff</h2><p>Start a run → force reassignment → observe stale retry rejection → see the immutable event → let the successor finish → confirm no duplicate push, comment, or lane transition.</p></section>
+            <section id="behavior"><span class="clause-num">08</span><div class="paper-kicker">Final behavioral contract</div><h2>One unambiguous seam</h2><div class="gherkin"><strong>GIVEN</strong> lease N was replaced by N+1<br /><strong>WHEN</strong> N attempts any durable mutation<br /><strong>THEN</strong> reject with STALE_LEASE<br /><strong>AND</strong> append an immutable audit event<br /><strong>AND</strong> make no repository, PR, or board change.</div></section>
+            <section aria-labelledby="c-activity"><div class="paper-kicker">Supporting record</div><h2 id="c-activity">Evidence chronology</h2>${commonActivity('c',['Chronology','Review notes','Audit'])}</section>
+          </div><aside class="ledger" aria-label="Gate ledger and chronology"><section class="ledger-card"><h2>Gate ledger</h2>${[['✓','Contract','8/8'],['✓','CI','12/12'],['✓','Behavior','8/8'],['✓','Docker','Healthy'],['✓','User E2E','6/6'],['✓','Orchestrator','Passed'],['◷','Human','Pending'],['🔒','Merge','Locked']].map(x=>`<div class="ledger-row"><span class="${x[0]==='◷'?'pending':'ok'}">${x[0]}</span><strong>${x[1]}</strong><span>${x[2]}</span></div>`).join('')}<p class="meta-line">All proof: contract v4 · <span class="mono">c81e74a</span> · latest 10:49</p></section>
+          <section class="ledger-card"><h2>Evidence chronology</h2><div class="timeline"><div class="time-event">Worktree + lease acquired<small>Execution Assignee · 10:31</small></div><div class="time-event">PR #182 · SHA locked<small>GitHub · 10:36</small></div><div class="time-event">Local Docker verified<small>Reviewer · 10:41</small></div><div class="time-event">Independent verdict passed<small>Lead Orchestrator · 10:49</small></div><div class="time-event pending">Human checkpoint pending<small>Only Anthony G. may approve</small></div></div></section>
+          <section class="ledger-card"><h2>Authority & safety</h2><div style="display:grid;gap:10px">${roles}</div><div class="absolute-stop">Authenticated preview expires in 27m. Secret exposure or unverifiable GitHub is an absolute stop.</div></section></aside></div></article>`;
+      }
+
+      function bind() {
+        root.querySelectorAll('[data-action]').forEach(el=>el.addEventListener('click',()=>showToast(el.dataset.action)));
+        root.querySelectorAll('[data-preview]').forEach(el=>el.addEventListener('click',()=>dialog.showModal()));
+        root.querySelectorAll('[data-approve]').forEach(el=>el.addEventListener('click',()=>showToast('Approval confirmation opened for contract v4 · SHA c81e74a')));
+        root.querySelectorAll('[data-gate]').forEach(el=>el.addEventListener('click',()=>{ root.querySelectorAll('[data-gate]').forEach(x=>x.setAttribute('aria-pressed','false')); el.setAttribute('aria-pressed','true'); showToast(`${el.dataset.gate} evidence selected`); }));
+        root.querySelectorAll('[data-scroll]').forEach(el=>el.addEventListener('click',()=>document.getElementById(el.dataset.scroll)?.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'})));
+        root.querySelectorAll('[role="tablist"]').forEach(list=>{
+          const tabs = [...list.querySelectorAll('[role="tab"]')];
+          const activate = tab => { tabs.forEach(t=>{ const selected=t===tab; t.setAttribute('aria-selected',selected); t.tabIndex=selected?0:-1; document.getElementById(t.getAttribute('aria-controls')).hidden=!selected; }); };
+          tabs.forEach(tab=>{ tab.addEventListener('click',()=>activate(tab)); tab.addEventListener('keydown',e=>{ if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) return; e.preventDefault(); let i=tabs.indexOf(tab); if(e.key==='ArrowLeft') i=(i-1+tabs.length)%tabs.length; if(e.key==='ArrowRight') i=(i+1)%tabs.length; if(e.key==='Home') i=0; if(e.key==='End') i=tabs.length-1; activate(tabs[i]); tabs[i].focus(); }); });
+        });
+      }
+
+      function render(next, push = true) {
+        current = next; root.innerHTML = current==='A' ? variantA() : current==='B' ? variantB() : variantC();
+        root.className = `variant-root root-${current.toLowerCase()}`;
+        document.querySelectorAll('[data-variant]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.variant===current)));
+        document.querySelector('.variant-name').textContent = names[current];
+        document.title = `${names[current]} — Dev Board prototype`;
+        if (push) { const u=new URL(location.href); u.searchParams.set('variant',current); history.replaceState({},'',u); }
+        bind(); root.scrollTop=0;
+      }
+      function showToast(message) { toast.textContent=message; toast.classList.add('show'); clearTimeout(showToast.timer); showToast.timer=setTimeout(()=>toast.classList.remove('show'),2400); }
+      function cycle(delta) { render(variants[(variants.indexOf(current)+delta+variants.length)%variants.length]); }
+      document.querySelectorAll('[data-variant]').forEach(b=>b.addEventListener('click',()=>render(b.dataset.variant)));
+      document.querySelectorAll('[data-cycle]').forEach(b=>b.addEventListener('click',()=>cycle(Number(b.dataset.cycle))));
+      document.querySelector('[data-close-dialog]').addEventListener('click',()=>dialog.close());
+      document.addEventListener('keydown',e=>{
+        if (dialog.open || !['ArrowLeft','ArrowRight'].includes(e.key)) return;
+        const t=e.target; if (t.matches('input,textarea,select,button,a,[contenteditable="true"],[role="tab"]') || t.closest('[role="tablist"]')) return;
+        cycle(e.key==='ArrowRight'?1:-1);
+      });
+      render(current,false);
+    </script>
+  </body>
+</html>
