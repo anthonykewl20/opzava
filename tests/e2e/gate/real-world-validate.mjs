@@ -149,7 +149,8 @@ async function sweepRoute(page, route, pass, findings, screenshot) {
     findings.push({ pass, kind: "auth-bounce", where: route, detail: "redirected to /login mid-session" });
   for (const alert of await page.locator('[role="alert"]').all()) {
     const text = ((await alert.textContent()) ?? "").trim();
-    if (text && /error|fail|unavailable|not implemented/i.test(text))
+    // "(?<!not )fail" exempts the health banner's informational "unknown, not failed" copy (#209).
+    if (text && /error|unavailable|not implemented|(?<!not )fail/i.test(text))
       findings.push({ pass, kind: "ui-error-state", where: route, detail: text.slice(0, 300) });
   }
   const mainText = (await page.locator("main").first().innerText().catch(() => "")).trim();
