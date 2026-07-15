@@ -8,840 +8,376 @@
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="shadcn.css">
   <script src="theme-toggle.js"></script>
-  <script src="avatar-card.js"></script>
-  <script src="admin-nav.js" defer></script>
   <style>
-    /* Page-specific LAYOUT only — no color, font-size, radius, or shadow overrides */
+    /* Page-specific layout ONLY — colour/type/radius/shadow come from tokens.css.
+       APPROVED DESIGN CONTRACT (wayfinder #214 + #225, 2026-07-15): Variant A dual
+       rail — admin nav + conversation history — Claude-web-parity chat on the shadcn
+       chat primitives (message-scroller/message/bubble/marker), plus the six degrade
+       states. The top "states" strip is a MOCKUP control, not product chrome. */
+    :root{ --conv-w:248px; }
 
-    .nav-section-gap { margin-top: var(--space-2); }
-    .header-avatar {
-      width: 32px; height: 32px;
-      border-radius: var(--radius-full);
-      background: var(--surface-3);
-      border: 1px solid var(--border-strong);
-      display: flex; align-items: center; justify-content: center;
-      font-size: var(--text-xs); color: var(--fg-muted);
-      font-weight: var(--fw-semibold); flex: none; cursor: pointer;
-    }
+    /* Variant A: nav rail | conversation rail | chat.  Overrides app.css .app (2-col). */
+    .app{ grid-template-columns:var(--rail-w) var(--conv-w) 1fr; }
+    .app.nav-collapsed{ grid-template-columns:var(--rail-w-collapsed) var(--conv-w) 1fr; }
+    /* nav collapse — labels off, icons stay; conversation rail unaffected */
+    .nav-collapsed .rail-head span{ display:none; }
+    .nav-collapsed .rail-head{ justify-content:center; padding:0; }
+    .nav-collapsed .rail-item{ font-size:0; justify-content:center; gap:0; padding:7px 0; }
+    .nav-collapsed .rail-item .ico{ font-size:15px; }
+    .nav-collapsed .rail-item .count,.nav-collapsed .rail-item .dot{ display:none; }
+    .nav-collapsed .section-label{ height:1px; padding:var(--space-2) 12px; overflow:hidden; color:transparent; background:linear-gradient(var(--border),var(--border)) center/16px 1px no-repeat; }
+    .nav-collapsed .rail-foot .search span{ display:none; }
+    .nav-collapsed .rail-foot .search{ justify-content:center; padding:0; }
+    .nav-collapsed .rail-foot .kbd{ display:none; }
+
+    /* ── Conversation rail (Claude-web history — app-composed shadcn list) ── */
+    .conv{ display:flex; flex-direction:column; min-height:0; background:var(--surface); border-right:1px solid var(--border); }
+    .conv-head{ height:var(--header-h); display:flex; align-items:center; gap:var(--space-2); padding:0 var(--space-3); border-bottom:1px solid var(--border); }
+    .conv-new{ display:flex; align-items:center; gap:var(--space-2); width:100%; height:34px; padding:0 var(--space-3); border:1px solid var(--border-strong); border-radius:var(--radius-md); background:var(--surface-2); color:var(--fg); font:inherit; font-size:var(--text-sm); font-weight:var(--fw-medium); cursor:pointer; }
+    .conv-new:hover{ background:var(--surface-3); border-color:var(--accent-border); }
+    .conv-new .plus{ color:var(--accent); font-size:15px; }
+    .conv-list{ flex:1; min-height:0; overflow-y:auto; padding:var(--space-2); display:flex; flex-direction:column; gap:1px; }
+    .conv-group{ padding:var(--space-4) var(--space-2) var(--space-1); font-size:var(--text-xs); text-transform:uppercase; letter-spacing:var(--tracking-caps); color:var(--fg-subtle); font-weight:var(--fw-semibold); }
+    .conv-group:first-child{ padding-top:var(--space-2); }
+    .conv-item{ display:flex; align-items:center; gap:var(--space-2); min-height:34px; padding:6px 8px; border-radius:var(--radius-md); color:var(--fg-muted); font-size:var(--text-sm); cursor:pointer; position:relative; }
+    .conv-item:hover{ background:var(--surface-2); color:var(--fg); }
+    .conv-item[aria-current="true"]{ background:var(--accent-soft); color:var(--fg); }
+    .conv-item .ctitle{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .conv-item .kebab{ opacity:0; flex:none; width:22px; height:22px; border:0; background:none; border-radius:var(--radius-sm); display:flex; align-items:center; justify-content:center; color:var(--fg-subtle); font-size:15px; cursor:pointer; }
+    .conv-item:hover .kebab,.conv-item[aria-current="true"] .kebab{ opacity:1; }
+    .conv-item .kebab:hover{ background:var(--surface-3); color:var(--fg); }
+    .conv-foot{ padding:var(--space-2) var(--space-3); border-top:1px solid var(--border); font-size:var(--text-xs); color:var(--fg-subtle); display:flex; align-items:center; gap:var(--space-2); }
+    .cmenu{ position:absolute; top:30px; right:6px; z-index:var(--z-dropdown); min-width:150px; background:var(--surface-2); border:1px solid var(--border-strong); border-radius:var(--radius-md); box-shadow:var(--shadow-md); padding:4px; display:none; }
+    .cmenu.open{ display:block; }
+    .cmenu button{ display:flex; align-items:center; gap:var(--space-2); width:100%; padding:7px 10px; border:0; background:none; color:var(--fg-muted); font:inherit; font-size:var(--text-sm); border-radius:var(--radius-sm); cursor:pointer; text-align:left; }
+    .cmenu button:hover{ background:var(--surface-3); color:var(--fg); }
+    .cmenu button.danger:hover{ background:var(--danger-soft); color:var(--danger); }
 
     /* ── Chat canvas ── */
-    .chat-canvas {
-      display: flex;
-      flex-direction: column;
-      height: calc(100vh - 56px); /* subtract header (tools bar is essential-only) */
-      overflow: hidden;
-    }
-    .chat-log {
-      flex: 1;
-      overflow-y: auto;
-      padding: var(--space-6) var(--space-4);
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-5);
-    }
-    .chat-log-inner {
-      max-width: 860px;
-      width: 100%;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-5);
-    }
+    .main-col{ position:relative; }
+    .chat-title-strip{ border-bottom:1px solid var(--border); padding:var(--space-3) var(--space-6); }
+    .chat-title-inner{ max-width:820px; margin:0 auto; display:flex; align-items:center; gap:var(--space-3); }
+    .chat-title-name{ font-size:var(--text-md); font-weight:var(--fw-semibold); white-space:nowrap; }
+    .chat-title-sub{ color:var(--fg-subtle); font-size:var(--text-xs); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .chat-canvas{ flex:1; display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+    .chat-log{ flex:1; overflow-y:auto; padding:var(--space-6) var(--space-4); }
+    .chat-log-inner{ max-width:820px; width:100%; margin:0 auto; display:flex; flex-direction:column; gap:var(--space-5); }
+    .chat-row{ display:flex; align-items:flex-start; gap:var(--space-3); min-width:0; }
+    .chat-row--user{ flex-direction:row-reverse; }
+    .chat-stack{ display:flex; flex-direction:column; gap:var(--space-1); max-width:80%; min-width:0; }
+    .chat-row--user .chat-stack{ align-items:flex-end; max-width:72%; }
+    .chat-meta{ display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-xs); color:var(--fg-subtle); }
+    .chat-meta strong{ color:var(--fg-muted); font-weight:var(--fw-semibold); }
+    .chat-row--user .chat-meta{ flex-direction:row-reverse; }
+    .chat-time{ font-family:var(--font-mono); font-size:var(--text-xs); color:var(--fg-subtle); }
+    .chat-bubble{ background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-3) var(--space-4); font-size:var(--text-sm); line-height:var(--lh-normal); color:var(--fg); min-width:0; overflow-wrap:anywhere; }
+    .chat-bubble--user{ background:var(--accent-soft); border-color:var(--accent-soft); }
+    .chat-bubble p+p{ margin-top:var(--space-3); }
+    .chat-actions{ display:flex; gap:var(--space-1); margin-top:2px; opacity:0; transition:opacity var(--dur-fast); }
+    .chat-row:hover .chat-actions{ opacity:1; }
+    .chat-act{ display:inline-flex; align-items:center; gap:5px; height:26px; padding:0 8px; border-radius:var(--radius-sm); background:none; border:0; color:var(--fg-subtle); font:inherit; font-size:var(--text-xs); cursor:pointer; }
+    .chat-act:hover{ background:var(--surface-2); color:var(--fg); }
+    .chat-tool-card{ background:var(--surface-3); border:1px solid var(--border); border-radius:var(--radius-md); overflow:hidden; font-size:var(--text-sm); }
+    .chat-tool-head{ display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) var(--space-3); cursor:pointer; user-select:none; }
+    .chat-tool-head:hover{ background:var(--surface-2); }
+    .chat-tool-head .tname{ font-family:var(--font-mono); font-size:var(--text-xs); color:var(--fg-muted); }
+    .chat-tool-body{ border-top:1px solid var(--border); padding:var(--space-3); font-family:var(--font-mono); font-size:var(--text-xs); color:var(--fg-muted); line-height:1.7; display:none; }
+    .chat-tool-body.is-open{ display:block; }
+    .chat-tool-body .warn{ color:var(--warning); } .chat-tool-body .ok{ color:var(--success); }
+    .chat-tool-card--fail{ border-color:var(--danger); }
+    .chat-tool-card--fail .chat-tool-head{ background:var(--danger-soft); }
+    .digest-card{ background:var(--surface-3); border:1px solid var(--border); border-radius:var(--radius-md); overflow:hidden; margin-top:var(--space-3); }
+    .digest-row{ display:flex; align-items:center; gap:var(--space-3); padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--border); font-size:var(--text-sm); }
+    .digest-row:last-child{ border-bottom:0; }
+    .digest-pill{ display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border-radius:var(--radius-full); font-size:var(--text-xs); font-weight:var(--fw-semibold); white-space:nowrap; flex:none; min-width:92px; justify-content:center; }
+    .digest-pill--ok{ background:var(--success-soft); color:var(--success); }
+    .digest-pill--warn{ background:var(--warning-soft); color:var(--warning); }
+    .digest-summary{ flex:1; min-width:0; color:var(--fg-muted); }
+    .digest-summary a{ color:var(--fg); font-weight:var(--fw-medium); text-decoration:none; }
+    .stream-cursor{ display:inline-block; width:8px; height:1.05em; vertical-align:text-bottom; background:var(--accent); border-radius:1px; margin-left:2px; animation:blink 1s steps(2) infinite; }
+    @keyframes blink{ 50%{opacity:0;} }
+    .stop-row{ display:flex; justify-content:center; margin-top:var(--space-2); }
+    .stop-btn{ display:inline-flex; align-items:center; gap:var(--space-2); height:32px; padding:0 var(--space-4); border-radius:var(--radius-full); background:var(--surface-2); border:1px solid var(--border-strong); color:var(--fg-muted); font:inherit; font-size:var(--text-xs); cursor:pointer; }
+    .stop-btn:hover{ color:var(--fg); border-color:var(--danger); }
+    .stop-btn .sq{ width:9px; height:9px; border-radius:2px; background:var(--danger); }
+    .composer-wrap{ border-top:1px solid var(--border); padding:var(--space-4); background:var(--surface); }
+    .composer{ max-width:820px; margin:0 auto; display:flex; align-items:flex-end; gap:var(--space-3); background:var(--surface-2); border:1px solid var(--border-strong); border-radius:var(--radius-lg); padding:var(--space-2) var(--space-3); }
+    .composer textarea{ flex:1; background:transparent; border:0; outline:none; resize:none; color:var(--fg); font-size:var(--text-sm); font-family:var(--font-sans); line-height:var(--lh-normal); padding:var(--space-2) 0; min-height:24px; max-height:160px; }
+    .composer textarea::placeholder{ color:var(--fg-subtle); }
+    .composer-hint{ font-size:var(--text-xs); color:var(--fg-subtle); white-space:nowrap; padding-bottom:6px; }
+    .composer-send{ flex:none; width:34px; height:34px; border-radius:var(--radius-md); background:var(--accent); color:var(--accent-fg); border:0; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:15px; }
+    .composer-lock{ display:none; font-size:var(--text-xs); color:var(--fg-subtle); text-align:center; max-width:820px; margin:6px auto 0; }
 
-    /* ── Chat rows ── */
-    .chat-row {
-      display: flex;
-      align-items: flex-start;
-      gap: var(--space-3);
-      min-width: 0;
-    }
-    .chat-row--user {
-      flex-direction: row-reverse;
-    }
-    .chat-stack {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-1);
-      max-width: 72%;
-      min-width: 0;
-    }
-    .chat-row--user .chat-stack {
-      align-items: flex-end;
-    }
-    .chat-meta {
-      display: flex;
-      align-items: center;
-      gap: var(--space-2);
-      font-size: var(--text-xs);
-      color: var(--fg-subtle);
-    }
-    .chat-meta strong {
-      color: var(--fg-muted);
-      font-weight: var(--fw-semibold);
-    }
-    .chat-row--user .chat-meta {
-      flex-direction: row-reverse;
-    }
-    .chat-time {
-      font-family: var(--font-mono);
-      font-size: var(--text-xs);
-      color: var(--fg-subtle);
-    }
-    .chat-bubble {
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: var(--space-3) var(--space-4);
-      font-size: var(--text-sm);
-      line-height: var(--lh-normal);
-      color: var(--fg);
-      min-width: 0;
-      overflow-wrap: anywhere;
-    }
-    .chat-bubble--user {
-      background: var(--accent-soft);
-      border-color: var(--accent-soft);
-      color: var(--fg);
-    }
+    /* ── Degrade + cold-start states (#225) ── */
+    .sv{ display:none; }
+    .chat-canvas[data-state="chat"] [data-sv="chat"],
+    .chat-canvas[data-state="new"] [data-sv="new"],
+    .chat-canvas[data-state="loading"] [data-sv="loading"],
+    .chat-canvas[data-state="offline"] [data-sv="offline"],
+    .chat-canvas[data-state="toolfail"] [data-sv="toolfail"],
+    .chat-canvas[data-state="quota"] [data-sv="quota"],
+    .chat-canvas[data-state="degraded"] [data-sv="degraded"]{ display:flex; flex-direction:column; gap:var(--space-5); }
+    .chat-canvas:not([data-state="chat"]) .stop-row{ display:none !important; }
+    .chat-canvas[data-state="new"] .chat-title-strip{ display:none; }
+    .sad-banner{ display:none; align-items:center; gap:var(--space-3); padding:10px var(--space-6); font-size:var(--text-sm); border-bottom:1px solid var(--border); }
+    .chat-canvas[data-state="offline"] .sb-offline{ display:flex; background:var(--warning-soft); }
+    .chat-canvas[data-state="degraded"] .sb-degraded{ display:flex; background:var(--danger-soft); }
+    .sad-banner .bdot{ width:8px; height:8px; border-radius:50%; flex:none; }
+    .sad-banner .bmsg{ flex:1; min-width:0; color:var(--fg); }
+    .chat-canvas[data-state="degraded"] .composer{ opacity:.5; pointer-events:none; }
+    .chat-canvas[data-state="degraded"] .composer-lock{ display:block; }
+    .cold{ align-items:center; justify-content:center; text-align:center; gap:var(--space-3) !important; min-height:52vh; max-width:600px; margin:0 auto; }
+    .cold-mark{ width:52px; height:52px; border-radius:var(--radius-full); background:var(--accent-soft); color:var(--accent); display:flex; align-items:center; justify-content:center; font-size:24px; }
+    .cold h2{ font-size:var(--text-xl); }
+    .chips{ display:flex; flex-wrap:wrap; gap:var(--space-2); justify-content:center; margin-top:var(--space-3); }
+    .chip{ display:inline-flex; align-items:center; gap:var(--space-2); padding:9px var(--space-4); border-radius:var(--radius-full); background:var(--surface-2); border:1px solid var(--border); color:var(--fg-muted); font:inherit; font-size:var(--text-sm); cursor:pointer; }
+    .chip:hover{ background:var(--surface-3); color:var(--fg); border-color:var(--accent-border); }
+    .chip .ci{ color:var(--accent); }
+    .sk-bubble{ background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-4); display:flex; flex-direction:column; gap:10px; max-width:80%; }
+    .sk-line{ height:11px; border-radius:var(--radius-full); background:linear-gradient(90deg,var(--surface-3) 25%,var(--surface-2) 37%,var(--surface-3) 63%); background-size:400% 100%; animation:shimmer 1.4s ease infinite; }
+    @keyframes shimmer{ 0%{background-position:100% 0;} 100%{background-position:-100% 0;} }
+    .sk-status{ display:inline-flex; align-items:center; gap:var(--space-2); font-size:var(--text-xs); color:var(--fg-subtle); }
+    .chat-bubble--failed{ border-color:var(--warning); }
+    .msg-fail{ display:flex; align-items:center; gap:var(--space-2); margin-top:4px; font-size:var(--text-xs); color:var(--warning); }
+    .msg-fail button{ background:none; border:0; color:var(--accent); font:inherit; font-size:var(--text-xs); cursor:pointer; text-decoration:underline; }
+    .sb-badge--danger{ background:var(--danger-soft); color:var(--danger); }
+    .sys-marker{ display:flex; align-items:center; gap:var(--space-3); margin:2px 0; }
+    .sys-marker .ln{ flex:1; height:1px; background:var(--border); }
+    .sys-marker .mk{ font-size:var(--text-xs); color:var(--info); white-space:nowrap; display:inline-flex; align-items:center; gap:6px; }
 
-    /* ── Tool card ── */
-    .chat-tool-card {
-      background: var(--surface-3);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      overflow: hidden;
-      font-size: var(--text-sm);
-    }
-    .chat-tool-head {
-      display: flex;
-      align-items: center;
-      gap: var(--space-2);
-      padding: var(--space-2) var(--space-3);
-      cursor: pointer;
-      user-select: none;
-    }
-    .chat-tool-head:hover { background: var(--surface-2); }
-    .chat-tool-head .tname { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-muted); }
-    .chat-tool-body {
-      border-top: 1px solid var(--border);
-      padding: var(--space-3);
-      font-family: var(--font-mono);
-      font-size: var(--text-xs);
-      color: var(--fg-muted);
-      line-height: 1.6;
-      display: none;
-    }
-    .chat-tool-body.is-open { display: block; }
-
-    /* ── Status pill ── */
-    .chat-status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: var(--space-2);
-      padding: 4px var(--space-3);
-      border-radius: var(--radius-full);
-      background: var(--surface-3);
-      border: 1px solid var(--border);
-      font-size: var(--text-xs);
-      color: var(--fg-subtle);
-      width: fit-content;
-    }
-
-    /* ── Digest card inside bubble ── */
-    .digest-card {
-      background: var(--surface-3);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      overflow: hidden;
-      margin-top: var(--space-3);
-      max-width: 100%;
-    }
-    .digest-row {
-      display: flex;
-      align-items: center;
-      gap: var(--space-3);
-      padding: var(--space-3) var(--space-4);
-      border-bottom: 1px solid var(--border);
-      font-size: var(--text-sm);
-    }
-    .digest-row:last-of-type { border-bottom: 0; }
-    .digest-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 2px 8px;
-      border-radius: var(--radius-full);
-      font-size: var(--text-xs);
-      font-weight: var(--fw-semibold);
-      white-space: nowrap;
-      flex: none;
-      min-width: 96px;
-      justify-content: center;
-    }
-    .digest-pill--ok   { background: var(--success-soft); color: var(--success); }
-    .digest-pill--warn { background: var(--warning-soft); color: var(--warning); }
-    .digest-pill--err  { background: var(--danger-soft);  color: var(--danger);  }
-    .digest-summary { flex: 1; min-width: 0; color: var(--fg-muted); font-size: var(--text-sm); }
-    .digest-actions { display: flex; gap: var(--space-2); flex: none; }
-
-    /* ── Inline action bubble ── */
-    .action-bubble {
-      background: var(--surface-2);
-      border: 1px solid var(--border-strong);
-      border-left: 3px solid var(--accent);
-      border-radius: var(--radius-lg);
-      padding: var(--space-4);
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-3);
-      font-size: var(--text-sm);
-      line-height: var(--lh-normal);
-    }
-    .action-bubble-title {
-      font-weight: var(--fw-semibold);
-      color: var(--fg);
-    }
-    .action-row { display: flex; gap: var(--space-2); align-items: center; }
-
-    /* ── Composer ── */
-    .composer-wrap {
-      border-top: 1px solid var(--border);
-      padding: var(--space-4);
-      background: var(--surface);
-    }
-    .composer {
-      max-width: 860px;
-      margin: 0 auto;
-      display: flex;
-      align-items: flex-end;
-      gap: var(--space-3);
-      background: var(--surface-2);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-lg);
-      padding: var(--space-2) var(--space-3);
-    }
-    .composer textarea {
-      flex: 1;
-      background: transparent;
-      border: 0;
-      outline: none;
-      resize: none;
-      color: var(--fg);
-      font-size: var(--text-sm);
-      font-family: var(--font-sans);
-      line-height: var(--lh-normal);
-      padding: var(--space-2) 0;
-      min-height: 40px;
-      max-height: 160px;
-    }
-    .composer textarea::placeholder { color: var(--fg-subtle); }
-    .composer-hint { font-size: var(--text-xs); color: var(--fg-subtle); white-space: nowrap; padding-bottom: var(--space-2); }
-    .composer-send {
-      flex: none;
-      width: 34px; height: 34px;
-      border-radius: var(--radius-md);
-      background: var(--accent);
-      color: var(--accent-fg);
-      border: 0;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 15px;
-    }
-    .composer-send:hover { opacity: .88; }
-
-    /* ── Example chips (cold-start) ── */
-    .example-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2);
-      justify-content: center;
-      margin-top: var(--space-4);
-    }
-    .example-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: var(--space-2);
-      padding: var(--space-2) var(--space-3);
-      border-radius: var(--radius-full);
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      color: var(--fg-muted);
-      font-size: var(--text-sm);
-      cursor: pointer;
-    }
-    .example-chip:hover { background: var(--surface-3); color: var(--fg); border-color: var(--border-strong); }
-
-    .ops-state-panel {
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      overflow: hidden;
-    }
-    .ops-state-panel summary {
-      display: flex;
-      align-items: center;
-      gap: var(--space-2);
-      padding: var(--space-3) var(--space-4);
-      cursor: pointer;
-      color: var(--fg-muted);
-      font-size: var(--text-sm);
-      font-weight: var(--fw-medium);
-      list-style: none;
-    }
-    .ops-state-panel summary::-webkit-details-marker { display: none; }
-    .ops-state-panel summary:hover { background: var(--surface-3); color: var(--fg); }
-    .ops-state-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: var(--space-3);
-      padding: 0 var(--space-4) var(--space-4);
-    }
-    .ops-state-card {
-      padding: var(--space-3);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--surface);
-    }
-    .ops-state-card strong {
-      display: block;
-      margin-bottom: 4px;
-      font-size: var(--text-sm);
-    }
-    .ops-state-card p {
-      margin: 0;
-      color: var(--fg-muted);
-      font-size: var(--text-xs);
-      line-height: var(--lh-snug);
-    }
-
-    .chat-title-strip {
-      border-bottom: 1px solid var(--border);
-      padding: var(--space-3) var(--space-6);
-    }
-    .chat-title-inner {
-      max-width: 860px;
-      margin: 0 auto;
-    }
-    .chat-title-row {
-      display: flex;
-      gap: var(--space-3);
-      align-items: center;
-      min-width: 0;
-    }
-    .chat-title-name {
-      font-size: var(--text-md);
-      font-weight: var(--fw-semibold);
-      color: var(--fg);
-      white-space: nowrap;
-    }
-    .chat-title-sub {
-      color: var(--fg-subtle);
-      font-size: var(--text-xs);
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    /* ── Mobile collapse ── */
-    @media (max-width: 640px) {
-      /* Rail collapses to hidden; a mobile nav/hamburger would replace it.
-         Chat log goes full-width; chat-stack max-width relaxes.
-         Composer pinned at bottom of viewport. */
-      .app {
-        grid-template-columns: 1fr;
-        height: auto;
-        min-height: 100vh;
-      }
-      .rail { display: none; }
-      .main-col,
-      .main {
-        width: 100%;
-        min-width: 0;
-      }
-      .header {
-        gap: var(--space-2);
-        min-width: 0;
-      }
-      .header .sb-breadcrumb,
-      .header > .u-row,
-      .header .health-pill {
-        display: none;
-      }
-      .chat-title-strip {
-        padding: var(--space-3) var(--space-4);
-      }
-      .chat-title-row {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 2px;
-      }
-      .chat-title-name {
-        white-space: normal;
-      }
-      .chat-title-row > .u-subtle[aria-hidden="true"] {
-        display: none;
-      }
-      .chat-title-sub {
-        white-space: normal;
-        overflow: visible;
-        text-overflow: clip;
-        line-height: var(--lh-snug);
-      }
-      .chat-canvas,
-      .main[style] {
-        height: calc(100vh - 56px);
-        min-height: 0;
-        overflow: hidden;
-      }
-      .chat-stack { max-width: 90%; }
-      .digest-actions { display: none; } /* actions overflow to a tap-through link */
-      .digest-row {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: var(--space-2);
-        align-items: start;
-      }
-      .digest-pill {
-        min-width: 0;
-        width: fit-content;
-      }
-      .digest-summary span {
-        display: block;
-        margin-left: 0 !important;
-        margin-top: 2px;
-      }
-      .composer-hint { display: none; }
-      .chat-log { padding: var(--space-4); }
-      .chat-log {
-        min-height: 0;
-        padding-bottom: 104px;
-      }
-      .chat-stack,
-      .chat-stack[style] { max-width: 100% !important; }
-      .ops-state-grid { grid-template-columns: 1fr; }
-      .composer-wrap {
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: 40px;
-        z-index: var(--z-sticky);
-        padding: var(--space-3) var(--space-4);
-      }
-    }
+    /* ── Mockup states control (NOT product chrome) ── */
+    .mk-bar{ position:fixed; top:0; left:0; right:0; z-index:var(--z-sticky); display:flex; align-items:center; gap:var(--space-3); height:44px; padding:0 var(--space-4); background:var(--surface); border-bottom:1px solid var(--border-strong); font-size:var(--text-xs); }
+    .mk-bar b{ color:var(--fg); font-weight:var(--fw-semibold); font-size:var(--text-sm); }
+    .mk-bar .u-subtle{ color:var(--fg-subtle); }
+    .mk-seg{ display:inline-flex; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-md); padding:2px; gap:2px; }
+    .mk-seg button{ border:0; background:none; color:var(--fg-muted); font:inherit; font-size:var(--text-xs); padding:5px 12px; border-radius:var(--radius-sm); cursor:pointer; white-space:nowrap; }
+    .mk-seg button.on{ background:var(--accent-soft); color:var(--accent); font-weight:var(--fw-semibold); }
+    body{ padding-top:44px; }
+    .app{ height:calc(100vh - 44px); }
   </style>
 </head>
 <body>
-<div class="app">
 
-  <!-- ══ RAIL ══════════════════════════════════════════════════════════════ -->
+<!-- ══ MOCKUP STATES CONTROL (design reference only) ═════════════════════════ -->
+<div class="mk-bar">
+  <b>Ask Admin Opzava</b><span class="u-subtle">Variant A · design contract · states →</span>
+  <div class="mk-seg" role="tablist" aria-label="State">
+    <button data-state="chat" class="on">Active</button>
+    <button data-state="new">New chat</button>
+    <button data-state="loading">Loading</button>
+    <button data-state="offline">Send failed</button>
+    <button data-state="toolfail">Tool failed</button>
+    <button data-state="quota">Quota / failover</button>
+    <button data-state="degraded">Gateway down</button>
+  </div>
+</div>
+
+<div class="app" id="app">
+
+  <!-- ══ ADMIN NAV RAIL ══ -->
   <aside class="rail" aria-label="Main navigation">
     <div class="rail-head">
-      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true">
-        <rect width="26" height="26" rx="6" fill="var(--accent)"/>
-        <path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/>
-      </svg>
+      <svg class="rail-logo" viewBox="0 0 26 26" fill="none" aria-hidden="true"><rect width="26" height="26" rx="6" fill="var(--accent)"/><path d="M7 13h5m0 0 3-4m-3 4 3 4" stroke="var(--accent-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="19" cy="13" r="2" fill="var(--accent-fg)"/></svg>
       <span style="font-weight:var(--fw-semibold);font-size:var(--text-base);">Opzava</span>
-      <span class="u-subtle" style="font-size:var(--text-xs);margin-left:auto;">v2.1</span>
     </div>
-    <nav class="rail-nav" aria-label="Application sections">
-      <a href="orchestrator-chat.html" class="rail-item" aria-current="page" style="margin-bottom:4px;">
-        <span class="ico" aria-hidden="true" style="display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px;">✦</span>
-        Ask Admin Opzava
-        <span class="dot dot-warning" style="margin-left:auto;" aria-label="1 project needs you"></span>
-      </a>
+    <nav class="rail-nav" aria-label="Sections">
+      <a class="rail-item" aria-current="page" style="margin-bottom:4px;"><span class="ico" style="color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:15px;">✦</span> Ask Admin Opzava <span class="dot dot-warning" style="margin-left:auto;"></span></a>
       <div class="section-label">Operate</div>
-      <a href="shell-overview.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9"/><rect x="10" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="2" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg> Overview</a>
-      <a href="agents.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M3 16c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Agents <span class="count">6</span></a>
-      <a href="task-board.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.5"/></svg> Tasks <span class="count">3</span></a>
-      <a href="issues.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="9" r="1.75" fill="currentColor"/></svg> Issues <span class="count">12</span></a>
-      <a href="messages-slack.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4h12v8H7l-3 3v-3H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> Messages <span class="count" style="background:var(--accent);color:var(--accent-fg);">2</span></a>
-      <div class="section-label nav-section-gap u-between" style="padding-right:8px;"><span>Projects</span><a href="nav-project-switcher.html" class="u-subtle" style="font-size:var(--text-xs);" aria-label="All projects">All ◯</a></div>
-      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-1);"></span> Q2 Content Push <span class="count">3</span><span class="dot dot-warning" style="margin-left:6px;" aria-label="needs you"></span></a>
-      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-2);"></span> Series B Outreach <span class="count">1</span></a>
-      <a href="nav-project-switcher.html" class="rail-item"><span class="ico" aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:var(--chart-5);"></span> Website Refresh</a>
-      <a href="nav-project-switcher.html" class="rail-item u-subtle"><span class="ico" aria-hidden="true">▾</span> Show all (9)</a>
-      <div class="section-label nav-section-gap">Observe</div>
-      <a href="monitoring-health.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 9h3l2-5 3 8 2-5 2 3h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Monitoring</a>
-      <a href="costs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 5.5v5l3 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Costs</a>
-      <a href="logs.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5h12M3 8h8M3 11h10M3 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Logs</a>
-      <div class="section-label nav-section-gap">Connect</div>
-      <a href="connections.html" class="rail-item"><span class="ico" aria-hidden="true">∞</span> Integrations <span class="dot dot-success dot-beat" style="margin-left:auto;" aria-label="core integrations connected"></span></a>
-      <div class="section-label nav-section-gap">Govern</div>
-      <a href="notifications-alerts.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2a5 5 0 0 1 5 5v3l1.5 2H2.5L4 10V7a5 5 0 0 1 5-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg> Alerts <span class="count" style="background:var(--danger-soft);color:var(--danger);">2</span></a>
-      <a href="settings.html" class="rail-item"><svg class="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M3.93 3.93l1.06 1.06M13.01 13.01l1.06 1.06M3.93 14.07l1.06-1.06M13.01 4.99l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> Settings</a>
-      <a href="essential-home.html" class="rail-item u-subtle" style="margin-top:var(--space-3)" title="Essential view — the simplified everyday experience"><span class="ico" aria-hidden="true">↩</span> Essential view</a>
+      <a class="rail-item"><span class="ico" style="display:flex;align-items:center;justify-content:center;">▦</span> Overview</a>
+      <a class="rail-item"><span class="ico" style="display:flex;align-items:center;justify-content:center;">◎</span> Agents <span class="count">6</span></a>
+      <a class="rail-item"><span class="ico" style="display:flex;align-items:center;justify-content:center;">▤</span> Dev Board <span class="count">3</span></a>
+      <a class="rail-item"><span class="ico" style="display:flex;align-items:center;justify-content:center;">◉</span> Issues <span class="count">12</span></a>
+      <div class="section-label">Observe</div>
+      <a class="rail-item"><span class="ico" style="display:flex;align-items:center;justify-content:center;">◔</span> Monitoring</a>
+      <a class="rail-item"><span class="ico" style="display:flex;align-items:center;justify-content:center;">◷</span> Costs</a>
+      <div class="section-label">Connect</div>
+      <a class="rail-item"><span class="ico" style="display:flex;align-items:center;justify-content:center;">∞</span> Connections <span class="dot dot-success" style="margin-left:auto;"></span></a>
+      <div class="section-label">Govern</div>
+      <a class="rail-item"><span class="ico" style="display:flex;align-items:center;justify-content:center;">⚙</span> Settings</a>
     </nav>
-    <div class="rail-foot">
-      <button type="button" class="search" style="width:100%;max-width:none;cursor:pointer;" aria-label="Open command palette (Cmd K)">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:var(--fg-subtle)"><circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        <span class="u-subtle u-grow">Jump to…</span><kbd class="kbd">⌘K</kbd>
-      </button>
-    </div>
+    <div class="rail-foot"><button class="search" style="width:100%;cursor:pointer;"><span>Jump to…</span><kbd class="kbd" style="margin-left:auto;">⌘K</kbd></button></div>
   </aside>
 
-  <!-- ══ MAIN COL ══════════════════════════════════════════════════════════ -->
-  <div class="main-col">
+  <!-- ══ CONVERSATION RAIL ══ -->
+  <aside class="conv" aria-label="Conversations">
+    <div class="conv-head"><button class="conv-new"><span class="plus">+</span> New chat</button></div>
+    <div class="conv-list">
+      <div class="conv-group">Today</div>
+      <div class="conv-item" role="button" tabindex="0" aria-current="true"><span class="ctitle">Sprint 14 progress check</span><button class="kebab" data-menu="m1" aria-label="Options">⋯</button><div class="cmenu" id="m1"><button>✎ Rename</button><button class="danger">🗑 Delete</button></div></div>
+      <div class="conv-item" role="button" tabindex="0"><span class="ctitle">Series B email — approval</span><button class="kebab" data-menu="m2" aria-label="Options">⋯</button><div class="cmenu" id="m2"><button>✎ Rename</button><button class="danger">🗑 Delete</button></div></div>
+      <div class="conv-group">Yesterday</div>
+      <div class="conv-item" role="button" tabindex="0"><span class="ctitle">Should the redesign be a sprint?</span><button class="kebab" data-menu="m3" aria-label="Options">⋯</button><div class="cmenu" id="m3"><button>✎ Rename</button><button class="danger">🗑 Delete</button></div></div>
+      <div class="conv-item" role="button" tabindex="0"><span class="ctitle">Weekly ops blocker — Notion timeout</span><button class="kebab" data-menu="m4" aria-label="Options">⋯</button><div class="cmenu" id="m4"><button>✎ Rename</button><button class="danger">🗑 Delete</button></div></div>
+      <div class="conv-group">Previous 7 days</div>
+      <div class="conv-item" role="button" tabindex="0"><span class="ctitle">Q2 content pipeline status</span><button class="kebab" data-menu="m5" aria-label="Options">⋯</button><div class="cmenu" id="m5"><button>✎ Rename</button><button class="danger">🗑 Delete</button></div></div>
+      <div class="conv-item" role="button" tabindex="0"><span class="ctitle">Draft: engineering hiring plan</span><button class="kebab" data-menu="m6" aria-label="Options">⋯</button><div class="cmenu" id="m6"><button>✎ Rename</button><button class="danger">🗑 Delete</button></div></div>
+      <div class="conv-item" role="button" tabindex="0"><span class="ctitle">Stale backlog cleanup</span><button class="kebab" data-menu="m7" aria-label="Options">⋯</button><div class="cmenu" id="m7"><button>✎ Rename</button><button class="danger">🗑 Delete</button></div></div>
+    </div>
+    <div class="conv-foot"><span class="dot dot-success"></span> gpt-5.6-sol · plan 62% left</div>
+  </aside>
 
-    <!-- Header -->
+  <!-- ══ MAIN COLUMN ══ -->
+  <div class="main-col">
     <header class="header">
-      <button type="button" class="btn btn-ghost btn-icon" aria-label="Collapse sidebar">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2" y="4.5" width="14" height="1.5" rx=".75" fill="currentColor"/><rect x="2" y="8.25" width="10" height="1.5" rx=".75" fill="currentColor"/><rect x="2" y="12" width="14" height="1.5" rx=".75" fill="currentColor"/></svg>
-      </button>
-      <nav class="sb-breadcrumb" aria-label="Breadcrumb">
-        <a href="shell-overview.html">Opzava</a>
-        <span class="sep">›</span>
-        <span class="current">Ask Admin Opzava</span>
-      </nav>
-      <div class="u-grow"></div>
-      <!-- ✦ online status — distinct from system health (this is the coordinator agent's live status) -->
-      <div class="u-row" style="gap:var(--space-2);font-size:var(--text-xs);">
-        <span class="dot dot-success live" aria-hidden="true"></span>
-        <span class="u-muted"><span style="color:var(--accent);font-weight:var(--fw-semibold);">✦</span> online</span>
-      </div>
-      <div class="health-pill" style="margin-left:var(--space-3);">
-        <span class="dot dot-success" aria-hidden="true"></span> All systems healthy
-      </div>
-      <div class="header-avatar" role="button" tabindex="0" aria-label="Account menu">AG</div>
+      <button class="btn btn-ghost btn-icon" id="navToggle" aria-label="Collapse navigation" title="Collapse navigation">⇤</button>
+      <span class="u-subtle" style="font-size:var(--text-xs);">Opzava ›</span>
+      <span style="font-size:var(--text-sm);font-weight:var(--fw-medium);">Ask Admin Opzava</span>
+      <div style="flex:1;"></div>
+      <div style="display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-xs);"><span class="dot dot-success live"></span><span class="u-muted"><span style="color:var(--accent);">✦</span> online</span></div>
     </header>
 
-    <!-- Chat canvas: log + composer fill the remaining height -->
-    <main class="main" style="padding:0;display:flex;flex-direction:column;overflow:hidden;">
+    <div class="chat-canvas" data-state="chat" id="canvas">
+      <div class="chat-title-strip"><div class="chat-title-inner">
+        <span class="chat-title-name">Sprint 14 progress check</span>
+        <span class="u-subtle" aria-hidden="true">·</span>
+        <span class="chat-title-sub">auto-titled from your first message</span>
+      </div></div>
 
-      <!-- Page title strip (not inside log — static) -->
-      <div class="chat-title-strip">
-        <div class="chat-title-inner">
-          <div class="chat-title-row">
-            <span class="chat-title-name">Ask Admin Opzava</span>
-            <span class="u-subtle" style="font-size:var(--text-xs);" aria-hidden="true">·</span>
-            <span class="chat-title-sub">Platform oversight across projects, agents, integrations, and admin decisions</span>
+      <div class="sad-banner sb-offline"><span class="bdot" style="background:var(--warning);"></span><span class="bmsg"><strong>You're offline.</strong> Your message is saved — it'll send automatically when the connection returns.</span><button class="btn btn-sm btn-ghost">Retry now</button></div>
+      <div class="sad-banner sb-degraded"><span class="bdot" style="background:var(--danger);"></span><span class="bmsg"><strong>Ask Admin is reconnecting to the gateway.</strong> You can read past chats; new replies are paused until it's back.</span><button class="btn btn-sm btn-ghost">Retry</button></div>
+
+      <div class="chat-log" role="log" aria-live="polite">
+        <div class="chat-log-inner">
+
+          <!-- ACTIVE conversation -->
+          <div class="sv" data-sv="chat">
+            <div class="chat-row chat-row--user"><span class="sb-avatar" style="background:var(--chart-2);flex:none;">AG</span><div class="chat-stack"><div class="chat-meta"><strong>You</strong><span class="chat-time">9:02</span></div><div class="chat-bubble chat-bubble--user">How's sprint 14 tracking? Anything blocked on me?</div></div></div>
+            <div class="chat-row"><span class="sb-avatar sb-avatar--ai" style="background:var(--chart-6);flex:none;">✦</span><div class="chat-stack">
+              <div class="chat-meta"><strong>Ask Admin</strong><span class="sb-badge sb-badge--accent">✦ AI</span><span class="chat-time">9:02</span></div>
+              <div class="chat-bubble">
+                <p>Sprint 14 is <strong>68% complete</strong> with 2 days left — on pace. One card is blocked on you: <strong>Series B email</strong> has been waiting on your approval for 47 minutes.</p>
+                <div class="digest-card">
+                  <div class="digest-row"><span class="digest-pill digest-pill--ok">● On track</span><div class="digest-summary"><a>11 of 16 cards done</a> — 3 in review, 2 in progress.</div></div>
+                  <div class="digest-row" style="background:var(--warning-soft);"><span class="digest-pill digest-pill--warn">▲ Needs you</span><div class="digest-summary"><a>Series B email</a> — Cipher's draft is ready; approve to send.</div></div>
+                </div>
+              </div>
+              <div class="chat-tool-card"><div class="chat-tool-head" data-tool="t1"><span class="u-subtle" aria-hidden="true">⚙</span><span class="tname">opzava_tasks_list</span><span class="sb-badge sb-badge--success" style="margin-left:auto;">✓ done</span><span class="u-subtle" style="font-size:var(--text-xs);" data-chev="t1">▸</span></div>
+                <div class="chat-tool-body" id="t1"><div>$ opzava_tasks_list --sprint=14 --status=all</div><div>scan · 16 cards across Dev Board lanes</div><div>data · done=11 review=3 in-progress=2 blocked=0</div><div class="warn">note · "Series B email" review-lane, approval pending 47m</div><div class="ok">done · sprint 14 · 68% complete · 1 needs-you</div></div>
+              </div>
+              <div class="chat-actions"><button class="chat-act">⟲ Retry</button><button class="chat-act">⧉ Copy</button><button class="chat-act">👍</button><button class="chat-act">👎</button></div>
+            </div></div>
+            <div class="chat-row chat-row--user"><span class="sb-avatar" style="background:var(--chart-2);flex:none;">AG</span><div class="chat-stack"><div class="chat-meta"><strong>You</strong><span class="chat-time">9:03</span></div><div class="chat-bubble chat-bubble--user">Draft a short status note for the team standup.</div></div></div>
+            <div class="chat-row" id="streamRow"><span class="sb-avatar sb-avatar--ai" style="background:var(--chart-6);flex:none;">✦</span><div class="chat-stack"><div class="chat-meta"><strong>Ask Admin</strong><span class="sb-badge sb-badge--accent">✦ AI</span><span class="chat-time">9:03</span></div>
+              <div class="chat-bubble"><p><strong>Sprint 14 — standup note</strong></p><p>We're 68% through with two days to go and pacing to land on time. Eleven of sixteen cards are done, three are in review, and two are in progress. The one thing needing a decision today is the Series B email<span class="stream-cursor" id="cursor"></span></p></div>
+            </div></div>
+            <div class="stop-row" id="stopRow"><button class="stop-btn" id="stopBtn"><span class="sq"></span> Stop generating</button></div>
           </div>
+
+          <!-- NEW CHAT (cold-start) -->
+          <div class="sv" data-sv="new"><div class="cold">
+            <div class="cold-mark">✦</div>
+            <h2>Good morning, Anthony</h2>
+            <p class="u-muted">Ask about sprint progress, approvals, agents, or anything across your projects. I pull live status, and I can act on your say-so.</p>
+            <div class="chips">
+              <button class="chip"><span class="ci">▲</span> What's blocked on me right now?</button>
+              <button class="chip"><span class="ci">◷</span> How's Sprint 14 tracking?</button>
+              <button class="chip"><span class="ci">✎</span> Draft the team standup note</button>
+              <button class="chip"><span class="ci">✦</span> Review the Series B email</button>
+            </div>
+          </div></div>
+
+          <!-- LOADING -->
+          <div class="sv" data-sv="loading">
+            <div class="chat-row chat-row--user"><span class="sb-avatar" style="background:var(--chart-2);flex:none;">AG</span><div class="chat-stack"><div class="chat-meta"><strong>You</strong><span class="chat-time">9:03</span></div><div class="chat-bubble chat-bubble--user">Draft a short status note for standup.</div></div></div>
+            <div class="chat-row"><span class="sb-avatar sb-avatar--ai" style="background:var(--chart-6);flex:none;">✦</span><div class="chat-stack"><div class="chat-meta"><strong>Ask Admin</strong><span class="sb-badge sb-badge--accent">✦ AI</span></div>
+              <div class="sk-bubble"><div class="sk-status"><span class="stream-cursor"></span> Reading the Dev Board…</div><div class="sk-line" style="width:92%"></div><div class="sk-line" style="width:78%"></div><div class="sk-line" style="width:64%"></div></div>
+            </div></div>
+          </div>
+
+          <!-- SEND FAILED (offline) -->
+          <div class="sv" data-sv="offline">
+            <div class="chat-row"><span class="sb-avatar sb-avatar--ai" style="background:var(--chart-6);flex:none;">✦</span><div class="chat-stack"><div class="chat-meta"><strong>Ask Admin</strong><span class="sb-badge sb-badge--accent">✦ AI</span><span class="chat-time">9:02</span></div><div class="chat-bubble">Sprint 14 is on pace — one card, the Series B email, is waiting on your approval.</div></div></div>
+            <div class="chat-row chat-row--user"><span class="sb-avatar" style="background:var(--chart-2);flex:none;">AG</span><div class="chat-stack"><div class="chat-meta"><strong>You</strong><span class="chat-time">9:05</span></div><div class="chat-bubble chat-bubble--user chat-bubble--failed">Approve it and send.</div><div class="msg-fail"><span>⚠ Not sent — you're offline.</span><button>Retry</button></div></div></div>
+          </div>
+
+          <!-- TOOL FAILED -->
+          <div class="sv" data-sv="toolfail">
+            <div class="chat-row chat-row--user"><span class="sb-avatar" style="background:var(--chart-2);flex:none;">AG</span><div class="chat-stack"><div class="chat-meta"><strong>You</strong><span class="chat-time">9:06</span></div><div class="chat-bubble chat-bubble--user">Move the "API rate limits" card to In Review.</div></div></div>
+            <div class="chat-row"><span class="sb-avatar sb-avatar--ai" style="background:var(--chart-6);flex:none;">✦</span><div class="chat-stack"><div class="chat-meta"><strong>Ask Admin</strong><span class="sb-badge sb-badge--accent">✦ AI</span><span class="chat-time">9:06</span></div>
+              <div class="chat-bubble">I couldn't reach the Dev Board just now, so <strong>nothing was changed</strong> — the card is still in In Progress. Want me to retry, or you can open it directly.</div>
+              <div class="chat-tool-card chat-tool-card--fail"><div class="chat-tool-head"><span class="u-subtle" aria-hidden="true">⚙</span><span class="tname">opzava_tasks_update</span><span class="sb-badge sb-badge--danger" style="margin-left:auto;">✕ failed</span></div></div>
+              <div style="display:flex;gap:var(--space-2);margin-top:2px;"><button class="btn btn-sm btn-primary">⟲ Retry</button><button class="btn btn-sm btn-ghost">Open card ↗</button></div>
+            </div></div>
+          </div>
+
+          <!-- QUOTA / RATE-LIMIT HIT → graceful failover -->
+          <div class="sv" data-sv="quota">
+            <div class="chat-row chat-row--user"><span class="sb-avatar" style="background:var(--chart-2);flex:none;">AG</span><div class="chat-stack"><div class="chat-meta"><strong>You</strong><span class="chat-time">9:12</span></div><div class="chat-bubble chat-bubble--user">Summarize this week's shipped work for the update.</div></div></div>
+            <div class="sys-marker"><span class="ln"></span><span class="mk">✦ Switched to Claude Opus 4.8 — your GPT-5.6 plan reached its limit · replies continue</span><span class="ln"></span></div>
+            <div class="chat-row"><span class="sb-avatar sb-avatar--ai" style="background:var(--chart-6);flex:none;">✦</span><div class="chat-stack"><div class="chat-meta"><strong>Ask Admin</strong><span class="sb-badge sb-badge--accent">✦ AI</span><span class="chat-time">9:12</span></div><div class="chat-bubble"><p>This week you shipped <strong>7 cards</strong>: the auth rate-limit fix, the connections realtime flip, and five smaller fixes. Two are awaiting review. Want the full changelog?</p></div></div></div>
+          </div>
+
+          <!-- GATEWAY DEGRADED (read-only) -->
+          <div class="sv" data-sv="degraded">
+            <div class="chat-row"><span class="sb-avatar sb-avatar--ai" style="background:var(--chart-6);flex:none;">✦</span><div class="chat-stack"><div class="chat-meta"><strong>Ask Admin</strong><span class="sb-badge sb-badge--accent">✦ AI</span><span class="chat-time">8:58</span></div><div class="chat-bubble">Sprint 14 is 68% complete with 2 days left. The Series B email is still pending your approval.</div></div></div>
+            <div class="chat-row chat-row--user"><span class="sb-avatar" style="background:var(--chart-2);flex:none;">AG</span><div class="chat-stack"><div class="chat-meta"><strong>You</strong><span class="chat-time">8:59</span></div><div class="chat-bubble chat-bubble--user">Thanks — I'll review it shortly.</div></div></div>
+            <div style="text-align:center;margin-top:var(--space-2);"><span style="display:inline-flex;align-items:center;gap:var(--space-2);padding:4px var(--space-3);border-radius:var(--radius-full);background:var(--surface-3);border:1px solid var(--border);font-size:var(--text-xs);color:var(--fg-subtle);">◔ Last synced 8:59 · history is read-only while reconnecting</span></div>
+          </div>
+
         </div>
       </div>
 
-      <!-- ── CHAT LOG ─────────────────────────────────────────────────────── -->
-      <div class="chat-log" role="log" aria-live="polite" aria-label="Conversation with Opzava">
-        <div class="chat-log-inner">
-
-          <!-- ── MSG 1 · Opzava proactive digest (opens the thread) ── -->
-          <div class="chat-row">
-            <!-- AI avatar: sb-avatar--ai, chart color, ✦ corner rendered by CSS class -->
-            <span class="sb-avatar sb-avatar--ai" style="background:var(--chart-6);flex:none;" aria-label="Opzava AI">O</span>
-            <div class="chat-stack" style="max-width:80%;">
-              <div class="chat-meta">
-                <strong>Opzava</strong>
-                <span class="sb-badge sb-badge--accent">✦ AI</span>
-                <span class="chat-time">Today 8:00</span>
-              </div>
-              <div class="chat-bubble">
-                <p style="margin:0 0 var(--space-2);">Good morning. Here's where everything stands across your projects right now.</p>
-                <!-- Digest card: one row per project -->
-                <div class="digest-card" role="table" aria-label="Project status digest">
-                  <div class="digest-row" role="row" style="padding:var(--space-2) var(--space-4);background:var(--surface-2);border-bottom:1px solid var(--border);">
-                    <span class="u-subtle" style="font-size:var(--text-xs);font-weight:var(--fw-semibold);text-transform:uppercase;letter-spacing:var(--tracking-caps);flex:none;min-width:96px;" role="columnheader">Status</span>
-                    <span class="u-subtle" style="font-size:var(--text-xs);font-weight:var(--fw-semibold);text-transform:uppercase;letter-spacing:var(--tracking-caps);flex:1;" role="columnheader">Project</span>
-                  </div>
-
-                  <!-- On track -->
-                  <div class="digest-row" role="row">
-                    <span class="digest-pill digest-pill--ok" role="cell">
-                      <span aria-hidden="true">●</span> On track
-                    </span>
-                    <div class="digest-summary" role="cell">
-                      <a href="nav-project-switcher.html" style="color:var(--fg);font-weight:var(--fw-medium);text-decoration:none;" aria-label="Open Q2 Content Push project assistant">Q2 Content Push</a>
-                      <span class="u-muted" style="margin-left:var(--space-2);">— 3 tasks running, Atlas drafted June newsletter.</span>
-                    </div>
-                    <div class="digest-actions" role="cell">
-                      <a href="nav-project-switcher.html" class="btn btn-sm btn-ghost">Review</a>
-                    </div>
-                  </div>
-
-                  <!-- Needs you -->
-                  <div class="digest-row" role="row" style="background:var(--warning-soft);">
-                    <span class="digest-pill digest-pill--warn" role="cell">
-                      <span aria-hidden="true">▲</span> Needs you
-                    </span>
-                    <div class="digest-summary" role="cell">
-                      <a href="nav-project-switcher.html" style="color:var(--fg);font-weight:var(--fw-medium);text-decoration:none;" aria-label="Open Series B Outreach project assistant">Series B Outreach</a>
-                      <span class="u-muted" style="margin-left:var(--space-2);">— Cipher drafted the investor email. Your approval is required before it sends.</span>
-                    </div>
-                    <div class="digest-actions" role="cell">
-                      <a href="notifications-alerts.html" class="btn btn-sm btn-ghost" aria-label="Review Series B approval">Review</a>
-                    </div>
-                  </div>
-
-                  <!-- On track -->
-                  <div class="digest-row" role="row">
-                    <span class="digest-pill digest-pill--ok" role="cell">
-                      <span aria-hidden="true">●</span> On track
-                    </span>
-                    <div class="digest-summary" role="cell">
-                      <a href="nav-project-switcher.html" style="color:var(--fg);font-weight:var(--fw-medium);text-decoration:none;">Market Research</a>
-                      <span class="u-muted" style="margin-left:var(--space-2);">— Nexus completed competitor analysis, report ready for export.</span>
-                    </div>
-                    <div class="digest-actions" role="cell">
-                      <a href="nav-project-switcher.html" class="btn btn-sm btn-ghost">Review</a>
-                    </div>
-                  </div>
-
-                  <!-- On track -->
-                  <div class="digest-row" role="row">
-                    <span class="digest-pill digest-pill--ok" role="cell">
-                      <span aria-hidden="true">●</span> On track
-                    </span>
-                    <div class="digest-summary" role="cell">
-                      <a href="nav-project-switcher.html" style="color:var(--fg);font-weight:var(--fw-medium);text-decoration:none;">Customer Support</a>
-                      <span class="u-muted" style="margin-left:var(--space-2);">— Echo handled 12 tickets today, 1 escalation awaiting Maria.</span>
-                    </div>
-                    <div class="digest-actions" role="cell">
-                      <a href="nav-project-switcher.html" class="btn btn-sm btn-ghost">Review</a>
-                    </div>
-                  </div>
-
-                  <!-- Blocked -->
-                  <div class="digest-row" role="row" style="background:var(--danger-soft);">
-                    <span class="digest-pill digest-pill--err" role="cell">
-                      <span aria-hidden="true">✕</span> Blocked
-                    </span>
-                    <div class="digest-summary" role="cell">
-                      <a href="nav-project-switcher.html" style="color:var(--fg);font-weight:var(--fw-medium);text-decoration:none;">Weekly Ops</a>
-                      <span class="u-muted" style="margin-left:var(--space-2);">— Standup report stalled: connection to Notion workspace timed out.</span>
-                    </div>
-                    <div class="digest-actions" role="cell">
-                      <a href="settings.html" class="btn btn-sm btn-ghost" aria-label="Fix Weekly Ops connection">Fix</a>
-                    </div>
-                  </div>
-                </div><!-- /digest-card -->
-
-                <div class="u-row" style="gap:var(--space-3);margin-top:var(--space-4);align-items:center;flex-wrap:wrap;">
-                  <span style="color:var(--fg-muted);font-size:var(--text-sm);">Want me to chase the blocker on Weekly Ops?</span>
-                  <button class="btn btn-sm btn-primary" type="button" id="chaseYes">Yes</button>
-                  <button class="btn btn-sm btn-ghost" type="button" id="chaseNo">No</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- ── MSG 2 · User message ── -->
-          <div class="chat-row chat-row--user">
-            <span class="sb-avatar" style="background:var(--chart-2);flex:none;" aria-label="You">AG</span>
-            <div class="chat-stack">
-              <div class="chat-meta">
-                <strong>You</strong>
-                <span class="chat-time">9:02</span>
-              </div>
-              <div class="chat-bubble chat-bubble--user">
-                How's everything today?
-              </div>
-            </div>
-          </div>
-
-          <!-- ── MSG 3 · Opzava reply with tool card + status pill ── -->
-          <div class="chat-row">
-            <span class="sb-avatar sb-avatar--ai" style="background:var(--chart-6);flex:none;" aria-label="Opzava AI">O</span>
-            <div class="chat-stack" style="max-width:80%;">
-              <div class="chat-meta">
-                <strong>Opzava</strong>
-                <span class="sb-badge sb-badge--accent">✦ AI</span>
-                <span class="chat-time">9:02</span>
-              </div>
-              <div class="chat-bubble">
-                4 projects active, 1 needs your attention. <strong>Series B Outreach</strong> is <span style="color:var(--danger);font-weight:var(--fw-semibold);">BLOCKED on your approval</span> — Cipher's investor email has been ready for 47 minutes and won't go out until you sign off.
-              </div>
-
-              <!-- Tool card: collapsible standup.report run -->
-              <div class="chat-tool-card" role="group" aria-label="Tool call: standup.report">
-                <div class="chat-tool-head" id="toolHead" role="button" tabindex="0" aria-expanded="false" aria-controls="toolBody">
-                  <span aria-hidden="true" style="color:var(--fg-subtle);">⚙</span>
-                  <span class="tname">standup.report</span>
-                  <span class="sb-badge sb-badge--success" style="margin-left:auto;">✓ done</span>
-                  <span aria-hidden="true" style="color:var(--fg-subtle);font-size:var(--text-xs);margin-left:var(--space-2);" id="toolChevron">▸</span>
-                </div>
-                <div class="chat-tool-body" id="toolBody" role="region" aria-label="standup.report output">
-                  <div class="ln"><span class="tag t-cmd">$</span><span class="t-cmd">standup.report --scope=all-projects --user=AG</span></div>
-                  <div class="ln"><span class="tag t-think">scan</span><span>Checking 5 active projects via /api/ops/tasks and /api/campaigns…</span></div>
-                  <div class="ln"><span class="tag t-tool">data</span><span>Q2 Content Push: 3 tasks in-flight, 0 blocked</span></div>
-                  <div class="ln"><span class="tag t-tool">data</span><span>Series B Outreach: approval pending 47m → status=<span style="color:var(--danger);">BLOCKED</span></span></div>
-                  <div class="ln"><span class="tag t-tool">data</span><span>Market Research: report ready, no pending approvals</span></div>
-                  <div class="ln"><span class="tag t-tool">data</span><span>Customer Support: 12 tickets closed, 1 escalation → Maria</span></div>
-                  <div class="ln"><span class="tag t-warn">warn</span><span>Weekly Ops: Notion connection timeout — run ID wr-8821 stalled since 07:41</span></div>
-                  <div class="ln"><span class="tag t-ok">done</span><span class="t-ok">Report complete · 4 active · 1 needs-you · 1 blocked</span></div>
-                </div>
-              </div>
-
-              <!-- Status pill: downstream coordination in progress -->
-              <div class="chat-status-pill" role="status">
-                <span aria-hidden="true">◔</span>
-                coordinating downstream agents…
-              </div>
-            </div>
-          </div>
-
-          <!-- ── MSG 4 · Inline ACTION bubble (the ONE accent action) ── -->
-          <div class="chat-row">
-            <span class="sb-avatar sb-avatar--ai" style="background:var(--chart-6);flex:none;" aria-label="Opzava AI">O</span>
-            <div class="chat-stack" style="max-width:80%;">
-              <div class="chat-meta">
-                <strong>Opzava</strong>
-                <span class="sb-badge sb-badge--accent">✦ AI</span>
-                <span class="chat-time">9:02</span>
-              </div>
-              <div class="action-bubble" role="group" aria-label="Action required: Series B approval">
-                <div class="action-bubble-title">
-                  <span aria-hidden="true">▲</span> Series B Outreach needs your approval
-                </div>
-                <p style="color:var(--fg-muted);font-size:var(--text-sm);margin:0;">
-                  Cipher drafted the investor follow-up email (220 words). It's addressed to 8 Series B leads from last week's intro call. Tone: professional, confident. No sensitive data detected.
-                </p>
-                <div class="action-row">
-                  <!-- ONE accent action: approve -->
-                  <button class="btn btn-primary" type="button" id="approveBtn" aria-label="Approve Series B email and send">
-                    <span aria-hidden="true">✓</span> Approve &amp; send
-                  </button>
-                  <button class="btn btn-ghost" type="button" id="changesBtn">Request changes</button>
-                  <a href="nav-project-switcher.html" class="btn btn-ghost btn-sm u-subtle" style="margin-left:auto;">View full draft ↗</a>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- ── Inline approval confirmation (hidden until approved) ── -->
-          <div class="chat-row" id="approvedMsg" style="display:none;">
-            <span class="sb-avatar sb-avatar--ai" style="background:var(--chart-6);flex:none;" aria-label="Opzava AI">O</span>
-            <div class="chat-stack" style="max-width:80%;">
-              <div class="chat-meta">
-                <strong>Opzava</strong>
-                <span class="sb-badge sb-badge--accent">✦ AI</span>
-                <span class="chat-time">9:03</span>
-              </div>
-              <div class="chat-bubble">
-                <span style="color:var(--success);">✓</span> Approved. Cipher is sending the email now — you'll get a delivery confirmation in Activity.
-              </div>
-            </div>
-          </div>
-
-          <details class="ops-state-panel">
-            <summary>
-              <span aria-hidden="true">◔</span>
-              Conversation states and recovery paths
-              <span class="u-subtle" style="margin-left:auto;">Loading · offline · empty</span>
-            </summary>
-            <div class="ops-state-grid">
-              <div class="ops-state-card">
-                <strong>Loading reply</strong>
-                <p>Show a skeleton shaped like the next assistant message and mark the log as busy.</p>
-              </div>
-              <div class="ops-state-card">
-                <strong>Offline</strong>
-                <p>Keep the draft, say what happened, and offer a retry without exposing raw error codes.</p>
-              </div>
-              <div class="ops-state-card">
-                <strong>Empty chat</strong>
-                <p>Offer task-focused prompts like approvals, agent status, and project blockers.</p>
-              </div>
-            </div>
-          </details>
-
-        </div><!-- /chat-log-inner -->
-      </div><!-- /chat-log -->
-
-      <!-- ── COMPOSER (pinned) ──────────────────────────────────────────── -->
       <div class="composer-wrap">
-        <form class="composer" id="composerForm" aria-label="Message Ask Admin Opzava">
-          <label for="msgInput" class="u-sr-only">Message Ask Admin Opzava</label>
-          <textarea
-            id="msgInput"
-            rows="1"
-            placeholder="Message Ask Admin Opzava..."
-            aria-label="Message Ask Admin Opzava"
-            autocomplete="off"
-          ></textarea>
-          <span class="composer-hint" aria-hidden="true"><kbd class="kbd">↵</kbd> send</span>
-          <button class="composer-send" type="submit" aria-label="Send message">↑</button>
+        <form class="composer" id="composer">
+          <label for="msg" class="u-sr-only">Message Ask Admin Opzava</label>
+          <textarea id="msg" rows="1" placeholder="Message Ask Admin Opzava…"></textarea>
+          <span class="composer-hint"><kbd class="kbd">↵</kbd> send</span>
+          <button class="composer-send" type="submit" aria-label="Send">↑</button>
         </form>
+        <div class="composer-lock">Sending is paused while Ask Admin reconnects. Your draft is kept.</div>
       </div>
-
-    </main>
-  </div><!-- /main-col -->
-</div><!-- /app -->
+    </div>
+  </div>
+</div>
 
 <script>
-  /* Tool card expand/collapse */
-  const toolHead = document.getElementById('toolHead');
-  const toolBody = document.getElementById('toolBody');
-  const toolChevron = document.getElementById('toolChevron');
-  if (toolHead && toolBody) {
-    function toggleTool() {
-      const open = toolBody.classList.toggle('is-open');
-      toolChevron.textContent = open ? '▾' : '▸';
-      toolHead.setAttribute('aria-expanded', String(open));
-    }
-    toolHead.addEventListener('click', toggleTool);
-    toolHead.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleTool(); } });
-  }
-
-  /* Approve button — inline confirm */
-  const approveBtn = document.getElementById('approveBtn');
-  const approvedMsg = document.getElementById('approvedMsg');
-  if (approveBtn && approvedMsg) {
-    approveBtn.addEventListener('click', () => {
-      approveBtn.disabled = true;
-      approveBtn.textContent = '✓ Sent';
-      approvedMsg.style.display = 'flex';
-      approvedMsg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    });
-  }
-
-  /* Chase blocker (Yes/No) */
-  const chaseYes = document.getElementById('chaseYes');
-  const chaseNo = document.getElementById('chaseNo');
-  if (chaseYes) {
-    chaseYes.addEventListener('click', () => {
-      chaseYes.disabled = true; chaseNo.disabled = true;
-      chaseYes.textContent = '✓ On it';
-    });
-  }
-  if (chaseNo) {
-    chaseNo.addEventListener('click', () => {
-      chaseYes.disabled = true; chaseNo.disabled = true;
-      chaseNo.textContent = 'Got it';
-    });
-  }
-
-  /* Example chips → fill composer */
-  document.querySelectorAll('.example-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const inp = document.getElementById('msgInput');
-      if (inp) { inp.value = chip.textContent.trim(); inp.focus(); }
+  var app=document.getElementById('app'), canvas=document.getElementById('canvas');
+  /* mockup state switch */
+  document.querySelectorAll('.mk-seg button').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('.mk-seg button').forEach(function(x){x.classList.remove('on');});
+      b.classList.add('on'); canvas.setAttribute('data-state',b.getAttribute('data-state'));
     });
   });
-
-  /* Composer: auto-resize + Enter to submit */
-  const msgInput = document.getElementById('msgInput');
-  const composerForm = document.getElementById('composerForm');
-  if (msgInput) {
-    msgInput.addEventListener('input', () => {
-      msgInput.style.height = 'auto';
-      msgInput.style.height = Math.min(msgInput.scrollHeight, 160) + 'px';
+  /* nav collapse */
+  var navToggle=document.getElementById('navToggle');
+  navToggle.addEventListener('click',function(){
+    var c=app.classList.toggle('nav-collapsed');
+    navToggle.textContent=c?'⇥':'⇤';
+    navToggle.setAttribute('aria-label',c?'Expand navigation':'Collapse navigation');
+  });
+  /* tool card expand */
+  document.querySelectorAll('.chat-tool-head[data-tool]').forEach(function(h){
+    h.addEventListener('click',function(){
+      var id=h.getAttribute('data-tool'), body=document.getElementById(id);
+      var open=body.classList.toggle('is-open');
+      var chev=document.querySelector('[data-chev="'+id+'"]'); if(chev) chev.textContent=open?'▾':'▸';
     });
-    msgInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        if (msgInput.value.trim()) composerForm.dispatchEvent(new Event('submit'));
-      }
+  });
+  /* conversation kebab menus */
+  document.querySelectorAll('.kebab').forEach(function(k){
+    k.addEventListener('click',function(e){
+      e.stopPropagation();
+      var m=document.getElementById(k.getAttribute('data-menu')), was=m.classList.contains('open');
+      document.querySelectorAll('.cmenu').forEach(function(x){x.classList.remove('open');});
+      if(!was) m.classList.add('open');
     });
-  }
-  if (composerForm) {
-    composerForm.addEventListener('submit', e => {
-      e.preventDefault();
-      const val = msgInput.value.trim();
-      if (!val) return;
-      /* In the real app this would POST to /api/chat/messages with coord: prefix */
-      msgInput.value = '';
-      msgInput.style.height = 'auto';
-    });
-  }
+  });
+  document.addEventListener('click',function(){document.querySelectorAll('.cmenu').forEach(function(x){x.classList.remove('open');});});
+  /* stop generating → finalize */
+  document.getElementById('stopBtn').addEventListener('click',function(){
+    document.getElementById('stopRow').style.display='none';
+    var c=document.getElementById('cursor'); if(c) c.style.display='none';
+    document.querySelector('#streamRow .chat-bubble p:last-child').innerHTML='We’re 68% through with two days to go and pacing to land on time. Eleven of sixteen cards are done, three in review, two in progress. The one decision needed today is the <strong>Series B email</strong> — approve it and we close the sprint clean.';
+  });
+  /* cold-start chips → composer */
+  document.querySelectorAll('.chip').forEach(function(ch){
+    ch.addEventListener('click',function(){var m=document.getElementById('msg'); m.value=ch.textContent.trim(); m.focus();});
+  });
+  /* composer autosize */
+  var msg=document.getElementById('msg');
+  msg.addEventListener('input',function(){msg.style.height='auto'; msg.style.height=Math.min(msg.scrollHeight,160)+'px';});
+  document.getElementById('composer').addEventListener('submit',function(e){e.preventDefault(); msg.value=''; msg.style.height='auto';});
 </script>
 </body>
 </html>
