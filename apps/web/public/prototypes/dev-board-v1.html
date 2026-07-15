@@ -1,0 +1,694 @@
+<!doctype html>
+<!--
+  THROWAWAY UI PROTOTYPE — not production code.
+  Question: Which information hierarchy best supports a human supervising a unified
+  GitHub + Opzava Dev Board with autonomous agents and a mandatory Review gate?
+  Three variants are switchable with ?variant=A, ?variant=B, and ?variant=C.
+  Selected direction: Variant B — Agent Command Center (user selection, 2026-07-15).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dev Board — Opzava prototype</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #080c13;
+        --chrome: #0c111a;
+        --surface: #111823;
+        --surface-2: #151e2a;
+        --surface-3: #1a2532;
+        --border: #263241;
+        --border-strong: #344457;
+        --text: #eef4f8;
+        --muted: #94a3b5;
+        --subtle: #64748b;
+        --cyan: #45c6df;
+        --cyan-soft: #123541;
+        --blue: #6ea8fe;
+        --blue-soft: #182c49;
+        --amber: #f0b65d;
+        --amber-soft: #382b17;
+        --red: #ef6b73;
+        --red-soft: #3b1c23;
+        --green: #57c690;
+        --green-soft: #153427;
+        --violet: #a68af9;
+        --violet-soft: #292242;
+        --sidebar: 218px;
+        --topbar: 54px;
+        --radius: 9px;
+        --shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+      body { min-width: 0; overflow: hidden; }
+      button, input { font: inherit; }
+      button { color: inherit; }
+      button:focus-visible, input:focus-visible, [role="button"]:focus-visible {
+        outline: 2px solid var(--cyan);
+        outline-offset: 2px;
+      }
+      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+      .sr-only {
+        position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+        overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+      }
+      .icon {
+        width: 17px; height: 17px; display: inline-flex; align-items: center;
+        justify-content: center; flex: none; color: currentColor;
+      }
+      .icon svg { width: 100%; height: 100%; stroke: currentColor; fill: none; stroke-width: 1.8; }
+
+      .app-shell { display: grid; grid-template-columns: var(--sidebar) minmax(0, 1fr); min-height: 100vh; }
+      .sidebar {
+        height: 100vh; background: #0b1018; border-right: 1px solid #202a37;
+        display: flex; flex-direction: column; position: relative; z-index: 5;
+      }
+      .brand {
+        height: var(--topbar); display: flex; align-items: center; gap: 10px;
+        padding: 0 15px; border-bottom: 1px solid #202a37; color: #eef4f8;
+        font-weight: 720; letter-spacing: -0.01em;
+      }
+      .brand-mark {
+        width: 27px; height: 27px; border-radius: 7px; display: grid; place-items: center;
+        background: var(--cyan); color: #061016; font-weight: 900; transform: rotate(-4deg);
+      }
+      .brand small { margin-left: auto; color: var(--subtle); font-size: 11px; font-weight: 600; }
+      .assistant-link {
+        margin: 12px 10px 8px; padding: 10px 11px; border: 1px solid #263342; border-radius: 7px;
+        background: #101823; display: flex; gap: 9px; align-items: center; font-size: 12px; color: #dce6ed;
+      }
+      .spark { color: var(--cyan); font-weight: 900; }
+      .nav-scroll { padding: 6px 8px; overflow: auto; }
+      .nav-title { color: #637286; font-size: 10px; font-weight: 760; letter-spacing: .1em; margin: 13px 8px 6px; }
+      .nav-item {
+        border: 0; width: 100%; background: transparent; display: flex; align-items: center; gap: 10px;
+        min-height: 36px; border-radius: 6px; color: #aab6c5; padding: 0 9px; font-size: 12px; text-align: left;
+      }
+      .nav-item.active { background: #11303a; color: #73d9eb; }
+      .nav-item:hover { background: #131c28; color: #e8eef3; }
+      .nav-count { margin-left: auto; min-width: 21px; padding: 2px 6px; border-radius: 10px; background: #202b39; font-size: 10px; text-align: center; }
+      .sidebar-foot { margin-top: auto; padding: 10px; border-top: 1px solid #202a37; }
+      .jump { padding: 9px 10px; border: 1px solid #283544; border-radius: 7px; color: #8795a6; font-size: 11px; display: flex; justify-content: space-between; }
+
+      .app-main { min-width: 0; height: 100vh; display: grid; grid-template-rows: var(--topbar) minmax(0, 1fr); }
+      .topbar {
+        display: flex; align-items: center; gap: 12px; background: #0a0f17; border-bottom: 1px solid #202a37;
+        padding: 0 17px; position: relative; z-index: 4;
+      }
+      .menu-button, .icon-button {
+        display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid transparent;
+        border-radius: 7px; background: transparent; color: #9eacbb; cursor: pointer;
+      }
+      .menu-button:hover, .icon-button:hover { border-color: #2a3747; background: #121a25; color: white; }
+      .global-search {
+        width: min(340px, 30vw); height: 34px; border: 1px solid #263343; background: #111722;
+        border-radius: 7px; color: var(--text); padding: 0 12px; font-size: 12px;
+      }
+      .top-spacer { flex: 1; }
+      .health-pill {
+        display: inline-flex; align-items: center; gap: 7px; height: 30px; border: 1px solid #273545;
+        padding: 0 10px; border-radius: 16px; background: #101721; color: #b8c5d1; font-size: 11px; white-space: nowrap;
+      }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
+      .healthy { color: var(--green); }
+      .online { color: var(--cyan); }
+      .avatar {
+        width: 25px; height: 25px; border-radius: 50%; display: inline-grid; place-items: center;
+        background: #d5aa72; color: #21170d; font-size: 9px; font-weight: 850; border: 1px solid rgba(255,255,255,.24);
+      }
+      .avatar.bot { border-radius: 7px; background: #173847; color: #78d8e8; }
+      .avatar.reviewer { border-radius: 7px; background: #2d2847; color: #c6b9ff; }
+
+      #prototype-root { height: 100%; min-height: 0; }
+      .page {
+        height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--bg);
+      }
+      .page-head {
+        padding: 18px 20px 11px; display: flex; align-items: flex-start; gap: 18px;
+      }
+      .page-title { margin: 0; font-size: 25px; letter-spacing: -0.035em; line-height: 1.15; }
+      .page-subtitle { color: var(--muted); font-size: 11px; margin-top: 5px; }
+      .page-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+      .button {
+        height: 33px; border-radius: 7px; border: 1px solid #2b3949; background: #131c27;
+        color: #d9e3eb; padding: 0 12px; font-size: 11px; font-weight: 680; cursor: pointer;
+      }
+      .button:hover { border-color: #42556b; background: #182331; }
+      .button.primary { background: var(--cyan); color: #071318; border-color: var(--cyan); }
+      .button.warning { border-color: #654a24; color: #f5c06c; background: #241c12; }
+      .button.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+      .segmented {
+        display: inline-flex; padding: 3px; border: 1px solid #293645; border-radius: 8px; background: #0d141e;
+      }
+      .segment { border: 0; background: transparent; color: #8391a2; border-radius: 5px; padding: 6px 10px; font-size: 11px; cursor: pointer; }
+      .segment.active { background: #1b2734; color: white; box-shadow: inset 0 0 0 1px #2c3a4a; }
+
+      .sprint-strip {
+        margin: 0 20px 11px; border: 1px solid var(--border); border-radius: var(--radius);
+        background: #101721; display: grid; grid-template-columns: minmax(260px, 1.5fr) repeat(4, minmax(115px, .55fr));
+        min-height: 65px; overflow: hidden;
+      }
+      .strip-cell { padding: 11px 14px; border-right: 1px solid var(--border); display: flex; flex-direction: column; justify-content: center; }
+      .strip-cell:last-child { border-right: 0; }
+      .eyebrow { color: #748398; font-size: 9px; letter-spacing: .11em; text-transform: uppercase; font-weight: 800; }
+      .strip-value { font-size: 12px; margin-top: 4px; color: #e4ebf1; line-height: 1.35; }
+      .strip-number { font-size: 18px; font-weight: 770; letter-spacing: -.03em; }
+      .strip-note { color: var(--muted); font-size: 10px; margin-top: 2px; }
+
+      .toolbar {
+        min-height: 48px; padding: 7px 20px; border-top: 1px solid #1b2633; border-bottom: 1px solid #222e3c;
+        display: flex; align-items: center; gap: 8px; background: #0c121b;
+      }
+      .board-search {
+        height: 32px; width: 210px; border: 1px solid #293746; background: #111925; color: var(--text);
+        border-radius: 7px; padding: 0 10px; font-size: 11px;
+      }
+      .filter-button {
+        height: 31px; border: 1px solid #293746; border-radius: 7px; background: #111925;
+        color: #aebbc8; padding: 0 10px; font-size: 10px; cursor: pointer;
+      }
+      .toolbar-spacer { flex: 1; }
+
+      .workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: 292px minmax(0, 1fr); gap: 0; }
+      .backlog {
+        min-width: 0; border-right: 1px solid #283442; background: #0d141e; padding: 12px;
+        overflow: auto; transition: width .18s ease, padding .18s ease;
+      }
+      .backlog-head, .lane-head { display: flex; align-items: center; gap: 8px; min-height: 35px; }
+      .backlog-title, .lane-title { font-size: 12px; font-weight: 770; letter-spacing: .01em; }
+      .count {
+        min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: inline-grid; place-items: center;
+        background: #202b39; color: #b7c3cf; font-size: 9px; font-weight: 780;
+      }
+      .collapse-button { margin-left: auto; width: 27px; height: 27px; border: 0; border-radius: 6px; background: transparent; color: #8795a7; cursor: pointer; }
+      .collapse-button:hover { background: #172230; color: white; }
+      .backlog-helper { color: var(--muted); font-size: 10px; line-height: 1.4; margin: 1px 0 10px; }
+      .backlog-collapsed .workspace { grid-template-columns: 44px minmax(0, 1fr); }
+      .backlog-collapsed .backlog { padding: 10px 6px; overflow: hidden; }
+      .backlog-collapsed .backlog > :not(.backlog-head) { display: none; }
+      .backlog-collapsed .backlog-head { writing-mode: vertical-rl; height: 130px; gap: 6px; }
+      .backlog-collapsed .backlog-head .collapse-button { margin: 0; order: -1; }
+      .backlog-collapsed .backlog-head .count { transform: rotate(90deg); }
+
+      .board-scroll { min-width: 0; overflow: auto; background: #090e15; }
+      .board {
+        display: grid; grid-template-columns: repeat(5, minmax(250px, 1fr)); gap: 10px;
+        min-width: 1300px; min-height: 100%; padding: 12px;
+      }
+      .lane {
+        min-width: 0; border: 1px solid #1e2a37; border-radius: 9px; background: #0d141d;
+        display: flex; flex-direction: column; max-height: 100%;
+      }
+      .lane-head { padding: 9px 10px 7px; border-bottom: 1px solid #1d2936; flex-wrap: wrap; }
+      .lane-sub { width: 100%; color: #6f7e91; font-size: 9px; margin-top: -5px; }
+      .lane-cards { padding: 8px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+      .wip-slots { margin-left: auto; display: inline-flex; gap: 3px; }
+      .wip-slot { width: 8px; height: 8px; border-radius: 2px; border: 1px solid #725f39; }
+      .wip-slot.used { background: var(--amber); border-color: var(--amber); }
+
+      .card {
+        position: relative; border: 1px solid #273443; background: #121a25; border-radius: 8px;
+        padding: 11px; box-shadow: 0 3px 10px rgba(0,0,0,.12); cursor: pointer; text-align: left;
+        color: var(--text); width: 100%; transition: border-color .14s ease, transform .14s ease;
+      }
+      .card:hover { border-color: #43566c; transform: translateY(-1px); }
+      .card::before { content: ""; position: absolute; top: 9px; bottom: 9px; left: -1px; width: 2px; border-radius: 2px; background: #46566a; }
+      .card.todo::before { background: var(--blue); }
+      .card.blocked::before { background: var(--red); }
+      .card.progress::before { background: var(--cyan); }
+      .card.review::before { background: var(--violet); }
+      .card.done::before { background: var(--green); }
+      .card.proposed::before { background: var(--amber); }
+      .card-top { display: flex; align-items: center; gap: 6px; min-height: 18px; color: #93a2b4; font-size: 9px; }
+      .gh-mark { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: #e9eef2; color: #10141a; font-size: 7px; font-weight: 900; }
+      .card-id { color: #a8b6c5; font-weight: 700; }
+      .card-top-spacer { flex: 1; }
+      .pill { border: 1px solid #344254; border-radius: 4px; padding: 2px 5px; color: #aeb9c6; background: #17212d; font-size: 8px; font-weight: 760; letter-spacing: .02em; }
+      .pill.p1 { color: #ff9aa1; border-color: #573039; background: #2c1b20; }
+      .pill.risk { color: #efbc6b; border-color: #5d4726; background: #2c2215; }
+      .card-title { margin: 8px 0 9px; font-size: 13px; line-height: 1.32; letter-spacing: -.01em; font-weight: 680; color: #f1f5f8; }
+      .labels { display: flex; gap: 5px; flex-wrap: wrap; margin: -2px 0 8px; }
+      .label { padding: 2px 5px; border-radius: 4px; background: #1a2633; color: #8da1b5; font-size: 8px; }
+      .state-box { border: 1px solid #293748; border-radius: 6px; background: #0e1620; padding: 8px; margin: 7px 0; }
+      .state-row { display: flex; justify-content: space-between; gap: 8px; color: #a9b7c6; font-size: 9px; line-height: 1.45; }
+      .state-row + .state-row { margin-top: 4px; }
+      .state-strong { color: #e8eef3; font-weight: 700; }
+      .state-danger { color: #ff9da3; }
+      .state-warning { color: #f2bd68; }
+      .state-good { color: #73d6a8; }
+      .progress-track { height: 4px; border-radius: 3px; background: #263342; overflow: hidden; margin: 7px 0 2px; }
+      .progress-fill { height: 100%; background: var(--cyan); width: 64%; }
+      .progress-fill.violet { background: var(--violet); width: 72%; }
+      .checklist { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 7px; }
+      .check { border: 1px solid #344354; border-radius: 4px; padding: 3px 5px; color: #a0afbf; font-size: 8px; }
+      .check.missing { border-color: #624a28; color: #f0b85e; background: #251e14; }
+      .card-footer { margin-top: 9px; padding-top: 8px; border-top: 1px solid #263240; display: flex; align-items: center; gap: 6px; color: #7f8fa1; font-size: 9px; }
+      .actor-stack { display: flex; align-items: center; }
+      .actor-stack .avatar + .avatar { margin-left: -5px; }
+      .sync { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: #7fac91; }
+      .compact .card { padding: 8px 9px; }
+      .compact .card-title { margin: 6px 0; font-size: 12px; }
+      .compact .labels, .compact .state-row.secondary, .compact .card-footer { display: none; }
+      .compact .state-box { padding: 6px; margin: 5px 0; }
+
+      .execution-deck {
+        margin: 0 20px 10px; display: grid; grid-template-columns: minmax(420px, 1.25fr) minmax(310px, .9fr) minmax(190px, .55fr);
+        gap: 9px;
+      }
+      .deck-panel { border: 1px solid #2a3747; background: #101822; border-radius: 9px; padding: 12px; min-height: 143px; }
+      .deck-title { display: flex; align-items: center; gap: 7px; color: #8292a5; font-size: 9px; font-weight: 820; letter-spacing: .11em; text-transform: uppercase; }
+      .deck-ticket { font-size: 14px; font-weight: 720; margin: 9px 0 7px; }
+      .deck-meta { display: flex; gap: 12px; align-items: center; color: #91a1b2; font-size: 9px; flex-wrap: wrap; }
+      .lifecycle { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; margin-top: 12px; }
+      .life-step { border-top: 2px solid #304052; padding-top: 5px; color: #6f7f91; font-size: 8px; }
+      .life-step.done-step { border-color: var(--green); color: #8fcbaa; }
+      .life-step.active-step { border-color: var(--cyan); color: #7bd8e8; }
+      .review-stage { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin: 10px 0; }
+      .review-stage span { height: 5px; background: #293749; border-radius: 3px; }
+      .review-stage span.done-stage { background: var(--violet); }
+      .gate-list { margin-top: 9px; display: grid; gap: 7px; }
+      .gate { display: flex; justify-content: space-between; gap: 8px; font-size: 9px; color: #9eacbb; }
+
+      .mission-banner {
+        margin: 0 20px 11px; background: #f5f1e8; color: #17202b; border: 1px solid #ded7ca;
+        border-radius: 10px; display: grid; grid-template-columns: minmax(380px, 1.5fr) minmax(300px, 1fr); overflow: hidden;
+      }
+      .mission-copy { padding: 16px 18px; border-right: 1px solid #d9d2c5; }
+      .mission-kicker { font-size: 9px; color: #667180; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; }
+      .mission-goal { margin: 7px 0 5px; font-size: 18px; line-height: 1.25; letter-spacing: -.025em; font-weight: 760; max-width: 720px; }
+      .mission-success { color: #5d6875; font-size: 10px; line-height: 1.45; }
+      .mission-side { padding: 14px 16px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; align-content: center; }
+      .mission-metric { border: 1px solid #d8d0c2; border-radius: 7px; background: #fffdfa; padding: 8px; }
+      .mission-metric b { display: block; font-size: 15px; color: #1d2a37; }
+      .mission-metric span { font-size: 8px; color: #6b7581; text-transform: uppercase; letter-spacing: .06em; }
+
+      body.variant-c { --text: #202b37; --muted: #65717e; --subtle: #84909c; color-scheme: light; }
+      .variant-c .page { background: #ece8df; }
+      .variant-c .page-head { color: #eef3f7; background: #0d131c; }
+      .variant-c .toolbar { background: #111923; border-color: #263241; }
+      .variant-c .workspace { padding: 0 20px 18px; gap: 10px; grid-template-columns: 310px minmax(0,1fr); }
+      .variant-c .backlog { border: 1px solid #d3ccbf; border-radius: 9px; background: #e5dfd4; color: #26313c; }
+      .variant-c .backlog-helper { color: #65717d; }
+      .variant-c .collapse-button { color: #596572; }
+      .variant-c .board-scroll { border: 1px solid #d4cec2; border-radius: 9px; background: #e2ddd3; }
+      .variant-c .board { padding: 10px; background: #e2ddd3; }
+      .variant-c .lane { border-color: #cfc8bb; background: #ece8df; }
+      .variant-c .lane-head { border-color: #d7d0c4; color: #24303c; }
+      .variant-c .lane-sub { color: #7a8490; }
+      .variant-c .count { background: #d9d2c6; color: #4d5966; }
+      .variant-c .card { border-color: #cbc5ba; background: #fffdfa; color: #26313c; box-shadow: 0 4px 10px rgba(59,48,34,.07); }
+      .variant-c .card:hover { border-color: #9ea8b2; }
+      .variant-c .card-title { color: #1d2834; }
+      .variant-c .card-top, .variant-c .card-id { color: #65717f; }
+      .variant-c .pill { border-color: #d4ccbf; background: #eee9e0; color: #596675; }
+      .variant-c .pill.p1 { color: #a93845; border-color: #e3b6bc; background: #f9e7e9; }
+      .variant-c .label { background: #ece7de; color: #626e7a; }
+      .variant-c .state-box { border-color: #ddd5c8; background: #f4f0e8; }
+      .variant-c .state-row { color: #5e6b78; }
+      .variant-c .state-strong { color: #25313c; }
+      .variant-c .state-warning { color: #985900; }
+      .variant-c .state-good { color: #246f4e; }
+      .variant-c .state-danger { color: #b52e3c; }
+      .variant-c .online { color: #087188; }
+      .variant-c .card-footer { border-color: #ddd6ca; color: #6e7a86; }
+      .variant-c .sync { color: #347858; }
+      .variant-c.backlog-collapsed .workspace { grid-template-columns: 44px minmax(0,1fr); }
+
+      .prototype-switcher {
+        position: fixed; z-index: 30; left: 50%; bottom: 16px; transform: translateX(-50%);
+        display: flex; align-items: center; gap: 5px; padding: 6px; background: #f3f6f8; color: #14202a;
+        border: 1px solid #c8d0d7; border-radius: 12px; box-shadow: 0 12px 36px rgba(0,0,0,.33);
+      }
+      .prototype-label { padding: 0 8px 0 5px; min-width: 200px; }
+      .prototype-label small { display: block; color: #73808c; font-size: 8px; font-weight: 820; letter-spacing: .1em; text-transform: uppercase; }
+      .prototype-label strong { font-size: 11px; }
+      .switch-button {
+        min-width: 31px; height: 30px; border: 1px solid #cbd3da; background: white; color: #24313b;
+        border-radius: 7px; font-size: 11px; font-weight: 800; cursor: pointer;
+      }
+      .switch-button.active { background: #15232d; color: white; border-color: #15232d; }
+
+      .toast {
+        position: fixed; z-index: 40; right: 18px; bottom: 20px; max-width: 330px; padding: 11px 13px;
+        border: 1px solid #3a4a5c; border-radius: 8px; background: #101923; color: #e9f0f5; font-size: 11px;
+        box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); pointer-events: none; transition: .18s ease;
+      }
+      .toast.show { opacity: 1; transform: translateY(0); }
+
+      dialog {
+        width: min(860px, calc(100vw - 80px)); max-height: calc(100vh - 80px); padding: 0;
+        border: 1px solid #39495a; border-radius: 11px; background: #101721; color: #eef4f8; box-shadow: 0 24px 80px rgba(0,0,0,.55);
+      }
+      dialog::backdrop { background: rgba(3,7,11,.72); }
+      .dialog-head { display: flex; gap: 12px; align-items: flex-start; padding: 18px 20px 14px; border-bottom: 1px solid #293544; }
+      .dialog-head h2 { margin: 4px 0 0; font-size: 19px; }
+      .dialog-close { margin-left: auto; }
+      .dialog-tabs { display: flex; gap: 4px; padding: 8px 18px; border-bottom: 1px solid #263341; }
+      .dialog-tab { border: 0; background: transparent; color: #8e9dac; padding: 7px 9px; border-radius: 6px; font-size: 10px; }
+      .dialog-tab.active { background: #1b2734; color: #eef4f8; }
+      .dialog-body { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(240px,.75fr); gap: 14px; padding: 16px 18px 20px; }
+      .dialog-panel { border: 1px solid #2b3949; border-radius: 8px; background: #131c27; padding: 13px; }
+      .dialog-panel h3 { margin: 0 0 10px; color: #a9b6c4; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+      .contract-list { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+      .contract-item { display: flex; gap: 7px; align-items: flex-start; color: #c2ccd5; font-size: 10px; line-height: 1.35; }
+      .contract-item b { color: var(--green); }
+      .evidence-list { display: grid; gap: 8px; }
+      .evidence { border-left: 2px solid var(--violet); padding-left: 8px; color: #aebbc8; font-size: 10px; line-height: 1.4; }
+
+      @media (max-width: 1180px) {
+        :root { --sidebar: 184px; }
+        .health-pill.runner-health { display: none; }
+        .sprint-strip { grid-template-columns: minmax(240px, 1.5fr) repeat(3, minmax(100px,.55fr)); }
+        .sprint-strip .strip-cell:last-child { display: none; }
+        .execution-deck { grid-template-columns: 1.2fr .9fr; }
+        .execution-deck .deck-panel:last-child { display: none; }
+        .variant-c .mission-banner { grid-template-columns: 1.4fr .8fr; }
+      }
+      @media (max-width: 900px) {
+        :root { --sidebar: 64px; }
+        .brand { justify-content: center; padding: 0; }
+        .brand > span:not(.brand-mark), .brand small, .assistant-link span:last-child,
+        .nav-title, .sidebar-foot, .nav-count { display: none; }
+        .assistant-link { justify-content: center; padding: 9px 0; }
+        .nav-item { justify-content: center; padding: 0; font-size: 0; }
+        .nav-item .icon, .nav-item .gh-mark { font-size: 11px; }
+        .topbar { padding-inline: 10px; }
+        .global-search { width: min(290px, 42vw); }
+        .page-head { flex-wrap: wrap; }
+        .page-actions { margin-left: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="brand"><span class="brand-mark">O</span><span>Opzava</span><small>v2.1</small></div>
+        <div class="assistant-link"><span class="spark">✦</span><span>Ask Admin Opzava</span></div>
+        <nav class="nav-scroll">
+          <div class="nav-title">OPERATE</div>
+          <button class="nav-item" data-fake="Overview"><span class="icon">⌂</span>Overview</button>
+          <button class="nav-item active"><span class="icon">▦</span>Dev Board<span class="nav-count">24</span></button>
+          <div class="nav-title">CRM</div>
+          <button class="nav-item" data-fake="Contacts"><span class="icon">○</span>Contacts</button>
+          <button class="nav-item" data-fake="Accounts"><span class="icon">□</span>Accounts</button>
+          <button class="nav-item" data-fake="Deals"><span class="icon">◇</span>Deals</button>
+          <button class="nav-item" data-fake="Tickets"><span class="icon">◎</span>Tickets</button>
+          <div class="nav-title">AUTOMATE</div>
+          <button class="nav-item" data-fake="Connections"><span class="icon">∞</span>Connections</button>
+          <button class="nav-item" data-fake="GitHub"><span class="gh-mark">GH</span>GitHub<span class="nav-count">✓</span></button>
+          <button class="nav-item" data-fake="Dev Runners"><span class="icon">▣</span>Dev Runners<span class="nav-count">1</span></button>
+        </nav>
+        <div class="sidebar-foot"><div class="jump"><span>Jump to…</span><span>⌘K</span></div></div>
+      </aside>
+
+      <section class="app-main">
+        <header class="topbar">
+          <button class="menu-button" aria-label="Toggle navigation">☰</button>
+          <input class="global-search" aria-label="Global search" placeholder="Search agents, cards, runs…" />
+          <div class="top-spacer"></div>
+          <button class="health-pill runner-health" data-fake="Local runner health"><span class="dot online"></span>Local runner online</button>
+          <button class="health-pill" data-fake="GitHub integration health"><span class="dot healthy"></span>GitHub healthy</button>
+          <button class="icon-button" data-fake="Notifications" aria-label="Notifications">♢</button>
+          <span class="avatar" title="Anthony Garces">AG</span>
+        </header>
+        <main id="prototype-root"></main>
+      </section>
+    </div>
+
+    <template id="variant-a">
+      <section class="page variant-page" aria-label="Dense Jira Board variant">
+        <header class="page-head">
+          <div><h1 class="page-title">Dev Board</h1><div class="page-subtitle">Monday, 15 July 2026 · Opzava development</div></div>
+          <div class="page-actions">
+            <div class="segmented"><button class="segment" data-fake="Manual Queue">Manual Queue</button><button class="segment active">Sprint 08</button></div>
+            <button class="button warning" data-fake="Pause Sprint">Pause Sprint</button>
+            <button class="button primary" data-fake="New card">＋ New card</button>
+          </div>
+        </header>
+        <section class="sprint-strip" aria-label="Sprint summary">
+          <div class="strip-cell"><span class="eyebrow">Sprint goal · Plan v3 approved</span><span class="strip-value">Make GitHub synchronization reliable without leaving Opzava.</span></div>
+          <div class="strip-cell"><span class="eyebrow">Progress</span><span class="strip-number">7 / 12</span><span class="strip-note">Done</span></div>
+          <div class="strip-cell"><span class="eyebrow">Review WIP</span><span class="strip-number">2 / 3</span><span class="strip-note">One slot available</span></div>
+          <div class="strip-cell"><span class="eyebrow">Execution</span><span class="strip-value">Codex CLI</span><span class="strip-note">local-runner-01</span></div>
+          <div class="strip-cell"><span class="eyebrow">Review</span><span class="strip-value">Local Codex</span><span class="strip-note">Docker preview leased</span></div>
+        </section>
+        <div class="toolbar">
+          <input class="board-search" placeholder="Search Sprint 08…" aria-label="Search sprint cards" />
+          <button class="filter-button" data-fake="Assignee filter">Assignee: All</button>
+          <button class="filter-button" data-fake="Priority filter">Priority: P1–P3</button>
+          <button class="filter-button" data-fake="Type filter">Type: All</button>
+          <button class="filter-button" data-fake="Sync filter">Sync: Healthy</button>
+          <div class="toolbar-spacer"></div>
+          <button class="filter-button" data-action="density" aria-pressed="false">Compact density</button>
+          <button class="filter-button" data-action="toggle-backlog" aria-expanded="true">Hide Backlog</button>
+        </div>
+        <div class="workspace">
+          <aside class="backlog">
+            <div class="backlog-head"><span class="backlog-title">Backlog</span><span class="count">12</span><button class="collapse-button" data-action="toggle-backlog" aria-label="Collapse Backlog" aria-expanded="true">‹</button></div>
+            <p class="backlog-helper">Planning and deep grilling. These cards cannot execute yet.</p>
+            <div class="lane-cards">
+              <button class="card proposed" data-card="#421" data-title="Webhook replay can duplicate review events">
+                <div class="card-top"><span class="gh-mark">GH</span><span class="card-id">#421</span><span class="pill risk">PROPOSED</span><span class="card-top-spacer"></span><span class="pill p1">P1</span></div>
+                <div class="card-title">Webhook replay can duplicate review events</div>
+                <div class="state-box"><div class="state-row"><span>Readiness contract</span><b class="state-warning">5 / 8</b></div><div class="checklist"><span class="check missing">Sad paths</span><span class="check missing">User E2E</span><span class="check missing">Behavioral contract</span></div></div>
+                <div class="card-footer"><span class="avatar bot">AI</span><span>Discovered by Codex</span><span class="sync"><span class="dot healthy"></span>Synced</span></div>
+              </button>
+              <button class="card proposed" data-card="#418" data-title="Define GitHub App permission downgrade behavior">
+                <div class="card-top"><span class="gh-mark">GH</span><span class="card-id">#418</span><span class="pill">SHAPING</span><span class="card-top-spacer"></span><span class="pill">P2</span></div>
+                <div class="card-title">Define GitHub App permission downgrade behavior</div>
+                <div class="state-box"><div class="state-row"><span>Needs human input</span><b class="state-warning">2 details</b></div><div class="state-row secondary"><span>Scope · credential recovery</span></div></div>
+                <div class="card-footer"><span class="avatar">AG</span><span>Human owner</span><span class="sync"><span class="dot healthy"></span>Synced</span></div>
+              </button>
+            </div>
+          </aside>
+          <div class="board-scroll"><div class="board" data-board-kind="standard"></div></div>
+        </div>
+      </section>
+    </template>
+
+    <template id="variant-b">
+      <section class="page variant-page" aria-label="Agent Command Center variant">
+        <header class="page-head">
+          <div><div class="eyebrow">Agent operations</div><h1 class="page-title">Dev Board · Mission Control</h1><div class="page-subtitle">Sprint 08 · autonomous_serial · Plan v3 approved</div></div>
+          <div class="page-actions"><div class="segmented"><button class="segment" data-fake="Manual Queue">Manual Queue</button><button class="segment active">Sprint 08</button></div><button class="button warning" data-fake="Pause Sprint">Pause safely</button><button class="button primary" data-fake="New card">＋ New card</button></div>
+        </header>
+        <section class="execution-deck" aria-label="Live execution deck">
+          <article class="deck-panel">
+            <div class="deck-title"><span class="dot online"></span>Now executing · one active implementation</div>
+            <div class="deck-ticket"><span class="mono">GH #407</span> · Synchronize structured issue contracts</div>
+            <div class="deck-meta"><span class="avatar bot">AI</span><b>Codex CLI · gpt-5.6-sol</b><span>local-runner-01</span><span class="online">● Heartbeat 12s</span><span class="mono">opz-407/contract-sync</span></div>
+            <div class="progress-track"><div class="progress-fill"></div></div>
+            <div class="lifecycle"><span class="life-step done-step">Contract ✓</span><span class="life-step done-step">Worktree ✓</span><span class="life-step active-step">Implementing</span><span class="life-step">Draft PR</span><span class="life-step">Review</span><span class="life-step">Merge</span></div>
+          </article>
+          <article class="deck-panel">
+            <div class="deck-title"><span class="dot" style="color:var(--violet)"></span>Review pipeline · 2 of 3</div>
+            <div class="deck-ticket"><span class="mono">GH #404 · PR #182</span></div>
+            <div class="deck-meta"><span class="avatar reviewer">RV</span><b>Local Codex reviewer</b><span class="mono">c81e74a</span></div>
+            <div class="review-stage"><span class="done-stage"></span><span class="done-stage"></span><span class="done-stage"></span><span class="done-stage"></span><span class="done-stage"></span><span></span></div>
+            <div class="deck-meta"><span>Contract</span><span>Diff</span><span>Risk</span><span>CI</span><span>E2E</span><b class="state-warning">Human approval</b></div>
+          </article>
+          <article class="deck-panel">
+            <div class="deck-title">System gates</div>
+            <div class="gate-list"><div class="gate"><span>GitHub App</span><b class="state-good">Healthy</b></div><div class="gate"><span>Local runner</span><b class="state-good">Online</b></div><div class="gate"><span>Docker preview</span><b class="state-warning">Leased #404</b></div><div class="gate"><span>Durable sync</span><b class="state-good">8s ago</b></div><div class="gate"><span>Review capacity</span><b>2 / 3</b></div></div>
+          </article>
+        </section>
+        <div class="toolbar"><input class="board-search" aria-label="Search cards and agent runs" placeholder="Search cards and runs…" /><button class="filter-button" data-fake="Attention filter">Needs attention: 3</button><button class="filter-button" data-fake="Agent filter">Agent: All</button><button class="filter-button" data-fake="Risk filter">Risk: All</button><div class="toolbar-spacer"></div><button class="filter-button" data-action="density" aria-pressed="true">Compact density</button><button class="filter-button" data-action="toggle-backlog" aria-expanded="true">Hide Backlog</button></div>
+        <div class="workspace">
+          <aside class="backlog">
+            <div class="backlog-head"><span class="backlog-title">Planning queue</span><span class="count">12</span><button class="collapse-button" data-action="toggle-backlog" aria-label="Collapse planning queue" aria-expanded="true">‹</button></div>
+            <p class="backlog-helper">Agent discoveries and cards waiting for a complete human contract.</p>
+            <div class="lane-cards">
+              <button class="card proposed" data-card="#421" data-title="Webhook replay can duplicate review events"><div class="card-top"><span class="gh-mark">GH</span><span class="card-id">#421</span><span class="pill risk">BLOCKING DISCOVERY</span></div><div class="card-title">Webhook replay can duplicate review events</div><div class="state-box"><div class="state-row"><span>Missing readiness</span><b class="state-warning">3 fields</b></div><div class="state-row secondary"><span>Lead orchestrator notified Slack</span></div></div><div class="card-footer"><span class="avatar bot">AI</span><span>Codex proposal</span></div></button>
+            </div>
+          </aside>
+          <div class="board-scroll"><div class="board compact" data-board-kind="command"></div></div>
+        </div>
+      </section>
+    </template>
+
+    <template id="variant-c">
+      <section class="page variant-page" aria-label="Sprint Mission Control variant">
+        <header class="page-head">
+          <div><div class="eyebrow">Goal-led autonomous delivery</div><h1 class="page-title">Dev Board</h1><div class="page-subtitle">Sprint 08 · GitHub reliability · One active implementation</div></div>
+          <div class="page-actions"><div class="segmented"><button class="segment" data-fake="Manual Queue">Manual Queue</button><button class="segment active">Sprint 08</button></div><button class="button warning" data-fake="Pause Sprint">Pause Sprint</button><button class="button primary" data-fake="New card">＋ New card</button></div>
+        </header>
+        <section class="mission-banner">
+          <div class="mission-copy"><div class="mission-kicker">Sprint 08 · autonomous serial · Plan v3 approved</div><div class="mission-goal">Keep GitHub and Opzava consistent without making the administrator leave the Dev Board.</div><div class="mission-success"><b>Success:</b> contracts, comments, lane state, worklogs, pull requests, and review evidence recover cleanly from webhook loss.</div></div>
+          <div class="mission-side"><div class="mission-metric"><b>7 / 12</b><span>Done</span></div><div class="mission-metric"><b>2 / 3</b><span>Review capacity</span></div><div class="mission-metric"><b>1</b><span>Blocked</span></div><div class="mission-metric"><b class="healthy">Healthy</b><span>GitHub sync</span></div></div>
+        </section>
+        <div class="toolbar"><input class="board-search" aria-label="Search Sprint mission cards" placeholder="Search this mission…" /><button class="filter-button" data-fake="Dependencies">Show dependency paths</button><button class="filter-button" data-fake="Human and AI roles">Actors: All</button><div class="toolbar-spacer"></div><button class="filter-button" data-action="density" aria-pressed="false">Compact density</button><button class="filter-button" data-action="toggle-backlog" aria-expanded="true">Collapse Shaping Lab</button></div>
+        <div class="workspace">
+          <aside class="backlog">
+            <div class="backlog-head"><span class="backlog-title">Shaping Lab</span><span class="count">12</span><button class="collapse-button" data-action="toggle-backlog" aria-label="Collapse Shaping Lab" aria-expanded="true">‹</button></div>
+            <p class="backlog-helper">Human and assistant complete the contract here. Nothing in this area can execute.</p>
+            <div class="lane-cards">
+              <button class="card proposed" data-card="#421" data-title="Webhook replay can duplicate review events"><div class="card-top"><span class="card-id">PROPOSED BY AGENT · #421</span><span class="card-top-spacer"></span><span class="pill p1">P1</span></div><div class="card-title">Webhook replay can duplicate review events</div><div class="state-box"><div class="state-row"><span>Readiness contract</span><b class="state-warning">5 / 8</b></div><div class="checklist"><span class="check">Outcome ✓</span><span class="check">Scope ✓</span><span class="check missing">Sad paths</span><span class="check missing">User E2E</span><span class="check missing">Contract</span></div></div><div class="state-box"><div class="state-row"><span>Impact</span><b class="state-danger">BLOCKING</b></div><div class="state-row secondary"><span>Reported by Codex CLI</span></div></div><div class="card-footer"><span class="avatar bot">AI</span><span>Continue grilling</span></div></button>
+              <button class="card proposed" data-card="#418" data-title="Define permission downgrade recovery"><div class="card-top"><span class="card-id">HUMAN SHAPING · #418</span></div><div class="card-title">Define permission downgrade recovery</div><div class="state-box"><div class="state-row"><span>Human inputs</span><b class="state-warning">2 missing</b></div></div><div class="card-footer"><span class="avatar">AG</span><span>Anthony</span></div></button>
+            </div>
+          </aside>
+          <div class="board-scroll"><div class="board" data-board-kind="mission"></div></div>
+        </div>
+      </section>
+    </template>
+
+    <dialog id="card-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-head"><div><div class="eyebrow" id="dialog-id">GH #407 · Bug · P1</div><h2 id="dialog-title">Synchronize structured issue contracts</h2></div><button class="icon-button dialog-close" data-action="close-dialog" aria-label="Close card detail">×</button></div>
+      <div class="dialog-tabs" role="tablist" aria-label="Card detail sections"><button class="dialog-tab active" role="tab" aria-selected="true">Details</button><button class="dialog-tab" role="tab" aria-selected="false" data-fake="Comments tab">Comments</button><button class="dialog-tab" role="tab" aria-selected="false" data-fake="History tab">History</button><button class="dialog-tab" role="tab" aria-selected="false" data-fake="Worklog tab">Worklog</button><button class="dialog-tab" role="tab" aria-selected="false" data-fake="Agent Execution tab">Agent Execution</button><button class="dialog-tab" role="tab" aria-selected="false" data-fake="Review Evidence tab">Review Evidence</button></div>
+      <div class="dialog-body">
+        <section class="dialog-panel"><h3>Versioned Ready-for-Work contract · v4 approved</h3><div class="contract-list"><div class="contract-item"><b>✓</b><span><strong>Outcome</strong><br />GitHub and Opzava show the same structured card.</span></div><div class="contract-item"><b>✓</b><span><strong>Bounded scope</strong><br />Single Opzava repository, v1 only.</span></div><div class="contract-item"><b>✓</b><span><strong>Sad paths</strong><br />Webhook delay, duplicate delivery, revoked install.</span></div><div class="contract-item"><b>✓</b><span><strong>Edge cases</strong><br />Concurrent edit conflict and reopened blocker.</span></div><div class="contract-item"><b>✓</b><span><strong>Acceptance</strong><br />No silent overwrite or workflow bypass.</span></div><div class="contract-item"><b>✓</b><span><strong>User E2E</strong><br />Admin completes flow without opening GitHub.</span></div><div class="contract-item"><b>✓</b><span><strong>Dependencies</strong><br />All hard blockers are Done.</span></div><div class="contract-item"><b>✓</b><span><strong>Behavioral contract</strong><br />Observable state survives retry and recovery.</span></div></div></section>
+        <aside class="dialog-panel"><h3>Actors and evidence</h3><div class="evidence-list"><div class="evidence"><b>Human Owner</b><br />Anthony Garces</div><div class="evidence"><b>Execution Assignee</b><br />Codex CLI · gpt-5.6-sol</div><div class="evidence"><b>Reviewer</b><br />Fresh local Codex session</div><div class="evidence"><b>Review Preview</b><br />Local Docker · authenticated tunnel</div><div class="evidence"><b>GitHub</b><br />PR #182 · CI 12/12 · Synced</div></div></aside>
+      </div>
+    </dialog>
+
+    <div class="prototype-switcher" aria-label="Prototype variant switcher">
+      <button class="switch-button" data-switch="prev" aria-label="Previous variant">←</button>
+      <button class="switch-button" data-variant="A" aria-pressed="false">A</button>
+      <button class="switch-button" data-variant="B" aria-pressed="false">B</button>
+      <button class="switch-button" data-variant="C" aria-pressed="false">C</button>
+      <div class="prototype-label"><small>Prototype · use ← → keys</small><strong id="variant-label">A — Dense Jira Board</strong></div>
+      <button class="switch-button" data-switch="next" aria-label="Next variant">→</button>
+    </div>
+    <div class="toast" role="status" aria-live="polite"></div>
+
+    <script>
+      (function () {
+        var variants = {
+          A: { label: "Dense Jira Board", template: "variant-a" },
+          B: { label: "Agent Command Center", template: "variant-b" },
+          C: { label: "Sprint Mission Control", template: "variant-c" }
+        };
+        var order = ["A", "B", "C"];
+        var root = document.getElementById("prototype-root");
+        var dialog = document.getElementById("card-dialog");
+        var toastTimer;
+
+        function laneCard(kind, id, title, body, actor, status) {
+          var type = kind === "blocked" ? "FEATURE" : kind === "review" ? "SECURITY" : kind === "progress" ? "BUG" : "FEATURE";
+          return '<button class="card ' + kind + '" data-card="' + id + '" data-title="' + title + '">' +
+            '<div class="card-top"><span class="gh-mark">GH</span><span class="card-id">' + id + '</span><span class="pill">' + type + '</span><span class="card-top-spacer"></span><span class="pill p1">P1</span></div>' +
+            '<div class="card-title">' + title + '</div>' + body +
+            '<div class="card-footer">' + actor + '<span>' + status + '</span><span class="sync"><span class="dot healthy"></span>Synced</span></div></button>';
+        }
+
+        function buildBoard(board) {
+          var todo = laneCard("todo", "#411", "Issue-scoped GitHub App token broker",
+            '<div class="labels"><span class="label">github-app</span><span class="label">auth-service</span></div><div class="state-box"><div class="state-row"><span>Ready for Work</span><b class="state-good">v4 · 8/8 ✓</b></div><div class="state-row secondary"><span>Dependencies clear · Sprint rank 02</span></div></div>',
+            '<span class="avatar">AG</span><span class="avatar bot">—</span>', "Unassigned");
+          todo += laneCard("todo", "#415", "Add signed webhook delivery reconciliation",
+            '<div class="labels"><span class="label">webhooks</span><span class="label">reliability</span></div><div class="state-box"><div class="state-row"><span>Ready for Work</span><b class="state-good">v2 · 8/8 ✓</b></div><div class="state-row secondary"><span>Dependencies clear · Sprint rank 03</span></div></div>',
+            '<span class="avatar">AG</span><span class="avatar bot">AI</span>', "Codex planned");
+          var blocked = laneCard("blocked", "#413", "Reconcile durable worklog projections",
+            '<div class="state-box"><div class="state-row"><b class="state-danger">BLOCKED BY #411</b><span>Hard dependency</span></div><div class="state-row secondary"><span>#411 must pass Review and reach Done</span></div><div class="state-row secondary"><span>Previous stage: Todo · restores automatically</span></div></div>',
+            '<span class="avatar">AG</span><span class="avatar bot">AI</span>', "Waiting");
+          var progress = laneCard("progress", "#407", "Synchronize structured issue contracts",
+            '<div class="labels"><span class="label">sync-engine</span><span class="label">github</span></div><div class="state-box"><div class="state-row"><span>Milestone 3 / 5</span><b class="online">Heartbeat 12s</b></div><div class="state-row secondary"><span>Testing webhook replay</span></div><div class="state-row secondary mono"><span>opz-407/contract-sync</span></div><div class="progress-track"><div class="progress-fill"></div></div></div>',
+            '<span class="avatar">AG</span><span class="avatar bot">AI</span>', "Codex CLI");
+          var review = laneCard("review", "#404", "Fence stale runner execution leases",
+            '<div class="state-box"><div class="state-row"><span>PR #182 · CI 12/12</span><b class="state-good">E2E 6/6 ✓</b></div><div class="state-row secondary"><span>Locked SHA</span><span class="mono">c81e74a</span></div><div class="state-row"><b class="state-warning">Needs Human Approval</b><span>High risk</span></div></div>',
+            '<span class="avatar reviewer">RV</span><span class="avatar">AG</span>', "Preview available");
+          review += laneCard("review", "#401", "Recover webhook events after delivery loss",
+            '<div class="state-box"><div class="state-row"><span>PR #179 · CI 10/10</span><b class="state-good">Behavior 8/8 ✓</b></div><div class="state-row secondary"><span>Review stage</span><b style="color:var(--violet)">User E2E</b></div><div class="progress-track"><div class="progress-fill violet"></div></div></div>',
+            '<span class="avatar reviewer">RV</span><span class="avatar bot">AI</span>', "Reviewing");
+          var done = laneCard("done", "#398", "Persist immutable review verdicts",
+            '<div class="state-box"><div class="state-row"><b class="state-good">Merged to development</b></div><div class="state-row secondary"><span>PR #177 · merge</span><span class="mono">9f31a2c</span></div><div class="state-row secondary"><span>Delivery</span><span>Development</span></div></div>',
+            '<span class="avatar">AG</span><span class="avatar bot">AI</span>', "Closed 2h ago");
+          done += laneCard("done", "#394", "Install repository-scoped Opzava GitHub App",
+            '<div class="state-box"><div class="state-row"><b class="state-good">Merged to development</b></div><div class="state-row secondary"><span>PR #171 · merge</span><span class="mono">51c0e8b</span></div><div class="state-row secondary"><span>Delivery</span><span>Development</span></div></div>',
+            '<span class="avatar">AG</span><span class="avatar bot">AI</span>', "Closed yesterday");
+
+          board.innerHTML =
+            '<section class="lane"><header class="lane-head"><span class="lane-title">Todo</span><span class="count">6</span><span class="lane-sub">Ready, synced, and available</span></header><div class="lane-cards">' + todo + '</div></section>' +
+            '<section class="lane"><header class="lane-head"><span class="lane-title">Blocked</span><span class="count">1</span><span class="lane-sub">Waiting on hard dependencies</span></header><div class="lane-cards">' + blocked + '</div></section>' +
+            '<section class="lane"><header class="lane-head"><span class="lane-title">In Progress</span><span class="count">1 / 1</span><span class="lane-sub">One repository execution lease</span></header><div class="lane-cards">' + progress + '</div></section>' +
+            '<section class="lane"><header class="lane-head"><span class="lane-title">Review</span><span class="count">2 / 3</span><span class="wip-slots"><i class="wip-slot used"></i><i class="wip-slot used"></i><i class="wip-slot"></i></span><span class="lane-sub">Local reviewer · Docker preview</span></header><div class="lane-cards">' + review + '</div></section>' +
+            '<section class="lane"><header class="lane-head"><span class="lane-title">Done</span><span class="count">20</span><span class="lane-sub">Merged into development</span></header><div class="lane-cards">' + done + '</div></section>';
+        }
+
+        function currentVariant() {
+          var value = new URLSearchParams(location.search).get("variant");
+          return variants[value] ? value : "A";
+        }
+
+        function render(key) {
+          var info = variants[key];
+          root.replaceChildren(document.getElementById(info.template).content.cloneNode(true));
+          document.body.className = "variant-" + key.toLowerCase();
+          var board = root.querySelector("[data-board-kind]");
+          if (board) buildBoard(board);
+          document.getElementById("variant-label").textContent = key + " — " + info.label;
+          document.querySelectorAll("[data-variant]").forEach(function (button) {
+            button.classList.toggle("active", button.dataset.variant === key);
+            button.setAttribute("aria-pressed", button.dataset.variant === key ? "true" : "false");
+          });
+          var url = new URL(location.href);
+          url.searchParams.set("variant", key);
+          history.replaceState({}, "", url);
+        }
+
+        function showToast(message) {
+          var toast = document.querySelector(".toast");
+          toast.textContent = message + " — prototype interaction only";
+          toast.classList.add("show");
+          clearTimeout(toastTimer);
+          toastTimer = setTimeout(function () { toast.classList.remove("show"); }, 2300);
+        }
+
+        function switchRelative(direction) {
+          var key = currentVariant();
+          var index = order.indexOf(key);
+          render(order[(index + direction + order.length) % order.length]);
+        }
+
+        document.addEventListener("click", function (event) {
+          var variantButton = event.target.closest("[data-variant]");
+          if (variantButton) { render(variantButton.dataset.variant); return; }
+          var switchButton = event.target.closest("[data-switch]");
+          if (switchButton) { switchRelative(switchButton.dataset.switch === "next" ? 1 : -1); return; }
+          var action = event.target.closest("[data-action]");
+          if (action) {
+            if (action.dataset.action === "toggle-backlog") {
+              document.body.classList.toggle("backlog-collapsed");
+              document.querySelectorAll('[data-action="toggle-backlog"]').forEach(function (button) {
+                button.setAttribute("aria-expanded", document.body.classList.contains("backlog-collapsed") ? "false" : "true");
+              });
+              showToast(document.body.classList.contains("backlog-collapsed") ? "Backlog collapsed" : "Backlog expanded");
+            } else if (action.dataset.action === "density") {
+              var board = root.querySelector("[data-board-kind]");
+              if (board) board.classList.toggle("compact");
+              action.setAttribute("aria-pressed", board && board.classList.contains("compact") ? "true" : "false");
+              showToast(board && board.classList.contains("compact") ? "Compact density enabled" : "Comfortable density enabled");
+            } else if (action.dataset.action === "close-dialog") {
+              dialog.close();
+            }
+            return;
+          }
+          var card = event.target.closest("[data-card]");
+          if (card) {
+            document.getElementById("dialog-id").textContent = "GH " + card.dataset.card + " · Versioned card detail";
+            document.getElementById("dialog-title").textContent = card.dataset.title;
+            dialog.showModal();
+            return;
+          }
+          var fake = event.target.closest("[data-fake]");
+          if (fake) showToast(fake.dataset.fake);
+        });
+
+        document.addEventListener("keydown", function (event) {
+          var target = event.target;
+          var editing = target && (target.matches("input, textarea") || target.isContentEditable);
+          if (editing) return;
+          if (event.key === "ArrowLeft") { event.preventDefault(); switchRelative(-1); }
+          if (event.key === "ArrowRight") { event.preventDefault(); switchRelative(1); }
+          if (event.key === "Escape" && dialog.open) dialog.close();
+        });
+
+        render(currentVariant());
+      })();
+    </script>
+  </body>
+</html>
