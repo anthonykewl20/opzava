@@ -1,28 +1,39 @@
 # Opzava Execution Control
 
-This is the single living control doc for building Opzava. An active or autonomous agent reads this first, executes the first unchecked slice only, and updates this file as reality changes.
+This file is now a **historical execution ledger**, not the living work queue. It preserves the
+completed and superseded slice plan plus every dated worklog entry.
 
-This doc supersedes the generic walking-skeleton MVP in `docs/plan/roadmap.md`. The MVP is now the admin-side Tasks board: dogfood Opzava to build Opzava.
+Current Dev Board authority is, in order: [PRD-019](../prd/PRD-019-dev-board.md),
+[ADR-017](../adr/ADR-017-dev-board-authority-sync-execution.md), the
+[Dev Board foundation decision ledger](dev-board-foundation-decisions.md), and the
+[migration manifest](dev-board-migration-manifest.md). Q17 and implementation issues #147–#157 are
+superseded/quarantined and MUST NOT be claimed or implemented. Replacement tickets may be published
+or executed only after explicit human approval.
 
-## How To Use This Doc
+Unrelated repository work follows its current approved GitHub issue and the general workflow in
+`CLAUDE.md`; the pointer and protocol below apply only to Dev Board migration work.
 
-### Agent Operating Protocol
+## Dev Board migration control pointer — not a global repository workflow
 
-1. Read this document top-to-bottom at the start of every session.
-2. Read `ARCHITECTURE.md` and `CLAUDE.md` before touching code.
-3. Find the first unchecked slice under Current State and The Build. Never skip ahead.
-4. Load that slice's listed Skills before implementation.
-5. If a listed Skill is in Skills To Build and is not yet created, author it first with the `writing-great-skills` skill, then use it for the slice.
-6. Validate APIs against official docs before coding: `docs/plan/official-docs.md`, `docs/openclaw`, and current framework/library docs.
-7. Implement only that slice. Keep changes inside the slice's bounded contexts and deliverables.
-8. Use `tdd` while implementing and verify thoroughly before marking the slice done.
-9. Run the slice Acceptance / usable-signal exactly as written, THEN the mandatory GATE (`node tests/e2e/gate/real-world-validate.mjs` on the real local stack, loop until 2 consecutive clean passes, exit 0; procedure in `docs/runbooks/senior-qa-gate.md`). A slice is NEVER Done on mocks, minted sessions, or synthetic data - the gate's exit code is the verdict, not the narrative.
-10. Tick deliverable checkboxes only after they match reality.
-11. Set the slice Status, update Current State, append a dated Worklog entry, and keep this doc in sync.
-12. Commit after the doc and code match reality.
-13. Stop or continue from the next unchecked slice. Use `handoff` for clean start/stop/resume.
+### Dev Board migration agent operating protocol
 
-Do not let this document become aspirational. If implementation changes the plan, update this document in the same slice.
+1. Read `CLAUDE.md`, `ARCHITECTURE.md`, `CONTEXT.md`, and the four current Dev Board authority
+   documents linked above.
+2. Select work only from an explicitly approved replacement issue and obey the migration manifest's
+   dependency order. **The old "first unchecked slice" rule is void.**
+3. Do not use Q17, the frozen Tasks/AI-Workforce memo, or issues #147–#157 as an implementation spec.
+4. Validate APIs against `docs/plan/official-docs.md`, `docs/openclaw`, and current official vendor
+   documentation before coding.
+5. Preserve as-built truth while migrating: `/tasks`, `/issues`, current MCP tools, and the issue
+   adapter remain legacy behavior until their approved replacement slice lands.
+6. Use TDD and the real local-stack validation gate required by the approved issue. Never mark a
+   replacement complete from mocks or narrative alone.
+7. Record progress on the approved issue and migration manifest. Do not append new active control
+   instructions to this historical ledger or rewrite its dated worklog.
+8. Commit only when code, documentation, and evidence match reality; use `handoff` for clean transfer.
+
+The historical material below describes what agents were told and what the repository had delivered
+at those dates. It is evidence, not an aspirational Dev Board specification.
 
 **Mockup functional parity (user directive, 2026-07-03):** every visible element on a mockup screen a slice implements MUST function live - real data, real interactions; no dead buttons, no decorative chrome, no fake/placeholder data. If an element's backing capability is not yet built, the slice either builds it or the element is explicitly descoped IN THIS DOC with its arrival phase. Silent non-functionality is a bug.
 
@@ -34,7 +45,7 @@ Do not let this document become aspirational. If implementation changes the plan
 
 **Ask-surface bounds (user directive, 2026-07-04):** "Ask Admin Opzava" is the ADMIN-facing chat (admin dashboard; WebChat-parity port row #14). "Ask Opzava" is the USER-facing assistant (user-dashboard family, with CRM). Bounded strictly by audience - never mix the names or surfaces. This settles the mockup disagreement in favor of orchestrator-chat.html ("Ask Admin Opzava"); task-board.html corrected per mockup-revision-first. Known naming debt: the admin route/components are still named `/ask-opzava` - rename to match at the row-#14 port slice, not before (live sessions + gate reference the current route).
 
-## Current State
+## Historical current-state snapshot — not current authority
 
 | Field | Value |
 | --- | --- |
@@ -45,7 +56,7 @@ Do not let this document become aspirational. If implementation changes the plan
 | Prior action context (historical, pre-Q18) | Slice 3.5 LIVE BRING-UP largely DONE (this session, on `slice/4-marketing-content-pipeline`; commits 708e7a2/0cc8373/6121d0b/579fcf4): full stack now runs from one `docker compose up` (web+gateway-broker+provisioning-worker+docker-socket-proxy+openclaw-gateway+postgres+minio). LIVE+verified at USER LEVEL: Tasks+CRM (org "Anito" seeded), Issues (GITHUB_TOKEN sync + redesign), Connections "Opzava Gateway" (REAL status/heartbeat/catalog=18 providers/health-check; dedicated worker operator device; operator.admin ESTABLISHED via durable device-store bootstrap; config.patch shape fixed {raw,baseHash}; EXEC=1 on socket-proxy for onboard-exec connect). Ask Admin broker CONNECTED+AUTHORIZED (needs user Codex OAuth sign-in for model replies). Q17 (Tasks-as-AI-Workforce) GRILLED+recorded. IN FLIGHT (codex-exec bm88qgcd4): Connections v2 (shadcn Tabs/Dialog + real onboard-exec provider connect). NOW: user directive = WHOLE-CODEBASE standardization + full documentation (frontend design-system single-source + shadcn catalog; backend service/ports/error standardization; database RLS/migration/data-model standardization; overall-app routes/flows/deps docs) so NO agent is blinded. Let v2 land + fold in, then execute the standardization spec A->D, verify thoroughly, commit. Marketing (Slice 4) still DEFERRED. |
 | Blockers | None for the move slice. Dokploy bring-up is gated on the user buying `opzava.app` (at live-dev push) and rotating the Dokploy API key (`secrets/dokploy.env`, untracked). (Some surfaces gated on user-interactive credentials: Codex OAuth for Ask Admin model, GitHub OAuth-app client_id for Connect-GitHub device flow, real provider API keys for provider connect) |
 
-## Operating Mode
+## Historical operating mode
 
 Opzava runs single-tenant internally first to market and promote Opzava itself. The scale-ready multi-tenant architecture is retained and runs one tenant now; Opzava is not a public multi-tenant SaaS yet. The first business-value build after the admin-Tasks MVP is Marketing; CRM is deferred to the future user-side dashboard (GitHub issue #200).
 
@@ -55,14 +66,18 @@ Opzava runs single-tenant internally first to market and promote Opzava itself. 
 | --- | --- |
 | `ARCHITECTURE.md` | System overview: bounded contexts, ports, invariants, deployment topology, ADR index. |
 | `CONTEXT.md` | Canonical glossary (ubiquitous language). Use these terms exactly; on conflict, CONTEXT.md wins. |
-| `docs/plan/roadmap.md` | Phase detail after the admin Tasks MVP; this doc controls execution order. |
-| `docs/plan/grilling-decisions.md` | Locked design record and sad-path invariants from Q1-Q16. |
+| `docs/prd/PRD-019-dev-board.md` | Current Dev Board product contract. |
+| `docs/adr/ADR-017-dev-board-authority-sync-execution.md` | Current DevTicket authority, GitHub synchronization, local runner, and review boundary. |
+| `docs/plan/dev-board-foundation-decisions.md` | Detailed locked decisions from the Dev Board grilling. |
+| `docs/plan/dev-board-migration-manifest.md` | Current legacy-to-target inventory and approved migration sequence. |
+| `docs/plan/roadmap.md` | Historical phase detail plus a pointer to the Dev Board migration; does not control execution order. |
+| `docs/plan/grilling-decisions.md` | Design record; Q17 is superseded/frozen historical evidence and the Dev Board pivot controls. |
 | `docs/plan/official-docs.md` | Official documentation registry; validate every API against it before coding. |
-| `docs/adr/` | Accepted architecture decisions ADR-001 through ADR-016. |
-| `docs/prd/` | Product contracts PRD-001 through PRD-018. |
+| `docs/adr/` | Accepted architecture decisions ADR-001 through ADR-017. |
+| `docs/prd/` | Product contracts PRD-001 through PRD-019. |
 | `docs/plan/capability-parity.md` | OpenClaw-native vs Opzava-owned vs hybrid capability map. |
 | `docs/openclaw/` | Vendored OpenClaw docs; harness native capabilities, do not reinvent them. |
-| `docs/plan/backlog.md` | Initial ADR/PRD dependency backlog; planning input only — this doc controls order. |
+| `docs/plan/backlog.md` | ADR/PRD catalogue; planning input only — the migration manifest and approved issues control order. |
 | `docs/plan/consensus/` | Frozen consensus memos (evidence trail; see its README — never current truth). |
 | `docs/plan/research/` | Frozen research memos incl. locked version pins (see its README). |
 | `docs/plan/audits/` | Dated docs-audit reports. |
@@ -96,6 +111,13 @@ Author each skill with `writing-great-skills` before the first slice that needs 
 | `opzava-task-authoring` | How agents (Ask Admin, local Claude Code via MCP) write task cards humans understand: imperative titles, context/impact/evidence descriptions, verifiable steps with owners, status-forward comments, label/priority semantics. | Slice 2.5 | [x] created — `.claude/skills/opzava-task-authoring/` |
 | `qa` + gate script | MANDATORY final GATE (user directive 2026-07-04) stays a SCRIPT, not a skill: automated user-level validation on the real local stack - real login, real data, real visuals, iterative loop-until-clean via `tests/e2e/gate/real-world-validate.mjs` (procedure: `docs/runbooks/senior-qa-gate.md`). Kills the mock-passed false-positive class. Exploratory black-box QA + issue filing is the `qa` skill, backed by `tests/e2e/probes/senior-qa-probe.mjs` (`docs/runbooks/senior-qa-probe.md`). | Every slice, immediately | [x] gate script live; `senior-qa` skill removed 2026-07-13 in favour of `code-review` + `qa` |
 | `glm-exec` | Delegate artifact generation to GLM 5.2 (z.AI) via the user's `claude-glm` setup (stock claude CLI, separate `~/.claude-glm` config dir), same wrapper+digest contract as `codex-exec`, so slices can be assigned to Claude/GPT/GLM interchangeably under the same gated workflow + gate verdict. | Now (multi-executor orchestration) | [x] created + LIVE-verified (doctor READY, real z.AI ping) - `~/.claude/skills/glm-exec/` + `~/.claude/scripts/glm-exec.sh` |
+
+## Historical execution plan and worklog — NON-EXECUTABLE
+
+Everything from **The Build** through the final dated Worklog entry is retained as historical
+evidence. Checked boxes describe completed as-built work; unchecked boxes are **not a queue**. Do
+not resume, reorder, or implement any item from this section without a current approved replacement
+issue. In particular, all Q17-derived work and #147–#157 remain quarantined.
 
 ## The Build
 
@@ -481,7 +503,7 @@ Per slice:
 - [ ] This document is updated: Current State, slice Status, deliverable boxes, and Worklog.
 - [ ] Changes are committed.
 
-## Worklog
+## Worklog (historical entries preserved verbatim)
 
 - 2026-07-15 (#181) - **MODEL PROVIDERS: TABLE → PREMIUM CARD GRID SHIPPED (Slice 3.7 view #1 follow-up), landed cross-session.** Implemented to the locked mockup (`ux-redesign/mockups/model-providers.html`): wrapper Card deleted, h1 + ⓘ Popover (orchestrator + auth-order rules), one-plane toolbar (tier tabs ↔ `N results for "q" · ✕ Clear` swap, search global across tiers), per-tier labelled `ul`/`li` grids of `article` cards (auto-fill minmax(300px,1fr)), brand-tile logos reusing the landed provider-brand mark set, all four card states incl. the inline DeviceFlowPoller on pending and the disabled-Connect/no-live-auth copy. `model-providers-panel.tsx` decomposed 1,831 → 206 lines: NEW provider-card/-grid/-toolbar/-logo/-rules-popover + shadcn popover/tooltip; connect-dialog, disconnect-confirm, set-main-confirm lifted VERBATIM (byte-compared vs HEAD~; `connectionProviderId` mutation targeting intact), notices split to their own file to break an import cycle; pure formatters → `lib/provider-presentation.ts` with new unit tests. Locked vocabulary enforced (`needs_attention`→"Action required"; pending keeps "Waiting for approval"), card meta = account·plan·expiry·usage via `safeAccountLabel`, selector contract preserved (`article[data-provider-id]`, `data-provider-tier` on the ul, `data-provider-status`, `data-model`, `data-active-model`); both e2e drives updated (`connections.mjs` + `connections-apikey-argv.mjs`) with real card interactions (tabs, global search, connect open/Escape, Manage `data-active-model`, set-main + disconnect confirms open→verify→cancel). **Codex loop:** 2-round plan audit (R2 BLOCKED with 8 findings, all folded in — relocation owners for StatusDot/ProviderBacks/ProviderConnectedActions, notices import cycle, visible-Manage-button contract, card-root `article` consistency, second table-bound drive, `SetMainOrchestratorPhase`, loading-skeleton rewrite, vocabulary/meta verbatim conflicts) + 3-round fresh-thread diff review (R1/R2 BLOCKED → fixed: Manage-close focus target, sr-only meta label, dead-Fix-with-no-auth guard + unit test, set-main drive coverage; R3 **APPROVED**). Writer: Codex gpt-5.6-sol (workspace-write, ~90% of changed lines); Claude wrote only the small judgment-entangled review-fix deltas. **User-reported live bug fixed:** the Manage dialog read as "transparent" — actually content OVERFLOWING the 520px panel (a native select's min-content = its longest option inflated the dialog's implicit grid column; same class latent in the font-mono active-model label) → `minmax(0,1fr)` + `break-all`, proven by before/after screenshots (`real-validate-artifacts/gh181-parity-shots/`, incl. 4 tabs × dark/light mockup-vs-live parity). **Two pre-existing gate blockers fixed en route:** development's drive asserted a `role="img"` health bar the status-semantics rework had removed (unblocked by merging the sibling worktree's then-unmerged 497565c8), and the Overview's informational not-checked notice was `role="alert"` whose own "unknown, not failed" copy tripped the gate's `/fail/i` classifier → `role="status"` (classifier side later hardened as #209). **Cross-session landing:** the parallel session replayed this branch onto development mid-flight (83de0911..02ab4ae9, patch-equivalence verified via `git cherry`), then extended it — REAL Cancel authorisation (e609fa0e + `/api/connections/model/device-flow/cancel`, superseding this slice's DESCOPE marker), auth-session hardening, Ask Admin rebuild — and ran the full GATE: **DONE-ELIGIBLE** (`real-validate-artifacts/connections-e9d0563-final-gate/`). Verified by me pre-landing: 20 files / 208 web tests, typecheck, lint, next build, screenshot parity, connections drive exit 0. TRAPS RECORDED (memory `opzava-dev-stack-quirks`): the shared BuildKit `opzava-web-next-cache` mount can yield a "successful" web image missing whole route trees — verify `.next/server/app/(app)/` contents before gating; the QA gate is a stack singleton — check sibling worktrees before rebuild/gate. The redundant `#181` worktree branch was removed after subsumption verification.
 - 2026-07-15 (GitHub issue #200; decisions #202, #203, #204) - **CRM REMOVAL EXECUTED.** Deleted the admin CRM UI, `packages/crm`, and the five `opzava_crm_*` Ask Admin tools; dropped the CRM schema with forward migration `0015_crm_removal`; and swept living documentation. CRM has no current surface and returns only with the future user-side dashboard. ADR-011 and PRD-010 are retained as deferred design records.

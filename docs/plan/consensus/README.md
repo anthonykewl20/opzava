@@ -1,11 +1,12 @@
 # Consensus Memo Index
 
-These memos are FROZEN historical evidence from codex, mmx, and spark review runs. Shorthand vendored-doc paths inside the memos resolve under `docs/openclaw/**` unless already fully qualified. Never treat memo content as current truth: accepted ADRs, PRDs, and `docs/plan/EXECUTION.md` control.
+These memos are FROZEN historical evidence from codex, mmx, and spark review runs. Shorthand vendored-doc paths inside the memos resolve under `docs/openclaw/**` unless already fully qualified. Never treat memo content as current truth: accepted ADRs/PRDs and their current decision/migration ledgers control. For Dev Board work, that means PRD-019, ADR-017, `docs/plan/dev-board-foundation-decisions.md`, and `docs/plan/dev-board-migration-manifest.md`; `docs/plan/EXECUTION.md` is a historical ledger.
 
 Two explicit supersession rules:
 
-- `q13-backlog.mmx.md` is superseded by `docs/plan/backlog.md`; its PRD-019..028 and ADR-016 ids were renumbered into ADR-001..015 plus PRD-001..018 and do not exist.
-- `q15-mvp-roadmap.mmx.md` is superseded by `docs/plan/EXECUTION.md`; the admin-Tasks MVP replaced the walking-skeleton MVP. Its two-token wording is also superseded by ADR-003: paired device token plus JIT `operator.admin`, not JWTs.
+- `q13-backlog.mmx.md` is superseded by `docs/plan/backlog.md`; its historical draft PRD-019..028 and ADR-016 identifiers were renumbered into the 2026-07-02 ADR-001..015 + PRD-001..018 set. The current PRD-019 and ADR-017 are new, unrelated Dev Board documents.
+- `q15-mvp-roadmap.mmx.md` and the old `docs/plan/EXECUTION.md` plan are historical; the admin Tasks MVP replaced the walking-skeleton MVP and was itself superseded as a product target by Dev Board. Its two-token wording is also superseded by ADR-003: paired device token plus JIT `operator.admin`, not JWTs.
+- `tasks-ai-workforce-design.md` is the frozen Q17 Tasks/AI-Workforce memo. PRD-019 and ADR-017 supersede it; its body remains provenance, not implementation authority.
 
 | File | Evidence | Status |
 | --- | --- | --- |
@@ -35,10 +36,11 @@ Two explicit supersession rules:
 | `q11-dept-workflows.mmx.md` | Q11 workflow, marketing pipeline, approvals, and report notes. | Historical evidence consumed by ADR-012. |
 | `q12-billing-provisioning.codex.md` | Q12 billing plus Gateway provisioning lifecycle and anti-orphan invariant. | Historical evidence consumed by ADR-002 and ADR-014; billing-provider language is superseded by deferred billing/null-adapter reality. |
 | `q12-billing-provisioning.mmx.md` | Q12 provisioning saga, Docker-per-tenant, billing, and orphan Gateway notes. | Historical evidence consumed by ADR-002 and ADR-014; billing-provider language is superseded by deferred billing/null-adapter reality. |
-| `q13-backlog.mmx.md` | Q13 priority backlog synthesis with old ids. | Superseded by `docs/plan/backlog.md`; PRD-019..028 and ADR-016 do not exist. |
+| `q13-backlog.mmx.md` | Q13 priority backlog synthesis with old ids. | Superseded by `docs/plan/backlog.md`; its draft ids are historical. Current PRD-019/ADR-017 are unrelated Dev Board documents. |
 | `q14-local-dokploy-parity.codex.md` | Q14 Compose/Dokploy/Traefik parity and socket-proxy decisions. | Historical evidence consumed by ADR-015. |
 | `q14-local-dokploy-parity.mmx.md` | Q14 local/live parity and Traefik service-list notes. | Historical evidence consumed by ADR-015. |
-| `q15-mvp-roadmap.mmx.md` | Q15 walking-skeleton MVP and P1-P8 roadmap sketch. | Superseded by `docs/plan/EXECUTION.md`; admin-Tasks MVP replaced the walking-skeleton MVP. |
+| `q15-mvp-roadmap.mmx.md` | Q15 walking-skeleton MVP and P1-P8 roadmap sketch. | Historical; the admin Tasks MVP replaced the walking skeleton, and Dev Board now supersedes that product target. |
+| `tasks-ai-workforce-design.md` | Q17 admin Tasks/AI-Workforce design. | Superseded/frozen historical evidence; PRD-019 + ADR-017 control Dev Board. |
 | `slice0-spike.mmx.md` | Slice 0 spike plan/review evidence around Docker proxy, Gateway routing, and broker stream. | Historical implementation evidence consumed by EXECUTION worklog and ADR-015 refinements. |
 | `slice0-review.codex.md` | Slice 0 codex review with ADR-015 refinements and follow-up risks. | Historical review evidence consumed by EXECUTION worklog and ADR-015. |
 | `slice0-review.mmx.md` | Slice 0 mmx review of runtime spike and remaining risk. | Historical review evidence consumed by EXECUTION worklog and ADR-015. |

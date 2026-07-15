@@ -1,3 +1,10 @@
+> [!WARNING]
+> **SUPERSEDED / FROZEN HISTORICAL EVIDENCE (2026-07-15).** The Dev Board pivot in
+> `docs/prd/PRD-019-dev-board.md` and
+> `docs/adr/ADR-017-dev-board-authority-sync-execution.md` replaces this Q17 design. The body below
+> is preserved unchanged for provenance; its "authoritative" wording and implementation sequence
+> are no longer operative. Do not implement it or issues #147–#157.
+
 # Tasks / AI-Workforce admin dev pipeline: design contract
 
 Status: authoritative build spec for the future `Tasks / AI-Workforce` slice. Codegen implements THIS

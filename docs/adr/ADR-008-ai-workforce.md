@@ -4,6 +4,8 @@ Status: Accepted
 
 > Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
 
+> **Dev Board amendment (2026-07-15):** AI Workforce does not own Dev Board workflow. A DevTicket is distinct from Project Management `pm.Card` and OpenClaw `workboard.Card`. Dev Board separates **Human Owner**, **Execution Assignee**, **Lead Orchestrator**, **Reviewer**, and **Runner**. AI Workforce continues to own agent identities, `Assignment`, and `AgentDispatch`; ADR-017 owns DevTicket workflow, leases, local/cloud runner selection, independent review, and deterministic GitHub synchronization.
+
 Opzava will model an AI employee as an OpenClaw delegate agent provisioned with its own persona files, workspace, `agentDir`, memory, skills, isolated auth, channel bindings, and tool policy. AI Workforce owns the Opzava aggregates for employee identity, departments, autonomy tiers, standing orders, channel bindings, and assignments, while `AgentDispatch` remains the bridge from human work such as a `pm.Card` to OpenClaw Workboard/session refs.
 
 ## Context
@@ -13,6 +15,8 @@ ADR-003 puts OpenClaw behind the `gateway-broker` ACL and splits normal runtime 
 Q8 makes AI Workforce the core Opzava domain. Opzava is an AI-staffed company-in-a-box where AI teammates work across Marketing, Customer Support, Finance, and Customer Management/CRM. These teammates need durable product identity, department routing, standing orders, channel bindings, autonomy limits, knowledge scope, and auditable work status. They also need to stay on OpenClaw's grain: delegate agents, persona files, workspaces, `agentDir`, sessions, memory-lancedb, skills, channel bindings, cron, standing orders, subagents, and Workboard.
 
 Q4 introduced `AgentDispatch` as the bridge between human project-management work and OpenClaw runtime work. Q8 introduces `Assignment` as an AI Workforce concept. Those names are adjacent but not interchangeable. `pm.Card` remains the Opzava human-work aggregate. `workboard.Card` remains the OpenClaw agent-work concept. `AgentDispatch` is the Opzava bridge that records human intent and opaque runtime refs. `Assignment` is the AI Workforce aggregate that binds a concrete task to a selected `AgentEmployee`.
+
+PRD-019 adds a third product work identity: `DevTicket`. It is the Opzava platform-development work contract mirrored to one GitHub issue. It is not a subtype or rename of `pm.Card`, and it is not an OpenClaw Workboard object. Where a DevTicket is executed by an AI employee, AI Workforce contributes the selected agent identity and dispatch/assignment records while Dev Board remains authoritative for readiness, lane, dependency, Sprint, review, merge, and release gates.
 
 Q4b's project-to-workspace mapping is revised by Q8. Knowledge scoping is now:
 
@@ -46,6 +50,16 @@ The delegation flow is:
 - execution: OpenClaw tracks session, run, task ledger, Workboard, tools, approvals, logs, and artifacts
 - report: broker/webhook projects status into the `Assignment`, `AgentDispatch`, activity feed, chat message, `pm.Card`, workflow run, or incident surface
 
+For Dev Board work, roles stay orthogonal:
+
+- **Human Owner** owns intent, approvals, and final human decisions.
+- **Execution Assignee** is the human or AI agent accountable for implementation.
+- **Lead Orchestrator** coordinates assignment, Slack conversation, and recovery but cannot silently approve or execute without separate authority.
+- **Reviewer** is an independently launched local agent/tool selected in Admin and cannot be the implementation execution identity for the same review.
+- **Runner** is the selected local or cloud execution location/tool endpoint. It is not an employee or reviewer identity.
+
+The selected runner may be local or cloud where the approved plan permits it, but there is no automatic cloud failover for disconnected local work. The system fences the lease, checkpoints and pauses, summarizes state, notifies the Human Owner through Slack, and reconciles the same worktree/branch/process/GitHub state before resume.
+
 Per-department default autonomy tiers are:
 
 - Finance: T1 draft and approval by default for payments, invoices, refunds, bank/tax data, external sends, and financial mutations.
@@ -74,6 +88,7 @@ AI Workforce owns these aggregates and value objects:
 - `StandingOrder`: persistent authority for recurring or event-triggered work. Fields include `scope`, `trigger`, `actions`, `approvalRequired`, `auditLevel`, budget/concurrency refs, and OpenClaw cron/standing-order refs where provisioned.
 - `ChannelBinding`: the allowed communication boundary for an employee. Fields include `channel`, `accountId`, `direction`, `scopeFilter`, target allowlist, approval policy, and credential/SecretRef references owned by the Gateway or vault.
 - `Assignment`: the concrete workforce allocation. It binds `taskId` and `employeeId` to a task target such as `pmCardId`, workflow step, ticket, report job, or standing-order trigger; optional `projectId`; `agentDispatchId`; `sessionRef`; `runRef`; `taskRef`; `status`; `startedAt`; `completedAt`; and `reportRef`.
+- Dev Board role references: `humanOwnerId`, optional `executionAssigneeId`, `leadOrchestratorId`, `reviewerId`, and `runnerRef` belong to the Dev Board contract/lease model. AI Workforce may resolve the agent-valued refs, but it must not collapse them into `Assignment.employeeId` or infer that one actor holds all roles.
 
 `AgentDispatch` is separate from `Assignment`.
 

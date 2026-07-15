@@ -1,5 +1,7 @@
 # PRD-013: Connections, providers, channels, tools, and the connect wizard
 
+> **Dev Board execution setup amendment (2026-07-15):** The target Admin setup also enrolls the local execution environment used by Dev Board. It covers a GitHub App health/webhook/outbox panel; an enrolled local machine; an explicit **Codex Desktop / Codex CLI / Claude Code** selector; runner lease, heartbeat, disconnect, reconcile, and resume state; the user's local Docker stack and expiring preview tunnel; reviewer tool and model selection; and the Slack Personal Assistant. These are target requirements, not claims about the current implementation. Today's Connections flow remains a legacy OAuth/manual projection until migrated under PRD-019, ADR-017, and `docs/plan/dev-board-migration-manifest.md`.
+
 ## Problem
 
 Opzava needs one coherent product contract for the integration control plane: tenant Gateway status, model/provider settings, external customer channels, operator-linked coding tools, MCP/tool catalog visibility, and the connect wizard.
@@ -31,6 +33,8 @@ The solution is a Connections and Tools product slice that separates customer ch
 - Show tenant Gateway status, heartbeat, region, host identity, routability, degraded states, and last health check in product language.
 - Support provider/model settings for auth order, routing policy, default model choices, model catalogs, plan/usage state, SecretRef resolution, reload impact, and validation results.
 - Support operator-linked tools including Claude Code, OpenCode, Codex CLI, Codex Desktop, Claude Desktop, and future local clients.
+- Enroll one user-owned local machine for Dev Board execution and require an explicit supported runner choice: Codex Desktop, Codex CLI, or Claude Code.
+- Configure the local Docker review stack, reviewer tool/model, GitHub App synchronization health, and Slack Personal Assistant from Admin without requiring users to assemble state across other screens.
 - Support MCP connection modes and live-agent modes without embedding long-lived secrets in copied commands.
 - Surface tool catalog and effective tool policy as readable governance state, with admin-only changes where policy or install authority is required.
 - Preserve ADR-010 admin-only curated skill install governance: tenants and admins select approved catalog capabilities, while install/update/upload runs through audited provisioning with `operator.admin`.
@@ -48,7 +52,8 @@ The solution is a Connections and Tools product slice that separates customer ch
 - Build the full CRM/support inbox, customer transcript view, ticket flow, or contact resolution UX. PRD-010 consumes channel events and conversation refs.
 - Build full internal chat. PRD-004 owns Opzava internal messages; this PRD only covers external channel connections and Slack alert/ops delivery settings.
 - Build billing, invoices, subscriptions, or dunning. ADR-014 and PRD-014 own billing and cost views; this PRD consumes plan/entitlement decisions.
-- Build full admin observability, logs, issues, or Debug. PRD-012 owns those surfaces; this PRD links to diagnostics and consumes Gateway health/status.
+- Build full admin observability, logs, Incidents, or Debug. PRD-012 owns those surfaces; this PRD links to diagnostics and consumes Gateway health/status.
+- Define DevTicket workflow, Sprint, Ready, Review, merge, release, or GitHub synchronization semantics. PRD-019 and ADR-017 own those contracts; this PRD owns their setup and health controls.
 - Redesign ADR-003, ADR-005, ADR-010, or ADR-014.
 - Publish this PRD, create issues, call GitHub, or run build/test/lint commands.
 
@@ -100,7 +105,7 @@ The solution is a Connections and Tools product slice that separates customer ch
 44. As a tenant admin, I want a connection timeout policy for tool calls and channel checks, so that stuck calls fail in predictable time.
 45. As a tenant admin, I want allowed account-linking domains where applicable, so that provider and channel account linking can be constrained.
 46. As a tenant admin, I want connection logs to link to PRD-012 redacted logs, so that repair evidence is available without leaking secrets.
-47. As an operator, I want the Your tools page to show terminal and desktop tools linked to my Opzava account, so that I know which local tools can run Opzava tasks.
+47. As an operator, I want the Your tools page to show terminal and desktop tools linked to my Opzava account, so that I know which local tools can execute assignments owned by a `pm.Card` or DevTicket.
 48. As an operator, I want Your tools to list Claude Code, OpenCode, Codex CLI, Codex Desktop, and Claude Desktop, so that supported clients are recognizable.
 49. As an operator, I want each tool row to show client name, connection path, status, last seen, and more actions, so that local tool state is easy to scan.
 50. As an operator, I want tool statuses Active, Connected, Degraded, Disconnected, Not linked, Verifying, Expired, Revoked, and Needs reconnect, so that status is not color-only.
@@ -165,7 +170,7 @@ The solution is a Connections and Tools product slice that separates customer ch
 | `connections.html` | Full/admin shell page titled `Connections` with subtitle `Gateways, providers, channels & tools`, Run health check, Add connection, health summary cards for Connected, Needs attention, and Gateway, Gateway & models group, prominent OpenClaw gateway card with status/auth/hosts/heartbeat/region, Model providers table with Provider/Auth/Models/Status/Actions, lead/subagent role badges, a connected-row action menu for Manage, Set as main orchestrator, and Disconnect, Gateway configuration disclosure with exposure/auth/reload/bind/TLS/endpoints/change queue, Provider policy & catalogs disclosure with auth order/credential store/catalogs/pricing/actions, Agent tools & MCP group with Agent tools table, MCP & tool policy disclosure, Channels & services group with service/use/status/last sync, and footer health cadence. Statuses must use text or glyph plus label, never color alone. Secrets and raw Gateway config values must not be shown. |
 | `essential-connect-wizard.html` | Single modal wizard rendered as four steps: Step 1 Pick a tool with Claude Code, OpenCode, Codex CLI, Codex Desktop, and Claude Desktop choices; Step 2 Method with MCP recommended and Live agent options where available; Step 3 Copy command with Run it yourself and Let the assistant wire itself tabs, a generated copyable setup command, plain explanation, and no long-lived raw secrets; Step 4 Verify with live waiting state, connected outcome, manual MCP confirmation guidance, and troubleshooting disclosure. Closing or expiring the wizard revokes unused setup tokens. |
 | `essential-tools.html` | Essential shell page titled `Your tools` with breadcrumb, Connect another, subtitle explaining terminal/desktop tools linked to the account, health pill such as `5 of 5 local tools` with reconnect note, linked tool list for Claude Code, OpenCode, Codex CLI, Codex Desktop, and Claude Desktop, statuses Active/Connected/Degraded/Disconnected with reason text, Reconnect action for disconnected tools, Technical details disclosure with copyable reconnect command, action feedback live region, and legend for glyph meanings. |
-| `essential-tools-empty.html` | Empty `Your tools` page with title/subtitle, primary empty hero `Connect your first tool`, explanation that Claude Code, Codex, OpenCode, or another tool can run tasks and be watched by Opzava, primary Connect a tool action to the wizard, effort hint, and ghost preview of future linked tools such as Claude Code, Claude Desktop, and a Gateway-backed fleet tool. |
+| `essential-tools-empty.html` | Empty `Your tools` page with title/subtitle, primary empty hero `Connect your first tool`, explanation that Claude Code, Codex, OpenCode, or another tool can execute work assigned from an owning `pm.Card` or DevTicket and report evidence to Opzava, primary Connect a tool action to the wizard, effort hint, and ghost preview of future linked tools such as Claude Code, Claude Desktop, and a Gateway-backed fleet tool. |
 | `settings.html` | Settings page with left nav for General, Agents, Connections, Security, Notifications, Billing, Advanced, Config, and Deployment. This PRD consumes: General default model; Agents default model/region/concurrency/timeouts and agent governance switches; Connections health summary, connected systems, OAuth approval policy, connection timeout, webhook-secret reference, allowed domains, save/open logs actions, and warning banner; Security secret-read approval control and recent security events; Billing spend cap and pause-at-budget-cap controls; Advanced config export/import and token rotation danger actions; Config & schema validation, SecretRef state, restart impact, raw JSON5 escape hatch; Deployment private Gateway exposure and health check controls. Settings is policy/config adjacency; Connections remains the primary operational surface. |
 
 Net-new screens to design:
@@ -258,6 +263,22 @@ Net-new screens to design:
 - Your tools must show active/degraded/disconnected states based on last check-in, current run state, latency/failure reason, revocation state, and policy/entitlement state.
 - Tool revoke must invalidate Opzava-issued credentials/pairing refs and block future MCP/API calls from the local client.
 - User membership, role, MFA/session, tenant suspension, and policy revocation must invalidate or deny stale local tool calls on the server side.
+
+### Dev Board local execution, review, and GitHub setup
+
+- Admin must expose a first-class **Local machine** enrollment flow with owner, device identity, operating system, supported tool discovery, last heartbeat, lease state, Docker state, and revoke/re-enroll actions.
+- Enrollment must require the user to choose exactly one default execution tool from Codex Desktop, Codex CLI, or Claude Code. The UI must not imply that a desktop client exists on operating systems where only a CLI is available.
+- A runner is a location/capability endpoint, not an AI identity. Runner state must include Enrolling, Online, Leased, Busy, Disconnected, Reconnecting, Reconciling, Paused, Revoked, and Unhealthy with an explicit last-confirmed checkpoint.
+- A Dev Board execution lease must be fenced, heartbeated, expiring, and bound to the selected machine/tool/worktree. Disconnect must pause work, revoke preview exposure, preserve the last confirmed checkpoint, and notify Slack; it must not trigger automatic cloud failover.
+- Resume after reconnect must reconcile process identity, worktree/branch, locked commit, Docker state, GitHub state, and lease ownership before execution continues. Blind restart is forbidden.
+- Admin must configure one shared local Docker review environment with stack command/profile, expected services, health checks, test fixtures, reset policy, preview port, and evidence capture. Secret values remain in the local keyring/vault; Opzava stores named references and health only.
+- Preview exposure must use an authenticated, expiring tunnel that is created only for an active review/approval need and revoked on expiry, disconnect, completion, or explicit stop.
+- Admin must select the independent local reviewer tool and model. Reviewer availability, model compatibility, last heartbeat, Docker access, and evidence-upload health must be visible before a card can enter Review.
+- Admin must expose GitHub App connection health by capability: authentication, repository permission, webhook delivery freshness, outbox/replay lag, rate limits, and last successful bidirectional synchronization.
+- GitHub writes must use a durable idempotent outbox and webhook deliveries must deduplicate by delivery/event id. Temporary failures block only capabilities requiring confirmed GitHub history; secret exposure and unhealthy or unverifiable GitHub integration are unbypassable stops.
+- GitHub is authoritative for repository-native issue number/URL and PR, commit, check, and merge facts. Opzava is authoritative for Dev Board workflow, gates, approvals, plans, and execution policy. Shared content synchronizes deterministically under ADR-017.
+- The Slack Personal Assistant is the only Admin assistant module in v1. It may notify, discuss, and collect version-bound workflow approvals for the enrolled Admin, but secrets, machine enrollment, security/integration changes, and raw credentials must remain in secure Opzava/local flows.
+- Slack approval actions must be one-time, expiring, attributable to the enrolled Admin, and bound to the exact contract/plan/evidence version. Stale or replayed actions fail closed.
 - Tool link and reconnect events must update Activity/notifications where useful and write immutable audit rows.
 
 ### MCP, tool catalog, and skill governance
@@ -331,6 +352,11 @@ Net-new screens to design:
 | Connect wizard | Identity & Access plus Runtime Control | Tool/mode selection, short-lived setup token, generated command metadata, verification state, expiry | Tool link service, setup-token service, `AuthorizationPort`, `RealtimeTransportPort`, `EventBusPort` |
 | MCP/API credential checks | Identity & Access plus Runtime Control | Local client calls, actor attribution, tenant scope, policy/entitlement decision, revocation | API credential service, `AuthorizationPort`, Runtime Control application service |
 | Live agent mode | AI Workforce plus Runtime Control | Local/live agent check-in, session/run refs, assignment pickup, actor attribution | AI Workforce application service, broker ACL / `OpenClawGatewayPort`, `RealtimeTransportPort` |
+| Dev Board local runner | Dev Board plus Tenant Provisioning/Platform-Ops | Enrolled machine, explicit tool selection, fenced lease, heartbeat, checkpoint, disconnect/reconcile/resume state, worktree ref | Runner enrollment/lease services, `AuthorizationPort`, `RealtimeTransportPort`, `EventBusPort` |
+| Local Docker review stack | Dev Board plus Platform-Ops | Stack profile, service health, preview tunnel, evidence capture, named secret-reference health | Local runner service, preview-tunnel service, `SecretsVaultPort`, `AuthorizationPort` |
+| Reviewer configuration | Dev Board plus AI Workforce | Independent reviewer tool/model, availability, compatibility, heartbeat, Docker access | Reviewer configuration service, runner service, `AuthorizationPort` |
+| GitHub App health and sync | Dev Board plus integration adapter | App installation/permissions, webhook freshness, durable outbox/replay, rate limit, capability health, last deterministic sync | Target GitHub App/sync ports under ADR-017, `AuthorizationPort`, `EventBusPort` |
+| Slack Personal Assistant | Internal Collaboration plus Dev Board | Admin identity binding, notifications, one-time version-bound approvals, expiry/replay state | Slack adapter, approval service, `AuthorizationPort`, `EventBusPort` |
 | MCP server inventory | Runtime Control plus Tenant Provisioning/Platform-Ops | Server definitions, transport, auth ref health, declared tools, status, policy state | MCP configuration service, broker ACL / `OpenClawGatewayPort`, `SecretsVaultPort`, `AuthorizationPort` |
 | Tool catalog/effective policy | Runtime Control | Available tools, effective callable tools, deny/allow decisions, approval gates, Codex projection | Tool policy service, broker ACL / `OpenClawGatewayPort`, `AuthorizationPort`, `EventBusPort` |
 | Skill catalog selection | Knowledge Management | Curated entries, approved versions, allowed scopes, verification metadata, selection policy | `SkillCatalogPort`, `AuthorizationPort`, `EventBusPort` |
@@ -394,6 +420,11 @@ Net-new screens to design:
 - Successful tool check-in creates/updates a user-scoped tool link and appears in Your tools and relevant Connections summaries.
 - Revoke invalidates local-client credentials and denies future calls from the tool.
 - Role/membership/session/MFA revocation and tenant suspension deny stale local tool calls server-side.
+- Admin can enroll one local machine, select Codex Desktop/Codex CLI/Claude Code explicitly, and see runner lease/heartbeat/reconcile state without conflating the runner with an AI identity.
+- Local runner disconnect fences and pauses work, preserves a checkpoint, revokes preview exposure, and notifies Slack; it never silently fails over to cloud.
+- Admin can configure and health-check the local Docker review stack, expiring preview tunnel, and independent reviewer tool/model without exposing raw secrets.
+- GitHub App health reports authentication, permissions, webhook freshness, outbox/replay lag, rate limits, and last synchronization; unhealthy or unverifiable integration and secret exposure fail closed.
+- Slack Personal Assistant actions are attributable, one-time, expiring, and bound to an exact workflow version; machine enrollment, security/integration changes, and secrets remain in secure Opzava/local flows.
 - MCP server inventory shows server, transport, auth, tools, status, default policy, sandbox/approval posture, and Codex projection where configured.
 - Tool catalog views distinguish available tools from effective callable tools.
 - ADR-005 deny-wins policy prevents standard agents and local clients from gaining denied runtime/filesystem tools through MCP projection, skill selection, provider overrides, or wizard setup.
@@ -450,10 +481,10 @@ Net-new screens to design:
 - PRD-002 for app shell, Essential shell, full/admin rail, command/search patterns, notifications, responsive state vocabulary, and settings navigation.
 - PRD-004 for internal collaboration, Slack-grade internal chat, notifications, and Web Push behavior.
 - PRD-005 for Ask Opzava and runtime sessions that consume provider/model routing, tool policy, and channel bindings.
-- PRD-006 for AI employee roster, agent detail, automation, channel bindings, tool effective state, and runtime run/task projections.
+- PRD-006 for AI employee roster, agent detail, automation, channel bindings, tool effective state, and assignment/workload plus run-evidence projections that deep-link to the owning `pm.Card` or DevTicket.
 - PRD-007 for Memory & Skills, curated skill catalog, artifacts, knowledge source governance, and skill install receipts.
 - PRD-010 for CRM/support contacts, tickets, channel identities, customer conversation refs, consent, and support-channel projections.
-- PRD-012 for monitoring, logs, issues, security audit, debug, redaction, connection logs, incident correlation, and admin remediation.
+- PRD-012 for monitoring, logs, Incidents, security audit, debug, redaction, connection logs, Incident correlation, and admin remediation.
 - PRD-014 and ADR-014 for billing/cost limits, plan enforcement, budget caps, invoices, and usage/metering inputs.
 - Mockup implementation conventions from `connections.html`, `essential-connect-wizard.html`, `essential-tools.html`, `essential-tools-empty.html`, and `settings.html`.
 - No `CLAUDE.md`, `CONTEXT.md`, or in-repo `docs/agents/` conventions were present in the repository file list during discovery.

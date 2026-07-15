@@ -1,4 +1,6 @@
 # packages/project-management - Project Management bounded context
+> **Current implementation inventory (2026-07-15):** The Task aggregate, Issue projection/outbox, schemas, and tests below are real current code. They are legacy migration inputs for PRD-019 Dev Board, not proof that DevTicket is `pm.Card` or that the target authority/sync model exists. Preserve generic Project Management; migrate platform-development workflow according to ADR-017 and `docs/plan/dev-board-migration-manifest.md`.
+
 > Part of the Opzava architecture (see ../README.md).
 > Vocabulary: codebase-design.
 ## Overview

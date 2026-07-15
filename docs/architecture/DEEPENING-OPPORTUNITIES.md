@@ -25,12 +25,12 @@ A candidate must pass the deletion test (deleting the status quo moves complexit
 | 12 | Derive eslint boundaries from the workspace catalog | APPLIED (`e53651ac`) - verified lint-equivalent (forced `pnpm lint` identical zero-violation output before/after). |
 | 13 | Split `assistant-conversations.ts` | APPLIED (`9543bd87`). |
 | 14 | Centralize the link-token scope whitelist | APPLIED (`125119c2`). |
-| 15 | Narrow `IssueTrackerProvider` to `"github"` | DEFERRED - product decision: depends on whether a second issue-tracker provider is planned. Do not remove the generality without that input. |
+| 15 | Narrow `IssueTrackerProvider` to `"github"` | SUPERSEDED - do not deepen the legacy `IssueTrackerPort`; retire/adapt it through the Dev Board migration. V1's target `DevBoardMirrorPort` has one GitHub App adapter and one repository. |
 | 16 | Collapse the two `canMutate` predicates | NOT APPLICABLE - no `canMutate` predicate exists in `packages/runtime-control` (verified by grep); the genuine duplication is the executor skeleton, covered by candidate 6. |
 | 17 | Hide `model-provider-taxonomy` data behind accessors | APPLIED (`4c8ea3d6`). |
 | gaps | ObjectStore contract, lazy pg client, migration-gate tests | APPLIED (`df42bb49`). |
 
-Summary: 14 of 17 applied, 2 verified already-satisfied/not-applicable (4, 16), 1 deferred for a product decision (15).
+Summary: 14 of 17 applied, 2 verified already-satisfied/not-applicable (4, 16), and 1 superseded by the Dev Board migration (15).
 
 Strength badges:
 
@@ -122,7 +122,7 @@ Each card names its source module doc so the claim can be verified against the c
 - Problem: web satisfies the port with inline literals, so the seam exists in practice but has no reusable Adapter; the port is a not-yet-a-seam today.
 - Solution: a concrete `ErrorCapturePort` Adapter (built-in reporter now, GlitchTip later per ADR-013) wired through the app, removing the inline literals.
 - Benefits: the seam becomes real; redaction and routing concentrate behind one Adapter (ADR-013).
-- ADR check: respects ADR-013 (ErrorGroup aggregate, ADMIN card projection, redaction at ingest).
+- ADR check: respects ADR-013 (ErrorGroup/Incident lifecycle, separate Incidents projection, linked remediation DevTicket, redaction at ingest).
 - Strength: WORTH EXPLORING.
 
 ### 10. Move `GITHUB_ISSUES_TOKEN_SECRET_LABEL` out of `IssueTrackerPort`
@@ -172,9 +172,9 @@ Each card names its source module doc so the claim can be verified against the c
 
 ## SPECULATIVE
 
-### 15. Narrow `IssueTrackerProvider` to `"github"` if no second provider is planned
+### 15. Narrow legacy `IssueTrackerProvider` to `"github"`
 - Source: [modules/ports.md](modules/ports.md).
-- If a second provider is genuinely unplanned, the generality is a cost; if one is planned, keep it and pair with candidate 10.
+- **Superseded by PRD-019/ADR-017.** The current `IssueTrackerPort` is legacy migration input, so narrowing its provider union is churn in a seam scheduled for retirement/adaptation. V1 instead introduces one GitHub App adapter behind the target `DevBoardMirrorPort` for the single Opzava repository; future repository/provider expansion requires a new approved contract rather than speculative generality in the old port.
 - Strength: SPECULATIVE.
 
 ### 16. Collapse the two identical `canMutate` predicates in runtime-control

@@ -1,4 +1,6 @@
-# PRD-006: Agent roster, automation, task board, run trace, and tool catalog
+# PRD-006: Agent roster, automation, run trace, and tool catalog
+
+> **Dev Board amendment (2026-07-15):** The separate AI task-board target is superseded by PRD-019. PRD-006 continues to own `AgentEmployee`, automation, `Assignment`/`AgentDispatch` projections, roster/detail views, and execution traces. An agent may view its Dev Board assignments and deep-link to the owning DevTicket, but it does not own or maintain an independent task lifecycle.
 
 ## Problem
 
@@ -9,11 +11,11 @@ Without a PRD-level contract, this slice can drift into unsafe or confusing prod
 - The agent roster could become a thin OpenClaw `agents list` view instead of the Opzava `AgentEmployee` system of record from ADR-008.
 - Agent detail could expose raw Gateway config, session transcripts, provider payloads, secrets, or hidden reasoning instead of safe persona, policy, memory, tool, binding, task, and run projections.
 - Standing orders and cron could be configured as ad hoc Gateway jobs without Opzava workflow policy, budget, approval, idempotency, and provisioning receipts from ADR-012.
-- The task board could confuse Opzava project `pm.Card`, AI Workforce `Assignment`, Department Workflow `WorkflowRun`, and OpenClaw task-ledger records.
+- Agent assignment views could confuse Dev Board `DevTicket`, Project Management `pm.Card`, AI Workforce `Assignment`, Department Workflow `WorkflowRun`, and OpenClaw task-ledger records.
 - Run traces could become raw runtime logs rather than redacted, user-facing evidence of status, tools, approvals, artifacts, and errors.
 - Tool catalog UX could invite users to connect or repair tools without applying ADR-005 tool policy, scoped authorization, and secret handling.
 
-The solution is an Opzava-owned AI operations product surface for roster, employee detail, employee creation/configuration, standing-order and cron automation UX, task board, run trace, and tool catalog. OpenClaw remains harnessed for native delegate agents, workspaces, cron, TaskFlow, task ledger, tools, memory, skills, bindings, sessions, and runtime logs. Opzava owns product identity, policy, user-visible lifecycle, authorization, approvals, provisioning jobs, audit, and read models.
+The solution is an Opzava-owned AI operations product surface for roster, employee detail, employee creation/configuration, standing-order and cron automation UX, assignment projections, run trace, and tool catalog. OpenClaw remains harnessed for native delegate agents, workspaces, cron, TaskFlow, task ledger, tools, memory, skills, bindings, sessions, and runtime logs. Opzava owns product identity, policy, user-visible lifecycle, authorization, approvals, provisioning jobs, audit, and read models.
 
 ## Goals and Non-goals
 
@@ -23,7 +25,7 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 - Ship agent detail for persona, department, autonomy tier, tool policy, channel bindings, memory/skills summary, current work, recent runs, activity, and advanced configuration.
 - Support creating, editing, pausing, assigning, and deprovisioning AI employees through Opzava commands backed by ADR-008 provisioning.
 - Make standing orders, cron schedules, webhooks/triggers, and recent automation runs visible and configurable through the Department Workflow model from ADR-012.
-- Ship an agent task board for queued, running, degraded, review, and completed AI work across projects and departments.
+- Show each agent's current and historical assignments, including Dev Board links, without creating a second lifecycle or board.
 - Ship run trace detail as a safe, redacted, inspectable view over assignments, workflow runs, steps, tool calls, approvals, artifacts, and runtime refs.
 - Ship the Essential tool catalog for linked local tools and runtime harnesses, including connected, active, degraded, disconnected, reconnect, and empty states.
 - Define data/API touchpoints by bounded context and port without restating ADR architecture.
@@ -74,7 +76,7 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 28. As an admin/full-shell user, I want agent detail stats for running tasks, cost today, uptime, and last seen, so that I can assess health quickly.
 29. As an admin/full-shell user, I want Pause and Assign task actions on agent detail, so that common operations are directly available.
 30. As an admin/full-shell user, I want Overview, Activity, Tasks, Memory, and Settings tabs, so that employee detail is organized by workflow.
-31. As an admin/full-shell user, I want the Overview tab to show current tasks with progress, due date, step, and deep link to Task Board, so that active work is inspectable.
+31. As an admin/full-shell user, I want the Overview tab to show current assignments with progress, due date, step, and deep links to their source work, so that active work is inspectable.
 32. As an admin/full-shell user, I want Today's stats on agent detail, so that completed tasks, tool calls, cost, and tokens are visible without opening cost reports.
 33. As an admin/full-shell user, I want recent runs on agent detail with task, status, model, duration, cost, and finished time, so that I can inspect execution history.
 34. As an admin/full-shell user, I want recent run statuses such as running, completed, approval needed, failed, canceled, timed out, and lost, so that run outcome is understandable.
@@ -105,18 +107,18 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 59. As an admin/full-shell user, I want failed automation runs to link to a run trace, so that investigation starts from the failed row.
 60. As a reviewer, I want automations that require business approval to create Opzava approval rows, so that approval decisions are durable and shared with Activity.
 61. As a reviewer, I want runtime exec/plugin prompts mirrored safely where applicable, so that I can decide runtime gates without confusing them with business approvals.
-62. As an admin/full-shell user, I want a Tasks page in the full rail, so that AI work across projects can be managed from one board.
-63. As an admin/full-shell user, I want the task board scoped by date and project filter, so that I can focus on all projects or one project.
-64. As an admin/full-shell user, I want task columns for Backlog, In progress, Review, and Done, so that AI work lifecycle is visible.
-65. As an admin/full-shell user, I want each task card to show title, assigned employee, status, age/start time, progress, and project/dept hints, so that triage is fast.
-66. As an admin/full-shell user, I want queued, running, degraded, review, and completed task states, so that runtime and review work are distinguishable.
-67. As an admin/full-shell user, I want task search and filters by project, department, employee, status, approval state, trigger source, and failed/degraded state, so that large boards remain usable.
-68. As an admin/full-shell user, I want to open task detail or run trace from a task card, so that I can inspect what happened.
-69. As an admin/full-shell user, I want review tasks to link to the owning approval, draft, project card, workflow step, or Activity item, so that review happens in the source of truth.
-70. As an admin/full-shell user, I want degraded tasks to show whether they are blocked by policy, missing binding, stale corpus, Gateway unavailable, circuit open, lost runtime ref, timeout, or provider failure, so that intervention is concrete.
-71. As an operator, I want task cancellation where allowed, so that runaway or obsolete work can be stopped.
-72. As an operator, I want cancellation to update Assignment, WorkflowRun/RunStep, task board, audit, and runtime task state where available, so that task state stays consistent.
-73. As an operator, I want retry to preserve idempotency keys and policy checks, so that retrying a failed task does not duplicate external sends or approvals.
+62. As an admin/full-shell user, I want roster and agent detail to show each employee's current assignments, so that workload is visible without a second task board.
+63. As an admin/full-shell user, I want assignment projections filtered by source, employee, status, approval state, and degraded reason, so that I can inspect workload efficiently.
+64. As an admin/full-shell user, I want Dev Board assignments to display the owning DevTicket lane and link, so that lifecycle remains visible at its source of truth.
+65. As an admin/full-shell user, I want each assignment row to show title, employee, source, status, age/start time, progress, and project/department hints, so that triage is fast.
+66. As an admin/full-shell user, I want queued, running, degraded, review, and completed runtime projections distinguished from the source work lifecycle, so that the two are not conflated.
+67. As an admin/full-shell user, I want assignment filters by project, department, employee, source, approval, and failed/degraded state, so that large workloads remain usable.
+68. As an admin/full-shell user, I want to open the source work or run trace from an assignment, so that I can inspect both intent and execution.
+69. As an admin/full-shell user, I want review assignments to link to the owning DevTicket, approval, draft, project card, workflow step, or Activity item, so that review happens in the source of truth.
+70. As an admin/full-shell user, I want degraded assignments to explain policy, binding, corpus, Gateway, runner, circuit, runtime-ref, timeout, or provider failures, so that intervention is concrete.
+71. As an operator, I want assignment cancellation where the owning workflow allows it, so that runaway or obsolete work can be stopped.
+72. As an operator, I want cancellation to update Assignment, WorkflowRun/RunStep, source work, audit, and runtime state where available, so that state stays consistent.
+73. As an operator, I want retry to preserve idempotency, source-work gates, and policy checks, so that retrying failed work does not duplicate external sends or approvals.
 74. As an operator, I want run trace to show requested actor, employee, department, autonomy tier, source trigger, project/work target, and idempotency key, so that provenance is clear.
 75. As an operator, I want run trace to show chronological steps such as admitted, assigned, session started, tool checked, approval requested, artifact produced, message sent, completed, failed, or canceled, so that execution is understandable.
 76. As an operator, I want each run trace step to show safe summaries, timestamps, status, duration, cost where available, and linked artifacts, so that evidence is useful without exposing internals.
@@ -134,9 +136,9 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 88. As an Essential user, I want Connect a tool to route through the existing connector/provisioning flow, so that secrets are never pasted into the PRD surface or browser state.
 89. As a security reviewer, I want tool catalog actions to re-check authorization, session validity, and connector ownership, so that stale browsers cannot reconnect privileged tools.
 90. As a security reviewer, I want all employee, automation, task, run trace, and tool catalog actions to write audit rows, so that operational authority is explainable.
-91. As a screen-reader user, I want roster tables, tabs, task boards, automation tables, run traces, tool rows, status badges, and dialogs to expose semantic labels, so that operations are accessible.
-92. As a keyboard user, I want roster filters, tabs, task cards, action menus, run trace disclosures, automation actions, and connect/reconnect flows to work without a mouse, so that admin work is efficient.
-93. As a mobile or narrow-screen user, I want tables and boards to collapse into usable list/detail flows, so that status, actions, and filters remain reachable.
+91. As a screen-reader user, I want roster tables, tabs, assignment lists, automation tables, run traces, tool rows, status badges, and dialogs to expose semantic labels, so that operations are accessible.
+92. As a keyboard user, I want roster filters, tabs, assignment rows, action menus, run trace disclosures, automation actions, and connect/reconnect flows to work without a mouse, so that admin work is efficient.
+93. As a mobile or narrow-screen user, I want tables and assignment lists to collapse into usable list/detail flows, so that status, actions, and filters remain reachable.
 94. As a product operator, I want every screen to render loading, empty, no-match, forbidden, stale, offline/reconnecting, error, and retry states, so that async runtime realities are normal product states.
 95. As a developer, I want the feature tested through application ports, route/server-action behavior, projection read models, and UI composition, so that tests protect external behavior without coupling to OpenClaw internals.
 
@@ -146,7 +148,7 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 | --- | --- |
 | `agents.html` | Full/admin Agents roster with full rail, top search, health/live indicator, notification and avatar controls, "Assistants" page title, "Your AI team" subtitle, Org chart and Add assistant actions, KPI cards for active/idle/spend, department sections, lead orchestrator row, department tables, assistant/role/model/status/current task/spend columns, AI attribution, active/idle/offline statuses, department summaries, roster totals, search/filter/no-match/loading/error/offline states, and deep links to agent detail. |
 | `agent-detail.html` | Agent detail for one `AgentEmployee` with breadcrumb back to Agents, status, department, role, model, MCP/tool posture, Pause and Assign task actions, stats for running tasks/cost/uptime/last seen, stable agent id, tabs for Overview/Activity/Tasks/Memory/Settings, current task progress, today's stats, weekly spend, recent runs, no-runs empty state, advanced configuration disclosures for model/inference/tools/channels/schedule/files/prompts, safe Export JSON behavior, toast/completion notifications, keyboard tab behavior, and no raw secret display. |
-| `task-board.html` | Full/admin Tasks board with date/all-project scope, New task action, search, project filter, Backlog/In progress/Review/Done columns, counts, task cards with assigned employee avatars, queued/running/degraded/review statuses, start/age text, progress bars, empty Done state, filters for project/status/employee, links into task detail/run trace/approval/project work, and normal degraded/runtime-unavailable states. |
+| `task-board.html` | **Superseded target.** This historical AI task-board mockup is a migration reference only. PRD-019 owns Dev Board; agent roster/detail surfaces show assignment projections and deep links without defining another board lifecycle. |
 | `automation.html` | Full/admin Automation page with schedules, webhooks, triggers, run log entry points, New automation action, KPI cards for active automations/runs/failures/schedules, cron schedule table with name/cadence/next run/last run/status, webhook/trigger table with event-to-action, last fired, runs in 24h, status and retry action, recent runs table, footer summary, loading/empty/no-match/error/offline states, and links to standing-order/workflow/run trace detail. |
 | `essential-tools.html` | Essential "Your tools" surface with Essential top bar, Home breadcrumb, Connect another action, explanatory copy, linked local tools list, status summary, rows for Claude Code/OpenCode/Codex CLI/Codex Desktop/Claude Desktop, Active/Connected/Degraded/Disconnected statuses, current activity, reconnect action, per-row menu, technical details disclosure with copy command, status legend, optimistic connect/reconnect working state, and accessible announcements. |
 | `essential-tools-empty.html` | Essential empty tool catalog with same shell, "Connect your first tool" empty state, explanation for Claude Code/Codex/OpenCode/other tools, primary Connect a tool action, one-minute setup hint, ghost preview rows, loading/error/forbidden states, and no requirement that the user know OpenClaw or MCP terminology before choosing a tool. |
@@ -186,7 +188,7 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 - The Settings tab must expose editable employee configuration according to authorization and must validate fields before commands are submitted.
 - Advanced configuration disclosures must show model/inference, tools/permissions, channels, schedule/cron, files, prompts, and policy refs as safe product summaries.
 - Export JSON, if implemented, must export a redacted Opzava product summary and must not include secrets, raw Gateway config, provider credentials, or hidden runtime payloads.
-- Assign task from agent detail must perform the same admission checks as assignment from project cards, Ask Opzava, workflows, or task board.
+- Assign task from agent detail must perform the same admission checks as assignment from project cards, Ask Opzava, workflows, or Dev Board.
 
 ### Standing orders, cron, and automation UX
 
@@ -201,26 +203,21 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 - Failed, retrying, skipped, rate-limited, approval-blocked, stale-input, Gateway unavailable, circuit-open, and drift-detected automation states must render as normal states.
 - Recent automation runs must deep-link to run traces and owning workflows.
 
-### Agent task board
+### Agent assignment projections
 
-- AI Workforce must own the cross-agent task board read model by composing `Assignment`, optional `AgentDispatch`, `WorkflowRun`, `RunStep`, approval, and runtime task projections.
-- The task board must not replace Project Management `pm.Card` boards or OpenClaw Workboard; it is the AI operations view over employee work.
-- Board columns must support Backlog, In progress, Review, and Done, with status mapping from queued, running, degraded, approval needed, review, completed, failed, timed out, canceled, and lost.
-- Task cards must show title, employee, department/project hint, source type, status, age/start time, progress, approval/review state, and linked target refs where authorized.
-- Filters must include project, department, employee, status, approval state, trigger source, workflow, and degraded/failure reason.
-- New task must create an assignment or project/workflow dispatch only through admitted Opzava commands.
-- Cancel, retry, reassign, mark reviewed, and open approval actions must be permission-gated, idempotent, and reflected in the owning aggregate/read models.
-- Review tasks must deep-link to the owning approval, draft, project card, workflow step, Activity row, or assistant conversation rather than storing review content only on the task board.
-- Runtime-derived progress must be treated as projected state and reconciled with durable Opzava assignment/workflow state.
+- AI Workforce may compose `Assignment`, optional `AgentDispatch`, `WorkflowRun`, `RunStep`, approval, runner, and runtime-task projections for roster/detail workload views.
+- A Dev Board assignment must deep-link to the owning DevTicket and display its authoritative lane/gate state. AI Workforce must not map it into a second Backlog/In Progress/Review/Done lifecycle.
+- Assignment controls such as pause, cancel, retry, and handoff must call the owning workflow command and preserve Dev Board lease, review, and audit rules where the target is a DevTicket.
+- Runtime-derived progress remains projected state and must be reconciled with the owning aggregate rather than treated as workflow authority.
 
 ### Run traces
 
-- Run trace detail must provide a chronological user-facing trace for one assignment, workflow run, automation run, or task board item.
+- Run trace detail must provide a chronological user-facing trace for one assignment, workflow run, automation run, or source work item.
 - Run trace header must show source request, actor, employee/persona, department, autonomy tier, project/work target, trigger source, status, started/completed time, duration, cost where available, and idempotency key/audit refs where authorized.
 - Trace steps must include admitted, queued, assigned, provisioned, session started, tool checked, approval requested, approval decided, artifact produced, message sent, report projected, completed, failed, canceled, timed out, lost, and repaired where applicable.
 - Tool step rows must show tool category/name, target class, policy decision, approval ref, redacted request/result summary, timestamp, duration, and audit ref.
 - Approval steps must distinguish Opzava business approvals from mirrored OpenClaw runtime approvals.
-- Trace artifacts must link to authorized Opzava outputs, project evidence, docs candidates, reports, messages, or admin cards rather than raw Gateway files.
+- Trace artifacts must link to authorized Opzava outputs, project evidence, docs candidates, reports, messages, or owning work records rather than raw Gateway files.
 - Run traces must preserve Opzava projections after runtime session/task details are pruned, and must label unavailable runtime details clearly.
 - Run traces must never expose hidden reasoning, raw provider payloads, secrets, channel credentials, raw Gateway DTOs, or unredacted tool output.
 
@@ -251,7 +248,7 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 
 - Roster and automation tables must support keyboard navigation, sortable/filterable controls, visible focus, and semantic table/list structure.
 - Agent detail tabs must implement accessible tab semantics and preserve focus on tab changes.
-- Task board columns/cards must have keyboard alternatives for opening, moving, filtering, canceling, retrying, and reviewing tasks.
+- Assignment lists must have keyboard alternatives for opening source work, filtering, canceling, retrying, and reviewing permitted actions.
 - Run trace disclosures and step details must be keyboard accessible and announce state changes politely.
 - Status badges, progress, approval state, failure state, and tool health must use text labels in addition to visual styling.
 - Mobile/narrow layouts must preserve page context, filters, primary actions, row/card status, and detail links without text overlap.
@@ -272,8 +269,8 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 | Automation definitions | Department Workflows | Workflow/Playbook, StandingOrderBlock, CronSpec, TaskFlowSpec, trigger policy, schedule policy, budget/concurrency, approval policy | `AuthorizationPort`, `OpenClawGatewayPort`, `EventBusPort` |
 | Automation provisioning | Department Workflows with Tenant Provisioning | Publish/pause/edit/delete commands, rendered artifact refs, OpenClaw cron/TaskFlow refs, provision receipts, drift repair | `AuthorizationPort`, `OpenClawGatewayPort`, `EventBusPort` |
 | Automation runs | Department Workflows | `WorkflowRun`, `RunStep`, trigger key, runtime refs, outcome, retry state, stale inputs, failure destination, report/artifact refs | `AuthorizationPort`, `OpenClawGatewayPort`, `RealtimeTransportPort`, `EventBusPort` |
-| Agent task board | AI Workforce with Department Workflows and Project Management | Cross-agent task read model, assignment state, workflow run state, approval state, project/work target refs, progress and failure reason | `AuthorizationPort`, `OpenClawGatewayPort`, `RealtimeTransportPort`, `EventBusPort` |
-| Project work links | Project Management | Optional `pm.Card`, to-do, schedule, issue, output/evidence refs, `AgentDispatch`, review state, project authorization | `AuthorizationPort`, `EventBusPort` |
+| Agent assignment projections | AI Workforce with the owning work context | Assignment/workflow/runtime state plus opaque `DevTicket` or `pm.Card` target refs; source lifecycle remains authoritative | `AuthorizationPort`, `OpenClawGatewayPort`, `RealtimeTransportPort`, `EventBusPort` |
+| Project work links | Project Management | Optional `pm.Card`, to-do, schedule, external-work, output/evidence refs, `AgentDispatch`, review state, project authorization | `AuthorizationPort`, `EventBusPort` |
 | Run trace detail | AI Workforce or Department Workflows by source | Trace header, step timeline, tool summaries, policy decisions, approvals, artifacts, messages, reports, runtime refs, audit refs | `AuthorizationPort`, `OpenClawGatewayPort`, `EventBusPort` |
 | Approval prompts and decisions | Department Workflows with contributing contexts | Opzava approval rows, mirrored runtime approval refs, decision commands, stale/superseded state, audit projection | `AuthorizationPort`, `OpenClawGatewayPort`, `EventBusPort`, `RealtimeTransportPort` |
 | Tool catalog | Runtime Control / Gateway Broker with Identity & Access | Linked tool directory, client type, MCP/CLI/Gateway connection projection, health/last seen, connect/reconnect command state, safe setup instructions | `AuthorizationPort`, `OpenClawGatewayPort`, `EventBusPort`, `RealtimeTransportPort` |
@@ -282,7 +279,7 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 
 ## Implementation decisions
 
-- Model roster, employee detail, task board, and run traces from Opzava read models; do not expose OpenClaw runtime rows as browser DTOs.
+- Model roster, employee detail, assignment projections, and run traces from Opzava read models; do not expose OpenClaw runtime rows as browser DTOs.
 - Keep `AgentEmployee`, Persona, Department, AutonomyTier, StandingOrder, ChannelBinding, Assignment, and `AgentDispatch` aligned with ADR-008 names and meanings.
 - Use Department Workflows for standing orders, cron schedules, webhooks/triggers, WorkflowRun, RunStep, and business approvals according to ADR-012.
 - Treat OpenClaw cron, TaskFlow, task-ledger, agents, workspaces, tools, memory, skills, and bindings as provisioned/runtime artifacts accessed through ports.
@@ -305,7 +302,7 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 | Channel bindings | Opzava-owned metadata with native channel runtime | Opzava owns binding policy, scope, approval, and credential refs. OpenClaw owns channel adapter runtime and delivery refs. |
 | Standing orders | Opzava-owned definition with native execution | Department Workflows own standing-order authority and approvals. OpenClaw executes the rendered standing-order blocks in agent workspaces. |
 | Cron schedules | Opzava-owned definition with native scheduler | Workflow/CronSpec and lifecycle are Opzava-owned. OpenClaw Gateway cron persists and executes the provisioned jobs. |
-| Task board | Opzava-owned projection | The board composes Assignment, AgentDispatch, WorkflowRun, RunStep, approvals, and runtime task projections. It is not the OpenClaw task ledger UI. |
+| Assignment views | Opzava-owned projection | Roster/detail views compose Assignment, AgentDispatch, WorkflowRun, RunStep, approvals, and runtime task projections. Dev Board remains the only platform-development board and OpenClaw task ledger remains runtime truth. |
 | OpenClaw task ledger | Native harnessed | OpenClaw task records are runtime activity for cron/subagent/ACP/CLI work. Opzava stores opaque refs and projected status. |
 | Run trace | Opzava-owned presentation with native inputs | Trace UI is a safe Opzava projection over assignments, workflow steps, approvals, tool summaries, and runtime refs. Raw logs remain behind the broker. |
 | Tool catalog | Hybrid | Opzava owns user-visible tool connection rows, status, repair actions, and authorization. OpenClaw/MCP/CLI clients provide health and capability signals. |
@@ -325,9 +322,8 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 - New automation captures required ADR-012 policy fields before publish and creates provisioning receipts for runtime artifacts.
 - Pausing/enabling/editing automation updates Opzava workflow state and projects the correct runtime/provisioning status.
 - Duplicate automation trigger keys do not create duplicate assignments, approvals, external sends, or run rows.
-- Task Board renders Backlog/In progress/Review/Done columns with search, project filter, task cards, progress, employee attribution, status, review links, and empty Done state.
-- Task Board distinguishes queued, running, degraded, review, completed, failed, timed-out, canceled, and lost states.
-- Task cancel/retry/reassign actions re-check authorization, preserve idempotency, and update owning read models.
+- Agent detail renders current/historical assignments with source links, projected progress, employee attribution, and degraded-state reasons without duplicating the Dev Board lifecycle.
+- Assignment cancel/retry/handoff actions re-check authorization, preserve idempotency, and update the owning work context.
 - Review tasks deep-link to owning approval, draft, project work, Activity row, or assistant conversation.
 - Run trace renders source actor, employee, department, tier, source trigger, project/work target, timeline steps, tool summaries, approval refs, artifacts, cost/duration where available, and audit refs where authorized.
 - Run trace redacts secrets and raw runtime payloads and labels purged/unavailable runtime detail explicitly.
@@ -336,20 +332,20 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 - Connect/reconnect flows route through authorized connector/provisioning actions and do not persist credentials in UI content.
 - Role revocation removes access to roster/detail/automation/task/run trace/tool detail on reload or realtime reconnect.
 - All user-visible statuses are available through labels/glyphs and not color alone.
-- Roster tables, tabs, task board cards, automation tables, run trace disclosures, and tool catalog rows are keyboard and screen-reader accessible.
+- Roster tables, tabs, assignment rows, automation tables, run trace disclosures, and tool catalog rows are keyboard and screen-reader accessible.
 - Mobile/narrow layouts preserve context, status, filters, actions, and detail links without overlap.
 
 ## Testing decisions
 
 - Test at the highest product seams: AI Workforce commands/queries, Department Workflow commands/queries, authorization-gated routes/server actions, projection read models, realtime status updates, and UI composition for the named screens.
-- Tests should assert external behavior: visible roster groups, authorized filtering, employee detail content, provisioning states, automation definitions, task board columns, run trace redaction, tool catalog repair flows, and audit/event emissions.
+- Tests should assert external behavior: visible roster groups, authorized filtering, employee detail content, provisioning states, automation definitions, source-work links, run trace redaction, tool catalog repair flows, and audit/event emissions.
 - Do not test OpenClaw protocol internals in product UI/domain tests. Use broker port fakes, provisioning receipts, and projected runtime fixtures.
 - Roster tests must cover department grouping, lead orchestrator separation, search/filter, active/idle/offline/provisioning/degraded states, spend summary labels, and forbidden/no-match states.
 - Employee lifecycle tests must cover create, edit, pause, deprovision, provisioning job creation, provision receipt projection, drift detection, repair, duplicate submit idempotency, and unauthorized mutation.
 - Agent detail tests must cover tabs, current tasks, recent runs, empty runs, advanced configuration redaction, tool policy states, channel binding summaries, memory/skills summaries, and Assign task admission failures.
 - Automation tests must cover schedules, triggers, recent runs, New automation validation, publish/pause/edit/delete, duplicate trigger collapse, retry, failed/run-log links, and drift/provisioning states.
 - Standing-order tests must cover scope, trigger, approval gate, escalation rule, budget, concurrency, timeout, retry cap, failure destination, and execute-verify-report requirements at the command boundary.
-- Task board tests must cover column mapping, filters, search, employee attribution, progress, degraded reason display, review links, cancel, retry, reassign, and stale runtime refs.
+- Assignment-projection tests must cover source links, filters, search, employee attribution, progress, degraded reason display, review links, cancel, retry, handoff, and stale runtime refs without creating a second workflow lifecycle.
 - Run trace tests must cover timeline ordering, tool summary redaction, Opzava vs runtime approval distinction, artifact links, purged runtime detail, authorization filtering, and audit refs.
 - Tool catalog tests must cover linked rows, empty state, active/connected/degraded/disconnected/not-linked statuses, reconnect technical details, optimistic working state, copy action, and forbidden/revoked access.
 - Security tests must cover no raw secrets in DTOs, no raw Gateway config, no provider payload leakage, tool policy deny display, credential ref rendering, stale session mutation denial, and acting-on-behalf-of audit metadata.
@@ -368,7 +364,9 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 - ADR-010: Knowledge Management source of truth, project/org corpus overlays, memory/wiki/vector indexes, source refs, and skill catalog.
 - ADR-011: CRM/channel identity and consent-sensitive customer records where channel bindings or CRM automations target customers.
 - PRD-002: App shell, Essential top bar, full/admin rail, command search, notification bell, Home/My stuff, and shell async states.
-- PRD-003: Projects, `pm.Card`, project tools, project schedules, project Updates, issue links, and `AgentDispatch` from project work.
+- PRD-003: Projects, `pm.Card`, project tools, project schedules, project Updates, linked-work refs, and `AgentDispatch` from project work.
+- PRD-019: Dev Board, `DevTicket`, assignment/runner/reviewer roles, execution leases, Sprints, GitHub synchronization, and review gates.
+- ADR-017: Dev Board authority, deterministic GitHub sync, and local/cloud execution boundaries.
 - PRD-004: Internal collaboration, Activity, notifications, assistant hand-offs, approvals surfaced to users, and Web Push delivery.
 - PRD-005: Ask Opzava, project assistant, Ask Admin Opzava, assistant conversations, inline approvals, delegation, and assistant run/projection consumers.
 

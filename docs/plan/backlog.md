@@ -1,7 +1,9 @@
 # Opzava ADR / PRD Backlog
 
-> **Status:** planning input, fully realized as ADR-001..015 (`docs/adr/`) + PRD-001..018 (`docs/prd/`).
-> Execution order is controlled by `docs/plan/EXECUTION.md`, not this file.
+> **Status (2026-07-15):** planning catalogue, not an executable queue. The original catalogue was
+> realized as ADR-001..016 (`docs/adr/`) + PRD-001..018 (`docs/prd/`); the Dev Board pivot adds
+> ADR-017 + PRD-019. Execution order is controlled by `docs/plan/dev-board-migration-manifest.md`
+> and explicitly approved replacement issues. `docs/plan/EXECUTION.md` is historical.
 
 Proposed priority-ordered backlog derived from the capability-parity map and the locked grilling decisions. Foundation ADRs come first because later PRDs depend on their boundaries, ports, and invariants.
 
@@ -14,6 +16,19 @@ Proposed priority-ordered backlog derived from the capability-parity map and the
 | P2 | Domain systems and revenue/ops workflows after the core loop exists. |
 | P3 | Per-screen feature PRDs and implementation slices. |
 | P4 | Polish, hardening, and design-system completeness. |
+
+## Dev Board pivot addendum
+
+| Id | Title | Covers decisions / contexts | Dependencies | Tier | Effort |
+| --- | --- | --- | --- | --- | --- |
+| ADR-017 | Dev Board authority, GitHub synchronization, and local execution | Dedicated Dev Board bounded context; DevTicket authority; GitHub Issue mirror; sync conflicts; enrolled local Runner; independent local Review; Slack boundary | ADR-003, ADR-004, ADR-005, ADR-007, ADR-008, ADR-009, ADR-015, ADR-016 | P0 | L |
+| PRD-019 | Dev Board | Unified Board/List/Sprints/Docs/Development/Releases surface; Ready Contract; dependencies; Proposals; assignments; evidence; GitHub mirror; migration from legacy `/tasks` + `/issues` | ADR-017, PRD-005, PRD-007, PRD-013, PRD-017 | P3 | L |
+
+Migration sequencing is deliberately not duplicated here. Follow
+`docs/plan/dev-board-migration-manifest.md`: quarantine the Q17/#147–#157 plan; introduce the new
+aggregate and integration seams alongside legacy code; backfill/reconcile; cut callers and routes
+over; retire legacy stores/tools only after acceptance evidence; preserve the old execution ledger
+and GitHub history. Replacement implementation tickets require explicit human approval.
 
 ## P0 - Foundation ADRs First
 
@@ -41,7 +56,7 @@ Proposed priority-ordered backlog derived from the capability-parity map and the
 | --- | --- | --- | --- | --- | --- |
 | ADR-011 | Deferred CRM, external channel ACL, and contact identity resolution | Future user-side dashboard rebuild; `Contact`, `Ticket`, `ChannelIdentity`, shell contacts, consent, GDPR purge | ADR-003, ADR-008, ADR-010 | Deferred | L |
 | ADR-012 | Department workflow engine, approvals, content pipeline, reports | Q11, Q8; Marketing/Dept-Workflows, Finance, CRM; `Workflow`, `Mechanism`, `Approval`, cron/TaskFlow/standing-orders | ADR-008, ADR-009, ADR-010 | P2 | L |
-| ADR-013 | Error-to-admin-card incident pipeline and remediation loop | Q9, Q4, Q7; Notifications/Admin-Observability; `ErrorGroup`, redaction, deadletter, watchdog, Ask Admin remediation approvals | ADR-003, ADR-004, ADR-009 | P2 | L |
+| ADR-013 | Error-to-Incident pipeline and remediation loop | Q9, Q4, Q7; Notifications/Admin-Observability; `ErrorGroup`/Incident lifecycle, redaction, deadletter, watchdog, Ask Admin remediation approvals, linked permanent-fix DevTickets | ADR-003, ADR-004, ADR-009 | P2 | L |
 | ADR-014 | Billing, usage metering, plan enforcement, and dunning lifecycle | Q12; Billing, Tenant Provisioning/Platform-Ops; Stripe port, `MeterEvent`, plan limits, suspension/deprovision coupling | ADR-002, ADR-004, ADR-013 | P2 | L |
 
 ## P3 - Product PRDs
@@ -53,13 +68,13 @@ Proposed priority-ordered backlog derived from the capability-parity map and the
 | PRD-003 | Projects, boards, cards, goals, to-dos, schedules, docs, discovery | Q4, Q4b, Q8; Project Mgmt, Knowledge Mgmt, AI Workforce; screens: project, boards, cards, goals, todos, docs, discovery | ADR-004, ADR-008, ADR-010 | P3 | L |
 | PRD-004 | Internal chat, DMs, project team rooms, mentions, activity, notifications | Q7, Q8; Internal Collaboration, Notifications/Admin-Observability; screens: messages, Slack view, team room, compose, mention inbox, activity | ADR-009 | P3 | L |
 | PRD-005 | Ask Opzava and Ask Admin Opzava conversations | Q3, Q7, Q8, Q9; AI Workforce, Admin-Observability; screens: orchestrator chat, essential Ask Opzava, project assistant | ADR-003, ADR-008, ADR-009, ADR-013 | P3 | L |
-| PRD-006 | AI assistant roster, agent detail, task board, run trace, automation | Q8, Q11; AI Workforce; screens: agents, agent-detail, task-board, automation | ADR-008, ADR-012 | P3 | L |
+| PRD-006 | AI assistant roster, agent detail, assignment/workload projections, run evidence, automation | Q8, Q11; AI Workforce; screens: agents, agent-detail, workload/assignment projections that deep-link to owning `pm.Card` or DevTicket, automation | ADR-008, ADR-012, ADR-017 | P3 | L |
 | PRD-007 | Knowledge, skills, docs/files, artifacts, and governed skill install | Q4b, Q8; Knowledge Mgmt; screens: memory-skills, docs, upload, card evidence | ADR-010 | P3 | L |
 | PRD-008 | Marketing campaign suite and content production loop | Q11, Q8; Marketing/Dept-Workflows; screens: marketing home, campaigns, new campaign, content pipeline, calendar, event-new | ADR-012, ADR-010 | P3 | L |
 | PRD-009 | Marketing approvals, assets, upload, send-review, reports, performance | Q11; Marketing/Dept-Workflows; screens: approvals, send-review, assets, upload, performance, ads/email/blog reports | ADR-012, PRD-008 | P3 | L |
 | PRD-010 | Deferred CRM and customer support workflows | Future user-side dashboard rebuild; External Channels via ACL, Project Mgmt; screens: customer support boards/cards, reply review, external ticket links | ADR-011, PRD-003, PRD-005 | Deferred | L |
 | PRD-011 | Finance expense ledger and money-risk approval UX | Q8, Q11; Finance; screens: costs, security approvals for spend/refunds | ADR-005, ADR-012, ADR-014 | P3 | M |
-| PRD-012 | Admin monitoring, logs, issues, security/audit, alerts, debug | Q5, Q9, Q12; Identity&Access, Notifications/Admin-Observability, Platform-Ops; screens: monitoring, logs, issues, security-audit, alerts, debug | ADR-007, ADR-013, ADR-014 | P3 | L |
+| PRD-012 | Admin monitoring, logs, incidents, security/audit, alerts, debug | Q5, Q9, Q12; Identity&Access, Notifications/Admin-Observability, Platform-Ops; screens: monitoring, logs, Incident projection/remediation, security-audit, alerts, debug | ADR-007, ADR-013, ADR-014 | P3 | L |
 | PRD-013 | Connections, providers, channels, tools, MCP, and connect wizard | Q3, Q4b, Q8, Q12; External Channels via ACL, Platform-Ops; screens: connections, settings connections, tools, connect wizard | ADR-003, ADR-005, ADR-010, ADR-014 | P3 | L |
 | PRD-014 | Billing settings, plan limits, usage budgets, onboarding completion | Q12, Q11; Billing, Platform-Ops; screens: settings billing, costs budget signals, setup completion | ADR-014, PRD-001, PRD-013 | P3 | L |
 

@@ -1,4 +1,6 @@
 # apps/mcp-server - hosted MCP tool registry
+> **Current implementation inventory (2026-07-15):** The `opzava_tasks_*` tools and `tasks:read`/`tasks:write` scopes below are real legacy APIs. Target Dev Board tools must be version/gate/lease aware under PRD-019/ADR-017; this document does not claim that migration is built.
+
 > Part of the Opzava architecture (see ../README.md). Vocabulary: codebase-design.
 
 ## Overview

@@ -5,7 +5,8 @@ set. Consensus memos (codex GPT-5.5 xhigh + mmx MiniMax-M3) live in `docs/plan/c
 
 Project: custom web UI for **OpenClaw** — a Basecamp/Asana-style PM tool + CRM for marketing,
 finance, promotions, and customer support. Surfaces OpenClaw features + the plugin Workboard;
-self-logs errors and auto-creates cards in an ADMIN board.
+self-logs errors into an Opzava-owned Incident/ErrorGroup lifecycle, with an optional Dev Board
+Incidents projection and separately linked remediation DevTickets where permanent work is needed.
 
 ---
 
@@ -39,10 +40,11 @@ participants** — bridged to OpenClaw agents via the **broker** (live token str
 **Webhooks plugin** (TaskFlow ingress for external automation + proactive delivery). Delivered as a
 **PWA** (installable desktop + mobile) with **Web Push** notifications.
 
-**Operating mode (2026-07-02):** Opzava runs single-tenant internally first to market and promote
-Opzava itself. The scale-ready multi-tenant architecture is retained; it runs one tenant now, not a
-public multi-tenant SaaS yet. The first business-value build after the admin-Tasks MVP is
-**Marketing + CRM**.
+**Operating mode:** Opzava runs single-tenant internally first to market and promote Opzava itself.
+The scale-ready multi-tenant architecture is retained; it runs one tenant now, not a public
+multi-tenant SaaS yet. The completed admin Tasks MVP is historical as-built substrate; the current
+developer-operations target is the Dev Board pivot recorded below. CRM remains deferred to the
+future user-side dashboard.
 
 **Two assistant personas (= the two-token context split):**
 
@@ -306,6 +308,13 @@ an approval row. Consensus trail: `docs/plan/consensus/q8-ai-workforce.{codex,mm
 
 ## Q9 — Error→Admin-card pipeline (Ask Admin Opzava) — LOCKED
 
+> **Superseded presentation amendment (2026-07-15):** Preserve the original Q9 body below as the
+> historical decision record, but do not implement its ADMIN `pm.Card`/board projection. ADR-013's
+> `ErrorGroup`/Incident aggregate now owns incident identity, lifecycle, visibility, evidence, and
+> remediation. Dev Board may show a read-only Incidents projection, never a DevTicket or `pm.Card`;
+> permanent code/configuration remediation is a separately linked DevTicket of Type Bug or
+> Technical Task under PRD-019/ADR-017.
+
 **Opzava-owned Notifications/Admin-Observability context (Postgres).** Aggregates:
 `ErrorGroup {fingerprint, severity, count, firstSeen, lastSeen, status, tenantId?, projectId?, agentId?, gatewayId?, visibility}`,
 `ErrorEvent {groupId, source, payload (JSONB, redacted), ts}`,
@@ -431,7 +440,8 @@ Every mockup screen classified OpenClaw-native / Opzava-owned / hybrid →
 `docs/plan/capability-parity.md`; priority-ordered ADR/PRD backlog → `docs/plan/backlog.md`,
 realized as ADR-001..015 (`docs/adr/`) + PRD-001..018 (`docs/prd/`). Consensus trail:
 `docs/plan/consensus/q13-backlog.mmx.md` (historical — its draft PRD-019..028/ADR-016 ids were
-renumbered into the final ADR/PRD set).
+renumbered into the then-final ADR/PRD set; the current PRD-019 and ADR-017 are new, unrelated Dev
+Board documents).
 
 ## Q14 — Local Docker stack ⇄ live Dokploy parity (Traefik) — LOCKED
 
@@ -471,6 +481,11 @@ GatewayInstance + live lease and pulls its route. The SAME reconcile logic + sin
 ---
 
 ## Q15 — MVP roadmap — LOCKED, then superseded for execution order
+
+> Dev Board amendment (2026-07-15): The Q15 body below is historical. `EXECUTION.md` no longer
+> controls live work order and remains a historical worklog only. Approved Dev Board/GitHub issues,
+> together with `docs/plan/dev-board-migration-manifest.md`, now control the live migration and
+> build.
 
 Walking-skeleton MVP + phased P1–P8 build order locked from mmx consensus → `docs/plan/roadmap.md`.
 2026-07-02: `docs/plan/EXECUTION.md` superseded the walking-skeleton MVP with the **admin-Tasks
@@ -537,7 +552,7 @@ EXECUTION.md controls order. Consensus trail: `docs/plan/consensus/q15-mvp-roadm
   SecretRef guard), `concepts/agent-runtimes.md` (embedded runtimes), `tools/acp-agents.md` (ACP =
   gateway-hosted harness), `cli/mcp.md` (MCP surfaces).
 
-## Q17 — Admin Tasks board as AI-Workforce dev pipeline — LOCKED (2026-07-04)
+## Q17 — Admin Tasks board as AI-Workforce dev pipeline — SUPERSEDED / FROZEN HISTORICAL (locked 2026-07-04; superseded 2026-07-15)
 
 **Purpose:** the Tasks board is **ADMIN-ONLY** and exists for Opzava-platform development work:
 slices, fixes, incidents, PRs, and repo dogfooding. It is **Opzava dogfooding Opzava**, not an
@@ -613,6 +628,12 @@ client-supplied text. Canonical slice contract: `docs/plan/consensus/tasks-ai-wo
 ---
 
 ## Q18 — Own OpenClaw as a tracked fork (`mainframe/`) + VPS Dokploy production home + Control-UI port contract — LOCKED (2026-07-04)
+
+> **Amendment (2026-07-15):** Q18 remains authoritative for Mainframe ownership, deployment, and
+> the Control-UI port program. Its historical execution-order and "Tasks, Issues retained" / "Tasks
+> IS the workboard" sentences are superseded: current work order comes from approved GitHub issues
+> plus `docs/plan/dev-board-migration-manifest.md`, and Dev Board replaces the standalone Tasks and
+> Issues products. OpenClaw Workboard remains deliberately unported.
 
 **Decision (user-grilled interactively 2026-07-04, no paired consensus):** Opzava **OWNS OpenClaw as
 a tracked fork, not a hard fork**. The clone at `docs/openclaw/clone` (upstream
@@ -700,7 +721,33 @@ leaked Dokploy key (rotate directive recorded in `secrets/dokploy.env`).
 
 ---
 
-## Grilling status — COMPLETE ✅ (Q1–Q18)
+## Dev Board pivot — LOCKED (2026-07-15)
+
+The separate admin Tasks and Issues product model is replaced by one **Dev Board** surface and a
+dedicated **DevTicket** aggregate. Opzava owns work contracts, workflow gates, dependencies,
+Sprints, assignments, approval, review, execution leases, and synchronization conflicts. GitHub is
+the durable synchronized Issue mirror and remains authoritative for native issue number/URL and
+PR/commit/check/merge facts. Incidents remain a separate operational projection; permanent
+remediation is a linked Bug or Technical Task DevTicket.
+
+The pivot also locks the Backlog readiness gate, version-bound Ready Contract, atomic Todo claim,
+explicit admitted local or orchestrator/cloud Runner selection with no implicit or automatic
+failover, independent local Reviewer against the shared local Docker stack, Slack Personal
+Assistant controls, goal-driven `autonomous_serial` Sprint model, first-class
+Docs/Development/Releases views, deterministic bidirectional GitHub App synchronization, and
+preservation of human-readable history on both systems. Review remains mandatory; Done means
+reviewed and merged into `development`; Staging and Production remain separate Releases states.
+
+This section is only the index entry. Detailed decisions live in
+`docs/plan/dev-board-foundation-decisions.md`; the product and architecture contracts are
+`docs/prd/PRD-019-dev-board.md` and
+`docs/adr/ADR-017-dev-board-authority-sync-execution.md`; the legacy cleanup and issue-quarantine
+sequence is `docs/plan/dev-board-migration-manifest.md`. These documents supersede Q17 and issues
+#147–#157. Replacement implementation tickets require explicit human approval before publication.
+
+---
+
+## Grilling status — DEV BOARD FOUNDATION COMPLETE ✅ (Q1–Q18 + 2026-07-15 pivot)
 
 All architecture branches locked with paired codex + mmx consensus: **Q1** BFF+DB · **Q1b** stack ·
 **Q2** pure-B tenancy · **Q3** WS broker+scoped token · **Q4** contexts+CQRS+ACL · **Q4b** knowledge
@@ -709,9 +756,11 @@ mgmt+two-token · **Q4c** tool-policy-first security · **Q5** RBAC+RLS · **Q6*
 CRM · **Q11** dept workflows · **Q12** billing+provisioning · **Q13** capability-parity map +
 ADR/PRD backlog · **Q14** local⇄Dokploy parity · **Q15** MVP roadmap · **Q16** orchestrator
 runtime + local coding harness (user-grilled, no paired consensus — decisions taken interactively
-2026-07-03) · **Q17** admin Tasks board as AI-Workforce dev pipeline (user-grilled, no paired
-consensus — decisions taken interactively 2026-07-04) · **Q18** own OpenClaw as tracked fork
+2026-07-03) · **Q17** admin Tasks board as AI-Workforce dev pipeline (**superseded/frozen
+historical**, 2026-07-15) · **Q18** own OpenClaw as tracked fork
 (`mainframe/`) + VPS Dokploy production home + Control-UI port contract (user-grilled, no paired
-consensus — decisions taken interactively 2026-07-04). The grilling sequence is complete. Design is
-realized in ADR-001..015 + PRD-001..018 (ADR-016 pending in the mainframe-move slice per Q18);
-execution is controlled by `docs/plan/EXECUTION.md`.
+consensus — decisions taken interactively 2026-07-04) · **Dev Board pivot** unified DevTicket,
+GitHub mirror, local execution/review, Sprint, Docs, Development, and Releases foundation (locked
+2026-07-15). The Dev Board foundation grilling is complete. Current authority is PRD-019, ADR-017,
+and the detailed Dev Board decision ledger; execution sequencing is controlled by the migration
+manifest and explicitly approved replacement issues. `docs/plan/EXECUTION.md` is historical.

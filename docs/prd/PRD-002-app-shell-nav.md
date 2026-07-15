@@ -13,6 +13,8 @@ Without a PRD-level contract, navigation, search, project visibility, notificati
 
 The solution is a responsive PWA app shell with Opzava-owned navigation, project switching, dashboards, search/read models, notifications, and empty states. OpenClaw runtime signals are harnessed only through the broker and projected where needed, per ADR-004, ADR-007, and ADR-009.
 
+> **Dev Board navigation amendment (2026-07-15):** The target full/admin shell has one **Dev Board** entry, replacing the separate Tasks and Issues product entries. Inside Dev Board, the canonical views are **Summary, List, Board, Sprints, Docs, Development, and Releases**. PRD-019 and ADR-017 own that surface and its workflow; this PRD owns only its navigation and search entry points. Current `/tasks` and `/issues` routes are migration inputs, not the target information architecture; see `docs/plan/dev-board-migration-manifest.md`.
+
 ## Goals and Non-goals
 
 ### Goals
@@ -20,6 +22,7 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 - Ship a responsive PWA app shell that works across desktop, tablet, and mobile with stable navigation, loading, empty, offline, and error states.
 - Give Essential users a calm top-bar navigation model: Home, My stuff, Messages, Activity, Ask Opzava, Find, New project, notifications, and account.
 - Give admin/full users a persistent rail model for operation-heavy surfaces without leaking that rail into the Essential experience.
+- Give admin/full users one Dev Board navigation entry with Summary, List, Board, Sprints, Docs, Development, and Releases subviews rather than separate Tasks and Issues destinations.
 - Make Project the primary child scope for navigation, search, dashboard rollups, and authorization.
 - Provide a project switcher that is visible, keyboard-accessible, RBAC-filtered, and safe when cached state points at a stale or revoked project.
 - Provide global Find and command palette behavior for projects, tasks/to-dos, people, assistants, files/docs, actions, and recent items.
@@ -33,7 +36,8 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 - Build full project workspace behavior, boards, cards, goals, schedules, docs, and idea detail workflows beyond shell/list/search entry points. Those belong primarily to PRD-003.
 - Build full internal chat, DMs, project team rooms, mentions, and Activity inbox behavior beyond shell counts and notification pointers. Those belong primarily to PRD-004.
 - Build Ask Opzava conversation orchestration beyond shell entry points, command palette actions, and search affordances. That belongs primarily to PRD-005.
-- Build admin monitoring/logs/issues/security/debug surfaces beyond shell navigation, alert center entry, and notification requirements. Those belong primarily to PRD-012.
+- Build admin monitoring/logs/incidents/security/debug surfaces beyond shell navigation, alert center entry, and notification requirements. Those belong primarily to PRD-012.
+- Build Dev Board behavior beyond shell navigation, global search, counts, and deep links. That belongs to PRD-019.
 - Build connected tool linking and connect wizard flows beyond Home/tool-status summary and notification entry points. Those belong primarily to PRD-013.
 - Build push preference management and service-worker offline policy beyond shell-level PWA and notification delivery hooks. Those belong primarily to PRD-016.
 - Introduce a permanent per-user pinning model for projects in this slice. Ship recent projects first; true pins require a user-scoped preferences model.
@@ -119,6 +123,8 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 
 - Essential top bar entries: Home, My stuff, Messages, Activity, Ask Opzava, Find, New project, notification bell, and account/avatar.
 - Full/admin rail groups: Operate, project list, Observe, Automate, Govern, Essential-view link, global search, and account/avatar.
+- The Operate group must expose one **Dev Board** entry. It must not retain separate target entries named Tasks and Issues.
+- Dev Board route composition must expose Summary, List, Board, Sprints, Docs, Development, and Releases while preserving the active view in a routable URL.
 - Project list queries must be available to all authorized project viewers, not admin-only users.
 - Project switcher results must be filtered by `AuthorizationPort` and tenant context.
 - Active project state must be validated against the latest authorized project list on load, route transitions, role changes, and reconnect.
@@ -291,7 +297,9 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 - PRD-003: Projects, boards, cards, goals, to-dos, schedules, docs, and Discovery durable workflows.
 - PRD-004: Internal chat, DMs, project team rooms, mentions, Activity, and notification-producing collaboration events.
 - PRD-005: Ask Opzava and Ask Admin Opzava conversations.
-- PRD-012: Admin monitoring, logs, issues, security/audit, alerts, and debug surfaces.
+- PRD-012: Admin monitoring, logs, Incidents, security/audit, alerts, and debug surfaces.
+- PRD-019: Dev Board target navigation, routable views, and workflow-owned attention counts.
+- ADR-017: Dev Board authority, GitHub synchronization, and execution boundaries.
 - PRD-013: Connections, providers, channels, tools, MCP, and connect wizard for linked-tool details.
 - PRD-016: PWA install/offline behavior and Web Push preferences for push preference management and offline gates.
 

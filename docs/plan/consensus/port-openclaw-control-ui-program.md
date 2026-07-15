@@ -46,8 +46,11 @@ source of truth for what each admin surface must show + do, re-implemented in Op
 | 13 | Debug / exec-approval / dreaming | debug.ts, exec-approval.ts, dreaming.ts | broker |
 | 14 | Ask Admin Opzava = WebChat parity (Q18): backing-sessionId continuity across reconnects, idempotency-keyed send coalescing, truncated-message side-reader via chat.message.get, compaction dividers linking to Sessions | Control UI chat tab per `docs/openclaw/web/webchat.md`; RPCs chat.history/chat.send/chat.inject/chat.message.get | broker (existing Ask Admin connection, upgraded to this contract) |
 
-DELIBERATELY NOT PORTED (Q18): OpenClaw's **workboard** view — Opzava Tasks IS the workboard (Q17
-Tasks-as-AI-Workforce). Do not "helpfully" port a second, competing task surface. CRM is NEVER an
+DELIBERATELY NOT PORTED (Q18): OpenClaw's **workboard** view. The target Opzava product surface is
+**Dev Board** under PRD-019/ADR-017, replacing the separate Tasks and Issues product pages. Dev Board
+owns development workflow while OpenClaw Workboard remains runtime state behind the ACL; do not
+"helpfully" port a second competing board. The existing `/tasks` and `/issues` routes are legacy
+migration inputs, not the target contract (`docs/plan/dev-board-migration-manifest.md`). CRM is NEVER an
 admin-dashboard surface (user directive 2026-07-04) — it is out of this program's scope entirely.
 
 Each view = its own focused slice: read the OpenClaw reference view + gateway-methods, define the ACL

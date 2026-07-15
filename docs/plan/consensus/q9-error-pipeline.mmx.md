@@ -1,3 +1,9 @@
+> **Superseded context (2026-07-15):** This memo is preserved verbatim as historical consensus, but
+> its ADMIN `pm.Card`/board presentation is no longer implementation guidance. ADR-013 now owns a
+> separate `ErrorGroup`/Incident lifecycle; Dev Board may expose an Incidents read projection, and
+> permanent remediation is a separately linked Bug or Technical Task DevTicket under
+> PRD-019/ADR-017.
+
 **1) Error SOURCES + ingestion — DECISIVE PICK:** Build a thin `ErrorEvent` ingest endpoint (BFF) accepting from 4 producers: (a) in-process Next.js `error.tsx` + `route.ts` reporters (browser+server, with route id), (b) broker/ACL ingestion errors from the Workboard adapter, (c) OpenClaw ACL pulls — scheduled `logs.tail` (cursor per gateway), `diagnostics.stability`, task-ledger `failed/timed_out/cancelled`, Workboard flags, gateway usage spikes, (d) tenant/customer reports via a minimal support form. All funnel into ONE normalized `Incident` (tenantId nullable, projectId nullable, agentId nullable, gatewayId nullable, source enum, severity, fingerprint, raw JSONB). No separate per-source models.
 
 **2) FINGERPRINT/DEDUP:** SHA-256 of `service|route|exception-type|normalized-message-95%-token-overlap`. Card-creation thresholds: (a) suppress until count ≥ N within window W (default 3 / 5min), (b) OR severity=critical → immediate, (c) cooldown 30min per fingerprint before re-card, (d) hour-bucket rate-cap 10 new cards/tenant/hr. Increment count, update `lastSeen`; one card per fingerprint lifetime, reopen on recurrence post-resolve.

@@ -1,4 +1,6 @@
 # packages/ports - agnostic capability seams
+> **Current implementation inventory (2026-07-15):** `IssueTrackerPort` and all Task/Issue consumers below describe current code. The target Dev Board GitHub App, webhook, deterministic sync, and durable outbox seams are planned under PRD-019/ADR-017 and are not implemented by this inventory.
+
 > Part of the Opzava architecture (see ../README.md). Vocabulary: codebase-design.
 
 ## Overview
@@ -92,7 +94,7 @@ Gap: the MFA-as-return-branch contract (challenge vs session) is the riskiest pa
 - **Deepening opportunity:** none on the surface; the MFA fold into `signIn` is already a depth win (one operation, two outcomes) and should be preserved.
 
 ### EventBusPort - DELETED (#160)
-- **Interface (the seam):** none. The port exposed `publish`/`recordOutbox`/`subscribe` and had **zero adapters and zero consumers**; its one caller took it as an optional dependency, so the domain event it claimed to publish went nowhere. It was deleted in #160 (zero adapters, zero consumers — the optional dependency made the missing adapter a silent no-op). ADR-004 stands: Q17 S6 (#152) reintroduces the port together with the Postgres outbox and its first real consumer (the dispatcher worker).
+- **Interface (the seam):** none. The port exposed `publish`/`recordOutbox`/`subscribe` and had **zero adapters and zero consumers**; its one caller took it as an optional dependency, so the domain event it claimed to publish went nowhere. It was deleted in #160 (zero adapters, zero consumers — the optional dependency made the missing adapter a silent no-op). ADR-004 stands; any replacement must land with the Postgres outbox and its first real consumer under PRD-019/ADR-017 rather than historical #152.
 Invariants: `publish` returns the persisted `OutboxRecord` (`:47-51`), `OutboxRecord` carries attempt count and optional `externalRef` (`:17-27`), `subscribe` returns an `EventSubscription` whose `unsubscribe` is itself async (`:38-40`), and `PublishOptions` carries `idempotencyKey`/`availableAt` (`:29-32`).
 - **Behind the seam (implementation):** hidden behavior is outbox persistence, idempotent publish, scheduled availability, and subscription lifecycle.
 - **Adapters:** 0 class adapters found; the port is consumed only as a dependency-injection parameter (`packages/identity-access/src/application/first-owner-setup.ts:48,154,187`), so it is a planned/speculative seam, not yet a real one.

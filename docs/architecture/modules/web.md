@@ -1,4 +1,6 @@
 # apps/web - Next.js App Router BFF + admin dashboard
+> **Current implementation inventory (2026-07-15):** `/tasks`, `/issues`, their actions/components, and helper paths below are truthful current code. The target navigation replaces both with PRD-019 Dev Board; it is not built yet. Use ADR-017 and `docs/plan/dev-board-migration-manifest.md` for future work rather than historical #147–#157 tasks.
+
 > Part of the Opzava architecture (see ../README.md).
 > Vocabulary: codebase-design.
 

@@ -11,7 +11,7 @@ Without a PRD-level contract, these surfaces can drift into unsafe or confusing 
 - Ask Opzava could become one generic omniscient chat that leaks project context across authorization boundaries.
 - Project assistants could bypass `AgentDispatch`, assignments, approval policy, project knowledge scope, or Activity hand-offs.
 - Live token streaming could be mistaken for durable chat history before an assistant turn is finalized.
-- Ask Admin Opzava could turn incident cards into broad tenant-admin authority instead of a constrained remediation surface.
+- Ask Admin Opzava could turn an Incident into broad tenant-admin authority instead of a constrained remediation surface.
 - Inline approvals could be scattered across chat, notifications, Activity, and project screens without one accountable decision record.
 
 The solution is an Opzava-owned assistant conversation product surface backed by ADR-008, ADR-009, ADR-003, and ADR-013. Opzava owns assistant conversation rows, admission, authorization, context scoping, approvals, activity projections, and durable final messages. OpenClaw is harnessed for delegate-agent sessions, live token streams, runtime approvals, tools, logs, and remediation operations through the broker.
@@ -22,7 +22,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 
 - Ship Ask Opzava as the everyday tenant personal assistant for authorized users, using the hot-path broker token and explicit project-scoped context.
 - Ship project assistant conversations such as Atlas for one project at a time, with project corpus overlays, project tools, and project-scoped approvals.
-- Ship Ask Admin Opzava as the platform-ops assistant for admin/full users, centered on incident/admin-card triage and ADR-013 remediation actions.
+- Ship Ask Admin Opzava as the platform-ops assistant for admin/full users, centered on the ADR-013 Incident lifecycle, redacted evidence, and constrained remediation actions.
 - Make assistant responses stream live tokens with clear "working", "delegating", "tool check", "approval needed", "completed", and "failed/degraded" states.
 - Route work to department AI employees when a specialist is appropriate, while preserving Ask Opzava as the coordinator facade.
 - Surface approvals inline in assistant chats, with the same approval rows, policy gates, and audit trail used by project/workflow surfaces.
@@ -40,7 +40,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - Build Project Management boards, cards, goals, to-dos, docs, schedules, discovery, or project Updates beyond assistant entry points and projected assistant output. Those are PRD-003.
 - Build AI employee provisioning, persona editing, department management, standing orders, or autonomy-tier administration beyond using the ADR-008 model.
 - Build Knowledge Management ingestion, corpus rebuild, OKF import, embedding, or memory internals beyond resolving authorized context overlays.
-- Build the full incident pipeline, error grouping, ADMIN board, alert routing, or remediation aggregate internals. Those are ADR-013 and later observability PRDs.
+- Build the full Incident pipeline, error grouping, Incidents view/projection, alert routing, or remediation aggregate internals. Those are ADR-013 and later observability PRDs.
 - Expose OpenClaw session transcripts, raw Gateway DTOs, raw tool output, provider secrets, channel credentials, or Gateway-local config to browser clients.
 - Allow Ask Admin Opzava to perform unapproved destructive, cross-tenant, bulk, secret-changing, or tenant-admin remediation.
 
@@ -101,7 +101,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 53. As an admin/full-shell user, I want Ask Admin Opzava to summarize projects, agents, integrations, approvals, and admin decisions, so that I can triage operations from one conversation.
 54. As an admin/full-shell user, I want Ask Admin Opzava to identify blocked approvals and runtime issues, so that I can focus on work that needs intervention.
 55. As an admin/full-shell user, I want Ask Admin Opzava trace cards to disclose admin-level checks only to authorized users, so that operations data is not exposed to ordinary users.
-56. As a platform operator, I want Ask Admin Opzava to open and explain ADMIN incident cards, so that incident triage happens from the same surface as remediation.
+56. As a platform operator, I want Ask Admin Opzava to open and explain Incidents, so that triage happens from the same surface as remediation.
 57. As a platform operator, I want Ask Admin Opzava to inspect redacted app, broker, Gateway, Workboard, task-ledger, health, usage, and audit projections, so that it can diagnose likely causes.
 58. As a platform operator, I want Ask Admin Opzava to propose remediation actions with blast-radius labels, so that I know what scope the fix affects.
 59. As a platform operator, I want Ask Admin Opzava to run dry-run-first where possible, so that I can see the expected change before approving execution.
@@ -109,7 +109,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 61. As a platform operator, I want destructive or tenant-admin remediation to require two-step human confirmation, so that high-risk changes are deliberate.
 62. As a platform operator, I want approved remediation to execute through the audited admin-token job path, so that the browser and hot-path chat token never hold admin authority.
 63. As a platform operator, I want Ask Admin Opzava to constrain remediation to one tenant, Gateway, job, route, or bounded operational target at a time, so that one action cannot create cross-tenant blast radius.
-64. As a platform operator, I want remediation results to write back to the incident/admin card, so that the card shows what changed and what remains.
+64. As a platform operator, I want remediation results to write back to the Incident, so that its lifecycle and evidence show what changed and what remains.
 65. As a platform operator, I want failed remediation to produce a clear next action or escalation, so that an attempted fix does not end as a silent failure.
 66. As a security reviewer, I want all assistant turns to record human actor, assistant persona, acting-on-behalf-of metadata, project/tenant scope, approval refs, and opaque runtime refs, so that audits can explain who requested and who acted.
 67. As a security reviewer, I want browser-supplied project ids, tenant ids, Gateway refs, agent ids, and corpus refs treated as hints only, so that routing authority stays server-side.
@@ -205,8 +205,8 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 
 ### Ask Admin Opzava remediation surface
 
-- Ask Admin Opzava must be centered on platform-ops/admin use cases: incident triage, admin-card summary, blocked approvals, agent status, integration health, Gateway health, projection failures, and remediation proposals.
-- Ask Admin Opzava must read incident/admin-card data through Notifications/Admin-Observability projections and must not make ADMIN PM cards the incident source of truth.
+- Ask Admin Opzava must be centered on platform-ops/admin use cases: Incident triage, Incident summary, blocked approvals, agent status, integration health, Gateway health, projection failures, and remediation proposals.
+- Ask Admin Opzava must read `ErrorGroup`/Incident data through Notifications/Admin-Observability projections. Neither `pm.Card`, DevTicket, nor the Dev Board projection is the Incident source of truth; permanent fixes are separately linked Bug or Technical Task DevTickets.
 - Ask Admin Opzava may inspect OpenClaw logs, diagnostics, task snapshots, Workboard diagnostics, health, usage, and approval/runtime refs only through `OpenClawGatewayPort` and authorized projectors.
 - Ask Admin Opzava must show remediation proposals as inline action cards with incident, cause hypothesis, blast-radius class, dry-run availability, required approval level, and execution target.
 - Low-risk actions may be limited to summarize, label, notify, request data, or draft remediation.
@@ -214,7 +214,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - Destructive, secret-changing, re-provisioning, data-erasure, queue-drain, config mutation, and tenant-admin actions must require two-step confirmation.
 - Cross-tenant remediation must not be one action. Each remediation action must target one tenant, one Gateway, one route, one job, one projector, one task, or one bounded operational target.
 - Approved remediation must execute through a platform-ops job that obtains the short-lived ADR-003 admin credential out of band from the chat hot path.
-- Every remediation action must run dry-run-first where supported, carry an idempotency key, write immutable audit, and project results back to the incident/admin card.
+- Every remediation action must run dry-run-first where supported, carry an idempotency key, write immutable audit, and project results back to the Incident lifecycle and evidence.
 - Ask Admin Opzava must surface failed, partial, skipped, approval denied, dry-run failed, admin-token unavailable, and policy-denied remediation outcomes.
 - Tenant-visible incident summaries must respect ADR-013 visibility and redaction; platform-only detail must not leak into tenant chat surfaces.
 
@@ -222,7 +222,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 
 - Assistant conversation events that require the user's attention must create Activity or notification rows according to PRD-004/PRD-002 ownership.
 - Mentions, assistant hand-offs, approval prompts, and thread replies belong in Activity.
-- System/tool/project alerts, incident/admin-card alerts, assistant completions, and operational updates may create notification rows where background delivery is useful.
+- System/tool/project alerts, Incident alerts, assistant completions, and operational updates may create notification rows where background delivery is useful.
 - Ask Opzava and project assistant conversations must deep-link from Activity, project Updates, My stuff, and project work where appropriate.
 - Assistant completions must be attributable to the employee persona and source context in Activity/Updates/Notifications.
 - Web Push delivery for assistant completions or approvals must use safe payloads only and fetch details through normal server authorization.
@@ -261,8 +261,8 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 | Inline approvals | Department Workflows with contributing contexts | Approval row, draft/action summary, decision command, request-changes command, approval refs, audit projection | `AuthorizationPort`, `OpenClawGatewayPort`, `EventBusPort`, `RealtimeTransportPort` |
 | Activity hand-offs and assistant completions | Internal Collaboration and Notifications/Admin-Observability | Activity rows, mention/hand-off refs, unread state, notification rows, push eligibility, deep links | `AuthorizationPort`, `EventBusPort`, `RealtimeTransportPort`, `PushNotificationPort` |
 | Project Updates and Outputs | Project Management with AI Workforce inputs | Assistant summaries, generated output refs, approval outcomes, status events, evidence links, waiting-on-you bands | `AuthorizationPort`, `EventBusPort`, `RealtimeTransportPort` |
-| Ask Admin Opzava conversation | Notifications/Admin-Observability with AI Workforce | Admin assistant transcript, incident/admin-card refs, admin trace summaries, remediation cards, approval prompts | `AuthorizationPort`, `OpenClawGatewayPort`, `RealtimeTransportPort`, `EventBusPort` |
-| Incident investigation | Notifications/Admin-Observability | `ErrorGroup`, `ErrorEvent`, ADMIN card projection, redacted diagnostics, broker/Gateway/task/usage snapshots | `ErrorCapturePort`, `AuthorizationPort`, `OpenClawGatewayPort`, `EventBusPort` |
+| Ask Admin Opzava conversation | Notifications/Admin-Observability with AI Workforce | Admin assistant transcript, Incident refs, admin trace summaries, remediation cards, approval prompts | `AuthorizationPort`, `OpenClawGatewayPort`, `RealtimeTransportPort`, `EventBusPort` |
+| Incident investigation | Notifications/Admin-Observability | `ErrorGroup`, `ErrorEvent`, Incident lifecycle/projection, redacted diagnostics, broker/Gateway/task/usage snapshots, linked permanent-fix DevTicket refs | `ErrorCapturePort`, `AuthorizationPort`, `OpenClawGatewayPort`, `EventBusPort` |
 | Remediation action | Notifications/Admin-Observability with Platform-Ops job runner | `RemediationAction`, blast-radius class, dry-run result, approval refs, admin-token job ref, execution result, audit | `AuthorizationPort`, `OpenClawGatewayPort`, `EventBusPort` |
 | Admin-token execution | Platform-Ops/Tenant Provisioning | Short-lived `operator.admin` job credential, one-scope runtime/admin operation, provision/repair receipt | `OpenClawGatewayPort`, `AuthorizationPort`, `EventBusPort` |
 | Search/Find assistant entries | Project Management shell search coordinator with AI Workforce | Assistant result DTOs, project assistant entry points, recent conversations, authorized action results | `AuthorizationPort`, `KnowledgeIndexPort`, `EventBusPort` |
@@ -276,7 +276,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - Use ADR-008 `AgentEmployee`, `Assignment`, and `AgentDispatch` for delegated work instead of adding assistant-specific parallel workflow concepts.
 - Use existing approval rows and workflow/project approval commands for inline approval actions; chat cards are projections and command launchers.
 - Resolve project/org corpus overlays server-side through Knowledge Management for each delegated turn.
-- Use Notifications/Admin-Observability as the owner of Ask Admin Opzava incident and remediation cards.
+- Use Notifications/Admin-Observability as the owner of Ask Admin Opzava Incident lifecycle/projections and remediation action cards.
 - Use platform-ops jobs for admin-token remediation; Ask Admin Opzava may propose and request approval but does not execute admin operations inside the chat request path.
 - Emit outbox events for finalized messages, assistant completions, approvals, Activity rows, project Updates, notification rows, remediation changes, and audit projections.
 - Define assistant DTOs around Opzava names: conversation, turn, stream event, trace summary, approval card, delegation status, remediation card, and source ref.
@@ -297,7 +297,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 | Project knowledge context | Opzava-owned retrieval policy with native corpus use | Knowledge Management owns source/corpus refs and authorization. OpenClaw receives authorized corpus overlays for the session but does not decide project access. |
 | Trace/tool cards | Opzava-owned presentation | OpenClaw tool/runtime detail may inform trace summaries, but Opzava owns what is redacted, disclosed, stored, and rendered. |
 | Activity/Notifications/Project Updates | Opzava-owned projections | Assistant completions, hand-offs, approvals, and remediation outcomes project into Opzava read models. Runtime events are inputs, not the source of product truth. |
-| Incident/admin-card remediation | Opzava-owned incident domain with native diagnostics | ADR-013 `ErrorGroup`/`RemediationAction` are Opzava-owned. OpenClaw logs, health, Workboard, task-ledger, and remediation operations are harnessed through `OpenClawGatewayPort`. |
+| Incident remediation | Opzava-owned Incident domain with native diagnostics | ADR-013 `ErrorGroup`/`RemediationAction` and Incident lifecycle are Opzava-owned. OpenClaw logs, health, Workboard, task-ledger, and remediation operations are harnessed through `OpenClawGatewayPort`; permanent fixes link to normal DevTickets. |
 
 ## Acceptance criteria
 
@@ -317,12 +317,12 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - Delegated work shows the selected AI employee persona and creates/reuses the appropriate `Assignment` and `AgentDispatch` records.
 - Policy denied, approval required, provisioning required, gateway unavailable, circuit open, and missing corpus states render as normal assistant states.
 - Ask Admin Opzava renders in the full/admin shell with platform-ops positioning, admin digest, trace/tool card, inline action card, suggestions, and composer.
-- Ask Admin Opzava can summarize incident/admin-card context from Notifications/Admin-Observability projections.
+- Ask Admin Opzava can summarize Incident context from Notifications/Admin-Observability projections.
 - Ask Admin Opzava remediation proposals show incident, hypothesis, target scope, blast-radius class, dry-run status, required approval, and primary/secondary actions.
 - Medium-risk remediation requires explicit approval before execution.
 - Destructive or tenant-admin remediation requires two-step confirmation.
 - Approved remediation executes through an audited platform-ops admin-token job, not the hot-path chat request.
-- Remediation outcomes update the incident/admin card and assistant conversation with success, partial, failed, skipped, or policy-denied state.
+- Remediation outcomes update the Incident lifecycle/evidence and assistant conversation with success, partial, failed, skipped, or policy-denied state.
 - Tenant-visible incident and assistant summaries respect ADR-013 visibility/redaction rules.
 - Role revocation removes access to assistant conversations, project snippets, approval details, streams, and admin remediation detail on fetch/reconnect.
 - Assistant trace cards, approvals, streaming updates, preview modals, remediation cards, and composer controls are keyboard and screen-reader accessible.
@@ -341,7 +341,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - Approval tests must cover approve, request changes, stale/superseded approval, expired approval, unauthorized approval, duplicate clicks, runtime approval-ref reconciliation, audit rows, and downstream Activity/Updates state.
 - Knowledge-scope tests must cover server-side project corpus resolution, browser-supplied corpus rejection, cross-project summary redaction, revoked project access, stale corpus labels, and authorized citation/source links.
 - Ask Admin Opzava tests must cover incident summary, redacted diagnostics, admin trace disclosure, remediation proposal rendering, dry-run result, approval required, two-step confirmation, job submission, and result projection.
-- Remediation tests must cover one-scope targeting, idempotency, admin-token unavailable, dry-run unsupported, policy denied, partial failure, audit fields, and ADMIN card update.
+- Remediation tests must cover one-scope targeting, idempotency, admin-token unavailable, dry-run unsupported, policy denied, partial failure, audit fields, Incident update, and creation/linking of a permanent-fix DevTicket without changing Incident lifecycle ownership.
 - Security tests must cover missing tenant, role revocation, suspended tenant, disabled assistant, stale membership version, no raw secrets in trace/transcript, no raw Gateway DTO leakage, and acting-on-behalf-of audit metadata.
 - Accessibility tests must cover role=log/feed semantics, live stream announcements, focus management, keyboard operation for trace/approval/remediation/preview controls, and non-color status labels.
 - Responsive tests must cover Essential Ask Opzava, project assistant, and Ask Admin Opzava at mobile and desktop widths with inline actions visible and text contained.
@@ -351,7 +351,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - ADR-003: `gateway-broker` ACL, two-token model, hot-path runtime authority, admin/provisioning credential, tenant routing, and opaque OpenClaw refs.
 - ADR-008: AI Workforce, delegate agents, personas, departments, autonomy tiers, `AgentEmployee`, `Assignment`, `AgentDispatch`, and coordinator/delegation behavior.
 - ADR-009: Realtime WS hub, assistants-in-chat bridge, live token streaming, durable final assistant messages, Activity/notification fan-out, reconnect, and idempotency.
-- ADR-013: Error-to-admin-card incident pipeline, Ask Admin Opzava remediation loop, `RemediationAction`, dry-run/approval gates, and admin-token audit.
+- ADR-013: Error-to-Incident pipeline, Ask Admin Opzava remediation loop, `RemediationAction`, separate Incident projection, linked permanent-fix DevTickets, dry-run/approval gates, and admin-token audit.
 - ADR-004: Data boundary, hybrid CQRS, outbox, projections, snapshot reconciliation, and opaque runtime refs.
 - ADR-005: Tool-policy-first security, approval gates, sandbox posture, and policy denial behavior.
 - ADR-006: Better Auth, revocable sessions, role/session invalidation, PWA auth constraints, and push fetch-on-open behavior.

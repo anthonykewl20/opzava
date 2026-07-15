@@ -4,6 +4,8 @@ Status: Accepted
 
 > Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
 
+> Dev Board amendment (2026-07-15): Project Management continues to own generic project boards and `pm.Card`. Opzava platform-development work is instead owned by the dedicated `DevTicket`/Dev Board domain, while Notifications/Admin-Observability owns the operational `Incident`/`ErrorGroup` aggregate and lifecycle. ADR-017 and PRD-019 govern those boundaries; former platform/admin board or card examples in this ADR do not assign them to Project Management.
+
 Opzava Postgres is the system of record for all Opzava domain data, while OpenClaw remains the system of record for runtime execution data reached only through the ADR-003 `gateway-broker` ACL. Opzava will use hybrid CQRS: durable UI data is projected into Postgres read models from domain/runtime events, while heavy or ephemeral runtime views are read through the broker from OpenClaw snapshots.
 
 ## Context
@@ -12,7 +14,7 @@ ADR-001 establishes Opzava as a modular DDD monorepo with Postgres, Drizzle, one
 
 Q4 locks the data boundary: Opzava owns identity, tenancy, human workflows, CRM, billing, notifications, audit, and product policy in Postgres; OpenClaw owns agent runtime capabilities such as sessions, runs, streaming, channels, cron/automation, Workboard, logs, usage/cost, skills, memory, Gateway-local secrets, and Gateway-local config. Opzava may store opaque refs and projected snapshots of OpenClaw state, but storing a projection does not transfer ownership of that data to Opzava.
 
-Q7, Q9, and Q12 all depend on the same projection contract. Realtime fan-out needs durable chat/activity/notification delivery through outbox and Redis. The error-to-admin-card pipeline needs OpenClaw logs, diagnostics, task failures, Workboard failure flags, health, and usage spikes normalized into incidents and projected onto PM-card read models. Provisioning and billing need lifecycle and usage observations to flow through outbox so suspension, deprovisioning, and reapers observe the same tenant truth.
+Q7, Q9, and Q12 all depend on the same projection contract. Realtime fan-out needs durable chat/activity/notification delivery through outbox and Redis. The error-to-Incident pipeline needs OpenClaw logs, diagnostics, task failures, Workboard failure flags, health, and usage spikes normalized into Incident read models. Provisioning and billing need lifecycle and usage observations to flow through outbox so suspension, deprovisioning, and reapers observe the same tenant truth.
 
 The central modeling risk is identity drift between human work and runtime work. `pm.Card` is an Opzava Project Management aggregate for human commitments, ownership, SLA, customer impact, approvals, comments, and board semantics. `workboard.Card` is an OpenClaw Workboard concept for Gateway-local agent work. If Workboard ids or statuses become primary PM fields, Opzava's bounded contexts collapse into OpenClaw's runtime model.
 
@@ -24,14 +26,14 @@ The Opzava bounded-context map is:
 
 - Identity & Access owns users, organizations, memberships, invitations, sessions, audit principals, authentication state, and human access policy.
 - Tenant Provisioning and Platform-Ops own tenant lifecycle, provisioning jobs, `GatewayInstance` records, runtime leases, host placement, route health, and operational repair/deprovisioning state.
-- Project Management owns human projects, boards, `pm.Card`, comments, assignments, approvals, SLA/customer-impact fields, PM read models, and platform/admin boards.
+- Project Management owns human projects, generic project boards, `pm.Card`, comments, assignments, approvals, SLA/customer-impact fields, and PM read models.
 - Internal Collaboration owns internal channels, DMs, threads, messages, mentions, reactions, read cursors, chat ordering, and durable chat history.
 - AI Workforce owns agent employees, personas, delegation policy, `AgentDispatch`, employee-to-project/workspace mapping, and Opzava-side agent work status.
 - Knowledge Management owns Opzava knowledge sources, ingestion jobs, document metadata, source-file refs, retrieval policy, and projected index status.
 - CRM and External Channels own Opzava customer/account/contact/deal/ticket/timeline records and channel correlation records; OpenClaw remains the runtime owner of connected channel state and credentials.
 - Department Workflows owns workflow definitions, workflow runs, run steps, approvals, generated content lifecycle, reports, and workflow audit.
 - Finance and Billing own plans, subscriptions, invoices, usage meters, entitlement state, quota policy, dunning, and metering receipts.
-- Notifications/Admin-Observability owns human-visible notifications, incident/error groups, error events, remediation actions, alert routes, integration correlation, and admin-card projections.
+- Notifications/Admin-Observability owns human-visible notifications, operational `Incident`/`ErrorGroup` aggregate identity and lifecycle, error events, remediation actions, alert routes, integration correlation, and Incident projections used by administrative observability views.
 - Runtime-Control owns Opzava policy for runtime commands, approvals, steering, aborts, and Gateway operation admission, while executing runtime effects only through ADR-003.
 
 OpenClaw-owned runtime contexts are reachable only through `OpenClawGatewayPort` implemented by the ADR-003 `gateway-broker` ACL:
@@ -99,11 +101,11 @@ OpenClaw orphaned refs are a first-class invariant. An `AgentDispatch` may point
 
 Cross-tenant isolation depends on projection writers using the tenant bound to the ADR-003 broker connection or Opzava outbox envelope, not any tenant-looking value inside OpenClaw payloads. A projection event from one tenant Gateway must never update another tenant's read model, even if the payload includes malformed or stale identifiers.
 
-This adds worker and schema discipline. Each context needs event schemas, outbox receipts, projector idempotency, replay paths, checkpointing, stale-read UX, and reconciliation jobs. The benefit is that dashboards, search, incident creation, admin boards, usage views, and chat fan-out do not turn tenant Gateways into query backends.
+This adds worker and schema discipline. Each context needs event schemas, outbox receipts, projector idempotency, replay paths, checkpointing, stale-read UX, and reconciliation jobs. The benefit is that dashboards, search, Incident and Dev Board projections, usage views, and chat fan-out do not turn tenant Gateways into query backends.
 
 ## Alternatives
 
-Use a pure read-through proxy where Opzava stores only human write models and queries OpenClaw live for every runtime-facing UI. Rejected because dashboards, PM boards, incident creation, usage/cost views, session indexes, admin cards, and notifications need low-latency, searchable, tenant-filtered, durable UI state even when a Gateway is starting, suspended, down, circuit-broken, or being deprovisioned. Pure read-through would make OpenClaw a hot query backend for product screens and would couple user experience to Gateway availability.
+Use a pure read-through proxy where Opzava stores only human write models and queries OpenClaw live for every runtime-facing UI. Rejected because dashboards, PM boards, Incident and Dev Board projections, usage/cost views, session indexes, and notifications need low-latency, searchable, tenant-filtered, durable UI state even when a Gateway is starting, suspended, down, circuit-broken, or being deprovisioned. Pure read-through would make OpenClaw a hot query backend for product screens and would couple user experience to Gateway availability.
 
 Make Opzava Postgres the system of record for OpenClaw runtime state by copying sessions, runs, transcripts, Workboard cards, channel state, memory, skills, logs, and usage into normalized Opzava tables. Rejected because it would duplicate OpenClaw ownership, create two runtime truths, expand secret/config blast radius, and force Opzava to chase Gateway protocol and storage semantics instead of using the ACL.
 

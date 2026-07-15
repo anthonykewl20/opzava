@@ -42,7 +42,7 @@ The solution is an Opzava-owned Knowledge Management product surface and source 
 - Redesign ADR-010 knowledge architecture or ADR-008 workforce scoping.
 - Build the full Project Management experience, project boards, cards, goals, to-dos, schedules, updates, or Discovery board shell beyond the knowledge/idea flows in this PRD.
 - Build Ask Opzava or project assistant chat. PRD-005 consumes corpus overlays, citations, artifacts, and candidate memory from this PRD.
-- Build AI employee roster, employee detail, task board, automation, or run trace surfaces. PRD-006 consumes memory/skills/artifact summaries from this PRD.
+- Build AI employee roster, employee detail, assignment/workload projections, automation, or run-evidence surfaces. PRD-006 consumes memory/skills/artifact summaries from this PRD and deep-links projections to their owning `pm.Card` or DevTicket.
 - Build Department Workflow publishing, approval, campaign, content calendar, or report lifecycle beyond artifact and source refs used by knowledge surfaces.
 - Build billing, storage quotas, embedding cost enforcement, or plan packaging beyond showing quota/policy states if supplied by owning contexts.
 - Allow ordinary users, browser route handlers, assistant chats, or hot-path runtime tokens to call `skills.install`, `skills.update`, `skills.upload`, or direct Gateway config writes.
@@ -428,7 +428,7 @@ The solution is an Opzava-owned Knowledge Management product surface and source 
 - PRD-003: Projects, Docs & Files entry point, Discovery, project source refs, card evidence, project authorization, and connect-to-work commands.
 - PRD-004: Internal Collaboration, Activity, notifications, review prompts, assistant hand-offs, and Web Push delivery.
 - PRD-005: Ask Opzava and project assistant conversations that consume authorized corpus overlays, citations, artifacts, and candidate memory.
-- PRD-006: Agent roster/detail Memory tab, task board/run trace artifact refs, tool catalog adjacency, and employee memory/skills summaries.
+- PRD-006: Agent roster/detail Memory tab, assignment/workload and run-evidence artifact refs that deep-link to their owning `pm.Card` or DevTicket, tool catalog adjacency, and employee memory/skills summaries.
 - Object storage adapter and secrets/config mechanism for source blobs, artifacts, LanceDB/index storage credentials, and no hardcoded credentials.
 
 ---

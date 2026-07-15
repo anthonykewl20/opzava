@@ -1,6 +1,20 @@
-# Issue tracker: GitHub
+# Issue tracker: GitHub interim → Dev Board target
 
-Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+**Current as-built/interim:** engineering issues and PRDs for this repo live in GitHub Issues and
+use the `gh` CLI. Continue using this path until the Dev Board migration explicitly cuts the
+tracker over.
+
+**Target:** Opzava Dev Board is the primary workflow and its DevTicket aggregate owns contracts,
+lanes/gates, dependencies, Sprints, assignments, approvals, execution, review, and conflicts. Each
+accepted DevTicket has a durable synchronized GitHub Issue mirror. GitHub remains authoritative for
+its native issue number/URL and PR/commit/check/merge facts; GitHub edits request synchronized
+changes but cannot bypass Opzava workflow gates. See PRD-019, ADR-017, and
+`docs/plan/dev-board-migration-manifest.md`.
+
+The old Q17 implementation issues #147–#157 are quarantined: add `superseded`, remove
+`ready-for-agent`, and link the Dev Board migration. Do not claim, rewrite, or close them as
+completed work. Replacement tickets require explicit human approval and reciprocal old↔new
+mappings.
 
 ## Conventions
 
@@ -27,11 +41,24 @@ GitHub shares one number space across issues and PRs, so a bare `#42` may be eit
 
 ## When a skill says "publish to the issue tracker"
 
-Create a GitHub issue.
+Until the Dev Board cutover, create a GitHub issue. After cutover, create an Opzava DevTicket; the
+GitHub Issue mirror is created by synchronization, not as an independent second ticket. Never
+publish a #147–#157 replacement without the required human approval.
 
 ## When a skill says "fetch the relevant ticket"
 
-Run `gh issue view <number> --comments`.
+Until cutover, run `gh issue view <number> --comments`. After cutover, read the DevTicket through
+Dev Board and use its GitHub mirror for native GitHub facts/history.
+
+## Superseded work
+
+`superseded` means the issue's plan or contract has been replaced; it does not mean the historical
+record was erroneous or the work was completed. When applying it:
+
+1. Remove executable readiness labels such as `ready-for-agent` or `ready-for-human`.
+2. Comment with the superseding PRD/ADR/manifest and, once approved, the exact replacement issue(s).
+3. Preserve the old body and comments as history; do not silently rewrite them into the new design.
+4. Close only when the migration manifest authorizes closure and the reciprocal mapping is present.
 
 ## Wayfinding operations
 

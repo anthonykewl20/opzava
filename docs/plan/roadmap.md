@@ -1,13 +1,17 @@
 # Opzava MVP Roadmap
 
-> **Status (2026-07-02): superseded as the execution control surface.** `docs/plan/EXECUTION.md` now controls the MVP
-> definition and execution order. The P0.5 walking-skeleton MVP below was replaced by the admin-Tasks MVP
-> (EXECUTION.md Slice 1, complete); P0 was delivered as EXECUTION.md Slice 0. This file remains the reference for
-> P1–P8 phase deliverable detail.
+> **Status (2026-07-15): planning reference, not execution control.** The P0.5 walking-skeleton and
+> admin Tasks MVP below are historical delivered/superseded milestones. Current developer-operations
+> direction is the Dev Board pivot in PRD-019 and ADR-017. Migration order comes only from
+> `docs/plan/dev-board-migration-manifest.md` plus explicitly approved replacement issues;
+> `docs/plan/EXECUTION.md` is a historical ledger.
 
 This roadmap describes the phased build order for Opzava. It starts with the risky runtime loop before product code, then ships the thinnest usable app, then adds one bounded capability at a time. Every phase must leave the product shippable and usable.
 
-Source spine: `docs/plan/consensus/q15-mvp-roadmap.mmx.md`, `docs/plan/backlog.md`, `docs/plan/grilling-decisions.md`, `ARCHITECTURE.md`, ADR-001 through ADR-015, and PRD-001 through PRD-018.
+Source spine: `docs/plan/consensus/q15-mvp-roadmap.mmx.md` (historical), `docs/plan/backlog.md`,
+`docs/plan/grilling-decisions.md`, `docs/plan/dev-board-foundation-decisions.md`,
+`docs/plan/dev-board-migration-manifest.md`, `ARCHITECTURE.md`, ADR-001 through ADR-017, and PRD-001
+through PRD-019.
 
 ## Build Rules
 
@@ -17,6 +21,32 @@ Source spine: `docs/plan/consensus/q15-mvp-roadmap.mmx.md`, `docs/plan/backlog.m
 - [ ] Make every tenant-scoped repository run through tenant context plus Postgres RLS. Missing tenant context is a hard 403, not an empty successful list.
 - [ ] Treat Postgres projections as rebuildable caches. OpenClaw snapshots are runtime truth; OpenClaw WS events are hints.
 - [ ] Preserve one deploy contract. Local and Dokploy use one Compose topology, one service naming scheme, one Traefik label contract, and the same env key names.
+
+## Current Dev Board migration
+
+Goal: replace the separate legacy admin `/tasks` and `/issues` product surfaces with one Dev Board
+without falsifying or deleting the completed Task/issue-projection history.
+
+- [ ] Treat [PRD-019](../prd/PRD-019-dev-board.md),
+  [ADR-017](../adr/ADR-017-dev-board-authority-sync-execution.md), and the detailed Dev Board
+  decision ledger as the target contract.
+- [ ] Keep Q17 and issues #147–#157 quarantined. Publish replacement implementation tickets only
+  after explicit human approval and map every superseded issue to its replacement or deliberate
+  retirement.
+- [ ] Introduce the dedicated Dev Board bounded context and DevTicket aggregate before redirecting
+  callers; do not rename the legacy Task aggregate in place or turn `pm.Card` into DevTicket.
+- [ ] Establish one GitHub App seam for installation health, webhooks, deterministic bidirectional
+  Issue-mirror synchronization, managed labels, PR/check/merge facts, durable retry, and visible
+  conflicts.
+- [ ] Add enrolled local Runner, lease/checkpoint/reconciliation, Slack Personal Assistant controls,
+  independent local Reviewer, local Docker evidence, Sprints, Docs, Development, and Releases only
+  through their approved migration slices.
+- [ ] Backfill and reconcile legacy Task/issue links, preserve audit/worklog history, cut reads and
+  writes over once, then retire `/tasks`, `/issues`, direct legacy status mutation, and split
+  credential paths only after acceptance evidence proves parity.
+
+The exact slice graph, data-disposition rules, and route/tool retirement gates live in
+`docs/plan/dev-board-migration-manifest.md`; this summary does not authorize execution.
 
 ## P0 - Week-0 De-risk Spike (historical — delivered as EXECUTION.md Slice 0)
 
@@ -99,15 +129,15 @@ Goal: turn the one Ask Opzava agent into an operable AI workforce with departmen
 ### Deliverables
 
 - [ ] Add AI Workforce domain model: `AgentEmployee`, `Persona`, `Department`, `AutonomyTier`, `StandingOrder`, `ChannelBinding`, `Assignment`, and `AgentDispatch` with opaque OpenClaw refs only.
-- [ ] Ship Agents roster and agent detail in the full/admin shell, including department grouping, orchestrator section, status, current task, spend summary, provisioning/drift/repair states, and safe advanced disclosures.
+- [ ] Ship Agents roster and agent detail in the full/admin shell, including department grouping, orchestrator section, status, current assignment, spend summary, provisioning/drift/repair states, and safe advanced disclosures.
 - [ ] Implement employee create/edit/pause/deprovision through audited provisioning jobs; browser code never writes OpenClaw config, persona files, bindings, or tool policy directly.
 - [ ] Implement delegate/assign flow from Ask Opzava and PM cards to one specialist employee, with admission checks for RBAC, lifecycle, tier, tool policy, project access, idempotency, Gateway state, and rate/spend caps.
-- [ ] Add the AI task board and run trace projection for queued/running/review/degraded/completed/failed/timed-out/canceled/lost states, including tool-policy decisions and redacted runtime summaries.
+- [ ] Add AI assignment/workload and run-evidence projections for queued/running/review/degraded/completed/failed/timed-out/canceled/lost states, including tool-policy decisions and redacted runtime summaries. Each row deep-links to its owning `pm.Card` or DevTicket instead of creating a second task board or workflow source of truth.
 - [ ] Add basic scheduled/background task support through ADR-012-shaped stubs only where needed for standing-order smoke tests; full department workflow engine ships in P5.
 
 ### Now-Usable Acceptance Signal
 
-- [ ] An admin creates a Marketing or Support AI employee, assigns a PM card from Ask Opzava to that employee, watches the task move through the AI task board, opens a run trace with policy and stream evidence, and sees the final employee-attributed report linked back to the original card.
+- [ ] An admin creates a Marketing or Support AI employee, assigns a PM card from Ask Opzava to that employee, watches its assignment/workload projection update, opens the linked run evidence with policy and stream receipts, and sees the final employee-attributed report linked back to the original `pm.Card`.
 
 ### ADR / PRD / Contexts
 
@@ -238,16 +268,16 @@ Goal: make operational truth visible and repairable with one-tenant blast radius
 
 ### Deliverables
 
-- [ ] Implement ADR-013 incident pipeline: `ErrorGroup`, `ErrorEvent`, redaction at ingest, fingerprinting, anti-storm thresholds, cooldown/caps, deadletter, heartbeat watchdog, visibility states, and ADMIN card projection.
-- [ ] Ship Admin observability screens: Monitoring, Logs, Issues/ADMIN board, Security & Audit, Alerts & notifications, Activity, Costs context links, Debug, and tenant-visible incident center.
+- [ ] Implement ADR-013 incident pipeline: `ErrorGroup`, `ErrorEvent`, redaction at ingest, fingerprinting, anti-storm thresholds, cooldown/caps, deadletter, heartbeat watchdog, visibility states, the Detected → Triaged → Mitigating → Monitoring → Resolved → Postmortem lifecycle, and separate Incidents projections.
+- [ ] Ship Admin observability screens: Monitoring, Logs, the separate Incident projection/remediation center, Security & Audit, Alerts & notifications, Activity, Costs context links, Debug, and tenant-visible incident center. Operational Incidents link to Dev Board remediation DevTickets; they are not a second Issues workboard.
 - [ ] Implement alert routes, in-app/email/push fan-out, notification actions, alert rules, safe payloads, and fetch-on-open detail.
 - [ ] Ship Ask Admin Opzava investigation path for incident summary, redacted evidence citations, remediation proposal drafts, target scope, blast-radius class, dry-run state, and tenant-safe status language.
-- [ ] Implement remediation lifecycle: dry-run-first, approvals for medium/high/destructive, second confirmation for destructive, idempotent audited Platform-Ops jobs, and status projection back to incident/card/activity/audit.
+- [ ] Implement remediation lifecycle: dry-run-first, approvals for medium/high/destructive, second confirmation for destructive, idempotent audited Platform-Ops jobs, and status projection back to Incident/Activity/audit. Permanent fixes create or link a Bug or Technical Task DevTicket that follows normal Dev Board gates.
 - [ ] Implement reaper dashboard and action flow for orphaned Gateway findings against tenant lifecycle, entitlement, `GatewayInstance`, labels, mounts, network, route, ports, and provisioner lease.
 
 ### Now-Usable Acceptance Signal
 
-- [ ] A simulated Gateway-down or broker error creates or reopens one ADMIN card with redacted evidence, triggers an alert, Ask Admin Opzava proposes a one-tenant remediation with dry-run output, an authorized user approves it, the Platform-Ops job executes, and the incident/card/activity/audit trail shows the result without exposing secrets or cross-tenant data.
+- [ ] A simulated Gateway-down or broker error creates or reopens one Incident with redacted evidence, triggers an alert, Ask Admin Opzava proposes a one-tenant remediation with dry-run output, an authorized user approves it, the Platform-Ops job executes, and the Incident/Activity/audit trail shows the result without exposing secrets or cross-tenant data. When a permanent code fix is needed, the Incident links to a separately gated DevTicket.
 
 ### ADR / PRD / Contexts
 

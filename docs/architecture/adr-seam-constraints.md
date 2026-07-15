@@ -1,5 +1,7 @@
 # ADR seam constraints
 
+> **Migration note (2026-07-15):** This document records current constraints, not a built Dev Board design. Apply PRD-019, ADR-017, and `docs/plan/dev-board-migration-manifest.md` to future Task/Issue work; historical #147–#157 planning is no longer implementation authority.
+
 This is the seam backbone extracted from the seam-defining ADRs.
 Each entry fixes where a Module Interface lives, what Implementation sits behind it, the invariant that must not be re-litigated, and the repo location it governs.
 Vocabulary is fixed: Module, Interface, Implementation, Depth (deep = lots of behavior behind a small Interface; shallow = Interface nearly as complex as Implementation), Seam, Adapter, Leverage, Locality.
@@ -24,7 +26,7 @@ The adapter-count test grades each Seam: one Adapter = hypothetical Seam, two Ad
 - (a) Seam fixed: the ownership Seam between Opzava truth and OpenClaw truth; Opzava Postgres is the system of record for all Opzava domain data, and OpenClaw is the system of record for runtime execution data reachable only through the ADR-003 ACL (`docs/adr/ADR-004-data-boundary-cqrs.md:5`, `:19`).
 - (b) Behind the Seam: durable UI read models are projected into Postgres from domain events, broker WS events, and OpenClaw RPC snapshots; heavy or ephemeral runtime views are read through the broker on demand (`docs/adr/ADR-004-data-boundary-cqrs.md:44-70`).
 - (c) Invariant: Postgres projections are rebuildable caches not runtime truth, OpenClaw RPC snapshots are truth for runtime state, OpenClaw WS events are hints, and `pm.Card` and `workboard.Card` stay separate with `AgentDispatch` as the bridge (`docs/adr/ADR-004-data-boundary-cqrs.md:73-78`, `:82`).
-- (d) Repo location: per-context write models and read models inside each `packages/<context>/src/` Module, with the outbox behind `EventBusPort` (`docs/adr/ADR-004-data-boundary-cqrs.md:19`, `:80`). **Not yet built:** the port was deleted in #160 (zero adapters, zero consumers — the optional dependency made the missing adapter a silent no-op); ADR-004 stands and Q17 S6 (#152) reintroduces it with the outbox and its first real consumer.
+- (d) Repo location: per-context write models and read models inside each `packages/<context>/src/` Module, with the outbox behind `EventBusPort` (`docs/adr/ADR-004-data-boundary-cqrs.md:19`, `:80`). **Not yet built:** the port was deleted in #160 (zero adapters, zero consumers — the optional dependency made the missing adapter a silent no-op); ADR-004 stands, and any replacement must land with the outbox and its first real consumer under the PRD-019/ADR-017 migration plan.
 
 ### ADR-005: tool-policy-first security Seam
 - (a) Seam fixed: the governance Seam between persona text and enforceable controls; Gateway tool policy and Opzava `Approval` rows are the primary authority for AI agent side effects, and `SOUL.md`/`AGENTS.md`/standing orders are behavior descriptions, not enforcement (`docs/adr/ADR-005-tool-policy-security.md:5`, `:36-43`).
@@ -33,7 +35,7 @@ The adapter-count test grades each Seam: one Adapter = hypothetical Seam, two Ad
 - (d) Repo location: admission logic in the Runtime-Control Module at `packages/runtime-control/src/` and broker admission in `apps/gateway-broker/`, reconciled through `Approval` aggregates in the department-workflows context (`docs/adr/ADR-005-tool-policy-security.md:34`, `:93`).
 
 ### ADR-007: authorization and RLS Seam
-- (a) Seam fixed: `AuthorizationPort` is the single fine-grained authorization Seam, exposing one `can(user, action, resource)` evaluator that every privileged command, query, handler, worker, broker runtime command, and admin-board operation must pass through (`docs/adr/ADR-007-rbac-rls.md:47`).
+- (a) Seam fixed: `AuthorizationPort` is the single fine-grained authorization Seam, exposing one `can(user, action, resource)` evaluator that every privileged command, query, handler, worker, broker runtime command, and admin Incident/remediation operation must pass through (`docs/adr/ADR-007-rbac-rls.md:47`).
 - (b) Behind the Seam: resource-scoped RBAC with roles-as-data (rows owned by Identity and Access), the Organization-Project-Member hierarchy, and roles seeded as `Owner`, `Admin`, `Manager`, `Member`, and `Guest-Client`; the first Adapter is Opzava policy evaluation over Postgres tables, with ReBAC or narrow ABAC deferrable behind the same port (`docs/adr/ADR-007-rbac-rls.md:37-60`).
 - (c) Invariant: tenant-scoped repositories carry `orgId` and Postgres RLS fails closed through the `withTenant(orgId, fn)` wrapper so a missing or mismatched `app.current_org` is a hard 403, never a 200 with an empty list (`docs/adr/ADR-007-rbac-rls.md:64-83`).
 - (d) Repo location: `packages/ports/src/authorization.ts`, the Identity and Access Module at `packages/identity-access/src/{domain,application,adapters/postgres}`, and the `withTenant` wrapper applied wherever tenant tables are touched (`docs/adr/ADR-007-rbac-rls.md:66-72`, `:97`).
@@ -88,8 +90,8 @@ Repo location: the Department Workflow Module `packages/department-workflows/src
 
 ### ADR-013: incident capture Seam
 The Seam is `ErrorCapturePort`: app reporters, broker and ACL errors, OpenClaw signals read through the ACL, and customer reports all flow through one normalized capture path, with self-hosted GlitchTip or Sentry deferred as a later Adapter behind the same port (two Adapters declared = real Seam) (`docs/adr/ADR-013-error-admin-card.md:19`, `:38`).
-The invariant is that `ErrorGroup` is the aggregate and the ADMIN card is only a projection of it, and redaction happens at the ingest boundary before storage, dead-letter, outbox, or card projection (`docs/adr/ADR-013-error-admin-card.md:21-29`, `:60`).
-Platform and tenant visibility stay separate: the platform board has `tenantId = NULL` and RLS plus query guards forbid tenant reads of platform or other-tenant rows (`docs/adr/ADR-013-error-admin-card.md:44`).
+The invariant is that `ErrorGroup` owns Incident identity, event grouping, visibility, and remediation state; the Dev Board Incidents row is a read projection, never a `pm.Card` or DevTicket. Redaction happens at the ingest boundary before storage, dead-letter, outbox, or projection. Permanent fixes are separately linked Bug or Technical Task DevTickets (`docs/adr/ADR-013-error-admin-card.md`, ADR-017).
+Platform and tenant visibility stay separate: platform Incidents have `tenantId = NULL`, and RLS plus query guards forbid tenant reads of platform or other-tenant rows (`docs/adr/ADR-013-error-admin-card.md`).
 Repo location: `packages/ports/src/error-capture.ts` and the Notifications/Admin-Observability Module `packages/notifications-admin-observability/src/`.
 
 ### ADR-014: billing Seam

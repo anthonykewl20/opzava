@@ -1,4 +1,6 @@
 # apps/workers - provisioning, projections, metering, jobs (admin/JIT path)
+> **Current implementation inventory (2026-07-15):** The GitHub issue close-outbox and roadmap Task seed below remain real current jobs. They are not the target bidirectional Dev Board sync/runner/reviewer implementation. Future worker seams come from PRD-019, ADR-017, PRD-013, and `docs/plan/dev-board-migration-manifest.md`.
+
 > Part of the Opzava architecture (see ../README.md).
 > Vocabulary: codebase-design.
 

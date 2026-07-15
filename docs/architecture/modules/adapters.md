@@ -1,4 +1,6 @@
 # packages/adapters - vendor adapters behind ports
+> **Current implementation inventory (2026-07-15):** `GitHubIssueTrackerAdapter` below is the legacy OAuth/manual issue adapter, not the target GitHub App synchronization engine. PRD-019/ADR-017 require health-checked webhooks, an idempotent outbox, conflict handling, and split authority; see `docs/plan/dev-board-migration-manifest.md`.
+
 > Part of the Opzava architecture (see ../README.md). Vocabulary: codebase-design.
 
 ## Overview

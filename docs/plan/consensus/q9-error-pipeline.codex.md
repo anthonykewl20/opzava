@@ -1,5 +1,11 @@
 # Q9 Error -> Admin Card Pipeline
 
+> **Superseded context (2026-07-15):** This memo is preserved verbatim as historical consensus, but
+> its ADMIN `PmCard`/board presentation is no longer implementation guidance. ADR-013 now owns a
+> separate `ErrorGroup`/Incident lifecycle; Dev Board may expose an Incidents read projection, and
+> permanent remediation is a separately linked Bug or Technical Task DevTicket under
+> PRD-019/ADR-017.
+
 **Decision.** Build an Opzava-owned Notifications/Admin-Observability context in Postgres. The aggregate root is `ErrorGroup`, the normalized Incident: `fingerprint, severity, count, firstSeen, lastSeen, status=open|ack|mitigating|resolved|muted, tenantId?, projectId?, agentId?, gatewayId?, visibility`. Children: `ErrorEvent(source, occurredAt, sanitizedPayload, openClawRef?)`, `RemediationAction(action, blastRadius, approvalId?, idempotencyKey, dryRun, result, actor=admin-token)`, `AlertRoute(scope, destination, thresholds)`. The first active group creates or updates one Opzava `PmCard` on the platform ADMIN board; the card is a projection, not the aggregate.
 
 **Projection mapping.** The broker/ACL owns all OpenClaw reads. It projects Next.js/BFF/broker exceptions plus Gateway signals into `ErrorEvent`: `logs.tail` cursors for structured error/warn lines; `tasks.list/get` and task audit findings for `failed|timed_out|lost|cancelled`, stale queued/running, and delivery failures; `diagnostics.stability` for bounded liveness, queue/session, payload-large, memory, channel/plugin/tool categories; `health` snapshots/events for degraded gateways/agents; Workboard `cards.diagnostics` and notification cursors for no heartbeat, blocked, repeated failures, start failures, and loose-session links; protected Prometheus text metrics for threshold-only signals such as tool/model/webhook/message-delivery errors, session stuck/recovery, liveness, memory pressure, and series drops. Per Q4, snapshots are truth, WS/events are hints; the broker writes projection rows and domain outbox events idempotently.
