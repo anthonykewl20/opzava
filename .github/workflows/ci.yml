@@ -1,9 +1,9 @@
 name: CI
 
-# Minimal, cost-conscious gate for a PRIVATE repo (GitHub Actions minutes are metered).
+# Minimal, cost-conscious CI for a PRIVATE repo (GitHub Actions minutes are metered).
 # Runs the fast, reliable checks on every PR into development/main and on pushes to
-# development. Heavier integration / RLS / E2E coverage stays in the SeniorQA
-# real-world-validate gate (which needs the full docker-compose stack), not here.
+# development. Heavier integration / RLS / E2E coverage lives in the real-stack verify
+# posture (the tests/e2e drives, which need the full docker-compose stack), not here.
 on:
   pull_request:
     branches: [development, main]
