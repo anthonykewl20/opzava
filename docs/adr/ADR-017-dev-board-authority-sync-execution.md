@@ -11,7 +11,7 @@ platform-development work**, while retaining it as historical evidence:
 - `docs/plan/consensus/tasks-ai-workforce-design.md`.
 - The Tasks-first control framing and the separate native Tasks/Issues surface assumptions in
   `docs/plan/EXECUTION.md`.
-- The platform-development Tasks/Issues portions of PRD-003, PRD-006, PRD-012, and PRD-013 where
+- The platform-development Tasks/Issues portions of PRD-006, PRD-012, and PRD-013 where
   they conflict with PRD-019.
 - Tracker issues #147–#157 as directly executable slices. They remain open historical/quarantined
   records and require replacement or explicit many-to-many mapping before implementation.
