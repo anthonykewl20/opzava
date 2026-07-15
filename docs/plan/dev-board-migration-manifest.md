@@ -220,7 +220,7 @@ closed as “implemented by Dev Board.”
 | #95   | ADR-008 | Keep. Clarify Dev Board-specific assignment/runner authority while retaining general AI Workforce/AgentDispatch.                      |
 | #100  | ADR-013 | Keep. Clarify Incident is projection-only in Dev Board and remediation links to Bug/Technical Task.                                   |
 | #104  | PRD-002 | Amend target nav to one Dev Board route after cutover; preserve interim routes until then.                                            |
-| #105  | PRD-003 | Keep generic Projects/`pm.Card`; supersede platform Tasks/Issues ownership with PRD-019.                                              |
+| #105  | PRD-003 (deleted 2026-07-16) | Generic Projects/`pm.Card` remains under the Project Management context (ADR-004); platform Tasks/Issues ownership superseded by PRD-019.        |
 | #107  | PRD-005 | Keep Ask Admin/assistant scope; link its Dev Board commands to #218 and ADR-017.                                                      |
 | #108  | PRD-006 | Keep roster/automation/run traces; remove Dev Board ownership from generic Agent Task Board language.                                 |
 | #109  | PRD-007 | Keep Knowledge/Skills; link Dev Board's versioned Docs mirror rather than merging domains.                                            |

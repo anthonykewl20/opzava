@@ -132,8 +132,8 @@ Most other ports currently have exactly one Adapter, so by the codebase-design r
 `PushNotificationPort`, `RealtimeTransportPort`, `AuthPort`, `AuthorizationPort`, `ObjectStorePort`, `ErrorCapturePort`, `EmbeddingProviderPort`, `KnowledgeIndexPort`, `KnowledgeSourcePort`, `SkillCatalogPort`, `SecretsVaultPort`, and `IssueTrackerPort` each list one initial adapter (`ARCHITECTURE.md:82-92`).
 A second adapter at any of these is what would convert the hypothetical seam into a real seam.
 
-`BillingPort` is the explicit null-adapter case.
-ADR-014 keeps the Interface and a deferred null Adapter so domain code can be written against `BillingPort` today, with the real payment-provider adapter added only when external monetization starts (`ARCHITECTURE.md:81`, ADR-014 Accepted or Deferred).
+`BillingPort` is the explicit planned null-adapter case, deferred and not yet in code.
+ADR-014 designs `BillingPort` as a null-adapter seam so domain code can be written against it once the deferred seam lands, with the real payment-provider adapter added only when external monetization starts (`ARCHITECTURE.md:81`, ADR-014 Accepted or Deferred).
 
 Locality is enforced by the package layout.
 Each Opzava-owned context that has been started gets one bounded-context package with its own Drizzle and Postgres ownership (`ARCHITECTURE.md:15`): `@opzava/identity-access`, `@opzava/project-management`, `@opzava/runtime-control`. The CRM package was removed and is deferred to the future user-side dashboard (GitHub issue #200).
