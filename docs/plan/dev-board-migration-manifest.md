@@ -151,30 +151,55 @@ equivalent retained behavior. Important groups include:
 
 ## 5. Tracker issue disposition
 
-No replacement issue numbers are assigned by this manifest. Future decomposition must create new
-tracer-bullet issues only after PRD/ADR review, the separate Review Gate grilling, and an
-implementation plan audit.
+The first published delivery map is a planning Wayfinder, not an implementation backlog. Two
+independent plan audits blocked the provisional implementation draft, so those implementation tracer
+bullets were not published. A DeepSeek tiebreaker approved the smaller planning graph after
+requiring content corrections. Qwen 3.7 Max then independently approved the final map with warnings;
+its Q2-to-Q7 dependency and authorization correction is reflected in the blocking edges below.
+
+### Published planning Wayfinder
+
+| Issue                                                                                                           | Planning outcome                                                                                                                           | Blocked by                                     |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| #228 — Wayfinder: Dev Board implementation delivery graph                                                       | Parent map for resolving the remaining architectural unknowns before implementation decomposition                                          | —                                              |
+| #229 — Grill and lock the independent Review Gate contract                                                      | Resolve the independent local Review contract and its evidence, approval, retry, merge, and Done boundaries                                | —                                              |
+| #230 — Reconcile DevTicket commands, claims, Blocked, revisions, dependencies, and archive                      | Establish the command boundary, policy ownership, actor authorization, and enforcement seams used by every later investigation             | —                                              |
+| #231 — Reconcile GitHub bootstrap, two-way sync, delivery facts, Actions exceptions, and conflict remediation   | Resolve two-way GitHub authority, idempotency, conflict, capability health, and reconciliation against the command boundary                | #230                                           |
+| #232 — Reconcile Runner, Slack Personal Assistant, Ask Admin, and secret trust seams                            | Resolve enrolled-machine trust, runner leases/fencing, tool selection, remote coordination, and Slack authorization                        | #230                                           |
+| #233 — Reconcile Incident projections, governed interruption, strict Sprint order, and ordinary-work preemption | Resolve blocking/non-blocking discovery, Incident separation, Sprint serial autonomy, pause/recovery, and dependency ordering              | #230, #232                                     |
+| #234 — Complete the governed Docs type, planning-log, and invalidation matrix                                   | Resolve PRD/planning/research document authority, version binding, mirroring, and links to DevTickets                                      | #230, #231                                     |
+| #235 — Lock archive, retention, exceptional redaction, tombstone, and revocation behavior                       | Resolve durable history, secret/redaction boundaries, imported records, and four-ledger retention across command, GitHub, and Runner seams | #230, #231, #232                               |
+| #236 — Grill and lock the Releases Gate contract                                                                | Keep staging and live-production promotion separate from Dev Board Review and Done                                                         | —                                              |
+| #237 — Produce and audit the final implementation ticket graph and reciprocal Q17 mapping                       | Integrate #229–#236, pass independent audit, publish implementation tracer bullets, and record exact reciprocal mappings for #147–#157     | #229, #230, #231, #232, #233, #234, #235, #236 |
+
+This graph satisfies the manifest's sequencing rule: implementation tracer bullets remain unassigned
+and unpublished until the Review Gate and every planning child resolve and #237 passes an
+independent audit. A planning issue being open does not authorize implementation work, and a future
+implementation issue is not claimable merely because its likely shape appears in PRD-019 or the
+foundation ledger.
 
 ### Superseded/quarantined Q17 issues #147–#157
 
-All eleven are many-to-many migration sources. Keep their discussion and links, retain the
-`superseded` label, remove any ready/claim signal, add pointers to PRD-019/ADR-017 and this
-manifest, and do not close them as “implemented by Dev Board” unless a later audit maps every
-acceptance item.
+All eleven are many-to-many migration sources. They received planning-map comments on 2026-07-16 and
+remain open, `superseded`, and unclaimable. Keep their discussion and links, remove any ready/claim
+signal, and retain pointers to PRD-019, ADR-017, this manifest, and Wayfinder #228. Issue #237 owns
+the exact reciprocal mapping from every old acceptance item to the audited implementation graph.
+Only that mapping and audit authorize closing these issues as `not planned`; they must never be
+closed as “implemented by Dev Board.”
 
-| Issue | Old slice                                          | Disposition                                                                                                                                                                                                                               |
-| ----- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #147  | Five-lane Task data model; Blocked flag            | Quarantine. Replace with dedicated DevTicket expand-contract, six lanes, versioned contracts, dependencies, proposals, Sprints, ledgers, and migration. Preserve RLS/projection test intent.                                              |
-| #148  | Task transitions and ownership                     | Quarantine. Recut around Ready, atomic claim/lease, Blocked recovery, independent Review, and Done-after-merge. Preserve command/audit and fail-closed intent.                                                                            |
-| #149  | Governed task/review tools                         | Quarantine. Recut around one Dev Board command seam, trusted provenance, independent Reviewer, Slack commands, and runner receipts. Do not retain Lead-Orchestrator-only Review or caller-selected human provenance.                      |
-| #150  | Issue/Task/PR port                                 | Quarantine but salvage heavily. Recut around GitHub App two-way sync, managed body/labels/comments, PR/check facts, health, outbox, conflicts, and one repo.                                                                              |
-| #151  | Hosted MCP and OAuth                               | Quarantine as a Connections/Ask Admin dependency rather than the Dev Board domain. Machine enrollment and runner leases are additional requirements. Revalidate client auth separately.                                                   |
-| #152  | Dispatcher worker, push/poll                       | Quarantine. Recut ordinary explicit claims versus Sprint `autonomous_serial`, Lead Orchestrator coordination, durable outbox, leases, and runner selection.                                                                               |
-| #153  | Gateway-side sandboxed subagent                    | Quarantine. Recut as explicit orchestrator/cloud runner capability; never automatic failover from local. Local-only Review and Docker remain mandatory.                                                                                   |
-| #154  | Evidence gate and Lead Orchestrator Quality Review | Quarantine pending the separate Review Gate grilling. Preserve adversarial/evidence reality goals, but replace reviewer identity and bind evidence to contract version/SHA/local Docker.                                                  |
-| #155  | Human-only Done and merge                          | Quarantine pending Review details. Target Done occurs only after review/approval and confirmed merge into `development`; staging/production are Releases.                                                                                 |
-| #156  | Five-lane Tasks UI                                 | Quarantine. Replace with selected Dev Board IA, six lanes, Board B, Card detail A, Sprints A, global themes, List/Docs/Development/Releases.                                                                                              |
-| #157  | E2E and MCP compatibility proof                    | Quarantine. Recut around one real authenticated local-Docker browser vertical plus Postgres/outbox, signed GitHub webhook/conflict, and deterministic runner-protocol seams. Keep client compatibility as a separate Connections concern. |
+| Issue | Old slice                                          | Disposition                                                                                                                                                                                                                                              |
+| ----- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #147  | Five-lane Task data model; Blocked flag            | Quarantine. Replace with dedicated DevTicket expand-contract, six lanes, versioned contracts, dependencies, proposals, Sprints, ledgers, and migration. Preserve RLS/projection test intent.                                                             |
+| #148  | Task transitions and ownership                     | Quarantine. Recut around Ready, atomic claim/lease, Blocked recovery, independent Review, and Done-after-merge. Preserve command/audit and fail-closed intent.                                                                                           |
+| #149  | Governed task/review tools                         | Quarantine. Recut around one Dev Board command seam, trusted provenance, independent Reviewer, Slack commands, and runner receipts. Do not retain Lead-Orchestrator-only Review or caller-selected human provenance.                                     |
+| #150  | Issue/Task/PR port                                 | Quarantine but salvage heavily. Recut around GitHub App two-way sync, managed body/labels/comments, PR/check facts, health, outbox, conflicts, and one repo.                                                                                             |
+| #151  | Hosted MCP and OAuth                               | Quarantine. The hosted-MCP/OAuth-server-only design is not carried forward. Its governed connectivity/control intent is being reallocated across the command, GitHub, Runner, and Slack investigations; #237 must record final ownership before closure. |
+| #152  | Dispatcher worker, push/poll                       | Quarantine. Recut ordinary explicit claims versus Sprint `autonomous_serial`, Lead Orchestrator coordination, durable outbox, leases, and runner selection.                                                                                              |
+| #153  | Gateway-side sandboxed subagent                    | Quarantine. Recut as explicit orchestrator/cloud runner capability; never automatic failover from local. Local-only Review and Docker remain mandatory.                                                                                                  |
+| #154  | Evidence gate and Lead Orchestrator Quality Review | Quarantine pending the separate Review Gate grilling. Preserve adversarial/evidence reality goals, but replace reviewer identity and bind evidence to contract version/SHA/local Docker.                                                                 |
+| #155  | Human-only Done and merge                          | Quarantine pending Review details. Target Done occurs only after review/approval and confirmed merge into `development`; staging/production are Releases.                                                                                                |
+| #156  | Five-lane Tasks UI                                 | Quarantine. Replace with selected Dev Board IA, six lanes, Board B, Card detail A, Sprints A, global themes, List/Docs/Development/Releases.                                                                                                             |
+| #157  | E2E and MCP compatibility proof                    | Quarantine. Recut around one real authenticated local-Docker browser vertical plus Postgres/outbox, signed GitHub webhook/conflict, and deterministic runner-protocol seams. Keep client compatibility as a separate Connections concern.                |
 
 ### Capture and active dependent issues
 
