@@ -14,14 +14,11 @@
     "format": "turbo run format",
     "format:check": "turbo run format:check",
     "test": "turbo run test",
-    "gate": "node tests/e2e/gate/real-world-validate.mjs",
-    "qa:probe": "node tests/e2e/probes/senior-qa-probe.mjs",
     "e2e:connections": "node tests/e2e/drives/connections.mjs",
     "e2e:connections-apikey-argv": "node tests/e2e/drives/connections-apikey-argv.mjs",
     "e2e:connections-github": "node tests/e2e/drives/connections-github.mjs",
     "e2e:connections-oldbugs": "node tests/e2e/drives/connections-oldbugs.mjs",
-    "e2e:connections-disconnect-orphan": "node tests/e2e/drives/connections-disconnect-orphan.mjs",
-    "e2e:senior-qa-gateway": "node tests/e2e/drives/senior-qa-gateway.mjs"
+    "e2e:connections-disconnect-orphan": "node tests/e2e/drives/connections-disconnect-orphan.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
