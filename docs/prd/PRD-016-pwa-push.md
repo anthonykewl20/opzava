@@ -44,7 +44,7 @@ The solution is a complete PWA and Web Push product slice owned by App Shell, Id
 - Implement a readable second cookie, localStorage session token, IndexedDB bearer token, or two-cookie split for PWA auth.
 - Guarantee full offline editing, offline chat send, offline project management, offline approvals, offline ticket commands, or offline agent dispatch.
 - Cache sensitive message bodies, approval payloads, customer PII, financial data, raw notifications, logs, runtime traces, OpenClaw refs, or secrets for offline display.
-- Replace Internal Collaboration notification rules, PRD-012 alert rules, PRD-014 billing/budget alerts, or per-channel mute behavior.
+- Replace Internal Collaboration notification rules, PRD-012 alert rules, billing/budget alerts for the deferred Billing settings surface, or per-channel mute behavior.
 - Build third-party Slack/email delivery providers; this PRD consumes the existing notification/outbox and connection mechanisms.
 - Expose OpenClaw Gateway, Workboard, runtime sessions, task refs, logs, usage, tools, or approval internals directly to the browser/service worker.
 - Publish this PRD, call `gh`, create issues, or apply issue-tracker labels.
@@ -346,7 +346,7 @@ Net-new screens to design:
 - PRD-004 for Internal Collaboration notification sources, DMs, mentions, channel mute, read state, and Web Push delivery expectations.
 - PRD-005 for assistant completion and Ask Opzava notification sources.
 - PRD-012 for alert rules, notification center, severity, admin alerts, safe alert payloads, and observability diagnostics.
-- PRD-014 for budget threshold/exceeded notification sources and billing-state/tenant-suspension effects.
+- The deferred Billing settings surface for budget threshold/exceeded notification sources and billing-state/tenant-suspension effects.
 - Browser platform support for service workers, web app manifests, Notification API, Push API, and VAPID Web Push.
 - Net-new design work for install prompt/help, push permission onboarding, offline auth-required gate, device management, iOS caveat, and push diagnostics before implementation beyond backend/API foundations.
 

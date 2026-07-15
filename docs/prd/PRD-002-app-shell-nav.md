@@ -33,7 +33,7 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 
 ### Non-goals
 
-- Build full project workspace behavior, boards, cards, goals, schedules, docs, and idea detail workflows beyond shell/list/search entry points. Those belong primarily to PRD-003.
+- Build full project workspace behavior, boards, cards, goals, schedules, docs, and idea detail workflows beyond shell/list/search entry points. Those belong primarily to the Project Management surface (`pm.Card`, deferred).
 - Build full internal chat, DMs, project team rooms, mentions, and Activity inbox behavior beyond shell counts and notification pointers. Those belong primarily to PRD-004.
 - Build Ask Opzava conversation orchestration beyond shell entry points, command palette actions, and search affordances. That belongs primarily to PRD-005.
 - Build admin monitoring/logs/incidents/security/debug surfaces beyond shell navigation, alert center entry, and notification requirements. Those belong primarily to PRD-012.
@@ -100,7 +100,7 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 | `essential-projects.html` | All projects page with breadcrumb, page title, New project, load error/retry, project search, filters, sort menu, project cards, no-match empty state, and archived project rows with reopen actions for authorized users. |
 | `nav-project-switcher.html` | Full-shell project rail and command-palette navigation. Project list loads for all roles allowed to view projects, shows recents, active state, task/attention counts, async states, offline cached list, stale active-project clearing, and project jumps in Cmd+K. |
 | `essential-find.html` | Full-page Find surface with greeting context, scoped suggestions, recent items, projects, to-dos, people, assistants, files/docs, actions, keyboard hints, and Ask Opzava alternate path. |
-| `essential-discovery.html` | Project Discovery board with project back link, assistant entry, status/theme grouping, idea cards, votes, comments, AI suggestions, research notes, add idea, decided/connect actions, and assistant side panel. Discovery behavior that creates durable project work is handed to PRD-003, but shell/search/list entry points are in this PRD. |
+| `essential-discovery.html` | Project Discovery board with project back link, assistant entry, status/theme grouping, idea cards, votes, comments, AI suggestions, research notes, add idea, decided/connect actions, and assistant side panel. Discovery behavior that creates durable project work is handed to the Project Management surface (`pm.Card`, deferred), but shell/search/list entry points are in this PRD. |
 | `essential-my-stuff.html` | Cross-project personal dashboard with Needs your input, Following, schedule, review actions, assistant attribution, due dates, empty-done state, and links into calendar/project work. |
 | `essential-blank-slates.html` | First-class blank, empty, and error states for Home, to-do lists, card tables, and assistant reachability. Everyday copy is plain-language; admin-only technical details are disclosed separately. |
 | `notifications-alerts.html` | Full/admin notification center with unread counts, severity filters, mark-all-read, critical/warning/info notification rows, action buttons, empty/error states, alert rules table, rule delivery notes, and toast-style examples. |
@@ -294,7 +294,7 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 - ADR-009: Realtime WS hub, internal chat, assistants-in-chat, and PWA/Web Push.
 - ADR-001: Monorepo, DDD module structure, locked stack, and port vocabulary.
 - PRD-001: Auth, invitation, profile security, and first workspace setup for authenticated shell/session prerequisites.
-- PRD-003: Projects, boards, cards, goals, to-dos, schedules, docs, and Discovery durable workflows.
+- Project Management surface (`pm.Card`, deferred): Projects, boards, cards, goals, to-dos, schedules, docs, and Discovery durable workflows.
 - PRD-004: Internal chat, DMs, project team rooms, mentions, Activity, and notification-producing collaboration events.
 - PRD-005: Ask Opzava and Ask Admin Opzava conversations.
 - PRD-012: Admin monitoring, logs, Incidents, security/audit, alerts, and debug surfaces.

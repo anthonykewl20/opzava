@@ -38,7 +38,8 @@ Two focused sprints own current work. Everything else is shared foundation or fr
 - `docs/plan/official-docs.md`: official docs registry; validate APIs here before coding.
 - `docs/plan/capability-parity.md`: screen ownership and parity map.
 - `docs/plan/grilling-decisions.md`: frozen design record Q1-Q18 plus the locked Dev Board pivot.
-- `docs/plan/consensus/`, `docs/plan/research/`: frozen evidence, not current truth.
+- `docs/plan/consensus/`: frozen evidence, not current truth.
+- `docs/plan/research/`: research notes; the `wf*-ask-admin-*` and `slice2-ask-admin-*` files are current Ask Admin v1 spec inputs, the rest is frozen evidence.
 - `docs/plan/audits/`, `docs/runbooks/`: audits and ops runbooks.
 - `docs/openclaw/`: vendored OpenClaw docs; design to these.
 - `docs/ux-law/`, `ux-redesign/mockups/`: UX reference library and canonical mockups/tokens.

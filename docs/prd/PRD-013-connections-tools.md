@@ -49,9 +49,9 @@ The solution is a Connections and Tools product slice that separates customer ch
 - Build or replace OpenClaw Gateway, channel plugins, provider adapters, MCP server internals, skill runtime, or OpenClaw config storage.
 - Store Slack, WhatsApp, Gmail, provider, webhook, model-provider, Talk, OAuth, or Gateway shared-secret values in Opzava Postgres.
 - Let browser clients, Next.js handlers, ordinary assistant chats, or the hot-path broker token call Gateway admin config mutation, `skills.install`, `skills.update`, `skills.upload`, or raw channel secret reads.
-- Build the full CRM/support inbox, customer transcript view, ticket flow, or contact resolution UX. PRD-010 consumes channel events and conversation refs.
+- Build the full CRM/support inbox, customer transcript view, ticket flow, or contact resolution UX. The deferred user-side CRM/support surface consumes channel events and conversation refs.
 - Build full internal chat. PRD-004 owns Opzava internal messages; this PRD only covers external channel connections and Slack alert/ops delivery settings.
-- Build billing, invoices, subscriptions, or dunning. ADR-014 and PRD-014 own billing and cost views; this PRD consumes plan/entitlement decisions.
+- Build billing, invoices, subscriptions, or dunning. ADR-014 (and the deferred Billing settings surface) own billing and cost views; this PRD consumes plan/entitlement decisions.
 - Build full admin observability, logs, Incidents, or Debug. PRD-012 owns those surfaces; this PRD links to diagnostics and consumes Gateway health/status.
 - Define DevTicket workflow, Sprint, Ready, Review, merge, release, or GitHub synchronization semantics. PRD-019 and ADR-017 own those contracts; this PRD owns their setup and health controls.
 - Redesign ADR-003, ADR-005, ADR-010, or ADR-014.
@@ -483,9 +483,9 @@ Net-new screens to design:
 - PRD-005 for Ask Opzava and runtime sessions that consume provider/model routing, tool policy, and channel bindings.
 - PRD-006 for AI employee roster, agent detail, automation, channel bindings, tool effective state, and assignment/workload plus run-evidence projections that deep-link to the owning `pm.Card` or DevTicket.
 - PRD-007 for Memory & Skills, curated skill catalog, artifacts, knowledge source governance, and skill install receipts.
-- PRD-010 for CRM/support contacts, tickets, channel identities, customer conversation refs, consent, and support-channel projections.
+- The deferred user-side CRM/support surface for CRM/support contacts, tickets, channel identities, customer conversation refs, consent, and support-channel projections.
 - PRD-012 for monitoring, logs, Incidents, security audit, debug, redaction, connection logs, Incident correlation, and admin remediation.
-- PRD-014 and ADR-014 for billing/cost limits, plan enforcement, budget caps, invoices, and usage/metering inputs.
+- The deferred Billing settings surface and ADR-014 for billing/cost limits, plan enforcement, budget caps, invoices, and usage/metering inputs.
 - Mockup implementation conventions from `connections.html`, `essential-connect-wizard.html`, `essential-tools.html`, `essential-tools-empty.html`, and `settings.html`.
 - No `CLAUDE.md`, `CONTEXT.md`, or in-repo `docs/agents/` conventions were present in the repository file list during discovery.
 

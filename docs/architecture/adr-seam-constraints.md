@@ -79,8 +79,8 @@ OKF bundles plus `wiki okf import` are the portable ingestion contract between t
 The invariant is rebuild-from-source-of-truth: a Gateway, workspace, wiki, or vector index can be deleted or reprovisioned without losing knowledge because Opzava Postgres plus object storage is the only authority (`docs/adr/ADR-010-knowledge-okf.md:52`).
 Repo location: the Knowledge Management Module `packages/knowledge-management/src/`, `packages/ports/src/object-store.ts`, and skill installation routed through the audited provisioning path only (`docs/adr/ADR-010-knowledge-okf.md:48`).
 
-### ADR-011: removed CRM identity vs channel runtime Seam
-ADR-011 and its seam were removed on 2026-07-15 (GitHub issue #200); no CRM module, schema, or port exists in code. CRM returns only with the future user-side dashboard.
+### ADR-011: Deferred CRM identity vs channel runtime Seam
+CRM implementation and schema were removed on 2026-07-15 (GitHub issue #200); ADR-011 is retained for the future user-side-dashboard rebuild. Its future Seam keeps CRM truth separate from OpenClaw channel runtime state, with conservative `ChannelIdentity` resolution as specified in `docs/adr/ADR-011-crm-channel-identity.md`. There is no current CRM module, schema, or External Channels package location.
 
 ### ADR-012: workflow definition vs execution Seam
 The Seam is the principle "Opzava defines, OpenClaw executes": `Workflow` (definition, policy, budget, concurrency, approval policy) is the Opzava source of truth, while standing orders, cron, TaskFlow, task-ledger state, sessions, and runtime approvals are OpenClaw execution reached through the ADR-003 hot path (`docs/adr/ADR-012-dept-workflow-engine.md:21-31`).
@@ -94,8 +94,11 @@ The invariant is that `ErrorGroup` owns Incident identity, event grouping, visib
 Platform and tenant visibility stay separate: platform Incidents have `tenantId = NULL`, and RLS plus query guards forbid tenant reads of platform or other-tenant rows (`docs/adr/ADR-013-error-admin-card.md`).
 Repo location: `packages/ports/src/error-capture.ts` and the Notifications/Admin-Observability Module `packages/notifications-admin-observability/src/`.
 
-### ADR-014: removed billing Seam
-ADR-014 and its seam were removed on 2026-07-15 (GitHub issue #200); no BillingPort module, schema, or port exists in code.
+### ADR-014: billing Seam
+The Seam is `BillingPort`: today it ships as a null Adapter with local entitlements only, and Stripe is the planned first Adapter behind the same port when external monetization starts (two Adapters declared = real Seam) (`docs/adr/ADR-014-billing-metering.md:3`, `:21`).
+The invariant is metering idempotency: one canonical `(tenant_id, agent_id, window, raw usage.cost payload)` produces one `MeterEvent`, one usage-meter contribution, and at most one provider metered usage record, with corrections additive (`docs/adr/ADR-014-billing-metering.md:32`, `:57-59`).
+Billing couples to provisioning by outbox events, not ownership: Finance and Billing requests `Active` to `Suspended` and `Deprovisioning` transitions, but ADR-002 owns the lifecycle state machine, the saga, `GatewayRuntimePort`, and deprovisioning mechanics (`docs/adr/ADR-014-billing-metering.md:49`, `:67`).
+Repo location: the Finance and Billing Module `packages/billing/src/` and plan enforcement in BFF quota middleware.
 
 ### ADR-015: deployment parity and Docker-control Seam
 The Seam is the Docker-control boundary: the mutation-scoped `tecnativa/docker-socket-proxy` is the only Docker mutation surface, reachable only by `worker-provisioning`, and the `gateway-broker` never mounts Docker, never receives a Docker endpoint, and never provisions containers on the hot path (`docs/adr/ADR-015-deployment-parity.md:62-64`, `:138`).

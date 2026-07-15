@@ -35,7 +35,7 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 ### Non-goals
 
 - Build Ask Opzava, project assistant, or Ask Admin Opzava chat UX. Those are PRD-005; this PRD links to their assignments, runs, and approvals.
-- Build project boards, project cards, goals, to-dos, schedules, docs, discovery, or issue intake. Those are PRD-003; this PRD shows AI task projections and may deep-link to project work.
+- Build project boards, project cards, goals, to-dos, schedules, docs, discovery, or issue intake. Those belong to the Project Management surface (`pm.Card`, deferred); this PRD shows AI task projections and may deep-link to project work.
 - Build internal chat, DMs, Activity, notifications, mentions, or Web Push. Those are PRD-004; this PRD emits and consumes their projected hand-offs.
 - Build OpenClaw itself, its Gateway scheduler, task ledger, tool runtime, memory engine, plugin system, or CLI.
 - Build tenant provisioning internals beyond the user-visible employee/workflow provisioning states, receipts, drift warnings, and repair actions.
@@ -364,7 +364,7 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 - ADR-010: Knowledge Management source of truth, project/org corpus overlays, memory/wiki/vector indexes, source refs, and skill catalog.
 - ADR-011: CRM/channel identity and consent-sensitive customer records where channel bindings or CRM automations target customers.
 - PRD-002: App shell, Essential top bar, full/admin rail, command search, notification bell, Home/My stuff, and shell async states.
-- PRD-003: Projects, `pm.Card`, project tools, project schedules, project Updates, linked-work refs, and `AgentDispatch` from project work.
+- Project Management surface (`pm.Card`, deferred): Projects, `pm.Card`, project tools, project schedules, project Updates, linked-work refs, and `AgentDispatch` from project work.
 - PRD-019: Dev Board, `DevTicket`, assignment/runner/reviewer roles, execution leases, Sprints, GitHub synchronization, and review gates.
 - ADR-017: Dev Board authority, deterministic GitHub sync, and local/cloud execution boundaries.
 - PRD-004: Internal collaboration, Activity, notifications, assistant hand-offs, approvals surfaced to users, and Web Push delivery.

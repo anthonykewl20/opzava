@@ -37,7 +37,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 
 - Build Internal Collaboration rooms, DMs, threads, reactions, mention inbox, Web Push, or project Team rooms. Those are PRD-004, though this PRD emits messages, hand-offs, and Activity rows consumed there.
 - Build the app shell, command palette, global Find, Home, notification bell, or project switcher. Those are PRD-002.
-- Build Project Management boards, cards, goals, to-dos, docs, schedules, discovery, or project Updates beyond assistant entry points and projected assistant output. Those are PRD-003.
+- Build Project Management boards, cards, goals, to-dos, docs, schedules, discovery, or project Updates beyond assistant entry points and projected assistant output. Those belong to the Project Management surface (`pm.Card`, deferred).
 - Build AI employee provisioning, persona editing, department management, standing orders, or autonomy-tier administration beyond using the ADR-008 model.
 - Build Knowledge Management ingestion, corpus rebuild, OKF import, embedding, or memory internals beyond resolving authorized context overlays.
 - Build the full Incident pipeline, error grouping, Incidents view/projection, alert routing, or remediation aggregate internals. Those are ADR-013 and later observability PRDs.
@@ -359,7 +359,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - ADR-010: Knowledge Management source of truth, project/org corpus overlays, source refs, and authorized retrieval/index behavior.
 - ADR-012: Department workflow engine, approval prompts, generated-content lifecycle, department workflow hand-offs, and reports.
 - PRD-002: App shell, Essential top bar, full/admin rail, command palette, Find, notification bell, Home/My stuff entry points, and shell async states.
-- PRD-003: Projects, project assistant entry, project cards/to-dos/docs/schedules/outputs/updates, `pm.Card`, project approvals, and project activity projections.
+- Project Management surface (`pm.Card`, deferred): Projects, project assistant entry, project cards/to-dos/docs/schedules/outputs/updates, `pm.Card`, project approvals, and project activity projections.
 - PRD-004: Internal chat, Activity inbox, assistant hand-offs, mentions, notifications, Web Push, project Team rooms, and assistant participant attribution in collaboration surfaces.
 
 ---

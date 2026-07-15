@@ -307,7 +307,7 @@ The solution is an Opzava-owned Internal Collaboration product surface for Slack
 - ADR-008: AI Workforce, personas, `AgentEmployee`, `AgentDispatch`, and assistant attribution/admission policy.
 - ADR-010: Knowledge Management only where message attachments, docs links, and searchable project-update/source refs cross into knowledge surfaces.
 - PRD-002: App shell, navigation, global Find, notification bell, Essential Notifications, project switcher, and shell count placement.
-- PRD-003: Projects, Team tab entry, project Updates source events, project comments/activity pointers, cards, approvals, docs, schedules, and My stuff links.
+- Project Management surface (`pm.Card`, deferred): Projects, Team tab entry, project Updates source events, project comments/activity pointers, cards, approvals, docs, schedules, and My stuff links.
 - PRD-005: Ask Opzava and project assistant conversation UX; required for dedicated assistant chat flows linked from Messages and Team rooms.
 - Notifications/Admin-Observability bounded context for notification rows, admin/fleet Activity, alert/admin-card inputs, and push delivery policy.
 - Department Workflows bounded context for approval prompts, generated-content lifecycle, workflow hand-offs, and assistant completion events that appear in Activity or Notifications.

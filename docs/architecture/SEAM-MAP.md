@@ -38,11 +38,11 @@ A port is the deepest kind of seam: a small Interface a lot of behavior sits beh
 | `ErrorCapturePort` | `packages/ports/src/error-capture.ts:21` | 0 class Adapters; used as inline object literals in `apps/web` | real (built-in plus GlitchTip per ADR-013) | NOT-YET-A-SEAM (inline-Adapter smell) |
 | `EventBusPort` **(deleted — not in code)** | _was_ `packages/ports/src/event-bus.ts` | 0 | planned (outbox plus projection dispatcher per ADR-004) | DELETED IN #160 — an uninhabited port is a dead feature, not a seam. Any replacement must be designed by PRD-019/ADR-017 and the migration manifest, with the outbox and its first real consumer in the same slice. |
 | `RealtimeTransportPort` | `packages/ports/src/realtime-transport.ts:41` | 0 | real (broker hub plus managed per ADR-009) | NOT-YET-A-SEAM |
-| `BillingPort` **(removed — not in code)** | — | 0 | removed (billing out of scope) | REMOVED 2026-07-15 (GitHub issue #200) |
+| `BillingPort` | not yet in `packages/ports` | 0 (null Adapter) | real (Stripe later per ADR-014) | DEFERRED (null Adapter, ships with local entitlements only) |
 
 Two readings of the table matter.
 By today's code, only four agnostic ports are real seams (`ConnectionsProvisioning`, `Authorization`, `ObjectStore`, `OpenClawAdminRpc`), and one of those is misplaced.
-By ADR intent, the non-removed agnostic ports are real seams preserved for a planned second Adapter, which is why the codebase pays the cost of the Interface even before the second implementation lands.
+By ADR intent, almost every agnostic port is a real seam preserved for a planned second Adapter, which is why the codebase pays the cost of the Interface even before the second implementation lands.
 The `OpenClawGatewayPort` row is the most important nuance: it is the single load-bearing seam of the whole system (the only hot-path ACL to OpenClaw), yet today its Interface exposes three methods and its single Adapter carries all the real depth, so the depth lives in `apps/gateway-broker` more than in the port.
 
 ## Layered seam graph

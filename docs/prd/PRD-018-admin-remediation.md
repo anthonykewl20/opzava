@@ -354,7 +354,7 @@ Net-new screens to design:
 - Q12 billing/provisioning decisions for admin/provisioning credential boundaries, idempotent provisioning, lifecycle transitions, and orphaned Gateway invariant.
 - Q14 deployment parity decisions for reaper scan inputs, Docker provider labels, route removal, and socket-proxy constraints.
 - PRD-012 Admin Observability for Monitoring, Security & Audit, Debug, incidents, alerts, Activity, notifications, and broad admin screen conventions.
-- PRD-014 Billing settings for entitlement, suspension, dunning, and runtime-start blocking surfaces.
+- The deferred Billing settings surface for entitlement, suspension, dunning, and runtime-start blocking surfaces.
 - Mockup implementation conventions from `security-audit.html`, `monitoring-health.html`, and `debug.html`.
 
 ---

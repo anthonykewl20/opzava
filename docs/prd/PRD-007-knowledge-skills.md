@@ -425,7 +425,7 @@ The solution is an Opzava-owned Knowledge Management product surface and source 
 - ADR-009: Realtime transport, reconnect/backfill, Activity/notification fan-out, and Web Push consumers for knowledge/index/install status.
 - ADR-012: Department Workflow approvals, reports, generated content lifecycle, workflow artifacts, provisioning receipts, and run limiter where knowledge flows intersect workflows.
 - PRD-002: App shell, Essential top bar, full/admin rail, command search, notifications, shell async states, and responsive navigation.
-- PRD-003: Projects, Docs & Files entry point, Discovery, project source refs, card evidence, project authorization, and connect-to-work commands.
+- Project Management surface (`pm.Card`, deferred): Projects, Docs & Files entry point, Discovery, project source refs, card evidence, project authorization, and connect-to-work commands.
 - PRD-004: Internal Collaboration, Activity, notifications, review prompts, assistant hand-offs, and Web Push delivery.
 - PRD-005: Ask Opzava and project assistant conversations that consume authorized corpus overlays, citations, artifacts, and candidate memory.
 - PRD-006: Agent roster/detail Memory tab, assignment/workload and run-evidence artifact refs that deep-link to their owning `pm.Card` or DevTicket, tool catalog adjacency, and employee memory/skills summaries.

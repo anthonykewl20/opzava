@@ -37,7 +37,7 @@ This PRD applies ADR-013, ADR-007, and ADR-014. It also depends on the locked Q4
 - Support the canonical Incident lifecycle Detected, Triaged, Mitigating, Monitoring, Resolved, and Postmortem, with lifecycle-appropriate filters and actions.
 - Support Security & Audit approval summaries, pending approval decisions, users/roles visibility, role/session controls, and immutable audit export.
 - Support Alerts & notifications with severity tabs, unread/read state, alert rules, delivery channels, push-safe payloads, and mark/read/dismiss flows.
-- Support Costs as the admin cost/usage view tied to ADR-014 usage/metering and PRD-011 Finance ledger boundaries.
+- Support Costs as the admin cost/usage view tied to ADR-014 usage/metering and the deferred Finance ledger surface.
 - Support Debug as a redacted, advanced diagnostics surface with run diagnostics, copy debug bundle, feature flags, orchestrator state, diagnostics, and raw effective config.
 - Provide Ask Admin Opzava investigation and remediation proposal flows with dry-run-first, approval-gated, one-tenant/one-Gateway/one-operational-target blast radius.
 - Define data/API touchpoints by owning bounded context and ports.
@@ -137,7 +137,7 @@ This PRD applies ADR-013, ADR-007, and ADR-014. It also depends on the locked Q4
 74. As a platform operator, I want alert delivery through configured Slack, Email, in-app, and Web Push channels, so that notifications reach the right operator without storing ad hoc recipient secrets.
 75. As a privacy reviewer, I want push and external alert payloads to avoid sensitive data and fetch details on open, so that background notifications do not leak.
 76. As a platform operator, I want Costs to show period, budget, remaining, transaction count, chart of accounts, transactions, and budget meter, so that usage/cost warnings link to an understandable cost surface.
-77. As a platform operator, I want Costs to distinguish ADR-014 `UsageMeter`/`MeterEvent`/`Invoice` billing truth from PRD-011 Finance expense ledger truth, so that platform spend and tenant bookkeeping are not conflated.
+77. As a platform operator, I want Costs to distinguish ADR-014 `UsageMeter`/`MeterEvent`/`Invoice` billing truth from the deferred Finance ledger surface's expense-ledger truth, so that platform spend and tenant bookkeeping are not conflated.
 78. As a platform operator, I want budget alerts to derive from metering and plan policy, so that budget threshold notifications are enforceable.
 79. As a platform operator, I want Debug to warn that it is advanced internal state, so that users understand the risk of changes.
 80. As a platform operator, I want Debug sections for System, Feature flags, Orchestrator state, Diagnostics, and Raw config, so that common diagnostic state is one page.
@@ -162,7 +162,7 @@ This PRD applies ADR-013, ADR-007, and ADR-014. It also depends on the locked Q4
 | `logs.html` | Live log explorer titled `Logs` with subtitle `Live fleet, gateway, and system logs`, OpenClaw logging reference, Download action, text filter, level tabs All/Info/Warn/Error, source filter All sources/Agents/Gateway/System, live tail switch, newest-first log rows, and footer cursor/count hint. Gateway/runtime logs are read via the broker ACL, redacted, cursored, source-scoped, and correlated to `ErrorGroup` where possible. |
 | `monitoring-health.html` | Monitoring page titled `Monitoring` with live/updated state, Reconnect affordance, Export report, metric cards for CPU Usage, Memory, Events/sec, p95 Latency, Service health, Recent alerts, Health endpoints, Nodes, and collapsible System log. Metrics combine Opzava app/projection health with OpenClaw `health`, `diagnostics.stability`, node/device, task/session, and usage/cost observations through ports. Node pairing and command scope changes require owner approval. |
 | `security-audit.html` | Governance page titled `Security & Audit` with subtitle `Approvals & audit trail`, Export audit log, Security settings, approval summary cards, Pending approvals table, Users & roles table, Role matrix, Manage sessions, and Audit trail. It must merge Opzava business approvals, platform remediation approvals, node pairing approvals, and mirrored runtime approval state while preserving the split: Opzava business approval wins conflicts, OpenClaw exec/plugin approvals are runtime gates. |
-| `costs.html` | Costs page titled `Costs` with subtitle `Expense bookkeeping - all service costs`, accounting period controls, Export, Add cost source, period summary, budget meter, By account chart, and Transactions ledger. For this PRD, Costs is the admin entry point for budget/usage alert context and ADR-014 metering state; Finance ledger authority and expense bookkeeping details remain in PRD-011. Usage/cost observations from OpenClaw enrich the view but are not direct raw Gateway state. |
+| `costs.html` | Costs page titled `Costs` with subtitle `Expense bookkeeping - all service costs`, accounting period controls, Export, Add cost source, period summary, budget meter, By account chart, and Transactions ledger. For this PRD, Costs is the admin entry point for budget/usage alert context and ADR-014 metering state; Finance ledger authority and expense bookkeeping details remain in the deferred Finance ledger surface. Usage/cost observations from OpenClaw enrich the view but are not direct raw Gateway state. |
 | `debug.html` | Debug page titled `Debug` with subtitle `Advanced internal diagnostics`, Run diagnostics, Copy debug bundle, advanced warning, disclosures for System, Feature flags, Orchestrator state, Diagnostics, and Raw config. Raw config must be redacted, debug bundles must omit secrets, and every mutating debug action must be owner/admin authorized, approval-gated where risky, and audited. |
 | `notifications-alerts.html` | Alerts & notifications page titled `Alerts & notifications` with subtitle `Severity-tiered notifications and configurable alert rules`, Add alert rule, Notification center with unread counts and severity tabs, notification actions, empty/loading/error states, Alert rules table, enabled switches, and delivery-channel hint. It is the user-facing projection of ADR-013 alert routes plus Q7 notification/push delivery, with safe payloads and fetch-on-open detail. |
 | `issues.html` | **Superseded target.** The historical standalone Issues mockup informs migration only. Its incident data moves to the Dev Board Incidents view, whose rows deep-link to the separate `ErrorGroup`/Incident detail and lifecycle. GitHub-backed development work is governed by PRD-019 instead. |
@@ -280,7 +280,7 @@ Net-new screens to design:
 
 ### Costs and usage/cost touchpoints
 
-- Costs must show period navigation, period totals, budget, remaining, transaction count, budget meter, chart of accounts, and transactions as defined in PRD-011.
+- Costs must show period navigation, period totals, budget, remaining, transaction count, budget meter, chart of accounts, and transactions as defined in the deferred Finance ledger surface.
 - For Admin Observability, budget threshold and budget-exceeded alerts must derive from ADR-014 `UsageMeter`, `MeterEvent`, plan limits, workflow budgets, and Finance/ledger projections where applicable.
 - OpenClaw `usage.cost`, `usage.status`, and `sessions.usage*` observations must be ingested through the broker ACL and metering/projector paths.
 - Usage/cost spikes may create incidents, alerts, Activity rows, and Costs links.
@@ -384,7 +384,7 @@ Net-new screens to design:
 - Dev Board Incident rows show severity, lifecycle state, owner, updated age, mitigation status, backing `ErrorGroup`, and linked remediation DevTicket refs.
 - Alerts & notifications can create, enable/disable, and route alert rules without storing manual destination secrets in rule rows.
 - Push/external notifications contain safe payloads and fetch sensitive details only after authorized open.
-- Costs budget alerts link to cost/usage context derived from ADR-014 metering and PRD-011 Finance boundaries.
+- Costs budget alerts link to cost/usage context derived from ADR-014 metering and the boundaries of the deferred Finance ledger surface.
 - Debug Raw config and Copy debug bundle are redacted by default and audited.
 - Ask Admin Opzava can summarize and propose remediation but cannot execute medium-or-higher or destructive remediation without the required approval/confirmation path.
 - Remediation execution is dry-run-first where supported, idempotent, single-target, audited, and reflected back to the Incident, Dev Board Incident projection, Activity, notifications, and audit.
@@ -419,7 +419,7 @@ Net-new screens to design:
 - Q8 AI Workforce decisions for Ask Admin Opzava identity, tool-policy-first safety, audit, spend/rate caps, and approval rows for money/PII/credential/legal/admin actions.
 - Q11 workflow/approval decisions for unified Opzava `Approval`, runtime approval mirrors, run limiting, and approval backlog escalation.
 - Q12 billing/provisioning decisions for tenant lifecycle, Gateway entitlement, suspension blocking runtime starts, and admin/provisioning credential boundaries.
-- PRD-011 Finance for Costs ledger semantics, chart of accounts, expense exports, and separation between tenant expense ledger and ADR-014 billing/metering.
+- The deferred Finance ledger surface for Costs ledger semantics, chart of accounts, expense exports, and separation between tenant expense ledger and ADR-014 billing/metering.
 - Mockup implementation conventions from `activity.html`, `logs.html`, `monitoring-health.html`, `security-audit.html`, `costs.html`, `debug.html`, and `notifications-alerts.html`. The `issues.html` mockup is retained only as a frozen historical visual reference; its funnel vocabulary is not a target requirement.
 - Historical discovery found issue-triage vocabulary in `issues.html`; the 2026-07-15 amendment supersedes that vocabulary with the canonical Incident lifecycle and PRD-019 linked-remediation model.
 
