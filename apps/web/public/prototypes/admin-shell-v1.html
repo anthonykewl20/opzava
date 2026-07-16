@@ -1,0 +1,2551 @@
+<!doctype html>
+<!--
+  THROWAWAY UI PROTOTYPE — not production code.
+  Question: Which Admin Overview information hierarchy best helps one Opzava owner
+  supervise delivery, runners, runtime health, and human approvals without leaving Opzava?
+  Compare ?variant=A, ?variant=B, and ?variant=C. Demo states use ?state=active|clear|loading|error.
+  Run: python3 -m http.server 4173 --directory apps/web/public
+-->
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin Overview shell — Opzava prototype</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --background: #f4f7fa;
+        --foreground: #15202b;
+        --sidebar: #ffffff;
+        --topbar: rgba(255, 255, 255, 0.94);
+        --card: #ffffff;
+        --card-2: #f7f9fb;
+        --card-3: #eef3f6;
+        --border: #dce3e9;
+        --border-strong: #c6d0d9;
+        --muted: #5f6d7b;
+        --subtle: #8492a0;
+        --accent: #0891b2;
+        --accent-soft: #e1f5f9;
+        --accent-fg: #032c36;
+        --success: #11875d;
+        --success-soft: #e3f7ee;
+        --warning: #a96506;
+        --warning-soft: #fff1d6;
+        --danger: #c43848;
+        --danger-soft: #fde9ec;
+        --violet: #7059c8;
+        --violet-soft: #eeeafd;
+        --shadow: 0 16px 44px rgba(26, 39, 52, 0.11);
+        --radius: 10px;
+        --sidebar-width: 248px;
+        --sidebar-icon-width: 68px;
+        --topbar-height: 58px;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      html[data-theme="dark"] {
+        color-scheme: dark;
+        --background: #080d14;
+        --foreground: #edf3f7;
+        --sidebar: #0c121b;
+        --topbar: rgba(9, 14, 22, 0.94);
+        --card: #101823;
+        --card-2: #141e2a;
+        --card-3: #192532;
+        --border: #243140;
+        --border-strong: #354557;
+        --muted: #9aa8b7;
+        --subtle: #6e7d90;
+        --accent: #46c7df;
+        --accent-soft: #123541;
+        --accent-fg: #051419;
+        --success: #59ca94;
+        --success-soft: #14362a;
+        --warning: #efb75f;
+        --warning-soft: #382b17;
+        --danger: #ef737d;
+        --danger-soft: #3b1d24;
+        --violet: #ad98fa;
+        --violet-soft: #2c2646;
+        --shadow: 0 18px 52px rgba(0, 0, 0, 0.28);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--background);
+        color: var(--foreground);
+      }
+
+      body {
+        min-width: 320px;
+      }
+
+      body.sheet-open {
+        overflow: hidden;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      button,
+      a,
+      select {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      button:focus-visible,
+      a:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      .skip-link {
+        position: fixed;
+        z-index: 100;
+        left: 12px;
+        top: 10px;
+        transform: translateY(-160%);
+        padding: 9px 13px;
+        border-radius: 8px;
+        background: var(--accent);
+        color: var(--accent-fg);
+        font-weight: 750;
+      }
+
+      .skip-link:focus {
+        transform: translateY(0);
+      }
+
+      .app-shell {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+        transition: grid-template-columns 180ms ease;
+      }
+
+      body.sidebar-compact .app-shell {
+        grid-template-columns: var(--sidebar-icon-width) minmax(0, 1fr);
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        height: 100vh;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--sidebar);
+        border-right: 1px solid var(--border);
+      }
+
+      .sidebar-header {
+        height: var(--topbar-height);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--border);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+
+      .brand-mark {
+        width: 30px;
+        height: 30px;
+        flex: 0 0 30px;
+        display: grid;
+        place-items: center;
+        border-radius: 9px;
+        background: var(--accent);
+        color: var(--accent-fg);
+        font-weight: 900;
+        transform: rotate(-3deg);
+      }
+
+      .brand-name {
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+
+      .brand-version {
+        margin-left: auto;
+        color: var(--subtle);
+        font-size: 11px;
+      }
+
+      .sidebar-scroll {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 10px 8px 18px;
+        scrollbar-width: thin;
+      }
+
+      .assistant-reserved {
+        width: 100%;
+        min-height: 42px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 9px;
+        padding: 0 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--card);
+        color: var(--foreground);
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .assistant-reserved:hover {
+        background: var(--card-2);
+        border-color: var(--border-strong);
+      }
+
+      .assistant-spark {
+        color: var(--accent);
+        font-size: 16px;
+      }
+
+      .nav-group {
+        margin-top: 5px;
+      }
+
+      .group-trigger {
+        width: 100%;
+        min-height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 9px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--subtle);
+        font-size: 9px;
+        font-weight: 850;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+
+      .group-trigger:hover {
+        color: var(--foreground);
+        background: var(--card-2);
+      }
+
+      .group-chevron {
+        margin-left: auto;
+        transition: transform 160ms ease;
+      }
+
+      .group-trigger[aria-expanded="false"] .group-chevron {
+        transform: rotate(-90deg);
+      }
+
+      .group-menu {
+        list-style: none;
+        padding: 0;
+        margin: 1px 0 7px;
+      }
+
+      .group-menu[hidden] {
+        display: none;
+      }
+
+      .nav-item {
+        position: relative;
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 0 10px;
+        border-radius: 7px;
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .nav-item:hover {
+        color: var(--foreground);
+        background: var(--card-2);
+      }
+
+      .nav-item[aria-current="page"] {
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-weight: 720;
+      }
+
+      .nav-icon {
+        width: 20px;
+        height: 20px;
+        flex: 0 0 20px;
+        display: grid;
+        place-items: center;
+        font-size: 15px;
+        font-weight: 760;
+      }
+
+      .nav-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .nav-badge {
+        min-width: 20px;
+        height: 19px;
+        display: inline-grid;
+        place-items: center;
+        margin-left: auto;
+        padding: 0 6px;
+        border-radius: 10px;
+        background: var(--warning-soft);
+        color: var(--warning);
+        font-size: 9px;
+        font-weight: 850;
+      }
+
+      .nav-status {
+        width: 8px;
+        height: 8px;
+        margin-left: auto;
+        border-radius: 50%;
+        background: var(--success);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 16%, transparent);
+      }
+
+      .nav-status.warning {
+        background: var(--warning);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 16%, transparent);
+      }
+
+      .sidebar-footer {
+        padding: 10px 12px;
+        border-top: 1px solid var(--border);
+        color: var(--subtle);
+        font-size: 10px;
+        line-height: 1.45;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+
+      .sidebar-rail {
+        position: absolute;
+        z-index: 3;
+        top: 0;
+        bottom: 0;
+        right: -5px;
+        width: 10px;
+        border: 0;
+        background: transparent;
+        cursor: col-resize;
+      }
+
+      .sidebar-rail:hover::after,
+      .sidebar-rail:focus-visible::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 4px;
+        width: 2px;
+        background: var(--accent);
+      }
+
+      body.sidebar-compact .brand-name,
+      body.sidebar-compact .brand-version,
+      body.sidebar-compact .nav-label,
+      body.sidebar-compact .nav-badge,
+      body.sidebar-compact .nav-status,
+      body.sidebar-compact .sidebar-footer,
+      body.sidebar-compact .group-label,
+      body.sidebar-compact .group-chevron {
+        display: none;
+      }
+
+      body.sidebar-compact .sidebar-header,
+      body.sidebar-compact .assistant-reserved,
+      body.sidebar-compact .nav-item,
+      body.sidebar-compact .group-trigger {
+        justify-content: center;
+        padding-left: 0;
+        padding-right: 0;
+      }
+
+      body.sidebar-compact .assistant-reserved {
+        width: 44px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      body.sidebar-compact .group-trigger {
+        min-height: 18px;
+      }
+
+      body.sidebar-compact .group-trigger::after {
+        content: "";
+        width: 24px;
+        height: 1px;
+        background: var(--border);
+      }
+
+      .sidebar-tooltip {
+        position: fixed;
+        z-index: 90;
+        width: max-content;
+        max-width: 220px;
+        padding: 7px 9px;
+        border: 1px solid var(--border-strong);
+        border-radius: 7px;
+        background: var(--card-3);
+        color: var(--foreground);
+        box-shadow: var(--shadow);
+        font-size: 11px;
+        font-weight: 650;
+        pointer-events: none;
+      }
+
+      .sidebar-tooltip[hidden] {
+        display: none;
+      }
+
+      .sheet-overlay {
+        position: fixed;
+        z-index: 25;
+        inset: 0;
+        display: none;
+        border: 0;
+        background: rgba(2, 7, 12, 0.72);
+        backdrop-filter: blur(2px);
+      }
+
+      .app-inset {
+        min-width: 0;
+        min-height: 100vh;
+      }
+
+      .topbar {
+        position: sticky;
+        z-index: 20;
+        top: 0;
+        height: var(--topbar-height);
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--topbar);
+        backdrop-filter: blur(16px);
+      }
+
+      .icon-button {
+        position: relative;
+        width: 38px;
+        height: 38px;
+        flex: 0 0 38px;
+        display: grid;
+        place-items: center;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .icon-button:hover {
+        border-color: var(--border);
+        background: var(--card-2);
+        color: var(--foreground);
+      }
+
+      .search-wrap {
+        position: relative;
+        width: min(430px, 42vw);
+      }
+
+      .global-search {
+        width: 100%;
+        height: 36px;
+        padding: 0 72px 0 34px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--card);
+        color: var(--foreground);
+        font-size: 12px;
+      }
+
+      .search-icon {
+        position: absolute;
+        left: 11px;
+        top: 9px;
+        color: var(--subtle);
+        font-size: 13px;
+      }
+
+      .search-key {
+        position: absolute;
+        right: 8px;
+        top: 7px;
+        padding: 3px 6px;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        color: var(--subtle);
+        font-size: 9px;
+      }
+
+      .topbar-spacer {
+        flex: 1;
+      }
+
+      .health-pill {
+        min-height: 34px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 11px;
+        border: 1px solid color-mix(in srgb, var(--warning) 38%, var(--border));
+        border-radius: 18px;
+        background: var(--warning-soft);
+        color: var(--warning);
+        font-size: 11px;
+        font-weight: 720;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+
+      .health-clear-label,
+      .health-clear-sr {
+        display: none;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        flex: 0 0 8px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .bell-badge {
+        position: absolute;
+        top: 1px;
+        right: 0;
+        min-width: 17px;
+        height: 17px;
+        display: grid;
+        place-items: center;
+        padding: 0 4px;
+        border: 2px solid var(--topbar);
+        border-radius: 9px;
+        background: var(--danger);
+        color: #fff;
+        font-size: 8px;
+        font-weight: 850;
+      }
+
+      .profile-button {
+        width: 34px;
+        height: 34px;
+        flex: 0 0 34px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--border-strong);
+        border-radius: 50%;
+        background: var(--violet-soft);
+        color: var(--violet);
+        font-size: 10px;
+        font-weight: 850;
+        cursor: pointer;
+      }
+
+      .popover {
+        position: fixed;
+        z-index: 70;
+        top: 52px;
+        right: 14px;
+        width: min(330px, calc(100vw - 24px));
+        padding: 8px;
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .popover[hidden] {
+        display: none;
+      }
+
+      .popover-head {
+        padding: 9px 10px 11px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .popover-title {
+        font-size: 12px;
+        font-weight: 780;
+      }
+
+      .popover-sub {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .menu-button {
+        width: 100%;
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .menu-button:hover,
+      .menu-button[aria-checked="true"] {
+        background: var(--card-2);
+        color: var(--foreground);
+      }
+
+      .menu-button .right {
+        margin-left: auto;
+      }
+
+      .attention-mini {
+        margin: 6px 0;
+        padding: 9px 10px;
+        border-radius: 7px;
+        background: var(--card-2);
+      }
+
+      .attention-mini b {
+        display: block;
+        font-size: 11px;
+      }
+
+      .attention-mini span {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 9px;
+      }
+
+      .attention-mini-clear {
+        display: none;
+      }
+
+      .attention-clear-copy {
+        display: none;
+      }
+
+      main {
+        min-width: 0;
+        padding: 22px clamp(14px, 2.2vw, 30px) 100px;
+      }
+
+      .page-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 20px;
+        margin: 0 auto 18px;
+        max-width: 1540px;
+      }
+
+      .eyebrow {
+        color: var(--subtle);
+        font-size: 9px;
+        font-weight: 850;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 4px 0 0;
+        font-size: clamp(24px, 3vw, 34px);
+        line-height: 1.08;
+        letter-spacing: -0.04em;
+      }
+
+      .page-description {
+        max-width: 720px;
+        margin: 7px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .page-updated {
+        margin-left: auto;
+        color: var(--subtle);
+        font-size: 10px;
+        white-space: nowrap;
+      }
+
+      .variant-content,
+      .state-panel {
+        width: min(1540px, 100%);
+        margin: 0 auto;
+      }
+
+      .state-panel {
+        display: none;
+        min-height: 420px;
+        padding: 20px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--card);
+      }
+
+      body[data-demo-state="loading"] .variant-content,
+      body[data-demo-state="error"] .variant-content {
+        display: none;
+      }
+
+      body[data-demo-state="loading"] .state-loading,
+      body[data-demo-state="error"] .state-error {
+        display: block;
+      }
+
+      .state-error {
+        border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
+        background: linear-gradient(135deg, var(--danger-soft), var(--card) 58%);
+      }
+
+      .error-lockup {
+        max-width: 560px;
+        margin: 80px auto;
+        text-align: center;
+      }
+
+      .error-lockup h2 {
+        margin: 14px 0 8px;
+        font-size: 20px;
+      }
+
+      .error-lockup p {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .skeleton {
+        position: relative;
+        overflow: hidden;
+        border-radius: 7px;
+        background: var(--card-3);
+      }
+
+      .skeleton::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        transform: translateX(-100%);
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+        animation: shimmer 1.4s infinite;
+      }
+
+      .skeleton-line {
+        height: 13px;
+        margin-bottom: 12px;
+      }
+
+      .skeleton-card {
+        height: 108px;
+        margin-top: 16px;
+      }
+
+      .section-card {
+        min-width: 0;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--card);
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.03);
+      }
+
+      .section-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .section-title {
+        margin: 0;
+        font-size: 13px;
+        letter-spacing: -0.01em;
+      }
+
+      .section-note {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.45;
+      }
+
+      .section-head-right {
+        margin-left: auto;
+      }
+
+      .count-pill,
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 24px;
+        padding: 0 8px;
+        border-radius: 12px;
+        background: var(--card-3);
+        color: var(--muted);
+        font-size: 9px;
+        font-weight: 780;
+        white-space: nowrap;
+      }
+
+      .status-pill.warning {
+        background: var(--warning-soft);
+        color: var(--warning);
+      }
+
+      .status-pill.success {
+        background: var(--success-soft);
+        color: var(--success);
+      }
+
+      .button {
+        min-height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 0 10px;
+        border: 1px solid var(--border-strong);
+        border-radius: 7px;
+        background: var(--card-2);
+        color: var(--foreground);
+        font-size: 10px;
+        font-weight: 720;
+        cursor: pointer;
+      }
+
+      .button:hover {
+        border-color: var(--accent);
+      }
+
+      .button.primary {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: var(--accent-fg);
+      }
+
+      .attention-list,
+      .activity-list,
+      .readiness-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      .attention-row {
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 11px;
+        min-height: 68px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .attention-row:last-child {
+        border-bottom: 0;
+      }
+
+      .attention-icon {
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--warning-soft);
+        color: var(--warning);
+        font-weight: 850;
+      }
+
+      .attention-copy {
+        min-width: 0;
+      }
+
+      .attention-copy b {
+        display: block;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .attention-copy span {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 9px;
+        line-height: 1.4;
+      }
+
+      .attention-age {
+        color: var(--subtle);
+        font-size: 9px;
+        white-space: nowrap;
+      }
+
+      .attention-clear {
+        display: none;
+        align-items: center;
+        gap: 11px;
+        min-height: 70px;
+        padding: 14px 16px;
+        color: var(--success);
+      }
+
+      .attention-clear b {
+        display: block;
+        font-size: 12px;
+      }
+
+      .attention-clear span {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 9px;
+      }
+
+      body[data-demo-state="clear"] .attention-list,
+      body[data-demo-state="clear"] .attention-table-wrap {
+        display: none;
+      }
+
+      body[data-demo-state="clear"] .attention-clear {
+        display: flex;
+      }
+
+      body[data-demo-state="clear"] [aria-labelledby$="attention-title"] .count-pill,
+      body[data-demo-state="clear"] .nav-badge,
+      body[data-demo-state="clear"] .bell-badge,
+      body[data-demo-state="clear"] #attention-popover .attention-mini:not(.attention-mini-clear),
+      body[data-demo-state="clear"] #attention-popover > .menu-button,
+      body[data-demo-state="clear"] .health-active-label,
+      body[data-demo-state="clear"] .health-active-sr,
+      body[data-demo-state="clear"] .attention-active-copy {
+        display: none;
+      }
+
+      body[data-demo-state="clear"] .health-clear-label,
+      body[data-demo-state="clear"] .health-clear-sr,
+      body[data-demo-state="clear"] #attention-popover .attention-mini-clear,
+      body[data-demo-state="clear"] .attention-clear-copy {
+        display: block;
+      }
+
+      body[data-demo-state="clear"] .health-pill {
+        border-color: color-mix(in srgb, var(--success) 38%, var(--border));
+        background: var(--success-soft);
+        color: var(--success);
+      }
+
+      body[data-demo-state="clear"] .nav-status.warning {
+        background: var(--success);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 16%, transparent);
+      }
+
+      .delivery-grid {
+        display: grid;
+        grid-template-columns: 1.25fr 1fr 0.86fr;
+        gap: 12px;
+        padding: 12px;
+      }
+
+      .delivery-card {
+        min-width: 0;
+        padding: 13px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--card-2);
+      }
+
+      .delivery-top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .delivery-type {
+        color: var(--subtle);
+        font-size: 8px;
+        font-weight: 850;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .delivery-card h3 {
+        margin: 9px 0 5px;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .delivery-goal {
+        min-height: 31px;
+        color: var(--muted);
+        font-size: 9px;
+        line-height: 1.45;
+      }
+
+      .meta-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 9px;
+        flex-wrap: wrap;
+      }
+
+      .avatar {
+        width: 24px;
+        height: 24px;
+        display: inline-grid;
+        place-items: center;
+        border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+        border-radius: 7px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 8px;
+        font-weight: 900;
+      }
+
+      .avatar.human {
+        border-radius: 50%;
+        background: var(--violet-soft);
+        color: var(--violet);
+      }
+
+      .progress {
+        height: 6px;
+        margin-top: 11px;
+        overflow: hidden;
+        border-radius: 4px;
+        background: var(--card-3);
+      }
+
+      .progress > span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--accent);
+      }
+
+      .delivery-footer {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 11px;
+      }
+
+      .delivery-footer .button {
+        margin-left: auto;
+      }
+
+      .capacity-meter {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5px;
+        margin-top: 12px;
+      }
+
+      .capacity-slot {
+        height: 38px;
+        display: grid;
+        place-items: center;
+        border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+        border-radius: 7px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 9px;
+        font-weight: 780;
+      }
+
+      .readiness-grid {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+      }
+
+      .readiness-item {
+        min-width: 0;
+        min-height: 88px;
+        padding: 13px;
+        border-right: 1px solid var(--border);
+      }
+
+      .readiness-item:last-child {
+        border-right: 0;
+      }
+
+      .readiness-name {
+        color: var(--muted);
+        font-size: 9px;
+      }
+
+      .readiness-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 7px;
+        font-size: 11px;
+        font-weight: 780;
+      }
+
+      .readiness-status.success {
+        color: var(--success);
+      }
+
+      .readiness-status.warning {
+        color: var(--warning);
+      }
+
+      .readiness-meta {
+        margin-top: 6px;
+        color: var(--subtle);
+        font-size: 8px;
+        line-height: 1.35;
+      }
+
+      .activity-row {
+        display: grid;
+        grid-template-columns: 76px 28px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        min-height: 50px;
+        padding: 8px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .activity-row:last-child {
+        border-bottom: 0;
+      }
+
+      .activity-time {
+        color: var(--subtle);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 8px;
+      }
+
+      .activity-copy {
+        min-width: 0;
+        font-size: 10px;
+        line-height: 1.45;
+      }
+
+      .activity-copy b {
+        font-weight: 780;
+      }
+
+      .activity-copy span {
+        color: var(--muted);
+      }
+
+      .activity-source {
+        color: var(--subtle);
+        font-size: 8px;
+        white-space: nowrap;
+      }
+
+      .variant-a {
+        display: grid;
+        gap: 14px;
+      }
+
+      .variant-b {
+        display: grid;
+        grid-template-columns: minmax(330px, 0.82fr) minmax(480px, 1.35fr);
+        gap: 14px;
+      }
+
+      .variant-b .b-attention {
+        align-self: start;
+      }
+
+      .variant-b .delivery-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .variant-b .b-lower {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(420px, 0.9fr);
+        gap: 14px;
+      }
+
+      .variant-b .readiness-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .variant-b .readiness-item:nth-child(3) {
+        border-right: 0;
+      }
+
+      .variant-b .readiness-item:nth-child(-n + 3) {
+        border-bottom: 1px solid var(--border);
+      }
+
+      .variant-b .activity-row {
+        grid-template-columns: 64px 26px minmax(0, 1fr) auto;
+      }
+
+      .console {
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--card);
+      }
+
+      .console + .console {
+        margin-top: 12px;
+      }
+
+      .console-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 43px;
+        padding: 0 13px;
+        border-bottom: 1px solid var(--border);
+        background: var(--card-2);
+      }
+
+      .console-head h2 {
+        margin: 0;
+        font-size: 11px;
+      }
+
+      .console-table-wrap {
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 9px;
+      }
+
+      th,
+      td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: middle;
+      }
+
+      th {
+        color: var(--subtle);
+        background: color-mix(in srgb, var(--card-2) 72%, transparent);
+        font-size: 8px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      tbody tr:last-child td {
+        border-bottom: 0;
+      }
+
+      td strong {
+        display: block;
+        color: var(--foreground);
+        font-size: 10px;
+      }
+
+      td small {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 8px;
+        line-height: 1.35;
+      }
+
+      .console-layout {
+        display: grid;
+        grid-template-columns: 1.25fr 0.75fr;
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .console .attention-clear {
+        min-height: 62px;
+      }
+
+      .prototype-switcher {
+        position: fixed;
+        z-index: 80;
+        left: 50%;
+        bottom: 16px;
+        transform: translateX(-50%);
+        max-width: calc(100vw - 24px);
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 6px;
+        border: 1px solid var(--border-strong);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--card) 94%, transparent);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(16px);
+      }
+
+      .switch-button {
+        width: 36px;
+        height: 36px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--card-2);
+        cursor: pointer;
+      }
+
+      .variant-label {
+        min-width: 190px;
+        text-align: center;
+        font-size: 10px;
+        font-weight: 780;
+      }
+
+      .state-select {
+        height: 36px;
+        padding: 0 28px 0 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--card-2);
+        color: var(--foreground);
+        font-size: 10px;
+      }
+
+      .toast {
+        position: fixed;
+        z-index: 100;
+        right: 18px;
+        bottom: 82px;
+        max-width: min(360px, calc(100vw - 32px));
+        padding: 10px 13px;
+        border: 1px solid var(--border-strong);
+        border-radius: 9px;
+        background: var(--card-3);
+        box-shadow: var(--shadow);
+        color: var(--foreground);
+        font-size: 10px;
+        opacity: 0;
+        transform: translateY(8px);
+        pointer-events: none;
+        transition:
+          opacity 140ms ease,
+          transform 140ms ease;
+      }
+
+      .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      @keyframes shimmer {
+        100% {
+          transform: translateX(100%);
+        }
+      }
+
+      @media (max-width: 1180px) {
+        .readiness-grid {
+          grid-template-columns: repeat(3, 1fr);
+        }
+
+        .readiness-item:nth-child(3) {
+          border-right: 0;
+        }
+
+        .readiness-item:nth-child(-n + 3) {
+          border-bottom: 1px solid var(--border);
+        }
+
+        .delivery-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .delivery-grid .delivery-card:last-child {
+          grid-column: 1 / -1;
+        }
+
+        .variant-b {
+          grid-template-columns: 0.9fr 1.1fr;
+        }
+
+        .variant-b .b-lower,
+        .console-layout {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 880px) {
+        .app-shell,
+        body.sidebar-compact .app-shell {
+          display: block;
+        }
+
+        .sidebar {
+          position: fixed;
+          z-index: 40;
+          left: 0;
+          top: 0;
+          width: min(310px, calc(100vw - 48px));
+          transform: translateX(-104%);
+          box-shadow: var(--shadow);
+          transition: transform 180ms ease;
+        }
+
+        body.sheet-open .sidebar {
+          transform: translateX(0);
+        }
+
+        body.sheet-open .sheet-overlay {
+          display: block;
+        }
+
+        body.sidebar-compact .brand-name,
+        body.sidebar-compact .brand-version,
+        body.sidebar-compact .nav-label,
+        body.sidebar-compact .nav-badge,
+        body.sidebar-compact .nav-status,
+        body.sidebar-compact .sidebar-footer,
+        body.sidebar-compact .group-label,
+        body.sidebar-compact .group-chevron {
+          display: initial;
+        }
+
+        body.sidebar-compact .sidebar-header,
+        body.sidebar-compact .assistant-reserved,
+        body.sidebar-compact .nav-item,
+        body.sidebar-compact .group-trigger {
+          justify-content: flex-start;
+          padding-left: 10px;
+          padding-right: 10px;
+        }
+
+        body.sidebar-compact .brand-version,
+        body.sidebar-compact .nav-badge,
+        body.sidebar-compact .nav-status,
+        body.sidebar-compact .group-chevron {
+          margin-left: auto;
+        }
+
+        body.sidebar-compact .assistant-reserved {
+          width: 100%;
+        }
+
+        body.sidebar-compact .group-trigger::after,
+        body.sidebar-compact .nav-item::after,
+        body.sidebar-compact .assistant-reserved::after,
+        .sidebar-rail {
+          display: none;
+        }
+
+        .topbar {
+          padding: 0 10px;
+        }
+
+        .search-wrap {
+          width: min(360px, 100%);
+          flex: 1;
+        }
+
+        .health-pill .health-active-label,
+        .health-pill .health-clear-label {
+          display: none !important;
+        }
+
+        main {
+          padding-left: 13px;
+          padding-right: 13px;
+        }
+
+        .page-updated {
+          display: none;
+        }
+
+        .variant-b,
+        .variant-b .b-lower {
+          grid-template-columns: 1fr;
+        }
+
+        .variant-b .b-lower {
+          grid-column: auto;
+        }
+
+        .delivery-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .delivery-grid .delivery-card:last-child {
+          grid-column: auto;
+        }
+
+        .attention-row {
+          grid-template-columns: 34px minmax(0, 1fr) auto;
+        }
+
+        .attention-age {
+          display: none;
+        }
+
+        .activity-row {
+          grid-template-columns: 60px 28px minmax(0, 1fr);
+        }
+
+        .activity-source {
+          display: none;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .global-search {
+          padding-right: 10px;
+        }
+
+        .search-key,
+        .theme-trigger {
+          display: none;
+        }
+
+        .health-pill {
+          width: 38px;
+          padding: 0;
+          justify-content: center;
+        }
+
+        .attention-row {
+          grid-template-columns: 34px minmax(0, 1fr);
+          align-items: start;
+          padding-top: 13px;
+          padding-bottom: 13px;
+        }
+
+        .attention-row .button {
+          grid-column: 2;
+          justify-self: start;
+          min-height: 44px;
+        }
+
+        .button,
+        .icon-button,
+        .profile-button,
+        .menu-button,
+        .assistant-reserved,
+        .nav-item,
+        .group-trigger,
+        .switch-button,
+        .state-select,
+        .health-pill {
+          min-height: 44px;
+        }
+
+        .switch-button {
+          width: 44px;
+          height: 44px;
+        }
+
+        .icon-button,
+        .profile-button {
+          width: 44px;
+          flex-basis: 44px;
+        }
+
+        .health-pill {
+          width: 44px;
+        }
+
+        .readiness-grid,
+        .variant-b .readiness-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .readiness-item,
+        .variant-b .readiness-item {
+          border-right: 1px solid var(--border);
+          border-bottom: 1px solid var(--border);
+        }
+
+        .readiness-item:nth-child(2n),
+        .variant-b .readiness-item:nth-child(2n) {
+          border-right: 0;
+        }
+
+        .readiness-item:nth-last-child(-n + 2),
+        .variant-b .readiness-item:nth-last-child(-n + 2) {
+          border-bottom: 0;
+        }
+
+        .prototype-switcher {
+          bottom: 8px;
+          width: calc(100vw - 16px);
+        }
+
+        .variant-label {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .state-select {
+          width: 92px;
+        }
+
+        .console-table-wrap {
+          overflow: visible;
+        }
+
+        .console table,
+        .console thead,
+        .console tbody,
+        .console tr,
+        .console th,
+        .console td {
+          display: block;
+        }
+
+        .console thead {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+        }
+
+        .console tr {
+          padding: 10px 12px;
+          border-bottom: 1px solid var(--border);
+        }
+
+        .console tr:last-child {
+          border-bottom: 0;
+        }
+
+        .console td {
+          display: grid;
+          grid-template-columns: 92px minmax(0, 1fr);
+          gap: 8px;
+          padding: 4px 0;
+          border: 0;
+        }
+
+        .console td::before {
+          content: attr(data-label);
+          color: var(--subtle);
+          font-size: 8px;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+        }
+      }
+
+      @media (max-width: 430px) {
+        .search-wrap {
+          display: none;
+        }
+
+        .page-header {
+          margin-bottom: 14px;
+        }
+
+        .readiness-grid,
+        .variant-b .readiness-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .readiness-item,
+        .variant-b .readiness-item,
+        .readiness-item:nth-child(2n),
+        .variant-b .readiness-item:nth-child(2n),
+        .readiness-item:nth-last-child(-n + 2),
+        .variant-b .readiness-item:nth-last-child(-n + 2) {
+          border-right: 0;
+          border-bottom: 1px solid var(--border);
+        }
+
+        .readiness-item:last-child,
+        .variant-b .readiness-item:last-child {
+          border-bottom: 0;
+        }
+
+        .variant-label {
+          font-size: 9px;
+        }
+
+        .state-select {
+          width: 78px;
+          padding-left: 6px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body data-demo-state="active">
+    <a class="skip-link" href="#main-content">Skip to Admin Overview</a>
+    <div class="app-shell">
+      <aside
+        class="sidebar"
+        id="admin-sidebar"
+        aria-label="Admin navigation"
+      >
+        <div class="sidebar-header">
+          <span class="brand-mark" aria-hidden="true">↗</span>
+          <span class="brand-name">Opzava</span>
+          <span class="brand-version">v2.1</span>
+        </div>
+        <div class="sidebar-scroll">
+          <button
+            class="assistant-reserved"
+            type="button"
+            data-fake="Ask Admin Opzava opens from its existing GitHub issue design"
+            data-tip="Ask Admin Opzava"
+          >
+            <span class="assistant-spark" aria-hidden="true">✦</span>
+            <span class="nav-label">Ask Admin Opzava</span>
+          </button>
+
+          <nav aria-label="Admin sections">
+            <section class="nav-group" data-group="develop">
+              <button
+                class="group-trigger"
+                type="button"
+                aria-label="Toggle Develop navigation group"
+                aria-expanded="true"
+                aria-controls="group-develop"
+              >
+                <span class="group-label">Develop</span><span class="group-chevron" aria-hidden="true">⌄</span>
+              </button>
+              <ul class="group-menu" id="group-develop">
+                <li><a class="nav-item" href="#main-content" aria-current="page" data-action="open-overview" data-tip="Overview"><span class="nav-icon" aria-hidden="true">⌂</span><span class="nav-label">Overview</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Dev Board" data-tip="Dev Board — 2 need attention" data-active-tip="Dev Board — 2 need attention" data-clear-tip="Dev Board"><span class="nav-icon" aria-hidden="true">▦</span><span class="nav-label">Dev Board</span><span class="nav-badge" aria-label="2 Dev Board items need attention">2</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Development Runners" data-tip="Runners — 1 needs attention" data-active-tip="Runners — 1 needs attention" data-clear-tip="Runners"><span class="nav-icon" aria-hidden="true">⌁</span><span class="nav-label">Runners</span><span class="nav-badge" aria-label="1 Runner needs attention">1</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Environments" data-tip="Environments"><span class="nav-icon" aria-hidden="true">⬡</span><span class="nav-label">Environments</span></a></li>
+              </ul>
+            </section>
+
+            <section class="nav-group" data-group="runtime">
+              <button class="group-trigger" type="button" aria-label="Toggle AI Runtime navigation group" aria-expanded="true" aria-controls="group-runtime">
+                <span class="group-label">AI Runtime</span><span class="group-chevron" aria-hidden="true">⌄</span>
+              </button>
+              <ul class="group-menu" id="group-runtime">
+                <li><a class="nav-item" href="#" data-fake="Open Opzava Gateway" data-tip="Gateway"><span class="nav-icon" aria-hidden="true">⌁</span><span class="nav-label">Gateway</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Models & Providers" data-tip="Models & Providers"><span class="nav-icon" aria-hidden="true">◫</span><span class="nav-label">Models &amp; Providers</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Agents" data-tip="Agents"><span class="nav-icon" aria-hidden="true">◎</span><span class="nav-label">Agents</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Runtime Skills" data-tip="Runtime Skills"><span class="nav-icon" aria-hidden="true">◇</span><span class="nav-label">Runtime Skills</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Sessions & Runs" data-tip="Sessions & Runs"><span class="nav-icon" aria-hidden="true">↻</span><span class="nav-label">Sessions &amp; Runs</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Automations" data-tip="Automations"><span class="nav-icon" aria-hidden="true">ϟ</span><span class="nav-label">Automations</span></a></li>
+              </ul>
+            </section>
+
+            <section class="nav-group" data-group="operate">
+              <button class="group-trigger" type="button" aria-label="Toggle Operate navigation group" aria-expanded="true" aria-controls="group-operate">
+                <span class="group-label">Operate</span><span class="group-chevron" aria-hidden="true">⌄</span>
+              </button>
+              <ul class="group-menu" id="group-operate">
+                <li><a class="nav-item" href="#" data-fake="Open authoritative Health" data-tip="Health — degraded"><span class="nav-icon" aria-hidden="true">♥</span><span class="nav-label">Health</span><span class="nav-status warning" aria-label="Health is degraded" data-active-label="Health is degraded" data-clear-label="Health is healthy"></span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Incidents" data-tip="Incidents — 1 unresolved" data-active-tip="Incidents — 1 unresolved" data-clear-tip="Incidents"><span class="nav-icon" aria-hidden="true">!</span><span class="nav-label">Incidents</span><span class="nav-badge" aria-label="1 unresolved incident">1</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Logs" data-tip="Logs"><span class="nav-icon" aria-hidden="true">≡</span><span class="nav-label">Logs</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Usage & Costs" data-tip="Usage & Costs"><span class="nav-icon" aria-hidden="true">◷</span><span class="nav-label">Usage &amp; Costs</span></a></li>
+              </ul>
+            </section>
+
+            <section class="nav-group" data-group="configure">
+              <button class="group-trigger" type="button" aria-label="Toggle Configure navigation group" aria-expanded="true" aria-controls="group-configure">
+                <span class="group-label">Configure</span><span class="group-chevron" aria-hidden="true">⌄</span>
+              </button>
+              <ul class="group-menu" id="group-configure">
+                <li><a class="nav-item" href="#" data-fake="Open Integrations" data-tip="Integrations — warning"><span class="nav-icon" aria-hidden="true">∞</span><span class="nav-label">Integrations</span><span class="nav-status warning" aria-label="An integration is degraded" data-active-label="An integration is degraded" data-clear-label="Integrations are healthy"></span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Engineering Skills" data-tip="Engineering Skills"><span class="nav-icon" aria-hidden="true">◆</span><span class="nav-label">Engineering Skills</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open MCP Servers" data-tip="MCP Servers"><span class="nav-icon" aria-hidden="true">⌘</span><span class="nav-label">MCP Servers</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Secrets" data-tip="Secrets"><span class="nav-icon" aria-hidden="true">⌾</span><span class="nav-label">Secrets</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Security & Audit" data-tip="Security & Audit"><span class="nav-icon" aria-hidden="true">◈</span><span class="nav-label">Security &amp; Audit</span></a></li>
+                <li><a class="nav-item" href="#" data-fake="Open Settings" data-tip="Settings"><span class="nav-icon" aria-hidden="true">⚙</span><span class="nav-label">Settings</span></a></li>
+              </ul>
+            </section>
+          </nav>
+        </div>
+        <div class="sidebar-footer">Opzava development administration</div>
+        <button class="sidebar-rail" type="button" aria-label="Toggle compact sidebar" data-action="toggle-sidebar"></button>
+      </aside>
+
+      <button class="sheet-overlay" type="button" tabindex="-1" aria-hidden="true" aria-label="Close navigation" data-action="close-sheet"></button>
+
+      <div class="app-inset" id="app-content">
+        <header class="topbar">
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="Toggle navigation"
+            aria-expanded="true"
+            aria-controls="admin-sidebar"
+            data-action="sidebar-trigger"
+          >☰</button>
+          <div class="search-wrap">
+            <span class="search-icon" aria-hidden="true">⌕</span>
+            <input class="global-search" type="search" aria-label="Search Opzava" placeholder="Search Dev Board, agents, runs…" />
+            <span class="search-key" aria-hidden="true">⌘ K</span>
+          </div>
+          <div class="topbar-spacer"></div>
+          <button class="health-pill" type="button" data-fake="Open authoritative Health">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span class="health-active-label">Degraded · 3 need attention</span>
+            <span class="health-clear-label">All systems healthy</span>
+            <span class="sr-only health-active-sr">System health is degraded. Three items need attention.</span>
+            <span class="sr-only health-clear-sr">System health is healthy. No action is required.</span>
+          </button>
+          <button class="icon-button" type="button" aria-label="Open attention inbox, 3 items" aria-expanded="false" aria-controls="attention-popover" data-action="toggle-attention">
+            ♢<span class="bell-badge" aria-hidden="true">3</span>
+          </button>
+          <button class="icon-button theme-trigger" type="button" aria-label="Choose appearance" aria-expanded="false" aria-controls="theme-popover" data-action="toggle-theme-menu">◐</button>
+          <button class="profile-button" type="button" aria-label="Open account menu" aria-expanded="false" aria-controls="profile-popover" data-action="toggle-profile">OO</button>
+        </header>
+
+        <div class="popover" id="attention-popover" role="dialog" aria-label="Needs your attention" hidden>
+          <div class="popover-head"><div class="popover-title">Needs your attention</div><div class="popover-sub"><span class="attention-active-copy">Three actionable items from across Opzava</span><span class="attention-clear-copy">No actionable items across Opzava</span></div></div>
+          <div class="attention-mini"><b>#404 needs human approval</b><span>Review evidence is ready · 4m ago</span></div>
+          <div class="attention-mini"><b>GitHub webhook replay is delayed</b><span>Verified but 2m behind · 8m ago</span></div>
+          <div class="attention-mini"><b>Runner capacity reached</b><span>2 of 2 sessions active · 12m ago</span></div>
+          <div class="attention-mini attention-mini-clear"><b>No action required</b><span>All priority checks passed · evaluated at 14:32 PHT</span></div>
+          <button class="menu-button" type="button" data-fake="Open the full Needs Your Attention queue">View all attention <span class="right">→</span></button>
+        </div>
+
+        <div class="popover" id="theme-popover" role="menu" aria-label="Appearance" hidden>
+          <button class="menu-button" role="menuitemradio" type="button" data-theme-option="light" aria-checked="false">☀ Light<span class="right">Light surfaces</span></button>
+          <button class="menu-button" role="menuitemradio" type="button" data-theme-option="dark" aria-checked="false">☾ Dark<span class="right">Dark surfaces</span></button>
+          <button class="menu-button" role="menuitemradio" type="button" data-theme-option="system" aria-checked="true">◐ System<span class="right">Follow device</span></button>
+        </div>
+
+        <div class="popover" id="profile-popover" role="menu" aria-label="Account" hidden>
+          <div class="popover-head"><div class="popover-title">Opzava Owner</div><div class="popover-sub">owner@opzava.localhost</div></div>
+          <button class="menu-button" role="menuitem" type="button" data-action="toggle-theme-menu">◐ Appearance<span class="right">System</span></button>
+          <button class="menu-button" role="menuitem" type="button" data-fake="Open profile and security">◎ Profile &amp; security</button>
+          <button class="menu-button" role="menuitem" type="button" data-fake="Sign out prototype action">↪ Sign out</button>
+        </div>
+
+        <main id="main-content" tabindex="-1">
+          <header class="page-header">
+            <div>
+              <div class="eyebrow">Admin Overview</div>
+              <h1>Overview</h1>
+              <p class="page-description">The first-priority view of development delivery, approvals, Runner capacity, and Opzava readiness.</p>
+            </div>
+            <div class="page-updated">Evaluated today · 14:32 PHT</div>
+          </header>
+
+          <div class="state-panel state-loading" role="status" aria-label="Loading Admin Overview">
+            <div class="skeleton skeleton-line" style="width: 22%"></div>
+            <div class="skeleton skeleton-line" style="width: 58%"></div>
+            <div class="skeleton skeleton-card"></div>
+            <div class="skeleton skeleton-card"></div>
+            <div class="skeleton skeleton-card"></div>
+          </div>
+          <div class="state-panel state-error" role="alert">
+            <div class="error-lockup">
+              <div class="attention-icon" style="margin: 0 auto">!</div>
+              <h2>Overview data could not be verified</h2>
+              <p>Opzava preserved the last known state, but current delivery, health, and attention data are unavailable. Unknown is never treated as healthy.</p>
+              <button class="button primary" type="button" data-fake="Retry Overview verification">Retry verification</button>
+            </div>
+          </div>
+          <div id="variant-root"></div>
+        </main>
+      </div>
+    </div>
+
+    <template id="variant-a">
+      <div class="variant-content variant-a" aria-label="Admin Overview variant A">
+        <section class="section-card" aria-labelledby="a-attention-title">
+          <header class="section-head"><div><h2 class="section-title" id="a-attention-title">Needs Your Attention</h2><p class="section-note">Blocking decisions and degraded capabilities, ordered by urgency.</p></div><span class="count-pill section-head-right">3 actionable</span></header>
+          <div class="attention-clear"><span class="attention-icon" style="background:var(--success-soft);color:var(--success)">✓</span><div><b>No action required</b><span>All priority checks passed · evaluated today at 14:32 PHT</span></div></div>
+          <ul class="attention-list">
+            <li class="attention-row"><span class="attention-icon" aria-hidden="true">✓?</span><div class="attention-copy"><b>Human approval requested for #404</b><span>Review evidence is complete; merge remains unavailable until the Owner responds.</span></div><span class="attention-age">4m ago</span><button class="button primary" type="button" data-fake="Review approval request for #404">Review</button></li>
+            <li class="attention-row"><span class="attention-icon" aria-hidden="true">↻</span><div class="attention-copy"><b>GitHub webhook replay is delayed</b><span>Integration is verified but the mirror is two minutes behind Opzava.</span></div><span class="attention-age">8m ago</span><button class="button" type="button" data-fake="Inspect GitHub integration health">Inspect</button></li>
+            <li class="attention-row"><span class="attention-icon" aria-hidden="true">2/2</span><div class="attention-copy"><b>local-runner-01 reached configured capacity</b><span>Sprint #407 and independent #421 are using both Balanced slots.</span></div><span class="attention-age">12m ago</span><button class="button" type="button" data-fake="Open Runner capacity">Open Runner</button></li>
+          </ul>
+        </section>
+
+        <section class="section-card" aria-labelledby="a-delivery-title">
+          <header class="section-head"><div><h2 class="section-title" id="a-delivery-title">Active Delivery</h2><p class="section-note">One autonomous Sprint plus independently assigned Board work.</p></div><span class="status-pill success section-head-right"><span class="status-dot" aria-hidden="true"></span>2 executions active</span></header>
+          <div class="delivery-grid">
+            <article class="delivery-card"><div class="delivery-top"><span class="delivery-type">Sprint 08 · autonomous_serial</span><span class="status-pill success" style="margin-left:auto">Running</span></div><h3>Harden the GitHub-backed Dev Board execution loop</h3><p class="delivery-goal">#407 is implementing now. The independent Review queue is using 2 of its 3 WIP slots.</p><div class="meta-row"><span class="avatar">AI</span><b>Agent Alpha</b><span>Codex CLI</span><span>local-runner-01</span></div><div class="progress" role="progressbar" aria-label="Sprint 08 progress: 7 of 12 done" aria-valuemin="0" aria-valuemax="12" aria-valuenow="7"><span style="width:58.3%"></span></div><div class="delivery-footer"><span class="status-pill">7 / 12 done</span><span class="status-pill">Review WIP 2 / 3</span><button class="button" type="button" data-fake="Open Sprint Control Room">Control room</button></div></article>
+            <article class="delivery-card"><div class="delivery-top"><span class="delivery-type">Independent Board ticket</span><span class="status-pill success" style="margin-left:auto">In progress</span></div><h3>#421 · Prevent duplicate review events during webhook replay</h3><p class="delivery-goal">Regular Todo work is executing alongside the active Sprint.</p><div class="meta-row"><span class="avatar human">MY</span><b>Maya</b><span>Claude Code</span><span>local-runner-01</span></div><div class="delivery-footer"><span class="status-pill">Slot 2 / 2</span><button class="button" type="button" data-fake="Open ticket #421">Open ticket</button></div></article>
+            <article class="delivery-card"><div class="delivery-top"><span class="delivery-type">Shared validation resource</span><span class="status-pill warning" style="margin-left:auto">Leased</span></div><h3>Local Review environment</h3><p class="delivery-goal">Reviewer holds the exclusive Docker lease for #404. Other integration checks queue.</p><div class="capacity-meter" aria-label="Runner capacity: two of two slots active"><span class="capacity-slot">#407 · Sprint</span><span class="capacity-slot">#421 · Board</span></div><div class="delivery-footer"><span class="status-pill">Review #404</span><button class="button" type="button" data-fake="Open environment lease">View lease</button></div></article>
+          </div>
+        </section>
+
+        <section class="section-card" aria-labelledby="a-readiness-title">
+          <header class="section-head"><div><h2 class="section-title" id="a-readiness-title">Development Readiness</h2><p class="section-note">Compact health of the capabilities required to continue work.</p></div><button class="button section-head-right" type="button" data-fake="Open Health">Full health</button></header>
+          <div class="readiness-grid">
+            <article class="readiness-item"><div class="readiness-name">GitHub integration</div><div class="readiness-status warning" data-active-status="warning" data-clear-status="success"><span class="status-dot"></span><span data-active-copy="Degraded" data-clear-copy="Healthy">Degraded</span></div><div class="readiness-meta" data-active-copy="Verified · replay lag 2m" data-clear-copy="Verified · synchronized 8s ago">Verified · replay lag 2m</div></article>
+            <article class="readiness-item"><div class="readiness-name">local-runner-01</div><div class="readiness-status success"><span class="status-dot"></span>Healthy</div><div class="readiness-meta">2 / 2 sessions active</div></article>
+            <article class="readiness-item"><div class="readiness-name">Local Review</div><div class="readiness-status warning"><span class="status-dot"></span>Leased</div><div class="readiness-meta">Reviewer · ticket #404</div></article>
+            <article class="readiness-item"><div class="readiness-name">Opzava Gateway</div><div class="readiness-status success"><span class="status-dot"></span>Healthy</div><div class="readiness-meta">Checked 18s ago</div></article>
+            <article class="readiness-item"><div class="readiness-name">Slack assistant</div><div class="readiness-status success"><span class="status-dot"></span>Healthy</div><div class="readiness-meta">Last delivery 1m ago</div></article>
+            <article class="readiness-item"><div class="readiness-name">Configured reviewer</div><div class="readiness-status success"><span class="status-dot"></span>Ready</div><div class="readiness-meta">Fresh local session</div></article>
+          </div>
+        </section>
+
+        <section class="section-card" aria-labelledby="a-activity-title">
+          <header class="section-head"><div><h2 class="section-title" id="a-activity-title">Recent Activity</h2><p class="section-note">Meaningful delivery and runtime events; routine heartbeats are excluded.</p></div><button class="button section-head-right" type="button" data-fake="Open the complete audit timeline">View audit</button></header>
+          <ol class="activity-list">
+            <li class="activity-row"><time class="activity-time">14:31:42</time><span class="avatar">RV</span><div class="activity-copy"><b>Reviewer</b> <span data-active-copy="requested human approval on #404 after local Docker validation passed." data-clear-copy="recorded the Owner approval for #404 after evidence verification.">requested human approval on #404 after local Docker validation passed.</span></div><span class="activity-source">Dev Board</span></li>
+            <li class="activity-row"><time class="activity-time">14:29:08</time><span class="avatar">AI</span><div class="activity-copy"><b>Agent Alpha</b> <span>checkpointed #407 on branch opz-407/github-sync.</span></div><span class="activity-source">Runner</span></li>
+            <li class="activity-row"><time class="activity-time">14:27:16</time><span class="avatar human">MY</span><div class="activity-copy"><b>Maya</b> <span>started independent ticket #421 in Runner slot 2.</span></div><span class="activity-source">Dev Board</span></li>
+            <li class="activity-row"><time class="activity-time">14:24:55</time><span class="avatar">GH</span><div class="activity-copy"><b>GitHub sync</b> <span data-active-copy="entered degraded state after webhook replay lag exceeded 90s." data-clear-copy="caught up its replay queue and returned to healthy.">entered degraded state after webhook replay lag exceeded 90s.</span></div><span class="activity-source">Integration</span></li>
+            <li class="activity-row"><time class="activity-time">14:22:03</time><span class="avatar">PA</span><div class="activity-copy"><b>Personal Assistant</b> <span data-active-copy="sent the #404 approval request to the Owner in Slack." data-clear-copy="confirmed the Owner’s #404 approval in Slack.">sent the #404 approval request to the Owner in Slack.</span></div><span class="activity-source">Slack</span></li>
+          </ol>
+        </section>
+      </div>
+    </template>
+
+    <template id="variant-b">
+      <div class="variant-content variant-b" aria-label="Admin Overview variant B">
+        <section class="section-card b-attention" aria-labelledby="b-attention-title">
+          <header class="section-head"><div><h2 class="section-title" id="b-attention-title">Needs Your Attention</h2><p class="section-note">Decide first; everything here has a clear owner action.</p></div><span class="count-pill section-head-right">3</span></header>
+          <div class="attention-clear"><span class="attention-icon" style="background:var(--success-soft);color:var(--success)">✓</span><div><b>No action required</b><span>All priority checks passed · evaluated today at 14:32 PHT</span></div></div>
+          <ul class="attention-list">
+            <li class="attention-row"><span class="attention-icon">✓?</span><div class="attention-copy"><b>Human approval requested for #404</b><span>Review evidence complete; merge unavailable.</span></div><span class="attention-age">4m</span><button class="button primary" type="button" data-fake="Review approval request for #404">Review</button></li>
+            <li class="attention-row"><span class="attention-icon">↻</span><div class="attention-copy"><b>GitHub webhook replay is delayed</b><span>Verified; mirror is two minutes behind.</span></div><span class="attention-age">8m</span><button class="button" type="button" data-fake="Inspect GitHub integration health">Inspect</button></li>
+            <li class="attention-row"><span class="attention-icon">2/2</span><div class="attention-copy"><b>local-runner-01 reached capacity</b><span>#407 and #421 use both Balanced slots.</span></div><span class="attention-age">12m</span><button class="button" type="button" data-fake="Open Runner capacity">Open Runner</button></li>
+          </ul>
+        </section>
+
+        <section class="section-card" aria-labelledby="b-delivery-title">
+          <header class="section-head"><div><h2 class="section-title" id="b-delivery-title">Active Delivery</h2><p class="section-note">Sprint automation and normal Board work share Runner capacity, not execution state.</p></div><span class="status-pill success section-head-right">2 active</span></header>
+          <div class="delivery-grid">
+            <article class="delivery-card"><div class="delivery-top"><span class="delivery-type">Sprint 08 · autonomous_serial</span><span class="status-pill success" style="margin-left:auto">Running</span></div><h3>Harden the GitHub-backed Dev Board execution loop</h3><p class="delivery-goal">#407 is implementing now. The independent Review queue is using 2 of its 3 WIP slots.</p><div class="meta-row"><span class="avatar">AI</span><b>Agent Alpha</b><span>Codex CLI</span><span>local-runner-01</span></div><div class="progress" role="progressbar" aria-label="Sprint 08 progress: 7 of 12 done" aria-valuenow="7" aria-valuemin="0" aria-valuemax="12"><span style="width:58.3%"></span></div><div class="delivery-footer"><span class="status-pill">7 / 12</span><span class="status-pill">Review WIP 2 / 3</span><button class="button" type="button" data-fake="Open Sprint Control Room">Control room</button></div></article>
+            <article class="delivery-card"><div class="delivery-top"><span class="delivery-type">Independent Board ticket</span><span class="status-pill success" style="margin-left:auto">In progress</span></div><h3>#421 · Prevent duplicate review events during webhook replay</h3><p class="delivery-goal">Regular Todo work is executing alongside the active Sprint.</p><div class="meta-row"><span class="avatar human">MY</span><b>Maya</b><span>Claude Code</span><span>local-runner-01</span></div><div class="delivery-footer"><span class="status-pill">Slot 2 / 2</span><button class="button" type="button" data-fake="Open ticket #421">Open ticket</button></div></article>
+            <article class="delivery-card"><div class="delivery-top"><span class="delivery-type">Shared validation resource</span><span class="status-pill warning" style="margin-left:auto">Leased</span></div><h3>Local Review environment</h3><p class="delivery-goal">Reviewer holds the exclusive Docker lease for #404. Other integration checks queue.</p><div class="capacity-meter"><span class="capacity-slot">#407 · Sprint</span><span class="capacity-slot">#421 · Board</span></div><div class="delivery-footer"><span class="status-pill">Review #404</span><button class="button" type="button" data-fake="Open environment lease">View lease</button></div></article>
+          </div>
+        </section>
+
+        <div class="b-lower">
+          <section class="section-card" aria-labelledby="b-readiness-title">
+            <header class="section-head"><div><h2 class="section-title" id="b-readiness-title">Development Readiness</h2><p class="section-note">Six capabilities required to continue work.</p></div><button class="button section-head-right" type="button" data-fake="Open Health">Full health</button></header>
+            <div class="readiness-grid">
+              <article class="readiness-item"><div class="readiness-name">GitHub integration</div><div class="readiness-status warning" data-active-status="warning" data-clear-status="success"><span class="status-dot"></span><span data-active-copy="Degraded" data-clear-copy="Healthy">Degraded</span></div><div class="readiness-meta" data-active-copy="Verified · replay lag 2m" data-clear-copy="Verified · synchronized 8s ago">Verified · replay lag 2m</div></article>
+              <article class="readiness-item"><div class="readiness-name">local-runner-01</div><div class="readiness-status success"><span class="status-dot"></span>Healthy</div><div class="readiness-meta">2 / 2 sessions active</div></article>
+              <article class="readiness-item"><div class="readiness-name">Local Review</div><div class="readiness-status warning"><span class="status-dot"></span>Leased</div><div class="readiness-meta">Reviewer · ticket #404</div></article>
+              <article class="readiness-item"><div class="readiness-name">Opzava Gateway</div><div class="readiness-status success"><span class="status-dot"></span>Healthy</div><div class="readiness-meta">Checked 18s ago</div></article>
+              <article class="readiness-item"><div class="readiness-name">Slack assistant</div><div class="readiness-status success"><span class="status-dot"></span>Healthy</div><div class="readiness-meta">Last delivery 1m ago</div></article>
+              <article class="readiness-item"><div class="readiness-name">Configured reviewer</div><div class="readiness-status success"><span class="status-dot"></span>Ready</div><div class="readiness-meta">Fresh local session</div></article>
+            </div>
+          </section>
+          <section class="section-card" aria-labelledby="b-activity-title">
+            <header class="section-head"><div><h2 class="section-title" id="b-activity-title">Recent Activity</h2><p class="section-note">Meaningful events only.</p></div><button class="button section-head-right" type="button" data-fake="Open the complete audit timeline">View audit</button></header>
+            <ol class="activity-list">
+              <li class="activity-row"><time class="activity-time">14:31:42</time><span class="avatar">RV</span><div class="activity-copy"><b>Reviewer</b> <span data-active-copy="requested human approval on #404 after local Docker validation passed." data-clear-copy="recorded the Owner approval for #404 after evidence verification.">requested human approval on #404 after local Docker validation passed.</span></div><span class="activity-source">Dev Board</span></li>
+              <li class="activity-row"><time class="activity-time">14:29:08</time><span class="avatar">AI</span><div class="activity-copy"><b>Agent Alpha</b> <span>checkpointed #407 on branch opz-407/github-sync.</span></div><span class="activity-source">Runner</span></li>
+              <li class="activity-row"><time class="activity-time">14:27:16</time><span class="avatar human">MY</span><div class="activity-copy"><b>Maya</b> <span>started independent ticket #421 in Runner slot 2.</span></div><span class="activity-source">Dev Board</span></li>
+              <li class="activity-row"><time class="activity-time">14:24:55</time><span class="avatar">GH</span><div class="activity-copy"><b>GitHub sync</b> <span data-active-copy="entered degraded state after webhook replay lag exceeded 90s." data-clear-copy="caught up its replay queue and returned to healthy.">entered degraded state after webhook replay lag exceeded 90s.</span></div><span class="activity-source">Integration</span></li>
+              <li class="activity-row"><time class="activity-time">14:22:03</time><span class="avatar">PA</span><div class="activity-copy"><b>Personal Assistant</b> <span data-active-copy="sent the #404 approval request to the Owner in Slack." data-clear-copy="confirmed the Owner’s #404 approval in Slack.">sent the #404 approval request to the Owner in Slack.</span></div><span class="activity-source">Slack</span></li>
+            </ol>
+          </section>
+        </div>
+      </div>
+    </template>
+
+    <template id="variant-c">
+      <div class="variant-content variant-c" aria-label="Admin Overview variant C">
+        <section class="console" aria-labelledby="c-attention-title">
+          <header class="console-head"><h2 id="c-attention-title">Needs Your Attention</h2><span class="count-pill">3 actionable</span><span class="section-note" style="margin-left:auto">Evaluated 14:32 PHT</span></header>
+          <div class="attention-clear"><span class="attention-icon" style="background:var(--success-soft);color:var(--success)">✓</span><div><b>No action required</b><span>All priority checks passed · evaluated today at 14:32 PHT</span></div></div>
+          <div class="console-table-wrap attention-table-wrap">
+            <table><thead><tr><th>Priority</th><th>Condition</th><th>Affected</th><th>Age</th><th>Action</th></tr></thead><tbody>
+              <tr><td data-label="Priority"><span class="status-pill warning">Approval</span></td><td data-label="Condition"><strong>Human approval requested</strong><small>Review evidence complete; merge unavailable.</small></td><td data-label="Affected">Ticket #404</td><td data-label="Age">4m ago</td><td data-label="Action"><button class="button primary" type="button" data-fake="Review approval request for #404">Review</button></td></tr>
+              <tr><td data-label="Priority"><span class="status-pill warning">Degraded</span></td><td data-label="Condition"><strong>GitHub webhook replay delayed</strong><small>Verified; mirror is two minutes behind.</small></td><td data-label="Affected">GitHub sync</td><td data-label="Age">8m ago</td><td data-label="Action"><button class="button" type="button" data-fake="Inspect GitHub integration health">Inspect</button></td></tr>
+              <tr><td data-label="Priority"><span class="status-pill">Capacity</span></td><td data-label="Condition"><strong>Configured capacity reached</strong><small>#407 and #421 use both Balanced slots.</small></td><td data-label="Affected">local-runner-01</td><td data-label="Age">12m ago</td><td data-label="Action"><button class="button" type="button" data-fake="Open Runner capacity">Open Runner</button></td></tr>
+            </tbody></table>
+          </div>
+        </section>
+
+        <section class="console" aria-labelledby="c-delivery-title">
+          <header class="console-head"><h2 id="c-delivery-title">Active Delivery</h2><span class="status-pill success">2 executions active</span><span class="section-note" style="margin-left:auto">Local Review lease: #404</span></header>
+          <div class="console-table-wrap"><table><thead><tr><th>Flow</th><th>Work</th><th>Actor / Tool</th><th>Runner</th><th>State</th><th>Action</th></tr></thead><tbody>
+            <tr><td data-label="Flow"><span class="status-pill">Sprint 08</span></td><td data-label="Work"><strong>#407 · Harden the GitHub-backed Dev Board execution loop</strong><small>autonomous_serial · 7/12 done · Review WIP 2/3</small></td><td data-label="Actor / Tool">Agent Alpha · Codex CLI</td><td data-label="Runner">local-runner-01 · slot 1/2</td><td data-label="State"><span class="status-pill success">Running</span></td><td data-label="Action"><button class="button" type="button" data-fake="Open Sprint Control Room">Control room</button></td></tr>
+            <tr><td data-label="Flow"><span class="status-pill">Board</span></td><td data-label="Work"><strong>#421 · Prevent duplicate review events during webhook replay</strong><small>Independent Todo ticket executing alongside Sprint</small></td><td data-label="Actor / Tool">Maya · Claude Code</td><td data-label="Runner">local-runner-01 · slot 2/2</td><td data-label="State"><span class="status-pill success">In progress</span></td><td data-label="Action"><button class="button" type="button" data-fake="Open ticket #421">Open ticket</button></td></tr>
+            <tr><td data-label="Flow"><span class="status-pill warning">Environment</span></td><td data-label="Work"><strong>Local Review environment</strong><small>Exclusive Docker lease held by reviewer for #404</small></td><td data-label="Actor / Tool">Configured reviewer · fresh session</td><td data-label="Runner">local-runner-01</td><td data-label="State"><span class="status-pill warning">Leased</span></td><td data-label="Action"><button class="button" type="button" data-fake="Open environment lease">View lease</button></td></tr>
+          </tbody></table></div>
+        </section>
+
+        <div class="console-layout">
+          <section class="console" aria-labelledby="c-readiness-title">
+            <header class="console-head"><h2 id="c-readiness-title">Development Readiness</h2><button class="button" style="margin-left:auto" type="button" data-fake="Open Health">Full health</button></header>
+            <div class="console-table-wrap"><table><thead><tr><th>Capability</th><th>Status</th><th>Evidence</th></tr></thead><tbody>
+              <tr><td data-label="Capability"><strong>GitHub integration</strong></td><td data-label="Status"><span class="status-pill warning" data-active-status="warning" data-clear-status="success" data-active-copy="Degraded" data-clear-copy="Healthy">Degraded</span></td><td data-label="Evidence" data-active-copy="Verified · replay lag 2m" data-clear-copy="Verified · synchronized 8s ago">Verified · replay lag 2m</td></tr>
+              <tr><td data-label="Capability"><strong>local-runner-01</strong></td><td data-label="Status"><span class="status-pill success">Healthy</span></td><td data-label="Evidence">2 / 2 sessions active</td></tr>
+              <tr><td data-label="Capability"><strong>Local Review</strong></td><td data-label="Status"><span class="status-pill warning">Leased</span></td><td data-label="Evidence">Reviewer · ticket #404</td></tr>
+              <tr><td data-label="Capability"><strong>Opzava Gateway</strong></td><td data-label="Status"><span class="status-pill success">Healthy</span></td><td data-label="Evidence">Checked 18s ago</td></tr>
+              <tr><td data-label="Capability"><strong>Slack assistant</strong></td><td data-label="Status"><span class="status-pill success">Healthy</span></td><td data-label="Evidence">Last delivery 1m ago</td></tr>
+              <tr><td data-label="Capability"><strong>Configured reviewer</strong></td><td data-label="Status"><span class="status-pill success">Ready</span></td><td data-label="Evidence">Fresh local session</td></tr>
+            </tbody></table></div>
+          </section>
+
+          <section class="console" aria-labelledby="c-activity-title">
+            <header class="console-head"><h2 id="c-activity-title">Recent Activity</h2><button class="button" style="margin-left:auto" type="button" data-fake="Open the complete audit timeline">View audit</button></header>
+            <ol class="activity-list">
+              <li class="activity-row"><time class="activity-time">14:31:42</time><span class="avatar">RV</span><div class="activity-copy"><b>Reviewer</b> <span data-active-copy="requested human approval on #404 after local Docker validation passed." data-clear-copy="recorded the Owner approval for #404 after evidence verification.">requested human approval on #404 after local Docker validation passed.</span></div><span class="activity-source">Dev Board</span></li>
+              <li class="activity-row"><time class="activity-time">14:29:08</time><span class="avatar">AI</span><div class="activity-copy"><b>Agent Alpha</b> <span>checkpointed #407 on branch opz-407/github-sync.</span></div><span class="activity-source">Runner</span></li>
+              <li class="activity-row"><time class="activity-time">14:27:16</time><span class="avatar human">MY</span><div class="activity-copy"><b>Maya</b> <span>started independent ticket #421 in Runner slot 2.</span></div><span class="activity-source">Dev Board</span></li>
+              <li class="activity-row"><time class="activity-time">14:24:55</time><span class="avatar">GH</span><div class="activity-copy"><b>GitHub sync</b> <span data-active-copy="entered degraded state after webhook replay lag exceeded 90s." data-clear-copy="caught up its replay queue and returned to healthy.">entered degraded state after webhook replay lag exceeded 90s.</span></div><span class="activity-source">Integration</span></li>
+              <li class="activity-row"><time class="activity-time">14:22:03</time><span class="avatar">PA</span><div class="activity-copy"><b>Personal Assistant</b> <span data-active-copy="sent the #404 approval request to the Owner in Slack." data-clear-copy="confirmed the Owner’s #404 approval in Slack.">sent the #404 approval request to the Owner in Slack.</span></div><span class="activity-source">Slack</span></li>
+            </ol>
+          </section>
+        </div>
+      </div>
+    </template>
+
+    <div class="sidebar-tooltip" id="sidebar-tooltip" role="tooltip" hidden></div>
+    <div class="prototype-switcher" aria-label="Prototype controls">
+      <button class="switch-button" type="button" data-switch="-1" aria-label="Previous variant">←</button>
+      <div class="variant-label" id="variant-label" aria-live="polite"></div>
+      <button class="switch-button" type="button" data-switch="1" aria-label="Next variant">→</button>
+      <label class="sr-only" for="state-select">Demo state</label>
+      <select class="state-select" id="state-select">
+        <option value="active">Active</option>
+        <option value="clear">Clear</option>
+        <option value="loading">Loading</option>
+        <option value="error">Error</option>
+      </select>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        var variants = ["A", "B", "C"];
+        var variantNames = {
+          A: "Priority Command Center",
+          B: "Delivery Split View",
+          C: "Dense Operations Console"
+        };
+        var demoStates = ["active", "clear", "loading", "error"];
+        var themes = ["light", "dark", "system"];
+        var sidebarStates = ["expanded", "compact"];
+        var root = document.getElementById("variant-root");
+        var toast = document.getElementById("toast");
+        var toastTimer = 0;
+        var sidebar = document.getElementById("admin-sidebar");
+        var appContent = document.getElementById("app-content");
+        var skipLink = document.querySelector(".skip-link");
+        var prototypeSwitcher = document.querySelector(".prototype-switcher");
+        var sidebarTooltip = document.getElementById("sidebar-tooltip");
+        var sidebarTrigger = document.querySelector("[data-action='sidebar-trigger']");
+        var globalSearch = document.querySelector(".global-search");
+        var mediaMobile = window.matchMedia("(max-width: 880px)");
+        var mediaDark = window.matchMedia("(prefers-color-scheme: dark)");
+        var lastSheetTrigger = null;
+        var lastPopoverTrigger = null;
+
+        function safeStorageGet(key) {
+          try {
+            return window.localStorage.getItem(key);
+          } catch (_error) {
+            return null;
+          }
+        }
+
+        function safeStorageSet(key, value) {
+          try {
+            window.localStorage.setItem(key, value);
+          } catch (_error) {
+            return;
+          }
+        }
+
+        function valid(value, values, fallback) {
+          return values.indexOf(value) >= 0 ? value : fallback;
+        }
+
+        function params() {
+          return new URLSearchParams(window.location.search);
+        }
+
+        function currentVariant() {
+          return valid((params().get("variant") || "A").toUpperCase(), variants, "A");
+        }
+
+        function currentDemoState() {
+          return valid(params().get("state") || "active", demoStates, "active");
+        }
+
+        function currentTheme() {
+          return valid(params().get("theme") || safeStorageGet("opzava.prototype.theme") || "system", themes, "system");
+        }
+
+        function currentSidebar() {
+          return valid(params().get("sidebar") || safeStorageGet("opzava.prototype.sidebar") || "expanded", sidebarStates, "expanded");
+        }
+
+        function setParam(key, value, replace) {
+          var url = new URL(window.location.href);
+          url.searchParams.set(key, value);
+          window.history[replace ? "replaceState" : "pushState"]({}, "", url);
+        }
+
+        function normalizeUrlState() {
+          var url = new URL(window.location.href);
+          url.searchParams.set("variant", currentVariant());
+          url.searchParams.set("state", currentDemoState());
+          url.searchParams.set("theme", currentTheme());
+          url.searchParams.set("sidebar", currentSidebar());
+          window.history.replaceState({}, "", url);
+        }
+
+        function applyTheme(theme) {
+          var resolved = theme === "system" ? (mediaDark.matches ? "dark" : "light") : theme;
+          document.documentElement.dataset.theme = resolved;
+          safeStorageSet("opzava.prototype.theme", theme);
+          document.querySelectorAll("[data-theme-option]").forEach(function (button) {
+            button.setAttribute("aria-checked", button.dataset.themeOption === theme ? "true" : "false");
+          });
+        }
+
+        function applySidebar(value) {
+          document.body.classList.toggle("sidebar-compact", value === "compact");
+          safeStorageSet("opzava.prototype.sidebar", value);
+          if (!mediaMobile.matches) {
+            sidebarTrigger.setAttribute("aria-expanded", value === "expanded" ? "true" : "false");
+          }
+        }
+
+        function render() {
+          var variant = currentVariant();
+          var state = currentDemoState();
+          var template = document.getElementById("variant-" + variant.toLowerCase());
+          root.replaceChildren(template.content.cloneNode(true));
+          document.body.dataset.demoState = state;
+          document.querySelectorAll("[data-active-copy]").forEach(function (element) {
+            element.textContent = state === "clear" ? element.dataset.clearCopy : element.dataset.activeCopy;
+          });
+          document.querySelectorAll("[data-active-status]").forEach(function (element) {
+            element.classList.remove(element.dataset.activeStatus, element.dataset.clearStatus);
+            element.classList.add(state === "clear" ? element.dataset.clearStatus : element.dataset.activeStatus);
+          });
+          document.querySelector("[data-action='toggle-attention']").setAttribute(
+            "aria-label",
+            state === "clear" ? "Open attention inbox, no items" : "Open attention inbox, 3 items"
+          );
+          document.querySelectorAll(".nav-status.warning").forEach(function (status) {
+            var label = state === "clear" ? status.dataset.clearLabel : status.dataset.activeLabel;
+            status.setAttribute("aria-label", label);
+            status.closest(".nav-item").dataset.tip = label;
+          });
+          document.querySelectorAll("[data-active-tip]").forEach(function (item) {
+            item.dataset.tip = state === "clear" ? item.dataset.clearTip : item.dataset.activeTip;
+          });
+          document.querySelectorAll(".nav-item, .assistant-reserved").forEach(function (item) {
+            item.setAttribute("aria-label", item.dataset.tip);
+          });
+          document.getElementById("variant-label").textContent = variant + " · " + variantNames[variant];
+          document.getElementById("state-select").value = state;
+          applyTheme(currentTheme());
+          applySidebar(currentSidebar());
+        }
+
+        function switchVariant(offset) {
+          var current = currentVariant();
+          var index = variants.indexOf(current);
+          var next = variants[(index + offset + variants.length) % variants.length];
+          setParam("variant", next, false);
+          render();
+        }
+
+        function showToast(message) {
+          window.clearTimeout(toastTimer);
+          toast.textContent = message;
+          toast.classList.add("show");
+          toastTimer = window.setTimeout(function () {
+            toast.classList.remove("show");
+          }, 2400);
+        }
+
+        function showSidebarTooltip(item) {
+          if (mediaMobile.matches || !document.body.classList.contains("sidebar-compact")) return;
+          sidebarTooltip.textContent = item.dataset.tip;
+          sidebarTooltip.hidden = false;
+          var itemRect = item.getBoundingClientRect();
+          var tooltipRect = sidebarTooltip.getBoundingClientRect();
+          sidebarTooltip.style.left = Math.round(itemRect.right + 10) + "px";
+          sidebarTooltip.style.top =
+            Math.round(
+              Math.max(8, Math.min(window.innerHeight - tooltipRect.height - 8, itemRect.top + itemRect.height / 2 - tooltipRect.height / 2))
+            ) + "px";
+          item.setAttribute("aria-describedby", "sidebar-tooltip");
+        }
+
+        function hideSidebarTooltip(item) {
+          sidebarTooltip.hidden = true;
+          if (item) {
+            item.removeAttribute("aria-describedby");
+          } else {
+            document.querySelectorAll("[aria-describedby='sidebar-tooltip']").forEach(function (described) {
+              described.removeAttribute("aria-describedby");
+            });
+          }
+        }
+
+        function closePopovers(restore) {
+          document.querySelectorAll(".popover").forEach(function (popover) {
+            popover.hidden = true;
+          });
+          document.querySelectorAll("[aria-controls$='popover']").forEach(function (button) {
+            button.setAttribute("aria-expanded", "false");
+          });
+          if (restore && lastPopoverTrigger) {
+            lastPopoverTrigger.focus();
+          }
+          lastPopoverTrigger = null;
+        }
+
+        function openPopover(id, trigger) {
+          var popover = document.getElementById(id);
+          var wasOpen = !popover.hidden;
+          closePopovers(false);
+          if (wasOpen) {
+            trigger.focus();
+            return;
+          }
+          popover.hidden = false;
+          trigger.setAttribute("aria-expanded", "true");
+          lastPopoverTrigger = trigger;
+          var first = popover.querySelector("button, [href], input, select, [tabindex]:not([tabindex='-1'])");
+          if (first) first.focus();
+        }
+
+        function handleMenuKeys(event) {
+          var menu = event.target.closest("[role='menu']");
+          if (!menu || ["ArrowDown", "ArrowUp", "Home", "End"].indexOf(event.key) < 0) return false;
+          var items = Array.prototype.slice.call(
+            menu.querySelectorAll("[role='menuitem'], [role='menuitemradio']")
+          );
+          if (!items.length) return false;
+          event.preventDefault();
+          var index = Math.max(0, items.indexOf(document.activeElement));
+          if (event.key === "ArrowDown") index = (index + 1) % items.length;
+          if (event.key === "ArrowUp") index = (index - 1 + items.length) % items.length;
+          if (event.key === "Home") index = 0;
+          if (event.key === "End") index = items.length - 1;
+          items[index].focus();
+          return true;
+        }
+
+        function openSheet(trigger) {
+          if (!mediaMobile.matches) return;
+          lastSheetTrigger = trigger;
+          document.body.classList.add("sheet-open");
+          sidebar.inert = false;
+          sidebar.removeAttribute("aria-hidden");
+          sidebar.setAttribute("role", "dialog");
+          sidebar.setAttribute("aria-modal", "true");
+          sidebarTrigger.setAttribute("aria-expanded", "true");
+          appContent.inert = true;
+          appContent.setAttribute("aria-hidden", "true");
+          skipLink.inert = true;
+          skipLink.setAttribute("aria-hidden", "true");
+          prototypeSwitcher.inert = true;
+          prototypeSwitcher.setAttribute("aria-hidden", "true");
+          var first = sidebar.querySelector("button, a[href]");
+          if (first) first.focus();
+        }
+
+        function closeSheet(restore) {
+          if (!document.body.classList.contains("sheet-open")) return;
+          document.body.classList.remove("sheet-open");
+          sidebar.removeAttribute("role");
+          sidebar.removeAttribute("aria-modal");
+          sidebarTrigger.setAttribute("aria-expanded", "false");
+          appContent.inert = false;
+          appContent.removeAttribute("aria-hidden");
+          skipLink.inert = false;
+          skipLink.removeAttribute("aria-hidden");
+          prototypeSwitcher.inert = false;
+          prototypeSwitcher.removeAttribute("aria-hidden");
+          sidebar.inert = mediaMobile.matches;
+          if (mediaMobile.matches) {
+            sidebar.setAttribute("aria-hidden", "true");
+          } else {
+            sidebar.removeAttribute("aria-hidden");
+          }
+          if (restore && lastSheetTrigger) {
+            lastSheetTrigger.focus();
+          }
+          lastSheetTrigger = null;
+        }
+
+        function trapSheetFocus(event) {
+          if (event.key !== "Tab" || !document.body.classList.contains("sheet-open")) return;
+          var focusable = Array.prototype.slice.call(
+            sidebar.querySelectorAll("button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])")
+          ).filter(function (element) {
+            return !element.closest("[hidden]");
+          });
+          if (!focusable.length) return;
+          var first = focusable[0];
+          var last = focusable[focusable.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        }
+
+        function loadGroups() {
+          document.querySelectorAll(".nav-group").forEach(function (group) {
+            var name = group.dataset.group;
+            var trigger = group.querySelector(".group-trigger");
+            var menu = group.querySelector(".group-menu");
+            var stored = safeStorageGet("opzava.prototype.group." + name);
+            var expanded = name === "develop" ? true : stored !== "closed";
+            trigger.setAttribute("aria-expanded", expanded ? "true" : "false");
+            menu.hidden = !expanded;
+          });
+        }
+
+        document.addEventListener("click", function (event) {
+          var switcher = event.target.closest("[data-switch]");
+          if (switcher) {
+            switchVariant(Number(switcher.dataset.switch));
+            return;
+          }
+
+          var themeOption = event.target.closest("[data-theme-option]");
+          if (themeOption) {
+            var theme = themeOption.dataset.themeOption;
+            setParam("theme", theme, false);
+            applyTheme(theme);
+            closePopovers(true);
+            showToast("Appearance set to " + theme);
+            return;
+          }
+
+          var groupTrigger = event.target.closest(".group-trigger");
+          if (groupTrigger) {
+            var group = groupTrigger.closest(".nav-group");
+            var menu = document.getElementById(groupTrigger.getAttribute("aria-controls"));
+            var expanded = groupTrigger.getAttribute("aria-expanded") === "true";
+            if (group.dataset.group === "develop" && expanded) {
+              showToast("Develop stays open because it contains the active page");
+              return;
+            }
+            groupTrigger.setAttribute("aria-expanded", expanded ? "false" : "true");
+            menu.hidden = expanded;
+            safeStorageSet("opzava.prototype.group." + group.dataset.group, expanded ? "closed" : "open");
+            return;
+          }
+
+          var action = event.target.closest("[data-action]");
+          if (action) {
+            var kind = action.dataset.action;
+            if (kind === "sidebar-trigger") {
+              if (mediaMobile.matches) {
+                document.body.classList.contains("sheet-open") ? closeSheet(true) : openSheet(action);
+              } else {
+                var next = currentSidebar() === "compact" ? "expanded" : "compact";
+                setParam("sidebar", next, false);
+                applySidebar(next);
+                hideSidebarTooltip();
+              }
+            } else if (kind === "toggle-sidebar") {
+              var railNext = currentSidebar() === "compact" ? "expanded" : "compact";
+              setParam("sidebar", railNext, false);
+              applySidebar(railNext);
+              hideSidebarTooltip();
+            } else if (kind === "close-sheet") {
+              closeSheet(true);
+            } else if (kind === "open-overview") {
+              event.preventDefault();
+              if (mediaMobile.matches) closeSheet(false);
+              document.getElementById("main-content").focus();
+              document.getElementById("main-content").scrollIntoView();
+            } else if (kind === "toggle-attention") {
+              openPopover("attention-popover", action);
+            } else if (kind === "toggle-theme-menu") {
+              var topbarThemeTrigger = document.querySelector(".theme-trigger");
+              var fromProfile = Boolean(action.closest("#profile-popover"));
+              openPopover("theme-popover", topbarThemeTrigger);
+              if (fromProfile) lastPopoverTrigger = document.querySelector("[data-action='toggle-profile']");
+            } else if (kind === "toggle-profile") {
+              openPopover("profile-popover", action);
+            }
+            return;
+          }
+
+          var fake = event.target.closest("[data-fake]");
+          if (fake) {
+            event.preventDefault();
+            showToast(fake.dataset.fake + " · prototype only");
+            if (mediaMobile.matches) closeSheet(true);
+            return;
+          }
+
+          if (!event.target.closest(".popover") && !event.target.closest("[aria-controls$='popover']")) {
+            closePopovers(false);
+          }
+        });
+
+        document.addEventListener("mouseover", function (event) {
+          var item = event.target.closest(".nav-item, .assistant-reserved");
+          if (item && (!event.relatedTarget || !item.contains(event.relatedTarget))) {
+            showSidebarTooltip(item);
+          }
+        });
+
+        document.addEventListener("mouseout", function (event) {
+          var item = event.target.closest(".nav-item, .assistant-reserved");
+          if (item && (!event.relatedTarget || !item.contains(event.relatedTarget))) {
+            hideSidebarTooltip(item);
+          }
+        });
+
+        document.addEventListener("focusin", function (event) {
+          var item = event.target.closest(".nav-item, .assistant-reserved");
+          if (item) showSidebarTooltip(item);
+        });
+
+        document.addEventListener("focusout", function (event) {
+          var item = event.target.closest(".nav-item, .assistant-reserved");
+          if (item) hideSidebarTooltip(item);
+        });
+
+        document.getElementById("state-select").addEventListener("change", function (event) {
+          setParam("state", valid(event.target.value, demoStates, "active"), false);
+          render();
+        });
+
+        globalSearch.addEventListener("keydown", function (event) {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          showToast(
+            globalSearch.value.trim()
+              ? "Search for “" + globalSearch.value.trim() + "” · prototype only"
+              : "Type something to search Opzava"
+          );
+        });
+
+        document.addEventListener("keydown", function (event) {
+          trapSheetFocus(event);
+          if (handleMenuKeys(event)) return;
+          if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+            event.preventDefault();
+            closePopovers(false);
+            if (globalSearch.offsetParent) {
+              globalSearch.focus();
+            } else {
+              showToast("Search opens as a full command palette on mobile");
+            }
+            return;
+          }
+          if (event.key === "Escape") {
+            if (document.body.classList.contains("sheet-open")) {
+              closeSheet(true);
+            } else {
+              closePopovers(true);
+            }
+            return;
+          }
+
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          var target = event.target;
+          if (
+            target.closest("a, input, textarea, select, button, [role='menu'], [role='dialog'], [contenteditable='true']")
+          ) return;
+          event.preventDefault();
+          switchVariant(event.key === "ArrowRight" ? 1 : -1);
+        });
+
+        window.addEventListener("popstate", render);
+        mediaDark.addEventListener("change", function () {
+          if (currentTheme() === "system") applyTheme("system");
+        });
+        mediaMobile.addEventListener("change", function (event) {
+          if (!event.matches) {
+            closeSheet(false);
+            sidebar.inert = false;
+            sidebar.removeAttribute("aria-hidden");
+          } else if (!document.body.classList.contains("sheet-open")) {
+            sidebar.inert = true;
+            sidebar.setAttribute("aria-hidden", "true");
+          }
+          sidebarTrigger.setAttribute(
+            "aria-expanded",
+            event.matches ? "false" : currentSidebar() === "expanded" ? "true" : "false"
+          );
+        });
+
+        normalizeUrlState();
+        loadGroups();
+        render();
+        if (mediaMobile.matches) {
+          sidebarTrigger.setAttribute("aria-expanded", "false");
+          sidebar.inert = true;
+          sidebar.setAttribute("aria-hidden", "true");
+        }
+      })();
+    </script>
+  </body>
+</html>
