@@ -66,8 +66,8 @@ The target is a dedicated Dev Board write model, not an extension of the legacy 
 These choices consume the locked boundaries: Opzava owns workflow plus Ready Contract and Ready
 Approval authority; GitHub owns its native repository facts; an admitted Runner owns execution
 observations; Review remains local and independent; and no adapter may bypass the same commands
-(`docs/adr/ADR-017-dev-board-authority-sync-execution.md:63-91`,
-`docs/plan/dev-board-foundation-decisions.md:28-58`).
+(`docs/adr/ADR-017-dev-board-authority-sync-execution.md`,
+`docs/plan/dev-board-foundation-decisions.md`).
 
 ## Primary evidence and as-built gap
 
@@ -75,22 +75,20 @@ observations; Review remains local and independent; and no adapter may bypass th
 
 - PRD-019 makes `DevTicket` a dedicated aggregate, Proposal a separate pre-acceptance record, and
   current Tasks/Issues migration inputs rather than target authority
-  (`docs/prd/PRD-019-dev-board.md:442-457`).
+  (`docs/prd/PRD-019-dev-board.md`).
 - The target has six guarded lanes, version-bound Ready, governed revisions, explicit dependencies,
   distinct actor/Runner roles, and command adapters rather than direct UI moves
-  (`docs/prd/PRD-019-dev-board.md:458-479`).
+  (`docs/prd/PRD-019-dev-board.md`).
 - ADR-017 assigns authority by concern and requires atomic assignment plus a fenced lease before In
   Progress, a reasoned Blocked Episode, fresh recovery through Todo, independent Review, and
-  merge-confirmed Done (`docs/adr/ADR-017-dev-board-authority-sync-execution.md:71-103`).
+  merge-confirmed Done (`docs/adr/ADR-017-dev-board-authority-sync-execution.md`).
 - The architecture requires tenant-scoped Postgres transactions, RLS as a fail-closed backstop, and
-  a durable outbox in the same transaction as domain state (`ARCHITECTURE.md:173-205`).
+  a durable outbox in the same transaction as domain state (`ARCHITECTURE.md`).
 - Planning, workflow, Runner, and synchronization are explicitly four different ledgers with
-  different authorities and retention
-  (`docs/adr/ADR-017-dev-board-authority-sync-execution.md:236-263`).
+  different authorities and retention (`docs/adr/ADR-017-dev-board-authority-sync-execution.md`).
 - The foundation decision ledger fixes the Ready fields, material invalidation behavior, dependency
   semantics, actor attribution, archive behavior, and fresh-claim recovery
-  (`docs/plan/dev-board-foundation-decisions.md:61-98`,
-  `docs/plan/dev-board-foundation-decisions.md:276-293`).
+  (`docs/plan/dev-board-foundation-decisions.md`).
 
 ### What exists today and must not become the target by accident
 
@@ -123,7 +121,7 @@ observations; Review remains local and independent; and no adapter may bypass th
   accepted DevTicket so retry/reconciliation, not rollback fiction, repairs the mirror.
 - The migration manifest already forbids bulk-promoting old Todo, minting leases around unknown
   processes, or treating legacy Done as proof of the new Review gate
-  (`docs/plan/dev-board-migration-manifest.md:252-255`).
+  (`docs/plan/dev-board-migration-manifest.md`).
 
 ## Domain and module boundaries
 
@@ -263,8 +261,8 @@ capabilities must be distinct (`proposal.decide`, `ready.approve`, `ticket.assig
 `ticket.block`, `dependency.manage`, `ticket.archive`, and so on). Every decision records the real
 actor role, named identity, source surface, applicable Runner, and `authorizationVersion`; role
 labels in a request body are audit metadata only after they match the authenticated principal. This
-implements the attribution contract in `docs/plan/dev-board-foundation-decisions.md:87-98` and the
-fail-closed RLS rule in `ARCHITECTURE.md:181-186`.
+implements the attribution contract in `docs/plan/dev-board-foundation-decisions.md` and the
+fail-closed RLS rule in `ARCHITECTURE.md`.
 
 ### Needs Human Approval Request is a separate exception record
 
@@ -622,7 +620,7 @@ current lease and accepted start receipt. On Blocked resolution or Review change
 default is to clear the current assignee; preserving it as a Todo preassignment requires an explicit
 authorized choice in that command. Past assignees remain immutable activity facts. This prevents a
 stale assignment from turning into an implicit resume while retaining the supported preassigned-Todo
-case (`docs/plan/dev-board-foundation-decisions.md:45-58`).
+case (`docs/plan/dev-board-foundation-decisions.md`).
 
 Claim Attempt terminal transitions are exact. Pre-Start Admission Loss and signed start rejection
 set the Claim Attempt to `failed` only with deterministic `no_start_enqueued`/ `no_process_started`
@@ -644,7 +642,7 @@ merge, reject, or archive a decision-ready Proposal. `RestoreProposal` removes t
 and reveals the same underlying state: Draft/AwaitingDecision resumes there, while
 Accepted/Merged/Rejected remains terminal. Restore never grants a second decision. A blocking
 assessment may pause an affected Sprint through the Sprint command boundary; it does not grant scope
-or create GitHub noise (`docs/prd/PRD-019-dev-board.md:454-457`).
+or create GitHub noise (`docs/prd/PRD-019-dev-board.md`).
 
 “Decision-ready” means exactly `AwaitingDecision`: Accept, Merge, and Reject all reject Draft or any
 terminal state. A Draft must first pass `SubmitProposal`; no decision command silently submits it.
@@ -871,7 +869,7 @@ receipts name the original lease binding **and** current contract head/equivalen
 the entire lineage and exact current head. Any protected field, hash, dependency, or policy mismatch
 rejects this branch and routes through the material Revision/interruption policy. Outside-contract
 metadata never enters this path. This preserves exact-version authority without reapproval churn
-(`docs/prd/PRD-019-dev-board.md:467-476`).
+(`docs/prd/PRD-019-dev-board.md`).
 
 `ApplyNonSemanticCorrection` is still a contract-authority mutation, so it locks the exact Pre-Start
 Admission Loss state and rejects while one is `containing`; after Finalize, the caller must
@@ -1059,7 +1057,7 @@ Blocker lane changes do not rewrite the edge or its hash. A dependent may be Rea
 Todo while a blocker is unfinished, but `ClaimAndStart` returns `dependency_locked` until every
 active blocker is admitted Done. A legacy `done` snapshot is not enough unless migration has
 explicitly reconciled it as satisfying current dependency policy. Completed work retains
-retired/historical edges (`docs/adr/ADR-017-dev-board-authority-sync-execution.md:100-103`).
+retired/historical edges (`docs/adr/ADR-017-dev-board-authority-sync-execution.md`).
 
 A Sprint's ordered Plan must be a dependency-compatible topological order of its internal active
 dependency subgraph: for every direct or transitive path `dependent -> ... -> blocker` whose
@@ -1422,7 +1420,7 @@ uses a new `ClaimAndStart`, lease ID, fencing token, and command nonce. That com
 the durable containment disposition; DB lease fencing alone is insufficient. It may adopt the
 verified existing worktree/checkpoint, but it never resurrects the old lease or blindly fails over
 to cloud. This is the fresh-claim interpretation of
-`docs/adr/ADR-017-dev-board-authority-sync-execution.md:177-194`.
+`docs/adr/ADR-017-dev-board-authority-sync-execution.md`.
 
 ### Review and Done boundary consumed by this model
 
@@ -1779,7 +1777,7 @@ provider delivery/sequence evidence and never masquerade as an Opzava lane decis
 “Four ledgers” does not mean copying every payload into four tables. Each fact is written once under
 its authority; the activity record links the command to optional planning, Runner, and sync record
 IDs. Each ledger has its own monotonic ordering/checkpoint. There is no cross-system global sequence
-(`docs/prd/PRD-019-dev-board.md:506-516`, `docs/plan/dev-board-foundation-decisions.md:276-283`).
+(`docs/prd/PRD-019-dev-board.md`, `docs/plan/dev-board-foundation-decisions.md`).
 
 ## Command catalog: preconditions, retry identity, outcome, and ledger
 
@@ -2077,7 +2075,7 @@ The final implementation graph produced by #237 must preserve these constraints:
    confirmed GitHub history; require #232's Runner protocol before production claims.
 10. Test the observable contract at real seams named by PRD-019: authenticated browser/local Docker,
     real Postgres commands/outbox, signed webhook/conflict, and deterministic Runner protocol
-    (`docs/prd/PRD-019-dev-board.md:652-720`).
+    (`docs/prd/PRD-019-dev-board.md`).
 
 ## Resolution
 

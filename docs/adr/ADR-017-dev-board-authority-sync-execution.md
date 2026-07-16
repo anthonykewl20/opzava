@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted — target architecture, 2026-07-15; Runner-capacity amendment accepted 2026-07-16.
-Implementation and migration are not yet complete.
+Accepted — target architecture, 2026-07-15; Runner-capacity amendment accepted 2026-07-16; Releases
+Gate amendment accepted 2026-07-17. Implementation and migration are not yet complete.
 
 This ADR explicitly supersedes the following material **as active guidance for Opzava
 platform-development work**, while retaining it as historical evidence:
@@ -70,18 +70,21 @@ GitHub Issue, OpenClaw `workboard.Card`, or Incident/ErrorGroup.
 
 The authority matrix is:
 
-| Concern                                                                        | Authoritative owner                                    | Accepted projection or input                                                                                       |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| Workflow lane and transition decision                                          | Opzava Dev Board                                       | GitHub status labels, Slack actions, UI drag/drop, agent tools, and runner messages are command requests only      |
-| Ready Contract Version and approved version/hash                               | Opzava Dev Board                                       | Human-readable managed block mirrored to GitHub; GitHub edits become proposed revisions                            |
-| Human Owner, Execution Assignee, Lead Orchestrator, Reviewer, Runner selection | Opzava Dev Board                                       | External identities and runtime refs are validated mappings, never authority by assertion                          |
-| Dependencies and Sprint plans                                                  | Opzava Dev Board                                       | GitHub labels, Milestones, and tracking issues are synchronized projections                                        |
-| Human approvals and conflict decisions                                         | Opzava Dev Board                                       | Slack can carry bounded decisions from an authenticated Admin; GitHub cannot approve a gate directly               |
-| GitHub issue number and URL                                                    | GitHub                                                 | Stored on DevTicket as external identity and primary visible reference                                             |
-| Pull request, commit, check, repository review, merge, tag, and release facts  | GitHub                                                 | Read and projected into Opzava; commands execute through the GitHub App and must confirm repository truth          |
-| OpenClaw session, task, run, tool, and runtime health facts                    | OpenClaw                                               | Sanitized refs and projections accepted through the broker ACL                                                     |
-| Process, worktree, branch, command, and checkpoint facts                       | Explicitly admitted local or orchestrator/cloud Runner | Signed receipts accepted only under the runner protocol below; local Docker Review facts remain local-runner-owned |
-| Incident/ErrorGroup lifecycle                                                  | Notifications/Admin-Observability                      | Attention projection and linked remediation DevTickets in Dev Board                                                |
+| Concern                                                                               | Authoritative owner                                    | Accepted projection or input                                                                                       |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Workflow lane and transition decision                                                 | Opzava Dev Board                                       | GitHub status labels, Slack actions, UI drag/drop, agent tools, and runner messages are command requests only      |
+| Ready Contract Version and approved version/hash                                      | Opzava Dev Board                                       | Human-readable managed block mirrored to GitHub; GitHub edits become proposed revisions                            |
+| Human Owner, Execution Assignee, Lead Orchestrator, Reviewer, Runner selection        | Opzava Dev Board                                       | External identities and runtime refs are validated mappings, never authority by assertion                          |
+| Dependencies and Sprint plans                                                         | Opzava Dev Board                                       | GitHub labels, Milestones, and tracking issues are synchronized projections                                        |
+| Human approvals and conflict decisions                                                | Opzava Dev Board                                       | Slack can carry bounded decisions from an authenticated Admin; GitHub cannot approve a gate directly               |
+| GitHub issue number and URL                                                           | GitHub                                                 | Stored on DevTicket as external identity and primary visible reference                                             |
+| Pull request, commit, check, repository review, merge, tag, and release facts         | GitHub                                                 | Read and projected into Opzava; commands execute through the GitHub App and must confirm repository truth          |
+| Release desired lifecycle, immutable manifest, approvals, attempts, rollback decision | Opzava Dev Board / Releases                            | GitHub Actions, Slack, agents, and provider callbacks are bounded requests/observations only                       |
+| Build provenance, signatures, SBOM, and immutable OCI digests                         | Trusted build system and OCI registry                  | Verified and pinned into the immutable Release Manifest                                                            |
+| Deployment, effective per-service digests, routing, and environment health            | Dokploy and target runtime                             | Source-versioned observations; Opzava keeps current deployment separate from Last Known Good                       |
+| OpenClaw session, task, run, tool, and runtime health facts                           | OpenClaw                                               | Sanitized refs and projections accepted through the broker ACL                                                     |
+| Process, worktree, branch, command, and checkpoint facts                              | Explicitly admitted local or orchestrator/cloud Runner | Signed receipts accepted only under the runner protocol below; local Docker Review facts remain local-runner-owned |
+| Incident/ErrorGroup lifecycle                                                         | Notifications/Admin-Observability                      | Attention projection and linked remediation DevTickets in Dev Board                                                |
 
 Use six lanes: `Backlog`, `Todo`, `Blocked`, `In Progress`, `Review`, and `Done`. Backlog is shaping
 only. Todo requires an approved Ready Contract Version and Ready Approval. Claim atomically installs
@@ -89,6 +92,62 @@ an Execution Assignee and fenced lease before In Progress. Blocked records reaso
 checkpoint and returns to Todo after resolution. Review is mandatory and independent. Done is
 admitted only after the applicable Review and approval have passed and the exact reviewed change is
 merged into `development`. Staging and production are separate Releases concerns.
+
+Releases uses a separate `Release` aggregate. A mutable Draft seals into an immutable Release
+Candidate and Release Manifest, then follows
+`Draft -> Candidate -> Staging -> StagingApproved -> ProductionReady -> Released`, with terminal
+`Superseded` and `Cancelled` available only before protected-main promotion/stable-tag creation
+begins. Attention is an independently derived set: `NeedsHumanApproval`, `AbsoluteStop`,
+`HealthUnavailable`, `DeploymentUnknown`, `PublicationPending`, `RollbackRequired`, and
+`IncidentActive`.
+
+The trusted pipeline builds each candidate's service images once from one immutable Trusted Build
+Request bound to the exact frozen Draft revision, source SHA/tree, full DAG composition, and
+deployment/config fingerprint. The candidate must be observed reachable from the protected
+`development` ref/version, and its base is the immediately preceding governed Released tree or the
+one-time adopted baseline; callers cannot choose a later base. The manifest binds that identity, OCI
+digests, provenance, signatures/attestations, SBOM, deployment contract/config hashes,
+migrations/compatibility, named secret refs, checks, Done DevTickets, and Review evidence. Staging
+and production deploy the same digest bundle. Local Docker Review builds remain Review evidence and
+are never Release artifacts.
+
+A terminal failed RC-tag request does not unfreeze its Draft. Only trusted GitHub reconciliation
+that proves the requested tag was never created permits `AbandonFailedFrozenDraftRevision` to close
+the old request/revision and atomically create a successor Draft revision with a new RC reservation.
+Unknown, partial, existing, or possibly created tag state remains frozen on the same request and
+forbids a successor RC.
+
+A terminal failed build with trusted proof that no artifact was published does not unfreeze its
+Draft. The explicit `AbandonFailedFrozenDraftRevision` command atomically records abandonment of the
+old request/revision and creates a successor Draft revision with a new RC reservation under the same
+stable-version lineage. Partial or unknown artifact publication rejects abandonment and remains
+quarantined on the same request; no parallel build or RC reuse is allowed.
+
+Environment mutations use one active fenced Deployment Lease/attempt per shared staging or
+production environment. Lease expiry revokes worker authority, not the fence; trusted effective
+state reconciliation or confirmed provider cancellation must terminalize the attempt before a higher
+fence can be admitted. Successful staging retains a separately fenced Staging Occupancy. A newer
+sealed candidate requires an atomic higher-fence transfer after Released plus current observation,
+Cancelled/Superseded plus accepted restore/non-current proof, or irreversibly bound ProductionReady
+plus an authorized linked forward fix, terminal known attempts, and exact current observation.
+Unknown or mixed provider state is recorded truthfully and reconciled before retry; current
+per-service deployment is separate from Last Known Good. Deterministic staging verification precedes
+distinct explicit human Staging and Production Approvals. RC-tag and native GitHub Release facts use
+distinct request, observation, and deterministic-confirmation commands. Protected-main and
+stable-tag facts use a committed request followed by deterministic confirmation that consumes
+independently observed GitHub facts. Every confirmation binds exact provider receipts, times, and
+evidence; callbacks and matching manual facts never confirm themselves. A provider `2xx` does not
+advance lifecycle. Every content-bearing Release command inherits #230 Secret-Safe Ingress before
+receipt, replay, persistence, audit, or outbox creation; pre-admission unauthorized and
+suspected-secret content creates no Release receipt/rejection record.
+
+Rollback is a new deployment attempt to a previously verified immutable manifest and never rewrites
+`main`, tags, GitHub Releases, old manifests, or historical Release state. Release owns the
+deploy/rollback command and Incident owns operational lifecycle. GitHub Actions may request
+`NeedsHumanApproval` but cannot approve. Suspected secret exposure and unhealthy or unverifiable
+GitHub remain unbypassable for ordinary release operations while sanitized safety-reducing
+containment remains available. The complete command, approval, evidence, saga, failure, and test
+contract is `docs/plan/research/wf236-releases-gate-contract.md`.
 
 The Ready Contract Version is version-bound and contains outcome, bounded scope, sad paths, edge
 cases, acceptance criteria, dependencies, user-level E2E expectations, final behavioral contract,
@@ -311,8 +370,8 @@ Independent local Review and Docker verification make completion more expensive 
 That cost is intentional. Separating implementation capacity, reviewer capacity, Review WIP, and the
 one shared-Docker lease prevents unrelated coding from being serialized behind evidence collection
 while preserving SHA-bound proof. Until the separate Review contract is implemented, no DevTicket
-may reach Done. Done ends at merge into `development`; staging and production remain separate and
-cannot be inferred.
+may reach Done. Done ends at merge into `development`; the separately specified Releases Gate starts
+after Done and cannot be inferred from it.
 
 Slack improves away-from-machine responsiveness but is intentionally not a general administration or
 secret channel. Expiring, version-bound nonces and secure-UI-only actions add friction where stale

@@ -441,6 +441,29 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 176. As an Opzava administrator, I want Admin Overview to project Runner capacity and waiting states
      without owning Dev Board admission, so that PRD-020 can explain operational state while this
      contract remains authoritative.
+177. As a release manager, I want a mutable Draft sealed into an immutable Release Candidate and
+     Release Manifest, so that promotion cannot change the reviewed source or artifact bundle.
+178. As a release manager, I want the trusted pipeline to build each Release image once and staging
+     and production to deploy the same OCI digests, so that staging evidence proves the production
+     artifact.
+179. As a release manager, I want deterministic staging verification followed by distinct human
+     Staging and Production Approvals, so that each environment and decision has current evidence.
+180. As a release manager, I want protected-main and immutable RC/stable tag facts reconciled from
+     GitHub before deployment or publication advances, so that source history cannot be forged by
+     workflow state.
+181. As an operator, I want current per-service deployment facts and Last Known Good kept separate,
+     so that mixed or unknown provider state never appears successful.
+182. As an operator, I want rollback to deploy a previously verified immutable manifest without
+     rewriting `main`, tags, GitHub Releases, or historical Release state, so that recovery
+     preserves the audit record.
+183. As a security operator, I want suspected secret exposure and unhealthy or unverifiable GitHub
+     to remain unbypassable while safety-reducing containment remains available, so that approval
+     cannot weaken absolute safeguards.
+184. As an auditor, I want Release commands, approvals, provider attempts, evidence, notification
+     delivery, reconciliation, and Incident links cross-referenced without a fabricated global
+     order, so that history remains truthful.
+185. As a DevTicket owner, I want release membership, failure, rollback, or supersession to leave my
+     Card Done, so that development completion is not conflated with environment state.
 
 ## Implementation Decisions
 
@@ -637,9 +660,49 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Make Card activity tabs Comments, History, Worklog, Agent Execution, and Review Evidence. Surface
   repository-native PR, branch, worktree, commit, check, Review, approval, merge, Docker, and sync
   facts without making Opzava the source of those GitHub facts.
-- End Development at merge into `development`. Keep Releases as a separate view and future workflow
-  for Candidate, Staging, Staging Approved, Production Ready, and Released. Do not move Done cards
-  backward merely because a release has not promoted.
+- End Development at merge into `development`. Keep Releases as a separate view governed by a
+  distinct Release aggregate with lifecycle `Draft`, `Candidate`, `Staging`, `StagingApproved`,
+  `ProductionReady`, `Released`, `Superseded`, and `Cancelled`. Release attention is a derived set,
+  not lifecycle, and may independently include `NeedsHumanApproval`, `AbsoluteStop`,
+  `HealthUnavailable`, `DeploymentUnknown`, `PublicationPending`, `RollbackRequired`, and
+  `IncidentActive`. Never move Done cards backward because of release state.
+- Seal an immutable Release Manifest from one Trusted Build Request bound to the exact frozen Draft
+  revision, candidate SHA/tree, full DAG composition, deployment/config fingerprint, included Done
+  DevTickets, trusted build provenance, per-service OCI digests, signatures/attestations, SBOM,
+  Compose/config hashes, migrations/compatibility, named secret refs, required checks, and evidence.
+  Observe the candidate reachable from protected `development`, and derive the base only from the
+  immediately preceding governed Released tree or the one-time adopted baseline; reject
+  caller-selected later bases, non-ancestry, rewrites, and ref drift. Build once in the trusted
+  pipeline and deploy the same digest bundle to staging and production without rebuild. Local Docker
+  Review artifacts are not Release artifacts. An RC-tag request freezes its Draft; terminal failure
+  may continue only after trusted GitHub reconciliation proves the tag was never created and an
+  explicit atomic command abandons the request/revision and creates a successor revision with a new
+  RC reservation. Unknown, partial, existing, or possibly created tag state remains on the same
+  frozen request. A terminal failed build may continue only after trusted proof that no artifact was
+  published and an explicit atomic command that abandons the frozen request/revision and creates a
+  successor revision with a new RC reservation. Partial or unknown artifacts remain quarantined on
+  the same request and forbid parallel rebuild or RC reuse.
+- Require deterministic observed staging verification followed by distinct explicit human Staging
+  Approval and Production Approval. Promote protected `main`, confirm immutable RC/stable tags,
+  deploy and observe exact production digests/health/smoke/stabilization, then confirm the native
+  GitHub Release before `Released`. A provider `2xx` is never success. If production is live while
+  publication is pending, stay `ProductionReady` with `PublicationPending` and retry publication
+  without redeploying.
+- Use environment-scoped fenced Deployment Leases and append-only attempts. Lease expiry revokes
+  worker authority, not its fence; trusted reconciliation or confirmed provider cancellation must
+  terminalize Unknown state before a higher fence is admitted. Successful staging retains a
+  separately fenced Staging Occupancy. A newer sealed candidate requires an atomic higher-fence
+  transfer after Released plus current observation, Cancelled/Superseded plus accepted
+  `RestoreStaging`/non-current proof, or irreversibly bound ProductionReady plus an authorized
+  linked forward fix, terminal known attempts, and exact current observation. Current per-service
+  deployment truth remains separate from Last Known Good. Rollback is a new attempt to a previously
+  verified immutable manifest and never rewrites `main`, tags, GitHub Releases, or old Release
+  history.
+- Treat GitHub Actions and Slack as request/relay surfaces only. Suspected secret exposure and
+  unhealthy or unverifiable GitHub reject ordinary release operations without bypass while
+  safety-reducing containment remains authorized. Release and Incident lifecycles stay separate. The
+  full command, evidence, saga, failure, approval, history, and test contract is canonical in
+  `docs/plan/research/wf236-releases-gate-contract.md`.
 - Make Opzava the primary Docs authoring and reading surface and mirror human-readable Markdown
   under a stable repository tree. Give each document immutable ID, version, content hash, state,
   type, relations, and GitHub path.
@@ -661,9 +724,9 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   comments, evidence, workflow mapping, GitHub links, and route behavior before switching writes.
   Redirect `/tasks` and `/issues` to `/dev-board` only after verified cutover, then retire legacy
   code and adapters.
-- Keep Review internals and Releases promotion mechanics fail-closed until separately grilled and
-  specified. No DevTicket can reach Done until the mandatory Review contract is implemented; no
-  release behavior may be inferred from Done.
+- Keep Review internals fail-closed until its separately grilled contract is implemented. Apply the
+  specified Releases Gate fail-closed until its aggregate, adapter, evidence, and UI behavior is
+  implemented. No release behavior may be inferred from Done.
 
 ## Testing Decisions
 
@@ -764,6 +827,15 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Test the two Absolute Stops separately from ordinary Needs Human Approval. Secret-exposure and
   unverifiable-GitHub states must reject bypass attempts through UI, Slack, GitHub labels, agent
   tools, runner receipts, and direct command APIs.
+- Test the Releases Gate through deterministic command seams and a real authenticated Releases view:
+  version reservation, exact composition, immutable RC/manifest/tag identities, trusted build-once
+  facts, same-digest staging/production, fenced attempts, staging verification, separate human
+  Staging/Production Approvals, protected-main promotion, publication pending, `Released`, unknown
+  and mixed provider state, rollback, Incident links, and Cards remaining Done. Model output is not
+  a release correctness oracle.
+- Test secret absence across Release evidence, activity, outbox, provider logs, GitHub, Slack,
+  exports, and UI. Test the two absolute stops against every request surface while still permitting
+  only sanitized safety-reducing containment.
 
 ## Out of Scope
 
@@ -776,9 +848,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Full internals of the adversarial Review Gate, including its final check catalog, escalation
   model, approval thresholds beyond the locked foundation, and merge choreography. These require a
   dedicated grilling and specification.
-- Full Releases promotion mechanics, staging and production deployment policy, rollback
-  implementation, release-candidate composition rules, and production approval matrix. These require
-  a separate grilling and specification.
+- Provider-specific implementation choices that the Releases Gate deliberately leaves for validated
+  adapter work: the trusted builder/registry/signing products, exact Dokploy observation seams,
+  approval expiry defaults, retention, and migration backup/restore implementation. Unknown provider
+  behavior remains fail-closed and cannot weaken the canonical contract.
 - Automatic cloud failover from a disconnected local runner. Pre-Start Admission Loss finalizes
   confirmation-gated no-start containment; a process-bearing lease pauses and reconciles before
   resume.
@@ -812,5 +885,7 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   commit `27aa4660`, Card detail Variant A at `a4ecf553`, and Sprints Variant A with history at
   `8ebfecf5`. Prototype code is a visual decision aid, not production implementation.
 - Product navigation target: `Summary · List · Board · Sprints · Docs · Development · Releases`.
-- The next design sessions should grill Review Gate internals first and Releases promotion mechanics
-  second. Until Review is specified and implemented, the system must fail closed before Done.
+- The Releases Gate is specified by `docs/plan/research/wf236-releases-gate-contract.md`; its target
+  implementation remains unbuilt. Until Review is specified and implemented, the system must fail
+  closed before Done. Until Release mechanics and provider adapters are implemented, Releases must
+  fail closed after Done rather than infer deployment state.

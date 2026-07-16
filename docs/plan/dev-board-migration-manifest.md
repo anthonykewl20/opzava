@@ -21,17 +21,18 @@ and its completed slice plan and Worklog are preserved as non-executable history
 
 ## 1. Target truth register
 
-| Artifact                                                 | Scope                                                                                       | Disposition                                                                                                                                                                                                |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/prd/PRD-019-dev-board.md`                          | User-facing Dev Board target                                                                | Canonical PRD. Decompose only after Review/Release boundaries are respected. Do not claim its target stories are built.                                                                                    |
-| `docs/adr/ADR-017-dev-board-authority-sync-execution.md` | Bounded context, authority, sync, runner trust, and ledgers                                 | Canonical architecture decision. It explicitly supersedes Q17 platform-development guidance without superseding retained outbox/runtime/incident principles.                                               |
-| `docs/plan/dev-board-foundation-decisions.md`            | Full locked foundation ledger                                                               | Canonical fine-grained decision source. New planning must use its terms and cite decisions rather than revive “Task” assumptions.                                                                          |
-| `docs/plan/dev-board-migration-manifest.md`              | Cleanup, migration, cutover, and tracker disposition                                        | Canonical transition map. Update it as records are reconciled and old surfaces retire.                                                                                                                     |
-| ADR-004 retained principles                              | Postgres authority for Opzava state, projections as cache, outbox/idempotency, runtime refs | Retain. ADR-017 adds Dev Board as a dedicated context and a GitHub/local-runner authority matrix. Do not use ADR-004's old Project Management platform-board wording to collapse DevTicket into `pm.Card`. |
-| ADR-008 retained principles                              | AI Workforce identity, delegation, `AgentDispatch`, OpenClaw runtime separation             | Retain outside Dev Board. Dev Board owns its assignments, contracts, and leases; runtime refs remain opaque/projected.                                                                                     |
-| ADR-013 retained principles                              | Incident/ErrorGroup and remediation authority                                               | Retain. Incident is a Dev Board projection only and never a DevTicket Type or Sprint member.                                                                                                               |
-| ADR-015 retained principles                              | Local Docker to Dokploy parity                                                              | Retain. Dev Board Review must use the shared local Docker stack; Releases remains separate.                                                                                                                |
-| ADR-016 retained principles                              | Mainframe tracked-fork boundary                                                             | Retain. OpenClaw Workboard remains runtime-owned and is not ported or renamed Dev Board.                                                                                                                   |
+| Artifact                                                 | Scope                                                                                                  | Disposition                                                                                                                                                                                                |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/prd/PRD-019-dev-board.md`                          | User-facing Dev Board target                                                                           | Canonical PRD. Decompose only after Review/Release boundaries are respected. Do not claim its target stories are built.                                                                                    |
+| `docs/adr/ADR-017-dev-board-authority-sync-execution.md` | Bounded context, authority, sync, runner trust, and ledgers                                            | Canonical architecture decision. It explicitly supersedes Q17 platform-development guidance without superseding retained outbox/runtime/incident principles.                                               |
+| `docs/plan/dev-board-foundation-decisions.md`            | Full locked foundation ledger                                                                          | Canonical fine-grained decision source. New planning must use its terms and cite decisions rather than revive “Task” assumptions.                                                                          |
+| `docs/plan/dev-board-migration-manifest.md`              | Cleanup, migration, cutover, and tracker disposition                                                   | Canonical transition map. Update it as records are reconciled and old surfaces retire.                                                                                                                     |
+| `docs/plan/research/wf236-releases-gate-contract.md`     | Release aggregate, build-once, staging/production, approval, rollback, evidence, and Incident boundary | Current canonical #236 target input. Canonical docs project the accepted amendment; root issue integration/final closure remains pending. It is not an implementation claim.                               |
+| ADR-004 retained principles                              | Postgres authority for Opzava state, projections as cache, outbox/idempotency, runtime refs            | Retain. ADR-017 adds Dev Board as a dedicated context and a GitHub/local-runner authority matrix. Do not use ADR-004's old Project Management platform-board wording to collapse DevTicket into `pm.Card`. |
+| ADR-008 retained principles                              | AI Workforce identity, delegation, `AgentDispatch`, OpenClaw runtime separation                        | Retain outside Dev Board. Dev Board owns its assignments, contracts, and leases; runtime refs remain opaque/projected.                                                                                     |
+| ADR-013 retained principles                              | Incident/ErrorGroup and remediation authority                                                          | Retain. Incident is a Dev Board projection only and never a DevTicket Type or Sprint member.                                                                                                               |
+| ADR-015 retained principles                              | Local Docker to Dokploy parity and Release artifact identity                                           | Retain as amended. Dev Board Review uses the shared local Docker stack; trusted Release builds occur once and staging/production deploy the same manifest-pinned OCI digests without rebuild.              |
+| ADR-016 retained principles                              | Mainframe tracked-fork boundary                                                                        | Retain. OpenClaw Workboard remains runtime-owned and is not ported or renamed Dev Board.                                                                                                                   |
 
 ### Target vocabulary that every dependent spec must adopt
 
@@ -46,6 +47,11 @@ and its completed slice plan and Worklog are preserved as non-executable history
   capability-bounded Custom; never one organization-global slot.
 - Ordinary DevTicket: a Ready non-Sprint DevTicket admitted only by explicit governed claim.
 - Six lanes: Backlog, Todo, Blocked, In Progress, Review, Done.
+- Release: separate desired-promotion aggregate; never a DevTicket lane or Incident lifecycle.
+- Release Candidate / Release Manifest: immutable source and build-once artifact identity after
+  seal.
+- Current Environment Deployment / Last Known Good: distinct truthful observed pointers; unknown or
+  mixed current state never overwrites known-good evidence.
 
 ## 2. Current as-built register
 
@@ -173,7 +179,7 @@ its Q2-to-Q7 dependency and authorization correction is reflected in the blockin
 | #233 — Reconcile Incident projections, governed interruption, strict Sprint order, and ordinary-work preemption | Resolve Focused/Balanced/Custom admission, Sprint waiting and serial reservation, ordinary claims, governed pause/preemption, blocking discoveries, and dependency ordering                                                                                                                                                                                 | #230, #232                                     |
 | #234 — Complete the governed Docs type, planning-log, and invalidation matrix                                   | Resolve PRD/planning/research document authority, version binding, mirroring, and links to DevTickets                                                                                                                                                                                                                                                       | #230, #231                                     |
 | #235 — Lock archive, retention, exceptional redaction, tombstone, and revocation behavior                       | Resolve durable history, secret/redaction boundaries, imported records, and four-ledger retention across command, GitHub, and Runner seams                                                                                                                                                                                                                  | #230, #231, #232                               |
-| #236 — Grill and lock the Releases Gate contract                                                                | Keep staging and live-production promotion separate from Dev Board Review and Done                                                                                                                                                                                                                                                                          | —                                              |
+| #236 — Grill and lock the Releases Gate contract                                                                | Canonical target contract prepared in `wf236-releases-gate-contract.md` and projected into canonical docs; root issue integration/final closure remains pending. It defines staging/live separation, build-once manifests, approvals, failure, rollback, evidence, history, and Incident boundaries without claiming implementation.                        | —                                              |
 | #237 — Produce and audit the final implementation ticket graph and reciprocal Q17 mapping                       | Integrate #229–#236, pass independent audit, publish implementation tracer bullets, and record exact reciprocal mappings for #147–#157                                                                                                                                                                                                                      | #229, #230, #231, #232, #233, #234, #235, #236 |
 
 This graph satisfies the manifest's sequencing rule: implementation tracer bullets remain unassigned
@@ -185,9 +191,9 @@ foundation ledger.
 While #228 remains open, only resolved research memos explicitly designated **current input** by
 this manifest or the map are current for their downstream children; linkage alone is insufficient,
 and a frozen/consumed disposition always wins. This manifest designates
-`research/wf230-devticket-command-model.md` current input until #237 synthesizes and independently
-audits it into the final tracer-bullet graph; after that it becomes frozen planning evidence rather
-than parallel implementation authority.
+`research/wf230-devticket-command-model.md` and `research/wf236-releases-gate-contract.md` current
+inputs until #237 synthesizes and independently audits them into the final tracer-bullet graph;
+after that they become frozen planning evidence rather than parallel implementation authority.
 
 The preset state machine and capability advertisement remain owned by Runner/trust investigation
 #232 together with Sprint/admission investigation #233. Reviewer execution and the exclusive shared
@@ -378,6 +384,12 @@ Cutover is blocked until all of the following are true:
   continues. Material Revision after finalization preserves that handoff and exits Review only with
   the exact #229-authenticated **Review Containment Proof** for Reviewer/Docker/tunnel/evidence
   authority.
+- Release tests prove unique stable-version reservation, exact Git composition, immutable
+  candidate/manifest/tag identities, trusted build once, identical staging/production digests,
+  fenced attempts, deterministic staging verification, distinct current human Staging/Production
+  Approvals, protected-main promotion, publication pending, rollback/Incident separation, mixed and
+  unknown provider truth, Cards remaining Done, and secret absence. No Release target behavior is
+  described as built before those gates and the authenticated Releases story pass.
 - Admission, preset, governed pause/preemption, downgrade, disconnect, and reconciliation changes
   are authorized and audited. No Overview projection or automatic local-to-cloud failover can mutate
   this state outside the Dev Board command boundary. **Pre-Start Admission Loss** proves no start,
