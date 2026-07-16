@@ -1046,7 +1046,7 @@ detector must connect the evidence to the configured App/binding or an expected 
 Known outbound-only permission loss pauses those operations. Loss of read/auth/repository/signature
 or required correlation makes facts unverifiable. `unhealthy` or `unverifiable` opens/reuses
 `OpenAbsoluteStop(type=github_health)` at the narrowest
-installation/repository/capability/DevTicket/ fact scope. `wf230` atomically blocks dependent gates
+installation/repository/capability/DevTicket/fact scope. `wf230` atomically blocks dependent gates
 and contains affected starting/active work; unrelated last-confirmed projections stay readable with
 freshness/status labels.
 
@@ -1152,9 +1152,9 @@ deterministic raw fixtures signed with test secret versions—not mocked verific
 - exact raw-byte mutation, Unicode, missing/wrong/rotated signature, size/content type, unsupported
   event, unknown action on action-bearing events, valid actionless
   `create`/`delete`/`push`/`status`, missing or unexpected action against the selected schema,
-  action-bearing repository/ installation/repository-set minimal-envelope families, missing/extra
+  action-bearing repository/installation/repository-set minimal-envelope families, missing/extra
   repository identities, minimal/full-schema disagreement, cross-install/repository, secret-bearing
-  content, durable- commit-before-ack;
+  content, durable commit-before-ack;
 - duplicate/redelivered delivery, delivery/hash collision, out-of-order/gap, restart and stale
   claim;
 - command/outbox atomicity, tenant RLS denial, claim-token fencing, dead-letter/replay
