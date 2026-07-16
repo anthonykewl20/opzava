@@ -5,6 +5,11 @@
 > manifest designates the memo current for #237. The previously approved PRD remains current; these
 > staged additions do not become implementation authority early.
 
+> **WF-234 amendment status:** Governed Docs details added by the #234 resolution are a prepared
+> inactive candidate until parent map #228 records verified closure and the migration manifest
+> designates the memo current for #237. The previously approved PRD remains current; these staged
+> additions do not become implementation authority early.
+
 ## Problem Statement
 
 Opzava platform development is currently split across an internal Tasks board and a separate GitHub
@@ -382,22 +387,31 @@ implementations without losing identifiers, comments, evidence, or worklogs.
      together.
 149. As an Opzava administrator, I want PR, CI, behavioral, E2E, Docker, approval, and merge status
      on the Card, so that GitHub does not need to be open for routine supervision.
-150. As a document author, I want Opzava to be the primary authoring UI while Markdown mirrors to
-     the repository, so that planning is usable and durable.
+150. As a document author, I want Opzava to be the primary authoring UI while immutable version
+     Markdown and a navigation-only current head publish in that order with exact per-leg provider
+     confirmation and truthful combined health, so that planning is usable and durable without
+     making GitHub workflow authority.
 151. As a document author, I want PRD, Planning Brief, RFC/Design Spec, Research Note, ADR, Runbook,
      Postmortem, Sprint Plan, and Sprint Report types, so that development knowledge has consistent
      form.
-152. As a document author, I want documents linked by metadata to multiple Sprints, DevTickets,
-     incidents, and Work Areas, so that content is reused rather than duplicated.
-153. As an Opzava administrator, I want each grilling session preserved as a Planning Session Log
-     and synthesized final brief, so that decisions and rejected alternatives are not lost.
+152. As a document author, I want navigation relations separated from exact version-bound reliance
+     by Goals, Sprints, DevTickets, Incidents, Work Areas, and stable requirement IDs, so that
+     content is reused without treating a link or mutable current pointer as gate proof.
+153. As an Opzava administrator, I want each grilling session preserved as an authoritative
+     append-only Planning Session Log and synthesized into a separate governed final brief, so that
+     decisions and rejected alternatives are not lost or mistaken for mutable document content.
 154. As an auditor, I want Planning Session Logs to record questions, recommendations, human
      decisions, rejected alternatives, unresolved items, participants, and timestamps without hidden
      model reasoning, raw tool output, or secrets, so that the record is useful and safe.
-155. As a document approver, I want Draft, In Review, Approved, Superseded, and Archived states with
-     immutable Approved versions, so that cited planning cannot change silently.
-156. As an execution agent, I want a material approved-document revision to invalidate dependent
-     readiness or Sprint approval, so that implementation does not rely on superseded policy.
+155. As a document approver, I want a stable document identity, immutable content-addressed
+     revisions, an optional readable Approved head beside at most one Draft/In Review head, exact
+     per-type approval slots, accountable Document Owner transfer, rejection/expiry/revocation,
+     exact archive pointer clearing, and restore as one fresh Draft, so that cited planning cannot
+     change silently or revive stale authority.
+156. As an execution agent, I want a material approved-document replacement to atomically stale
+     exact reliances and fail-close dependent Ready, Sprint, Review, and Release gates through a
+     resumable exact owner-request/receipt fan-out while preserving Done and Released history, so
+     that no gate runs on superseded policy and no partial or owner-blocked fan-out appears valid.
 157. As a migration operator, I want current Task IDs, card numbers, GitHub links, comments,
      evidence, reviews, and activity preserved, so that the pivot does not erase history.
 158. As a migration operator, I want dual-read only during a bounded migration period, so that two
@@ -858,16 +872,53 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   authorized. Release and Incident lifecycles stay separate. The full command, evidence, saga,
   failure, approval, history, and test contract is canonical in
   `docs/plan/research/wf236-releases-gate-contract.md`.
-- Make Opzava the primary Docs authoring and reading surface and mirror human-readable Markdown
-  under a stable repository tree. Give each document immutable ID, version, content hash, state,
-  type, relations, and GitHub path.
+- Make Opzava the primary Docs authoring and reading surface. Model one stable Governed Document
+  with immutable type/path coordinates, a versioned verified-human Document Owner, an optional
+  current Approved head, at most one Draft/In Review working head, and immutable canonical UTF-8/LF
+  content-hashed Document Revisions. Approved content never mutates; approval requirements and
+  decisions, lifecycle, exact archive pointers, relations, reliance, and mirror state are separate
+  records. Archive clears active heads into history; restore creates one new Draft and revives no
+  approval or reliance.
+- Mirror every immutable revision—including Draft/abandoned history—through one deterministic
+  sanitized version intent under a stable repository tree. Finalization activates a separately
+  ordered navigation-head intent only after that exact version confirms. Monotonic head-generation
+  fencing covers approval, archive, restore, and relation changes. A provider `2xx` is not success:
+  confirm exact repository/ref/path/blob/tree/commit/App/correlation facts and use an exact-base,
+  non-force ref advance. Unknown effects reconcile the same intent, immutable-path tamper is a
+  conflict, and current-head concurrency uses the complete B/O/G matrix and provider-confirmed
+  resolution without last-write-wins.
 - Support document types PRD, Planning Brief, RFC/Design Spec, Research Note, ADR, Runbook,
-  Postmortem, Sprint Plan, and Sprint Report. Preserve Planning Session Logs with questions,
-  recommendations, human decisions, rejected alternatives, unresolved items, participants, and
-  timestamps; exclude hidden reasoning, raw tool output, secrets, and noisy telemetry.
-- Use document lifecycle Draft, In Review, Approved, Superseded, and Archived. Approved versions are
-  immutable; edits create new Draft revisions. PRD, RFC, ADR, Sprint Plan, and Runbook require Human
-  Owner approval. A material revision invalidates dependent Ready or Sprint approval.
+  Postmortem, Sprint Plan, and Sprint Report. Review and Release contracts are governed RFC/Design
+  Spec profiles, not extra types. Apply the exact approval matrix and ownership in
+  `docs/plan/research/wf234-governed-docs-contract.md`.
+- Finalize only through the exhaustive type-specific authority envelope: exact Document Owner/type/
+  profile decisions for ordinary governed types, author policy for Research Note, a single-use
+  Incident-owner receipt for Postmortem, and authoritative Sprint command/owner receipts for Sprint
+  Plan/Report. Docs cannot duplicate or substitute an external owner's decision.
+- Preserve Planning Session Logs as authoritative append-only planning-ledger streams with exact
+  sequence, actor/source, timestamp, kind, safe hash, and correction refs. Their UI/GitHub forms are
+  projections, not a tenth governed type. Exclude hidden reasoning, raw tool output, secrets, and
+  noisy telemetry; syntheses cite exact log entries/ranges.
+- Separate navigation-only Document Relations from Document Reliance bound to exact revision/hash,
+  requirement IDs, relying owner/version, purpose, and policy. Trace requirements through Ready
+  sad-path/edge/acceptance/E2E/evidence IDs, locked-SHA Review evidence, Sprint membership, and
+  Release manifest/evidence. No reliance follows `current`.
+- Use a durable serialized material-invalidation generation. Finalization atomically swaps the
+  Approved head, marks exact reliances stale, fail-closes their gates, activates the ordered
+  current-head publication after its existing version leg, and queues versioned idempotent requests
+  for the DevTicket, Sprint, Review, and Release owners. Partial/owner-blocked fan-out keeps the
+  generation and reliance stale and resumes under fencing; completion requires terminal owner
+  receipts and final old-reliance states. Docs never bulk-accepts DevTicket revisions or mutates
+  other aggregates. Non-semantic replacement requires exact immutable equivalence/carry-forward
+  receipts. Done and Released remain history.
+- For a live DevTicket, use a distinct DevTicket-owned Reliance Invalidation Interruption—not
+  WF-230's AcceptedPendingApplication-bound Material Revision interruption. Prepare/finalize locks
+  and contains the exact claim/lease/grant/tunnel/process authority and emits a proof before the
+  ordinary DevTicket or coordinated Sprint-member owner atomically applies Ready/lane/reliance, with
+  no invented human content decision or split Sprint state.
+- The complete Docs lifecycle, taxonomy, approval, planning-log, Git mirror, traceability,
+  invalidation, race, sad-path, and real-stack contract is canonical in
+  `docs/plan/research/wf234-governed-docs-contract.md` until #237 consumes it.
 - Separate four ledgers: planning decisions; immutable Dev Board activity/history; runner
   execution/checkpoints; and synchronization/outbox/conflicts. Cross-link them by stable refs, but
   do not collapse their different ordering, retention, or authority semantics.
@@ -980,6 +1031,19 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - No model token is required for synchronization, protocol, migration, or state-machine tests. Use
   deterministic fixtures and signed events. Model-backed execution may be tested separately but
   cannot be the correctness oracle for sync or gates.
+- Test governed Docs through a real authenticated browser on the local Docker stack with real
+  tenant/RLS Postgres data and dedicated real GitHub scratch-provider observations. Cover the
+  dual-head lifecycle; exact type/profile approval; append-only Planning Session correction;
+  requirement-to-Ready/Review/Sprint/Release traceability; every Draft version and approved/current
+  Markdown path; exact-base/non-force provider confirmation; lost response; immutable-path tamper;
+  late head-generation fencing; three-way conflict; and truthful health/freshness.
+- Test Secret-Safe admission before receipt/persistence/log/outbox, sanitized Markdown and unsafe
+  HTML/schemes, path traversal/case/Unicode collisions, RLS/role denial, idempotency mismatch,
+  concurrent approval, archive/restore, non-semantic carry-forward, material invalidation racing
+  claim/start/Review/Release, the distinct Reliance Invalidation Interruption without accepted
+  content, atomic composite Sprint-member invalidation without split state, partial fan-out
+  recovery, and unchanged Done/Released history. A model, HTTP `2xx`, rendered component state, or
+  background-worker exit is not the correctness oracle.
 - Test Slack approval contracts deterministically: enrolled Admin identity, exact object and
   version, nonce single use, expiry, replay, rejection after material change, role revocation, audit
   attribution, and prohibition on secret values. Verify secure-UI-only operations cannot be approved

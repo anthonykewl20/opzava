@@ -10,6 +10,11 @@ parent map #228 records verified #231 closure and the migration manifest designa
 #237. The previously accepted ADR remains current; staging this amendment does not activate it
 early.
 
+The WF-234 Governed Docs amendment in this document is likewise a **prepared inactive candidate**
+until parent map #228 records verified #234 closure and the migration manifest designates it current
+for #237. The previously accepted ADR remains current; staging this amendment does not activate it
+early.
+
 This ADR explicitly supersedes the following material **as active guidance for Opzava
 platform-development work**, while retaining it as historical evidence:
 
@@ -82,7 +87,10 @@ The authority matrix is:
 | Human Owner, Execution Assignee, Lead Orchestrator, Reviewer, Runner selection; Execution Lease authorization/binding/fence and governed branch/purpose binding | Opzava Dev Board                                       | External identities and signed runtime observations are validated inputs, never authority by assertion                                                                                                                           |
 | Dependencies and Sprint plans                                                                                                                                   | Opzava Dev Board                                       | GitHub labels, Milestones, and tracking issues are synchronized projections                                                                                                                                                      |
 | Human approvals and conflict decisions                                                                                                                          | Opzava Dev Board                                       | Slack can carry bounded decisions from an authenticated Admin; GitHub cannot approve a gate directly                                                                                                                             |
+| Governed Document identity, revision bytes/hash, lifecycle, approval, relations, reliance, and invalidation                                                     | Opzava Dev Board / Docs                                | Deterministic Markdown mirrors to GitHub; provider edits may propose a Draft only after authenticated three-way reconciliation                                                                                                   |
+| Planning Session Log entries and append-only corrections                                                                                                        | Dev Board planning decision ledger                     | Docs UI and GitHub Markdown are projections; a synthesized brief is a separate Governed Document Revision                                                                                                                        |
 | GitHub issue number and URL                                                                                                                                     | GitHub                                                 | Stored on DevTicket as external identity and primary visible reference                                                                                                                                                           |
+| GitHub document-mirror blob, tree, commit, ref, and provider-actor facts                                                                                        | GitHub                                                 | Dedicated Docs mirror outbox/shadow/conflict records; provider success never grants document approval                                                                                                                            |
 | Provider-native pull request, branch/ref/SHA, commit, check, repository review, merge, tag, and release facts                                                   | GitHub                                                 | Read and projected into Opzava; correlation to Runner refs never transfers execution authority; commands execute through the GitHub App and must confirm repository truth                                                        |
 | Release desired lifecycle, immutable manifest, approvals, attempts, rollback decision                                                                           | Opzava Dev Board / Releases                            | GitHub Actions, Slack, agents, and provider callbacks are bounded requests/observations only                                                                                                                                     |
 | Build provenance, signatures, SBOM, and immutable OCI digests                                                                                                   | Trusted build system and OCI registry                  | Verified and pinned into the immutable Release Manifest                                                                                                                                                                          |
@@ -459,6 +467,61 @@ revision. Sprint history is immutable and is mirrored to a GitHub Milestone plus
 Admin Overview may project capacity, lease use, and waiting reasons under PRD-020, but it owns none
 of the Dev Board admission, preset, lease, Sprint, or Review state described here.
 
+Docs uses a stable **Governed Document** aggregate with immutable type/path coordinates, a versioned
+verified-human Document Owner, an optional readable Approved head, at most one Draft/In Review
+working head, and an exact reversible archive overlay that clears active heads into history. Each
+**Document Revision** stores immutable canonical UTF-8/LF Markdown bytes, content hash, predecessor,
+and verified attribution. Lifecycle, per-slot approval requirements/decisions, rejection, and owner
+transfer are append-only decisions around those bytes. Restore creates one fresh Draft and revives
+no Approved authority. The nine types are PRD, Planning Brief, RFC/Design Spec, Research Note, ADR,
+Runbook, Postmortem, Sprint Plan, and Sprint Report. Review and Release contracts are RFC/Design
+Spec profiles. A Planning Session Log is instead an authoritative append-only planning-ledger
+stream; its UI/GitHub render is a projection and its synthesized brief is a separate revision.
+
+One exhaustive `DocumentFinalizationAuthorityEnvelope` prevents generic Docs authority from
+duplicating external owners: ordinary types consume exact Document Owner/type/profile decisions,
+Research Note consumes author policy, Postmortem consumes an Incident-owner receipt, and Sprint
+Plan/Report consumes the applicable single-use Sprint command/owner receipt. Type/source mismatch
+rejects.
+
+Navigation-only Document Relations never satisfy a gate. A **Document Reliance** binds a consuming
+aggregate/version to one exact document/revision/hash, requirement selector set, purpose, and
+policy; it never follows the mutable current head. Requirements trace through Ready sad-path,
+edge-case, acceptance, E2E, and evidence-expectation IDs to exact locked-SHA Review evidence, Sprint
+Plan bindings, and Release manifest/evidence where applicable.
+
+Finalizing a material successor after every current approval slot atomically swaps the Approved
+head, marks every exact active reliance stale, opens one serialized durable invalidation generation,
+and makes dependent gates fail closed. Every immutable revision already owns a version publication;
+finalization activates its ordered current-head leg and head generation. Stale dependents never
+suppress document history. A resumable idempotent fan-out sends exact versioned invalidation
+requests through the authoritative WF-230/Sprint/Review/WF-236 owner boundaries instead of
+bulk-mutating contracts, lanes, Plans, evidence, or Releases. Partial or owner-blocked fan-out keeps
+the generation and reliance visibly stale until every terminal owner receipt and old-reliance final
+state exists. Proven non-semantic replacement requires immutable exact equivalence and every
+required Document/Ready/Sprint/Execution carry-forward receipt. Done and Released history never
+reopens.
+
+A live DevTicket target uses a separate DevTicket-owned **Reliance Invalidation Interruption**. It
+is not WF-230's `MaterialRevisionInterruption`, carries no `AcceptedPendingApplication`, and cannot
+apply content. Its prepare/finalize CAS fences and contains the exact claim, lease, grant, tunnel,
+process, and worktree authority, then emits exact containment proof. An ordinary DevTicket apply or
+one Sprint-coordination transaction consumes it to change Ready/lane/reliance and, for a Sprint
+member, Plan/member state atomically. #237 must integrate this explicit WF-230/Sprint owner-model
+amendment.
+
+The dedicated `GovernedDocumentMirrorPort` writes every immutable revision version first, then
+activates navigation-only `current.md` when that revision is Approved; it is distinct from the Issue
+mirror and Runner Git-ref update boundaries. Monotonic head generations also fence archive, restore,
+and relation changes. Combined mirror health becomes complete only after the latest applicable legs
+confirm. Dispatch binds a freshly revalidated exact base commit/tree/path and a non-force ref
+advance; confirmation requires independently observed repository/ref/path/blob/tree/commit/App/
+correlation facts, never a provider `2xx`. Unknown effects retain and reconcile the same intent,
+immutable-path edits/deletions are integrity conflicts, and current-head edits use the complete
+B/O/G matrix with owner decisions remaining pending until provider reconfirmation—never
+last-write-wins. The full lifecycle, taxonomy, approval, mirror, traceability, invalidation, race,
+and validation contract is `docs/plan/research/wf234-governed-docs-contract.md`.
+
 Keep four separate ledgers:
 
 1. **Planning decision ledger:** questions, recommendations, human decisions, rejected alternatives,
@@ -472,19 +535,20 @@ Keep four separate ledgers:
 4. **Synchronization/outbox/conflict ledger:** webhook deliveries, provider events, deduplication,
    outbound attempts, confirmations, reconciliation, health changes, and conflict decisions.
 
-Persist the planning decision ledger in Opzava Postgres under Dev Board Docs/Planning, with
-versioned Markdown mirrors; it is durable and has no routine TTL. Persist the Dev Board
-activity/history ledger in Dev Board-owned Postgres storage with a human-readable GitHub mirror; it
-is immutable and durable. The Runner originates and owns only its signed raw local execution
-observations under the Opzava-owned lease/binding/fence authority, while Dev Board persists accepted
-receipts, checkpoints, and evidence references in Postgres; accepted records relied upon by gates or
-history are durable, while high-volume raw telemetry may expire under a defined TTL. The Dev Board
-integration module owns the synchronization ledger's Postgres outbox, delivery deduplication, and
-conflict records. Conflict decisions, dedupe identity/hash/disposition, and final delivery
-confirmations are durable. Only normalized Secret-Safe facts, request hashes, and provider refs may
-persist; no raw webhook or retry request body enters a ledger. Non-authoritative normalized
-diagnostic detail may age out after its named replay/audit window without deleting those durable
-identities or decisions.
+Persist the planning decision ledger in Opzava Postgres under Dev Board Docs/Planning. Planning
+Session Log entries and corrections are authoritative append-only records; their content-addressed
+Markdown snapshots are projections rather than Governed Document versions. The ledger is durable and
+has no routine TTL. Persist the Dev Board activity/history ledger in Dev Board-owned Postgres
+storage with a human-readable GitHub mirror; it is immutable and durable. The Runner originates and
+owns only its signed raw local execution observations under the Opzava-owned lease/binding/fence
+authority, while Dev Board persists accepted receipts, checkpoints, and evidence references in
+Postgres; accepted records relied upon by gates or history are durable, while high-volume raw
+telemetry may expire under a defined TTL. The Dev Board integration module owns the synchronization
+ledger's Postgres outbox, delivery deduplication, and conflict records. Conflict decisions, dedupe
+identity/hash/disposition, and final delivery confirmations are durable. Only normalized Secret-Safe
+facts, request hashes, and provider refs may persist; no raw webhook or retry request body enters a
+ledger. Non-authoritative normalized diagnostic detail may age out after its named replay/audit
+window without deleting those durable identities or decisions.
 
 No ledger stores secret values or raw unredacted provider payloads. When legal or security policy
 requires redaction of a durable record, retain an attributable tombstone and integrity hash rather

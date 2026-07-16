@@ -27,6 +27,7 @@ and its completed slice plan and Worklog are preserved as non-executable history
 | `docs/adr/ADR-017-dev-board-authority-sync-execution.md` | Bounded context, authority, sync, runner trust, and ledgers                                            | Canonical architecture decision. It explicitly supersedes Q17 platform-development guidance without superseding retained outbox/runtime/incident principles.                                               |
 | `docs/plan/dev-board-foundation-decisions.md`            | Full locked foundation ledger                                                                          | Canonical fine-grained decision source. New planning must use its terms and cite decisions rather than revive “Task” assumptions.                                                                          |
 | `docs/plan/dev-board-migration-manifest.md`              | Cleanup, migration, cutover, and tracker disposition                                                   | Canonical transition map. Update it as records are reconciled and old surfaces retire.                                                                                                                     |
+| `docs/plan/research/wf234-governed-docs-contract.md`     | Docs taxonomy, planning ledger, revision/reliance/traceability, Git mirror, and invalidation           | Prepared canonical #234 contract for parent-map verification and #237 synthesis. Target behavior only; it does not claim the Docs aggregate, UI, mirror, or workers exist.                                 |
 | `docs/plan/research/wf236-releases-gate-contract.md`     | Release aggregate, build-once, staging/production, approval, rollback, evidence, and Incident boundary | Current canonical #236 target input. Canonical docs project the accepted amendment; root issue integration/final closure remains pending. It is not an implementation claim.                               |
 | ADR-004 retained principles                              | Postgres authority for Opzava state, projections as cache, outbox/idempotency, runtime refs            | Retain. ADR-017 adds Dev Board as a dedicated context and a GitHub/local-runner authority matrix. Do not use ADR-004's old Project Management platform-board wording to collapse DevTicket into `pm.Card`. |
 | ADR-008 retained principles                              | AI Workforce identity, delegation, `AgentDispatch`, OpenClaw runtime separation                        | Retain outside Dev Board. Dev Board owns its assignments, contracts, and leases; runtime refs remain opaque/projected.                                                                                     |
@@ -47,6 +48,12 @@ and its completed slice plan and Worklog are preserved as non-executable history
   capability-bounded Custom; never one organization-global slot.
 - Ordinary DevTicket: a Ready non-Sprint DevTicket admitted only by explicit governed claim.
 - Six lanes: Backlog, Todo, Blocked, In Progress, Review, Done.
+- Governed Document / Document Revision: stable Docs identity plus immutable canonical content
+  version; not a Git file or Planning Session Log.
+- Document Relation / Document Reliance: navigation metadata versus an exact version-bound gate
+  dependency; a relation never proves reliance.
+- Planning Session Log: authoritative append-only planning-ledger stream, not a governed document
+  type; UI and GitHub forms are projections.
 - Release: separate desired-promotion aggregate; never a DevTicket lane or Incident lifecycle.
 - Release Candidate / Release Manifest: immutable source and build-once artifact identity after
   seal.
@@ -177,7 +184,7 @@ its Q2-to-Q7 dependency and authorization correction is reflected in the blockin
 | #231 — Reconcile GitHub bootstrap, two-way sync, delivery facts, Actions exceptions, and conflict remediation   | **Prepared 2026-07-17; pending parent-map verification/closure.** [`wf231-github-mirror-contract.md`](research/wf231-github-mirror-contract.md) proposes provider App/installation/repository identity, secure installation and webhook ingress, deterministic three-way mirror reconciliation, unknown-mutation recovery, delivery-fact correlation, Actions request limits, #229/#232 remediation seams, health recovery, and legacy credential/outbox cutover. | #230                                           |
 | #232 — Reconcile Runner, Slack Personal Assistant, Ask Admin, and secret trust seams                            | Resolve enrolled-machine trust, Runner-advertised capacity, fenced leases, tool selection, remote coordination, reconnect, and Slack authorization                                                                                                                                                                                                                                                                                                                | #230                                           |
 | #233 — Reconcile Incident projections, governed interruption, strict Sprint order, and ordinary-work preemption | Resolve Focused/Balanced/Custom admission, Sprint waiting and serial reservation, ordinary claims, governed pause/preemption, blocking discoveries, and dependency ordering                                                                                                                                                                                                                                                                                       | #230, #232                                     |
-| #234 — Complete the governed Docs type, planning-log, and invalidation matrix                                   | Resolve PRD/planning/research document authority, version binding, mirroring, and links to DevTickets                                                                                                                                                                                                                                                                                                                                                             | #230, #231                                     |
+| #234 — Complete the governed Docs type, planning-log, and invalidation matrix                                   | **Prepared 2026-07-17; pending parent-map verification/closure.** [`wf234-governed-docs-contract.md`](research/wf234-governed-docs-contract.md) locks the nine-type/approval matrix, immutable dual-head revisions, authoritative append-only Planning Session Log, exact relations/reliance/traceability, dedicated Git mirror, durable invalidation fan-out, lane/Sprint/Review/Release matrix, and real-seam gates.                                            | #230, #231                                     |
 | #235 — Lock archive, retention, exceptional redaction, tombstone, and revocation behavior                       | Resolve durable history, secret/redaction boundaries, imported records, and four-ledger retention across command, GitHub, and Runner seams                                                                                                                                                                                                                                                                                                                        | #230, #231, #232                               |
 | #236 — Grill and lock the Releases Gate contract                                                                | Canonical target contract prepared in `wf236-releases-gate-contract.md` and projected into canonical docs; root issue integration/final closure remains pending. It defines staging/live separation, build-once manifests, approvals, failure, rollback, evidence, history, and Incident boundaries without claiming implementation.                                                                                                                              | —                                              |
 | #237 — Produce and audit the final implementation ticket graph and reciprocal Q17 mapping                       | Integrate #229–#236, pass independent audit, publish implementation tracer bullets, and record exact reciprocal mappings for #147–#157                                                                                                                                                                                                                                                                                                                            | #229, #230, #231, #232, #233, #234, #235, #236 |
@@ -194,8 +201,9 @@ and a frozen/consumed disposition always wins. This manifest designates
 `research/wf230-devticket-command-model.md` and `research/wf236-releases-gate-contract.md` current
 inputs until #237 synthesizes and independently audits them into the final tracer-bullet graph;
 after that they become frozen planning evidence rather than parallel implementation authority.
-`research/wf231-github-mirror-contract.md` remains a prepared candidate and is not current until
-#228 records verified #231 closure and this manifest explicitly designates it for #237.
+`research/wf231-github-mirror-contract.md` and `research/wf234-governed-docs-contract.md` remain
+prepared candidates and are not current until #228 records their verified closure and this manifest
+explicitly designates them for #237.
 
 The preset state machine and capability advertisement remain owned by Runner/trust investigation
 #232 together with Sprint/admission investigation #233. Reviewer execution and the exclusive shared
@@ -328,8 +336,9 @@ disposition is a cutover blocker.
    create intent, outbox row, runtime outcome ref, route deep link, and relevant GitHub
    issue/comment. Capture a reproducible migration report before schema changes.
 3. **Add target storage and commands.** Create the dedicated Dev Board context, RLS-protected
-   schema, authority-aware commands, four ledgers, GitHub App sync, Runner-local admission/presets,
-   and runner protocol without redirecting current routes.
+   schema, authority-aware commands, Governed Document/immutable revision/planning-log/reliance/
+   invalidation storage, four ledgers, dedicated Docs and Issue GitHub App sync, Runner-local
+   admission/presets, and runner protocol without redirecting current routes.
 4. **Backfill deterministically.** Preserve IDs and aliases, apply the mapping table above, attach
    source refs, and quarantine every ambiguous record. Do not silently promote Ready, assign roles,
    or bless legacy evidence.
