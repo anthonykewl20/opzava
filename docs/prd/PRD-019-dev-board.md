@@ -495,11 +495,11 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   a historical alias.
 - Model Proposal separately from DevTicket. A Proposal records discovery, evidence, blocking impact,
   suggested work, and actor. `AcceptProposal` creates one Backlog DevTicket plus the exact GitHub
-  Issue Binding reservation and/or Mirror Outbox Intent above; provider transport is asynchronous.
-  `MergeProposal` appends discovery/evidence to an existing DevTicket's planning history and opens a
-  proposed Revision only when governed work changes; it creates no DevTicket, GitHub Issue Binding,
-  Mirror Outbox Intent, or provider mutation. Blocking Proposals may pause an affected Sprint and
-  notify Slack but do not create GitHub noise before acceptance.
+  Issue Binding reservation and the matching Mirror Outbox Intent above; provider transport is
+  asynchronous. `MergeProposal` appends discovery/evidence to an existing DevTicket's planning
+  history and opens a proposed Revision only when governed work changes; it creates no DevTicket,
+  GitHub Issue Binding, Mirror Outbox Intent, or provider mutation. Blocking Proposals may pause an
+  affected Sprint and notify Slack but do not create GitHub noise before acceptance.
 - Use six workflow lanes: Backlog, Todo, Blocked, In Progress, Review, and Done. Backlog is
   non-executable shaping. Todo requires a complete Ready Contract Version plus its exact Ready
   Approval. In Progress requires verified execution start for the active Claim Attempt and Execution
