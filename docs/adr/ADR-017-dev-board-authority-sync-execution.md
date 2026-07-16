@@ -3,7 +3,8 @@
 ## Status
 
 Accepted — target architecture, 2026-07-15; Runner-capacity amendment accepted 2026-07-16; Releases
-Gate amendment accepted 2026-07-17. Implementation and migration are not yet complete.
+Gate and Runner trust-protocol amendments accepted 2026-07-17. Implementation and migration are not
+yet complete.
 
 This ADR explicitly supersedes the following material **as active guidance for Opzava
 platform-development work**, while retaining it as historical evidence:
@@ -208,6 +209,42 @@ branch, and worktree rules; it is never an implicit failover target and cannot p
 local-only Review. Runner identity and execution-assignee identity remain distinct. Each DevTicket
 execution uses its own worktree and branch.
 
+Enrollment, tool/MCP linking, OpenClaw Node/Device pairing, vendor login, and process identity are
+separate trust records. A local or cloud Runner initiates an outbound WSS connection through a
+separately authenticated Runner role/path on the existing broker ingress. An immutable semantic
+order is retried at least once inside a separately signed current-connection delivery envelope. A
+transport acknowledgement and heartbeat prove neither process action nor workflow authority; only a
+typed signed ordered Runner Receipt admitted under current enrollment/key and connection epochs,
+delivery digest, lease/fence/nonce, contract/repository/worktree/process, receipt sequence, and
+policy bindings can become an execution fact. `RunnerControlPort` transports already-authorized
+orders and authenticated facts; Execution Admission retains claim, lease, lane, capacity, approval,
+containment, release, and fresh-recovery decisions.
+
+The WSS socket is provisional until a single-use challenge and enrolled-key proof bind both nonces,
+boot identity, reconnect cursors, and the negotiated transcript; one transaction consumes the
+challenge and supersedes the prior connection epoch, and signed accepted/ready completes admission.
+Capability uses its own typed challenge → signed manifest submission → server Capability Admission
+sequence. Self-report never admits work. V1 locks one canonical wire encoding and binds command
+ID↔semantic hash independently from delivery attempts; each order pins the selected Harness
+Adapter/tool/version/mode.
+
+The Runner pins a rollback-resistant server command-key trust bundle during enrollment. A local
+Runner maintains a durable process/worktree journal and an OS-supervised monotonic Lease Enforcer
+outside both its daemon and vendor harness. Loss of renewal or control authority checkpoints,
+removes lease grants, and stops or quarantines the exact process containment set. Reconnect first
+records a Reconciliation Observation and contains stale authority; continuation requires a new
+`ClaimAndStart`, lease, fence, nonce, and start receipt. An old lease is never resurrected. These
+rules, the enrollment/capability/tool matrix, signed frame contract, secret-grant boundary,
+Slack/Ask Admin/MCP provenance rules, and deterministic conformance suite are resolved in
+[`wf232-runner-control-protocol.md`](../plan/research/wf232-runner-control-protocol.md).
+
+Before spawn, Execution Admission must accept a pre-spawn Process Registration/containment
+reservation, a directly verified signed Enforcer arm outcome, and all required typed secret-grant
+activation receipts. Enforcer arm/renew/fence authority uses contiguous nonce-bound signed orders;
+collision/gap contains, and heartbeat never renews. Interactive needs and policy rejection are typed
+governed outcomes. Exact-ref publication uses a one-use preparation and signed authenticated handoff
+to #231; Runner submission does not prove provider acceptance.
+
 Implementation capacity is scoped to each enrolled Runner, not to the organization. Every admitted
 implementation consumes a fenced lease tied to the exact DevTicket Ready Contract Version, Runner,
 worktree, branch, and SHA. Admission and settings changes pass through authorized, audited Dev Board
@@ -243,6 +280,20 @@ A Runner receipt is trusted only when all of the following match:
 - exact DevTicket and Ready Contract Version/hash;
 - expected repository, worktree, branch, and commit SHA identity;
 - admitted tool/model capability and current policy.
+
+The receipt also binds the current enrollment/key epoch, connection epoch, stable delivery/command
+digest, boot incarnation, and durable per-lease sequence. Exact duplicates are idempotent. A changed
+payload under one identity, sequence collision or gap, stale epoch/fence, revoked key, or
+unsupported downgrade fails closed without applying a workflow transition. Server receipt time
+governs revocation and admission cutoffs; Runner-observed time is diagnostic except where an owning
+command defines a bounded arbitration rule.
+
+Neither local nor cloud Runner receives a GitHub App installation token, Contents-write credential,
+deploy key, or equivalent repository-write authority. It submits a signed exact-ref/expected-old-
+SHA/proposed-new-SHA/object bundle to #231's trusted Git transport broker, which reauthorizes and
+performs the conditional provider update with server-held credentials. Secret values are forbidden
+from agent-harness environment variables as well as prompts, arguments, logs, worktrees, receipts,
+and evidence.
 
 Heartbeats renew liveness but do not replace receipts. Checkpoints record last confirmed
 repository/process/Docker state and evidence refs. When a local runner disconnects or its lease

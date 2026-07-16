@@ -291,6 +291,9 @@ Net-new screens to design:
 - Tool connection modes must include MCP and Live agent where supported by the client.
 - MCP mode must grant the local tool access only to the Opzava MCP/API surface authorized for that user, tenant, and policy. It must not give the client Gateway operator tokens.
 - Live agent mode must connect to approved Gateway/session or app-server surfaces through the broker/app boundary and must preserve actor attribution.
+- Operator-tool linking, MCP/API credentials, and Live agent mode authenticate a user/client request
+  path only. They are not Runner Enrollment, do not authorize machine control, and cannot sign a
+  Runner Receipt. OpenClaw Node/Device pairing and vendor-tool login are separate records as well.
 - The connect wizard must create a short-lived setup session with selected tool, selected mode, actor, tenant, allowed scopes, idempotency key, expiry, and audit refs.
 - Generated setup commands must not contain raw long-lived secrets. They must use short-lived setup tokens, pairing codes, redacted/masked values, or instructions that complete secret exchange server-side.
 - Setup tokens must expire quickly, be single-use where possible, and be revoked on cancel, completion, role revocation, membership removal, or tenant suspension.
@@ -305,8 +308,24 @@ Net-new screens to design:
 
 - Admin must expose a first-class **Local machine** enrollment flow with owner, device identity, operating system, supported tool discovery, last heartbeat, lease state, Docker state, and revoke/re-enroll actions.
 - Enrollment must require the user to choose exactly one default execution tool from Codex Desktop, Codex CLI, or Claude Code. The UI must not imply that a desktop client exists on operating systems where only a CLI is available.
-- A runner is a location/capability endpoint, not an AI identity. Runner state must include Enrolling, Online, Leased, Busy, Disconnected, Reconnecting, Reconciling, Paused, Revoked, and Unhealthy with an explicit last-confirmed checkpoint.
+- Runner Enrollment must use an Admin-authorized, short-lived, single-use setup grant and a
+  locally generated public key with fingerprint confirmation. It must never reuse a copied MCP
+  token, OpenClaw pairing code, vendor credential, or browser session as the long-lived Runner key.
+- A runner is a location/capability endpoint, not an AI identity. Runner state must distinguish
+  enrollment lifecycle, key/enrollment epoch, connection epoch, capability freshness/assurance,
+  current execution state, and last-confirmed checkpoint rather than compressing all of them into
+  one “connected” label. Self-reported or stale capability evidence cannot admit implementation.
+- A local or cloud Runner must initiate a separately authenticated outbound WSS role/path through
+  the existing broker ingress and expose no inbound machine-control port. Browser, MCP, OpenClaw,
+  and Runner credentials and schemas are not interchangeable.
+- Enrollment must install a purpose-scoped, versioned server command-key trust bundle with rotation,
+  emergency revocation, and rollback protection. The local capability check must prove an
+  OS-supervised Lease Enforcer outside the Runner daemon and vendor harness before execution is
+  eligible; process supervision reported only by the daemon is insufficient.
 - A Dev Board execution lease must be fenced, heartbeated, expiring, and bound to the selected machine/tool/worktree. Disconnect must pause work, revoke preview exposure, preserve the last confirmed checkpoint, and notify Slack; it must not trigger automatic cloud failover.
+- Tool inventory may show every linked/discovered client, while Runner configuration selects only a
+  platform/version/mode combination proved by the current capability policy. Unsupported Codex
+  Desktop, Codex CLI, or Claude Code combinations render unavailable rather than silently healthy.
 - Resume after reconnect must reconcile process identity, worktree/branch, locked commit, Docker state, GitHub state, and lease ownership before execution continues. Blind restart is forbidden.
 - Admin must configure one shared local Docker review environment with stack command/profile, expected services, health checks, test fixtures, reset policy, preview port, and evidence capture. Secret values remain in the local keyring/vault; Opzava stores named references and health only.
 - Preview exposure must use an authenticated, expiring tunnel that is created only for an active review/approval need and revoked on expiry, disconnect, completion, or explicit stop.
@@ -389,7 +408,7 @@ Net-new screens to design:
 | Connect wizard | Identity & Access plus Runtime Control | Tool/mode selection, short-lived setup token, generated command metadata, verification state, expiry | Tool link service, setup-token service, `AuthorizationPort`, `RealtimeTransportPort`, `EventBusPort` |
 | MCP/API credential checks | Identity & Access plus Runtime Control | Local client calls, actor attribution, tenant scope, policy/entitlement decision, revocation | API credential service, `AuthorizationPort`, Runtime Control application service |
 | Live agent mode | AI Workforce plus Runtime Control | Local/live agent check-in, session/run refs, assignment pickup, actor attribution | AI Workforce application service, broker ACL / `OpenClawGatewayPort`, `RealtimeTransportPort` |
-| Dev Board local runner | Dev Board plus Tenant Provisioning/Platform-Ops | Enrolled machine, explicit tool selection, fenced lease, heartbeat, checkpoint, disconnect/reconcile/resume state, worktree ref | Runner enrollment/lease services, `AuthorizationPort`, `RealtimeTransportPort`, `EventBusPort` |
+| Dev Board local runner | Dev Board plus Tenant Provisioning/Platform-Ops | Enrolled machine/key epochs, capability manifest, explicit tool selection, connection epoch, delivery/receipt health, checkpoint, containment, and reconciliation projection | Runner Registry plus target `RunnerControlPort`, `AuthorizationPort`, and durable outbox/inbox; Execution Admission separately owns leases and workflow decisions |
 | Local Docker review stack | Dev Board plus Platform-Ops | Stack profile, service health, preview tunnel, evidence capture, named secret-reference health | Local runner service, preview-tunnel service, `SecretsVaultPort`, `AuthorizationPort` |
 | Reviewer configuration | Dev Board plus AI Workforce | Independent reviewer tool/model, availability, compatibility, heartbeat, Docker access | Reviewer configuration service, runner service, `AuthorizationPort` |
 | GitHub App health and sync | Dev Board plus integration adapter | App installation/permissions, webhook freshness, durable outbox/replay, rate limit, capability health, last deterministic sync | Target GitHub App/sync ports under ADR-017, `AuthorizationPort`, `EventBusPort` |
@@ -460,6 +479,10 @@ Net-new screens to design:
 - Revoke invalidates local-client credentials and denies future calls from the tool.
 - Role/membership/session/MFA revocation and tenant suspension deny stale local tool calls server-side.
 - Admin can enroll one local machine, select Codex Desktop/Codex CLI/Claude Code explicitly, and see runner lease/heartbeat/reconcile state without conflating the runner with an AI identity.
+- Runner enrollment proves the locally generated key and fingerprint through a single-use setup
+  grant; MCP/tool links, OpenClaw pairing, vendor login, and process identity remain visibly
+  distinct. Capability assurance/freshness and supported platform/version/mode determine whether a
+  tool can be selected for execution.
 - Local runner disconnect fences and pauses work, preserves a checkpoint, revokes preview exposure, and notifies Slack; it never silently fails over to cloud.
 - Admin can configure and health-check the local Docker review stack, expiring preview tunnel, and independent reviewer tool/model without exposing raw secrets.
 - GitHub App health reports authentication, permissions, webhook freshness, outbox/replay lag, rate limits, and last synchronization; unhealthy or unverifiable integration and secret exposure fail closed.
@@ -497,6 +520,12 @@ Net-new screens to design:
 - Channel send admission tests must cover channel bindings, autonomy tier, approval rows, standing orders, consent, rate caps, plan limits, paused channel, suspended tenant, and audit.
 - Tool link tests must cover wizard setup session creation, tool/mode selection, setup-token expiry/revocation, generated command safety, auto check-in, manual MCP confirmation, reconnect, revoke, duplicate submit idempotency, and last-seen updates.
 - Local tool authorization tests must cover stale session, role removal, tenant removal, MFA/session revocation, plan suspension, policy denial, and no Gateway operator/admin credential exposure.
+- Runner setup tests must cover grant replay/collision/expiry, fingerprint confirmation, key
+  rotation/revocation, connection supersession, stale/self-reported capability, unsupported
+  platform/version/mode, server command-key rotation/revoke/rollback, independent Lease Enforcer
+  failure, cross-tenant denial, and proof that MCP/OpenClaw/vendor credentials cannot substitute
+  for Runner Enrollment. Protocol execution behavior remains owned and tested under
+  PRD-019/ADR-017 and `wf232-runner-control-protocol.md`.
 - UI tests for `essential-tools.html` must cover populated list statuses, reconnect action, technical details disclosure, copy feedback live region, legend, and mobile-preserved status.
 - UI tests for `essential-tools-empty.html` must cover first-tool CTA, effort hint, ghost preview, and keyboard navigation to the wizard.
 - Wizard UI tests must cover four-step progression, radio choices, MCP/Live availability, back/continue/cancel, copy command, verification waiting state, success/manual confirmation alternatives, timeout/help state, focus trap, and focus return.
