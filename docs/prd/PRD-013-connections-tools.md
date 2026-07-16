@@ -16,8 +16,9 @@
 > Servers**, **Secrets**, **Security & Audit**, and **Settings**. Existing Connections pages and
 > routes are as-built migration inputs, not target IA. PRD-013 does not own the Admin shell,
 > Admin Overview, or global health meaning. Target topbar health is platform/readiness status;
-> its attention count/feed is separate. OpenClaw health remains a contributing source and a
-> Connections/detail fact. Within the Admin Control Center, **Integrations** is limited to Opzava
+> its attention count/feed is separate. OpenClaw health remains a contributing source projected
+> through its owning focused detail and Health surfaces. Within the Admin Control Center,
+> **Integrations** is limited to Opzava
 > development/platform connections such as GitHub and Slack Personal Assistant delivery. This
 > PRD's retained customer-channel semantics do not place future business/customer connections in
 > Admin; their eventual product surface belongs to the future user dashboard or another approved
@@ -173,7 +174,7 @@ provisioning paths. ADR-003, ADR-005, ADR-010, and ADR-014 are authoritative for
 70. As an operator, I want Step 4 to wait for check-in, so that Opzava confirms the link when the tool appears.
 71. As an operator, I want MCP links that cannot be auto-verified to show manual confirmation instructions, so that setup can finish honestly.
 72. As an operator, I want a "taking a while" troubleshooting disclosure, so that stalled verification has next steps.
-73. As an operator, I want successful links to appear in Your tools and Connections status, so that the wizard outcome is visible.
+73. As an operator, I want successful local-tool links to appear in the applicable linked-tool owner projection, so that the wizard outcome is visible without reviving a monolithic aggregate status surface. `Your tools` remains design evidence rather than route authority, and a correlated Runner appears only after separate Runner Enrollment.
 74. As an operator, I want cancel/close to revoke unused setup tokens, so that abandoned wizard sessions do not remain valid.
 75. As an admin, I want operator-linked tools to be scoped to the acting Opzava account and tenant, so that one user's local client cannot silently act for another user.
 76. As an admin, I want linked tools to use Opzava-issued credentials or pairing refs distinct from Gateway operator tokens, so that local clients do not receive broker or admin credentials.
@@ -202,7 +203,7 @@ provisioning paths. ADR-003, ADR-005, ADR-010, and ADR-014 are authoritative for
 99. As an operator, I want every connection surface to render loading, empty, no-match, forbidden, stale, offline/reconnecting, Gateway unavailable, validation error, conflict, approval required, plan limit, and retry states, so that async runtime reality is normal UX.
 100. As a screen-reader user, I want connection tables, tool rows, wizard steps, status badges, details disclosures, and setup commands to have semantic labels, so that I can operate integration workflows without visual scanning.
 101. As a keyboard user, I want tabs, filters, Connect, Reconnect, Copy, disclosures, radio choices, switches, and admin actions to work without a mouse, so that setup and repair are accessible.
-102. As a mobile user, I want Connections, Your tools, and the connect wizard to preserve status, primary actions, and warning text without overlap, so that integration repair works on narrow screens.
+102. As a mobile user, I want the focused Integrations, linked-tool owner, and independently enrolled Runners destinations plus the connect wizard to preserve status, primary actions, and warning text without overlap, so that integration and local-tool repair work on narrow screens without merging tool-link and Runner identity.
 103. As a developer, I want tests at application ports, command handlers, authorization seams, projection writers, route/server-action seams, and UI composition, so that product behavior is protected without coupling to OpenClaw internals.
 
 ## UX walkthrough mapping each named mockup screen
@@ -213,7 +214,7 @@ provisioning paths. ADR-003, ADR-005, ADR-010, and ADR-014 are authoritative for
 | `essential-connect-wizard.html` | Single modal wizard rendered as four steps: Step 1 Pick a tool with Claude Code, OpenCode, Codex CLI, Codex Desktop, and Claude Desktop choices; Step 2 Method with MCP recommended and Live agent options where available; Step 3 Copy command with Run it yourself and Let the assistant wire itself tabs, a generated copyable setup command, plain explanation, and no long-lived raw secrets; Step 4 Verify with live waiting state, connected outcome, manual MCP confirmation guidance, and troubleshooting disclosure. Closing or expiring the wizard revokes unused setup tokens. |
 | `essential-tools.html` | Essential shell page titled `Your tools` with breadcrumb, Connect another, subtitle explaining terminal/desktop tools linked to the account, health pill such as `5 of 5 local tools` with reconnect note, linked tool list for Claude Code, OpenCode, Codex CLI, Codex Desktop, and Claude Desktop, statuses Active/Connected/Degraded/Disconnected with reason text, Reconnect action for disconnected tools, Technical details disclosure with copyable reconnect command, action feedback live region, and legend for glyph meanings. |
 | `essential-tools-empty.html` | Empty `Your tools` page with title/subtitle, primary empty hero `Connect your first tool`, explanation that Claude Code, Codex, OpenCode, or another tool can execute work assigned from an owning `pm.Card` or DevTicket and report evidence to Opzava, primary Connect a tool action to the wizard, effort hint, and ghost preview of future linked tools such as Claude Code, Claude Desktop, and a Gateway-backed fleet tool. |
-| `settings.html` | Settings page with left nav for General, Agents, Connections, Security, Notifications, Billing, Advanced, Config, and Deployment. This PRD consumes: General default model; Agents default model/region/concurrency/timeouts and agent governance switches; Connections health summary, connected systems, OAuth approval policy, connection timeout, webhook-secret reference, allowed domains, save/open logs actions, and warning banner; Security secret-read approval control and recent security events; Billing spend cap and pause-at-budget-cap controls; Advanced config export/import and token rotation danger actions; Config & schema validation, SecretRef state, restart impact, raw JSON5 escape hatch; Deployment private Gateway exposure and health check controls. Settings is policy/config adjacency; Connections remains the primary operational surface. |
+| `settings.html` | **Historical mockup evidence, not target placement.** Retained target semantics are General default model; Agents default model/region/concurrency/timeouts and governance switches; safe integration-policy defaults such as OAuth approval policy, connection timeout, and allowed domains; Security secret-read approval control and recent security events; Billing spend cap and pause-at-budget-cap controls; Advanced config export/import and token-rotation danger actions; Config & schema validation, SecretRef state, restart impact, and redacted raw JSON5 escape hatch; and Deployment private-Gateway posture/health policy. The mockup's Connections health summary, connected-systems inventory, webhook-secret reference health, open-logs actions, and operational warning banner are migration evidence only: operational identity/health/setup/repair moves to Integrations or its focused owner leaf, secret-reference health to Secrets, and evidence/logs to Logs under PRD-020. |
 
 Net-new screens to design:
 
@@ -230,7 +231,10 @@ Net-new screens to design:
 
 ### Connection inventory and status
 
-- The Connections product slice must own tenant-visible connection inventory projections, status summaries, connect intents, reconnect intents, tool-link records, policy selections, audit refs, and UI state.
+- PRD-013 semantic owners must supply tenant-visible connection inventory projections, status
+  summaries, connect and reconnect intents, tool-link records, policy selections, audit refs, and
+  UI state through the focused Admin destinations placed by PRD-020; no monolithic Connections
+  page or Admin destination becomes a new owner of those records.
 - Connection inventory must include connection kind, display name, account/provider label, owning tenant, optional actor/user owner, optional Gateway ref, optional external account label, enabled scopes, status, last checked, last seen, last sync, needs-attention reason, policy refs, entitlement refs, and audit metadata.
 - Connection kinds must include Gateway, model provider, customer channel, publishing/service integration, operator tool, MCP server, and curated skill capability.
 - Status vocabulary must include Connected, Active, Degraded, Disconnected, Not linked, Needs reconnect, Auth expired, Near limit, Quota exceeded, Webhook failing, Scope denied, Approval required, Policy denied, Suspended, Gateway unavailable, Circuit open, Provisioning, Verifying, Unknown, and Stale where applicable.
@@ -363,8 +367,13 @@ Net-new screens to design:
 
 - Settings General must validate default model against provider/model catalog, tenant policy, and entitlement.
 - Settings Agents must validate default agent model, execution region, concurrency, timeout, follow-up card policy, approval policy, and memory access against owning contexts and plan limits.
-- Settings Connections must show connected summary, webhook uptime, pending OAuth, connected systems, OAuth approval policy, connection timeout, webhook secret reference/health, allowed domains, save/open logs actions, and warning states.
-- Settings Connections must not display raw webhook signing secret values. Existing mockup password-value behavior must be treated as a masked/ref health UI, not a product requirement to reveal secret material.
+- Settings retains only integration-policy defaults such as OAuth approval policy, connection
+  timeout, and allowed domains. Operational identity, health, setup, and repair belong to
+  Integrations or the applicable focused owner leaf; webhook-secret reference and resolution health
+  belong to Secrets; connection evidence and logs belong to Logs.
+- Settings must not display a webhook signing secret value or duplicate its reference health.
+  Existing mockup password-value and operational-summary behavior remains historical evidence, not
+  target placement or a requirement to reveal secret material.
 - Settings Security must expose secret-read approval policy and audit events without revealing SecretRef values.
 - Settings Notifications may route alerts through connected Slack/email channels, but delivery destinations must reference configured connections or notification prefs rather than storing ad hoc secrets.
 - Settings Billing must expose plan/spend controls consumed by connection admission, including pause-new-runs-at-budget-cap behavior.
@@ -374,12 +383,28 @@ Net-new screens to design:
 
 ### Authorization, billing, audit, and secrets
 
-- Every read and mutation must run through active tenant authorization, resource-scoped roles, plan entitlement, and policy checks.
+- Every tenant-scoped read and mutation must run through active tenant authorization,
+  resource-scoped roles, plan entitlement, and policy checks. An exact enumerated platform-scoped
+  operation with no admissible tenant instead requires its explicit platform authority namespace,
+  current platform actor/service principal, opaque platform target, and policy checks; a missing,
+  supplied, or guessed tenant never creates that authority.
 - Owner/admin-only actions must include connecting customer channels, changing provider auth/routing, editing MCP servers, changing tool policy, rotating Gateway tokens, changing Gateway config, installing/updating skills, revealing any approved secret diagnostic, and applying restart-gated changes.
 - ADR-014 plan enforcement must apply before admitting provider enablement, channel connection, tool linking, MCP server addition, skill selection, runtime start, channel send, and high-cost provider/model use.
 - Suspended tenants must block runtime starts, channel sends, provider model use, tool calls, skill provisioning, and Gateway config mutation while preserving safe read-only connection metadata during the grace period.
 - Audit rows must cover connect intent create/expire/complete, channel connect/reconnect/pause/remove/test, provider auth/routing/model changes, Gateway health/config/token changes, tool link/reconnect/revoke/check-in, MCP add/edit/remove, tool policy changes, skill catalog selection/install/update/repair/uninstall, approval decisions, plan-limit denials, and secret/policy denials.
-- Audit rows must include actor, actor type, tenant, target kind/ref, action, old/new safe summary, authorization decision, policy decision, entitlement decision, idempotency key, runtime/provisioning refs where allowed, result, and timestamp.
+- Audit rows must include actor, actor type, scope namespace, target kind/ref, action, old/new safe
+  summary, authorization decision, policy decision, idempotency key, runtime/provisioning refs where
+  allowed, result, and timestamp. Tenant-scoped rows additionally require tenant and entitlement
+  decision. Only an exact enumerated, proven platform-scoped operation may use nullable tenant and
+  omit tenant entitlement; it requires a platform actor/service principal and opaque platform
+  target, and must reject supplied or guessed tenant attribution.
+- Remote provider writes use append-only source-owned lifecycle events rather than one mutable audit
+  result. Idempotency admission precedes a `requested` event; that event and the durable sender
+  fence/claim commit before provider I/O. A known result later appends `completed` or `failed`; an
+  indeterminate response appends non-terminal `outcome_unknown` and only admissible reconciliation
+  appends the later terminal event. An append failure before I/O prevents the call. An append failure
+  after a provider effect prevents false local terminalization and retries only the deterministic
+  append/finalizer, never the provider write.
 - No product DTO, log, notification, setup command, export, debug bundle, Activity row, audit row, or incident payload may contain raw channel secrets, provider API keys, OAuth refresh tokens, webhook signing secrets, Gateway shared secrets, broker device tokens, admin credentials, or raw provider payloads.
 - Secret values must be represented only by SecretRef labels, opaque refs, health states, last-rotated metadata, expiry warnings, or redaction markers.
 
@@ -422,13 +447,13 @@ Net-new screens to design:
 | Tool catalog/effective policy | Runtime Control | Available tools, effective callable tools, deny/allow decisions, approval gates, Codex projection | Tool policy service, broker ACL / `OpenClawGatewayPort`, `AuthorizationPort`, `EventBusPort` |
 | Skill catalog selection | Knowledge Management | Curated entries, approved versions, allowed scopes, verification metadata, selection policy | `SkillCatalogPort`, `AuthorizationPort`, `EventBusPort` |
 | Skill install/update/repair | Knowledge Management plus Tenant Provisioning/Platform-Ops | Admin provisioning job, `security.installPolicy`, verification receipt, runtime installed/drift state | `SkillCatalogPort`, provisioning job service, broker ACL/admin path, `AuthorizationPort`, `EventBusPort` |
-| Settings Connections | Tenant Provisioning/Platform-Ops | OAuth approval policy, connection timeout, webhook secret ref health, allowed domains, connected systems summary | Settings application service, `SecretsVaultPort`, `AuthorizationPort`, `EventBusPort` |
+| Settings integration policy | Tenant Provisioning/Platform-Ops | OAuth approval policy, connection timeout, allowed domains, and other safe policy defaults; no operational identity, health, setup, repair, secret-ref health, or log projection | Settings application service, `AuthorizationPort`, `EventBusPort`; Secrets and Logs retain their focused read surfaces |
 | Settings Config & schema | Tenant Provisioning/Platform-Ops | Config schema, draft validation, SecretRef health, reload impact, raw JSON5 redacted view | Config application service, `SecretsVaultPort`, `AuthorizationPort` |
-| Settings Security | Identity & Access plus Security/Audit | Secret-read approval setting, recent security events, role/session controls | `AuthPort`, `AuthorizationPort`, audit service, approval service |
+| Settings Security | Identity & Access plus Security & Audit read composition | Secret-read approval setting, recent security events, role/session controls | `AuthPort`, `AuthorizationPort`, source-owned audit query/index ports, approval service |
 | Settings Billing | Finance and Billing | Plan, spend, budget cap, pause-new-runs policy, connection/tool/channel entitlement | `BillingPort`, entitlement service, `AuthorizationPort` |
 | Notifications and Activity | Notifications/Admin-Observability plus Internal Collaboration | Connection health changes, reconnect needs, install receipts, plan denials, audit summaries | Notification service, Activity projector, `RealtimeTransportPort`, `PushNotificationPort`, `EventBusPort` |
 | Connection logs/diagnostics | Notifications/Admin-Observability | Redacted logs, health check results, failure reasons, correlation to incidents | Log read service, broker ACL / `OpenClawGatewayPort`, `AuthorizationPort` |
-| Audit | Security/Audit with contributing contexts | Immutable audit rows for connection, provider, channel, tool, MCP, skill, config, and policy changes | Audit log service, `AuthorizationPort`, `EventBusPort` |
+| Audit | Each semantic context; Security & Audit read federation | Each context owns and appends its immutable audit truth for connection, provider, channel, tool, MCP, skill, config, and policy changes; Security & Audit only composes authorized rebuildable query/index/export views | Context-owned command/audit append ports, `AuthorizationPort`, `EventBusPort`, and a rebuildable Security & Audit query/index/export adapter |
 
 ## OpenClaw-parity notes
 
@@ -480,7 +505,8 @@ Net-new screens to design:
 - Connect wizard supports the four named steps, supported clients, MCP/Live choices, generated command, verification, manual MCP confirmation, cancel, and timeout/expiry.
 - Generated setup commands contain no long-lived raw secrets and no Gateway/admin/channel/provider credentials.
 - Setup tokens are scoped, short-lived, revoked on cancel/expiry/completion/revocation, and single-use where possible.
-- Successful tool check-in creates/updates a user-scoped tool link and appears in Your tools and relevant Connections summaries.
+- Successful tool check-in creates/updates a user-scoped tool link and appears in Your tools and the
+  applicable focused owner-destination projections.
 - Revoke invalidates local-client credentials and denies future calls from the tool.
 - Role/membership/session/MFA revocation and tenant suspension deny stale local tool calls server-side.
 - Admin can enroll one local machine, select Codex Desktop/Codex CLI/Claude Code explicitly, and see runner lease/heartbeat/reconcile state without conflating the runner with an AI identity.
@@ -501,11 +527,24 @@ Net-new screens to design:
 - Missing or incompatible `security.installPolicy` fails closed.
 - Skill install/update validates or updates effective tool policy before runtime use.
 - ADR-014 plan limits block excess channels, providers, tools, MCP servers, skill capabilities, runtime starts, and channel sends according to entitlement.
-- Settings Connections, Config & schema, Deployment, Security, Billing, Advanced, and General/Agents model fields reflect this PRD's policy and secret-handling rules.
-- Settings Connections treats webhook signing secret as a masked ref/health field, not a revealable raw password value.
+- Settings integration-policy fields, Config & schema, Deployment, Security, Billing, Advanced, and
+  General/Agents model fields reflect this PRD's policy and secret-handling rules without duplicating
+  owner-leaf operational identity, health, setup, repair, secret-ref health, or log projections.
+- Secrets presents webhook-signing-secret reference/resolution health without revealing the value;
+  Settings presents only its safe integration-policy defaults.
 - Secret read requests require configured approval and audit; ordinary connection UI never reveals secret values.
-- All connection mutations write immutable audit rows with actor, tenant, target, policy, entitlement, idempotency, and result metadata.
-- Missing tenant context, cross-tenant refs, or unauthorized roles return 403 rather than `200` empty or partial results.
+- Every semantic owner appends its own immutable connection-mutation audit events. A purely local
+  atomic mutation may append its terminal event in the mutation transaction; a remote write follows
+  the `requested` → `completed`/`failed` lifecycle above, with `outcome_unknown` when needed. A
+  tenant-scoped event requires actor, tenant, target, policy, entitlement, idempotency, phase, and
+  result metadata. A proven platform-scoped mutation with no admissible tenant uses an explicit
+  platform authority namespace, platform actor/service principal, opaque platform target, policy,
+  idempotency, phase, and result; `tenant` is nullable only for that enumerated platform scope and
+  must never be guessed. Security & Audit may query, index, and export those source identities but
+  never writes, rewrites, or becomes their truth owner.
+- Missing tenant context on a tenant-scoped request, cross-tenant refs, or unauthorized roles return
+  403 rather than `200` empty or partial results. An enumerated platform-scoped request is separately
+  admitted by its platform authority namespace and cannot use tenant context as a substitute.
 - Every relevant screen includes loading, empty, no-match, forbidden, stale, offline/reconnecting, Gateway unavailable, validation error, conflict, approval required, plan limit, and retry states.
 - Statuses use text labels or glyph plus label and do not rely on color alone.
 - Keyboard and screen-reader users can operate connection tables, wizard steps, radio options, copy buttons, disclosures, reconnect actions, switches, and admin actions.
@@ -516,7 +555,11 @@ Net-new screens to design:
 - Test external product behavior and policy outcomes, not OpenClaw storage, provider SDKs, raw Gateway DTOs, or channel plugin internals.
 - Prefer the highest stable seams: application services/command handlers, route/server-action authorization seams, projection writers, port adapters with fakes, and UI composition for named mockups.
 - Connection inventory tests must cover kind/status/freshness projection, summary counts, needs-attention reasons, stale health, Run health check, and no-match/empty/forbidden states.
-- Authorization tests must cover owner/admin/member differences, missing tenant context returning 403, cross-tenant refs denied, browser-supplied Gateway/channel/tool refs treated as hints, role revocation, and suspended tenant read-only behavior.
+- Authorization tests must cover owner/admin/member differences, missing tenant context on
+  tenant-scoped requests returning 403, cross-tenant refs denied, enumerated platform-scoped
+  operations requiring platform authority while rejecting tenant substitution, browser-supplied
+  Gateway/channel/tool refs treated as hints, role revocation, and suspended tenant read-only
+  behavior.
 - Secrets tests must assert no raw channel/provider/OAuth/webhook/Gateway/broker/admin secret values appear in DTOs, setup commands, logs, audit rows, notifications, exports, or rendered UI.
 - Gateway tests must use fake `GatewayRuntimePort` and broker ACL ports to cover Active/Degraded/Unavailable/CircuitOpen/Suspended/Provisioning/Stale, config draft validation, unresolved SecretRef, restart-gated changes, token rotation approval, and idempotent admin jobs.
 - Provider/model tests must cover catalog availability, default model validation, auth order, SecretRef health, near-limit/quota-exceeded states, ADR-014 entitlement denial, routing policy changes, and audit.
@@ -537,9 +580,22 @@ Net-new screens to design:
 - MCP/tool policy tests must cover available versus effective tools, deny-wins behavior, approval-gated exec tools, policy edit authorization, Codex projection, and policy audit.
 - Skill governance tests must cover admin-only catalog reads, allowed scopes, install policy fail-closed behavior, provisioning job creation, verification receipt, tool-policy impact, runtime drift projection, and unauthorized install denial.
 - Billing/entitlement tests must cover channel/tool/provider/MCP/skill plan limits, budget cap pause-new-runs behavior, suspended tenant denials, overage policy, and clear user-facing denial reasons.
-- Settings tests must cover General/Agents model validation, Connections policy fields, masked webhook secret ref behavior, Security secret-read approval toggle, Billing budget cap consumption, Config & schema validation states, and Deployment private Gateway posture.
+- Settings tests must cover General/Agents model validation, integration-policy defaults, Security
+  secret-read approval, Billing budget-cap consumption, Config & schema validation, and Deployment
+  private-Gateway posture. Focused owner tests prove operational integration identity/health/setup/
+  repair in Integrations or its owner leaf, webhook-secret reference/resolution health in Secrets,
+  and connection evidence/log routing in Logs, with no duplicate Settings operational surface.
 - Realtime/projection tests must cover health updates, tool check-ins, channel reconnect completion, provider usage changes, duplicate/out-of-order broker events, reconnect backfill, and stale projection labels.
-- Audit tests must cover all connection/provider/channel/tool/MCP/skill/config mutations with actor, target, policy, entitlement, idempotency, and result metadata.
+- Source-context audit tests must cover every connection/provider/channel/tool/MCP/skill/config
+  mutation with actor, scope namespace, target, policy, idempotency, phase, and result metadata.
+  Remote-write tests fault-inject append failure before provider I/O and after known/unknown provider
+  effects, proving requested-before-I/O, later completed/failed evidence, non-terminal
+  outcome-unknown evidence, no provider replay, and no false local terminalization. Tenant mutations
+  require tenant and entitlement; the exact enumerated platform-only paths require a platform
+  actor/service principal and nullable tenant, reject supplied/guessed tenant attribution, and remain
+  invisible to tenant queries. Security & Audit tests must prove scope-aware authorization,
+  anti-enumerating query/index/export only, rebuildability after index loss, source attribution,
+  partial-source behavior, and zero synthetic or rewritten audit writes.
 - Accessibility tests must cover semantic tables, status text/glyph labels, wizard dialog semantics, radio groups, copy feedback live region, details disclosures, keyboard-only setup/reconnect, and mobile text containment.
 
 ## Dependencies
