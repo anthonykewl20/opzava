@@ -85,6 +85,16 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
     }
 
     if (input.actingPrincipal.tenantId !== route.tenantId) {
+      // The browser denial is deliberately opaque; both ids keep stale OPENCLAW_GATEWAY_TENANT_ID
+      // versus seeded-org drift diagnosable in logs.
+      this.logger.warn(
+        {
+          routeId: input.routeId,
+          routeTenantId: route.tenantId,
+          principalTenantId: input.actingPrincipal.tenantId,
+        },
+        "Gateway route tenant does not match the acting principal.",
+      );
       return err(
         gatewayBrokerError(
           "gatewayBroker.tenantMismatch",

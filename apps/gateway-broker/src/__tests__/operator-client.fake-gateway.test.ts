@@ -18,6 +18,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 
 import { FakeOpenClawGateway, type FakeGatewayMode } from "../acl/openclaw/fake-gateway.js";
+import type { BrokerLogger } from "../acl/openclaw/logger.js";
+import { OpenClawOperatorClient } from "../acl/openclaw/operator-client.js";
 import {
   EXPECTED_OPERATOR_SCOPES,
   parseOpenClawFrame,
@@ -51,6 +53,42 @@ const fakeRawPublicKey = Buffer.from(
 interface BrokerFixture {
   readonly gateway: FakeOpenClawGateway;
   readonly broker: GatewayConnectionManager;
+}
+
+interface RecordingLogger {
+  readonly logger: BrokerLogger;
+  readonly warnings: Array<{
+    readonly metadata: Readonly<Record<string, unknown>>;
+    readonly message: string;
+  }>;
+}
+
+function createRecordingLogger(): RecordingLogger {
+  const warnings: RecordingLogger["warnings"] = [];
+  return {
+    warnings,
+    logger: {
+      warn(metadata, message) {
+        warnings.push({ metadata, message });
+      },
+      error() {},
+    },
+  };
+}
+
+function createRouteOnlyOperatorClient(logger: BrokerLogger): OpenClawOperatorClient {
+  return new OpenClawOperatorClient({
+    route: {
+      routeId,
+      tenantId,
+      url: "ws://127.0.0.1:1",
+      authMode: "shared-secret",
+      pairedDeviceToken,
+      deviceKeypair: createDeviceKeypair(),
+      clientVersion: "0.0.0",
+    },
+    logger,
+  });
 }
 
 function createDeviceKeypair(): HmacDeviceKeypair {
@@ -844,10 +882,11 @@ describe("[fake-gateway] broker operator client", () => {
     expect(gateway.connectionCount).toBe(0);
   });
 
-  it("rejects caller tenant drift before connecting", async () => {
-    const { broker, gateway } = await createBrokerFixture();
+  it("rejects caller tenant drift at the operator-client boundary", async () => {
+    const { logger, warnings } = createRecordingLogger();
+    const client = createRouteOnlyOperatorClient(logger);
     const input = startInput();
-    const result = await startAssistantStream(broker, {
+    const result = await client.startAssistantStream({
       ...input,
       actingPrincipal: {
         ...input.actingPrincipal,
@@ -855,11 +894,38 @@ describe("[fake-gateway] broker operator client", () => {
       },
     });
 
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected tenant mismatch.");
+    }
+    expect(result.error.code).toBe("gatewayBroker.tenantMismatch");
+    expect(result.error.message).toBe(
+      "Gateway route tenant does not match the authenticated principal.",
+    );
+    expect(result.error.details).toBeUndefined();
+    expect(warnings).toEqual([
+      {
+        metadata: {
+          routeId,
+          routeTenantId: tenantId,
+          principalTenantId: makeTenantId("tenant-other"),
+        },
+        message: "Gateway route tenant does not match the acting principal.",
+      },
+    ]);
+  });
+
+  it("does not warn when the tenant matches at the operator-client boundary", async () => {
+    const { logger, warnings } = createRecordingLogger();
+    const client = createRouteOnlyOperatorClient(logger);
+
+    const result = await client.startAssistantStream(startInput());
+
     expect(result).toMatchObject({
       ok: false,
-      error: { code: "gatewayBroker.tenantMismatch" },
+      error: { code: "gatewayBroker.authModeForbidden" },
     });
-    expect(gateway.connectionCount).toBe(0);
+    expect(warnings).toEqual([]);
   });
 
   it("maps AUTH_SCOPE_MISMATCH without treating it as a bad-token retry", async () => {

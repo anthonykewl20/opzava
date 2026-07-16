@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FakeOpenClawGateway } from "../acl/openclaw/fake-gateway.js";
+import type { BrokerLogger } from "../acl/openclaw/logger.js";
 import { HmacDeviceKeypair, deriveDeviceIdFromPublicKey } from "../acl/openclaw/signing.js";
 import { GatewayConnectionManager } from "../routing/connection-manager.js";
 import { StaticGatewayRoutingTable, type GatewayRouteConfig } from "../routing/routes.js";
@@ -16,6 +17,27 @@ const fakeRawPublicKey = Buffer.from(
 
 const managers: GatewayConnectionManager[] = [];
 const gateways: FakeOpenClawGateway[] = [];
+
+interface RecordingLogger {
+  readonly logger: BrokerLogger;
+  readonly warnings: Array<{
+    readonly metadata: Readonly<Record<string, unknown>>;
+    readonly message: string;
+  }>;
+}
+
+function createRecordingLogger(): RecordingLogger {
+  const warnings: RecordingLogger["warnings"] = [];
+  return {
+    warnings,
+    logger: {
+      warn(metadata, message) {
+        warnings.push({ metadata, message });
+      },
+      error() {},
+    },
+  };
+}
 
 function createDeviceKeypair(): HmacDeviceKeypair {
   const publicKey = fakeRawPublicKey.toString("base64url");
@@ -39,10 +61,14 @@ async function createGateway(): Promise<{
   return { gateway, deviceKeypair };
 }
 
-function createBroker(routes: readonly GatewayRouteConfig[]): GatewayConnectionManager {
+function createBroker(
+  routes: readonly GatewayRouteConfig[],
+  logger?: BrokerLogger,
+): GatewayConnectionManager {
   const broker = new GatewayConnectionManager({
     idleDisconnectMs: 10_000,
     routingTable: new StaticGatewayRoutingTable(routes),
+    ...(logger === undefined ? {} : { logger }),
     clientOptions: {
       challengeTimeoutMs: 500,
       connectBudgetMs: 1_000,
@@ -95,18 +121,22 @@ afterEach(async () => {
 describe("GatewayConnectionManager route isolation", () => {
   it("does not grant a route handle to a principal from another tenant", async () => {
     const route = "tenant-a-openclaw" as OpenClawGatewayRouteId;
-    const a = await createGateway();
-    const broker = createBroker([
-      {
-        routeId: route,
-        tenantId: makeTenantId("tenant-a"),
-        url: a.gateway.url,
-        authMode: "paired-device",
-        pairedDeviceToken,
-        deviceKeypair: a.deviceKeypair,
-        clientVersion: "0.0.0",
-      },
-    ]);
+    const deviceKeypair = createDeviceKeypair();
+    const { logger, warnings } = createRecordingLogger();
+    const broker = createBroker(
+      [
+        {
+          routeId: route,
+          tenantId: makeTenantId("tenant-a"),
+          url: "ws://127.0.0.1:1",
+          authMode: "paired-device",
+          pairedDeviceToken,
+          deviceKeypair,
+          clientVersion: "0.0.0",
+        },
+      ],
+      logger,
+    );
     const mismatched = startInput({
       routeId: route,
       tenantId: "tenant-b",
@@ -118,13 +148,59 @@ describe("GatewayConnectionManager route isolation", () => {
       actingPrincipal: mismatched.actingPrincipal,
     });
 
-    expect(access).toMatchObject({
-      ok: false,
-      error: { code: "gatewayBroker.tenantMismatch" },
-    });
+    expect(access.ok).toBe(false);
+    if (access.ok) {
+      throw new Error("Expected tenant mismatch.");
+    }
+    expect(access.error.code).toBe("gatewayBroker.tenantMismatch");
+    expect(access.error.message).toBe(
+      "Gateway route tenant does not match the authenticated principal.",
+    );
+    expect(access.error.details).toBeUndefined();
+    expect(warnings).toEqual([
+      {
+        metadata: {
+          routeId: route,
+          routeTenantId: makeTenantId("tenant-a"),
+          principalTenantId: makeTenantId("tenant-b"),
+        },
+        message: "Gateway route tenant does not match the acting principal.",
+      },
+    ]);
     expect("startAssistantStream" in broker).toBe(false);
     expect("getEffectiveTools" in broker).toBe(false);
-    expect(a.gateway.connectionCount).toBe(0);
+  });
+
+  it("does not warn when the principal tenant matches the route tenant", async () => {
+    const route = "tenant-a-openclaw" as OpenClawGatewayRouteId;
+    const { logger, warnings } = createRecordingLogger();
+    const broker = createBroker(
+      [
+        {
+          routeId: route,
+          tenantId: makeTenantId("tenant-a"),
+          url: "ws://127.0.0.1:1",
+          authMode: "paired-device",
+          pairedDeviceToken,
+          deviceKeypair: createDeviceKeypair(),
+          clientVersion: "0.0.0",
+        },
+      ],
+      logger,
+    );
+    const input = startInput({
+      routeId: route,
+      tenantId: "tenant-a",
+      conversationId: "conversation-a",
+    });
+
+    const access = await broker.forPrincipal({
+      routeId: route,
+      actingPrincipal: input.actingPrincipal,
+    });
+
+    expect(access.ok).toBe(true);
+    expect(warnings).toEqual([]);
   });
 
   it("asks only the addressed tenant's Gateway for effective tools", async () => {

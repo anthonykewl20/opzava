@@ -344,6 +344,16 @@ export class OpenClawOperatorClient {
     // this broker-internal boundary catches an accidental bypass or refactor;
     // it cannot stop an internal-token holder from asserting another principal.
     if (input.actingPrincipal.tenantId !== this.route.tenantId) {
+      // The browser denial is deliberately opaque; both ids keep stale OPENCLAW_GATEWAY_TENANT_ID
+      // versus seeded-org drift diagnosable in logs.
+      this.logger.warn(
+        {
+          routeId: this.route.routeId,
+          routeTenantId: this.route.tenantId,
+          principalTenantId: input.actingPrincipal.tenantId,
+        },
+        "Gateway route tenant does not match the acting principal.",
+      );
       return err(
         gatewayBrokerError(
           "gatewayBroker.tenantMismatch",
