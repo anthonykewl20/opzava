@@ -302,7 +302,7 @@ capability unhealthy; it is not silently dropped.
    secret-ref version; the tenant proof retains only the opaque public App configuration/rotation
    version. Opzava uses the resulting ephemeral GitHub App **user access token** to call the
    provider's user-accessible-installations and repositories endpoints and requires the claimed
-   installation/ repository to appear for that exact authenticated GitHub user. It records only
+   installation/repository to appear for that exact authenticated GitHub user. It records only
    immutable provider user/account/installation/repository IDs and proof metadata. The resulting
    user and refresh credentials are held only as encrypted, non-exportable cleanup handles scoped to
    this pending proof; neither becomes a standing integration credential or tenant-readable ref.
@@ -349,7 +349,7 @@ closed. It never tenant-binds the claimed installation.
   records one `GitHub Disconnect Saga` keyed by caller idempotency key plus canonical request hash,
   marks the binding `disconnecting`, advances its outbound fence, rejects new token mint/claims, and
   drains each claimed outbox effect to confirmed, conflict-bound, or retained `outcome_unknown`.
-  Same-key/ same-hash retries return that saga; hash mismatch rejects with zero second saga.
+  Same-key/same-hash retries return that saga; hash mismatch rejects with zero second saga.
 - The saga chooses the exact provider action from credential ownership and current policy: uninstall
   the dedicated App installation or revoke the legacy OAuth/PAT authorization when Opzava has
   verified authority; otherwise enter `revocation_required` and show one secure-UI provider action.
