@@ -83,6 +83,9 @@ Checked against GitHub's current official documentation on 2026-07-17:
 - [GitHub App user access tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)
   and
   [installations accessible to the user token](https://docs.github.com/en/rest/apps/installations#list-app-installations-accessible-to-the-user-access-token);
+- [refreshing expiring GitHub App user access tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens),
+  [OAuth authorization/token check and delete endpoints](https://docs.github.com/en/rest/apps/oauth-applications),
+  and [credential revocation](https://docs.github.com/en/rest/credentials/revoke);
 - [webhook signature verification](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries),
   [handling](https://docs.github.com/en/webhooks/using-webhooks/handling-webhook-deliveries),
   [best practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks),
@@ -96,6 +99,8 @@ Checked against GitHub's current official documentation on 2026-07-17:
   [GitHub App endpoint permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps);
 - [Issue](https://docs.github.com/en/rest/issues/issues) and
   [Issue-comment](https://docs.github.com/en/rest/issues/comments) APIs.
+- [Deployment](https://docs.github.com/en/rest/deployments/deployments) and
+  [Deployment Status](https://docs.github.com/en/rest/deployments/statuses) APIs.
 - [GitHub Actions OIDC claims and verification inputs](https://docs.github.com/en/actions/reference/security/oidc).
 
 The implementation pins `X-GitHub-Api-Version: 2026-03-10` behind one provider adapter constant.
