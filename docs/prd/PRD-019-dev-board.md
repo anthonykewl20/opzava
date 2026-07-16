@@ -494,11 +494,11 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   provider identity; retain the DevTicket UUID as internal identity and any migrated card number as
   a historical alias.
 - Model Proposal separately from DevTicket. A Proposal records discovery, evidence, blocking impact,
-  suggested work, and actor. `AcceptProposal` creates one Backlog DevTicket plus the exact
-  create-or-link reservation/intent above; provider transport is asynchronous. `MergeProposal`
-  appends discovery/evidence to an existing DevTicket's planning history and opens a proposed
-  Revision only when governed work changes; it creates no DevTicket, GitHub Issue Binding,
-  create/link intent, or provider outbox effect. Blocking Proposals may pause an affected Sprint and
+  suggested work, and actor. `AcceptProposal` creates one Backlog DevTicket plus the exact GitHub
+  Issue Binding reservation and/or Mirror Outbox Intent above; provider transport is asynchronous.
+  `MergeProposal` appends discovery/evidence to an existing DevTicket's planning history and opens a
+  proposed Revision only when governed work changes; it creates no DevTicket, GitHub Issue Binding,
+  Mirror Outbox Intent, or provider mutation. Blocking Proposals may pause an affected Sprint and
   notify Slack but do not create GitHub noise before acceptance.
 - Use six workflow lanes: Backlog, Todo, Blocked, In Progress, Review, and Done. Backlog is
   non-executable shaping. Todo requires a complete Ready Contract Version plus its exact Ready
@@ -552,14 +552,17 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   alone does not associate a spoofable callback ID with a tenant. Resolve the required GitHub App
   client secret from its platform vault ref only inside the bounded server-side authorization-code
   exchange with the exact redirect URI and PKCE verifier; never expose or persist its value outside
-  the vault. Require expiring GitHub App user tokens. Hold user/refresh credentials only as
-  encrypted, non-exportable cleanup handles, obtain provider confirmation of revocation or expiry
-  for each, and only then destroy/zero local handles. An unknown outcome or required provider-side
-  human action remains fail-closed and blocks final binding rather than treating local deletion as
-  revocation. The final binding transaction must revalidate that same Admin's live session,
-  membership, current integration-admin authorization/policy version, and completed token cleanup;
-  demotion, revocation, expiry, tenant change, policy denial, or cleanup uncertainty fails closed
-  with no binding.
+  the vault. Require expiring GitHub App user tokens and record provider-issued access/refresh
+  expiries plus exact cleanup-operation receipts without token values. Hold credentials only as
+  encrypted, non-exportable cleanup handles. A documented App authorization/token delete `204` and
+  optional access-token check `404`, or recorded provider-issued expiry, may prove applicable
+  access/grant cleanup. A refresh-credential revoke `202 Accepted` is not confirmed revocation
+  because GitHub exposes no status/introspection endpoint; absent later documented proof, retain its
+  handle until recorded expiry. An unknown outcome or required provider-side human action remains
+  fail-closed and blocks final binding rather than treating local deletion as revocation. The final
+  binding transaction must revalidate that same Admin's live session, membership, current
+  integration-admin authorization/policy version, and completed token cleanup; demotion, revocation,
+  expiry, tenant change, policy denial, or cleanup uncertainty fails closed with no binding.
 - Keep App registration IDs and private-key/client-secret/webhook-secret refs, ref versions, and
   rotation state as platform-owned configuration behind provisioning/security-service policy and
   audit, never tenant RLS data or a browser projection. Tenant-scoped GitHub Installation Binding,
@@ -675,23 +678,27 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   unchanged old SHA stays bounded unresolved without blind retry, and any third SHA becomes a
   visible ref conflict requiring fresh authorization. No reconciliation path launches a duplicate
   remediation run.
-- Accept Actions-originated command requests only through a short-lived GitHub OIDC protocol bound
-  to an Opzava-specific audience, immutable repository, allowlisted workflow/reusable-workflow and
-  SHA, run/attempt, actor/event, ref/SHA, DevTicket/action/expected versions, payload hash, and
+- Accept Actions-originated requests only through a short-lived GitHub OIDC protocol bound to an
+  Opzava-specific audience, immutable repository, allowlisted workflow/reusable-workflow and SHA,
+  run/attempt, actor/event, ref/SHA, family-specific target/expected versions, payload hash, and
   one-use nonce. Webhooks, labels, comments, actor names, and temporal matching are not command
   authentication. Atomically reserve unique issuer/token ID, scoped nonce, canonical request hash,
-  and the corresponding ordinary command receipt so concurrent replay cannot produce a second or
-  partial semantic request. Enforce the exhaustive `wf230` v1 Actions source policy: append native
-  provider facts (including deployment facts as observations), request field-code-only
-  `ready.validate`, or open an eligible Needs Human Approval Request. Reject generic governed
-  commands and deployment/rollback/release mutations unless their owning domain and `wf230`
-  explicitly add a versioned policy row; adapter configuration cannot widen it.
+  and the Actions Request Receipt with exactly one downstream result: Provider Observation for a
+  corroborated native check/deployment fact, matching DevTicket command receipt for field-code-only
+  `ready.validate`, or owning-aggregate Needs Human Approval Request/command receipt for an eligible
+  failed policy gate. Concurrent replay cannot produce a second or partial result. Reject generic
+  governed commands, uncorroborated facts, and deployment/rollback/release mutations unless their
+  owning domain and `wf230` explicitly add a versioned policy row; adapter configuration cannot
+  widen it.
 - Implement `DisconnectGitHub` as one idempotent saga per exact binding generation. Fence token mint
-  and outbound claims, drain or retain unknown effects, and record provider uninstall/revocation/
-  expiry separately from local cleanup. Lost provider responses remain `provider_outcome_unknown`;
-  account-owner actions remain `revocation_required` in secure UI. Local deletion never proves
-  provider revocation, reconnect stays disabled until terminal provider confirmation and cleanup,
-  and a later reconnect creates a new binding generation while preserving prior history.
+  and outbound claims; snapshot every pre-fence Mirror Outbox Intent; prove unclaimed/unsent intents
+  `cancelled_before_send`; and drain claimed or possibly sent effects to confirmation, conflict, or
+  retained unknown. A binding-generation uniqueness constraint admits no second saga/provider action
+  even under different idempotency keys. Record provider uninstall/revocation/expiry separately from
+  local cleanup. Lost provider responses remain `provider_outcome_unknown`; account-owner actions
+  remain `revocation_required` in secure UI. Local deletion never proves provider revocation,
+  reconnect stays disabled until terminal provider confirmation and cleanup, and a later reconnect
+  creates a new binding generation while preserving prior history.
 - Support one production repository in v1: the Opzava repository. A fixed scratch repository may be
   used only as test infrastructure. Multiple repository product behavior is deferred.
 - Enroll local machines in Admin with machine identity, public key, owner, OS, supported tool,
@@ -902,15 +909,22 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Prove setup cannot bind another user's valid installation, Backlog mirror text cannot claim Ready
   without the exact approval, an Actions OIDC token/request cannot replay or cross repository/
   workflow/run/SHA, and a malicious Runner cannot obtain the write token or push any ref outside one
-  authorized old/new-SHA broker operation. Also prove Actions provider-fact append (including
-  deployment observations), field-code-only `ready.validate`, and eligible Needs Human Approval
-  Request families work while a generic governed command or deployment/rollback/release request
-  leaves zero integration/command receipt or domain mutation.
-- Through the real local-Docker secure UI and the fixed scratch GitHub App, complete install with
-  expiring user tokens, inject a lost user/refresh-token revocation response, and prove no binding
-  or local zeroing occurs until GitHub confirms revocation/expiry. Inspect tenant HTTP/DB/browser
+  authorized old/new-SHA broker operation. Also prove corroborated native check/deployment fact
+  append commits an Actions Request Receipt plus Provider Observation but no command receipt;
+  field-code-only `ready.validate` commits its DevTicket command receipt; and an eligible failed
+  policy gate commits its owning-domain Needs Human Approval Request/command receipt. An
+  uncorroborated fact, generic governed command, or deployment/rollback/release request leaves zero
+  integration/downstream receipt or domain mutation.
+- Through real Postgres transactions, the local-Docker secure UI, and the fixed scratch GitHub App,
+  prove disabled or unverifiable expiring-user-token configuration fails closed; then enable it,
+  inject a lost user/refresh-token revocation response, and prove replay/races/stale finalizers
+  retain only quarantined cleanup handles with no binding or local zeroing. Require documented
+  access/grant `204` and optional access-token `404` evidence or provider-issued expiry. Treat
+  refresh-credential `202 Accepted` as unconfirmed and retain its handle until recorded expiry
+  absent later documented proof. Inspect Installation Association Proof, GitHub Installation
+  Binding, GitHub Repository Binding, and Webhook Inbox Receipt through tenant HTTP/DB/browser
   projections and prove they expose only an opaque public App configuration key/rotation version,
-  never a platform App registration ID, vault ref, secret-ref identity, or secret-ref version.
+  never a platform App Registration Ref/ID, vault ref, secret-ref identity, or secret-ref version.
 - Through the same real UI/provider seam, disconnect with a lost provider response and a separate
   provider-action-required case. Refresh/retry and prove one saga, outbound fencing, visible
   `provider_outcome_unknown`/`revocation_required` status and secure action, no false disconnected

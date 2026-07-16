@@ -149,8 +149,8 @@ suspected-secret content creates no Release receipt/rejection record.
 Rollback is a new deployment attempt to a previously verified immutable manifest and never rewrites
 `main`, tags, GitHub Releases, old manifests, or historical Release state. Release owns the
 deploy/rollback command and Incident owns operational lifecycle. In v1, GitHub Actions may append
-verified native provider facts, including deployment facts as observations, request field-code-only
-`ready.validate`, or open an eligible exact Needs Human Approval Request; it cannot request a
+verified native check/deployment facts as observations, request field-code-only `ready.validate`, or
+open an exact Needs Human Approval Request for an eligible failed policy gate; it cannot request a
 Release deployment/rollback mutation or approve anything. Widening this exhaustive source policy
 requires a versioned change by the owning domain and the #230 source policy, not adapter
 configuration. Suspected secret exposure and unhealthy or unverifiable GitHub remain unbypassable
@@ -190,33 +190,38 @@ v1. The issue body has a human-editable summary/context region and an Opzava-man
 while unrelated repository labels remain untouched. A GitHub edit to a governed field or managed
 contract is a proposed command/revision, not an authoritative mutation.
 
-The deep GitHub Integration module inside the Dev Board bounded context owns tenant binding
-references to the admitted platform App registration, server-verified Installation and Repository
-Bindings, ephemeral installation-token minting, provider transport, webhook inbox, mirror outbox,
-provider observations, per-field Mirror Shadows, Sync Conflicts, reconciliation, and dimensional
-health. The Dev Board owns every workflow command and decision. Installation and repository identity
-use immutable provider IDs; callback values and mutable owner/name strings are never identity or
-authorization. This module is the same Dev Board integration owner named by the four-ledger
-decision, not a new bounded context.
+The deep GitHub Integration module inside the Dev Board bounded context owns server-verified tenant
+GitHub Installation Binding, GitHub Repository Binding, and GitHub Issue Binding records containing
+only the opaque public App configuration/rotation version; provisioning/security resolves the
+platform App Registration Ref internally. The module also owns ephemeral installation-token minting,
+provider transport, webhook inbox, mirror outbox, provider observations, per-field Mirror Shadows,
+Sync Conflicts, reconciliation, and dimensional health. The Dev Board owns every workflow command
+and decision. Installation and repository identity use immutable provider IDs; callback values and
+mutable owner/name strings are never identity or authorization. This module is the same Dev Board
+integration owner named by the four-ledger decision, not a new bounded context.
 
 The setup callback cannot bind a tenant from App authentication alone. The same authenticated Admin
 must complete a one-time GitHub App user-authorization flow; an ephemeral user access token must
 prove that the exact installation and repository are accessible to that GitHub user. Expiring GitHub
 App user tokens are mandatory. User and refresh credentials remain encrypted, non-exportable cleanup
-handles until GitHub confirms revocation or expiry for each; only then are their local handles and
-ciphertext destroyed/zeroed. An unknown revocation outcome fails closed, blocks final binding, and
-retains only the quarantined cleanup handle for reconciliation or secure Admin action. The required
-GitHub App client secret is resolved from its platform vault ref only for the bounded server-side
-authorization-code exchange with exact redirect URI and PKCE verifier, then not retained by
-application state. Tenant records retain only an opaque public App configuration/rotation version;
-platform secret refs, secret-ref versions, and audited secret access remain platform-owned. App
-authentication then independently confirms App, installation, repository, permissions, and events
-before binding. The final binding transaction revalidates that same Admin's live session, tenant
-membership, and current integration-admin authorization/policy version; demotion, revocation,
-expiry, tenant change, policy denial, or incomplete token cleanup creates no binding. App
-registration and private-key/client-secret/webhook-secret refs/versions and rotation state remain
-platform-owned configuration behind provisioning/security-service policy and audit, never tenant RLS
-data or browser output.
+handles while the proof records provider-issued access/refresh expiries and exact cleanup-operation
+receipts without token values. A documented App authorization/token delete `204` and optional
+access-token check `404`, or recorded provider-issued expiry, may prove applicable access/grant
+cleanup. The credential-revoke endpoint's refresh-token `202 Accepted` is only an acceptance receipt
+because GitHub exposes no status/introspection endpoint; absent later documented provider proof, its
+handle remains quarantined until recorded expiry. Unknown/lost outcomes fail closed, block final
+binding, and never permit local zeroing. The required GitHub App client secret is resolved from its
+platform vault ref only for the bounded server-side authorization-code exchange with exact redirect
+URI and PKCE verifier, then not retained by application state. Tenant records retain only an opaque
+public App configuration/rotation version; platform secret refs, secret-ref versions, and audited
+secret access remain platform-owned. App authentication then independently confirms App,
+installation, repository, permissions, and events before binding. The final binding transaction
+revalidates that same Admin's live session, tenant membership, and current integration-admin
+authorization/policy version; demotion, revocation, expiry, tenant change, policy denial, or
+incomplete token cleanup creates no binding. App registration and
+private-key/client-secret/webhook-secret refs/versions and rotation state remain platform-owned
+configuration behind provisioning/security-service policy and audit, never tenant RLS data or
+browser output.
 
 Webhook ingress bounds raw bytes and verifies the exact-body HMAC before parsing anything. It then
 reads `X-GitHub-Event` only as an untrusted bounded schema hint and strictly parses the
@@ -336,22 +341,24 @@ a short-lived GitHub OIDC token with an Opzava-specific audience and a canonical
 verifies GitHub issuer/JWKS, expiry and single-use token ID, immutable repository,
 workflow/reusable-workflow identity and SHA, run/attempt, actor/event, ref/SHA, command target,
 expected versions, payload hash, and nonce before the ordinary trusted command boundary. One
-transaction uniquely reserves `(issuer, jti)`, the scoped repository/command-family nonce, canonical
-request hash, and corresponding trusted command receipt; concurrent reuse cannot commit a partial or
-second semantic request. The exhaustive v1 Actions source policy permits only native provider-fact
-append, including deployment facts as observations, field-code-only `ready.validate`, and an
-eligible exact Needs Human Approval Request. Generic governed commands, deployment/rollback/release
-mutations, and authority widened only in adapter configuration reject with zero receipt/effect.
-Labels remain projections.
+transaction uniquely reserves `(issuer, jti)`, the scoped repository/family nonce, canonical request
+hash, and Actions Request Receipt with exactly one family-specific downstream result. Native
+check/deployment fact append commits a Provider Observation in the sync ledger; `ready.validate`
+commits the matching DevTicket command receipt; an eligible failed-policy-gate exception commits the
+owning aggregate's exact Needs Human Approval Request and command receipt. Concurrent reuse cannot
+commit a partial or second semantic result. Generic governed commands, deployment/rollback/release
+mutations, uncorroborated facts, and authority widened only in adapter configuration reject with
+zero receipt/effect. Labels remain projections.
 
-`DisconnectGitHub` is an idempotent durable saga over one binding generation. It fences token mint
-and outbound claims, drains or preserves every in-flight unknown, and separately records provider
-uninstall/revocation/expiry and local cleanup. An ambiguous provider response stays fail-closed and
-is reconciled by immutable provider identity; an action requiring the account owner stays
-`revocation_required` with a secure in-product step. Local deletion never proves provider
-revocation, and cleanup/terminal disconnect cannot complete before provider confirmation. Reconnect
-is disabled until terminal disconnect, then creates a new setup proof and binding generation while
-preserving the old history.
+`DisconnectGitHub` is one idempotent durable saga uniquely keyed by binding generation, even when
+different idempotency keys race. It fences token mint and outbound claims, snapshots every pre-fence
+Mirror Outbox Intent, proves unsent/unclaimed intents `cancelled_before_send`, drains or preserves
+every claimed/possibly-sent unknown, and separately records provider uninstall/revocation/expiry and
+local cleanup. An ambiguous provider response stays fail-closed and is reconciled by immutable
+provider identity; an action requiring the account owner stays `revocation_required` with a secure
+in-product step. Local deletion never proves provider revocation, and cleanup/terminal disconnect
+cannot complete before provider confirmation. Reconnect is disabled until terminal disconnect, then
+creates a new setup proof and binding generation while preserving the old history.
 
 Enroll each local machine with an Admin-owned machine identity and public key. Tool selection is
 explicit: Codex Desktop, Codex CLI, or Claude Code. An orchestrator/cloud Runner is a separate
@@ -548,5 +555,7 @@ The legacy `GITHUB_TOKEN`/PAT Issue path and OAuth App device-flow connection ar
 not alternate target credentials. Cutover drains or classifies every create intent and close-outbox
 row, reconciles provider orphans/unknown outcomes, proves App-backed bindings and full convergence,
 then disables their active use and legacy write paths. Final local credential-handle/ref destruction
-waits for provider-confirmed revocation or expiry; an unresolved account-owner action retains only a
-quarantined cleanup handle in `revocation_required`.
+waits for exact applicable documented proof: an authorization/token-delete `204`, optional
+access-token check `404`, later documented provider proof, or deterministic recorded provider-issued
+expiry. Refresh revoke `202 Accepted` remains unconfirmed. An unresolved account-owner action
+retains only a quarantined cleanup handle in `revocation_required`.
