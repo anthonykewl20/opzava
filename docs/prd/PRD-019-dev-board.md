@@ -10,6 +10,11 @@
 > #228 designates its protocol current planning input for #233, #235, and #237 until #237 consumes
 > and freezes it. This is target-contract authority, not implemented Dev Board behavior.
 
+> **WF-229 amendment status:** Independent Review Gate details added by WF-229 are a prepared
+> inactive candidate until reviewed landing, the exact #229 evidence comment and #229 closure, and
+> #228 designation of the exact landed memo plus governing-doc revisions. They do not activate
+> Review, merge, or Done paths early.
+
 ## Problem Statement
 
 Opzava platform development is currently split across an internal Tasks board and a separate GitHub
@@ -161,8 +166,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
     DevTickets, so that execution order is enforced.
 48. As an execution agent, I want a dependent DevTicket prevented from starting until every required
     dependency is Done, so that incomplete foundations are not assumed.
-49. As an Opzava administrator, I want Review changes-requested work returned to Todo, so that it
-    re-enters an executable queue with a fresh claim.
+49. As an Opzava administrator, I want `pre_merge` Changes Requested work returned to Todo for a
+    fresh claim, while `provider_result` Changes Requested uses governed post-merge remediation and
+    `provider_result` Inconclusive stays Review unless its separately approved remediation rule
+    applies, so that a source variant never enters an invalid queue.
 50. As an Opzava administrator, I want ordinary Review rework placed at the bottom of Todo, so that
     it does not starve planned work.
 51. As an Opzava administrator, I want blocking or dependency-critical Review rework placed at the
@@ -227,8 +234,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
     surface keeps the discussion without granting automation a human or agent identity.
 79. As an execution agent, I want each meaningful milestone, pause, failure, handoff, and completion
     appended as an immutable GitHub worklog comment, so that agent activity has durable history.
-80. As a Reviewer, I want the Review result mirrored as a structured evidence summary with contract
-    version and locked SHA, so that the repository record explains the verdict.
+80. As a Reviewer, I want the Review Decision mirrored as a structured evidence summary with
+    contract version, discriminated Review Attempt Snapshot identity, and its variant-required
+    provider facts, so that the repository record explains the decision without pretending every
+    result is a pre-merge candidate.
 81. As an Opzava administrator, I want live token and tool telemetry kept in Opzava rather than
     copied to GitHub, so that the durable record stays useful.
 82. As an auditor, I want corrections appended instead of silently rewriting prior worklogs, so that
@@ -304,10 +313,12 @@ implementations without losing identifiers, comments, evidence, or worklogs.
      independent Review uses an explicit local configuration.
 113. As an Opzava administrator, I want all Reviews to run against the local Docker stack, so that
      validation uses the closest available environment to Dokploy.
-114. As a Reviewer, I want Review evidence locked to an exact commit SHA and contract version, so
-     that results cannot drift after validation.
-115. As an Opzava administrator, I want a self-contained evidence package on the Card, so that Slack
-     is only the notification and control surface.
+114. As a Reviewer, I want Review evidence locked to one discriminated Review Attempt Snapshot and
+     contract version, so that pre-merge candidate facts or provider-result facts cannot drift after
+     validation.
+115. As an Opzava administrator, I want the Card to compose the immutable decision-time Review
+     Evidence Package with its later linked facts, so that Slack is only the notification and
+     control surface and chronology stays truthful.
 116. As an Opzava administrator away from my machine, I want an authenticated expiring preview
      tunnel to the local Docker stack, so that I can inspect behavior without exposing it
      permanently.
@@ -343,10 +354,11 @@ implementations without losing identifiers, comments, evidence, or worklogs.
      Preparing Review member, with implementation lease, capacity, and worktree released only after
      no-process or stopped/quarantined proof and every credential/tunnel confirmation, so that the
      next ordered Sprint item never starts on reusable authority that may still be live.
-130. As an Opzava administrator, I want Review work in progress limited to three, so that
-     implementation pauses instead of overwhelming Review.
-131. As an Opzava administrator, I want Slack notified when Review reaches its WIP limit, so that a
-     growing verification bottleneck receives attention.
+130. As an Opzava administrator, I want Review work in progress limited to three per exact tenant
+     and workspace, so that one queue pauses instead of overwhelming Review or blocking another
+     tenant/workspace.
+131. As an Opzava administrator, I want Slack notified when Review reaches its Review WIP limit, so
+     that a growing verification bottleneck receives attention.
 132. As a Sprint planner, I want a blocking discovery to propose a Plan revision with reason,
      position, and affected dependencies, so that urgent additions remain governed.
 133. As a Sprint planner, I want an accepted non-blocking discovery left in Backlog, so that the
@@ -449,38 +461,88 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 173. As a Sprint planner, I want Sprint automation forbidden from borrowing ordinary capacity for a
      second Sprint DevTicket, so that there is still only one Active Sprint and one serial Sprint
      implementation at a time.
-174. As a Reviewer, I want Reviewer execution capacity and Review WIP separated from implementation
+174. As a Reviewer, I want Reviewer Execution Capacity and Review WIP separated from implementation
      leases, with one exclusive fenced lease for the shared local Docker Review stack, so that only
-     stack-mutating or locked-SHA-invalidating work queues while unrelated coding may continue.
+     stack-starting, stopping, rebuilding, seeding, migrating, resetting, mutating, or
+     source-snapshot-observing work queues while unrelated coding may continue; source/head/base
+     drift instead invalidates eligibility through the owning command locks.
 175. As an auditor, I want Runner admission, preset changes, governed pause/preemption, disconnect
      fencing, and reconciliation authorized and recorded, so that neither settings nor recovery can
      silently create competing execution.
 176. As an Opzava administrator, I want Admin Overview to project Runner capacity and waiting states
      without owning Dev Board admission, so that PRD-020 can explain operational state while this
      contract remains authoritative.
-177. As a release manager, I want a mutable Draft sealed into an immutable Release Candidate and
+177. As a Reviewer, I want every Review to use a fresh separately authorized identity, session,
+     least-privilege access grants, and dedicated clean worktree, so that implementation authority
+     cannot approve or mutate its own reviewed source.
+178. As a Reviewer, I want each Review Attempt Snapshot to discriminate a pre-merge Frozen
+     Implementation Candidate from an already-merged Post-Merge Review Snapshot and bind the exact
+     Ready, variant-required GitHub, policy, Reviewer, access, and Docker facts, so that drift
+     cannot reuse stale evidence or invent prospective facts.
+179. As a Reviewer, I want a deterministic adaptive check manifest with mandatory universal and
+     conditional real-seam checks, so that model judgment cannot silently remove required proof.
+180. As an Opzava administrator, I want Review to distinguish Pass, Changes Requested, and
+     Inconclusive, so that infrastructure uncertainty does not masquerade as a code failure or a
+     successful gate.
+181. As an auditor, I want the Card's Review Evidence view to compose the immutable secret-safe
+     Review Evidence Package with its later dispositions, containment, authorization, provider merge
+     attestation, and completion facts, so that chronology stays truthful and the complete proof
+     remains inspectable after raw logs expire.
+182. As an Opzava administrator, I want a pre-merge Pass to produce an explicit `required` or
+     `not_required` Merge Authorization Requirement, and a provider-result Pass separated from its
+     External Result Reconciliation Authorization, so that no missing approval row implies consent
+     and each governed next action uses the right exact human decision without rewriting Review.
+183. As a security reviewer, I want suspected secret exposure and unhealthy or unverifiable GitHub
+     to remain unapprovable Absolute Stops throughout Review and merge, so that no surface can
+     bypass containment.
+184. As a repository maintainer, I want the system to merge only the exact reviewed result and to
+     reconcile unknown, confirmed-not-merged, early, or external provider outcomes idempotently, so
+     that no repository race can forge Done.
+185. As an Opzava administrator, I want Done admitted only after GitHub confirms the reviewed result
+     merged into `development`, so that repository truth and Dev Board completion agree.
+186. As a Reviewer, I want every Attempt authority contained through its context-appropriate proof
+     before successor Review authority, Review exit, merge, or Review WIP release, so that a crash
+     or late receipt cannot overlap another writer.
+187. As an Opzava administrator, I want Slack limited to safe summaries, deep links, and eligible
+     exact decisions, so that Reviewer configuration, trust, secrets, raw evidence, and preview
+     credentials stay in secure Opzava surfaces.
+188. As a release manager, I want a mutable Draft sealed into an immutable Release Candidate and
      Release Manifest, so that promotion cannot change the reviewed source or artifact bundle.
-178. As a release manager, I want the trusted pipeline to build each Release image once and staging
+189. As a release manager, I want the trusted pipeline to build each Release image once and staging
      and production to deploy the same OCI digests, so that staging evidence proves the production
      artifact.
-179. As a release manager, I want deterministic staging verification followed by distinct human
+190. As a release manager, I want deterministic staging verification followed by distinct human
      Staging and Production Approvals, so that each environment and decision has current evidence.
-180. As a release manager, I want protected-main and immutable RC/stable tag facts reconciled from
+191. As a release manager, I want protected-main and immutable RC/stable tag facts reconciled from
      GitHub before deployment or publication advances, so that source history cannot be forged by
      workflow state.
-181. As an operator, I want current per-service deployment facts and Last Known Good kept separate,
+192. As an operator, I want current per-service deployment facts and Last Known Good kept separate,
      so that mixed or unknown provider state never appears successful.
-182. As an operator, I want rollback to deploy a previously verified immutable manifest without
+193. As an operator, I want rollback to deploy a previously verified immutable manifest without
      rewriting `main`, tags, GitHub Releases, or historical Release state, so that recovery
      preserves the audit record.
-183. As a security operator, I want suspected secret exposure and unhealthy or unverifiable GitHub
+194. As a security operator, I want suspected secret exposure and unhealthy or unverifiable GitHub
      to remain unbypassable while safety-reducing containment remains available, so that approval
      cannot weaken absolute safeguards.
-184. As an auditor, I want Release commands, approvals, provider attempts, evidence, notification
+195. As an auditor, I want Release commands, approvals, provider attempts, evidence, notification
      delivery, reconciliation, and Incident links cross-referenced without a fabricated global
      order, so that history remains truthful.
-185. As a DevTicket owner, I want release membership, failure, rollback, or supersession to leave my
+196. As a Human Owner, I want release membership, failure, rollback, or supersession to leave my
      Card Done, so that development completion is not conflated with environment state.
+197. As an auditor, I want every active Review Membership to own one exact Handoff pointer, nullable
+     current Attempt pointer, monotonic Attempt generation, and keyed Review WIP slot, so that
+     prepared-Handoff, successor, terminal exit, Blocked remediation, and resume races cannot strand
+     a Card or double-count Review capacity.
+198. As an Opzava administrator, I want External Result Review Preparation, External Result Adoption
+     Intent, cancellation, and remediation recovery to commit their containment, token,
+     resource-release, Review Membership, lane, and Review WIP effects atomically, so that an
+     observed GitHub result cannot leak old authority or create a partial Review admission.
+199. As a Reviewer, I want every code-producing source to complete a Deepening Module and carry one
+     current immutable artifact before Review admission—an implementation-checkpoint binding for an
+     ordinary candidate or a contained source-read-only Provider Result Deepening Capture for an
+     already-observed result—so that generated code is harmonized before independent Standards,
+     Spec, and behavioral Review without fabricating a checkpoint or letting the artifact claim a
+     Pass.
 
 ## Implementation Decisions
 
@@ -593,8 +655,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   state; GitHub mirror creation or echo never implies readiness or approval.
 - Synchronize human comments one-to-one. Append immutable agent worklog comments at meaningful
   milestones, pauses, failures, handoffs, and completion. Append a structured Review summary
-  carrying contract version, locked SHA, checks, verdict, and artifact references. Keep high-volume
-  live execution telemetry only in Opzava.
+  carrying contract version; discriminated Review Attempt Snapshot kind, ID, and hash; the exact
+  `pre_merge` PR/head/base/result/strategy or `provider_result` commit/tree/parents/target facts;
+  checks; decision; and artifact references. Keep high-volume live execution telemetry only in
+  Opzava.
 - Attribute GitHub App posts in their body to actor role, named identity, source, and runner, for
   example `Execution Assignee · Codex CLI — via local-runner-01`. Include stable hidden event
   identity for deduplication without leaking secrets.
@@ -823,18 +887,210 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   response or policy change creates a new authorized command and never mutates the original outcome
   or waits forever on a hidden prompt.
 - Configure one independent local Reviewer tool and model in Admin. Review must run on the user's
-  local machine against the shared local Docker stack and an exact commit SHA. An accepted exact
-  checkpoint/receipt moves a DevTicket into Review / Preparing Review and increments membership-only
-  Review WIP, but retains its implementation lease, capacity, and worktree until no-process or
-  stopped/quarantined proof and every lease-credential/tunnel revocation confirmation finalize the
-  Review Handoff. Only then may fresh Reviewer provisioning or launch begin. Reviewer execution
-  capacity and Review WIP are separate. The shared local Docker Review stack has one exclusive
-  fenced lease. Queue only work that uses or mutates that stack, or would invalidate its locked-SHA
-  evidence; unrelated coding may continue. Review evidence belongs on the Card and stays SHA-bound;
-  Slack carries only notification and bounded decisions.
+  local machine against the shared local Docker stack. #230 freezes the implementation candidate and
+  finalizes Review Handoff while atomically allocating the first Attempt ID/generation before fresh
+  Reviewer launch. Each Attempt uses a new least-privilege Review Access Grant, separately
+  authorized principal/session, and clean dedicated worktree with no inherited implementation or
+  merge capability. Trusted non-model scanning occurs before push/PR and before source/output
+  reaches a model. Pre-admission scanner unavailability preserves the actual source lane and
+  authority—In Progress for an ordinary candidate, or the eligible Todo/In Progress/Review branch
+  for a provider result—with no new Review Handoff/Review WIP/Attempt/decision;
+  post-allocation/pre-Running scanner or grant failure cancels after containment with no decision;
+  only a Running failure may be Inconclusive. A staged reservation plus one final CAS prevents
+  circular Snapshot/grant/Docker authority and admits one current Attempt generation. After Handoff
+  finalization, #229 confirms the draft PR and exact head/base/result/strategy; it then reserves
+  Reviewer Execution Capacity, inactive Review Access Grants, and the Docker Review Lease. One final
+  CAS freezes the discriminated Review Attempt Snapshot around those reservations. Only afterward
+  may the resulting authority activate, the Reviewer process start, and checks run. The pre-merge
+  variant binds the Frozen Implementation Candidate and a PR head exactly equal to that candidate
+  SHA, while contract carry-forward stays a separate Ready-lineage fact. Provider-result Review
+  binds the Post-Merge Review Snapshot and actual provider commit/tree/parents/target. Both bind
+  Ready, manifest/policy, Reviewer, grants, local Runner, Docker generation/digests, and a clean
+  runtime/data baseline attestation. Material drift or pre-existing residue before cutoff stales the
+  Attempt.
+- Require every code-producing candidate to complete the Deepening Module before Review admission.
+  Accept one immutable, secret-safe, source-discriminated Deepening Module Artifact only when its
+  exact Ready Contract Version and Revision/carry-forward lineage, changed/generated module
+  inventory, engineering-skill/tool/version, actions or explicit no-change disposition, and governed
+  Docs ID/version/hash all match. The `pre_merge` variant binds candidate commit/tree and signed
+  implementation receipt. An already-observed code-producing provider result uses the
+  `provider_result` variant plus a separate durable Provider Result Deepening Capture: prepare binds
+  authenticated commit/tree/parents/`development`, Ready/Revision lineage, current Secret-Safe
+  Repository Preflight and security-scan generations, skill/tool/policy, enrolled local Runner,
+  dedicated source-read-only worktree, grants/fence, and capture generation; finalize requires the
+  exact governed Docs `provider_result` artifact/signed capture receipt plus stopped process,
+  contained worktree, and revoked grants. It never requires an implementation checkpoint, mutates
+  source, or writes to GitHub. Dev Board owns the source-discriminated applicability/current pointer
+  and gate; governed Docs owns/exposes the immutable document version; Runner owns only the signed
+  receipt/observations. Candidate/provider-result/contract/module/policy drift stales the pointer. A
+  version-bound non-code fact is the only alternative and requires explicit current
+  Capture/artifact/receipt absence. Missing, stale, forged, or falsely non-code input leaves the
+  current source state and, after auth+Secret-Safe Ingress, writes one terminal rejected receipt but
+  no retry, Handoff, Membership, Review WIP, Attempt, grant, lease, lane, token, or release effect.
+  Independent Review binds the source-appropriate artifact and re-evaluates architecture harmony
+  with extra weight on changed/generated modules. The artifact is not Review evidence, a Review
+  Decision, or permission to Pass.
+- Separate Review WIP, Reviewer Execution Capacity, and the one exclusive fenced local Docker Review
+  Lease. Queue only work that uses, mutates, or observes that stack; source/base drift stales the
+  Snapshot through command locks. Every Attempt retains Review/Review WIP while its authority is
+  live. Material Revision/Absolute Stop finalization uses contextual Review Containment Proof;
+  ordinary decision cutoff or every pre-Running cancellation/non-material supersession first
+  creates/reuses one exact Review Exit Containment Requirement. A Queued/Provisioning Attempt with
+  no activated resource still records signed explicit-none resource slots rather than requirement
+  absence. Its bounded cleanup accumulates signed component facts; `AcceptReviewExitContainment`
+  alone composes the immutable proof, accepts the requirement, and terminalizes the Attempt in one
+  CAS. Ordinary successor/changes-requested/merge/Done then uses that distinct Review Exit
+  Containment Proof. Current post-package Inspection authority must also be absent or contained
+  before successor authority, Review exit, provider dispatch, or Done.
+- Persist `ReviewMembership` as the internal active/inactive owner of exact current Handoff
+  ID/version, nullable Attempt ID/row version, and monotonic Attempt generation. Initial admission
+  creates an active Review Membership with prepared-Handoff/null-Attempt pointers; finalization
+  binds the first Attempt and next generation. Successors CAS-switch the active tuple. Every
+  terminal lane/Review WIP exit atomically inactivates Review Membership, clears current pointers,
+  retains terminal refs/generation in its consuming fact, and decrements keyed Review WIP.
+  Outside-Review adoption creates its fresh active Review Membership/pointers with lane entry and
+  Review WIP increment; remediation Blocked copies terminal refs into the Episode, and resume
+  creates a fresh higher-generation Review Membership rather than reviving old authority.
+- Resolve an Absolute Stop with only its contextual proof while retaining Review/Review WIP, then
+  require a separate version-locked finalizer to persist an independently authorized exit proof. It
+  cancels a nonterminal stopped Attempt only when no decision/package committed; after cutoff it
+  preserves them and completes the Attempt. An already terminal Attempt is never rewritten.
+  Stop/disposition facts append independently. Stop recurrence, Revision, and successor races share
+  Attempt/stop-generation locks; one proof cannot be renamed or leave Review stranded.
+- Derive a versioned deterministic additive Review Check Manifest with universal and policy-selected
+  conditional real-seam checks. Before `Running`, unsupported execution or scanner/grant/launch
+  unavailability cancels after containment with no decision. For a Running Attempt, unknown
+  applicability, unavailable required real seam, skipped mandatory check, or missing proof is
+  Inconclusive, never Pass. Code-producing work includes independent Standards/Spec review and a
+  fresh architecture-deepening/harmony assessment that verifies, but does not trust as evidence, the
+  pre-Review Deepening Module Artifact. Reviewer-added suggestions are advisory for the current
+  Attempt; a new decision-bearing check requires versioned policy/manifest derivation and a
+  successor Attempt.
+- Produce an immutable secret-safe decision-time Review Evidence Package and one decision: Pass,
+  Changes Requested, or Inconclusive. Package commit atomically creates its initial `current`
+  Evidence Disposition and CAS-protected current pointer. Later disposition, containment,
+  authorization, provider merge attestation, and completion are separate immutable linked records
+  composed by the Card. Completion records the discriminated command kind/ID/version/receipt:
+  `AdmitDone` for pre-merge or `ReconcileExternalResultDone` for provider result. A `pre_merge`
+  Changes Requested decision returns valid-contract rework to Todo under server-derived ordering; a
+  material contract defect follows Revision and Ready reapproval. A `provider_result` Changes
+  Requested decision uses only governed post-merge remediation/Blocked. Inconclusive stays Review
+  for a successor Attempt after recovery unless its threshold-qualified provider-result remediation
+  rule is approved by the exact current Human Owner identity/version acting through the exact
+  current Admin authority identity/version.
+- Keep unrelated Reviewer discoveries outside the current Ready Contract/manifest as separate
+  blocking/non-blocking Proposals. Use canonical `DraftProposal → SubmitProposal → AwaitingDecision`
+  with Attempt/finding idempotency; submission atomically appends the safe notification intent for
+  Notifications/Slack. Human Owner accept/merge/reject/archive, ordinary Backlog/Ready promotion,
+  and approved Sprint Plan revision then apply; discoveries never silently change the Review
+  decision or Active Sprint.
+- For `pre_merge`, keep the exact candidate pull request draft during independent Review; a
+  `provider_result` Review has no prospective draft-PR requirement. After current Pass and Review
+  Exit Containment Proof, reserve and dispatch one system-owned idempotent Mark Pull Request Ready
+  Request with current authority rechecks and authenticated provider confirmation/reconciliation.
+  Require exact `confirmed_ready` plus freshly read repository-review/check facts before merge
+  eligibility; response loss, external ready/draft races, or later source drift cannot infer
+  readiness. `confirmed_not_ready` is terminal for one request generation; only a new authenticated
+  provider/health fact or governed repair disposition may create a bounded successor, and exhaustion
+  retains Review.
+- When a bound fact invalidates a ready PR before merge submission, reserve/dispatch a separate
+  idempotent Convert Pull Request to Draft Request sharing one singleton
+  tenant/workspace/installation/repository/PR mutex with ready and merge. Reconcile response loss
+  and external state; suppress stale merge authority until `confirmed_draft`, while
+  merge-submission-first remains owned by provider-result reconciliation. `confirmed_still_ready` is
+  terminal for its generation; the same new-fact/governed-repair and bounded-successor rules apply.
+- Evaluate and persist one current discriminated Merge Authorization Requirement for every eligible
+  pre-merge Pass. A clean Low/Medium automatic path requires exact `not_required` plus explicit
+  Request/Authorization absence. High/Critical work and eligible exceptions require exact
+  `required`, then one expiring single-use Merge Authorization from the exact current Human Owner
+  identity/version acting through the exact current Admin authority identity/version for
+  High/Critical work and eligible exceptions, bound to tenant/workspace, package/current Evidence
+  Disposition, Review Exit Containment Proof, confirmed-ready generation, and exact provider action.
+  Reject/expiry retains Review and opens attention; a later request uses a fresh nonce and
+  current-fact revalidation. Authorization request/reject/expiry/revocation, Reviewer-discovery
+  `ProposalSubmitted`, Review WIP saturation, provisioning/launch or containment failure, Changes
+  Requested/Inconclusive, and provider uncertainty/conflict create durable semantically deduplicated
+  safe notification outboxes. Bounded retry and terminal Slack delivery failure change only delivery
+  history, never Review, Review WIP, Attempt, approval, merge/reconciliation, rework, or Done. The
+  required branch consumes its exact approved Request/Authorization at merge reservation; the
+  not-required branch cannot fall back to missing rows. A `provider_result` Pass can request only
+  External Result Reconciliation Authorization through its own durable pending, approved, rejected,
+  expired, revoked, or consumed request lifecycle, exact semantic identity, current-state race, safe
+  notification outbox, and fresh-request rule. No approval waives independent Review or bypasses an
+  Absolute Stop.
+- For `pre_merge`, confirm the draft PR after Review Handoff finalization and before Snapshot
+  reservation, authority activation, or Reviewer launch. Merge only through an idempotent
+  system-owned GitHub saga whose authorization/outbox references and locks exact Review Exit
+  Containment Proof and exact latest `current` Evidence Disposition, current policy/mandatory-
+  manifest eligibility, and the exact current Human Owner identity/version acting through the exact
+  current Admin authority identity/version when authorization is required before provider dispatch
+  and Done. A detected policy/manifest mismatch CAS-appends a stale disposition before suppressing
+  with no provider I/O; only terminal Review exit consumes the proof. Done requires authenticated
+  provider confirmation that the exact reviewed merge result entered `development`. Unknown and
+  confirmed-not-merged outcomes reconcile without blind retry. Early, mismatched, wrong-target, or
+  external merge creates a fail-closed conflict rather than ordinary Done. A wrong-target result
+  never becomes a `provider_result`; it requires a governed candidate, ordinary pre-merge Review,
+  and confirmed merge to `development`. An actual external `development` result additionally
+  requires durable prepare/finalize/cancel handoff and reconciliation-Done command variants,
+  adoption authorized by the exact current Human Owner identity/version acting through the exact
+  current Admin authority identity/version only from ordinary non-Sprint Todo/In Progress, current
+  Ready/dependencies/containment/no-stop authority, atomic consumption of the exact approved Needs
+  Human Approval exception token, fresh `provider_result` Review Attempt, and a discriminated
+  Deepening applicability binding: a code-producing result requires the current #230 Provider Result
+  Deepening Capture plus immutable governed Docs `provider_result` artifact/signed Runner receipt
+  IDs/hashes; a non-code result requires the exact current version-bound non-code fact plus explicit
+  Capture/artifact/receipt absence. Its fully bound distinct External Result Reconciliation
+  Authorization approval and Done paths recheck that exact branch, the exact current Human Owner
+  identity/version acting through the exact current Admin authority identity/version, current
+  policy/mandatory-manifest eligibility, and current Secret-Safe Repository Preflight/security-scan
+  pointer generations plus accepted IDs/hashes, and CAS-stale the disposition on drift.
+  Reconciliation Done atomically consumes both the exact approved Request and Authorization. Backlog
+  cannot adopt; Blocked/Sprint/archive/Done cannot use ordinary adoption. Changes Requested, or
+  threshold-qualified persistent Inconclusive with an exact remediation Request approved by that
+  exact current Human Owner identity/version acting through the exact current Admin authority
+  identity/version, may release Review WIP only through the remediation Blocked Episode and either
+  an already Ready-approved linked Todo DevTicket or a Proposal accepted under that same exact
+  authority that first creates a Backlog DevTicket and follows normal shaping, binding, Ready
+  Approval, and promotion before the special resume path. The Proposal itself has no lane. Before
+  Blocked/Review WIP release, lock both tickets plus graph/Plan versions and reject self-linking,
+  any remediation dependency path to the reviewed ticket, unresolved gating dependencies, or
+  unapproved Sprint placement that makes the remediation unclaimable. Persist a Post-Merge
+  Remediation Wait Edge from reviewed to remediation; every later
+  dependency/Revision/Ready/claim/Plan mutation includes it in cycle checks until resume closes it
+  atomically. #229 also splits #230's umbrella `ReviewMergeAuthorization` placeholder into
+  chronological Review Exit Containment Requirement/Proof, pull-request ready/draft requests and
+  provider facts, singleton per-PR mutex, discriminated Merge Authorization Requirement, both
+  authorization-request/authorization kinds, Merge Request, Provider Merge Attestation, and
+  Post-Merge Remediation Wait Edge. #237 must add the exact proof allowed-command matrix: successor
+  launch references/locks without consumption; new remediation/reconciliation commands consume only
+  in their exact exit transactions; stopped-Attempt finalization never rewrites a terminal Attempt.
+  Existing-Review preparation uses a branch-qualified requirement rule. A prepared/cancelling
+  Handoff requires explicit-null Attempt fields plus explicit absence of every active Review Exit
+  Containment Requirement and creates none. A finalized Handoff requires the exact current Attempt
+  and may reuse one compatible pending/accepted requirement or create one only from explicit active
+  absence. Cancellation terminalizes only its Preparation-owned `external_result_switch` requirement
+  while retaining proof/history; an adopted `ordinary_attempt_exit` remains unchanged. The active
+  guard rejects ordinary Handoff commands, `ReviewChangesRequested`, material-Revision
+  acceptance/finalization, and Review-source execution-loss transition. Neither competing path may
+  terminalize the guarded Handoff, clear Membership, decrement Review WIP, or take over its
+  requirement/proof or containment ownership. For the finalized-Handoff branch, proof acceptance
+  already terminalizes the exact old Attempt target; Preparation finalization validates and
+  preserves it. A prepared/cancelling Handoff finalizer releases the old implementation lease,
+  capacity, and worktree exactly once before switching Review Membership. Outside-Review adoption
+  creates Review Membership, Handoff/Attempt pointers, lane/Review WIP, token consumption, and
+  contained-resource release in one CAS; any full/stale/losing path writes none of them. No such
+  path is enabled until those extensions ship. The full contract is
+  `docs/plan/research/wf229-review-gate-contract.md` after the active map explicitly designates that
+  prepared candidate current.
 - Permit an authenticated, expiring, revocable preview tunnel to the local Docker stack. Bind it to
-  Admin identity, DevTicket, Review, runner lease, exact build/SHA, and expiry. Revoke it on
-  disconnect, lease loss, expiry, Absolute Stop, or explicit close.
+  the exact current Human Owner identity/version acting through the exact current Admin authority
+  identity/version, DevTicket, Attempt/package, discriminated source, local Runner, short Docker
+  inspection lease/generation, and expiry. If the historical generation is gone, label exact-source
+  reconstruction as a separate reproduction Inspection Record rather than original Review evidence.
+  Reauthorize the exact current Human Owner identity/version acting through the exact current Admin
+  authority identity/version, disposition, lease/fence/generation, and expiry on every
+  request/stream renewal; revoke on any loss, disconnect, Absolute Stop, source drift, later stack
+  reuse, or explicit close.
 - Define Sprint as a Goal plus versioned ordered plan for `autonomous_serial` execution, not a lane
   or a label applied to all work. Allow many Draft Sprints, at most one Approved and Queued Sprint,
   and at most one Active Sprint.
@@ -929,9 +1185,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   under a stable repository tree. Give each document immutable ID, version, content hash, state,
   type, relations, and GitHub path.
 - Support document types PRD, Planning Brief, RFC/Design Spec, Research Note, ADR, Runbook,
-  Postmortem, Sprint Plan, and Sprint Report. Preserve Planning Session Logs with questions,
-  recommendations, human decisions, rejected alternatives, unresolved items, participants, and
-  timestamps; exclude hidden reasoning, raw tool output, secrets, and noisy telemetry.
+  Postmortem, Sprint Plan, Sprint Report, and immutable Deepening Module Artifact. Preserve Planning
+  Session Logs with questions, recommendations, human decisions, rejected alternatives, unresolved
+  items, participants, and timestamps; exclude hidden reasoning, raw tool output, secrets, and noisy
+  telemetry.
 - Use document lifecycle Draft, In Review, Approved, Superseded, and Archived. Approved versions are
   immutable; edits create new Draft revisions. PRD, RFC, ADR, Sprint Plan, and Runbook require Human
   Owner approval. A material revision invalidates dependent Ready or Sprint approval.
@@ -946,9 +1203,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   comments, evidence, workflow mapping, GitHub links, and route behavior before switching writes.
   Redirect `/tasks` and `/issues` to `/dev-board` only after verified cutover, then retire legacy
   code and adapters.
-- Keep Review internals fail-closed until its separately grilled contract is implemented. Apply the
-  specified Releases Gate fail-closed until its aggregate, adapter, evidence, and UI behavior is
-  implemented. No release behavior may be inferred from Done.
+- Keep the specified #229 Review internals fail-closed until the prepared contract completes its
+  landing/closure/map-designation lifecycle and its audited #237 implementation graph is
+  implemented. Apply the specified Releases Gate fail-closed until its aggregate, adapter, evidence,
+  and UI behavior is implemented. No release behavior may be inferred from Done.
 
 ## Testing Decisions
 
@@ -957,8 +1215,11 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - The primary acceptance seam is one real authenticated browser vertical story against the real
   local Docker stack. An Admin shapes a Proposal or Backlog item, obtains a synchronized GitHub
   Issue, completes and approves the Ready contract, assigns and claims it on an enrolled local
-  runner, observes worklogs and repository facts, submits locked-SHA evidence to an independent
-  local Review, handles approval if required, and reaches Done only after merge into `development`.
+  runner, observes worklogs and repository facts, submits the exact discriminated Review Attempt
+  Snapshot—`pre_merge` Frozen Implementation Candidate with PR/head/base/result/strategy or
+  `provider_result` Post-Merge Review Snapshot with commit/tree/parents/target—to an independent
+  local Review, handles approval if required, and reaches Done only after authenticated
+  `development` truth and the applicable completion command.
 - The real browser story must use ordinary authentication and real tenant/workspace records, not
   minted sessions, mocked page data, or fake GitHub state. It must cover both light and dark themes,
   keyboard-equivalent transitions, narrow viewport behavior, and truthful degraded states.
@@ -1056,10 +1317,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   never enter Card, webhook, GitHub, Slack, worklog, evidence, audit, or error output.
 - Test Sprint plan and execution behavior through commands: one Active, one Approved/Queued, many
   Drafts, single non-archived membership, Plan revisions, queued preflight, health drift versus
-  material invalidation, exactly one serial Sprint implementation, Review WIP three, blocking
-  Proposal, non-blocking Proposal, direct and transitive dependency ordering (including rejection of
-  an earlier member that depends on a later member), pause, cancellation, abortion, completion, and
-  immutable history.
+  material invalidation, exactly one serial Sprint implementation, Review WIP three per exact
+  tenant/workspace, blocking Proposal, non-blocking Proposal, direct and transitive dependency
+  ordering (including rejection of an earlier member that depends on a later member), pause,
+  cancellation, abortion, completion, and immutable history.
 - Test Runner-local capacity and preset transitions deterministically. Cover Focused contention and
   governed preemption; Balanced with one Sprint plus one ordinary lease; Balanced with two ordinary
   leases and no Sprint; Sprint activation waiting behind two existing ordinary leases; rejection of
@@ -1095,34 +1356,140 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   directly. Separately test disconnect/key/lease loss while still provisioning: prove no start was
   enqueued, remain Todo with a visible failed request and no Blocked Episode, hold resources until
   every confirmation, and race the same locks against admitted Runner activation/start enqueue.
-- Test Review Handoff separately from reviewer capacity: accepted exact checkpoint/receipt
+- Test Deepening Module admission before Review Handoff. For code-producing work, prove that a
+  missing, forged, stale-contract, stale-Revision, stale-SHA/tree, stale module inventory, or stale
+  required-skill/policy artifact leaves In Progress and creates no Review Handoff, Review
+  Membership, Review WIP, Attempt, grant, lease, lane, or token effect. Prove an exact artifact
+  records one immutable governed Docs version plus signed Runner receipt, becomes stale on any bound
+  drift, and must be replaced before ordinary or external-result Review admission. Prove an explicit
+  non-code classification is version-bound and rejected when generated-code facts exist. Review must
+  independently detect an architectural defect even when the artifact says no change; the artifact
+  alone must never satisfy a check, Evidence Package, decision, or Pass. For an actual provider
+  result, prove prepare/run/contain/finalize/cancel/replay of Provider Result Deepening Capture with
+  exact authenticated tree, source-read-only worktree, no implementation checkpoint, no source/
+  provider mutation, signed receipt, governed Docs artifact, complete process/grant/worktree
+  containment, scan-generation drift, and a terminal rejected receipt with zero admission effects
+  for every invalid finalizer.
+- Test Review Handoff separately from Reviewer Execution Capacity: accepted exact checkpoint/receipt
   atomically freezes/fences the candidate, enters Review / Preparing Review, and increments
-  membership-only WIP; implementation lease, capacity, and worktree remain held until no-process or
-  stopped/quarantined proof and every credential/tunnel confirmation finalizes the Review Handoff.
-  Assert reviewer provisioning/launch occurs only after finalization, evidence stays
-  contract/SHA-bound, and the shared local Docker Review lease serializes only stack-mutating,
-  stack-using, or locked-SHA-invalidating work while unrelated coding continues. At Review WIP
-  three, assert new implementation claims stop without terminating already admitted leases. Cover
-  prepared-candidate rebinding after a proven non-semantic correction, cancellation versus material
-  Revision/execution-loss terminal races, immutable finalized history, and archive rejection for
-  every Review member without WIP leakage. A material Revision after handoff finalization must keep
-  finalized history immutable, require the exact #229-authenticated **Review Containment Proof** for
-  stale Reviewer/Docker/tunnel/evidence authority, and then exit Review/decrement WIP/apply without
-  stranding the interruption. Assert changes-requested and Done reject while that interruption is
-  pending; if a verdict wins first, a later Revision re-evaluates from Todo or Done. An Absolute
-  Stop affecting a finalized Review Handoff must preserve the handoff/Review WIP and require that
-  same #229-owned proof over the distinct Reviewer process/lease, shared Docker session/lease,
-  preview tunnel, and evidence authority before stop resolution. Normal changes-requested and Done
-  must consume a distinct #229-authenticated Review Exit Containment Proof for the exact run/result/
-  candidate and every Reviewer process/lease, shared Docker lease/session, test grant/tunnel, and
-  artifact/evidence writer before Review exit and WIP decrement. PR/base-branch facts begin at #229
-  reviewer launch, never at #230 Review admission.
+  membership-only Review WIP; implementation lease, capacity, and worktree remain held until
+  no-process or stopped/quarantined proof and every credential/tunnel confirmation finalizes the
+  Review Handoff. Assert finalization atomically allocates the first Attempt ID/generation; #229
+  then confirms the draft PR plus exact head/base/strategy facts, reserves Reviewer Execution
+  Capacity, inactive Review Access Grants, and the Docker Review Lease, and freezes them through the
+  final Snapshot CAS. Only afterward may authority activate, the Reviewer process start, and checks
+  run. Evidence stays Attempt-Snapshot-bound, and the shared local Docker Review lease serializes
+  only stack-mutating, stack-using, or stack-observing work while unrelated coding continues.
+  Source/base drift stales the Snapshot through command locks rather than the Docker lease. At
+  Review WIP three for one exact tenant/workspace, assert new implementation claims stop there
+  without terminating already admitted leases or affecting/disclosing another tenant or workspace.
+  Cover prepared-candidate rebinding after a proven non-semantic correction, cancellation versus
+  material Revision/execution-loss terminal races, immutable finalized history, and archive
+  rejection for every Review member without Review WIP leakage. A material Revision after handoff
+  finalization must keep finalized history immutable, require the exact #229-authenticated **Review
+  Containment Proof** for stale Reviewer/Docker/tunnel/evidence authority, and then exit
+  Review/decrement Review WIP/apply without stranding the interruption. Assert changes-requested and
+  Done reject while that interruption is pending. If a Review Decision wins first, a later Revision
+  re-evaluates Pass or Inconclusive from Review, Changes Requested from Todo, and only a
+  provider-confirmed discriminated completion command from Done. An Absolute Stop affecting a
+  finalized Review Handoff must preserve the handoff/Review WIP and require that same #229-owned
+  proof over the distinct Reviewer process/lease, shared Docker session/lease, preview tunnel, and
+  evidence authority before stop resolution. Stop resolution retains Review/Review WIP; for a
+  nonterminal Attempt a separate generation-locked finalizer must persist the independently
+  authorized exit proof, cancel it only when no decision/package committed, otherwise preserve them
+  and complete it, and race recurrence/Revision/successor before a fresh Attempt. An already
+  terminal Attempt must remain unchanged while stop facts append; a new Evidence Disposition exists
+  only when a Review Evidence Package exists. Normal cutoff must atomically create/reuse one
+  ordinary Review Exit Containment Requirement; bounded cleanup accumulates component facts, and
+  `AcceptReviewExitContainment` must atomically compose the proof, accept the requirement, and
+  terminalize the Attempt. Only then may changes-requested or Done consume the distinct
+  #229-authenticated Review Exit Containment Proof for the exact run, result, discriminated source,
+  and every Reviewer process/lease, shared Docker lease/session, test grant/tunnel, and
+  artifact/evidence writer before Review exit and Review WIP decrement. PR/base/strategy facts begin
+  after #230 Handoff finalization but must be confirmed by #229 before staged reservation, final
+  Snapshot CAS, authority activation, Reviewer process start, and check execution; they never exist
+  at #230 Review admission. Prove Submit creates active Review Membership with exact
+  prepared-Handoff/null-Attempt pointers; finalization binds the first Attempt/next generation;
+  successor CAS switches pointers; and each terminal exit atomically inactivates/clears Review
+  Membership, preserves terminal refs/generation, and decrements keyed Review WIP. Race each branch
+  against stale pointer, queue, and Review WIP versions and require zero partial writes.
 - Test authorized/audited admission and settings changes plus disconnect fencing and reconciliation;
   assert no automatic local-to-cloud failover and no silent preemption. Verify the PRD-020 Admin
   Overview projection cannot mutate admission state outside the Dev Board command boundary.
-- Test local Docker Review and preview behavior at the user seam: exact SHA, contract version,
-  independent reviewer identity, Docker health, evidence attachment, preview tunnel authorization,
-  expiry, runner disconnect revocation, and no stale preview after a new build.
+- Test local Docker Review and preview behavior at the user seam: exact discriminated source and
+  contract, independent Reviewer identity, dedicated test principal and fresh Review Access Grant,
+  Docker health/generation/fence, evidence attachment, short inspection-lease preview authorization,
+  reproduction labeling, continuous authorization for the exact current Human Owner identity/version
+  acting through the exact current Admin authority identity/version plus disposition, expiry, runner
+  disconnect revocation, and no stale preview after reuse.
+- Test the complete Review Gate at real seams: confirmed PR/head/base/merge result/strategy, Ready
+  lineage, deterministic manifest/policy, Reviewer/grants, and Docker generation/digests; separately
+  prove the provider-result Snapshot subtype and PR-head equality/approved lineage for pre-merge.
+  Pre-cutoff drift stales the Attempt. Prove pre-admission trusted non-model scan failure retains In
+  Progress with no Review Handoff/Review WIP/Attempt/decision, then prove the second scan before
+  source, logs, screenshots, traces, or artifacts reach a model. Prove one current Attempt
+  generation is allocated atomically with finalized handoff, CAS/idempotency prevents duplicates,
+  staged provisioning has no circular authority, pre-Snapshot and post-Snapshot/pre-Running failures
+  cancel without a decision, and only a Running failure can reach Inconclusive. Cover decision
+  precedence, source-write/push/merge denial, and a fresh Attempt after every source mutation.
+- Test Pass, Changes Requested, and Inconclusive independently. Cover missing/unknown/skipped
+  checks, access-grant or Docker loss, cutoff/late receipts, fair Docker queuing, Revision/Review
+  Decision races, server-derived rework placement, bounded escalation, contextual Review Containment
+  Proof for Material Revision/Absolute Stop, distinct Review Exit Containment Proof for ordinary
+  paths, proof-envelope non-substitutability, and post-package Inspection containment before
+  successor authority or Review WIP release. At the real credential seams, prove `AuthPort`
+  mint/revoke, `AuthorizationPort` scope/capability/expiry admission, `SecretsVaultPort`
+  version-bound SecretRef resolution, trusted Runner-side opaque injection/output
+  sanitization/closure, denied raw credential and storage/debug/egress access, and no adapter-local
+  shortcut or value exposure.
+- Test discriminated Merge Authorization Requirement evaluation/supersession and enforce exact
+  `not_required` plus Request/Authorization absence for automatic merge. Test the `required` request
+  lifecycle and governed merge with approve/reject/expiry/revoke/consume current-state-wins
+  semantics, approved-as-active behavior, replay, role revocation, policy/candidate/strategy drift,
+  GitHub degradation, Absolute Stops, reserved-before-dispatch authorization expiry/role revocation,
+  exact latest Evidence Disposition invalidation before reservation/dispatch/Done, suppression,
+  dispatch race, timeout/outcome unknown, confirmed-not-merged re-request, and crash after provider
+  merge. Prove ready/draft `confirmed_not_ready`/`confirmed_still_ready` are terminal per
+  generation, require a new authenticated provider/health fact or governed repair disposition for
+  bounded successors, and retain Review on exhaustion. Race ready/draft/merge under the singleton
+  tenant/workspace/installation/repository/PR mutex and prove action kind/request identity cannot
+  create overlap. Separately prove an exact merge made stale by a racing Revision/Absolute Stop,
+  early/mismatched/wrong-target/external merge, and wrong-target rejection from `provider_result`.
+  Prove both new #230 external-result prepare/finalize/cancel sagas, prepared/cancelling ordinary
+  Handoff explicit-absence facts, Todo/In Progress adoption plus exact exception-token consumption
+  and Backlog/other source rejection, fresh `provider_result` Review, fully bound reconciliation
+  authorization with exact current Human Owner identity/version and exact current Admin authority
+  identity/version plus aggregate/disposition/policy/mandatory-manifest rechecks and
+  stale-disposition CAS, atomic consumption of both its approved Request and Authorization, and the
+  failed-review remediation Blocked/Review WIP-release/linked-Todo/resume path for Changes Requested
+  plus the threshold-qualified persistent-Inconclusive branch approved under those exact authority
+  versions. Race Human Owner transfer and Admin authority revocation before adoption finalization,
+  remediation Block, reconciliation approval, and Done; require revocation/stale disposition and no
+  lane/WIP/proof/resource effect. Without that approval, prove Inconclusive stays Review and is
+  never relabelled. After Blocked commits, race a dependency mutation that would make remediation
+  depend on the reviewed ticket and prove the durable Wait Edge rejects it until successful resume
+  closes the edge. Require exact provider-confirmed `development` result before Done. Also race
+  competing prepares from active requirement absence: a prepared/cancelling-Handoff winner creates
+  zero requirements, while a finalized/current-Attempt winner creates or reuses exactly one
+  compatible requirement. Race cancel/finalize; material Revision and Review-source execution loss
+  against the active Preparation guard; outside-adoption token and Review WIP; adoption cancellation
+  before any side effect and after fencing; Block against successor/finalizer; and Resume against
+  Review WIP, graph, Inspection, provider, and remediation drift. Assert one resource release,
+  active/inactive Review Membership pointer correctness, and zero writes by every loser. At the real
+  Postgres command seam, drive both reconciliation applicability branches through Request, approval,
+  and Done: `code_producing` requires the current Capture/artifact/receipt; `non_code` requires the
+  exact current fact plus explicit Capture/artifact/receipt absence. Branch/discriminator drift,
+  stale non-code fact, or appearance of a Capture/artifact/receipt on the non-code branch CAS-stales
+  the disposition and revokes approval with no Authorization or Done. In one real fixed scratch
+  repository/GitHub App, require two actual external/manual `development` journeys: Todo/In Progress
+  adoption→Capture→Pass→reconciliation Request+Authorization→Done, and existing Review
+  Preparation→failed/persistent-Inconclusive remediation→Resume→Pass→authorized Done. HTTP stubs are
+  supplemental failure injection only.
+- Test Review Evidence Package immutability and decision cutoff separately from append-only
+  dispositions, containment, authorization, Provider Merge Attestation, and completion. Prove
+  durable minimum after raw-log expiry, RLS, opaque tenant-scoped artifact lookup, sanitized GitHub
+  summary, and no secret values, raw provider payloads, or preview bearer URLs at any
+  product/audit/output seam.
 - Test migration through forward-only fixtures representing current Tasks, issue projections,
   comments, steps, watchers, evidence, quality records, issue outbox state, card numbers, external
   refs, and activity. Verify every source record has a mapped target or explicit quarantine
@@ -1154,9 +1521,6 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   `Task`, GitHub Issue, Incident, support ticket, CRM ticket, or other company work unit.
 - Persisting Incident as a DevTicket Type or running an Incident directly as Sprint scope. Only
   linked remediation DevTickets use the normal workflow.
-- Full internals of the adversarial Review Gate, including its final check catalog, escalation
-  model, approval thresholds beyond the locked foundation, and merge choreography. These require a
-  dedicated grilling and specification.
 - Provider-specific implementation choices that the Releases Gate deliberately leaves for validated
   adapter work: the trusted builder/registry/signing products, exact Dokploy observation seams,
   approval expiry defaults, retention, and migration backup/restore implementation. Unknown provider
@@ -1195,6 +1559,8 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   `8ebfecf5`. Prototype code is a visual decision aid, not production implementation.
 - Product navigation target: `Summary · List · Board · Sprints · Docs · Development · Releases`.
 - The Releases Gate is specified by `docs/plan/research/wf236-releases-gate-contract.md`; its target
-  implementation remains unbuilt. Until Review is specified and implemented, the system must fail
-  closed before Done. Until Release mechanics and provider adapters are implemented, Releases must
-  fail closed after Done rather than infer deployment state.
+  implementation remains unbuilt. The prepared Review candidate remains inactive until its reviewed
+  landing, the exact #229 evidence comment and closure, and #228 designation of the exact landed
+  memo plus governing-doc revisions, and implementation must fail closed before Done. Until Release
+  mechanics and provider adapters are implemented, Releases must fail closed after Done rather than
+  infer deployment state.

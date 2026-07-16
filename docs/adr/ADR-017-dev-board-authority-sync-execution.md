@@ -3,7 +3,8 @@
 ## Status
 
 Accepted — target architecture, 2026-07-15; Runner-capacity amendment accepted 2026-07-16; Releases
-Gate amendment accepted 2026-07-17. Implementation and migration are not yet complete.
+Gate amendment accepted 2026-07-17. The independent Review Gate amendment below is a prepared
+inactive candidate. Implementation and migration are not yet complete.
 
 The WF-231 GitHub mirror amendment landed at `1db502d722ca33285148251a7660695868ad6a30`; #231 is
 closed and the parent map plus migration manifest designate it current planning input until #237
@@ -13,6 +14,10 @@ The WF-232 Runner trust-protocol amendment landed at `4d88495700993e901b8c5bbb0e
 #232 is closed, and map #228 designates its protocol current planning input for #233, #235, and #237
 until #237 consumes and freezes it. This activates target architecture only; the Runner protocol
 remains unimplemented.
+
+The WF-229 independent Review Gate amendment is a **prepared inactive candidate** until reviewed
+landing, the exact #229 evidence comment and closure, and #228 designation of the exact landed memo
+plus governing-doc revisions as current. Staging it does not activate Review, merge, or Done paths.
 
 This ADR explicitly supersedes the following material **as active guidance for Opzava
 platform-development work**, while retaining it as historical evidence:
@@ -170,9 +175,11 @@ contract. Harmless comments and non-semantic metadata do not. Governed changes u
 revision with a field-level diff, reason, actor, and consequences.
 
 Represent blocking dependencies as explicit directed edges and reject cycles. A dependent DevTicket
-cannot be claimed until every required dependency is Done. Review changes-requested returns the work
-to Todo. It goes to the bottom by default and to the top when it blocks another DevTicket or the
-Active Sprint Goal.
+cannot be claimed until every required dependency is Done. A `pre_merge` Changes Requested decision
+returns still-valid-contract work to Todo: bottom by default or top when it blocks another DevTicket
+or the Active Sprint Goal. A `provider_result` Changes Requested decision uses governed post-merge
+remediation/Blocked; provider-result Inconclusive remains Review unless its separately approved
+persistent-Inconclusive remediation rule applies.
 
 Use these classifications:
 
@@ -242,9 +249,10 @@ command boundary used by other clients, but cannot update the aggregate directly
 
 Comments and worklogs are append-oriented. Verified mapped-human comments synchronize one-to-one.
 Agent milestones, pauses, failures, handoffs, and completion create immutable, attributed worklog
-comments. Review emits a structured summary containing contract version, locked SHA, checks,
-verdict, and evidence refs. High-volume execution telemetry stays in Opzava. Corrections append a
-new record rather than rewriting relied-upon history.
+comments. Review emits a structured summary with the canonical **Review Attempt Snapshot**
+kind/ID/hash, its variant-required authenticated provider facts, checks, decision, and evidence
+refs. High-volume execution telemetry stays in Opzava. Corrections append a new record rather than
+rewriting relied-upon history.
 
 Each Issue create intent owns one immutable public-safe `create` correlation UUID. The managed body,
 all later render/parser results, Mirror Shadows, and pending/confirmed GitHub Issue Binding retain
@@ -328,18 +336,19 @@ GitHub history waits until the relevant write and reconciliation are confirmed. 
 exposure and unhealthy or unverifiable GitHub integration are absolute, unbypassable stops. Other
 exceptions are explicit, version-bound Needs Human Approval decisions.
 
-Review #229 remains the only owner of independent verdict and exact merge authorization; the GitHub
-integration only dispatches an already-authorized merge and confirms native facts. Runner/trust #232
-remains the only owner of fenced worktree/process execution and signed remediation receipts; the
-integration may request conflict remediation but cannot launch an agent or grant general merge
-authority. A raw write-capable installation token never reaches the Runner. Immutable bundle bytes
-enter only signed/scanned artifact ingress; the ref-only WSS handoff carries the admitted artifact
-reference/digests plus lease/nonce/exact-ref/old-SHA/new-SHA. The trusted Git transport broker
-fetches and independently re-hashes the bytes before the provider push. A lost push response enters
-one durable Authorized Git Ref Update reconciliation: intended new SHA confirms, unchanged old SHA
-remains bounded unresolved without a blind repush, and any third SHA becomes a visible ref conflict
-requiring fresh authorization. The same record admits no duplicate remediation run. A confirmed new
-remediation SHA invalidates stale evidence and returns through independent Review.
+Review #229 remains the only owner of independent Review Decision and exact merge authorization; the
+GitHub integration only dispatches an already-authorized merge and confirms native facts.
+Runner/trust #232 remains the only owner of fenced worktree/process execution and signed remediation
+receipts; the integration may request conflict remediation but cannot launch an agent or grant
+general merge authority. A raw write-capable installation token never reaches the Runner. Immutable
+bundle bytes enter only signed/scanned artifact ingress; the ref-only WSS handoff carries the
+admitted artifact reference/digests plus lease/nonce/exact-ref/old-SHA/new-SHA. The trusted Git
+transport broker fetches and independently re-hashes the bytes before the provider push. A lost push
+response enters one durable Authorized Git Ref Update reconciliation: intended new SHA confirms,
+unchanged old SHA remains bounded unresolved without a blind repush, and any third SHA becomes a
+visible ref conflict requiring fresh authorization. The same record admits no duplicate remediation
+run. A confirmed new remediation SHA invalidates stale evidence and returns through independent
+Review.
 
 GitHub webhook facts and labels cannot authenticate an Actions command. An allowlisted workflow uses
 a short-lived GitHub OIDC token with an Opzava-specific audience and a canonical request. Opzava
@@ -491,24 +500,196 @@ action, one-time nonce, expiry, and audit record. Replay, expiry, role revocatio
 invalidates it. Slack never carries secret values. Machine enrollment, secret entry, and
 security/integration trust changes require the secure Opzava UI.
 
+Review notification producers atomically append secret-safe intents keyed by tenant, recipient,
+source owner, source event ID/version, and kind. Required Review intents cover both authorization-
+request kinds and their reject/expiry/revocation, Review WIP saturation, provisioning/launch or
+containment failure, Changes Requested/Inconclusive, Reviewer-discovery Proposals, and provider
+uncertainty or external-result conflict. The Notifications boundary owns bounded retry and
+`delivered | terminal_failed`; replay, timeout, duplicate callbacks, or permanent Slack failure can
+change only delivery history, never Review, Review WIP, Attempt, approval, merge/reconciliation,
+rework, or Done.
+
 The DevTicket stores named secret references and health; the Card displays them. Actual values
 remain in an approved keyring or vault and are resolved under policy for the active lease. Values
 must never enter GitHub, Slack, Cards, Docs, comments, worklogs, Review summaries, logs, preview
 URLs, or audit payloads.
 
+Every code-producing source must complete a **Deepening Module** stage before Review admission. The
+immutable, secret-safe **Deepening Module Artifact** is source-discriminated. The `pre_merge`
+variant binds the exact Ready Contract Version and current Revision/carry-forward lineage, Frozen
+Implementation Candidate commit/tree, changed/generated module inventory, engineering-skill/tool/
+version, architectural findings, accepted actions or explicit no-change disposition, signed
+implementation receipt, and governed Docs document ID/version/content hash. An already-observed
+code-producing provider result instead uses a `provider_result` artifact variant plus a Provider
+Result Deepening Capture bound to its authenticated commit/tree/parents/`development`, current
+Ready/Revision lineage, preflight/security-scan generations, local Runner, required
+skill/tool/policy, and a dedicated source-read-only worktree. It never requires an implementation
+checkpoint, mutates source, or writes to GitHub; finalization requires the immutable Docs
+`provider_result` artifact/signed capture receipt plus complete process/worktree/grant containment.
+Dev Board owns the source-discriminated code-producing applicability/current pointer and gate;
+governed Docs owns and exposes the immutable document version, while the Runner ledger retains only
+the signed tool receipt and observations. Any source tree, module inventory, contract, Revision, or
+required skill/policy drift makes the pointer stale. A version-bound non-code fact is the only
+alternative and requires explicit current Capture/artifact/receipt absence. Missing/stale/forged
+bindings keep the source state and, after auth+Secret-Safe Ingress, write one terminal rejected
+receipt but no retry, Handoff, Review Membership, Review WIP, Attempt, grant, lease, lane, token, or
+release effect. An explicit non-code classification is version-bound and cannot excuse generated
+code. Successful ordinary admission atomically binds the exact artifact/applicability fact into the
+Frozen Implementation Candidate and Review Handoff. The independent Reviewer binds and checks the
+current artifact and re-evaluates harmony with extra weight on changed/generated modules; the
+artifact is an input, never Review evidence, a Review Decision, or permission to Pass.
+
 Review uses a configured fresh independent local Reviewer tool/model and the shared local Docker
 stack. An accepted exact submission atomically freezes/fences the candidate, creates a prepared
 Review Handoff, moves the DevTicket to Review / Preparing Review, and increments the membership-only
-Review WIP counter. Its implementation lease, capacity, and worktree remain held until finalization
-proves no process exists or the process/worktree is stopped or quarantined and every
-lease-credential and preview-tunnel revocation is confirmed. Only after that finalization may fresh
-Reviewer authority be provisioned or launched. Reviewer execution capacity and Review WIP are
-separate from implementation capacity. The shared local Docker Review stack has one exclusive fenced
-lease: work that uses or mutates the stack, or would invalidate locked-SHA evidence, queues behind
-it, while unrelated coding may continue. Evidence is bound to exact Ready Contract Version and
-commit SHA. A temporary preview tunnel is authenticated, expiring, revocable, and bound to the
-relevant Review/Runner authority and exact build. Detailed Review Gate internals remain a separate
-specification; until it exists, Done fails closed.
+Review WIP counter keyed by exact tenant and workspace. Its implementation lease, capacity, and
+worktree remain held until finalization proves no process exists or the process/worktree is stopped
+or quarantined and every lease-credential and preview-tunnel revocation is confirmed. Only after
+that finalization may fresh Reviewer authority be provisioned or launched. Reviewer Execution
+Capacity and Review WIP are separate from implementation capacity. The shared local Docker Review
+stack has one exclusive fenced lease: work that uses, mutates, or observes the stack queues behind
+it, while unrelated coding may continue. Source/base drift stales the Review Attempt Snapshot
+through command locks, not the Docker lease.
+
+Finalizing the Review Handoff while emitting `ReviewRequested`, or governed external-result
+admission, atomically allocates the first Attempt ID/generation, so there is no handoff/no-run
+containment gap. After PR/source confirmation, staged reservation first binds Reviewer Execution
+Capacity, inactive Review Access Grants, and the Docker Review Lease; one generation CAS then
+creates the single current immutable Review Attempt Snapshot around those reservations without
+circular Snapshot/grant/Docker authority. Only afterward may the resulting authority activate, the
+Reviewer process start, and checks run. The discriminated pre-merge variant binds the Frozen
+Implementation Candidate, a PR head exactly equal to its candidate SHA, separately bound contract
+carry-forward lineage, and exact base/merge result/strategy; the provider-result variant binds the
+Post-Merge Review Snapshot and actual provider commit/tree/parents/target. Both bind current Ready,
+deterministic manifest/policy, Reviewer configuration/session and version-bound least-privilege
+Review Access Grants, local Runner, and Docker generation/digests plus clean runtime/data baseline
+attestation. Trusted non-model scanning occurs before push/PR and before source or output reaches
+the Reviewer/model. The Reviewer has no inherited implementation, source-write, push, merge,
+approval, or Done authority; suggested checks are advisory until deterministically added to a
+successor manifest. Every Attempt contains its authority. Material Revision/Absolute Stop uses
+contextual Review Containment Proof. Ordinary cutoff or every pre-Running cancellation/non-material
+supersession first creates/reuses an exact Review Exit Containment Requirement. That includes a
+Queued/Provisioning Attempt with no activated resource, whose requirement records signed
+explicit-none resource slots rather than using requirement absence. Bounded cleanup accumulates
+component facts and `AcceptReviewExitContainment` alone composes its proof and terminalizes the
+Attempt in one CAS. Ordinary successor/exit/merge/Done uses that distinct Review Exit Containment
+Proof. Current post-package Inspection authority must also be absent or contained before successor
+authority, Review exit, merge, or Done.
+
+`ReviewMembership` is the internal active/inactive record that makes keyed Review WIP auditable. The
+initial Review admission creates active Review Membership pointing to the prepared Handoff with null
+Attempt fields and retained historical generation; Handoff finalization atomically binds the first
+Attempt ID/row version and next generation. A successor or existing-Review external-result finalizer
+CAS-switches the same active pointer tuple only after exact containment and authority locks. Every
+terminal lane/Review WIP exit atomically marks Review Membership inactive, clears current
+Handoff/Attempt IDs and row versions, preserves exact terminal references/generation in the
+consuming fact, and decrements keyed Review WIP. Outside-Review adoption creates fresh active Review
+Membership with its Handoff/Attempt and Review WIP increment in one transaction. Post-merge
+remediation Blocked copies the terminal tuple into its Episode; resume requires inactive/null
+current pointers and creates a fresh higher-generation Review Membership rather than reviving the
+old Attempt.
+
+Resolving an Absolute Stop consumes only its contextual proof and retains Review/Review WIP. A
+separate version-locked finalizer independently persists an exit proof over the same immutable
+cleanup facts, cancels a nonterminal stopped Attempt only when no decision/package committed; if
+cutoff already committed them, it preserves them and completes the Attempt. An already terminal
+Attempt is never rewritten. Stop/disposition facts append independently. New stop recurrence,
+Revision, and successor finalization race on the same Attempt/stop generations; one proof is never
+renamed into the other.
+
+A completed Attempt produces an immutable decision-time Review Evidence Package and Pass, Changes
+Requested, or Inconclusive; package commit atomically creates its initial `current` Evidence
+Disposition and CAS-protected current pointer. Later disposition, containment, Merge Authorization,
+provider merge attestation, and completion facts are separate immutable linked records composed in
+the Card. The completion fact discriminates `AdmitDone` from `ReconcileExternalResultDone` and binds
+the exact command ID/version/receipt. Reviewer findings outside the current Ready Contract/manifest
+use canonical `DraftProposal → SubmitProposal → AwaitingDecision` with Attempt/finding idempotency;
+submission atomically appends the safe notification intent that Notifications may deliver through
+Slack. Human Owner decision and ordinary Backlog/Ready/Sprint Plan rules then apply; findings never
+silently enlarge the decision or Sprint.
+
+The pre-merge PR stays draft during independent Review. After current Pass and Review Exit
+Containment Proof, one system-owned semantic Mark Pull Request Ready Request is reserved/dispatched
+with current authority rechecks and authenticated provider confirmation/reconciliation. Only exact
+`confirmed_ready` truth and freshly read repository-review/check facts permit merge eligibility;
+timeout, external ready/draft changes, or later source drift never infer readiness or authorize
+merge. `confirmed_not_ready` is terminal for its generation; only a new authenticated provider/
+health fact or governed repair disposition may create a bounded successor, and exhaustion retains
+Review.
+
+If a bound fact invalidates a ready PR before merge submission, a separate system-owned semantic
+Convert Pull Request to Draft Request shares one singleton tenant/workspace/installation/repository/
+PR mutex with ready and merge, rechecks the invalidation, and reconciles unknown provider outcome.
+Until `confirmed_draft`, stale merge authority stays suppressed; `confirmed_still_ready` is terminal
+for its generation and uses the same bounded new-fact/repair rule. Merge-submission-first remains
+owned by merge-result reconciliation.
+
+Pass is not merge authority. Every current pre-merge Pass first produces one exact current
+discriminated Merge Authorization Requirement. Automatic merge requires `not_required` plus explicit
+Request/Authorization absence; human approval requires `required`, then the exact approved
+Request/Authorization, which merge reservation consumes for one semantic action. Missing rows never
+mean consent. A provider-result Pass may request only External Result Reconciliation Authorization
+through its own durable request/current-state lifecycle. Both request kinds notify through the
+secret-safe outbox and retain Review/Review WIP on reject, expiry, or revocation. The merge
+authorization binds tenant/workspace, the exact current Human Owner identity/version acting through
+the exact current Admin authority identity/version, exact current Evidence Disposition, Review Exit
+Containment Proof, confirmed-ready generation, and exact package/provider action. Merge is a
+system-owned idempotent GitHub saga; authorization/outbox reference and lock exact Review Exit
+Containment Proof plus latest current Evidence Disposition and current policy/mandatory-manifest
+eligibility before dispatch and Done. A detected policy/manifest mismatch CAS-appends a stale
+disposition before suppressing, while terminal Review exit consumes the proof. Provider-confirmed
+exact merge into `development` gates Done. Early/external/mismatched merge creates a fail-closed
+conflict. Only an actual result in `development` may use external-result reconciliation;
+wrong-target results require a governed candidate plus ordinary pre-merge Review. External-result
+reconciliation additionally requires explicit new #230 durable prepare/finalize/ cancel handoff and
+Done command variants, ordinary adoption through a distinct pre-admission intent only from
+non-Sprint Todo/In Progress with atomic consumption of its exact Needs Human Approval exception
+token approved by the exact current Human Owner identity/version acting through the exact current
+Admin authority identity/version, source-lane/Sprint/Blocked/archive/Done safeguards, fresh
+`provider_result` Review, fully bound reconciliation Request and Authorization under those exact
+authority versions, both consumed atomically with Done, and a discriminated Deepening applicability
+binding. A `code_producing` result binds current Provider Result Deepening Capture applicability
+plus immutable governed Docs `provider_result` artifact/signed Runner receipt IDs/hashes; a
+`non_code` result binds the exact current version-bound non-code fact plus explicit
+Capture/artifact/receipt absence. Both bind current policy/mandatory-manifest checks, current
+Secret-Safe Repository Preflight/security- scan pointer generations plus accepted IDs/hashes,
+stale-disposition CAS, and Absolute Stop locks. Authorization approval locks and rechecks the exact
+branch and CAS-stales/revokes on drift; Done rechecks it again. The path also requires an exact
+failed-review remediation Blocked/Review WIP-release path for Changes Requested or a
+threshold-qualified persistent Inconclusive with an exact remediation Request approved by the exact
+current Human Owner identity/version acting through the exact current Admin authority
+identity/version, linking either an already Ready-approved Todo DevTicket or a Proposal accepted
+under that same exact authority that first creates a Backlog DevTicket and completes normal
+Ready/Todo promotion before special resume. The Blocked transition locks graph/Plan versions and
+rejects a remediation ticket that depends directly/transitively on the reviewed ticket or is
+otherwise unclaimable. It persists a Post-Merge Remediation Wait Edge that participates in every
+later cycle check until resume closes it. Human Owner transfer or Admin authority revocation before
+adoption, remediation Block, reconciliation approval, or Done CAS-revokes/stales the applicable
+human record with no lane/WIP/proof effect. #229 refines #230's umbrella `ReviewMergeAuthorization`
+placeholder into separate requirement/proof, PR-ready/draft saga, singleton per-PR mutex,
+discriminated Merge Authorization Requirement, both authorization kinds, merge/provider, and
+remediation records plus an explicit command/proof matrix. The full prepared candidate is
+`docs/plan/research/wf229-review-gate-contract.md`; it becomes current only after the reviewed
+landing, the exact #229 evidence comment and closure, and #228 designation of the exact landed memo
+plus governing-doc revisions. Until implemented, Done fails closed.
+
+The existing-Review External Result Review Preparation locks the exact Handoff plus its branch-
+specific pointer. A prepared/cancelling Handoff requires explicit-null Attempt fields and explicit
+absence of every active Review Exit Containment Requirement, and it creates none. A finalized
+Handoff requires the exact current Attempt and may reuse one compatible pending/accepted requirement
+or create one only from explicit active absence. Competing/incompatible prepares write nothing.
+Cancellation terminalizes only a Preparation-owned `external_result_switch` requirement while
+retaining proof/history; an adopted `ordinary_attempt_exit` remains unchanged. The active guard
+rejects ordinary Handoff commands, `ReviewChangesRequested`, material-Revision
+acceptance/finalization, and Review-source execution-loss transition. Neither competing path may
+terminalize the guarded Handoff, clear Membership, decrement Review WIP, or take over the
+Preparation's requirement/proof or containment ownership. For the finalized-Handoff branch, proof
+acceptance already terminalizes the exact old Attempt target; Preparation finalization validates and
+preserves it. A prepared/cancelling Handoff finalizer releases its contained implementation lease,
+capacity, and worktree exactly once before switching Review Membership to new external Attempt
+authority. Outside-Review External Result Adoption Intent creates Review Membership, Handoff/Attempt
+pointers, lane entry, Review WIP increment, token consumption, and contained-resource release in one
+CAS; a full/stale/losing path writes none of them.
 
 Sprint is a versioned Goal and ordered DevTicket plan for `autonomous_serial` execution, not a Board
 lane. Permit many Draft Sprints, at most one Approved and Queued Sprint, and at most one Active
@@ -523,9 +704,10 @@ resolvable, an available Sprint lease under the Runner preset, and no Absolute S
 Sprint permits at most one Sprint implementation DevTicket In Progress. After that ticket enters
 Review / Preparing Review, the next planned item waits until the Review Handoff finalizes and
 releases its implementation lease, capacity, and worktree subject to admission. Review WIP is
-independently limited to three; at the limit, no new implementation work is claimed and Slack
-notifies the Admin, without killing leases already in progress. Scope changes use an approved Plan
-revision. Sprint history is immutable and is mirrored to a GitHub Milestone plus tracking issue.
+independently limited to three per exact tenant/workspace; at that key's limit, no new
+implementation work is claimed there and Slack notifies the Admin, without killing leases already in
+progress or blocking another key. Scope changes use an approved Plan revision. Sprint history is
+immutable and is mirrored to a GitHub Milestone plus tracking issue.
 
 Admin Overview may project capacity, lease use, and waiting reasons under PRD-020, but it owns none
 of the Dev Board admission, preset, lease, Sprint, or Review state described here.
@@ -535,7 +717,7 @@ Keep four separate ledgers:
 1. **Planning decision ledger:** questions, recommendations, human decisions, rejected alternatives,
    unresolved items, contract and Plan revisions, and document versions.
 2. **Dev Board activity/history ledger:** accepted product commands, lane changes, assignments,
-   approvals, comments, dependencies, Review verdicts, and Done facts.
+   approvals, comments, dependencies, Review Decisions, and Done facts.
 3. **Runner execution/checkpoint ledger:** signed local process, worktree/local-branch, command,
    receipt, monotonic-sequence, heartbeat, checkpoint, Docker, and reconnect observations correlated
    to Opzava-owned lease, fence, and command-nonce refs. The lifecycle records and decisions do not
@@ -556,6 +738,12 @@ confirmations are durable. Only normalized Secret-Safe facts, request hashes, an
 persist; no raw webhook or retry request body enters a ledger. Non-authoritative normalized
 diagnostic detail may age out after its named replay/audit window without deleting those durable
 identities or decisions.
+
+Deepening Module content follows the same ownership split: governed Docs stores and exposes the
+immutable secret-safe artifact document; Dev Board activity stores the applicability/current-pointer
+decision and exact Docs ID/version/hash used by admission; Runner execution stores only the signed
+skill/tool receipt and component observations. A Docs projection or Runner receipt alone cannot make
+an artifact current.
 
 No ledger stores secret values or raw unredacted provider payloads. When legal or security policy
 requires redaction of a durable record, retain an attributable tombstone and integrity hash rather
@@ -602,11 +790,12 @@ coordination signals and merge conflicts remain agent-remediated; the architectu
 can prove changing file sets are disjoint.
 
 Independent local Review and Docker verification make completion more expensive than moving a card.
-That cost is intentional. Separating implementation capacity, reviewer capacity, Review WIP, and the
-one shared-Docker lease prevents unrelated coding from being serialized behind evidence collection
-while preserving SHA-bound proof. Until the separate Review contract is implemented, no DevTicket
-may reach Done. Done ends at merge into `development`; the separately specified Releases Gate starts
-after Done and cannot be inferred from it.
+That cost is intentional. Separating implementation capacity, Reviewer Execution Capacity, Review
+WIP, and the one shared-Docker lease prevents unrelated coding from being serialized behind evidence
+collection while preserving discriminated source-snapshot-bound proof. Until the separate Review
+contract is implemented, no DevTicket may reach Done. Done ends at merge into `development`; the
+separately specified Releases Gate starts after Done, and staging or production state cannot be
+inferred from it.
 
 Slack improves away-from-machine responsiveness but is intentionally not a general administration or
 secret channel. Expiring, version-bound nonces and secure-UI-only actions add friction where stale

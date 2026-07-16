@@ -20,6 +20,10 @@ Two focused sprints own current work. Everything else is shared foundation or fr
   (PRD-012, PRD-018, ADR-013) feeds Dev Board Incidents and belongs to this umbrella.
   `docs/plan/research/wf236-releases-gate-contract.md` is the resolved canonical target input from
   closed Dev Board Wayfinder #236 and remains current for #237 synthesis while map #228 is open.
+  `docs/plan/research/wf229-review-gate-contract.md` is the prepared pre-Review Deepening Module
+  plus independent Review Gate amendment until the reviewed #229 change lands, issue #229 receives
+  the exact evidence comment and closes, and map #228 designates the exact landed memo plus
+  governing-doc revisions current input.
 - **Admin Control Center** — shell, navigation, Admin Overview composition, and page placement are
   governed by `docs/prd/PRD-020-admin-control-center.md` and
   `docs/plan/admin-control-center-foundation-decisions.md`; read them with
