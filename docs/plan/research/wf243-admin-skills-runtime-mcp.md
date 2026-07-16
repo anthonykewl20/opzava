@@ -70,37 +70,37 @@ merge them.
 
 ## Locked decisions
 
-| Question                                                            | Resolved decision                                                                                                                                                                                                                                                                                                                          |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Is Engineering Skills another runtime?                              | No. It is Opzava's governed catalog and rollout control plane over supported execution targets.                                                                                                                                                                                                                                            |
-| Does Opzava fork or copy the Matt Pocock engineering catalog?       | The user-approved canonical source is one Opzava-controlled GitHub fork with immutable upstream provenance. A mirror or cache may support fetch/availability internally but is never an alternative authority. No such fork currently exists in the inspected GitHub organization, so initial enrollment is setup work, not assumed state. |
-| Are upstream changes automatic?                                     | Detection may be scheduled or webhook-driven. Assessment, approval, activation, and rollout are always explicit. “Automatic update” means automatic candidate detection only.                                                                                                                                                              |
-| Are all user-approved engineering names upstream names?             | No. Preserve canonical frontmatter names and provenance. Names absent from the pinned upstream snapshot, including current user-approved `grilling`, `qa`, and `to-issues`, must be modeled as explicit fork-derived or Opzava-authored entries rather than silently aliased.                                                              |
-| Is Runtime Skills a duplicate catalog?                              | No. Runtime Skills are OpenClaw-native skills; the Admin surface projects their observed installed/discovered/eligible state and links them to the approved catalog version when applicable.                                                                                                                                               |
-| Is the Ask Admin skill subset a page?                               | No. It is target policy. Agents → Ask Admin may show the effective set and denial reasons, then deep-link to the owning skill or policy surface.                                                                                                                                                                                           |
-| Is Ask Admin's exact v1 list settled here?                          | No. Current state is empty. #219 owns the exact content and required tool-policy changes. This memo locks the mechanism and boundary that #219 must satisfy.                                                                                                                                                                               |
-| Can a skill grant a tool named in its prose?                        | Never. Tool availability is independently admitted and deny-wins.                                                                                                                                                                                                                                                                          |
-| Is MCP Servers the old hosted-MCP proposal?                         | No. The hosted MCP/OAuth design in closed issue #151 remains superseded. The Admin page manages outbound external definitions and per-consumer projections; it creates no public Opzava MCP endpoint.                                                                                                                                      |
-| Is `openclaw mcp serve` the Admin MCP registry?                     | No. It is a local stdio bridge for channel conversations. It is not the external endpoint catalog and must not be presented as one.                                                                                                                                                                                                        |
-| Is local harness enrollment part of MCP Servers?                    | No. Runner enrollment and harness selection are owned by local execution setup. MCP Servers may target an already-enrolled, compatible managed harness profile.                                                                                                                                                                            |
-| Can the same MCP server be used by orchestrator and local tools?    | Yes as one logical definition with separate consumer bindings. “Same” never means shared credentials, identical policy, or shared health.                                                                                                                                                                                                  |
-| Can Opzava overwrite a user's global Codex or Claude configuration? | No. Opzava manages an isolated Opzava harness profile. An execution pins its effective profile revision.                                                                                                                                                                                                                                   |
-| How does rollback work?                                             | Rollback is a new audited deployment/config revision pointing to a retained previous verified version. It is never history deletion or an unverified file restore. Revoked, compromised, incompatible, or credential-invalid targets are ineligible.                                                                                       |
+| Question                                                            | Resolved decision                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Is Engineering Skills another runtime?                              | No. It is Opzava's governed catalog and rollout control plane over supported execution targets.                                                                                                                                                                                                                                                                                                                                            |
+| Does Opzava fork or copy the Matt Pocock engineering catalog?       | The user-approved canonical source is one **platform-owned** Opzava GitHub fork with immutable upstream provenance. It is shared platform authority, never a per-tenant fork. Tenant policy selects approved versions and rollout targets. A mirror/cache may support availability internally but is never alternative authority. No such fork currently exists in the inspected GitHub organization, so initial enrollment is setup work. |
+| Are upstream changes automatic?                                     | Detection may be scheduled or webhook-driven. Assessment, approval, activation, and rollout are always explicit. “Automatic update” means automatic candidate detection only.                                                                                                                                                                                                                                                              |
+| Are all user-approved engineering names upstream names?             | No. Preserve canonical frontmatter names and provenance. Names absent from the pinned upstream snapshot, including current user-approved `grilling`, `qa`, and `to-issues`, must be modeled as explicit fork-derived or Opzava-authored entries rather than silently aliased.                                                                                                                                                              |
+| Is Runtime Skills a duplicate catalog?                              | No. Runtime Skills are OpenClaw-native skills; the Admin surface projects their observed installed/discovered/eligible state and links them to the approved catalog version when applicable.                                                                                                                                                                                                                                               |
+| Is the Ask Admin skill subset a page?                               | No. It is target policy. Agents → Ask Admin may show the effective set and denial reasons, then deep-link to the owning skill or policy surface.                                                                                                                                                                                                                                                                                           |
+| Is Ask Admin's exact v1 list settled here?                          | No. Current state is empty. #219 owns the exact content and required tool-policy changes. This memo locks the mechanism and boundary that #219 must satisfy.                                                                                                                                                                                                                                                                               |
+| Can a skill grant a tool named in its prose?                        | Never. Tool availability is independently admitted and deny-wins.                                                                                                                                                                                                                                                                                                                                                                          |
+| Is MCP Servers the old hosted-MCP proposal?                         | No. The hosted MCP/OAuth design in closed issue #151 remains superseded. The Admin page manages outbound external definitions and per-consumer projections; it creates no public Opzava MCP endpoint.                                                                                                                                                                                                                                      |
+| Is `openclaw mcp serve` the Admin MCP registry?                     | No. It is a local stdio bridge for channel conversations. It is not the external endpoint catalog and must not be presented as one.                                                                                                                                                                                                                                                                                                        |
+| Is local harness enrollment part of MCP Servers?                    | No. Runner enrollment and harness selection are owned by local execution setup. MCP Servers may target an already-enrolled, compatible managed harness profile.                                                                                                                                                                                                                                                                            |
+| Can the same MCP server be used by orchestrator and local tools?    | Yes as one logical definition with separate consumer bindings. “Same” never means shared credentials, identical policy, or shared health.                                                                                                                                                                                                                                                                                                  |
+| Can Opzava overwrite a user's global Codex or Claude configuration? | No. Opzava manages an isolated Opzava harness profile. An execution pins its effective profile revision.                                                                                                                                                                                                                                                                                                                                   |
+| How does rollback work?                                             | Rollback is a new audited deployment/config revision pointing to a retained previous verified version. It is never history deletion or an unverified file restore. Revoked, compromised, incompatible, or credential-invalid targets are ineligible.                                                                                                                                                                                       |
 
 ## Current-state inventory
 
 The distinction between **current** and **target** is mandatory. The locked pages are not already
 implemented.
 
-| Area                   | Current repository truth                                                                                                                                                                                                                                                                                                                                                                                                  | Gap to target                                                                                                                          |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Engineering Skills     | No Opzava catalog route, catalog service, approved version store, rollout receipt, or managed local-harness projection exists. Project-local `.claude/skills` contains repository guidance, not a product catalog.                                                                                                                                                                                                        | Build the Opzava governance/catalog seam and enrollment flow.                                                                          |
-| Upstream source        | The inspected `mattpocock/skills` `main` tree at commit `9603c1cc8118d08bc1b3bf34cf714f62178dea3b` contains the engineering catalog listed below. No `anthonykewl20/skills` fork was found.                                                                                                                                                                                                                               | Create and record the single canonical Opzava-controlled fork; pin every candidate to immutable identity and content hash.             |
-| Runtime Skills         | The Mainframe source fork implements discovery, precedence, agent filtering, eligibility, status, search/detail, security verdicts, install, and update; Skill Workshop proposals also support reject/quarantine actions. The running Platform Gateway supplies installed/observed truth. `OpenClawGatewayPort` does not expose an Opzava product adapter for those lifecycles, and no Opzava Runtime Skills page exists. | Add bounded adapters and projections without reimplementing the runtime.                                                               |
-| Ask Admin skill subset | Ask Admin is provisioned with `skills: []`, `profile: "minimal"`, and filesystem/read restrictions. It cannot currently load any OpenClaw skill.                                                                                                                                                                                                                                                                          | #219 must define the exact content and separately justify every tool prerequisite; this memo supplies the fail-closed selection model. |
-| MCP Servers            | The Mainframe source fork implements an outbound MCP registry and Codex/Claude bundle support; the Platform Gateway and harness adapters provide target observations. Opzava has no generic Admin registry or provisioning adapter.                                                                                                                                                                                       | Add the Opzava registry, policy projection, per-consumer binding, SecretRef, health, revision, and receipt seams.                      |
-| Legacy Opzava MCP      | `apps/mcp-server` is a local stdio server exposing legacy Task tools through an Opzava link token.                                                                                                                                                                                                                                                                                                                        | It is migration evidence for Dev Board mapping #237, not the target MCP Servers registry or a hosted service.                          |
-| Admin UI               | Current `/connections/add` explicitly defers MCP until a live backend seam exists; the current shell has none of the three target leaves.                                                                                                                                                                                                                                                                                 | #246 must place the new leaves without growing legacy Connections into a generic setup bucket.                                         |
+| Area                   | Current repository truth                                                                                                                                                                                                                                                                                                                                                                                                  | Gap to target                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Engineering Skills     | No Opzava catalog route, catalog service, approved version store, rollout receipt, or managed local-harness projection exists. Project-local `.claude/skills` contains repository guidance, not a product catalog.                                                                                                                                                                                                        | Build the Opzava governance/catalog seam and enrollment flow.                                                        |
+| Upstream source        | The inspected `mattpocock/skills` `main` tree at commit `9603c1cc8118d08bc1b3bf34cf714f62178dea3b` contains the engineering catalog listed below. No `anthonykewl20/skills` fork was found.                                                                                                                                                                                                                               | Create the single platform-owned canonical Opzava fork; tenants select approved versions but never own source forks. |
+| Runtime Skills         | The Mainframe source fork implements discovery, precedence, agent filtering, eligibility, status, search/detail, security verdicts, install, and update; Skill Workshop proposals also support reject/quarantine actions. The running Platform Gateway supplies installed/observed truth. `OpenClawGatewayPort` does not expose an Opzava product adapter for those lifecycles, and no Opzava Runtime Skills page exists. | Add bounded adapters and projections without reimplementing the runtime.                                             |
+| Ask Admin skill subset | Ask Admin is provisioned with `skills: []`, `profile: "minimal"`, and filesystem/read restrictions. It cannot currently load any OpenClaw skill. Current `buildSubagentAgentEntry` emits explicit tools but omits `skills`, so descendants can inherit Gateway defaults.                                                                                                                                                  | #219 defines content; #216/#219 must use the explicit default/descendant fail-closed mechanism below.                |
+| MCP Servers            | The Mainframe source fork implements an outbound MCP registry and Codex/Claude bundle support; the Platform Gateway and harness adapters provide target observations. Opzava has no generic Admin registry or provisioning adapter.                                                                                                                                                                                       | Add the Opzava registry, policy projection, per-consumer binding, SecretRef, health, revision, and receipt seams.    |
+| Legacy Opzava MCP      | `apps/mcp-server` is a local stdio server exposing legacy Task tools through an Opzava link token.                                                                                                                                                                                                                                                                                                                        | It is migration evidence for Dev Board mapping #237, not the target MCP Servers registry or a hosted service.        |
+| Admin UI               | Current `/connections/add` explicitly defers MCP until a live backend seam exists; the current shell has none of the three target leaves.                                                                                                                                                                                                                                                                                 | #246 must place the new leaves without growing legacy Connections into a generic setup bucket.                       |
 
 ### Pinned upstream Engineering Skills evidence
 
@@ -152,17 +152,18 @@ explicit Mainframe adapter/patch and real Platform Gateway proof.
 
 ## Target authority matrix
 
-| Capability                                                               | Desired-state authority                                           | Runtime/observed authority                                                 | Mutation path                                                   | Product placement                                                     |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Engineering catalog entry, canonical name, provenance, approved versions | Opzava `SkillCatalogPort` and durable tenant policy               | Canonical fork and upstream status are evidence only                       | Owner/admin application service → audited worker job            | Configure → Engineering Skills                                        |
-| Engineering skill deployment to orchestrator/local harness               | Opzava deployment revision and target binding                     | OpenClaw or managed harness adapter reports materialized version/receipt   | Audited worker; short-lived target authority; idempotent apply  | Engineering Skills detail and target rollout view                     |
-| OpenClaw-native installed/discovered skill                               | `SkillCatalogPort` is the sole approval authority                 | Running Platform Gateway                                                   | Audited worker calling Mainframe-native lifecycle behind a port | AI Runtime → Runtime Skills                                           |
-| Ask Admin skill selection                                                | Ask Admin target policy owned by PRD-005/#219                     | OpenClaw agent config plus effective-policy observation                    | Versioned policy mutation; runtime reprovision through worker   | Not a top-level page; read-only effective view under Ask Admin/Agents |
-| Skill tool prerequisite                                                  | Effective capability policy                                       | Gateway/tool inventory and consumer policy                                 | Independent tool/MCP/integration setup; never skill prose       | Owning tool/integration pages                                         |
-| MCP server definition                                                    | Opzava MCP registry                                               | Endpoint definition is desired state; endpoint metadata is untrusted input | Owner/admin application service                                 | Configure → MCP Servers                                               |
-| MCP consumer binding                                                     | Opzava binding and target policy                                  | Orchestrator or enrolled harness adapter reports applied revision          | Audited worker; per-consumer apply/rollback                     | MCP Server detail → Targets                                           |
-| MCP reachability/capability health                                       | No durable command authority; Opzava stores observations/receipts | Per-consumer live probe is observation truth                               | Read/probe with safe rate limit and explicit freshness          | MCP Server detail, Health projection, Overview readiness              |
-| Secret material                                                          | Secret subsystem/provider                                         | Consumer only receives resolved value at execution/provision boundary      | SecretRef selection/rotation; no browser retrieval              | Configure → Secrets; reference-only elsewhere                         |
+| Capability                                                                 | Desired-state authority                                           | Runtime/observed authority                                                 | Mutation path                                                   | Product placement                                                     |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Engineering source, canonical name, provenance, platform-approved versions | Platform-owned `SkillCatalogPort` and canonical Opzava fork       | Canonical fork and upstream status are evidence only                       | Platform-operator application service → audited worker job      | Configure → Engineering Skills source status (tenant read-only)       |
+| Tenant Engineering Skill selection and rollout                             | Tenant policy selects platform-approved versions/targets          | Selection/deployment receipts                                              | Tenant owner/admin application service                          | Configure → Engineering Skills                                        |
+| Engineering skill deployment to orchestrator/local harness                 | Opzava deployment revision and target binding                     | Platform Gateway or managed-harness adapter reports materialized version   | Audited worker; short-lived target authority; idempotent apply  | Engineering Skills detail and target rollout view                     |
+| OpenClaw-native installed/discovered skill                                 | `SkillCatalogPort` is the sole approval authority                 | Running Platform Gateway                                                   | Audited worker calling Mainframe-native lifecycle behind a port | AI Runtime → Runtime Skills                                           |
+| Ask Admin skill selection                                                  | Ask Admin target policy owned by PRD-005/#219                     | Platform Gateway agent config plus effective-policy observation            | Versioned policy mutation; runtime reprovision through worker   | Not a top-level page; read-only effective view under Ask Admin/Agents |
+| Skill tool prerequisite                                                    | Effective capability policy                                       | Gateway/tool inventory and consumer policy                                 | Independent tool/MCP/integration setup; never skill prose       | Owning tool/integration pages                                         |
+| MCP server definition                                                      | Opzava MCP registry                                               | Endpoint definition is desired state; endpoint metadata is untrusted input | Owner/admin application service                                 | Configure → MCP Servers                                               |
+| MCP consumer binding                                                       | Opzava binding and target policy                                  | Orchestrator or enrolled harness adapter reports applied revision          | Audited worker; per-consumer apply/rollback                     | MCP Server detail → Targets                                           |
+| MCP reachability/capability health                                         | No durable command authority; Opzava stores observations/receipts | Per-consumer live probe is observation truth                               | Read/probe with safe rate limit and explicit freshness          | MCP Server detail, Health projection, Overview readiness              |
+| Secret material                                                            | Secret subsystem/provider                                         | Consumer only receives resolved value at execution/provision boundary      | SecretRef selection/rotation; no browser retrieval              | Configure → Secrets; reference-only elsewhere                         |
 
 ## Provisional, non-canonical vocabulary for #246
 
@@ -171,18 +172,21 @@ explicitly provisional and non-canonical everywhere in this memo, even when capi
 readability. #246 must either promote them through the normal `CONTEXT.md` domain-modeling change or
 replace them with equally precise canonical terms before implementation tickets rely on them.
 
-| Proposed term                | Meaning and invariant                                                                                                                                  |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Skill Catalog Entry**      | A canonical skill identity with source class, provenance, allowed scopes, and policy. It is not installed state.                                       |
-| **Skill Version**            | Immutable, verified skill content identified by source revision and content hash. Mutable branch names are candidate locators, not versions.           |
-| **Skill Set Revision**       | Immutable ordered selection of Skill Versions and policy used by a workflow or target. Active executions pin one revision.                             |
-| **Skill Deployment**         | Desired materialization of a Skill Version or Skill Set Revision to one execution target plus its apply receipt.                                       |
-| **Managed Harness Profile**  | Isolated Codex/Claude configuration owned by Opzava for Opzava work. It is distinct from the user's global tool configuration.                         |
-| **MCP Server Definition**    | Logical external server identity, transport metadata, declared source, and safe non-secret configuration. It is not a live connection.                 |
-| **MCP Consumer Binding**     | One server definition projected to one target client with its SecretRefs, tool filters, policy, and applied revision.                                  |
-| **Capability Probe Receipt** | Timestamped, target-specific, non-secret observation of config validation, connection, advertised tools, and policy result. It is not permanent truth. |
-| **Effective Capability Set** | Final skills and tools admitted for a tenant, actor, target, client, and execution revision after deny-wins policy.                                    |
-| **Update Candidate**         | Immutable upstream/source change detected for assessment. Detection never implies approval or activation.                                              |
+| Proposed term                           | Meaning and invariant                                                                                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Skill Catalog Entry**                 | A canonical skill identity with source class, provenance, allowed scopes, and policy. It is not installed state.                                       |
+| **Skill Version**                       | Immutable, verified skill content identified by source revision and content hash. Mutable branch names are candidate locators, not versions.           |
+| **Skill Set Revision**                  | Immutable ordered selection of Skill Versions and policy used by a workflow or target. Active executions pin one revision.                             |
+| **Skill Deployment**                    | Desired materialization of a Skill Version or Skill Set Revision to one execution target plus its apply receipt.                                       |
+| **Managed Harness Profile**             | Isolated Codex/Claude configuration owned by Opzava for Opzava work. It is distinct from the user's global tool configuration.                         |
+| **MCP Server Definition**               | Logical external server identity, transport metadata, declared source, and safe non-secret configuration. It is not a live connection.                 |
+| **MCP Consumer Binding**                | One server definition projected to one target client with its SecretRefs, tool filters, policy, and applied revision.                                  |
+| **Capability Probe Receipt**            | Timestamped, target-specific, non-secret observation of config validation, connection, advertised tools, and policy result. It is not permanent truth. |
+| **Effective Capability Set**            | Final skills and tools admitted for a tenant, actor, target, client, and execution revision after deny-wins policy.                                    |
+| **Capability Admission Manifest**       | Version-addressed skill/MCP/tool/policy inputs pinned by one owner-specific run or session admission. It is not a new lease/session authority.         |
+| **Skill/Tool Digest Fields**            | Interoperable content/schema hashes using the versioned canonical encoding below; field names are not yet canonical domain terms.                      |
+| **Managed Harness Enforcement Adapter** | Runner-owned call-time enforcement integration whose server-verified attestation trust contract belongs to #232.                                       |
+| **Update Candidate**                    | Immutable upstream/source change detected for assessment. Detection never implies approval or activation.                                              |
 
 Two overloaded phrases must be prohibited in implementation briefs:
 
@@ -273,11 +277,11 @@ online/lease state remain Runner responsibilities rather than MCP Registry data.
 
 Every entry records:
 
-- tenant and catalog scope;
+- platform catalog/source scope plus separate tenant selection/rollout policy;
 - canonical frontmatter name and collision key;
 - source class: `upstream`, `fork-derived`, or `opzava-authored`;
 - upstream repository and immutable commit when applicable;
-- canonical Opzava-controlled fork identity and immutable commit;
+- platform-owned canonical Opzava fork identity and immutable commit;
 - optional mirror/cache observation linked to that fork, never treated as authority;
 - content hash, license, manifest, dependency set, requested tools, and compatibility declaration;
 - verification report and security verdict;
@@ -291,28 +295,29 @@ owner decision; source precedence must never choose invisibly.
 
 ### First setup
 
-The first Engineering Skills visit should be a simple guided form that does not require the user to
-open another tab for planning information:
+The platform has a one-time source bootstrap: an authorized platform operator establishes the
+canonical Opzava fork, records upstream provenance, verifies the platform GitHub App/installation
+and SecretRefs, and optionally provisions an internal mirror/cache. A tenant owner cannot create,
+replace, or credential a source fork.
 
-1. Show the recommended pinned Matt Pocock upstream source and explain that Opzava will govern one
-   canonical Opzava-controlled GitHub fork rather than execute `main` directly.
-2. Verify GitHub Integration health and required repository access. Use the GitHub App/installation
-   identity and SecretRefs where credentials are needed; never ask for or print a PAT.
-3. Create or select the canonical Opzava-controlled fork and record the upstream relationship. A
-   mirror/cache may be created behind the adapter for availability, but never appears as a second
-   selectable authority.
-4. Fetch an immutable candidate, verify manifest/content/license/dependencies/tool impact, and show
-   the catalog diff.
-5. Let the owner/admin approve the initial entries and target rollout policy.
-6. Produce an immutable Skill Set Revision, per-target deployment plans, and an approval summary.
-7. Apply atomically per target. Record receipts; partial multi-target success is `partial`, never
+The tenant's first Engineering Skills visit is instead a simple guided form that requires no other
+tab for planning information:
+
+1. Show canonical platform-fork/upstream health and immutable approved versions. If platform source
+   health is blocked, tenant setup is read-only with a platform-owned repair reason.
+2. Let the owner/admin select allowed entries, versions, and orchestrator/managed-harness rollout
+   targets under tenant policy.
+3. Show manifest/content/license/dependency/tool-impact verification and the exact tenant selection
+   diff.
+4. Produce an immutable Skill Set Revision, per-target deployment plans, and an approval summary.
+5. Apply atomically per target. Record receipts; partial multi-target success is `partial`, never
    “healthy.”
-8. Probe the resulting installation and effective policy, then activate only verified target
+6. Probe the resulting installation and effective policy, then activate only verified target
    bindings.
 
 If a fork cannot be created, upstream is unavailable, GitHub health is unverifiable, or immutable
-source identity cannot be proven, setup remains draft/blocked. No direct execution from a mutable
-branch is allowed.
+source identity cannot be proven, platform bootstrap remains blocked and every tenant selector is
+read-only. No tenant fallback source and no direct execution from a mutable branch is allowed.
 
 ### Update and rollback
 
@@ -389,6 +394,32 @@ candidate and remains non-effective for Opzava-managed execution until `SkillCat
 its verified version and approval. Runtime discovery cannot promote itself to catalog truth, even
 for a skill supplied by the Mainframe fork.
 
+### Runtime Skill teardown
+
+Disable/uninstall is target deployment teardown; it never deletes the `SkillCatalogPort` approval
+record or immutable source history. The reconciler first removes the skill from effective admission,
+then handles active owners separately: PRD-019/ADR-017 checkpoints/fences affected DevTicket runs,
+while PRD-005 denies/drains affected assistant turns and requires a new session manifest.
+
+The teardown plan inventories and receipts all target-owned material: version-addressed skill files
+and workspace projections, discovery/snapshot/cache entries, skill-attributable managed processes,
+environment/SecretRef attachments, and installed dependency references. It removes only files and
+processes attributable to that deployment. Shared binaries, packages, caches, dependencies, and
+SecretRefs use reference/dependency checks and are never deleted or rotated because one skill was
+removed.
+
+An offline target records desired disable/uninstall plus a non-secret tombstone and remains
+`pending-cleanup`; it is non-effective immediately but cannot claim filesystem/process cleanup.
+Files removed but cache still visible, process still alive, dependency cleanup failed, SecretRef
+still attached, target offline, or receipt persistence failed are explicit `partial-cleanup` states.
+Every step is idempotent and replayable; reconnect observes actual files/cache/process/dependencies,
+continues from the last receipt, and reaches `removed` only after verification. Repair/retry and
+rollback create new receipts and never erase failed attempts.
+
+Runtime teardown tests cover disable with each active admission class, offline target, file removal
+with stale cache, surviving attributable process, shared dependency/SecretRef reference counts,
+partial receipt failure, idempotent retry, reconnect observation, tombstone retention, and rollback.
+
 Runtime status and product status are deliberately distinct:
 
 | Layer      | Example states                                                          | Meaning                                               |
@@ -398,56 +429,104 @@ Runtime status and product status are deliberately distinct:
 | Runtime    | discovered, installed, eligible, filtered, disabled, missing dependency | What the running Platform Gateway currently observes. |
 | Effective  | callable, denied, approval required, stale/unverifiable                 | What this actor/agent/client may actually invoke now. |
 
-## Active-run capability stability and revocation
+## Active-session and run capability stability
 
 “Updates affect new runs” is not enforceable by documentation alone. Current official behavior can
 refresh skills on the next turn and can invalidate/refetch a dynamic MCP catalog within an active
-session. Opzava therefore owns this fail-closed seam:
+session. Every invocation therefore belongs to exactly one owner-specific admission class and pins
+an equivalent version-addressed **capability manifest** (provisional, non-canonical working term).
+WF-243 does not turn every Platform Gateway session into a DevTicket Execution Lease.
 
-1. At admission, the **Execution Lease** pins the Managed Harness Profile revision, model/tool
-   selection, Skill Set Revision and content hashes, MCP Consumer Binding revisions, exact
-   model-facing tool-name → approved schema-hash map, effective-policy revision, repository,
-   worktree, branch, starting SHA, command nonce/receipt sequence, and target identity.
-   `SkillVersionDigest` is SHA-256 over a canonical manifest plus every materialized relative path,
-   file content/mode/symlink target, declared dependency, runtime requirement, and requested-tool
-   requirement. `ToolSchemaDigest` is SHA-256 over canonical JSON containing the projected and
-   source tool names, input/output schemas, annotations, and capability metadata. Endpoint,
-   transport, SecretRef identity, filters, and policy are pinned separately by binding/policy
-   revision, so a schema digest never substitutes for connection identity.
-2. Managed skills are materialized at version-addressed immutable paths. Before every turn, the
-   trusted target adapter verifies the pinned names and content hashes. A watcher refresh, remote
-   node connection, source-precedence collision, or allowlist change cannot add or replace a skill
-   in the lease. Removed/revoked/mismatched content becomes non-effective immediately and fences the
-   affected execution for drain/restart or explicit reconciliation.
-3. Each MCP binding supplies a version-addressed manifest of exact projected names and approved
-   schemas. On `list_changed`, reconnect, cache invalidation, or freshness expiry, the trusted
-   consumer adapter re-lists and hashes schemas before dispatch. Added tools are denied. Removed
-   tools are denied immediately. A changed schema/name is denied immediately. Only tools whose name
-   and schema hash are independently unchanged and approved by the pinned policy may remain
-   effective for the active lease.
-4. The call-time policy hook checks lease/fence, binding revision, exact model-facing name, current
-   approved schema hash, tenant/actor/client/target policy, entitlement/suspension, and approval
-   immediately before dispatch. Cached model context or a previously returned tool list grants
-   nothing.
-5. If a target cannot provide version-addressed materialization and the call-time proof above, it is
-   ineligible for activation. Updates require draining/restarting the affected Platform Gateway
-   session or local harness run onto a newly admitted lease; no best-effort hot swap is allowed.
-6. Security revocation, tenant suspension, credential revocation, or explicit policy denial fences
-   immediately even though ordinary compatible updates wait for a new lease.
+### Common manifest and digest rules
 
-An ordinary update does not invalidate unrelated leases or unchanged capabilities: target rollout
-may coexist by revision, and only the affected skill/binding/call path drains or fences. The
-Execution Lease lifecycle itself remains owned by PRD-019/ADR-017 and its existing
-admit/active/checkpoint/pause/fence/reconcile/release protocol; WF-243 consumes that state machine
-rather than inventing another. “Drain/restart” here means checkpoint and pause through that owner,
-fence the old capability revision, then admit a reconciled new lease—never terminate an unrecorded
-process ad hoc.
+Both admission classes pin Skill Set Revision/content hashes, MCP Consumer Binding revisions, an
+exact model-facing tool-name → approved schema-hash map, effective-policy revision, model/tool
+selection, tenant/actor/client, and target identity.
 
-Required implementation tests include: skill watcher change, remote-node skill arrival,
-source-precedence replacement, agent-allowlist change, MCP `list_changed`, silent reconnect/catalog
-refresh, added/removed/changed tool schemas, unchanged approved schema continuity, stale schema
-receipt, revocation, drain/restart, and assertions that the real Platform Gateway/local adapter
-never exposes a capability outside the lease manifest.
+`SkillVersionDigest` and `ToolSchemaDigest` are provisional, non-canonical field names. Their
+interoperable v1 encoding is nevertheless exact:
+
+- Structured values use RFC 8785 JSON Canonicalization Scheme (JCS) and UTF-8. A skill manifest has
+  protocol version plus path-sorted entries; each regular-file entry contains normalized path,
+  normalized mode (`0644`/`0755`), and lowercase SHA-256 of the unmodified file bytes, while each
+  symlink entry contains normalized path and target. It also contains sorted declared dependencies,
+  runtime requirements, and requested-tool requirements. `SkillVersionDigest` is SHA-256 of the
+  literal UTF-8 domain separator `opzava.skill-version.v1\0` followed by the JCS manifest bytes.
+- Skill paths are Unicode NFC, relative POSIX `/`; absolute paths, `.`/`..`, backslashes, duplicate
+  normalized paths, and root-escaping symlinks are rejected. Entries sort by unsigned UTF-8 path
+  bytes. File content and symlink targets receive no newline or semantic normalization.
+- A tool-schema object contains protocol version, projected/source names, input/output schemas,
+  annotations, and capability metadata. Object keys follow JCS; arrays preserve source order.
+  `ToolSchemaDigest` is SHA-256 of the literal UTF-8 domain separator `opzava.tool-schema.v1\0`
+  followed by its JCS bytes. Digest output is lowercase `sha256:<hex>`.
+- Endpoint, transport, SecretRef identity, filters, and policy remain separately pinned by
+  binding/policy revision; a schema digest never substitutes for connection identity.
+
+Every producer/consumer advertises the digest protocol version and must reproduce the same bytes in
+a conformance fixture before activation. Unknown protocol, normalization disagreement, duplicate
+path, or hash mismatch fails closed.
+
+Managed skills use version-addressed immutable paths. On a watcher refresh, remote-node arrival,
+source-precedence change, allowlist change, MCP `list_changed`, reconnect, cache invalidation, or
+freshness expiry, the trusted adapter revalidates hashes before another turn/call. Added
+capabilities are denied. Removed/revoked capabilities are denied immediately. Changed name, content,
+or schema is denied immediately. Only independently unchanged, hash-approved capabilities may remain
+effective under the pinned manifest. Cached model context or a previously returned tool list grants
+nothing.
+
+### Class A — DevTicket implementation runs
+
+PRD-019/ADR-017 owns DevTicket Runner admission. Its **Execution Lease** attaches the capability
+manifest and also pins Managed Harness Profile revision, DevTicket/contract revision, repository,
+worktree, branch, starting SHA, command nonce/receipt sequence, target, and fence.
+
+The Runner-owned call-time hook verifies the active unfenced lease, manifest/binding/policy
+revisions, exact name/current hash, tenant/actor/client/target policy, entitlement/suspension, and
+approval immediately before dispatch. A changed required capability checkpoints and pauses the
+DevTicket through PRD-019/ADR-017's existing admit/active/checkpoint/pause/fence/reconcile/release
+protocol. “Drain/restart” means that owner fences the old capability revision and admits a
+reconciled new lease; it never kills an unrecorded process or invents a second lease lifecycle.
+
+### Class B — Ask Admin and other assistant/Gateway sessions
+
+PRD-005 owns Ask Admin and assistant/Gateway session and turn admission. These sessions do **not**
+receive a PRD-019 Execution Lease. At Platform Gateway session admission, PRD-005 pins an assistant
+**session manifest** (provisional, non-canonical working term using the common capability-manifest
+schema) containing assistant/agent configuration revision, model, Skill Set Revision and hashes, MCP
+binding/name/schema map, exact positive tool allowlist, effective-policy revision,
+tenant/actor/client, Platform Gateway target, session identity, and admission receipt.
+
+Every turn reauthorizes the actor/tenant/session, entitlement/suspension state, assistant policy,
+and pinned manifest before model execution. Every tool call then revalidates the exact name/hash,
+binding, policy, approval, and current session/turn admission. A dynamic refresh cannot add a tool
+or skill to the existing assistant session. If required content/schema changes, becomes
+unverifiable, or is removed, the current call is denied and PRD-005 drains/aborts the affected turn
+safely. The conversation/transcript may remain, but execution resumes only through PRD-005
+reconciliation and a newly admitted Platform Gateway runtime session/manifest; old tool context is
+not reused.
+
+Ordinary revision rollout may coexist across unaffected sessions. Security revocation, tenant
+suspension, credential revocation, or explicit policy denial blocks the affected assistant call and
+turn immediately. If the Platform Gateway cannot enforce version-addressed materialization, per-turn
+admission, and call-time proof, the assistant remains tool/skill-empty or must start a new verified
+runtime session; no best-effort hot swap is allowed.
+
+### Required tests by admission class
+
+Shared tests cover skill watcher change, remote-node arrival, source-precedence replacement,
+agent-allowlist change, MCP `list_changed`, silent reconnect/catalog refresh, added/removed/changed
+schemas, unchanged approved hash continuity, digest-protocol/path-order conformance fixtures,
+normalization disagreement, stale receipt, and revocation.
+
+DevTicket tests prove the real Runner/managed-harness adapter attaches the manifest to the correct
+Execution Lease, checkpoints/fences only the affected run, and reconciles a new lease without moving
+assistant sessions into PRD-019. PRD-005 tests prove the real Platform Gateway pins the assistant
+manifest at session admission, reauthorizes each turn, validates every call, denies mid-session
+widening, drains/aborts the affected turn, preserves allowed transcript continuity, and requires a
+newly admitted runtime session before changed capabilities return. Delegation tests omit parent and
+child `skills` fields deliberately, exercise default inheritance, inject extra descendant tools, and
+prove `agents.defaults.skills: []` plus explicit descendant manifests/effective equality fails
+closed.
 
 ## Ask Admin skill subset contract
 
@@ -500,6 +579,23 @@ Mainframe changes—a real Platform Gateway `tools.effective` read for the exact
 session must equal the pinned expected set, with no unknown, unavailable, or additional tool. The
 keep-only allowlist enforces; `tools.effective` proves. A mismatch blocks activation/reconciliation
 and leaves the last verified or empty effective set. No catalog or skill text can bypass it.
+
+### Delegated descendant containment
+
+Ask Admin delegation must not widen through omitted configuration. The managed Mainframe config sets
+`agents.defaults.skills: []`. The Ask Admin entry and **every** permitted descendant/subagent entry
+must then carry an explicit `skills: []` or exact approved skill-name list; omission/inheritance is
+invalid. Each descendant also has its own exact positive keep-only model-facing tool allowlist and
+independent deny-wins policy. It never inherits the parent's tool or skill surface merely because
+the parent can delegate.
+
+Each spawn/delegation admission pins the descendant agent/config revision, explicit skill list,
+exact tool-name/schema map, policy revision, parent session/turn, tenant/actor/client, and expiry in
+its PRD-005-owned capability manifest. Before its first turn and after any policy/runtime refresh,
+the Platform Gateway proves that the descendant's resolved skill snapshot equals the explicit list
+and `tools.effective` equals the exact tool set. Missing child config, omitted `skills`, default
+inheritance, unknown names, extra capabilities, or an unprovable equality blocks delegation. #216
+may own delegation orchestration and #219 skill content, but neither may weaken this containment.
 
 The UI consequence is:
 
@@ -613,8 +709,9 @@ Editing creates a new immutable MCP Server Definition revision and new consumer-
 does not mutate active bindings in place. The preview names endpoint/transport/auth-reference/tool
 schema/policy/restart changes separately.
 
-Activation is target-atomic and new sessions/executions pin the new managed harness/profile
-revision. An active run does not acquire newly advertised tools mid-run. On partial multi-target
+Activation is target-atomic. DevTicket runs pin the binding through their Execution Lease; PRD-005
+assistant/Gateway sessions pin it through their assistant session manifest and session/turn
+admission. Neither active class acquires newly advertised tools silently. On partial multi-target
 rollout, successful bindings retain their explicit revision and failed bindings retain the last
 known applied revision; the aggregate is `partial` with repair/rollback choices.
 
@@ -627,26 +724,37 @@ would violate current policy. Rollback never restores secret values from logs or
 
 Teardown is a first-class, per-consumer state machine rather than “delete the row”:
 
-1. **Disable** denies new lease admission for the binding while retaining its definition and
-   receipts. An existing pinned lease may drain only when policy, entitlement, credential, and
-   security state still allow it and an explicit deadline exists; otherwise it is fenced.
+1. **Disable** denies new admission for the binding while retaining its definition and receipts. A
+   DevTicket Execution Lease may drain only when policy, entitlement, credential, and security state
+   still allow it and an explicit deadline exists; otherwise it is fenced. A PRD-005 assistant
+   session denies the binding at its next turn/call check and safely drains/aborts an affected
+   in-flight turn under PRD-005.
 2. **Revoke or unbind** immediately removes the binding from effective policy, denies new calls,
-   fences active leases that depend on it, retires the target MCP runtime/process tree, and records
-   why the hard stop occurred.
-3. **Logout/detach credentials** clears consumer-native OAuth state or detaches the binding's
-   SecretRef. A shared SecretRef is never deleted or rotated merely because one binding is removed;
-   destructive secret action requires its own dependency check and approval.
-4. **Remove/unset** is allowed only after dependent leases are drained/fenced and target cleanup is
-   observed. It removes desired target config but retains a non-secret tombstone, revision history,
-   receipts, and audit references.
+   fences dependent DevTicket leases, drains/aborts dependent assistant turns/sessions, retires the
+   target MCP runtime/process tree, and records why the hard stop occurred.
+3. **Logout/detach credentials** distinguishes local credential removal from upstream revocation.
+   Clearing consumer-native OAuth state produces `local-credential-cleared`; it may claim
+   `upstream-token-revoked` only after a supported provider revocation call is independently
+   verified. Unsupported/failed upstream revocation remains explicit while the binding stays
+   non-effective. Detaching a SecretRef does not delete or rotate a shared secret; destructive
+   secret action requires its own dependency check and approval.
+4. **Remove/unset** is allowed only after dependent DevTicket leases and PRD-005 assistant
+   sessions/turns are drained, fenced, or reconciled and target cleanup is observed. It removes
+   desired target config but retains a non-secret tombstone, revision history, receipts, and audit
+   references.
 5. **Reconcile** observes the target after reload/restart/cleanup. Config removed but process alive,
    process stopped but OAuth retained, target offline, credential cleanup failed, or receipt write
    failed are explicit `partial-cleanup` states with idempotent retry from the last confirmed step.
 
 Every step is tenant/target scoped, idempotent, audited, and safe to replay. Aggregate removal is
 not complete until every selected consumer has a verified teardown receipt. No cleanup path
-resurrects an older binding, exposes a credential, or silently lets an active run keep calling a
-removed tool.
+resurrects an older binding, exposes a credential, or silently lets an active run/session keep
+calling a removed tool.
+
+Teardown tests cover both admission classes, graceful disable and hard revoke, offline consumers,
+process/config cleanup disagreement, shared SecretRef protection, local OAuth clear with successful,
+unsupported, and failed upstream revocation, partial receipt persistence, idempotent retry,
+tombstone retention, and reconnect reconciliation.
 
 ### Explicit exclusions
 
@@ -689,20 +797,35 @@ targets later without pretending their files, credentials, tools, or health are 
 
 ### Trusted local per-call enforcement
 
-An enrolled Runner must launch and attest a **Runner-owned Managed Harness Enforcement Adapter** for
-the exact supported Codex/Claude client and version. The adapter is outside model control and owns
-the isolated Opzava harness config. It intercepts every local tool call through a verified native
-pre-call hook or a Runner-resident loopback policy proxy, and direct bypass routes are absent or
-blocked. The proxy is local execution infrastructure for that Runner—not a public, shared, or hosted
-Opzava MCP service.
+An enrolled Runner must launch a **Runner-owned Managed Harness Enforcement Adapter** (provisional,
+non-canonical term) for the exact supported Codex/Claude client and version. The adapter is outside
+model control and owns the isolated Opzava harness config. It intercepts every local tool call
+through a verified native pre-call hook or a Runner-resident loopback policy proxy, and direct
+bypass routes are absent or blocked. The proxy is local execution infrastructure for that Runner—not
+a public, shared, or hosted Opzava MCP service.
 
 Before forwarding a call, the adapter proves the active unfenced Execution Lease, profile/binding
 and policy revisions, exact projected tool name, current approved schema hash, tenant/actor/client,
 target, entitlement/suspension state, and required approval. It emits a signed monotonic decision
-receipt. Activation is permitted only when enrollment attests the adapter build/hash, supported
-client integration mode, configuration ownership, bypass resistance, and a real call-time denial
-probe. A client/version without this hook/proxy coverage is incompatible and cannot receive MCP or
-skill-dependent execution.
+receipt. Activation depends on server-verified proof of the adapter build, supported client/mode,
+configuration ownership, bypass resistance, and real call-time denial canaries.
+
+Self-assertion is insufficient. Opzava issues a single-use, expiring challenge bound to tenant,
+Runner enrollment/machine key, proposed adapter build hash, client kind/version, enforcement mode,
+profile/policy revision, and nonce. The adapter returns a machine-key-signed response containing
+measured build identity and challenge-specific allow/deny canary receipts. The server verifies the
+signature, nonce/replay state, enrollment, measurements, and an approved adapter-build ×
+client/version × enforcement-mode compatibility matrix before activation.
+[#232](https://github.com/anthonykewl20/opzava/issues/232) owns that attestation protocol, trust
+matrix, and rotation/revocation lifecycle. #244 consumes the resulting contract and owns only its
+Admin enrollment/setup/status/compatibility presentation and repair journey. A
+missing/stale/replayed/unapproved challenge or unsupported client/version/mode is incompatible and
+cannot receive MCP or skill-dependent execution.
+
+Attestation tests use a real enrolled Runner to prove valid challenge activation and reject forged
+machine signatures, replayed/expired nonces, unapproved build hashes, unsupported client versions,
+mode mismatch, absent hook/proxy coverage, failed deny canaries, revoked enrollment, and direct
+bypass attempts.
 
 ### Managed output requirements for #232/#237
 
@@ -771,63 +894,80 @@ admission, and execution admission consume the current tenant entitlement and sa
 a limit, existing owner-permitted metadata may remain visible, but new source detection that would
 create candidates, approval, provisioning, binding, activation, or invocation fails closed.
 
-For a suspended tenant, the system fences affected Execution Leases and denies all skill/MCP
-mutation, source refresh, install/update/repair/rollback/teardown request, live probe, runtime
+For a suspended tenant, the system fences affected DevTicket Execution Leases, denies new PRD-005
+assistant session/turn admission, drains/aborts affected assistant turns under PRD-005, and denies
+ordinary skill/MCP mutation, source refresh, install/update/repair/rollback, live probe, runtime
 start, and tool invocation. Only redacted safe read-only metadata explicitly allowed by the semantic
 owner may be shown; no “read-only” screen may cause a live probe or lazy runtime connection.
-Suspension does not erase definitions, receipts, or history.
+
+Suspension never blocks mandatory platform/security revocation or deprovisioning. A tenant owner may
+also request a narrowly authorized, monotonic risk-reducing **cold teardown**: disable/unbind,
+revoke admission, clear local credentials or request verified upstream revocation, detach
+SecretRefs, and remove desired config. Cold teardown cannot enable/rotate/add a capability,
+start/reconnect a runtime, or probe the target. Offline/unclean target work stays `pending-cleanup`
+for later reconciliation. Platform/security actions and tenant-requested cold teardown use distinct
+audited decision reasons. Suspension does not erase definitions, receipts, or history.
 
 Recovery is never automatic resume. After the entitlement owner restores eligibility, Opzava
 reauthorizes the actor/target, reconciles Runner and Platform Gateway state, revalidates SecretRefs,
 reruns fresh configuration and capability probes, re-evaluates effective policy, and requires a new
-Execution Lease or explicit activation before work continues. Stale pre-suspension health cannot
-become healthy merely because the billing flag cleared.
+DevTicket Execution Lease or new PRD-005 assistant session/turn admission before work continues.
+Stale pre-suspension health cannot become healthy merely because the billing flag cleared.
+
+Suspension tests prove ordinary tenant mutation/probe/invocation denial, owner-permitted redacted
+reads without lazy connections, mandatory platform security revocation, tenant-authorized cold
+disable/unbind/credential clear/remove without runtime start, offline pending cleanup, rejection of
+any enabling/rotation action, and fresh owner-specific readmission after restoration.
 
 ## Sad-path matrix
 
-| Area               | Sad path                                                                                                       | Required behavior                                                                                                                                                                    |
-| ------------------ | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Engineering source | Upstream is unreachable, deleted, rewritten, or returns mutable identity only                                  | Preserve current approved revision, mark source/update check degraded, and block new candidate activation.                                                                           |
-| Engineering source | Fork diverges or update conflicts with Opzava patches                                                          | Produce an explicit conflict/diff assessment; no automated merge into the active catalog.                                                                                            |
-| Catalog            | Two sources claim the same canonical name                                                                      | Quarantine the candidate and require an explicit ownership/provenance resolution.                                                                                                    |
-| Catalog            | Checksum, signature, license, manifest, dependency, requested-tool, or install-policy verification fails       | Fail closed; show a safe report; do not stage or materialize content.                                                                                                                |
-| Catalog            | Upstream candidate adds a tool prerequisite                                                                    | Keep candidate inactive until that tool is independently configured and policy-approved; approval of the skill cannot grant it.                                                      |
-| Deployment         | One target applies and another is offline/fails                                                                | Record per-target receipts and aggregate `partial`; never roll the successful target forward or back invisibly.                                                                      |
-| Deployment         | Local Runner disconnects mid-apply                                                                             | Do not assume the file state. Mark unknown/stale, preserve desired revision, require observe/reconcile after reconnect, and notify through the owning attention path.                |
-| Deployment         | Active run is pinned to the old skill set but a watcher/remote-node/precedence refresh occurs                  | Continue only from immutable version-addressed content whose hashes still match the lease; otherwise deny the change and fence for drain/restart.                                    |
-| Deployment         | Runner connectivity or Execution Lease is lost                                                                 | Fence and pause immediately. Cached configuration may remain for recovery, but no offline continuation is allowed.                                                                   |
-| Harness output     | Output is duplicated, out of order, partially uploaded, corrupt, oversize, or contains a suspected secret      | Deduplicate/order by stable envelope identity, keep required evidence incomplete, quarantine secret-bearing content, and resume/reconcile without leaking or silently truncating it. |
-| Rollback           | Previous version is revoked, compromised, incompatible, or missing                                             | Block rollback and offer a new verified candidate/repair path.                                                                                                                       |
-| Runtime            | Gateway unavailable or receipt stale                                                                           | Show unavailable/stale, not disabled or healthy; mutation remains retryable through the worker path.                                                                                 |
-| Runtime            | Native source precedence shadows an approved version                                                           | Report drift/collision and make the skill non-effective until reconciled.                                                                                                            |
-| Runtime            | Platform Gateway discovers an uncataloged native skill                                                         | Show a read-only candidate; keep it non-effective until `SkillCatalogPort` verifies and approves an immutable version.                                                               |
-| Runtime            | Skill is installed but agent-filtered, dependency-missing, or policy-denied                                    | Show installed separately from callable and provide the exact safe denial reason.                                                                                                    |
-| Ask Admin          | Exact subset has not been approved                                                                             | Effective set remains empty. Do not fall back to all Runtime or Engineering Skills.                                                                                                  |
-| Ask Admin          | Skill body requests shell/filesystem/tool access                                                               | Ignore prose as authority; independent deny-wins policy decides. Draft an approval request only if the workflow allows it.                                                           |
-| Ask Admin          | Chat asks to mutate its own skill/tool policy                                                                  | The hot-path assistant cannot self-escalate; route to an audited human approval/job flow.                                                                                            |
-| Ask Admin          | `bundle-mcp`, wildcard/group policy, unknown projection name, or `tools.effective` mismatch would widen tools  | Block activation; require the exact positive keep-only projected-name allowlist, independent deny-wins policy, and exact live effective-set proof.                                   |
-| MCP secret         | SecretRef missing, expired, unauthorized, or unsupported by the target adapter                                 | Fail closed before apply/probe. Never substitute a literal value.                                                                                                                    |
-| MCP transport      | URL resolves to private/loopback metadata space, changes DNS, redirects unsafely, or fails TLS/mTLS validation | Reject or quarantine under SSRF/DNS/redirect/TLS policy; never follow blindly.                                                                                                       |
-| MCP stdio          | Executable/package/hash/cwd is missing, changed, or not allowlisted                                            | Block apply; treat as code execution; show a safe validation result.                                                                                                                 |
-| MCP capability     | Server adds, removes, or changes a tool during an active run                                                   | Deny added/removed/changed names immediately; only independently re-listed, unchanged, schema-hash-approved tools may remain effective under the pinned lease.                       |
-| MCP consumer       | Orchestrator is healthy but local harness fails                                                                | Show separate results. Do not infer, copy credentials, or call the definition globally healthy.                                                                                      |
-| MCP policy         | Advertised tool is denied or approval-gated                                                                    | Preserve the server connection while projecting the correct effective tool status.                                                                                                   |
-| MCP apply          | Target disconnects or config write succeeds but metadata/receipt write fails                                   | Mark outcome unknown/partial, preserve idempotency and observed revision, and reconcile before retry.                                                                                |
-| MCP teardown       | Config, runtime/process, OAuth/SecretRef detach, or receipt cleanup succeeds only partly                       | Preserve per-step/per-consumer receipts, deny/fence the binding, and idempotently reconcile; never report removed while a call path or credential binding remains.                   |
-| MCP rollback       | Prior credential has been revoked or prior endpoint now violates policy                                        | Block rollback; do not resurrect secret material or unsafe configuration.                                                                                                            |
-| Local enforcement  | Runner cannot attest its policy hook/proxy or a client can bypass it                                           | Mark the target incompatible and deny activation/invocation; never fall back to model-owned config as enforcement.                                                                   |
-| Authorization      | User lacks tenant/target capability or attempts cross-tenant reference                                         | Hard deny and audit safely; do not return an empty inventory or leak existence.                                                                                                      |
-| Entitlement        | Skill/MCP count, target, probe, or execution exceeds the tenant plan                                           | Preserve owner-permitted read-only metadata, block the new admission/mutation/probe/invocation, and show the safe entitlement reason.                                                |
-| Suspension         | Tenant becomes suspended while bindings or runs exist                                                          | Fence leases; deny all mutation/probe/invocation; show only owner-permitted redacted metadata; require full reauthorization/reprobe/new lease after restoration.                     |
-| Freshness          | Probe tested an old definition/policy revision                                                                 | Render stale/unverified and require a probe of the active revision before healthy/active status.                                                                                     |
+| Area               | Sad path                                                                                                       | Required behavior                                                                                                                                                                       |
+| ------------------ | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Engineering source | Upstream is unreachable, deleted, rewritten, or returns mutable identity only                                  | Preserve current approved revision, mark source/update check degraded, and block new candidate activation.                                                                              |
+| Engineering source | Fork diverges or update conflicts with Opzava patches                                                          | Produce an explicit conflict/diff assessment; no automated merge into the active catalog.                                                                                               |
+| Catalog            | Two sources claim the same canonical name                                                                      | Quarantine the candidate and require an explicit ownership/provenance resolution.                                                                                                       |
+| Catalog            | Checksum, signature, license, manifest, dependency, requested-tool, or install-policy verification fails       | Fail closed; show a safe report; do not stage or materialize content.                                                                                                                   |
+| Catalog            | Upstream candidate adds a tool prerequisite                                                                    | Keep candidate inactive until that tool is independently configured and policy-approved; approval of the skill cannot grant it.                                                         |
+| Deployment         | One target applies and another is offline/fails                                                                | Record per-target receipts and aggregate `partial`; never roll the successful target forward or back invisibly.                                                                         |
+| Deployment         | Local Runner disconnects mid-apply                                                                             | Do not assume the file state. Mark unknown/stale, preserve desired revision, require observe/reconcile after reconnect, and notify through the owning attention path.                   |
+| Deployment         | DevTicket run is pinned to the old skill set but a watcher/remote-node/precedence refresh occurs               | Continue only from immutable content matching its Execution Lease manifest; otherwise deny the change and checkpoint/fence through PRD-019/ADR-017.                                     |
+| Deployment         | Runner connectivity or Execution Lease is lost                                                                 | Fence and pause immediately. Cached configuration may remain for recovery, but no offline continuation is allowed.                                                                      |
+| Assistant session  | Ask Admin/assistant session sees a skill or MCP refresh during/between turns                                   | Revalidate the PRD-005 session manifest; deny widening/changed calls, safely drain/abort the affected turn, and require a newly admitted runtime session before changed capability use. |
+| Harness output     | Output is duplicated, out of order, partially uploaded, corrupt, oversize, or contains a suspected secret      | Deduplicate/order by stable envelope identity, keep required evidence incomplete, quarantine secret-bearing content, and resume/reconcile without leaking or silently truncating it.    |
+| Rollback           | Previous version is revoked, compromised, incompatible, or missing                                             | Block rollback and offer a new verified candidate/repair path.                                                                                                                          |
+| Runtime            | Gateway unavailable or receipt stale                                                                           | Show unavailable/stale, not disabled or healthy; mutation remains retryable through the worker path.                                                                                    |
+| Runtime            | Native source precedence shadows an approved version                                                           | Report drift/collision and make the skill non-effective until reconciled.                                                                                                               |
+| Runtime            | Platform Gateway discovers an uncataloged native skill                                                         | Show a read-only candidate; keep it non-effective until `SkillCatalogPort` verifies and approves an immutable version.                                                                  |
+| Runtime            | Skill is installed but agent-filtered, dependency-missing, or policy-denied                                    | Show installed separately from callable and provide the exact safe denial reason.                                                                                                       |
+| Runtime teardown   | Target is offline or file/cache/process/dependency/SecretRef cleanup is partial                                | Make the skill non-effective, preserve tombstone/per-step receipts, protect shared resources, and reconcile idempotently before `removed`.                                              |
+| Ask Admin          | Exact subset has not been approved                                                                             | Effective set remains empty. Do not fall back to all Runtime or Engineering Skills.                                                                                                     |
+| Ask Admin          | Skill body requests shell/filesystem/tool access                                                               | Ignore prose as authority; independent deny-wins policy decides. Draft an approval request only if the workflow allows it.                                                              |
+| Ask Admin          | Chat asks to mutate its own skill/tool policy                                                                  | The hot-path assistant cannot self-escalate; route to an audited human approval/job flow.                                                                                               |
+| Ask Admin          | `bundle-mcp`, wildcard/group policy, unknown projection name, or `tools.effective` mismatch would widen tools  | Block activation; require the exact positive keep-only projected-name allowlist, independent deny-wins policy, and exact live effective-set proof.                                      |
+| Ask delegation     | Parent/descendant omits `skills`, inherits defaults, or resolves extra skill/tool names                        | Require `agents.defaults.skills: []`, explicit child policies, pinned descendant manifest, and exact effective equality; otherwise block delegation.                                    |
+| MCP secret         | SecretRef missing, expired, unauthorized, or unsupported by the target adapter                                 | Fail closed before apply/probe. Never substitute a literal value.                                                                                                                       |
+| MCP transport      | URL resolves to private/loopback metadata space, changes DNS, redirects unsafely, or fails TLS/mTLS validation | Reject or quarantine under SSRF/DNS/redirect/TLS policy; never follow blindly.                                                                                                          |
+| MCP stdio          | Executable/package/hash/cwd is missing, changed, or not allowlisted                                            | Block apply; treat as code execution; show a safe validation result.                                                                                                                    |
+| MCP capability     | Server adds, removes, or changes a tool during a DevTicket run or assistant session                            | Deny added/removed/changed names immediately; only independently re-listed, unchanged, schema-hash-approved tools may remain under that class's pinned manifest.                        |
+| MCP consumer       | Orchestrator is healthy but local harness fails                                                                | Show separate results. Do not infer, copy credentials, or call the definition globally healthy.                                                                                         |
+| MCP policy         | Advertised tool is denied or approval-gated                                                                    | Preserve the server connection while projecting the correct effective tool status.                                                                                                      |
+| MCP apply          | Target disconnects or config write succeeds but metadata/receipt write fails                                   | Mark outcome unknown/partial, preserve idempotency and observed revision, and reconcile before retry.                                                                                   |
+| MCP teardown       | Config, runtime/process, OAuth/SecretRef detach, or receipt cleanup succeeds only partly                       | Preserve per-step/per-consumer receipts, deny/fence the binding, and idempotently reconcile; never report removed while a call path or credential binding remains.                      |
+| MCP logout         | Local OAuth state clears but upstream token revocation is unsupported or fails                                 | Keep the binding non-effective; report local clear/upstream revocation separately; never claim upstream revocation without verification.                                                |
+| MCP rollback       | Prior credential has been revoked or prior endpoint now violates policy                                        | Block rollback; do not resurrect secret material or unsafe configuration.                                                                                                               |
+| Local enforcement  | Signed challenge is stale/replayed, build/client/mode is unapproved, or a bypass canary fails                  | Server rejects attestation/activation; never accept Runner self-assertion or fall back to model-owned config.                                                                           |
+| Authorization      | User lacks tenant/target capability or attempts cross-tenant reference                                         | Hard deny and audit safely; do not return an empty inventory or leak existence.                                                                                                         |
+| Entitlement        | Skill/MCP count, target, probe, or execution exceeds the tenant plan                                           | Preserve owner-permitted read-only metadata, block the new admission/mutation/probe/invocation, and show the safe entitlement reason.                                                   |
+| Suspension         | Tenant becomes suspended while bindings, DevTicket runs, or assistant sessions exist                           | Fence/deny work; allow mandatory security deprovision and authorized cold risk-reducing teardown without runtime/probe; require owner-specific readmission after restoration.           |
+| Freshness          | Probe tested an old definition/policy revision                                                                 | Render stale/unverified and require a probe of the active revision before healthy/active status.                                                                                        |
 
 ## User-level acceptance contract
 
 This Wayfinder child is resolved only if downstream specifications preserve all of the following:
 
-1. A fresh Admin can open Engineering Skills and see a guided, prefilled setup for the single
-   canonical Opzava-controlled fork, with immutable upstream provenance and no PAT or mutable-branch
-   execution. Any mirror/cache is invisible as authority.
+1. A fresh Admin can open Engineering Skills and select approved versions from the single
+   platform-owned canonical Opzava fork, with immutable upstream provenance and no tenant fork, PAT,
+   or mutable-branch execution. Any mirror/cache is invisible as authority.
 2. Upstream change detection creates a candidate with a meaningful security/tool/dependency diff; it
    does not change active skills, new executions, or current runs until explicit approval and target
    activation.
@@ -838,12 +978,15 @@ This Wayfinder child is resolved only if downstream specifications preserve all 
    dependency, security, drift, and effective-callability state without claiming catalog authority.
 5. A skill installed/discovered by the Platform Gateway is linked to the same catalog
    identity/version; an uncataloged native entry is read-only and non-effective until approved only
-   through `SkillCatalogPort`.
+   through `SkillCatalogPort`. Disable/uninstall protects shared dependencies/SecretRefs and reaches
+   `removed` only after file/cache/process cleanup is observed, including offline/partial retry.
 6. Ask Admin begins with the real current empty subset. After #219 approves content, only the exact
    pinned and effective intersection appears. A skill cannot acquire a denied tool by naming it.
 7. Ask Admin activation uses an exact positive keep-only list of pinned model-facing projected tool
    names, independent deny-wins policy, and an exact real `tools.effective` equality proof;
    wildcard, group, bare `bundle-mcp`, unknown, unavailable, or leaked names block activation.
+   `agents.defaults.skills: []` plus explicit descendant skill/tool policies prevent delegated
+   subagents from widening through omission or inheritance.
 8. The sole Ask Admin skill subset editor is AI Runtime → Agents → Ask Admin Opzava → Skill policy.
    The pinned chat is read-only, cannot grant itself skills/tools or receive `operator.admin`, and
    can only explain/deep-link/draft a separately authorized request.
@@ -854,36 +997,49 @@ This Wayfinder child is resolved only if downstream specifications preserve all 
     policy, dry-run diff, apply receipt, and live probe before activation. It never prints a secret.
 11. A healthy connection with policy-denied tools is not misrepresented as fully effective; stale or
     old-revision probe data is not healthy.
-12. A skill watcher/remote-node/precedence refresh or dynamic MCP catalog cannot widen an active
-    lease. Added/removed/changed capabilities are denied; only independently unchanged,
-    hash-approved content remains; unsupported targets drain/restart.
-13. Disable/revoke/unbind/logout/remove tears down each MCP consumer, credential binding, runtime,
-    and active lease safely, with idempotent partial-cleanup reconciliation and non-secret history.
-14. The Managed Harness Profile contains immutable capability/config only. The Execution Lease pins
+12. A DevTicket Execution Lease pins its exact capability manifest. A watcher/remote-node/precedence
+    refresh or dynamic MCP catalog cannot widen it; changed required capability checkpoints/fences
+    only the affected run through PRD-019/ADR-017. Provisional digest fields use the specified
+    versioned RFC-8785/path-ordering protocol and conformance fixtures.
+13. A PRD-005 Ask Admin/assistant Platform Gateway session pins an equivalent manifest at session
+    admission, reauthorizes it each turn, and validates each call. Changed capabilities deny and
+    drain/abort the affected turn; use resumes only through a newly admitted runtime session.
+14. Disable/revoke/unbind/logout/remove tears down each MCP consumer, credential binding, runtime,
+    dependent DevTicket lease, and assistant session/turn safely, with idempotent partial-cleanup
+    reconciliation and non-secret history. Local OAuth credential clearing is distinct from
+    independently verified upstream-token revocation.
+15. The Managed Harness Profile contains immutable capability/config only. The Execution Lease pins
     profile/model/tool/skill/MCP/policy/repository/worktree/branch/SHA/receipt state.
-15. A local Runner outage or lease loss fences and pauses immediately with a checkpoint, observed
+16. A local Runner outage or lease loss fences and pauses immediately with a checkpoint, observed
     summary, and Slack attention. Cached configuration may remain, but there is no offline
     continuation or automatic cloud failover.
-16. A local harness receives capabilities only when its Runner-owned Enforcement Adapter attests
-    hook/proxy coverage and proves lease, exact name, schema hash, policy, entitlement, and approval
-    on every call. The adapter is Runner-local infrastructure, not a hosted MCP service.
-17. The output-envelope requirements are handed to #232/#237: status, worklogs, command/test
+17. A local harness receives capabilities only after Opzava verifies a machine-key-signed one-time
+    challenge against the #232-owned adapter-build × client/version × enforcement-mode matrix and
+    denial canaries. #244 consumes that trust contract for Admin enrollment/setup/status,
+    compatibility presentation, and repair. The provisional Runner-local adapter then proves lease,
+    name, schema, policy, entitlement, and approval on every call; it is not a hosted MCP service.
+18. The output-envelope requirements are handed to #232/#237: status, worklogs, command/test
     evidence, summaries, failures, and bounded artifacts are redacted, revision-pinned, durably
     acknowledged, idempotently replayable, and visibly incomplete when required evidence is missing.
-18. Opzava never overwrites the user's global local-agent configuration and never exposes Gateway
+19. Opzava never overwrites the user's global local-agent configuration and never exposes Gateway
     operator/admin credentials to browsers, harnesses, skills, or MCP servers.
-19. No public hosted Opzava MCP/OAuth service is created; `openclaw mcp serve` and the legacy Task
+20. No public hosted Opzava MCP/OAuth service is created; `openclaw mcp serve` and the legacy Task
     MCP remain explicitly outside this target registry.
-20. Plan limits block excess approval/provisioning/binding/probe/invocation while preserving only
+21. Plan limits block excess approval/provisioning/binding/probe/invocation while preserving only
     owner-permitted safe metadata and a clear entitlement reason.
-21. Suspension fences active leases and blocks all mutation, live probe, runtime start, and
-    invocation. Restoration requires reauthorization, reconciliation, fresh probe/policy proof, and
-    a new lease or explicit activation—never automatic resume.
-22. Unauthorized, cross-tenant, revoked, compromised, drifted, partially applied, and unverifiable
+22. Suspension fences DevTicket leases, denies new assistant session/turn admission, drains/aborts
+    affected assistant turns, and blocks ordinary mutation, live probe, runtime start, and
+    invocation. Mandatory security deprovision and authorized monotonic cold teardown remain
+    available without starting/probing runtime. Restoration requires fresh proof and owner-specific
+    readmission—never automatic resume.
+23. Unauthorized, cross-tenant, revoked, compromised, drifted, partially applied, and unverifiable
     states fail closed and have explicit repair/rollback/approval behavior.
-23. Every later implementation slice proves setup, update, active-session refresh fencing, call-time
-    enforcement, teardown, plan/suspension/recovery, health, denial, and rollback on the real local
-    Docker stack with user-level E2E and redaction assertions; mock-only proof is insufficient.
+24. Every later implementation slice separately proves DevTicket Execution Lease manifests, PRD-005
+    assistant/descendant session/turn manifests, digest conformance, server-verified local
+    attestation, Runtime Skill and MCP teardown, OAuth local-clear/upstream-revoke distinction,
+    active refresh fencing, suspension/cold teardown/recovery, health, denial, and rollback on the
+    real local Docker stack with user-level E2E and redaction assertions; mock-only proof is
+    insufficient.
 
 ## Inputs required by final synthesis #246
 
@@ -895,37 +1051,39 @@ This Wayfinder child is resolved only if downstream specifications preserve all 
 - preserve `SkillCatalogPort` and introduce explicit deployment/reconciliation, effective-policy,
   MCP-registry, SecretRef, Mainframe/Platform-Gateway, and managed-harness seams;
 - treat upstream automation as detection only, with immutable provenance and explicit activation;
-- reconcile canonical skill membership and the single Opzava-controlled fork setup, including
-  user-approved names absent from the pinned upstream tree;
+- reconcile canonical skill membership and the single platform-owned Opzava fork setup, including
+  tenant version/rollout selection and user-approved names absent from the pinned upstream tree;
 - consume #219 for exact Ask Admin skill membership/content and do not use this memo to bypass its
   tool-policy dependencies or the exact positive-allow/deny-wins/`tools.effective` mechanism;
+- require `agents.defaults.skills: []`, explicit Ask Admin descendant skill/tool policies, pinned
+  child manifests, and exact skill/tool effective equality across #216/#219 delegation work;
 - give Engineering Skills, Runtime Skills, and MCP Servers distinct page contracts and keep Ask
-  Admin subset read-only/deep-linked rather than creating another page;
+  Admin skill subset projections read-only/deep-linked rather than creating another page;
 - design the core MCP adapter gap for SecretRef-safe provisioning before supporting authenticated
   external servers; never fall back to literal config;
 - preserve per-consumer MCP bindings and per-target deployment receipts, health, update, partial,
-  repair, rollback, disable/revoke/unbind/logout/remove, credential cleanup, and active-lease
-  teardown semantics;
-- carry version-addressed active-run capability manifests, schema/content hashes, call-time
-  enforcement, unchanged-only continuity, and drain/restart tests into the runtime tickets;
-- keep Managed Harness Profile configuration separate from Execution Lease/Runner state and require
-  the attested Runner-owned local enforcement adapter before activation;
+  repair, rollback, disable/revoke/unbind/logout/remove, credential cleanup, and active-lease plus
+  assistant-session teardown semantics;
+- preserve Runtime Skill file/cache/process/shared-dependency/SecretRef teardown and distinguish
+  local OAuth credential clear from verified upstream-token revocation;
+- carry two version-addressed admission contracts into downstream tickets: capability manifests
+  attached to PRD-019/ADR-017 DevTicket Execution Leases, and equivalent PRD-005-owned Ask
+  Admin/assistant session-and-turn manifests. Both require schema/content hashes, call-time
+  enforcement, unchanged-only continuity, owner-specific drain/reconciliation, and real tests;
+- keep Managed Harness Profile configuration separate from Execution Lease/Runner state; require
+  #232's server-verified signed-challenge, approved-build/client/mode matrix, and attested
+  Runner-owned local enforcement adapter before activation; and constrain #244 to consuming that
+  trust contract for Admin enrollment/setup/status/compatibility presentation and repair;
 - carry the Managed Harness output-envelope, durable acknowledgment, replay, artifact-limit,
   ordering/deduplication, redaction/quarantine, and incomplete-evidence contract into Runner and Dev
   Board tickets #232/#237 as a downstream requirement, not a WF-243-owned protocol;
 - consume plan/entitlement/suspension decisions from their owner and include read-only, hard-denial,
-  recovery, and real E2E contracts;
+  mandatory security deprovision, tenant-authorized cold teardown without runtime/probe, recovery,
+  and real E2E contracts;
 - explicitly retire hosted-MCP issue #151 and route legacy Task MCP disposition through Dev Board
   mapping #237;
 - include the sad paths and user-level acceptance gates above in implementation tickets, with real
   Docker-stack E2E proof and audit/redaction checks.
-
-### Wayfinder memo authority on landing
-
-This file is current only as a resolved child of active Admin Wayfinder #241 until #246 consumes it.
-When this branch is rebased after #230, repository guidance should recognize it through the same
-general active-Wayfinder memo rule used for other current child evidence. Do not add a special
-WF-243-only authority exception or reinterpret unrelated research as current.
 
 ## Evidence inspected
 
