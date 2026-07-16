@@ -4909,6 +4909,128 @@ describe("Connections provisioning helpers", () => {
     expect(admin.calls.some((call) => call.method === "config.patch")).toBe(false);
   });
 
+  it("prunes OAuth-only provider models even when auth config has nothing to remove", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({
+        provider: "openai",
+        removedProfiles: ["openai:chatgpt"],
+        abortedRunIds: [],
+      }),
+      "config.get": () => {
+        const patched = admin.calls.some((call) => call.method === "config.patch");
+        return ok({
+          hash: "config-hash-oauth-models",
+          auth: { profiles: {}, order: {} },
+          agents: {
+            defaults: { models: patched ? {} : { "openai/gpt-5.5": {} } },
+          },
+        });
+      },
+      "config.patch": ok({ ok: true }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-16T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+
+    expect(result.ok).toBe(true);
+    const patch = admin.calls.find((call) => call.method === "config.patch");
+    expect(patch).toBeDefined();
+    expect(rawPatch(patch!.params)).toEqual({
+      auth: { profiles: {}, order: { openai: [] } },
+      agents: { defaults: { models: { "openai/gpt-5.5": null } } },
+    });
+  });
+
+  it("prunes only case-insensitive provider-prefix model matches in the auth patch", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "openai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": () => {
+        const patched = admin.calls.some((call) => call.method === "config.patch");
+        return ok({
+          hash: "config-hash-provider-models",
+          auth: patched
+            ? { profiles: {}, order: { openai: [] } }
+            : {
+                profiles: { "openai:manual": { provider: "openai", mode: "api_key" } },
+                order: { openai: ["openai:manual"] },
+              },
+          agents: {
+            defaults: {
+              models: {
+                ...(patched ? {} : { "openai/gpt-5.5": {}, "OPENAI/gpt-5.6": {} }),
+                "openai-compatible/x": {},
+                "anthropic/claude-opus-4-8": {},
+              },
+            },
+          },
+        });
+      },
+      "config.patch": ok({ ok: true }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-16T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+
+    expect(result.ok).toBe(true);
+    const patches = admin.calls.filter((call) => call.method === "config.patch");
+    expect(patches).toHaveLength(1);
+    expect(rawPatch(patches[0]!.params)).toEqual({
+      auth: { profiles: { "openai:manual": null }, order: { openai: [] } },
+      agents: {
+        defaults: {
+          models: { "openai/gpt-5.5": null, "OPENAI/gpt-5.6": null },
+        },
+      },
+    });
+  });
+
+  it("omits the models patch when the disconnected provider has no routable model keys", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "zai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": () => {
+        const patched = admin.calls.some((call) => call.method === "config.patch");
+        return ok({
+          hash: "config-hash-no-provider-models",
+          auth: patched
+            ? { profiles: {}, order: { zai: [] } }
+            : {
+                profiles: { "zai:manual": { provider: "zai", mode: "api_key" } },
+                order: { zai: ["zai:manual"] },
+              },
+          agents: { defaults: { models: { "openai/gpt-5.5": {} } } },
+        });
+      },
+      "config.patch": ok({ ok: true }),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-16T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "zai" });
+
+    expect(result.ok).toBe(true);
+    const patch = admin.calls.find((call) => call.method === "config.patch");
+    expect(rawPatch(patch!.params)).toEqual({
+      auth: { profiles: { "zai:manual": null }, order: { zai: [] } },
+    });
+  });
+
   it("retries disconnect post-check reads across the gateway restart window", async () => {
     vi.useFakeTimers();
     try {
@@ -5066,6 +5188,15 @@ describe("Connections provisioning helpers", () => {
               ? {}
               : { "opencode-go": ["opencode-go:default"], opencode: ["opencode:default"] },
           },
+          agents: {
+            defaults: {
+              models: {
+                ...(patched ? {} : { "opencode-go/base": {} }),
+                "opencode/base": {},
+                "anthropic/claude-opus-4-8": {},
+              },
+            },
+          },
         });
       },
       "models.authStatus": ok({
@@ -5103,6 +5234,7 @@ describe("Connections provisioning helpers", () => {
         profiles: { "opencode-go:default": null, "opencode:default": null },
         order: { "opencode-go": [], opencode: [] },
       },
+      agents: { defaults: { models: { "opencode-go/base": null } } },
     });
   });
 
@@ -5687,6 +5819,38 @@ describe("Connections provisioning helpers", () => {
     // only the initial config read and the post-check read.
     expect(admin.calls.filter((call) => call.method === "config.get")).toHaveLength(2);
     expect(JSON.stringify(result)).not.toContain("sk-config-secret");
+  });
+
+  it("fails closed when an ambiguous disconnect patch leaves provider models routable", async () => {
+    const admin: RecordingAdminClient = new RecordingAdminClient({
+      "models.authLogout": ok({ provider: "openai", removedProfiles: [], abortedRunIds: [] }),
+      "config.get": ok({
+        hash: "config-hash-openai",
+        auth: { profiles: {}, order: {} },
+        agents: { defaults: { models: { "openai/gpt-5.5": {} } } },
+      }),
+      "config.patch": err(
+        new DomainError({
+          code: "provisioning.openclawAdmin.connectionClosed",
+          message: "OpenClaw admin RPC config.patch closed before a response.",
+        }),
+      ),
+      "models.authStatus": ok({ providers: [] }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      now: () => new Date("2026-07-16T00:00:00.000Z"),
+    });
+
+    const result = await port.disconnectModelProvider({ ...principal(), providerId: "openai" });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error).toMatchObject({
+      code: "provisioning.connections.providerModelsStillRoutable",
+      details: { providerId: "openai", lingeringModelKeys: ["openai/gpt-5.5"] },
+    });
   });
 
   it("does not fail a disconnect that succeeded while the gateway was still restarting (#172)", async () => {

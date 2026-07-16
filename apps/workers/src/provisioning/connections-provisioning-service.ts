@@ -5402,6 +5402,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return err(configResult.error);
     }
     const config = configPayload(configResult.value);
+    // A provider with no credential must have no routable models. Revoke both in one patch because
+    // the gateway caps control-plane writes at 3/60s and a second write could interleave with connect.
+    const prunedModelKeys = enabledDefaultModelEntries(config)
+      .filter((entry) => modelRefMatchesProvider(entry.key, input.providerId))
+      .map((entry) => entry.key);
     // A provider's credential can live in EITHER store, so disconnect must clear BOTH:
     //  (1) models.authLogout — the OAuth/token/managed store (e.g. openai/Codex OAuth).
     //  (2) config.auth.profiles — config-file api-key profiles (e.g. zai). authLogout returns ok
@@ -5580,7 +5585,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       );
     });
 
-    if (profileIds.length > 0 || orderHasProviderEntries) {
+    if (profileIds.length > 0 || orderHasProviderEntries || prunedModelKeys.length > 0) {
       const patchParams = configPatchParams({
         configGetPayload: configResult.value,
         patch: {
@@ -5588,6 +5593,15 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
             profiles: Object.fromEntries(profileIds.map((id) => [id, null])),
             order: Object.fromEntries(nextAuthOrder),
           },
+          ...(prunedModelKeys.length === 0
+            ? {}
+            : {
+                agents: {
+                  defaults: {
+                    models: Object.fromEntries(prunedModelKeys.map((key) => [key, null])),
+                  },
+                },
+              }),
         },
         replacePaths: [...nextAuthOrder.keys()].map((providerId) => `auth.order.${providerId}`),
       });
@@ -5794,6 +5808,26 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           "provisioning.connections.providerCredentialOrphaned",
           "Disconnect incomplete: the Gateway still holds this credential under another provider.",
           { providerId: input.providerId, orphanedProfileIds },
+        ),
+      );
+    }
+
+    // The models patch is an ambiguous write we deliberately do not retry. Proving the credential
+    // is gone is not enough when an uncommitted patch leaves its unauthenticated routes advertised.
+    const lingeringModelKeys = enabledDefaultModelEntries(refreshedConfig)
+      .filter((entry) => modelRefMatchesProvider(entry.key, input.providerId))
+      .map((entry) => entry.key);
+    if (lingeringModelKeys.length > 0) {
+      console.warn("connections.modelProviderDisconnect.failClosed", {
+        providerId: input.providerId,
+        reason: "routableModelsSurvived",
+        lingeringModelKeys,
+      });
+      return err(
+        provisioningError(
+          "provisioning.connections.providerModelsStillRoutable",
+          "Disconnect incomplete: the Gateway still routes to this provider's models.",
+          { providerId: input.providerId, lingeringModelKeys },
         ),
       );
     }
