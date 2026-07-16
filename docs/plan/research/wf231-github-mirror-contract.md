@@ -17,9 +17,12 @@ implementation authority or product code.
    inbox/outbox/conflict ledger, provider observations, **Mirror Shadows**, reconciliation, and
    dimensional integration health. It is a module inside the Dev Board bounded context, not a new
    bounded context or a second workflow authority.
-3. Dev Board remains the sole workflow authority. A webhook, worker, GitHub label, GitHub Action,
-   adapter response, or provider fact may request a governed command; none may mutate lane, Ready,
-   assignment, dependency, Sprint, approval, Review, or Done state directly.
+3. Dev Board remains the sole workflow authority. A verified App webhook may request only the
+   `wf230` App-source families; a GitHub Action may only append native provider facts, request
+   field-code-only `ready.validate`, or open an eligible Needs Human Approval Request. Every other
+   governed/deployment/release Action family rejects absent an explicit versioned owner plus `wf230`
+   policy change. No webhook, worker, label, Action, adapter response, or provider fact mutates
+   lane, Ready, assignment, dependency, Sprint, approval, Review, Release, or Done state directly.
 4. GitHub owns its native repository, Issue, comment, PR, provider branch/ref/SHA, commit, check,
    repository-review, and merge identities and facts. Opzava owns the current immutable work
    contract, its explicit draft or Ready-approved state, and all workflow decisions. Shared
@@ -49,6 +52,9 @@ This memo consumes rather than reopens:
 
 - `AcceptProposal` and `CreateBacklogDevTicket`, their stable create/link intents, and the unique
   GitHub Issue Binding reservation (`docs/plan/research/wf230-devticket-command-model.md:657-700`);
+- `MergeProposal`, which appends discovery/evidence to an existing DevTicket's planning history and
+  opens a proposed Revision only when governed work changes; it creates no DevTicket, GitHub Issue
+  Binding, create/link intent, or provider outbox effect (`wf230`:715-719);
 - trusted command envelopes, authorization versions, idempotency receipts, and transaction-first
   external-effect rules (`wf230`:199-605);
 - Secret-Safe Ingress, append-only corrections, Needs Human Approval Requests, Absolute Stops, and
@@ -174,23 +180,23 @@ facts, source hashes, observed/recorded times, and evidence refs.
 
 ### Required records
 
-| Record                         | Stable key and important state                                                                                                                                                                                                                                                                                                       | Ledger                   |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
-| App Registration Ref           | platform-owned internal ID; provider App/client IDs; slug; API-version/config/permission/event-set versions; opaque public configuration/rotation versions; vault-only active/retiring private-key, client-secret, and webhook-secret refs plus rotation state; global access-policy version                                         | platform config audit    |
-| Installation Association Proof | pending setup/Admin authorization versions; immutable GitHub user/account/installation/repository IDs; opaque public App configuration/rotation version; safe user-token API observations; token revocation/expiry and local-zeroing states; consumed/expired/denied disposition; never token values or platform secret-ref versions | integration/config audit |
-| GitHub Installation Binding    | tenant/workspace + provider installation ID; account ID; status; granted permission/event-set version; opaque public App configuration/rotation version; suspension/removal facts; never platform secret refs or secret-ref versions                                                                                                 | sync/health              |
-| GitHub Repository Binding      | one production binding; immutable provider repository ID/node ID; installation ID; canonical owner/name; opaque public App configuration/rotation version; rename/transfer/archive/delete state; never platform secret refs or secret-ref versions                                                                                   | sync/health              |
-| GitHub Issue Binding           | unique DevTicket; verified-link reserves unique `(repository_id, issue_provider_id/number)` before acceptance, while create reserves a stable intent pending provider identity and confirmation attaches the same unique key; immutable origin plus exactly one create- or link-correlation UUID retained through every state/render | sync                     |
-| Webhook Inbox Receipt          | `(app_registration_id, delivery_id)`; raw-body SHA-256; event plus schema-valid action or explicit actionless disposition; admitted installation/repository; schema version; opaque public App configuration/rotation version; safe normalized payload ref; disposition; never platform secret-ref version                           | sync inbox               |
-| Mirror Outbox Intent           | Opzava event ID + operation + target + canonical request hash; state; claim token; attempt; not-before; unknown-outcome state; provider confirmation                                                                                                                                                                                 | sync outbox              |
-| Provider Observation           | provider object/ref/version-like observations, field digests, actor/app identity, observed/recorded times, source delivery or fetch epoch                                                                                                                                                                                            | sync                     |
-| Mirror Shadow                  | last mutually confirmed per-field value digest plus Opzava version/event and provider object observation                                                                                                                                                                                                                             | sync                     |
-| Reconciliation Epoch           | scope, cursor/pages, claimed generation/token, start/end snapshot, completeness, gaps, convergence result                                                                                                                                                                                                                            | sync                     |
-| Sync Conflict                  | exact field/scope/base/Opzava/provider versions and safe values/refs; blocking class; monotonic conflict version; `open`, `decision_required`, `resolution_pending_mirror`, or `resolved`; resolution command/hash/ref and confirmation                                                                                              | sync/conflict            |
-| Integration Health Snapshot    | dimension statuses, evidence, scope, evaluated policy version, last-good ref, reconciliation proof                                                                                                                                                                                                                                   | sync/health              |
-| Actions Request Receipt        | unique `(issuer, jti)` and workspace/repository/command-family/nonce; audience/subject; workflow refs/SHAs; run/attempt/actor/event/ref/requested SHA; canonical request hash; disposition and atomically reserved command receipt ref                                                                                               | sync/activity            |
-| Authorized Git Ref Update      | exact #232 lease/purpose/ref/old/new SHA/bundle hash/nonce/expiry; broker claim/fence; provider attempt and confirmation; never token value                                                                                                                                                                                          | runner/sync              |
-| GitHub Disconnect Saga         | unique binding generation + idempotency key/request hash; outbound fence/drain; provider uninstall/revocation/expiry state including `provider_outcome_unknown` or `revocation_required`; local cleanup; terminal disposition; reconnect generation                                                                                  | sync/health/config       |
+| Record                         | Stable key and important state                                                                                                                                                                                                                                                                                                                   | Ledger                   |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
+| App Registration Ref           | platform-owned internal ID; provider App/client IDs; slug; API-version/config/permission/event-set versions; opaque public configuration/rotation versions; vault-only active/retiring private-key, client-secret, and webhook-secret refs plus rotation state; global access-policy version                                                     | platform config audit    |
+| Installation Association Proof | pending setup/Admin authorization versions; immutable GitHub user/account/installation/repository IDs; opaque public App configuration/rotation version; safe user-token API observations; token revocation/expiry and local-zeroing states; consumed/expired/denied disposition; never token values or platform secret-ref versions             | integration/config audit |
+| GitHub Installation Binding    | tenant/workspace + provider installation ID; account ID; status; granted permission/event-set version; opaque public App configuration/rotation version; suspension/removal facts; never platform secret refs or secret-ref versions                                                                                                             | sync/health              |
+| GitHub Repository Binding      | one production binding; immutable provider repository ID/node ID; installation ID; canonical owner/name; opaque public App configuration/rotation version; rename/transfer/archive/delete state; never platform secret refs or secret-ref versions                                                                                               | sync/health              |
+| GitHub Issue Binding           | unique DevTicket; verified-link reserves unique `(repository_id, issue_provider_id/number)` before acceptance, while create reserves a stable intent pending provider identity and confirmation attaches the same unique key; immutable origin plus exactly one create- or link-correlation UUID retained through every state/render             | sync                     |
+| Webhook Inbox Receipt          | `(opaque_public_app_config_key, delivery_id)`; raw-body SHA-256; event plus schema-valid action or explicit actionless disposition; admitted installation/repository; schema version; opaque public App configuration/rotation version; safe normalized payload ref; disposition; never platform App registration/secret-ref identity or version | sync inbox               |
+| Mirror Outbox Intent           | Opzava event ID + operation + target + canonical request hash; state; claim token; attempt; not-before; unknown-outcome state; provider confirmation                                                                                                                                                                                             | sync outbox              |
+| Provider Observation           | provider object/ref/version-like observations, field digests, actor/app identity, observed/recorded times, source delivery or fetch epoch                                                                                                                                                                                                        | sync                     |
+| Mirror Shadow                  | last mutually confirmed per-field value digest plus Opzava version/event and provider object observation                                                                                                                                                                                                                                         | sync                     |
+| Reconciliation Epoch           | scope, cursor/pages, claimed generation/token, start/end snapshot, completeness, gaps, convergence result                                                                                                                                                                                                                                        | sync                     |
+| Sync Conflict                  | exact field/scope/base/Opzava/provider versions and safe values/refs; blocking class; monotonic conflict version; `open`, `decision_required`, `resolution_pending_mirror`, or `resolved`; resolution command/hash/ref and confirmation                                                                                                          | sync/conflict            |
+| Integration Health Snapshot    | dimension statuses, evidence, scope, evaluated policy version, last-good ref, reconciliation proof                                                                                                                                                                                                                                               | sync/health              |
+| Actions Request Receipt        | unique `(issuer, jti)` and workspace/repository/command-family/nonce; audience/subject; workflow refs/SHAs; run/attempt/actor/event/ref/requested SHA; canonical request hash; disposition and atomically reserved command receipt ref                                                                                                           | sync/activity            |
+| Authorized Git Ref Update      | exact #232 lease/purpose/ref/old/new SHA/bundle hash/nonce/expiry; broker claim/fence; provider attempt and confirmation; never token value                                                                                                                                                                                                      | runner/sync              |
+| GitHub Disconnect Saga         | unique binding generation + idempotency key/request hash; outbound fence/drain; provider uninstall/revocation/expiry state including `provider_outcome_unknown` or `revocation_required`; local cleanup; terminal disposition; reconnect generation                                                                                              | sync/health/config       |
 
 The App Registration Ref is environment/platform configuration, not tenant data. Only the
 provisioning/security service may read it under an explicit global access policy; its secret values
@@ -409,7 +415,12 @@ audit, dead-letter, debug, or raw logs.
 
 ### Deduplication and dispositions
 
-- key: `(app_registration_id, X-GitHub-Delivery)`;
+The platform signature verifier selects the vault-backed App Registration Ref internally, then maps
+it to one tenant-safe opaque public App configuration key/version before receipt creation. The
+platform registration ID and secret-ref identity/version never enter the tenant receipt, RLS key,
+DTO, or browser projection.
+
+- key: `(opaque_public_app_config_key, X-GitHub-Delivery)`;
 - same key + same raw-body SHA-256: return the original receipt/disposition and enqueue nothing;
 - same key + different hash **after valid signature**: record safe collision metadata, make the
   provider ingress unverifiable, and open/reuse a scoped GitHub-health Absolute Stop;
@@ -1099,6 +1110,21 @@ deterministic raw fixtures signed with test secret versions—not mocked verific
   claim;
 - command/outbox atomicity, tenant RLS denial, claim-token fencing, dead-letter/replay
   authorization;
+- `AcceptProposal(create)` same-key/same-hash replay, same-key/different-hash collision, and
+  different-key concurrent attempts/worker races, proving one Backlog DevTicket, one stable pending
+  create-intent binding with no provider Issue identity, one outbox lineage, and later exact
+  provider confirmation attaching the unique Issue key without recreating either;
+- `AcceptProposal(link_verified_existing)` with fresh/stale provider observations and concurrent
+  ownership, proving the exact repository/Issue key is uniquely reserved before acceptance, only
+  managed mirror publication may remain pending, drift rejects with zero partial Proposal/DevTicket/
+  binding/outbox effect, and replay creates no second intent;
+- `MergeProposal` with and without governed-work changes plus same-key/same-hash replay,
+  same-key/different-hash collision, and different-key concurrency, proving it appends planning
+  evidence and at most opens one proposed Revision while creating no DevTicket, GitHub Issue
+  Binding, create/link intent, provider outbox effect, or GitHub Issue;
+- tenant inbox/API/DTO/RLS assertions proving the dedupe receipt uses only the opaque public App
+  configuration key/rotation version and never carries a platform App registration ID, vault ref,
+  secret-ref identity, or secret-ref version;
 - concurrent OIDC `(issuer,jti)`/nonce reuse with same and different request hashes, proving the
   Actions receipt and `wf230` command receipt commit atomically or not at all; prove provider-fact,
   `ready.validate`, and eligible Needs Human Approval families are admitted while generic governed
@@ -1139,6 +1165,12 @@ second production repository. Drive real API mutations and actual signed deliver
   reconnect disabled while unresolved, then a new binding generation only after terminal disconnect;
 - Issue create/link, response-loss recovery, duplicate containment, body/label/milestone/state,
   comment/worklog/correction/deletion, App echo and copied marker;
+- drive Proposal decisions against the real scratch provider: create acceptance commits one pending
+  stable create identity before any provider Issue exists and later attaches the observed Issue;
+  verified-link acceptance first observes and reserves the exact existing Issue key while only its
+  managed publication remains pending; stale observation or two concurrent link owners yield no
+  partial loser; MergeProposal produces no provider request or new GitHub object in either its
+  planning-only or proposed-Revision branch;
 - fault-inject delayed Issue/comment visibility beyond repeated complete zero-match scans; prove
   zero matches never authorize automatic reissue, then reveal the original exact marker and bind it
   once; separately prove an explicitly approved numbered reattempt records its duplicate-risk
@@ -1162,7 +1194,8 @@ second production repository. Drive real API mutations and actual signed deliver
 - PR binding, force-push/base/head drift, checks/statuses/Actions facts, mergeability
   unknown/conflict, governed merge confirmation, early/external merge, and OIDC request issuer/
   audience/JWKS/`jti`/repository/workflow/run/attempt/ref/SHA binding and replay rejection; prove
-  the three exhaustive Actions families and reject generic command/deployment families;
+  the three exhaustive Actions families and reject generic governed commands and deployment/release
+  mutations;
 - fault-inject a lost Authorized Git Ref Update response and separately observe intended new SHA,
   unchanged old SHA, and a third-party third SHA; prove confirmation, bounded unresolved escalation,
   and visible ref conflict respectively, with one remediation run and no automatic second push;
@@ -1179,32 +1212,41 @@ Against `http://web.opzava.localhost:18088`, with ordinary login, real tenant da
 Docker, and the fixed provider seam, prove an Admin can:
 
 1. install and verify the GitHub App without entering a token;
-2. accept/create a Backlog DevTicket and see its one GitHub Issue binding;
-3. edit shared context in GitHub and see deterministic Opzava convergence;
-4. see a managed-contract edit become a Revision, not an overwrite;
-5. observe comments/worklogs with truthful human/App/bot/unknown attribution and PR/check/review/
+2. accept a Proposal through `create`, see one Backlog DevTicket and stable pending create identity
+   before a provider Issue exists, then see later provider confirmation attach exactly one Issue;
+3. accept through `link_verified_existing`, see the freshly observed existing Issue identity claimed
+   before acceptance while managed publication remains pending, and see stale/concurrent ownership
+   fail without a partial second DevTicket/binding/intent;
+4. merge a Proposal with and without governed-work changes and see planning evidence plus at most
+   one proposed Revision, with no new DevTicket, Issue Binding, create/link intent, provider
+   request, or GitHub Issue;
+5. edit shared context in GitHub and see deterministic Opzava convergence;
+6. see a managed-contract edit become a Revision, not an overwrite;
+7. observe comments/worklogs with truthful human/App/bot/unknown attribution and PR/check/review/
    merge facts without opening GitHub;
-6. see the whole-body no-CAS limitation, inspect side-by-side protected/current values after a
+8. see the whole-body no-CAS limitation, inspect side-by-side protected/current values after a
    detectable overwrite race, and submit a governed recovery without a false lossless claim;
-7. see multiple mapped GitHub assignees block start while unmapped collaborators remain preserved;
-8. see an ambiguous Issue/comment effect remain visibly unknown across zero-match scans, then use
-   the Human Owner form to keep waiting, abandon publication, or explicitly approve one numbered
-   duplicate-risk reattempt without any automatic absence inference;
-9. resolve a same-field Sync Conflict in Opzava, see stale competing decisions rejected, and see
-   `resolution_pending_mirror` become resolved only after confirmed mirror-back;
-10. see truthful degraded/unhealthy/unverifiable health and scoped gate reasons;
-11. see Actions append provider facts, request field-code-only `ready.validate`, or request
-    `Needs Human Approval`, while a generic command/deployment request is rejected with no receipt;
-12. see external merge require Post-Merge Review and no false Done;
-13. inspect all evidence in Card/Development/health views in light/dark, keyboard, and narrow
+9. see multiple mapped GitHub assignees block start while unmapped collaborators remain preserved;
+10. see an ambiguous Issue/comment effect remain visibly unknown across zero-match scans, then use
+    the Human Owner form to keep waiting, abandon publication, or explicitly approve one numbered
+    duplicate-risk reattempt without any automatic absence inference;
+11. resolve a same-field Sync Conflict in Opzava, see stale competing decisions rejected, and see
+    `resolution_pending_mirror` become resolved only after confirmed mirror-back;
+12. see truthful degraded/unhealthy/unverifiable health and scoped gate reasons;
+13. see Actions append provider facts, request field-code-only `ready.validate`, or request
+    `Needs Human Approval`, while generic governed commands and deployment/release mutations reject
+    with no receipt;
+14. see external merge require Post-Merge Review and no false Done;
+15. inspect all evidence in Card/Development/health views in light/dark, keyboard, and narrow
     viewport;
-14. disconnect in secure Opzava UI, refresh/retry through lost provider response, complete any
+16. disconnect in secure Opzava UI, refresh/retry through lost provider response, complete any
     `revocation_required` step in place, and see reconnect remain disabled until provider-confirmed
     revocation/expiry plus local cleanup terminalize the one saga;
-15. inspect setup proof during lost user/refresh-token revocation and confirm no binding/local
-    zeroing, then confirm tenant UI/API/DB output contains only opaque public App
-    configuration/rotation version and no platform secret-ref identity/version; and
-16. inspect an ambiguous Authorized Git Ref Update under intended-new, old, and third-SHA provider
+17. inspect setup proof during lost user/refresh-token revocation and confirm no binding/local
+    zeroing, then confirm tenant UI/API/DB output contains only the opaque public App configuration
+    key/rotation version and no platform App registration ID, vault ref, secret-ref
+    identity/version; and
+18. inspect an ambiguous Authorized Git Ref Update under intended-new, old, and third-SHA provider
     observations and see confirmation, bounded unresolved escalation, or conflict without a second
     remediation run.
 

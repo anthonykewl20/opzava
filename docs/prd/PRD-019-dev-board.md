@@ -70,9 +70,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
    issues, so that speculative findings do not pollute repository history.
 6. As an Opzava administrator, I want to accept, merge, reject, or archive a Proposal, so that I
    control what becomes durable work.
-7. As an Opzava administrator, I want accepting a Proposal to atomically create one durable GitHub
-   Issue create-or-link intent and show its pending state until provider confirmation, so that
-   accepted work enters synchronization without falsely claiming the asynchronous mirror exists.
+7. As an Opzava administrator, I want accepting a Proposal to atomically create one Backlog
+   DevTicket and either reserve a stable create intent pending provider identity or reserve a
+   freshly observed existing Issue identity before commit and queue its link mirror, so that each
+   path shows truthful asynchronous state.
 8. As an Opzava administrator, I want the Board to show Backlog, Todo, Blocked, In Progress, Review,
    and Done, so that the development lifecycle is visible at a glance.
 9. As an Opzava administrator, I want Backlog reserved for shaping and grilling, so that incomplete
@@ -485,13 +486,20 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   existing UUIDs and card numbers as aliases/history, and preserve GitHub links, comments, steps,
   evidence, quality records, activity, and timestamps. Do not maintain indefinite dual-write
   authority.
-- Give every accepted DevTicket one linked GitHub Issue in the single configured Opzava repository
-  for v1. Display `GH #<number>` as the primary user-facing ID; retain the DevTicket UUID as
-  internal identity and any migrated card number as a historical alias.
+- Target every accepted DevTicket to exactly one confirmed GitHub Issue Binding in the single
+  configured Opzava repository for v1. A verified-link acceptance reserves its freshly observed
+  provider Issue identity before commit; a create acceptance reserves only a stable create intent
+  until later provider confirmation. Until the applicable mirror write confirms, show truthful
+  synchronization pending and keep the Card out of Ready. Display `GH #<number>` only after a known
+  provider identity; retain the DevTicket UUID as internal identity and any migrated card number as
+  a historical alias.
 - Model Proposal separately from DevTicket. A Proposal records discovery, evidence, blocking impact,
-  suggested work, and actor. Only acceptance creates or links a DevTicket and GitHub Issue. Blocking
-  Proposals may pause an affected Sprint and notify Slack but do not create GitHub noise before
-  acceptance.
+  suggested work, and actor. `AcceptProposal` creates one Backlog DevTicket plus the exact
+  create-or-link reservation/intent above; provider transport is asynchronous. `MergeProposal`
+  appends discovery/evidence to an existing DevTicket's planning history and opens a proposed
+  Revision only when governed work changes; it creates no DevTicket, GitHub Issue Binding,
+  create/link intent, or provider outbox effect. Blocking Proposals may pause an affected Sprint and
+  notify Slack but do not create GitHub noise before acceptance.
 - Use six workflow lanes: Backlog, Todo, Blocked, In Progress, Review, and Done. Backlog is
   non-executable shaping. Todo requires a complete Ready Contract Version plus its exact Ready
   Approval. In Progress requires verified execution start for the active Claim Attempt and Execution
@@ -899,8 +907,8 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Through the real local-Docker secure UI and the fixed scratch GitHub App, complete install with
   expiring user tokens, inject a lost user/refresh-token revocation response, and prove no binding
   or local zeroing occurs until GitHub confirms revocation/expiry. Inspect tenant HTTP/DB/browser
-  projections and prove they expose only an opaque public App configuration/rotation version, never
-  a platform vault ref or secret-ref version.
+  projections and prove they expose only an opaque public App configuration key/rotation version,
+  never a platform App registration ID, vault ref, secret-ref identity, or secret-ref version.
 - Through the same real UI/provider seam, disconnect with a lost provider response and a separate
   provider-action-required case. Refresh/retry and prove one saga, outbound fencing, visible
   `provider_outcome_unknown`/`revocation_required` status and secure action, no false disconnected
