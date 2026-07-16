@@ -201,8 +201,8 @@ remain governed by their owning PRDs, ADRs, and bounded contexts.
     not randomly reorder events with equal timestamps.
 69. As a security reviewer, I want every composed source query to apply its own ACL, RLS, and
     redaction rules, so that the Overview cannot broaden access by aggregation.
-70. As a security reviewer, I want summary caches separated by tenant, user, grant version, and
-    schema version, so that one principal cannot receive another principal's composition.
+70. As a security reviewer, I want summary caches separated by tenant, user, `authorizationVersion`,
+    and schema version, so that one principal cannot receive another principal's composition.
 71. As a security reviewer, I want authorization changes to invalidate affected cached compositions,
     so that revoked access does not persist until a normal freshness timeout.
 72. As a security reviewer, I want the Overview to exclude secrets, raw provider DTOs, unredacted
@@ -353,15 +353,24 @@ the leaf's Wayfinder work must resolve the exact boundary before it becomes impl
   and any generic restricted placeholder reveals no source existence, identity, count, timestamp,
   last-known-good value, or deep link. An unexpected downstream 403 is a security/contract failure,
   not a displayable source result.
+- “Not queried” means the denied adapter is not dispatched after the composition layer's capability
+  and tenant admission. Once an adapter is admitted and dispatched, its source-owned ACL, Postgres
+  RLS, or broker ACL still executes normally; the composer does not duplicate those policies. A
+  source-owned denial remains a hard 403/security failure, while an empty result is rendered as
+  genuinely empty only when the owner proves the request was admitted.
 - A section may render verified rows while sibling sources are stale, unknown, unavailable, not
   configured, or forbidden. The section must expose partial status rather than invent a single
   verified aggregate.
 - Cross-source ordering uses source event time and a deterministic tie-breaker such as source owner
   plus stable source identity. Receipt/observation time may be shown separately and never silently
   replaces source event time.
-- Any composition cache is keyed at minimum by tenant, user, grant version, and composition schema
-  version. It is invalidated by authorization changes and may not extend a source fact beyond its
-  declared freshness without labeling it stale/last-known-good.
+- Any composition cache is keyed at minimum by tenant, user, `authorizationVersion`, and composition
+  schema version. It is invalidated by authorization changes and may not extend a source fact beyond
+  its declared freshness without labeling it stale/last-known-good.
+- Identity & Access supplies an opaque monotonic `authorizationVersion` that changes atomically with
+  membership, role, capability, grant, or relevant policy mutations. The composer includes that
+  version in its cache key and treats a mismatch with the current authorized request context as a
+  cache miss. An event may evict entries early, but event delivery is not the security boundary.
 - Admission uses `AuthorizationPort` and tenant scope before fan-out. Source adapters then apply
   their own ACL, Postgres RLS where applicable, broker ACL for OpenClaw reads, field redaction, and
   tenant boundaries before data enters the composition. The composer performs defense-in-depth
@@ -381,6 +390,12 @@ the leaf's Wayfinder work must resolve the exact boundary before it becomes impl
 - The adjacent attention inbox/count reports authorized items that currently require the human's
   action. It may compose source-owned approval, conflict, incident, setup, or repair pointers, but
   it does not define their workflow.
+- An admitted attention item may carry an optional browser-safe `correlationRef` to an admitted
+  source-owned root record. The composer groups only an exact tenant-scoped tuple of root authority
+  namespace and opaque root identifier, after authorizing that root for the current principal.
+  Matching items may be visually clustered so one root cause is understandable, but the composer
+  never merges, suppresses, or replaces their source identity, labels, actions, or state. Items
+  without an admitted reference remain independent.
 - Health and attention are separate controls, accessible names, state calculations, and deep-link
   destinations. A non-zero attention count does not make the platform unhealthy, and healthy
   infrastructure does not imply an empty attention inbox.
@@ -425,6 +440,11 @@ the leaf's Wayfinder work must resolve the exact boundary before it becomes impl
 - The shell must label Sprint implementation, ordinary claimed work, and Docker Review occupancy as
   distinct capacity facts. It may not infer that a free implementation slot makes the exclusive
   Review environment available.
+- A Paused Sprint remains the one Active Sprint and is never rendered as running or historical.
+  Active Delivery shows its pause reason, last accepted checkpoint, and source-owned reservation,
+  lease, and waiting states. The shell does not infer whether capacity is reserved, fenced,
+  released, or reusable; it renders the Dev Board owner's reported state and never invents a free
+  Sprint admission.
 
 ### Prototype status and leaf-page planning
 
@@ -451,7 +471,9 @@ the leaf's Wayfinder work must resolve the exact boundary before it becomes impl
   root capability, per-leaf denial, per-source denial, grant revocation, stale cached grants, tenant
   separation, authorized search results, unauthorized deep links, and 403 rather than empty or zero
   results. They prove denied sources are not queried and generic restricted presentation discloses
-  no existence, identifier, count, timestamp, last-known-good value, or deep link.
+  no existence, identifier, count, timestamp, last-known-good value, or deep link. They distinguish
+  an adapter skipped by composition admission from an admitted adapter enforcing its own RLS/ACL,
+  and prove source-owned denial is never converted into empty success.
 - Composition contract tests cover source owner, provenance, source version/checkpoint, source
   timestamp, `observedAt`, `staleAfter`, availability state, and last-known-good marker for every
   independently rendered admitted result shape. Unexpected downstream 403 responses are tested as
@@ -462,9 +484,11 @@ the leaf's Wayfinder work must resolve the exact boundary before it becomes impl
 - Partial-failure tests make each source fail independently and in combinations. Verified sections
   and rows continue to render, the shell remains navigable, and no synthetic global healthy/empty
   state is produced.
-- Cache tests prove tenant/user/grant-version/schema-version key isolation, authorization-change
-  invalidation, and rejection of cached values that would be mislabeled as live after their
-  freshness boundary.
+- Cache tests prove tenant/user/`authorizationVersion`/schema-version key isolation,
+  authorization-change invalidation, and rejection of cached values that would be mislabeled as live
+  after their freshness boundary. Identity & Access tests prove `authorizationVersion` changes
+  atomically with relevant authorization mutations; composition tests prove a version mismatch is a
+  cache miss even if an eviction event is delayed or lost.
 - Security tests inspect rendered HTML, serialized page data, logs visible to the browser, error
   disclosures, search results, and network responses for secret values, raw provider/Gateway DTOs,
   unredacted errors, hidden reasoning, raw prompts, and raw tool output.
@@ -472,7 +496,9 @@ the leaf's Wayfinder work must resolve the exact boundary before it becomes impl
   owner reauthorizes it. No test treats visible action state as sufficient command authorization.
 - Health/attention tests prove that a healthy platform may have non-zero attention, that an empty
   attention inbox may coexist with degraded health, that unknown health evidence cannot render as
-  healthy, and that the two controls have separate accessible names and destinations.
+  healthy, and that the two controls have separate accessible names and destinations. Correlation
+  tests prove related items can cluster without losing, merging, or suppressing source-owned state
+  and actions; cross-tenant refs, namespace collisions, and unauthorized root refs never cluster.
 - Navigation tests cover the exact pinned item, group labels, group order, leaf labels, leaf order,
   active state, attention-only badges, maximum two visible levels, deep links, browser back/forward,
   reload restoration, and deliberate absence of CRM, Marketing, and Finance.
@@ -482,7 +508,10 @@ the leaf's Wayfinder work must resolve the exact boundary before it becomes impl
   duplicate or relabel Dev Board Summary as its own source.
 - Delivery/readiness tests use source-owned fixtures to show one Active Sprint, its serial Sprint
   lease, one explicitly claimed Ready ordinary ticket in separate branch/worktree under Balanced
-  capacity, and the exclusive Docker Review lease without redefining those policies in shell code.
+  capacity, and the exclusive Docker Review lease without redefining those policies in shell code. A
+  Paused fixture remains the Active Sprint, displays reason and last checkpoint, marks the Sprint
+  reservation/lease state exactly as owner-reported, and covers reserved, fenced, released, and
+  waiting cases without fabricating reusable implementation capacity.
 - State tests cover active, clear, loading, error, live, stale, unknown, unavailable,
   not-configured, forbidden, and last-known-good presentations. Clear state is verified as real
   successful emptiness, not a failed or forbidden request.
@@ -541,6 +570,10 @@ the leaf's Wayfinder work must resolve the exact boundary before it becomes impl
 
 ## Further Notes
 
+- Canonical tracker: [PRD-020 issue #240](https://github.com/anthonykewl20/opzava/issues/240).
+  Unresolved leaf placement, setup UX, route migration, prototypes, and final delivery slicing are
+  tracked by
+  [Admin Control Center Wayfinder #241](https://github.com/anthonykewl20/opzava/issues/241).
 - Approved structural evidence: commit `0dd1bff305e4049d506b997330c5039485107798` on branch
   `prototype/admin-shell-v1`, file `apps/web/public/prototypes/admin-shell-v1.html`, query
   `?variant=A`.

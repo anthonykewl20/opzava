@@ -35,10 +35,10 @@ secrets. An unexpected downstream 403 is a security/contract failure. Only owner
 browser-safe Opzava projection IDs and deep links may cross the browser boundary.
 
 Each section reports its owner, provenance, `asOf`, checkpoint/version, freshness threshold, and
-`fresh | stale | unavailable | unknown` state; partial failures remain section-local and cannot be
-summed or reported healthy. Platform health/readiness means a capability can safely operate now
-with current evidence. Attention is a separate actor-authorized queue of human actions or decisions;
-degraded health may create attention, but the two are not interchangeable.
+`live | stale | unknown | unavailable | not-configured` state; partial failures remain section-local
+and cannot be summed or reported healthy. Platform health/readiness means a capability can safely
+operate now with current evidence. Attention is a separate actor-authorized queue of human actions
+or decisions; degraded health may create attention, but the two are not interchangeable.
 
 | Group | Destinations in order |
 | --- | --- |
