@@ -6,12 +6,17 @@ is a STATIC Compose service (`openclaw-platform-gateway`) built from `./mainfram
 per-tenant Gateway containers are deferred with ADR-002. (2) The production home is the Dokploy VPS
 at 5.189.186.18; `opzava.app` (wildcard DNS + Let's Encrypt) is purchased at the first live-dev
 push; local compose remains the dev/verify environment — parity contract unchanged. (3) Exactly ONE
-public WebSocket surface exists (browser ↔ app/broker via Traefik+LE); the gateway keeps zero public
+public WebSocket ingress exists (browser and enrolled Runner roles ↔ app/broker via Traefik+LE); the
+roles use separate paths, credentials, rate limits, and frame schemas; the gateway keeps zero public
 listeners; internal legs stay plain `ws://` on `dokploy-network`. (4) The trusted Release pipeline
 builds every release image once, publishes immutable OCI digests and provenance to the approved
 registry, and the sealed Release Manifest makes staging and production deploy those same digests
 without rebuild. Local development may still use Compose `build:` directives, but local images are
 never release artifacts.
+
+The WF-232 Runner-ingress amendment in this document is a **prepared inactive candidate** until
+reviewed landing, tracker closure, and the matching parent-map #228 pointer. The previously accepted
+ADR remains current; staging this amendment does not activate it early.
 
 Opzava will use one canonical `docker-compose.yml` with Compose profiles as the source of truth for
 both local development and live Dokploy deployment. Local runs the same stack with its own Traefik,
@@ -97,6 +102,14 @@ The legitimate environment drift is limited to:
 All current V1 app services, including the one static `openclaw-platform-gateway`, are
 Compose-managed and manifest-pinned. No current Release creates a per-tenant Gateway container or
 tenant route through `GatewayRuntimePort`.
+
+The target enrolled Runner uses an outbound WSS role/path on the existing broker ingress. It does
+not create a second public listener or expose an inbound laptop, SSH, Docker-socket, harness, or
+OpenClaw Gateway port. Browser, Runner, and OpenClaw-operator traffic must not reuse authentication
+credentials, authorization middleware, or message schemas merely because Traefik terminates them on
+one public listener. Local and Dokploy parity tests must exercise the same Runner routing and TLS
+boundary. The proposed trust and frame contract is prepared in
+[`wf232-runner-control-protocol.md`](../plan/research/wf232-runner-control-protocol.md).
 
 ### Deferred multi-tenant Gateway decision
 

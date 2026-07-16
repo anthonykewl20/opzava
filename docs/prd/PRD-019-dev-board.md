@@ -1,9 +1,9 @@
 # PRD-019: Dev Board — governed Opzava platform-development workspace
 
-> **WF-231 amendment status:** GitHub bootstrap/mirror details added by the #231 resolution are a
-> prepared inactive candidate until parent map #228 records verified closure and the migration
-> manifest designates the memo current for #237. The previously approved PRD remains current; these
-> staged additions do not become implementation authority early.
+> **WF-231 amendment status:** GitHub bootstrap/mirror details landed at
+> `1db502d722ca33285148251a7660695868ad6a30`; #231 is closed and the parent map plus migration
+> manifest designate its memo current planning input until #237 consumes and freezes it. This is
+> target-contract authority, not a claim that product behavior is implemented.
 
 ## Problem Statement
 
@@ -706,11 +706,55 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   Codex CLI, and Claude Code selection without assuming platform availability.
 - Treat an orchestrator/cloud Runner as a separate explicitly admitted execution service bound from
   the start to the same lease, receipt, checkpoint, branch, and worktree rules. It is never an
-  implicit failover target and cannot satisfy the local-only Review requirement.
-- Accept a runner receipt only when signed by an enrolled local machine key or explicitly admitted
-  cloud service identity and bound to an active fenced lease, command nonce, monotonic sequence,
-  exact DevTicket contract version, worktree, branch, and SHA. Reject stale leases, repeated nonces,
-  regressed sequences, mismatched identity, and receipts after revocation.
+  implicit failover target and cannot satisfy the local-only Review requirement. Cloud Enrollment
+  requires a Platform Admin grant plus exact pinned OIDC workload
+  issuer/audience/subject/deployment, non-replayed short-lived token, locally generated Runner-key
+  proof, and explicit confirmation; without a verified issuer policy cloud renders Unavailable.
+- Keep Runner Enrollment distinct from an MCP/tool link, OpenClaw Node/Device pairing, vendor login,
+  Execution Assignee, and process registration. Local and cloud Runners use a separate outbound WSS
+  Runner role/path on the existing broker ingress and open no inbound machine control port.
+- Treat an upgraded Runner socket as provisional until a single-use server challenge and enrolled-
+  key proof bind both nonces, boot identity, reconnect cursors, and the negotiated
+  protocol/features. Atomically supersede the previous connection epoch, require signed
+  accepted/ready frames before delivery, and replay from server-confirmed cursors rather than trust
+  a client to skip work.
+- Challenge every capability submission on a current connection. Persist the typed signed manifest
+  observation and monotonically increasing sequence separately from server-evaluated Capability
+  Admission. Claim/start may select only the admitted Harness Adapter/tool/version/mode;
+  self-report, stale evidence, sequence gaps, or unsupported probes never make a Runner eligible.
+- Deliver only server-authorized typed Runner orders through a durable outbox. Keep immutable
+  semantic command bytes/hash separate from each signed current-connection delivery envelope and pin
+  a rollback-resistant server command-key trust bundle during enrollment. A delivery ACK proves
+  receipt of bytes and a heartbeat proves liveness; neither moves a Card. Accept a Runner Receipt
+  only when its connection-independent semantic fact is signed by an enrolled local machine key or
+  explicitly admitted cloud service identity and arrives inside a separately signed current-
+  connection frame. The inner ordinary fact binds current enrollment/key; immutable `commandId` plus
+  `semanticCommandHash`; stable `deliveryId` mapping; the `deliveryAttemptId` plus `envelopeHash`
+  under which the action occurred; an active fenced lease, command nonce, durable per-lease
+  sequence, exact DevTicket contract version, repository/worktree/process identity, and current
+  policy. Exact inner-fact duplicates remain idempotent across reframing; collisions, gaps, stale
+  outer authority, revoked keys, and unsupported downgrades fail closed. The sole post-connection
+  exception is a closed, independently Lease-Enforcer-signed authority-reducing containment fact
+  under the last accepted arm/renew authority; it can never start, renew, resume, release, or widen
+  authority.
+- Use the one exact WF-232 wire representation and bind command ID↔semantic hash independently of
+  delivery/attempt identity. Every Semantic Runner Order also binds the selected Harness
+  Adapter/tool/version/mode. Encoding, optional-field, embedded-order, sequence, and digest rules
+  are protocol behavior, not implementation discretion.
+- Require a durable process/worktree journal and an OS-supervised monotonic Lease Enforcer outside
+  both the Runner daemon and vendor harness. Daemon or Enforcer failure must trigger a proven
+  fail-closed stop/quarantine boundary. Lost renewal/control authority checkpoints, disposes lease
+  grants, and stops or quarantines the complete containment set. Reconnect records a Reconciliation
+  Observation before any decision and continuation always uses a fresh claim, lease, fence, nonce,
+  and start receipt; an old lease is never resumed.
+- Deliver signed contiguous nonce-bound Enforcer arm/renew/fence orders directly verifiable under
+  the pinned server command trust. Exact duplicates replay the signed outcome; sequence/hash/nonce
+  collision or gap contains. Daemon heartbeat cannot renew, and an Enforcer outcome never moves a
+  Card without Execution Admission.
+- Before spawn, accept a typed Process Registration/containment reservation, then Enforcer arm, then
+  all required secret-grant activation receipts. Only a start order binding those digests may spawn.
+  Partial/failed activation produces a typed safe failure, disposes grants, and forbids spawn,
+  resolving the process-registration/grant dependency without guessing.
 - Create a dedicated worktree and branch for each executing DevTicket. Bind checkpoints to
   repository, worktree, branch, HEAD SHA, dirty state summary, command state, Docker state, evidence
   refs, and last confirmed receipt.
@@ -752,9 +796,25 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   tied to the authenticated enrolled Admin, exact target/version/hash, one-time nonce, expiry,
   action, and audit record. Machine enrollment, raw secret entry, security configuration, and
   integration trust changes require Opzava's secure UI.
-- Store no secret value on a Card, in GitHub, Slack, comments, logs, evidence summaries, or audit
-  payloads. Cards contain named secret references and readiness/health only. Resolve values from an
-  approved local keyring or vault under the active policy and lease.
+- Store no secret value on a Card, in GitHub, Slack, Ask Admin, MCP, Runner frames, prompts,
+  arguments, paths, comments, logs, checkpoints, commits, evidence summaries, or audit payloads.
+  Cards and Runner orders contain named secret references and opaque lease-grant handles only.
+  Resolve values from an approved local keyring or vault under the active policy and lease, and
+  distinguish local grant disposal from upstream secret revocation confirmation.
+- Never give a Runner GitHub App installation/Contents-write credentials or an equivalent deploy
+  key. After a one-use server preparation order, the Harness Supervisor uploads raw object-bundle
+  bytes to the separately bounded signed artifact ingress; Opzava independently verifies and admits
+  the immutable artifact. Only then may the Runner send the typed signed exact-ref,
+  expected-old-SHA, proposed-new-SHA, and admitted artifact ref/digests over its authenticated WSS
+  connection. Runner Protocol writes that ref-only authenticated #231 handoff; the Git transport
+  broker reauthorizes and conditionally publishes. Neither upload nor WSS submission is provider
+  acceptance. Agent-harness environment variables are not an allowed secret-value injection method.
+- Record interactive tool needs and policy rejection as typed `human_input_required` or
+  `policy_denied` outcomes bound to the exact command phase and process state. The owning server
+  command handler selects the WF-230 Blocked/containment transition from the admitted fact; the
+  Human Owner is notified and supplies only governed input through the secure-UI action. Human
+  response or policy change creates a new authorized command and never mutates the original outcome
+  or waits forever on a hidden prompt.
 - Configure one independent local Reviewer tool and model in Admin. Review must run on the user's
   local machine against the shared local Docker stack and an exact commit SHA. An accepted exact
   checkpoint/receipt moves a DevTicket into Review / Preparing Review and increments membership-only
@@ -1003,6 +1063,23 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   dependencies, exclusive-resource conflicts, separate branch/worktree, visible declared-scope
   collision warning, agent-remediated merge conflict, and rerun checks/Review. Assert no preset can
   admit a second Active Sprint or a second concurrent Sprint DevTicket.
+- Test the Runner protocol without a model: cross-language canonical signed vectors with explicit
+  self-excluding digest/signature preimages and parser/body limits; real TLS/WSS reconnect and
+  command replay; real Postgres/RLS outbox, inbox, epoch, sequence, and revocation transactions; a
+  deterministic fake Harness Adapter saga; actual Git worktrees and process descendants; independent
+  Lease Enforcer containment when daemon, Enforcer, or both die; command-key
+  rotation/revoke/rollback; #231 brokered exact-ref publication with no Runner write credential;
+  secret-canary absence across every persistence/transport/evidence seam; signed Slack HTTP retries;
+  and parameterized local and cloud Adapter conformance. Unsupported Codex Desktop/CLI/Claude Code
+  platform/version/mode rows must render unavailable, not silently healthy.
+- On a supported Linux fixture, drive a real authenticated browser→Admin enrollment→CLI
+  bootstrap/fingerprint→explicit pinned/probed Codex CLI `managed_ordinary` selection→capability
+  admission→Todo claim/start→In Progress flow. Cut the Runner network and prove Blocked/Execution
+  Unknown, preview revoke, branch-safe Slack notice, and no cloud failover; reconnect through a new
+  challenge, show reconciliation, contain old authority, and return to In Progress only through a
+  fresh claim/lease/fence/nonce/start receipt. Use real Traefik, Postgres/RLS/outbox/inbox, signed
+  frames, Codex CLI worktree/process, and Slack HTTP fixture; screenshots or direct DB mutation are
+  insufficient.
 - Test material Revision while Todo credential provisioning is pending as live containment: fence
   the claim/lease, revoke pending or active credential/tunnel authority, retain capacity/worktree,
   and delay Backlog apply until no-process or stopped/quarantined proof plus every confirmation.

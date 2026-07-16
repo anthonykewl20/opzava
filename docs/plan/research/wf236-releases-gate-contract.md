@@ -34,7 +34,8 @@ from the human or preserve hidden model reasoning.
 
 **Participants:** the Opzava Owner/human administrator and the assistant. **Decision date:**
 2026-07-17. The approval source is the parent planning conversation, not a GitHub issue comment.
-Issue #236 integration and final closure remain pending the root orchestrator.
+Issue #236 is resolved and closed; this memo remains current input for #237 while parent map #228 is
+open.
 
 ## Planning Session Log
 

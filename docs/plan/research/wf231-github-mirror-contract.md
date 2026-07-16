@@ -1,10 +1,10 @@
 # WF-231 — GitHub App bootstrap and deterministic mirror contract
 
-**Status:** prepared resolution candidate for Wayfinder issue
-[`Reconcile GitHub bootstrap, two-way sync, delivery facts, Actions exceptions, and conflict remediation`](https://github.com/anthonykewl20/opzava/issues/231).
-It becomes **current input** only after the parent map records #231's verified closure and
-designates it for synthesis issue #237. Until then this is a reviewed contract candidate, not
-implementation authority or product code.
+**Status:** landed at `1db502d722ca33285148251a7660695868ad6a30`; Wayfinder issue
+[`Reconcile GitHub bootstrap, two-way sync, delivery facts, Actions exceptions, and conflict remediation`](https://github.com/anthonykewl20/opzava/issues/231)
+is closed, and the parent map plus migration manifest designate this memo current planning input
+until #237 consumes and freezes it. This is target-contract authority, not implementation authority
+or product code.
 
 ## Decision summary
 

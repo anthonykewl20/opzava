@@ -18,8 +18,8 @@ Two focused sprints own current work. Everything else is shared foundation or fr
   read all four before touching the legacy Tasks, Issues, MCP task-tool, execution-ledger,
   GitHub-integration, card-detail, or migration paths. Its observability/remediation surface
   (PRD-012, PRD-018, ADR-013) feeds Dev Board Incidents and belongs to this umbrella.
-  `docs/plan/research/wf236-releases-gate-contract.md` is the current canonical target input for Dev
-  Board Wayfinder #236 while root issue integration/final closure remains pending.
+  `docs/plan/research/wf236-releases-gate-contract.md` is the resolved canonical target input from
+  closed Dev Board Wayfinder #236 and remains current for #237 synthesis while map #228 is open.
 - **Admin Control Center** — shell, navigation, Admin Overview composition, and page placement are
   governed by `docs/prd/PRD-020-admin-control-center.md` and
   `docs/plan/admin-control-center-foundation-decisions.md`; read them with
