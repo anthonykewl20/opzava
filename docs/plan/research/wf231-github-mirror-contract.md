@@ -174,48 +174,52 @@ facts, source hashes, observed/recorded times, and evidence refs.
 
 ### Required records
 
-| Record                         | Stable key and important state                                                                                                                                                                                                               | Ledger                   |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| App Registration Ref           | platform-owned internal ID; provider App/client IDs; slug; API-version/config/permission/event-set versions; active/retiring private-key, client-secret, and webhook-secret ref versions plus rotation state; global access-policy version   | platform config audit    |
-| Installation Association Proof | pending setup/Admin authorization versions; immutable GitHub user/account/installation/repository IDs; safe user-token API observations; consumed/expired/denied disposition; never token values                                             | integration/config audit |
-| GitHub Installation Binding    | tenant/workspace + provider installation ID; account ID; status; granted permission/event-set version; suspension/removal facts                                                                                                              | sync/health              |
-| GitHub Repository Binding      | one production binding; immutable provider repository ID/node ID; installation ID; canonical owner/name; rename/transfer/archive/delete state                                                                                                | sync/health              |
-| GitHub Issue Binding           | unique DevTicket and unique `(repository_id, issue_provider_id/number)` across active, archived, and historical records; immutable origin kind plus exactly one create- or link-correlation UUID retained through every render/binding state | sync                     |
-| Webhook Inbox Receipt          | `(app_registration_id, delivery_id)`; raw-body SHA-256; event plus schema-valid action or explicit actionless disposition; admitted installation/repository; schema version; safe normalized payload ref; disposition                        | sync inbox               |
-| Mirror Outbox Intent           | Opzava event ID + operation + target + canonical request hash; state; claim token; attempt; not-before; unknown-outcome state; provider confirmation                                                                                         | sync outbox              |
-| Provider Observation           | provider object/ref/version-like observations, field digests, actor/app identity, observed/recorded times, source delivery or fetch epoch                                                                                                    | sync                     |
-| Mirror Shadow                  | last mutually confirmed per-field value digest plus Opzava version/event and provider object observation                                                                                                                                     | sync                     |
-| Reconciliation Epoch           | scope, cursor/pages, claimed generation/token, start/end snapshot, completeness, gaps, convergence result                                                                                                                                    | sync                     |
-| Sync Conflict                  | exact field/scope/base/Opzava/provider versions and safe values/refs; blocking class; monotonic conflict version; `open`, `decision_required`, `resolution_pending_mirror`, or `resolved`; resolution command/hash/ref and confirmation      | sync/conflict            |
-| Integration Health Snapshot    | dimension statuses, evidence, scope, evaluated policy version, last-good ref, reconciliation proof                                                                                                                                           | sync/health              |
-| Actions Request Receipt        | unique `(issuer, jti)` and workspace/repository/command-family/nonce; audience/subject; workflow refs/SHAs; run/attempt/actor/event/ref/requested SHA; canonical request hash; disposition and atomically reserved command receipt ref       | sync/activity            |
-| Authorized Git Ref Update      | exact #232 lease/purpose/ref/old/new SHA/bundle hash/nonce/expiry; broker claim/fence; provider attempt and confirmation; never token value                                                                                                  | runner/sync              |
+| Record                         | Stable key and important state                                                                                                                                                                                                                                                                                                       | Ledger                   |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
+| App Registration Ref           | platform-owned internal ID; provider App/client IDs; slug; API-version/config/permission/event-set versions; opaque public configuration/rotation versions; vault-only active/retiring private-key, client-secret, and webhook-secret refs plus rotation state; global access-policy version                                         | platform config audit    |
+| Installation Association Proof | pending setup/Admin authorization versions; immutable GitHub user/account/installation/repository IDs; opaque public App configuration/rotation version; safe user-token API observations; token revocation/expiry and local-zeroing states; consumed/expired/denied disposition; never token values or platform secret-ref versions | integration/config audit |
+| GitHub Installation Binding    | tenant/workspace + provider installation ID; account ID; status; granted permission/event-set version; opaque public App configuration/rotation version; suspension/removal facts; never platform secret refs or secret-ref versions                                                                                                 | sync/health              |
+| GitHub Repository Binding      | one production binding; immutable provider repository ID/node ID; installation ID; canonical owner/name; opaque public App configuration/rotation version; rename/transfer/archive/delete state; never platform secret refs or secret-ref versions                                                                                   | sync/health              |
+| GitHub Issue Binding           | unique DevTicket; verified-link reserves unique `(repository_id, issue_provider_id/number)` before acceptance, while create reserves a stable intent pending provider identity and confirmation attaches the same unique key; immutable origin plus exactly one create- or link-correlation UUID retained through every state/render | sync                     |
+| Webhook Inbox Receipt          | `(app_registration_id, delivery_id)`; raw-body SHA-256; event plus schema-valid action or explicit actionless disposition; admitted installation/repository; schema version; opaque public App configuration/rotation version; safe normalized payload ref; disposition; never platform secret-ref version                           | sync inbox               |
+| Mirror Outbox Intent           | Opzava event ID + operation + target + canonical request hash; state; claim token; attempt; not-before; unknown-outcome state; provider confirmation                                                                                                                                                                                 | sync outbox              |
+| Provider Observation           | provider object/ref/version-like observations, field digests, actor/app identity, observed/recorded times, source delivery or fetch epoch                                                                                                                                                                                            | sync                     |
+| Mirror Shadow                  | last mutually confirmed per-field value digest plus Opzava version/event and provider object observation                                                                                                                                                                                                                             | sync                     |
+| Reconciliation Epoch           | scope, cursor/pages, claimed generation/token, start/end snapshot, completeness, gaps, convergence result                                                                                                                                                                                                                            | sync                     |
+| Sync Conflict                  | exact field/scope/base/Opzava/provider versions and safe values/refs; blocking class; monotonic conflict version; `open`, `decision_required`, `resolution_pending_mirror`, or `resolved`; resolution command/hash/ref and confirmation                                                                                              | sync/conflict            |
+| Integration Health Snapshot    | dimension statuses, evidence, scope, evaluated policy version, last-good ref, reconciliation proof                                                                                                                                                                                                                                   | sync/health              |
+| Actions Request Receipt        | unique `(issuer, jti)` and workspace/repository/command-family/nonce; audience/subject; workflow refs/SHAs; run/attempt/actor/event/ref/requested SHA; canonical request hash; disposition and atomically reserved command receipt ref                                                                                               | sync/activity            |
+| Authorized Git Ref Update      | exact #232 lease/purpose/ref/old/new SHA/bundle hash/nonce/expiry; broker claim/fence; provider attempt and confirmation; never token value                                                                                                                                                                                          | runner/sync              |
+| GitHub Disconnect Saga         | unique binding generation + idempotency key/request hash; outbound fence/drain; provider uninstall/revocation/expiry state including `provider_outcome_unknown` or `revocation_required`; local cleanup; terminal disposition; reconnect generation                                                                                  | sync/health/config       |
 
 The App Registration Ref is environment/platform configuration, not tenant data. Only the
 provisioning/security service may read it under an explicit global access policy; its secret values
-remain in the vault, its refs never reach tenant queries or browser data, and every access/rotation
-is audited. In particular, the active GitHub App client-secret value is resolved only inside the
-bounded server-side authorization-code exchange, is never persisted outside the vault or emitted to
-tenant/browser/log data, and is not retained by application state after the request. Every other row
-is tenant scoped and RLS protected. Provider IDs are never inferred from a URL. A renamed repository
-updates owner/name while retaining repository identity. A transferred repository must still match
-the approved production binding and installation; otherwise it becomes unverifiable.
+and secret-ref identities/versions remain in the platform vault/config audit, never tenant queries,
+application DTOs, or browser data. A tenant record may retain only an opaque public App
+configuration/rotation version sufficient to detect drift without revealing which vault object or
+secret-ref version was used. In particular, the active GitHub App client-secret value is resolved
+only inside the bounded server-side authorization-code exchange, is never persisted outside the
+vault or emitted to tenant/browser/log data, and is not retained by application state after the
+request. Every other row is tenant scoped and RLS protected. Provider IDs are never inferred from a
+URL. A renamed repository updates owner/name while retaining repository identity. A transferred
+repository must still match the approved production binding and installation; otherwise it becomes
+unverifiable.
 
 ## Verified GitHub input classification
 
 Verification authenticates a provider fact; it does not grant workflow authority.
 
-| Verified input                                                                                      | Classification                                  | Allowed result                                                                                                                     |
-| --------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| installation/repository lifecycle, token/permission/rate signal, App echo, provider deletion        | integration-internal transition                 | update binding/health/inbox/outbox/reconciliation; open scoped stop/conflict as policy requires                                    |
-| Issue/PR/comment/check/commit/review/merge identity and current native state                        | provider fact only                              | append observation and rebuild projection; never infer a DevTicket decision                                                        |
-| title or summary/context change with no concurrent Opzava change                                    | governed shared-metadata request                | Dev Board validates actor/source/base/version and commits or rejects a new value; integration never writes aggregate directly      |
-| managed contract/type/priority/risk/severity/area edit                                              | proposed Revision                               | create one exact-base Revision for Human Owner decision; no silent approved-contract replacement                                   |
-| managed status, assignee, dependency, approval, or Sprint/milestone edit                            | governed command request                        | call the same Dev Board command as UI/Slack/agent; denial mirrors current truth or opens conflict                                  |
-| OIDC-authenticated Actions exception request with exact repository/workflow/run/SHA/command binding | eligible Needs Human Approval Request           | open a version/hash/nonce-bound request under `wf230`; Actions cannot approve it                                                   |
-| Issue close/reopen                                                                                  | provider fact plus governed transition request  | close cannot mean Done/archive; reopen cannot undo Done; rejected/early state becomes visible conflict and reconciles              |
-| provider GitHub comment                                                                             | actor-classified provider-backed append request | after Secret-Safe Ingress, only verified `mapped_human` appends a Human Comment; every other actor class remains external evidence |
-| App-authored hidden-marker comment/body/label echo                                                  | integration confirmation candidate              | confirm only when App/installation/provider actor **and** expected outbox event marker/hash match                                  |
+| Verified input                                                                               | Classification                                  | Allowed result                                                                                                                                                                 |
+| -------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| installation/repository lifecycle, token/permission/rate signal, App echo, provider deletion | integration-internal transition                 | update binding/health/inbox/outbox/reconciliation; open scoped stop/conflict as policy requires                                                                                |
+| Issue/PR/comment/check/commit/review/merge identity and current native state                 | provider fact only                              | append observation and rebuild projection; never infer a DevTicket decision                                                                                                    |
+| title or summary/context change with no concurrent Opzava change                             | governed shared-metadata request                | Dev Board validates actor/source/base/version and commits or rejects a new value; integration never writes aggregate directly                                                  |
+| managed contract/type/priority/risk/severity/area edit                                       | proposed Revision                               | create one exact-base Revision for Human Owner decision; no silent approved-contract replacement                                                                               |
+| managed status, assignee, dependency, approval, or Sprint/milestone edit                     | governed command request                        | call the same Dev Board command as UI/Slack/agent; denial mirrors current truth or opens conflict                                                                              |
+| OIDC-authenticated Actions request with exact repository/workflow/run/SHA/family binding     | exhaustive `wf230` Actions source policy        | append native provider facts, request field-code-only `ready.validate`, or open one eligible version/hash/nonce-bound Needs Human Approval Request; every other family rejects |
+| Issue close/reopen                                                                           | provider fact plus governed transition request  | close cannot mean Done/archive; reopen cannot undo Done; rejected/early state becomes visible conflict and reconciles                                                          |
+| provider GitHub comment                                                                      | actor-classified provider-backed append request | after Secret-Safe Ingress, only verified `mapped_human` appends a Human Comment; every other actor class remains external evidence                                             |
+| App-authored hidden-marker comment/body/label echo                                           | integration confirmation candidate              | confirm only when App/installation/provider actor **and** expected outbox event marker/hash match                                                                              |
 
 Free-text `#123`, branch names, commit messages, and copied hidden markers are hints only. They
 never establish a binding, actor authority, or correlation on their own.
@@ -227,8 +231,11 @@ never establish a binding, actor authority, or correlation on their own.
 Opzava owns one GitHub App registration for this environment. Registration credentials live behind
 secret references; they do not live in DevTickets, Cards, GitHub, Slack, logs, or docs. Private-key,
 client-secret, and webhook-secret rotation has explicit current/retiring versions and provider-valid
-overlap where supported. A callback, code exchange, or delivery records which safe config/secret-ref
-version it used without exposing the value.
+overlap where supported. GitHub App expiring user access tokens must be enabled; setup fails closed
+when that setting cannot be verified. A callback, code exchange, or delivery records only the opaque
+public App configuration/rotation version used. The platform config audit separately records
+secret-ref access under provisioning/security policy; a tenant record never stores or exposes a
+platform secret ref or secret-ref version.
 
 | Capability           | Permission    | Why                                                              | Write boundary                                                                           |
 | -------------------- | ------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
@@ -284,23 +291,35 @@ capability unhealthy; it is not silently dropped.
    expected active GitHub App client-secret ref from the vault only for that bounded server call and
    submits the required client ID, client secret, code, exact redirect URI, and PKCE verifier. The
    secret value never reaches a tenant row, browser, response, error, or log and is not retained by
-   application state after the exchange; its safe ref/config version and audited access result
-   remain. Opzava uses the resulting ephemeral GitHub App **user access token** to call the
+   application state after the exchange. The platform config audit retains the secret access and
+   secret-ref version; the tenant proof retains only the opaque public App configuration/rotation
+   version. Opzava uses the resulting ephemeral GitHub App **user access token** to call the
    provider's user-accessible-installations and repositories endpoints and requires the claimed
    installation/ repository to appear for that exact authenticated GitHub user. It records only
-   immutable provider user/account/installation/repository IDs and proof metadata, then destroys the
-   user token and any refresh token; neither becomes the standing integration credential.
-5. Server-side App authentication independently fetches that installation and its repositories. It
+   immutable provider user/account/installation/repository IDs and proof metadata. The resulting
+   user and refresh credentials are held only as encrypted, non-exportable cleanup handles scoped to
+   this pending proof; neither becomes a standing integration credential or tenant-readable ref.
+5. `FinalizeInstallationAssociationProof` idempotently revokes both user and refresh credentials at
+   GitHub, or obtains provider-confirmed expiry for each. Only that provider confirmation permits
+   local handle/ciphertext destruction and zeroing. A timeout, lost response, indeterminate provider
+   reply, or unsupported revocation remains `token_cleanup_unknown`/`revocation_required`, retains
+   only the quarantined cleanup handle needed to reconcile, and blocks final binding and health. It
+   never treats local deletion as provider revocation, blindly repeats a mutation with an unknown
+   outcome, or exposes the credential to another worker. Reconciliation re-observes provider state;
+   exact revocation/expiry confirms cleanup, a still-valid credential schedules bounded idempotent
+   revocation, and persistent uncertainty requires secure Admin action.
+6. Server-side App authentication independently fetches that installation and its repositories. It
    verifies App ID, installation/account, exact immutable repository ID, granted access, permission
    set, event/config version, and no existing binding to another tenant. A signed installation event
    may corroborate lifecycle state but cannot replace the user-to-installation association proof.
-6. Under the pending-install and repository-binding locks, the same transaction revalidates the
-   initiating Admin's live session, unchanged identity, current tenant membership, and current
-   integration-admin authorization/policy version. It then confirms one Installation Binding and the
-   one production Repository Binding, records health `reconciling`, and consumes state. A demotion,
-   revocation, session expiry, tenant switch, or policy denial rejects finalization with no binding
-   and expires/denies the pending proof safely.
-7. A complete first reconciliation and managed-label capability probe must pass before health may
+7. Under the pending-install and repository-binding locks, after token cleanup is provider-confirmed
+   and locally zeroed, the same transaction revalidates the initiating Admin's live session,
+   unchanged identity, current tenant membership, and current integration-admin authorization/policy
+   version. It then confirms one Installation Binding and the one production Repository Binding,
+   records health `reconciling`, and consumes state. A demotion, revocation, session expiry, tenant
+   switch, or policy denial rejects finalization with no binding and expires/denies the pending
+   proof safely.
+8. A complete first reconciliation and managed-label capability probe must pass before health may
    become `healthy` or any Ready/provider-dependent gate may open.
 
 A spoofed callback, missing/refused user authorization, user-token installation mismatch, mismatched
@@ -318,11 +337,31 @@ closed. It never tenant-binds the claimed installation.
 - permission additions remain pending until the installation owner accepts them; existing grants are
   evaluated exactly, not against desired configuration;
 - unsuspend/reinstall never restores health by itself: mint/probe and full reconciliation must pass;
-- `DisconnectGitHub` fences outbound claims, drains or classifies in-flight unknown outcomes,
-  revokes/uninstalls provider access when the credential class and authority allow, destroys local
-  key/ref material separately, records both outcomes, and retains safe history. A PAT/OAuth token
-  that cannot be provider-revoked automatically stays `revocation_required` with a secure-UI action;
-  deleting its local ref is not success.
+- `DisconnectGitHub` is a durable saga, not a local delete. The first authorized request locks the
+  exact Installation/Repository Binding generation and atomically records one
+  `GitHub Disconnect Saga` keyed by caller idempotency key plus canonical request hash, marks the
+  binding `disconnecting`, advances its outbound fence, rejects new token mint/claims, and drains
+  each claimed outbox effect to confirmed, conflict-bound, or retained `outcome_unknown`. Same-key/
+  same-hash retries return that saga; hash mismatch rejects with zero second saga.
+- The saga chooses the exact provider action from credential ownership and current policy: uninstall
+  the dedicated App installation or revoke the legacy OAuth/PAT authorization when Opzava has
+  verified authority; otherwise enter `revocation_required` and show one secure-UI provider action.
+  A lost/ambiguous uninstall or revoke response enters `provider_outcome_unknown`. Reconciliation
+  reads immutable installation/repository/authorization state: confirmed absent/revoked/expired may
+  advance, still present returns to a bounded authorized attempt, and uncertainty remains
+  fail-closed. It never blind-retries an unknown provider mutation or infers success from `404`
+  without admitted identity and a complete provider observation.
+- Local token/key/ref cleanup is a separately recorded phase. Only provider-confirmed uninstall,
+  revocation, or expiry permits destruction/zeroing of tenant/legacy credential handles. Platform
+  App registration secrets are not tenant-owned and are never deleted by disconnect. If provider
+  action needs a human, the safe bindings/history and quarantined cleanup handle remain
+  `revocation_required`; deleting a local ref is not success. Final `disconnected` requires the
+  outbound drain, provider outcome, local cleanup, and retained-history proofs in one
+  compare-and-set finalizer.
+- Reconnect never revives or overwrites the prior binding. It is disabled while a disconnect is
+  `provider_outcome_unknown`, `revocation_required`, or locally incomplete. After terminal
+  `disconnected`, `BeginGitHubInstallation` creates a new setup proof and binding generation; all
+  old provider identities, correlations, conflicts, and saga evidence remain immutable history.
 
 ## Webhook ingress contract
 
@@ -847,15 +886,15 @@ Actions-originated command uses one explicit OIDC request protocol:
    Repository Binding ID; `ref`, head/base/SHA where applicable; `workflow_ref`, `workflow_sha`,
    optional allowlisted `job_workflow_ref`/`job_workflow_sha`; `run_id`, `run_attempt`, `actor_id`,
    event/environment policy; and current provider facts for that run/job/check/SHA.
-3. The canonical request binds DevTicket, command family/action, expected aggregate/contract/policy
-   versions, safe payload hash, one-use nonce, and those exact OIDC/run claims. In one transaction,
-   Opzava locks/reserves a unique `(issuer, jti)` and unique
-   `(workspace_id, repository_id, command_family, nonce)` with the canonical request hash **and**
-   the corresponding `wf230` command receipt. Neither reservation may commit without the other. Same
-   keys plus the same hash replay only the authorized recorded result; any different hash,
-   concurrent reuse, stale run/SHA, unapproved workflow revision, fork/untrusted event, or missing
-   claim rejects with zero partial receipt. The accepted request then enters the ordinary `wf230`
-   trusted command boundary.
+3. The canonical request binds DevTicket, one of the exhaustive `wf230` GitHub Actions source-policy
+   families, expected aggregate/contract/policy versions, safe payload hash, one-use nonce, and
+   those exact OIDC/run claims. In one transaction, Opzava locks/reserves a unique `(issuer, jti)`
+   and unique `(workspace_id, repository_id, command_family, nonce)` with the canonical request hash
+   **and** the corresponding `wf230` command receipt. Neither reservation may commit without the
+   other. Same keys plus the same hash replay only the authorized recorded result; any different
+   hash, concurrent reuse, stale run/SHA, unapproved workflow revision, fork/untrusted event,
+   missing claim, or command family outside that versioned source-policy row rejects with zero
+   partial receipt. The accepted request then enters the ordinary `wf230` trusted command boundary.
 
 Free text, temporal proximity, `github-actions` actor/label, copied marker, or webhook facts alone
 are insufficient correlation.
@@ -863,12 +902,16 @@ are insufficient correlation.
 Actions may:
 
 - report native check/workflow/status facts;
-- request a version-bound governed command through the ordinary command boundary;
+- request `ready.validate` with only the field-code-safe result allowed by `wf230`;
 - request an eligible Needs Human Approval Request tied to exact target/version/hash/policy/nonce.
 
 Actions may not approve its own request, claim a human identity, directly change a DevTicket, bypass
-either Absolute Stop, turn a GitHub close/green check into Done, or grant merge authority. The UI
-label for an eligible blocked request is `Needs Human Approval`, never “policy bypassed.”
+either Absolute Stop, turn a GitHub close/green check into Done, grant merge authority, request a
+generic governed command, or request a deployment/release mutation. The exhaustive v1 source policy
+is provider-fact append, `ready.validate`, and eligible Needs Human Approval Request only. Any wider
+command family requires an explicit versioned change by that command's owning domain plus a matching
+`wf230` source-policy amendment; adapter configuration alone cannot widen it. The UI label for an
+eligible blocked request is `Needs Human Approval`, never “policy bypassed.”
 
 ## Automated merge-conflict remediation
 
@@ -890,6 +933,28 @@ label for an eligible blocked request is `Needs Human Approval`, never “policy
    evidence and returns through independent Review. It never inherits an earlier verdict.
 6. Repeated conflicts, ambiguous push outcome, provider rejection, or bounded-attempt exhaustion
    remains visible and notifies the Human Owner/Slack through the normal notification outbox.
+
+`AuthorizedGitRefUpdate` has its own durable compare-and-reconcile lifecycle. Before transport, one
+transaction locks the current provider observation and exact #232 remediation attempt, verifies the
+expected old SHA, and records `prepared` with ref, old/new SHAs, bundle hash, lease/fence, one-use
+nonce, expiry, request hash, and broker claim. Dispatch advances that same record to `attempted`;
+same-key/same-hash retries return it and never launch another remediation run or provider push.
+
+A lost response, timeout after send, or broker crash before confirmation enters
+`push_outcome_unknown` and fences the remediation attempt. The only next effect is fresh exact-ref
+reconciliation under the same record:
+
+- the ref at the intended new SHA confirms the original update and records provider evidence;
+- the ref still at the expected old SHA remains bounded unresolved: scheduled observations and an
+  expiry/escalation deadline prevent an infinite hot loop, but old SHA is never treated as proof the
+  provider did not accept a delayed update and never authorizes a blind second push;
+- the ref at any third SHA records `ref_conflict`, preserves all three identities/evidence, cancels
+  the stale authorization, and requires a fresh conflict/remediation decision and exact-ref update.
+
+Late observations compare-and-set against the same terminal/unknown record. They cannot confirm a
+superseded attempt, create a second run, or overwrite a third-SHA conflict. A bounded-unresolved
+old-SHA result stays visibly blocked for Human Owner reconciliation; any new attempt requires a new
+authorization/nonce after the prior record is terminally superseded under fresh provider facts.
 
 Synchronization and conflict classification require no model tokens. A model may perform the
 Runner-owned code repair, but deterministic state, identity, policy, and reconciliation remain the
@@ -948,65 +1013,74 @@ merge, or lane transition; callers retry the ordinary governed command.
 
 ## Sad paths and observable behavioral contracts
 
-| Scenario                                                             | Required behavior                                                                                                                     | Observable proof                                                       |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| setup callback contains spoofed installation ID                      | reject until same Admin's ephemeral GitHub user token proves access to that installation/repository and App proof also matches        | no binding/persisted token; safe denied audit                          |
-| initiating Admin is demoted/revoked during install round trip        | final binding transaction reauthorizes current live session/membership/policy and fails closed                                        | no Installation/Repository Binding; pending proof safely denied        |
-| second production repository selected                                | reject installation confirmation                                                                                                      | existing binding unchanged; explicit single-repo error                 |
-| missing/malformed/invalid webhook signature                          | reject before parse/routing/persistence                                                                                               | no inbox/domain/outbox/raw-log row                                     |
-| authenticated minimal envelope is malformed for its hinted family    | reject before binding/tenant admission; never guess from free text, owner/name, or a missing singular repository                      | no inbox/domain/outbox row; safe rejected metric only                  |
-| actionless `create`/`delete`/`push`/`status` delivery lacks `action` | admit by signed installation/repository IDs and validate the exact actionless full schema                                             | normalized receipt records actionless schema; no invented action       |
-| event action presence contradicts its exact schema                   | reject after HMAC and before durable receipt/domain handling; mark required-schema drift unhealthy                                    | no guessed action or partial fact                                      |
-| full schema disagrees with admitted minimal envelope/header family   | reject after binding admission but before persistence/domain handling                                                                 | no inbox/domain/outbox row; safe schema-drift evidence                 |
-| rotated old secret within overlap                                    | verify under named old version, persist version ref, schedule rotation completion                                                     | one receipt; no secret value                                           |
-| same delivery ID/same hash                                           | return original receipt                                                                                                               | no second fact/command/outbox                                          |
-| same delivery ID/different valid-signed hash                         | mark ingress unverifiable; open scoped stop                                                                                           | safe collision evidence; no content persisted                          |
-| durable inbox commit fails                                           | return non-2xx so delivery is not falsely acknowledged                                                                                | zero normalized facts/commands                                         |
-| delivery is late/out of order                                        | treat as hint; fetch fresh snapshot and three-way compare                                                                             | no timestamp overwrite or sequence claim                               |
-| missed delivery beyond redelivery window                             | periodic full reconciliation discovers drift                                                                                          | complete epoch and explicit gap refs                                   |
-| comment is added/deleted/edited while membership pages are traversed | invalidate traversal, repeat from the first page, and require two identical complete memberships before absence                       | no false deletion; incomplete epoch remains visible                    |
-| secret in Issue/comment/label/actor content                          | persist no raw value; open secret stop and safe notification                                                                          | only detector/hash/ref metadata                                        |
-| Issue create succeeds but response is lost                           | enter `outcome_unknown`; exact match confirms, while zero matches never trigger an automatic second create                            | one create intent; reconciled canonical provider ID or visible unknown |
-| delayed Issue appears after repeated complete zero-match scans       | keep `outcome_unknown` through zero scans; later bind by immutable correlation, with no automatic reissue                             | no duplicate from false absence; delayed provider ID becomes canonical |
-| duplicate exact App-created Issues found                             | bind earliest stable provider identity; cross-link/close later duplicates                                                             | one GitHub Issue Binding; duplicates retained as history               |
-| create marker is dropped/changed by a later body render              | reject render/confirmation and open identity conflict; never fall back to mutable event marker                                        | original create UUID remains in intent/shadow/binding                  |
-| create response is lost, then a later body render is observed        | recover only by immutable create UUID + expected App/installation/request facts; never retry from event marker                        | one Issue Binding despite later contract/event versions                |
-| linked-existing Issue is rendered with fabricated create provenance  | reject render/confirmation; require immutable `origin=link`, `create=none`, and exact link UUID                                       | provider history stays truthful; no fake create attribution            |
-| origin/create/link correlation changes after binding                 | open identity conflict and block destructive mirror writes; never convert link to create or vice versa                                | original binding provenance and values remain durable                  |
-| correlation marker exists under non-App actor                        | classify actor; do not adopt automatically                                                                                            | external comment or visible collision, never human/App authority       |
-| same provider Issue concurrently linked twice                        | unique binding lock admits one                                                                                                        | loser deterministic `github_issue_already_bound`                       |
-| comment post outcome unknown                                         | reconcile App actor + marker + hash; zero matches remain unknown and never automatically repost                                       | one binding if it appears; otherwise visible unknown                   |
-| delayed comment appears after repeated complete zero-match scans     | retain the unknown intent, then confirm the late exact marker/hash; do not create a second automatic comment                          | one comment binding/worklog record; no false absence                   |
-| Human Owner reattempt decision races a late exact provider object    | lock/recheck observations first; candidate-first confirms it, decision-first records one numbered risk-accepted attempt               | one command receipt; later duplicates enter deterministic containment  |
-| human edits/deletes comment                                          | append correction or safe tombstone; no history rewrite                                                                               | original and correction/tombstone addressable                          |
-| App marker copied by human, bot, other App, or unknown actor         | preserve under exact provider actor class as human/external content or conflict; never confirm echo                                   | provider actor ID/kind/classification and mismatch proof               |
-| managed block missing/duplicate/malformed/moved                      | preserve body; open managed-region conflict                                                                                           | no destructive rewrite/truncation                                      |
-| human edits body inside the final no-CAS write window                | never claim lossless preservation; re-read, retain normalized pre-write evidence, and open `potential_body_overwrite` when observable | visible side-by-side recovery; shadow advances only to observed state  |
-| unmanaged labels change concurrently                                 | preserve them                                                                                                                         | managed delta leaves exact unrelated set                               |
-| singleton managed label has multiple values                          | open field conflict; no arbitrary winner                                                                                              | current labels visible; workflow unchanged                             |
-| label/milestone set echo webhook is permanently lost                 | converge only from a complete fresh snapshot plus expected outbox state and three-way authority validation                            | shadow may advance without fabricated actor/event                      |
-| assignee set has multiple mapped or mixed identities                 | block start for multiple mapped identities; preserve every unmapped identity and change only mapped deltas                            | deterministic conflict or exact 0/1 mapping; no inferred Human Owner   |
-| Opzava Execution Assignee is an AI agent/non-projectable identity    | treat zero mapped provider assignees as converged; keep Opzava assignment and preserve unmapped collaborators                         | no fabricated GitHub user, false conflict, or unassignment             |
-| label/assignee mutation returns 2xx but is dropped                   | re-read fails confirmation; classify permission/drift                                                                                 | shadow does not advance                                                |
-| conflict resolution uses stale base/domain/provider/conflict version | reject with current conflict/version and refresh evidence; perform no owner command or outbox write                                   | zero shadow/domain/outbox change                                       |
-| two Human Owners resolve one conflict version differently            | one canonical command receipt wins under locks; loser receives current conflict/version                                               | one decision and at most one bound mirror intent                       |
-| accepted conflict choice needs a separate Revision/approval decision | link exact decision, remain blocking in `decision_required`, and emit no mirror write                                                 | no false resolution, shadow advance, or approval                       |
-| provider drifts while resolution mirror is pending                   | retain/supersede pending evidence and refresh conflict; never finalize stale shadow                                                   | selected and new provider values remain visible                        |
-| GitHub closes Issue before Review/merge                              | record fact/request; reject Done and open conflict                                                                                    | lane unchanged; external state visible                                 |
-| installation suspended/repository removed                            | stop token mint/dispatch, keep last-confirmed reads, open health stop                                                                 | scoped health + containment refs                                       |
-| token expires                                                        | discard/mint new token under same claim generation                                                                                    | no persisted/reused expired token                                      |
-| `401`/permission `403`/rate `403` or `429`                           | distinct auth/permission/rate classification                                                                                          | correct health dimension/backoff, no retry storm                       |
-| provider `404`                                                       | prove repository capability before declaring deletion                                                                                 | no false deletion during permission loss                               |
-| provider `410`                                                       | mark Issues capability unavailable/unhealthy                                                                                          | affected gate/stop only                                                |
-| provider `422`                                                       | terminal request/schema/policy conflict unless provider says retryable                                                                | safe error and no blind retry                                          |
-| force-push/head/base drift                                           | append fact, invalidate SHA evidence, cancel stale merge/remediation                                                                  | new head binding; old evidence retained/stale                          |
-| mergeability is unknown                                              | refresh; do not launch remediation or infer clean/conflict                                                                            | explicit inconclusive projection                                       |
-| external/early merge                                                 | retain Review/WIP, open conflict, require Post-Merge Review                                                                           | native merge fact plus no ordinary Done                                |
-| Actions changes status label without OIDC request                    | treat label as projection/request hint only; reject command authority                                                                 | no command receipt, direct transition, or approval                     |
-| Two Actions requests race one OIDC `jti` or nonce                    | one atomic receipt/hash reservation wins; mismatch loses deterministically                                                            | one integration + command receipt pair; zero partial rows              |
-| OIDC Actions request is replayed or claim/SHA drifts                 | same-hash authorized replay or reject before new receipt; drift requires a fresh exact request                                        | one `jti`/nonce semantic result; no stale transition or approval       |
-| health probe recovers but reconcile is partial                       | keep stop/unverifiable                                                                                                                | no stop resolution until complete epoch                                |
-| stale outbox/reconcile worker finalizes after reclaim                | claim token/generation rejects finalizer                                                                                              | winning worker state preserved                                         |
+| Scenario                                                             | Required behavior                                                                                                                      | Observable proof                                                                               |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| setup callback contains spoofed installation ID                      | reject until same Admin's ephemeral GitHub user token proves access to that installation/repository and App proof also matches         | no binding/persisted token; safe denied audit                                                  |
+| initiating Admin is demoted/revoked during install round trip        | final binding transaction reauthorizes current live session/membership/policy and fails closed                                         | no Installation/Repository Binding; pending proof safely denied                                |
+| user/refresh-token revoke response is lost or expiry is unconfirmed  | retain only quarantined non-exportable cleanup handles; block binding/health; reconcile provider state and never zero locally first    | proof is `token_cleanup_unknown`/`revocation_required`; no usable tenant credential or binding |
+| tenant projection requests App secret-ref identity/version           | deny/omit it and expose only the opaque public configuration/rotation version                                                          | RLS/DTO/browser seam contains no platform vault ref or secret-ref version                      |
+| second production repository selected                                | reject installation confirmation                                                                                                       | existing binding unchanged; explicit single-repo error                                         |
+| missing/malformed/invalid webhook signature                          | reject before parse/routing/persistence                                                                                                | no inbox/domain/outbox/raw-log row                                                             |
+| authenticated minimal envelope is malformed for its hinted family    | reject before binding/tenant admission; never guess from free text, owner/name, or a missing singular repository                       | no inbox/domain/outbox row; safe rejected metric only                                          |
+| actionless `create`/`delete`/`push`/`status` delivery lacks `action` | admit by signed installation/repository IDs and validate the exact actionless full schema                                              | normalized receipt records actionless schema; no invented action                               |
+| event action presence contradicts its exact schema                   | reject after HMAC and before durable receipt/domain handling; mark required-schema drift unhealthy                                     | no guessed action or partial fact                                                              |
+| full schema disagrees with admitted minimal envelope/header family   | reject after binding admission but before persistence/domain handling                                                                  | no inbox/domain/outbox row; safe schema-drift evidence                                         |
+| rotated old secret within overlap                                    | verify inside platform secret policy, persist only opaque public rotation version in tenant receipt, schedule rotation completion      | one receipt; no secret value or platform secret-ref version                                    |
+| same delivery ID/same hash                                           | return original receipt                                                                                                                | no second fact/command/outbox                                                                  |
+| same delivery ID/different valid-signed hash                         | mark ingress unverifiable; open scoped stop                                                                                            | safe collision evidence; no content persisted                                                  |
+| durable inbox commit fails                                           | return non-2xx so delivery is not falsely acknowledged                                                                                 | zero normalized facts/commands                                                                 |
+| delivery is late/out of order                                        | treat as hint; fetch fresh snapshot and three-way compare                                                                              | no timestamp overwrite or sequence claim                                                       |
+| missed delivery beyond redelivery window                             | periodic full reconciliation discovers drift                                                                                           | complete epoch and explicit gap refs                                                           |
+| comment is added/deleted/edited while membership pages are traversed | invalidate traversal, repeat from the first page, and require two identical complete memberships before absence                        | no false deletion; incomplete epoch remains visible                                            |
+| secret in Issue/comment/label/actor content                          | persist no raw value; open secret stop and safe notification                                                                           | only detector/hash/ref metadata                                                                |
+| Issue create succeeds but response is lost                           | enter `outcome_unknown`; exact match confirms, while zero matches never trigger an automatic second create                             | one create intent; reconciled canonical provider ID or visible unknown                         |
+| delayed Issue appears after repeated complete zero-match scans       | keep `outcome_unknown` through zero scans; later bind by immutable correlation, with no automatic reissue                              | no duplicate from false absence; delayed provider ID becomes canonical                         |
+| duplicate exact App-created Issues found                             | bind earliest stable provider identity; cross-link/close later duplicates                                                              | one GitHub Issue Binding; duplicates retained as history                                       |
+| create marker is dropped/changed by a later body render              | reject render/confirmation and open identity conflict; never fall back to mutable event marker                                         | original create UUID remains in intent/shadow/binding                                          |
+| create response is lost, then a later body render is observed        | recover only by immutable create UUID + expected App/installation/request facts; never retry from event marker                         | one Issue Binding despite later contract/event versions                                        |
+| linked-existing Issue is rendered with fabricated create provenance  | reject render/confirmation; require immutable `origin=link`, `create=none`, and exact link UUID                                        | provider history stays truthful; no fake create attribution                                    |
+| origin/create/link correlation changes after binding                 | open identity conflict and block destructive mirror writes; never convert link to create or vice versa                                 | original binding provenance and values remain durable                                          |
+| correlation marker exists under non-App actor                        | classify actor; do not adopt automatically                                                                                             | external comment or visible collision, never human/App authority                               |
+| same provider Issue concurrently linked twice                        | unique binding lock admits one                                                                                                         | loser deterministic `github_issue_already_bound`                                               |
+| comment post outcome unknown                                         | reconcile App actor + marker + hash; zero matches remain unknown and never automatically repost                                        | one binding if it appears; otherwise visible unknown                                           |
+| delayed comment appears after repeated complete zero-match scans     | retain the unknown intent, then confirm the late exact marker/hash; do not create a second automatic comment                           | one comment binding/worklog record; no false absence                                           |
+| Human Owner reattempt decision races a late exact provider object    | lock/recheck observations first; candidate-first confirms it, decision-first records one numbered risk-accepted attempt                | one command receipt; later duplicates enter deterministic containment                          |
+| human edits/deletes comment                                          | append correction or safe tombstone; no history rewrite                                                                                | original and correction/tombstone addressable                                                  |
+| App marker copied by human, bot, other App, or unknown actor         | preserve under exact provider actor class as human/external content or conflict; never confirm echo                                    | provider actor ID/kind/classification and mismatch proof                                       |
+| managed block missing/duplicate/malformed/moved                      | preserve body; open managed-region conflict                                                                                            | no destructive rewrite/truncation                                                              |
+| human edits body inside the final no-CAS write window                | never claim lossless preservation; re-read, retain normalized pre-write evidence, and open `potential_body_overwrite` when observable  | visible side-by-side recovery; shadow advances only to observed state                          |
+| unmanaged labels change concurrently                                 | preserve them                                                                                                                          | managed delta leaves exact unrelated set                                                       |
+| singleton managed label has multiple values                          | open field conflict; no arbitrary winner                                                                                               | current labels visible; workflow unchanged                                                     |
+| label/milestone set echo webhook is permanently lost                 | converge only from a complete fresh snapshot plus expected outbox state and three-way authority validation                             | shadow may advance without fabricated actor/event                                              |
+| assignee set has multiple mapped or mixed identities                 | block start for multiple mapped identities; preserve every unmapped identity and change only mapped deltas                             | deterministic conflict or exact 0/1 mapping; no inferred Human Owner                           |
+| Opzava Execution Assignee is an AI agent/non-projectable identity    | treat zero mapped provider assignees as converged; keep Opzava assignment and preserve unmapped collaborators                          | no fabricated GitHub user, false conflict, or unassignment                                     |
+| label/assignee mutation returns 2xx but is dropped                   | re-read fails confirmation; classify permission/drift                                                                                  | shadow does not advance                                                                        |
+| conflict resolution uses stale base/domain/provider/conflict version | reject with current conflict/version and refresh evidence; perform no owner command or outbox write                                    | zero shadow/domain/outbox change                                                               |
+| two Human Owners resolve one conflict version differently            | one canonical command receipt wins under locks; loser receives current conflict/version                                                | one decision and at most one bound mirror intent                                               |
+| accepted conflict choice needs a separate Revision/approval decision | link exact decision, remain blocking in `decision_required`, and emit no mirror write                                                  | no false resolution, shadow advance, or approval                                               |
+| provider drifts while resolution mirror is pending                   | retain/supersede pending evidence and refresh conflict; never finalize stale shadow                                                    | selected and new provider values remain visible                                                |
+| GitHub closes Issue before Review/merge                              | record fact/request; reject Done and open conflict                                                                                     | lane unchanged; external state visible                                                         |
+| installation suspended/repository removed                            | stop token mint/dispatch, keep last-confirmed reads, open health stop                                                                  | scoped health + containment refs                                                               |
+| disconnect request/response is replayed                              | same key/hash returns one saga; mismatch rejects; fenced generation admits no new mint/outbox claims                                   | one Disconnect Saga and one provider-action lineage                                            |
+| provider uninstall/revoke response is lost                           | enter `provider_outcome_unknown`, reconcile exact provider identity, and never infer success from local deletion or blindly retry      | outbound remains fenced; history/cleanup handle retained                                       |
+| provider action requires account-owner intervention                  | enter `revocation_required`, show secure in-product action/status, and disable reconnect until provider confirmation and local cleanup | no false Disconnected state; no second live binding generation                                 |
+| token expires                                                        | discard/mint new token under same claim generation                                                                                     | no persisted/reused expired token                                                              |
+| `401`/permission `403`/rate `403` or `429`                           | distinct auth/permission/rate classification                                                                                           | correct health dimension/backoff, no retry storm                                               |
+| provider `404`                                                       | prove repository capability before declaring deletion                                                                                  | no false deletion during permission loss                                                       |
+| provider `410`                                                       | mark Issues capability unavailable/unhealthy                                                                                           | affected gate/stop only                                                                        |
+| provider `422`                                                       | terminal request/schema/policy conflict unless provider says retryable                                                                 | safe error and no blind retry                                                                  |
+| force-push/head/base drift                                           | append fact, invalidate SHA evidence, cancel stale merge/remediation                                                                   | new head binding; old evidence retained/stale                                                  |
+| mergeability is unknown                                              | refresh; do not launch remediation or infer clean/conflict                                                                             | explicit inconclusive projection                                                               |
+| external/early merge                                                 | retain Review/WIP, open conflict, require Post-Merge Review                                                                            | native merge fact plus no ordinary Done                                                        |
+| Actions changes status label without OIDC request                    | treat label as projection/request hint only; reject command authority                                                                  | no command receipt, direct transition, or approval                                             |
+| OIDC Actions requests generic command or deployment mutation         | reject outside exhaustive `wf230` source policy; adapter/config cannot widen authority                                                 | no Actions/command receipt and no provider/domain mutation                                     |
+| Two Actions requests race one OIDC `jti` or nonce                    | one atomic receipt/hash reservation wins; mismatch loses deterministically                                                             | one integration + command receipt pair; zero partial rows                                      |
+| OIDC Actions request is replayed or claim/SHA drifts                 | same-hash authorized replay or reject before new receipt; drift requires a fresh exact request                                         | one `jti`/nonce semantic result; no stale transition or approval                               |
+| authorized ref push response is lost and ref equals intended new SHA | reconcile and confirm the existing Authorized Git Ref Update; never launch a second remediation                                        | one update/attempt/run with provider confirmation                                              |
+| authorized ref push response is lost and ref remains old SHA         | keep bounded unresolved with scheduled observations and escalation; old SHA is not absence proof and never triggers blind repush       | one fenced unknown update; no duplicate run or push                                            |
+| authorized ref push response is lost and ref is a third SHA          | record `ref_conflict`, cancel stale authority, and require fresh exact provider facts/authorization                                    | old/intended/actual SHAs retained; no stale confirmation                                       |
+| health probe recovers but reconcile is partial                       | keep stop/unverifiable                                                                                                                 | no stop resolution until complete epoch                                                        |
+| stale outbox/reconcile worker finalizes after reclaim                | claim token/generation rejects finalizer                                                                                               | winning worker state preserved                                                                 |
 
 ## Real-seam validation matrix
 
@@ -1026,7 +1100,16 @@ deterministic raw fixtures signed with test secret versions—not mocked verific
 - command/outbox atomicity, tenant RLS denial, claim-token fencing, dead-letter/replay
   authorization;
 - concurrent OIDC `(issuer,jti)`/nonce reuse with same and different request hashes, proving the
-  Actions receipt and `wf230` command receipt commit atomically or not at all;
+  Actions receipt and `wf230` command receipt commit atomically or not at all; prove provider-fact,
+  `ready.validate`, and eligible Needs Human Approval families are admitted while generic governed
+  commands and deployment/release mutations create zero receipts/effects;
+- concurrent/replayed `DisconnectGitHub` same/different-hash requests, outbound claims racing the
+  fence, provider-response loss, `revocation_required`, stale finalizers, and reconnect attempts,
+  proving one saga, no post-fence token mint/outbox claim, no local-cleanup success before provider
+  revocation/expiry confirmation, and no second binding generation while unresolved;
+- repeated Authorized Git Ref Update delivery/finalization around a lost push response, proving
+  intended-new-SHA confirmation, bounded unresolved old-SHA state, third-SHA conflict, and exactly
+  one remediation run/update record with no blind repush;
 - concurrent `ResolveSyncConflict` same/different-hash replay, two-owner decisions, stale provider/
   domain/conflict versions, decision-required owner commands, pending-mirror drift, and stale outbox
   finalization, proving one decision/intent and no premature shadow advance;
@@ -1046,7 +1129,14 @@ second production repository. Drive real API mutations and actual signed deliver
 - install/setup state, spoofed callback denial, GitHub user-to-installation association mismatch,
   missing/wrong/retired client-secret exchange, Admin demotion/session revocation before final
   binding, suspension/unsuspension, repository add/remove, permission drift, private-key/
-  client-secret/webhook-secret rotation, short-lived token expiry;
+  client-secret/webhook-secret rotation, mandatory expiring-user-token configuration, user and
+  refresh token revoke/expiry confirmation, lost revocation response, and proof that local zeroing
+  and binding finalization wait for confirmed provider cleanup;
+- disconnect through the secure local-Docker UI with the real scratch App: inject provider response
+  loss, prove the Card/Admin health surface shows `disconnecting`, `provider_outcome_unknown`, or
+  `revocation_required` with an in-product action; refresh/retry the browser and prove the same
+  saga, no outbound capability, provider-confirmed uninstall/revocation before local cleanup,
+  reconnect disabled while unresolved, then a new binding generation only after terminal disconnect;
 - Issue create/link, response-loss recovery, duplicate containment, body/label/milestone/state,
   comment/worklog/correction/deletion, App echo and copied marker;
 - fault-inject delayed Issue/comment visibility beyond repeated complete zero-match scans; prove
@@ -1071,7 +1161,11 @@ second production repository. Drive real API mutations and actual signed deliver
 - pagination, rate/`Retry-After`, `401/403/404/410/422/5xx`, rename/archive/delete recovery;
 - PR binding, force-push/base/head drift, checks/statuses/Actions facts, mergeability
   unknown/conflict, governed merge confirmation, early/external merge, and OIDC request issuer/
-  audience/JWKS/`jti`/repository/workflow/run/attempt/ref/SHA binding and replay rejection;
+  audience/JWKS/`jti`/repository/workflow/run/attempt/ref/SHA binding and replay rejection; prove
+  the three exhaustive Actions families and reject generic command/deployment families;
+- fault-inject a lost Authorized Git Ref Update response and separately observe intended new SHA,
+  unchanged old SHA, and a third-party third SHA; prove confirmation, bounded unresolved escalation,
+  and visible ref conflict respectively, with one remediation run and no automatic second push;
 - prove a Runner cannot obtain a raw write-capable installation token or push a ref outside the
   broker-authorized exact old/new SHA update, even when it controls its local credential helpers.
 
@@ -1099,10 +1193,20 @@ Docker, and the fixed provider seam, prove an Admin can:
 9. resolve a same-field Sync Conflict in Opzava, see stale competing decisions rejected, and see
    `resolution_pending_mirror` become resolved only after confirmed mirror-back;
 10. see truthful degraded/unhealthy/unverifiable health and scoped gate reasons;
-11. see Actions request `Needs Human Approval`, never bypass;
+11. see Actions append provider facts, request field-code-only `ready.validate`, or request
+    `Needs Human Approval`, while a generic command/deployment request is rejected with no receipt;
 12. see external merge require Post-Merge Review and no false Done;
 13. inspect all evidence in Card/Development/health views in light/dark, keyboard, and narrow
-    viewport.
+    viewport;
+14. disconnect in secure Opzava UI, refresh/retry through lost provider response, complete any
+    `revocation_required` step in place, and see reconnect remain disabled until provider-confirmed
+    revocation/expiry plus local cleanup terminalize the one saga;
+15. inspect setup proof during lost user/refresh-token revocation and confirm no binding/local
+    zeroing, then confirm tenant UI/API/DB output contains only opaque public App
+    configuration/rotation version and no platform secret-ref identity/version; and
+16. inspect an ambiguous Authorized Git Ref Update under intended-new, old, and third-SHA provider
+    observations and see confirmation, bounded unresolved escalation, or conflict without a second
+    remediation run.
 
 No model token is a synchronization, state-machine, or assertion oracle.
 
@@ -1169,6 +1273,11 @@ The final tracer-bullet graph must preserve vertical, real seams:
 7. #229-governed merge + external-merge/Post-Merge Review behavior.
 8. #232-governed merge-conflict remediation with fresh Review.
 9. Complete reconciliation/health recovery and legacy OAuth/PAT/outbox cutover.
+10. Durable `DisconnectGitHub` saga from secure-UI command through outbound fencing, provider
+    revocation/uninstall/expiry confirmation, local cleanup, `revocation_required`, and
+    new-generation reconnect.
+11. Authorized Git Ref Update response-loss reconciliation across intended-new, unchanged-old, and
+    third-SHA observations with one remediation run and no blind push retry.
 
 In addition to the complete PRD-019 Ready contract, each ticket must state a clear outcome and
 bounded scope; dependency state and blocking edges; sad paths and edge cases; exact command/receipt/

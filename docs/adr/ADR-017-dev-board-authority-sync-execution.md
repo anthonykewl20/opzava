@@ -148,11 +148,14 @@ suspected-secret content creates no Release receipt/rejection record.
 
 Rollback is a new deployment attempt to a previously verified immutable manifest and never rewrites
 `main`, tags, GitHub Releases, old manifests, or historical Release state. Release owns the
-deploy/rollback command and Incident owns operational lifecycle. GitHub Actions may request
-`NeedsHumanApproval` but cannot approve. Suspected secret exposure and unhealthy or unverifiable
-GitHub remain unbypassable for ordinary release operations while sanitized safety-reducing
-containment remains available. The complete command, approval, evidence, saga, failure, and test
-contract is `docs/plan/research/wf236-releases-gate-contract.md`.
+deploy/rollback command and Incident owns operational lifecycle. In v1, GitHub Actions may append
+verified native provider facts, request field-code-only `ready.validate`, or open an eligible exact
+Needs Human Approval Request; it cannot request a Release deployment/rollback mutation or approve
+anything. Widening this exhaustive source policy requires a versioned change by the owning domain
+and the #230 source policy, not adapter configuration. Suspected secret exposure and unhealthy or
+unverifiable GitHub remain unbypassable for ordinary release operations while sanitized
+safety-reducing containment remains available. The complete command, approval, evidence, saga,
+failure, and test contract is `docs/plan/research/wf236-releases-gate-contract.md`.
 
 The Ready Contract Version is version-bound and contains outcome, bounded scope, sad paths, edge
 cases, acceptance criteria, dependencies, user-level E2E expectations, final behavioral contract,
@@ -197,17 +200,22 @@ decision, not a new bounded context.
 
 The setup callback cannot bind a tenant from App authentication alone. The same authenticated Admin
 must complete a one-time GitHub App user-authorization flow; an ephemeral user access token must
-prove that the exact installation and repository are accessible to that GitHub user. The token and
-refresh token are destroyed after the immutable association proof. The required GitHub App client
-secret is resolved from its platform vault ref only for the bounded server-side authorization-code
-exchange with exact redirect URI and PKCE verifier, then not retained by application state; only its
-safe config/ref version and audited access outcome remain. App authentication then independently
-confirms App, installation, repository, permissions, and events before binding. The final binding
-transaction revalidates that same Admin's live session, tenant membership, and current
-integration-admin authorization/policy version; demotion, revocation, expiry, tenant change, or
-policy denial creates no binding. App registration and private-key/client-secret/webhook-secret ref
-versions and rotation state remain platform-owned configuration behind provisioning/security-service
-policy and audit, never tenant RLS data or browser output.
+prove that the exact installation and repository are accessible to that GitHub user. Expiring GitHub
+App user tokens are mandatory. User and refresh credentials remain encrypted, non-exportable cleanup
+handles until GitHub confirms revocation or expiry for each; only then are their local handles and
+ciphertext destroyed/zeroed. An unknown revocation outcome fails closed, blocks final binding, and
+retains only the quarantined cleanup handle for reconciliation or secure Admin action. The required
+GitHub App client secret is resolved from its platform vault ref only for the bounded server-side
+authorization-code exchange with exact redirect URI and PKCE verifier, then not retained by
+application state. Tenant records retain only an opaque public App configuration/rotation version;
+platform secret refs, secret-ref versions, and audited secret access remain platform-owned. App
+authentication then independently confirms App, installation, repository, permissions, and events
+before binding. The final binding transaction revalidates that same Admin's live session, tenant
+membership, and current integration-admin authorization/policy version; demotion, revocation,
+expiry, tenant change, policy denial, or incomplete token cleanup creates no binding. App
+registration and private-key/client-secret/webhook-secret refs/versions and rotation state remain
+platform-owned configuration behind provisioning/security-service policy and audit, never tenant RLS
+data or browser output.
 
 Webhook ingress bounds raw bytes and verifies the exact-body HMAC before parsing anything. It then
 reads `X-GitHub-Event` only as an untrusted bounded schema hint and strictly parses the
@@ -316,8 +324,11 @@ remains the only owner of fenced worktree/process execution and signed remediati
 integration may request conflict remediation but cannot launch an agent or grant general merge
 authority. A raw write-capable installation token never reaches the Runner. The trusted Git
 transport broker verifies one signed lease/nonce/exact-ref/old-SHA/new-SHA bundle request and
-performs the provider push. A new remediation SHA invalidates stale evidence and returns through
-independent Review.
+performs the provider push. A lost push response enters one durable Authorized Git Ref Update
+reconciliation: intended new SHA confirms, unchanged old SHA remains bounded unresolved without a
+blind repush, and any third SHA becomes a visible ref conflict requiring fresh authorization. The
+same record admits no duplicate remediation run. A confirmed new remediation SHA invalidates stale
+evidence and returns through independent Review.
 
 GitHub webhook facts and labels cannot authenticate an Actions command. An allowlisted workflow uses
 a short-lived GitHub OIDC token with an Opzava-specific audience and a canonical request. Opzava
@@ -326,7 +337,19 @@ workflow/reusable-workflow identity and SHA, run/attempt, actor/event, ref/SHA, 
 expected versions, payload hash, and nonce before the ordinary trusted command boundary. One
 transaction uniquely reserves `(issuer, jti)`, the scoped repository/command-family nonce, canonical
 request hash, and corresponding trusted command receipt; concurrent reuse cannot commit a partial or
-second semantic request. Labels remain projections.
+second semantic request. The exhaustive v1 Actions source policy permits only native provider-fact
+append, field-code-only `ready.validate`, and an eligible exact Needs Human Approval Request.
+Generic governed commands, deployment/release mutations, and authority widened only in adapter
+configuration reject with zero receipt/effect. Labels remain projections.
+
+`DisconnectGitHub` is an idempotent durable saga over one binding generation. It fences token mint
+and outbound claims, drains or preserves every in-flight unknown, and separately records provider
+uninstall/revocation/expiry and local cleanup. An ambiguous provider response stays fail-closed and
+is reconciled by immutable provider identity; an action requiring the account owner stays
+`revocation_required` with a secure in-product step. Local deletion never proves provider
+revocation, and cleanup/terminal disconnect cannot complete before provider confirmation. Reconnect
+is disabled until terminal disconnect, then creates a new setup proof and binding generation while
+preserving the old history.
 
 Enroll each local machine with an Admin-owned machine identity and public key. Tool selection is
 explicit: Codex Desktop, Codex CLI, or Claude Code. An orchestrator/cloud Runner is a separate

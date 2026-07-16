@@ -70,8 +70,9 @@ implementations without losing identifiers, comments, evidence, or worklogs.
    issues, so that speculative findings do not pollute repository history.
 6. As an Opzava administrator, I want to accept, merge, reject, or archive a Proposal, so that I
    control what becomes durable work.
-7. As an Opzava administrator, I want accepting a Proposal to create or link its GitHub Issue, so
-   that accepted work immediately enters the synchronized record.
+7. As an Opzava administrator, I want accepting a Proposal to atomically create one durable GitHub
+   Issue create-or-link intent and show its pending state until provider confirmation, so that
+   accepted work enters synchronization without falsely claiming the asynchronous mirror exists.
 8. As an Opzava administrator, I want the Board to show Backlog, Todo, Blocked, In Progress, Review,
    and Done, so that the development lifecycle is visible at a glance.
 9. As an Opzava administrator, I want Backlog reserved for shaping and grilling, so that incomplete
@@ -543,15 +544,19 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   alone does not associate a spoofable callback ID with a tenant. Resolve the required GitHub App
   client secret from its platform vault ref only inside the bounded server-side authorization-code
   exchange with the exact redirect URI and PKCE verifier; never expose or persist its value outside
-  the vault, and audit only its safe ref/config version and access outcome. Destroy the user and
-  refresh tokens after recording only immutable provider identities and safe proof metadata. The
-  final binding transaction must revalidate that same Admin's live session, membership, and current
-  integration-admin authorization/policy version; demotion, revocation, expiry, tenant change, or
-  policy denial fails closed with no binding.
-- Keep App registration IDs and private-key/client-secret/webhook-secret ref versions and rotation
-  state as platform-owned configuration behind provisioning/security-service policy and audit, never
-  tenant RLS data or a browser projection. Tenant-scoped Installation/Repository Bindings and
-  receipts refer to that configuration without exposing its secret refs or values.
+  the vault. Require expiring GitHub App user tokens. Hold user/refresh credentials only as
+  encrypted, non-exportable cleanup handles, obtain provider confirmation of revocation or expiry
+  for each, and only then destroy/zero local handles. An unknown outcome or required provider-side
+  human action remains fail-closed and blocks final binding rather than treating local deletion as
+  revocation. The final binding transaction must revalidate that same Admin's live session,
+  membership, current integration-admin authorization/policy version, and completed token cleanup;
+  demotion, revocation, expiry, tenant change, policy denial, or cleanup uncertainty fails closed
+  with no binding.
+- Keep App registration IDs and private-key/client-secret/webhook-secret refs, ref versions, and
+  rotation state as platform-owned configuration behind provisioning/security-service policy and
+  audit, never tenant RLS data or a browser projection. Tenant-scoped Installation/Repository
+  Bindings and receipts retain only an opaque public App configuration/rotation version; they never
+  expose a platform vault ref, secret-ref version, or secret value.
 - Admit webhooks in one security order: bound raw bytes, verify the exact-body HMAC, read
   `X-GitHub-Event` only as an untrusted bounded schema hint, then strictly parse the corresponding
   non-persisting signed payload envelope: installation ID only for `installation`/
@@ -657,14 +662,27 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   authority.
 - Never expose a raw write-capable installation token to a Runner or worktree. A trusted Git
   transport broker validates the signed lease, nonce, exact ref, old/new SHAs, and pack/bundle hash,
-  then performs the single authorized provider push; repository rulesets are defense in depth.
+  then performs the single authorized provider push; repository rulesets are defense in depth. A
+  lost response enters the same Authorized Git Ref Update record: exact intended SHA confirms,
+  unchanged old SHA stays bounded unresolved without blind retry, and any third SHA becomes a
+  visible ref conflict requiring fresh authorization. No reconciliation path launches a duplicate
+  remediation run.
 - Accept Actions-originated command requests only through a short-lived GitHub OIDC protocol bound
   to an Opzava-specific audience, immutable repository, allowlisted workflow/reusable-workflow and
   SHA, run/attempt, actor/event, ref/SHA, DevTicket/action/expected versions, payload hash, and
   one-use nonce. Webhooks, labels, comments, actor names, and temporal matching are not command
   authentication. Atomically reserve unique issuer/token ID, scoped nonce, canonical request hash,
   and the corresponding ordinary command receipt so concurrent replay cannot produce a second or
-  partial semantic request.
+  partial semantic request. Enforce the exhaustive `wf230` v1 Actions source policy: append native
+  provider facts, request field-code-only `ready.validate`, or open an eligible Needs Human Approval
+  Request. Reject generic governed commands and deployment/release mutations unless their owning
+  domain and `wf230` explicitly add a versioned policy row; adapter configuration cannot widen it.
+- Implement `DisconnectGitHub` as one idempotent saga per exact binding generation. Fence token mint
+  and outbound claims, drain or retain unknown effects, and record provider uninstall/revocation/
+  expiry separately from local cleanup. Lost provider responses remain `provider_outcome_unknown`;
+  account-owner actions remain `revocation_required` in secure UI. Local deletion never proves
+  provider revocation, reconnect stays disabled until terminal provider confirmation and cleanup,
+  and a later reconnect creates a new binding generation while preserving prior history.
 - Support one production repository in v1: the Opzava repository. A fixed scratch repository may be
   used only as test infrastructure. Multiple repository product behavior is deferred.
 - Enroll local machines in Admin with machine identity, public key, owner, OS, supported tool,
@@ -817,10 +835,12 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   deployment truth remains separate from Last Known Good. Rollback is a new attempt to a previously
   verified immutable manifest and never rewrites `main`, tags, GitHub Releases, or old Release
   history.
-- Treat GitHub Actions and Slack as request/relay surfaces only. Suspected secret exposure and
-  unhealthy or unverifiable GitHub reject ordinary release operations without bypass while
-  safety-reducing containment remains authorized. Release and Incident lifecycles stay separate. The
-  full command, evidence, saga, failure, approval, history, and test contract is canonical in
+- Treat GitHub Actions and Slack as request/relay surfaces only. The exhaustive v1 Actions policy
+  does not include Release deployment/rollback commands; only a future versioned Release-owner and
+  `wf230` policy amendment may add one. Suspected secret exposure and unhealthy or unverifiable
+  GitHub reject ordinary release operations without bypass while safety-reducing containment remains
+  authorized. Release and Incident lifecycles stay separate. The full command, evidence, saga,
+  failure, approval, history, and test contract is canonical in
   `docs/plan/research/wf236-releases-gate-contract.md`.
 - Make Opzava the primary Docs authoring and reading surface and mirror human-readable Markdown
   under a stable repository tree. Give each document immutable ID, version, content hash, state,
@@ -873,7 +893,23 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Prove setup cannot bind another user's valid installation, Backlog mirror text cannot claim Ready
   without the exact approval, an Actions OIDC token/request cannot replay or cross repository/
   workflow/run/SHA, and a malicious Runner cannot obtain the write token or push any ref outside one
-  authorized old/new-SHA broker operation.
+  authorized old/new-SHA broker operation. Also prove Actions provider-fact, field-code-only
+  `ready.validate`, and eligible Needs Human Approval families work while a generic command or
+  deployment/release request leaves zero integration/command receipt or domain mutation.
+- Through the real local-Docker secure UI and the fixed scratch GitHub App, complete install with
+  expiring user tokens, inject a lost user/refresh-token revocation response, and prove no binding
+  or local zeroing occurs until GitHub confirms revocation/expiry. Inspect tenant HTTP/DB/browser
+  projections and prove they expose only an opaque public App configuration/rotation version, never
+  a platform vault ref or secret-ref version.
+- Through the same real UI/provider seam, disconnect with a lost provider response and a separate
+  provider-action-required case. Refresh/retry and prove one saga, outbound fencing, visible
+  `provider_outcome_unknown`/`revocation_required` status and secure action, no false disconnected
+  state or local cleanup, and no reconnect. After provider confirmation, prove terminal cleanup and
+  a reconnect that creates a new binding generation while retaining prior evidence.
+- Fault-inject an Authorized Git Ref Update response loss, then separately observe the intended new
+  SHA, unchanged old SHA, and a third SHA. Prove confirmation, bounded unresolved escalation, and
+  visible ref conflict respectively, with no blind push and exactly one remediation run/update
+  record.
 - Prove a complete reconciliation detects deletion of an old bound comment even when its webhook was
   missed. Because provider pagination is mutable, require two consecutive identical complete
   comment-ID/content-fingerprint traversals with stable available start/end collection observations;
