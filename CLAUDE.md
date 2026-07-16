@@ -17,6 +17,12 @@ Two focused sprints own current work. Everything else is shared foundation or fr
   read all four before touching the legacy Tasks, Issues, MCP task-tool, execution-ledger,
   GitHub-integration, card-detail, or migration paths. Its observability/remediation surface
   (PRD-012, PRD-018, ADR-013) feeds Dev Board Incidents and belongs to this umbrella.
+- **Admin Control Center** — shell, navigation, Admin Overview composition, and page placement are
+  governed by `docs/prd/PRD-020-admin-control-center.md` and
+  `docs/plan/admin-control-center-foundation-decisions.md`; read them with
+  `docs/plan/capability-parity.md` before changing the root Overview, admin shell/nav, topbar, Admin
+  placement, or cross-context composition. The frozen Control-UI port program is parity evidence,
+  not current placement authority.
 - Work one current approved GitHub issue at a time; never skip its dependency or readiness gates.
   Record progress in that issue; Dev Board migration work also updates the migration manifest.
 - Q17 and GitHub issues #147–#157 are superseded/quarantined historical evidence — never an

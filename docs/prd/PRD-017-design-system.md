@@ -1,5 +1,13 @@
 # PRD-017: Design system, async and blank states, and accessibility acceptance rules
 
+> **Admin shell design amendment (2026-07-16):** This PRD remains authoritative for reusable tokens,
+> components, accessibility, responsive behavior, async/blank states, and theme mechanics. The
+> target Admin shell supports **Light**, **Dark**, and **System** appearance rather than a dark-only
+> contract. Its navigation uses the shadcn/ui Radix **Sidebar** primitive contract with the exact
+> Admin configuration owned by PRD-020, **Admin Control Center — shell, navigation, and overview
+> composition**. PRD-020 also owns the selected Variant A — Priority Command Center structure; this
+> PRD does not turn that page composition into a reusable component rule.
+
 ## Problem
 
 Opzava now has PRDs for the major product areas, but the shared visual and interaction contract is still only implied by the mockups. Without a PRD-level design-system contract, the app can drift in several harmful ways:
@@ -22,7 +30,7 @@ This PRD applies ADR-001 for the locked shadcn/ui and Tailwind stack, ADR-004 fo
 
 - Establish shadcn/ui and Tailwind as the implementation base for shared Opzava UI components.
 - Map shadcn/ui component styling to Opzava design tokens instead of ad hoc color, spacing, radius, typography, or shadow values.
-- Preserve the two product worlds from PRD-002: Essential uses calm light top navigation; Full/admin uses the dark technical sidebar.
+- Preserve the two product worlds from PRD-002: Essential uses calm user-facing navigation; Admin uses the technical Sidebar contract with Light, Dark, and System appearance.
 - Define the token contract for typography, color, spacing, radius, elevation, motion, z-index, density, and app-shell geometry.
 - Define the component inventory and required states for buttons, forms, badges, avatars, tables, tabs, banners, toasts, stats, progress, dialogs, menus, command/search, status atoms, skeletons, empty states, error states, and live indicators.
 - Make four universal async states mandatory for every data-fetching panel: Loading, Loaded, Empty, and Error.
@@ -47,7 +55,7 @@ This PRD applies ADR-001 for the locked shadcn/ui and Tailwind stack, ADR-004 fo
 ## User Stories
 
 1. As an everyday member, I want every Essential screen to use the same calm top navigation, so that I always know where Home, My stuff, Messages, Activity, Ask Opzava, Find, notifications, and account controls live.
-2. As an admin user, I want every Full/admin screen to use the same dark sidebar, so that operating surfaces feel consistent and technical controls are not mixed into Essential.
+2. As an admin user, I want every Admin screen to use the same accessible shadcn/ui Radix Sidebar contract in Light, Dark, and System appearance, so that operating surfaces remain consistent without locking the interface to one theme.
 3. As a user moving between Essential and Full/admin, I want each world to have one coherent theme and navigation model, so that I never wonder which mode I am in.
 4. As a designer, I want one token source for typography, colors, spacing, radius, shadow, motion, z-index, density, and app-shell geometry, so that screens do not drift by hand.
 5. As a frontend developer, I want shadcn/ui components styled through Opzava tokens, so that implementation matches the mockups without copying page CSS.
@@ -113,7 +121,7 @@ This PRD applies ADR-001 for the locked shadcn/ui and Tailwind stack, ADR-004 fo
 | --- | --- |
 | `style-guide.html` | Living design-system inventory. It defines the rendered type scale, color tokens, spacing scale, radii, buttons, forms, badges, dots, tables, tabs, banners, toasts, KPI/stat cards, progress bars, async states, and live/motion states. It also establishes the 15px body floor, 13px metadata-only rule, one primary action per region, color paired with text, tab semantics, banner priority, toast roles, progress ARIA, four universal async states, reduced-motion handling, and live indicators that remain label-first. This screen becomes the acceptance reference for shared components. |
 | `essential-blank-slates.html` | Product blank-state reference for first-use Home, empty to-do list, empty board lane, and assistant-unavailable error. Blank slates must use plain language, one primary CTA where a next action exists, optional ghost previews only when they clarify the payoff, and admin-only technical details behind disclosure. Empty states do not replace forbidden or error states. |
-| `index.html` | Cross-product adoption map. Every listed Essential and Full/admin screen inherits the token, component, async, blank-state, and WCAG AA rules in this PRD. Essential remains calm, light, top-nav, and jargon-free. Full/admin remains dark, technical, sidebar-based, and operations-focused. The screen list is the product-level inventory for adoption coverage, not a separate component contract. |
+| `index.html` | Cross-product adoption map. Every listed Essential and Admin screen inherits the token, component, async, blank-state, and WCAG AA rules in this PRD. Essential remains calm, user-facing, and jargon-free. Admin remains technical, sidebar-based, operations-focused, and available in Light, Dark, and System appearance. The screen list is the product-level inventory for adoption coverage, not a separate component contract. |
 | `tokens.css` | Token source for typography, themes, spacing, radius, elevation, motion, z-index, density, app-shell geometry, base styles, focus rings, scrollbars, selection, reduced-motion handling, and utility classes. Implementation must translate these values into the Tailwind theme and/or CSS variables consumed by shadcn/ui components. Components must not fork values per screen. |
 | `shadcn.css` | shadcn/ui component mapping layer. `sb-` components are the reference for badges, avatars, breadcrumbs, alerts, checkboxes, spinners, popovers, hover cards, menus, tabs, responsive table cards, alert dialogs, terminal traces, status lines, wizard steps, and copy-command blocks. Production implementation should use shadcn primitives plus Opzava token classes rather than page-local replicas. |
 
@@ -135,7 +143,7 @@ Net-new screens or artifacts to design:
 - Tailwind theme values must align with the token contract so utility classes and component styles do not diverge.
 - Components must support the four product themes represented by tokens where applicable: dark, light, high-contrast, and calm.
 - Essential screens must default to the calm theme and top-navigation language from PRD-002.
-- Full/admin screens must default to the dark technical shell from PRD-002.
+- Admin screens must honor the Light/Dark/System preference and use the shadcn/ui Radix Sidebar primitive contract; PRD-020 owns its exact variant, collapsible mode, hierarchy, and Variant A Overview composition.
 - Theme changes must swap token values and must not fork component markup or interaction behavior.
 - Font families must use Inter for UI and JetBrains Mono for tabular or technical data where mono is appropriate.
 - Body text must default to the 15px floor. 13px text is allowed only for tertiary metadata such as timestamps, units, captions, compact labels, and uppercase micro-labels.
@@ -301,6 +309,7 @@ Net-new screens or artifacts to design:
 ## Dependencies
 
 - Depends on PRD-002 for app shell, navigation, command palette, project switcher, notification count, and global shell state adoption.
+- Depends on PRD-020 for the exact Admin Sidebar configuration, Admin topbar and navigation composition, and Variant A — Priority Command Center Overview structure.
 - Informs all existing feature PRDs because token, component, async, blank-state, and accessibility rules apply across all screens.
 - Depends on ADR-001 for Next.js App Router, TypeScript, shadcn/ui, Tailwind, and modular DDD.
 - Depends on ADR-004 for hybrid CQRS, projection freshness, OpenClaw runtime ownership, and live read-through boundaries.

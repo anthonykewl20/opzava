@@ -1,5 +1,19 @@
 # PRD-007: Knowledge, skills, docs/files, artifacts, and governed skill install
 
+> **Skill taxonomy and Admin placement amendment (2026-07-16):** This PRD remains authoritative for
+> skill catalogs, approved versions, provenance and verification, install governance, provisioning
+> receipts, scope selection, drift, and knowledge/artifact records. The target uses three explicit
+> views of capability: **Engineering Skills** are the Opzava-governed engineering workflow catalog
+> used by planning, implementation, review, and local harnesses; **Runtime Skills** are OpenClaw
+> runtime skills selected and provisioned through the governed catalog; the **Ask Admin skill
+> subset** is the approved subset exposed to Ask Admin Opzava under PRD-005 policy. These may share
+> catalog/governance infrastructure but must not be presented as one undifferentiated list. MCP
+> servers are connectivity/tool-policy resources owned by PRD-013, not skills. PRD-020, **Admin
+> Control Center — shell, navigation, and overview composition**, owns Admin route placement;
+> PRD-013 owns setup/provisioning UX where applicable. The old **Memory & Skills** placement under
+> Govern is superseded target IA, while its knowledge, artifact, and governance evidence remains
+> valid.
+
 ## Problem
 
 Opzava needs one coherent product contract for the knowledge that people and AI employees rely on: project docs, notes, uploads, research links, ideas, AI-produced artifacts, published knowledge revisions, derived search/vector indexes, employee memory summaries, and executable skills.
@@ -23,7 +37,7 @@ The solution is an Opzava-owned Knowledge Management product surface and source 
 - Ship project Docs & Files as the everyday source-of-truth surface for documents, notes, uploads, files, links, drafts, and final knowledge candidates.
 - Support upload and new-doc flows that stage files, collect review/promotion intent, preserve metadata, and optionally ask an AI employee to tag/check content.
 - Support ideas capture in Discovery, including new idea, idea detail, tags, statuses, votes, discussion, research links, AI expansion, AI consensus, and connect-to-work decisions.
-- Support admin Memory & Skills as a governance view for what the team knows, can do, and has made.
+- Support authorized governance projections for knowledge and artifacts plus the Engineering Skills, Runtime Skills, and Ask Admin capability subsets; PRD-020 owns placement of the named Admin skill destinations without inventing a new knowledge route in this amendment.
 - Treat docs, notes, uploads, links, artifacts, and promoted candidates as Opzava source-of-truth records backed by Postgres plus object storage.
 - Ingest published corpus revisions into rebuildable derived indexes through OKF and `KnowledgeIndexPort`.
 - Preserve ADR-008 scoping: employee = workspace, project = shared corpus, org = corpus.
@@ -107,7 +121,7 @@ The solution is an Opzava-owned Knowledge Management product surface and source 
 55. As a project member, I want the confirmation to name the exact state change, so that I understand what will happen.
 56. As a project member, I want Decided ideas to connect to a project, to-do, card, goal, doc, event, or new project where permitted, so that decisions become durable work.
 57. As a project member, I want deciding an idea not to start AI execution automatically, so that research and work remain separate.
-58. As an admin/full-shell user, I want Memory & Skills in the Govern rail, so that knowledge and skills governance has one admin home.
+58. As an admin/full-shell user, I want the Engineering Skills and Runtime Skills destinations placed by PRD-020 to render the governed catalogs owned here and link authorized knowledge or artifact projections where relevant, so that route placement does not redefine domain semantics.
 59. As an admin/full-shell user, I want Memory & Skills to summarize Memory entries, Skills, and Artifacts, so that team capability is scannable.
 60. As an admin/full-shell user, I want Search knowledge, so that I can find a fact, source, artifact, skill, project, or employee quickly.
 61. As an admin/full-shell user, I want Add knowledge, so that authorized admins can add or start source records from the governance surface.
@@ -148,7 +162,7 @@ The solution is an Opzava-owned Knowledge Management product surface and source 
 
 | Mockup | Required UX mapping |
 | --- | --- |
-| `memory-skills.html` | Full/admin Govern rail surface titled "Memory & Skills" with subtitle "What the team knows, can do & has made", Search knowledge and Add knowledge actions, summary stats for Memory entries, Skills, and Artifacts, Memory table with Knowledge/Scope/Source/Updated, scoped rows such as Global and project knowledge, human and AI source attribution, Skills table with skill name/Used by/Status, enabled status using glyph plus label, local CLI skills, Recent artifacts table with name/type/by/created, retained-artifact summary, loading/empty/no-match/forbidden/stale-index/error/offline states, and no raw embedding/Gateway/config/secret display. |
+| `memory-skills.html` | **Migration/content reference.** Its Search/Add knowledge actions, memory and artifact summaries, provenance, status, attribution, async states, and redaction rules remain valid. Its old combined Memory & Skills title and Govern-rail placement do not define target IA. PRD-020 places the Admin destinations; the target distinguishes Engineering Skills, Runtime Skills, and the Ask Admin subset. |
 | `essential-docs.html` | Essential project Docs & Files surface with topbar, project breadcrumb, title "Docs & Files", copy "Every doc and file for this project, in one place.", Upload and New doc actions, Type and Sort menus, item counts, pinned docs strip, grid cards for docs/files/images with title, metadata, author, updated time, Draft/Final status, AI-drafted labels such as "Atlas drafted", recent activity feed, authorized project scope, and loading/empty/no-match/forbidden/stale-index/error/offline states. |
 | `essential-upload.html` | Upload dialog over the project asset/docs context with "Upload to Assets" title, close/cancel, drag-or-browse drop zone, type and size guidance, staged file rows with name/size/ready/remove, campaign/context and type fields, "Atlas can detect" option, Send for review versus Mark approved radiogroup, optional Atlas tag-and-check offer, validation when no file is staged, pending upload state, and post-upload routing back to the project asset/docs surface. |
 | `essential-idea.html` | Idea detail for one Discovery record with project breadcrumb, tag, Exploring/Decided status, title, suggested-by actor, contributor group with people and AI assistants, votes, Make this the decision, Move to, idea description, AI consensus panel with assistant stances and synthesized recommendation, Ask the panel again, Build on it comments, reply composer, Research & notes, paste-link/write-note action, decision hand-off note, confirmation dialog that names the Exploring to Decided state change, and connect-to-work behavior after decision. |
@@ -239,7 +253,10 @@ The solution is an Opzava-owned Knowledge Management product surface and source 
 
 ### Memory & Skills admin surface
 
-- Memory & Skills must be available only to authorized full/admin shell actors.
+- The legacy combined Memory & Skills governance data must remain available only to authorized actors during migration.
+- The legacy combined label in this section describes shared governance data, not target route placement. Target surfaces must visibly distinguish Engineering Skills, Runtime Skills, and the Ask Admin subset, while allowing authorized cross-links to shared catalog and receipt facts.
+- MCP servers and their transports/auth/tool inventories must not be modeled or presented as skills; PRD-013 owns MCP setup and policy UX.
+- Knowledge and artifact semantics remain owned here, but this amendment does not create a new top-level Admin destination for them.
 - Memory summary must compose Opzava source/candidate/corpus projections and safe employee memory summaries without exposing raw vector or runtime memory internals.
 - Memory rows must show knowledge text/summary, scope, source actor/employee, updated time, review/promotion state where applicable, and freshness/index status where useful.
 - Memory search must cover source text/summary, project, org, employee, source actor, source kind, status, artifact, and corpus revision within authorization.
@@ -424,7 +441,9 @@ The solution is an Opzava-owned Knowledge Management product surface and source 
 - ADR-007: Resource-scoped RBAC, roles-as-data, Postgres RLS, fail-closed tenant/project/source access, and revocation behavior.
 - ADR-009: Realtime transport, reconnect/backfill, Activity/notification fan-out, and Web Push consumers for knowledge/index/install status.
 - ADR-012: Department Workflow approvals, reports, generated content lifecycle, workflow artifacts, provisioning receipts, and run limiter where knowledge flows intersect workflows.
-- PRD-002: App shell, Essential top bar, full/admin rail, command search, notifications, shell async states, and responsive navigation.
+- PRD-002: Shared authenticated shell infrastructure, Essential top bar, command search, notification plumbing, route admission, shell async states, and responsive navigation.
+- PRD-020: Admin Control Center — shell, navigation, and overview composition; authoritative for Engineering Skills and Runtime Skills placement and surrounding Admin chrome.
+- PRD-013: Integration, MCP, and setup/provisioning UX used by governed skills where applicable; MCP servers remain distinct from skill catalogs.
 - Project Management surface (`pm.Card`, deferred): Projects, Docs & Files entry point, Discovery, project source refs, card evidence, project authorization, and connect-to-work commands.
 - PRD-004: Internal Collaboration, Activity, notifications, review prompts, assistant hand-offs, and Web Push delivery.
 - PRD-005: Ask Opzava and project assistant conversations that consume authorized corpus overlays, citations, artifacts, and candidate memory.

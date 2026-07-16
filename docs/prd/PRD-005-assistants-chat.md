@@ -1,5 +1,12 @@
 # PRD-005: Ask Opzava and Ask Admin Opzava conversations
 
+> **Admin placement amendment (2026-07-16):** This PRD remains authoritative for Ask Admin Opzava's
+> persona, conversation lifecycle, authorization, projections, remediation behavior, approvals, and
+> internal chat composition. PRD-020, **Admin Control Center — shell, navigation, and overview
+> composition**, owns its pinned Admin placement, containing shell, route, and topbar context. The
+> existing Ask Admin design is not being redesigned here; old rail and surrounding shell details are
+> migration evidence only.
+
 ## Problem
 
 Opzava needs two assistant conversation surfaces that feel like part of the product instead of a thin wrapper around OpenClaw sessions.
@@ -97,7 +104,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 49. As a reviewer, I want approvals from assistant chats to show source project, assistant, draft, risk level, and action target, so that I can make a safe decision.
 50. As a reviewer, I want approval actions to be idempotent, so that double-clicks or reconnect retries do not send twice.
 51. As a reviewer, I want stale approval cards to disable after someone else decides, so that I do not act on obsolete work.
-52. As an admin/full-shell user, I want Ask Admin Opzava in the full/admin rail, so that platform operations have a dedicated assistant surface.
+52. As an admin/full-shell user, I want the pinned Ask Admin Opzava destination owned by PRD-020 to open the authorized conversation behavior owned here, so that placement and assistant semantics have one owner each.
 53. As an admin/full-shell user, I want Ask Admin Opzava to summarize projects, agents, integrations, approvals, and admin decisions, so that I can triage operations from one conversation.
 54. As an admin/full-shell user, I want Ask Admin Opzava to identify blocked approvals and runtime issues, so that I can focus on work that needs intervention.
 55. As an admin/full-shell user, I want Ask Admin Opzava trace cards to disclose admin-level checks only to authorized users, so that operations data is not exposed to ordinary users.
@@ -123,7 +130,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 | --- | --- |
 | `essential-ask-opzava.html` | Essential Ask Opzava is the everyday cross-project assistant. It uses the Essential top bar with Ask Opzava active, a page header that says the assistant works across every project, a note that project-scoped work belongs in "Ask your assistant", a chat log with proactive digest, project rows, project links, "Yes/No" follow-up actions, user messages, live coordination status, expandable checked-project trace, inline approval card, Approve & send, Request changes, View draft, inline confirmation, composer, keyboard send hint, loading/error/offline states, and mobile-preserved approval actions. |
 | `project-assistant.html` | Project assistant is the project-scoped conversation. It renders project breadcrumb, project header, AI employee badges, project tabs with Ask your assistant active, assistant persona header such as Atlas, backlink to Ask Opzava, chat log scoped to one project, project-output references, expandable trace, inline approval hand-off, preview modal, Approve & send, Request changes, approved toast/confirmation, no-assistant empty state, retry error state, composer copy that says the assistant works on this project only, and links back to cross-project Ask Opzava for all-project coordination. |
-| `orchestrator-chat.html` | Ask Admin Opzava is the full/admin platform-ops assistant. It uses the admin rail with Ask Admin Opzava active, project/admin context in the rail, top command search, chat title strip, cross-project/admin digest, Review actions, user question, assistant status answer, admin trace/tool card, coordinating-downstream-agents status pill, inline approval action card, Approve & send, Request changes, View full draft, inline approval confirmation, suggested admin prompts, and composer. This mockup informs the admin assistant and not the Essential everyday shell. |
+| `orchestrator-chat.html` | Ask Admin Opzava is the Admin platform-ops assistant. Its chat title strip, digest, Review actions, question/answer flow, trace/tool card, downstream-agent state, inline approval card, suggestions, and composer remain behavioral evidence for this PRD. Its old rail, project/admin rail context, and topbar are superseded shell evidence; PRD-020 owns the pinned placement and container. |
 
 ## Functional requirements
 
@@ -316,7 +323,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - Stream retry, reconnect, webhook completion, and duplicate events do not duplicate assistant messages, approvals, Activity rows, project Updates, or remediation actions.
 - Delegated work shows the selected AI employee persona and creates/reuses the appropriate `Assignment` and `AgentDispatch` records.
 - Policy denied, approval required, provisioning required, gateway unavailable, circuit open, and missing corpus states render as normal assistant states.
-- Ask Admin Opzava renders in the full/admin shell with platform-ops positioning, admin digest, trace/tool card, inline action card, suggestions, and composer.
+- Ask Admin Opzava renders inside the pinned Admin container owned by PRD-020 with the platform-ops digest, trace/tool card, inline action card, suggestions, and composer behavior owned by this PRD.
 - Ask Admin Opzava can summarize Incident context from Notifications/Admin-Observability projections.
 - Ask Admin Opzava remediation proposals show incident, hypothesis, target scope, blast-radius class, dry-run status, required approval, and primary/secondary actions.
 - Medium-risk remediation requires explicit approval before execution.
@@ -358,7 +365,8 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - ADR-007: Resource-scoped RBAC, roles-as-data, RLS, and fail-closed project/tenant access.
 - ADR-010: Knowledge Management source of truth, project/org corpus overlays, source refs, and authorized retrieval/index behavior.
 - ADR-012: Department workflow engine, approval prompts, generated-content lifecycle, department workflow hand-offs, and reports.
-- PRD-002: App shell, Essential top bar, full/admin rail, command palette, Find, notification bell, Home/My stuff entry points, and shell async states.
+- PRD-002: Shared authenticated shell infrastructure, Essential top bar, command palette, Find, notification plumbing, Home/My stuff entry points, route admission, and shell async states.
+- PRD-020: Admin Control Center — shell, navigation, and overview composition; pinned Ask Admin Opzava placement and its Admin container, without changing this PRD's assistant behavior.
 - Project Management surface (`pm.Card`, deferred): Projects, project assistant entry, project cards/to-dos/docs/schedules/outputs/updates, `pm.Card`, project approvals, and project activity projections.
 - PRD-004: Internal chat, Activity inbox, assistant hand-offs, mentions, notifications, Web Push, project Team rooms, and assistant participant attribution in collaboration surfaces.
 

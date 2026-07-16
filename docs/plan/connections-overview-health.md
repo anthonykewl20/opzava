@@ -1,12 +1,23 @@
 # Connections Overview: OpenClaw health - locked design
 
-Status: design locked; implementation, user override, and follow-up Mainframe fixes landed
-(2026-07-14 through 2026-07-15). The currently realizable live health states are
-`partial-unknown`, `degraded`, and `unreachable`. A fully `healthy` renderer/classifier remains
-covered automatically, but cannot be claimed from the current Mainframe contract because it does
-not expose authoritative per-agent liveness.
-Tracks: #175 (parent), #176-#182 (children).
-Governs the Connections **Overview** route (`/connections`). Supersedes parts of `docs/plan/connections-ia-redesign.md` (see "Amendments" below).
+> **Current-to-target notice (2026-07-16):** This document remains authoritative evidence for the
+> as-built OpenClaw health classifier, three-state semantics, freshness, probing, redaction, and
+> verified failure behavior. It no longer governs the target Admin Overview, topbar, or navigation.
+> PRD-020, **Admin Control Center — shell, navigation, and overview composition**, and the Admin
+> Wayfinder supersede the monolithic Connections Overview placement, `AUTOMATE` rail, removal of a
+> target Gateway destination, the no-shadcn-sidebar decision, and OpenClaw-only global health-pill
+> meaning. Target topbar health is **platform/readiness status** composed from multiple sources; the
+> attention count/feed is separate. OpenClaw health remains one contributing source and a valid
+> detail fact. Preserve the research and runtime evidence below when migrating the UI.
+
+Status: as-built design locked; implementation, user override, and follow-up Mainframe fixes landed
+(2026-07-14 through 2026-07-15); superseded as target Admin composition on 2026-07-16. The currently
+realizable live health states are `partial-unknown`, `degraded`, and `unreachable`. A fully
+`healthy` renderer/classifier remains covered automatically, but cannot be claimed from the current
+Mainframe contract because it does not expose authoritative per-agent liveness. Tracks: #175
+(parent), #176-#182 (children). Records the as-built Connections **Overview** route (`/connections`)
+and its amendments to `docs/plan/connections-ia-redesign.md`; it does not govern target Admin
+composition.
 
 ## Problem
 
@@ -22,7 +33,9 @@ The Overview reports a health number that is **semantically wrong**, and the red
 
 ## The core decision
 
-**Health is OVERALL OpenClaw health, not a provider-catalog ratio.**
+**Within the OpenClaw detail domain, health is overall OpenClaw health, not a provider-catalog
+ratio.** This classifier contributes to, but does not by itself define, target global
+platform/readiness health.
 
 Model providers and integrations are *inventory*, not *health*. They keep their own counts on their own cards. The hero answers exactly one question: **is the thing I depend on working right now?**
 
@@ -88,6 +101,10 @@ The provisioning worker already holds `operator.admin` (durable device-store boo
 This preserves the ownership boundary in `docs/openclaw/concepts/architecture.md`: the Gateway is the authority for live provider connections, credential selection, and health snapshots; the worker projects those typed results and orchestrates Opzava workflows. Neither defect can be reliably repaired in the worker without duplicating or racing Gateway state.
 
 ## Layout
+
+> **Superseded target layout:** The two-panel Connections Overview below describes the implemented
+> surface and remains migration evidence. PRD-020/Wayfinder owns where these facts appear in the
+> focused Admin destinations and Priority Command Center.
 
 **The Overview is TWO panels. It is an overview, not a console.**
 
@@ -158,13 +175,25 @@ monochrome `currentColor` marks on subdued brand-tinted tiles; no remote fetch i
 
 Polling triggers a server re-fetch of the RPC snapshot - **snapshots stay truth**; we do not push WS events as authority (architecture invariant: *RPC snapshots are truth, WS events are hints*).
 
-## Single source of truth
+## As-built OpenClaw rollup sharing
 
-The top-bar `HealthPill` is re-pointed at the **same rollup**. Otherwise a dead channel account renders as `7 of 8 healthy - 1 needs attention` in the hero while the pill, six inches above it on the same screen, reads `All systems healthy`. A global health indicator that cannot see the thing that is broken is worse than none: it actively suppresses the alarm.
+> **Target amendment:** Sharing one OpenClaw rollup between its detail surfaces remains correct, but
+> the global topbar must not simply repeat that rollup. PRD-020 composes platform/readiness health
+> from all required sources and presents attention separately.
+
+In the as-built implementation, the top-bar `HealthPill` was re-pointed at the **same OpenClaw
+rollup**. Otherwise a dead channel account rendered as `7 of 8 healthy - 1 needs attention` in the
+hero while the pill, six inches above it on the same screen, read `All systems healthy`. That was
+the correct consistency fix for the shipped shell, but it does not define the PRD-020 target
+platform/readiness rollup or its separate attention feed.
 
 Risk (recorded, not hidden): the shell renders on every page, so the pill now needs the rollup everywhere. The Gateway serves a **cached** health snapshot without a live probe, so this should be a cheap read - but that is an assumption verification must prove. Fallback if it bites: narrow the pill's claim to reachability ("Gateway reachable") rather than reintroduce the contradiction.
 
 ## Rail
+
+> **Superseded target rail:** The `AUTOMATE` placement and the decision not to migrate to shadcn's
+> Sidebar primitive are obsolete for target Admin IA. They are retained below solely to explain the
+> implemented screen and migration starting point.
 
 Surgical fix. Keep the structural work from `37d2d40a` (real `.rail-group` / `.rail-subitems` CSS, header no longer claims the active pill, sub-items aligned to one grid with a guide rail, chevron affordance, disclosure toggle preserved per IA decision #2).
 
@@ -173,9 +202,13 @@ Restore two things that commit changed:
 1. **`Connections` is a title-case nav item with an icon**, not an uppercase muted category label.
 2. **`AUTOMATE` returns as the section label above it.**
 
-That commit dropped `Automate` on the premise that it "appears nowhere in the roadmap". The premise is false: `docs/plan/capability-parity.md:81` lists `automation.html` as an owned screen, and the canonical mockup itself already draws `Automation` as a **sibling of `Connections` under `Automate`**. `Connections` cannot be both the category and a peer inside it.
+The as-built reasoning restored `Automate` because `automation.html` was an owned screen and the
+then-canonical mockup drew `Automation` as a sibling of `Connections`. PRD-020 now supersedes that
+placement with its Develop / AI Runtime / Operate / Configure hierarchy.
 
-**No migration to shadcn's `Sidebar` primitive** - that is a whole-rail refactor touching Operate, the future user-side CRM rebuild, Automate, and every nav consumer, for zero visual gain, since the tokens already match. CRM has no current admin surface (GitHub issue #200, 2026-07-15).
+**As-built decision, superseded for target Admin:** no migration to shadcn's `Sidebar` primitive.
+PRD-020 now explicitly requires the shadcn/Radix Sidebar contract for Admin. This does not remove or
+redefine future user-side CRM scope.
 
 ## Design system
 
@@ -190,8 +223,11 @@ completion.
 
 ## Amendments to `connections-ia-redesign.md`
 
-- **Decision #2 (rail sub-items)** - `Gateway` is REMOVED as a rail sub-item. `System status` is NOT added as one: it is a drill-down of the Overview, not a connection.
-- **Decision #4 (detail routes)** - `/connections/gateway` is REMOVED. `/connections/system` is ADDED as the system-detail surface.
+- **As-built Decision #2 (rail sub-items)** - `Gateway` was removed as a Connections rail sub-item.
+  This does not prohibit the PRD-020 target **Gateway** destination.
+- **As-built Decision #4 (detail routes)** - `/connections/gateway` was removed and
+  `/connections/system` added for the shipped IA. Target route migration is owned by the Admin
+  Wayfinder; PRD-020 locks the visible Gateway destination, not its final URL.
 
 Rationale: the Gateway is **platform substrate, not a manageable connection**. The IA spec itself describes it as *"Platform infra: not disconnectable, no connect action"* - it never belonged as a peer of Model Providers and GitHub. Once the System Status panel lands on the Overview, the gateway route is pure duplication, and two surfaces showing gateway health is how they drift out of sync.
 

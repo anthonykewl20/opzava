@@ -4,9 +4,9 @@
 
 Opzava is an AI-workforce PM SaaS over OpenClaw: persona'd delegate agents act as human-like teammates across Marketing, Support, and Finance, collaborating with humans in a Slack-grade internal chat hub on an installable PWA. Opzava owns the multi-tenant product system of record, policy, billing, approvals, audit, and user experience; OpenClaw owns runtime execution capabilities such as sessions, channels, skills, memory/wiki, Workboard, cron, logs, diagnostics, and usage behind the `gateway-broker` anti-corruption layer. CRM is deferred pending the future user-side dashboard.
 
-Current operating mode: Opzava runs single-tenant internally first to market and promote Opzava itself. The scale-ready multi-tenant architecture is retained and runs one tenant now; Opzava is not a public multi-tenant SaaS yet. The completed admin Tasks MVP is historical as-built substrate. The current developer-operations target is the **Dev Board** defined by [PRD-019](docs/prd/PRD-019-dev-board.md) and [ADR-017](docs/adr/ADR-017-dev-board-authority-sync-execution.md); CRM remains deferred to the future user-side dashboard.
+Current operating mode: Opzava runs single-tenant internally first to market and promote Opzava itself. The scale-ready multi-tenant architecture is retained and runs one tenant now; Opzava is not a public multi-tenant SaaS yet. The completed admin Tasks MVP is historical as-built substrate. The current developer-operations target is the **Dev Board** defined by [PRD-019](docs/prd/PRD-019-dev-board.md) and [ADR-017](docs/adr/ADR-017-dev-board-authority-sync-execution.md). Its admin shell, navigation, and Overview composition are governed by [PRD-020](docs/prd/PRD-020-admin-control-center.md) and the [Admin Control Center foundation ledger](docs/plan/admin-control-center-foundation-decisions.md); CRM remains deferred to the future user-side dashboard.
 
-Q18 (2026-07-04, `docs/plan/grilling-decisions.md`): Opzava OWNS OpenClaw as a tracked fork at `mainframe/` ([ADR-016](docs/adr/ADR-016-mainframe-tracked-fork.md)); the Platform Gateway is built from that source, runs as a static Compose service, and dynamic per-tenant provisioning is deferred-not-deleted (ADR-002 amendment). Production home is the Dokploy VPS; local compose remains the dev/verify environment. The current admin-dashboard target is Opzava-native Dev Board + Ask Admin plus the ported OpenClaw Control-UI views. The still-implemented `/tasks` and `/issues` routes are legacy migration inputs, not separate future products. CRM is NEVER an admin-dashboard surface (user directive 2026-07-04): `/crm/*` routes were removed on 2026-07-15 (GitHub issue #200), and the deferred CRM rebuild returns with the user-side dashboard.
+Q18 (2026-07-04, `docs/plan/grilling-decisions.md`): Opzava OWNS OpenClaw as a tracked fork at `mainframe/` ([ADR-016](docs/adr/ADR-016-mainframe-tracked-fork.md)); the Platform Gateway is built from that source, runs as a static Compose service, and dynamic per-tenant provisioning is deferred-not-deleted (ADR-002 amendment). Production home is the Dokploy VPS; local compose remains the dev/verify environment. PRD-020 now owns Admin Control Center placement; the frozen Control-UI port program remains historical/parity evidence for the OpenClaw capabilities to harness. The still-implemented `/tasks` and `/issues` routes are legacy migration inputs, not separate future products. CRM is NEVER an Admin Control Center surface (user directive 2026-07-04): `/crm/*` routes were removed on 2026-07-15 (GitHub issue #200), and the deferred CRM rebuild returns with the user-side dashboard.
 
 ## Governing principles
 
@@ -76,6 +76,28 @@ flowchart LR
 | Notifications/Admin-Observability | Opzava Postgres: notifications, `ErrorGroup`/Incident identity and lifecycle, error events, alert routes, remediation actions, and platform/tenant Incident projections. | [ADR-013](docs/adr/ADR-013-error-admin-card.md) |
 | Gateway Runtime | OpenClaw Gateway per tenant: sessions, runs, task ledger, streaming, Workboard, logs, diagnostics, health, usage/cost snapshots. | [ADR-003](docs/adr/ADR-003-gateway-broker-acl-two-token.md), [ADR-004](docs/adr/ADR-004-data-boundary-cqrs.md) |
 | Channel / Automation / Skills / Memory Runtime | OpenClaw Gateway per tenant: channel runtime and secrets, cron, TaskFlow, standing-order execution, skills, memory-wiki, memory-lancedb, Gateway-local config. | [ADR-003](docs/adr/ADR-003-gateway-broker-acl-two-token.md), [ADR-010](docs/adr/ADR-010-knowledge-okf.md), [ADR-012](docs/adr/ADR-012-dept-workflow-engine.md) |
+
+### Admin Control Center composition boundary
+
+The **Admin Control Center** is an admin-only shell and composition surface, not a bounded context
+and not another system of record. [PRD-020](docs/prd/PRD-020-admin-control-center.md), its
+[foundation ledger](docs/plan/admin-control-center-foundation-decisions.md), and the
+[capability-parity map](docs/plan/capability-parity.md) define current placement. The selected
+**Admin Overview** is Variant A, **Priority Command Center**, and is distinct from Dev Board Summary.
+It composes read-only projections from Dev Board, Notifications/Admin-Observability,
+Runtime-Control, Connections/Platform-Ops, and Identity & Access/Security; OpenClaw Overview facts
+feed those source projections rather than creating a competing route.
+
+Access is capability-backed, with Owner/Admin compatibility only for migration. The BFF resolves a
+stable shell context, then produces a request-scoped sectioned snapshot under every source's own
+ACL/RLS. Sections carry provenance and freshness, fail independently, and expose no raw secrets,
+credentials, or Gateway/OpenClaw references. Global health/readiness is a platform-wide signal;
+actionable attention is a separate actor-scoped queue. The shell never contains CRM, Marketing, or
+Finance destinations, while operational Usage & Costs remains valid only as consumption, quota,
+capacity, and spend projection, not billing, invoices, or Finance authority. This is an Admin
+navigation boundary, not deletion of the deferred/system-wide business contexts. None of this
+target composition is implemented merely by being documented or represented in the non-normative
+prototype fixtures.
 
 ### Dev Board authority and external boundaries
 

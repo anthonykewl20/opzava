@@ -1,10 +1,20 @@
 # Connections IA Redesign - implemented
 
-Status: current and implemented (2026-07-14).
+> **Current-to-target notice (2026-07-16):** This document records the implemented/as-built
+> Connections information architecture and remains useful migration evidence. It no longer owns
+> target Admin IA. PRD-020, **Admin Control Center — shell, navigation, and overview composition**,
+> and the Admin Wayfinder supersede the `AUTOMATE` placement, nested monolithic Connections
+> Overview, absence/removal of a target Gateway destination, and the surrounding legacy rail
+> assumptions. The target distributes these capabilities across focused Admin destinations. The
+> route behavior, health classifiers, freshness rules, setup/security semantics, and verified
+> failure evidence below must be preserved or deliberately migrated; they are not authorization to
+> recreate the old target layout.
 
-This document records the shipped information architecture for Connections. The live health contract
-and Overview layout are governed by `docs/plan/connections-overview-health.md`; this document owns
-the route and navigation model around those surfaces.
+Status: implemented as-built state (2026-07-14); superseded as target Admin IA on 2026-07-16.
+
+This document records the shipped information architecture for Connections. The as-built live health
+contract is recorded by `docs/plan/connections-overview-health.md`; neither document owns the target
+Admin route/navigation model, which now belongs to PRD-020 and the Admin Wayfinder.
 
 ## Problem resolved
 

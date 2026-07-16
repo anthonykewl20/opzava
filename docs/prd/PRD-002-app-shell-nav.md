@@ -1,5 +1,16 @@
 # PRD-002: App shell, navigation, command palette, search, and project switcher
 
+> **Admin Control Center ownership amendment (2026-07-16):** PRD-002 continues to own the shared
+> authenticated shell infrastructure, route admission and authorization plumbing, responsive shell
+> behavior, global search/command-palette behavior, notification plumbing, and the Essential/user
+> shell. PRD-020, **Admin Control Center — shell, navigation, and overview composition**, owns the
+> Admin-only navigation hierarchy, Admin Overview, Admin topbar composition, and exact Admin route
+> placement. The former Admin target built around Operate/Projects/Observe/Automate/Govern groups, a
+> project rail, and the `shell-overview.html` dashboard is superseded target IA and remains only
+> historical/migration evidence. This amendment does not change Essential/user-shell semantics. In
+> the target Admin topbar, platform/readiness health and the attention count/feed are separate
+> concerns; OpenClaw health is one contributing detail source, not the global health meaning.
+
 ## Problem
 
 Opzava needs one dependable way for people to enter the product, understand what needs attention, switch between projects, search across their work, and receive realtime notifications without exposing OpenClaw as a client-facing product surface.
@@ -7,13 +18,13 @@ Opzava needs one dependable way for people to enter the product, understand what
 The current mockups define two related experiences:
 
 - Essential: the calm everyday PWA experience for normal users, centered on Home, My stuff, Messages, Activity, Ask Opzava, Find, projects, and notification needs.
-- Full/admin shell: the operator view with a persistent rail for overview, agent/runtime operations, observability, governance, alerts, and settings.
+- Admin shell: the operator experience composed from this PRD's shared shell infrastructure and the Admin-only hierarchy, Overview, and topbar contract owned by PRD-020.
 
 Without a PRD-level contract, navigation, search, project visibility, notification counts, and empty/error states can drift across screens. That would make the product feel inconsistent, create security risk around project-scoped visibility, and make the shell depend too heavily on live OpenClaw availability.
 
 The solution is a responsive PWA app shell with Opzava-owned navigation, project switching, dashboards, search/read models, notifications, and empty states. OpenClaw runtime signals are harnessed only through the broker and projected where needed, per ADR-004, ADR-007, and ADR-009.
 
-> **Dev Board navigation amendment (2026-07-15):** The target full/admin shell has one **Dev Board** entry, replacing the separate Tasks and Issues product entries. Inside Dev Board, the canonical views are **Summary, List, Board, Sprints, Docs, Development, and Releases**. PRD-019 and ADR-017 own that surface and its workflow; this PRD owns only its navigation and search entry points. Current `/tasks` and `/issues` routes are migration inputs, not the target information architecture; see `docs/plan/dev-board-migration-manifest.md`.
+> **Dev Board navigation amendment (2026-07-15, ownership clarified 2026-07-16):** The target Admin shell has one **Dev Board** entry, replacing the separate Tasks and Issues product entries. Inside Dev Board, the canonical views are **Summary, List, Board, Sprints, Docs, Development, and Releases**. PRD-019 and ADR-017 own that surface and its workflow; PRD-020 owns its Admin placement; this PRD owns shared route-admission, global-search, command-palette, and deep-link plumbing. Current `/tasks` and `/issues` routes are migration inputs, not the target information architecture; see `docs/plan/dev-board-migration-manifest.md`.
 
 ## Goals and Non-goals
 
@@ -21,8 +32,8 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 
 - Ship a responsive PWA app shell that works across desktop, tablet, and mobile with stable navigation, loading, empty, offline, and error states.
 - Give Essential users a calm top-bar navigation model: Home, My stuff, Messages, Activity, Ask Opzava, Find, New project, notifications, and account.
-- Give admin/full users a persistent rail model for operation-heavy surfaces without leaking that rail into the Essential experience.
-- Give admin/full users one Dev Board navigation entry with Summary, List, Board, Sprints, Docs, Development, and Releases subviews rather than separate Tasks and Issues destinations.
+- Provide the shared responsive, authorization-aware shell primitives consumed by the Admin Control Center without defining its route hierarchy or Overview composition, and do not leak Admin navigation into the Essential experience.
+- Make shared search, command-palette, route-admission, and deep-link plumbing recognize the one Dev Board destination and its PRD-019-owned subviews rather than separate Tasks and Issues.
 - Make Project the primary child scope for navigation, search, dashboard rollups, and authorization.
 - Provide a project switcher that is visible, keyboard-accessible, RBAC-filtered, and safe when cached state points at a stale or revoked project.
 - Provide global Find and command palette behavior for projects, tasks/to-dos, people, assistants, files/docs, actions, and recent items.
@@ -37,7 +48,7 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 - Build full internal chat, DMs, project team rooms, mentions, and Activity inbox behavior beyond shell counts and notification pointers. Those belong primarily to PRD-004.
 - Build Ask Opzava conversation orchestration beyond shell entry points, command palette actions, and search affordances. That belongs primarily to PRD-005.
 - Build admin monitoring/logs/incidents/security/debug surfaces beyond shell navigation, alert center entry, and notification requirements. Those belong primarily to PRD-012.
-- Build Dev Board behavior beyond shell navigation, global search, counts, and deep links. That belongs to PRD-019.
+- Build Dev Board behavior, local view navigation, workflow counts, or card deep links beyond the shared search/command/route plumbing. Those belong to PRD-019, with Admin placement in PRD-020.
 - Build connected tool linking and connect wizard flows beyond Home/tool-status summary and notification entry points. Those belong primarily to PRD-013.
 - Build push preference management and service-worker offline policy beyond shell-level PWA and notification delivery hooks. Those belong primarily to PRD-016.
 - Introduce a permanent per-user pinning model for projects in this slice. Ship recent projects first; true pins require a user-scoped preferences model.
@@ -54,8 +65,8 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 8. As an everyday member, I want All projects to support search, filters, sorting, and archived projects, so that I can find older or less active projects quickly.
 9. As an everyday member, I want project search results to include only projects I can access, so that private projects never leak through navigation.
 10. As an everyday member, I want the project switcher beside a project title, so that I can jump between project workspaces without a permanent sidebar.
-11. As an admin/full-shell user, I want projects promoted into the persistent rail, so that project context is always visible while I operate the system.
-12. As an admin/full-shell user, I want the rail to show Operate, Observe, Automate, and Govern groups, so that admin surfaces stay organized by operating mode.
+11. As an admin/full-shell user, I want authorized Admin routes to share stable navigation, search, notification, and responsive-shell infrastructure, so that Admin composition can evolve under PRD-020 without weakening route admission or accessibility.
+12. As an admin/full-shell user, I want the Admin route hierarchy to come from PRD-020 rather than a duplicated list in the shared-shell contract, so that one product contract owns placement.
 13. As a mobile user, I want breadcrumb scope to remain visible at every breakpoint, so that I can see whether I am in all-project or project scope.
 14. As a returning user, I want the shell to validate my cached active project, so that revoked or deleted project state does not produce a misleading empty screen.
 15. As a keyboard user, I want Cmd+K or Ctrl+K to open the command palette, so that I can navigate without reaching for the mouse.
@@ -94,11 +105,11 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 
 | Mockup | Required UX mapping |
 | --- | --- |
-| `shell-overview.html` | Full/admin shell with persistent left rail, grouped navigation, projects section, global search, Cmd+K entry, live/system health indicators, notification count, account affordance, overview dashboard cards, agent fleet table, live activity, spend summary, and inline alert card. This shell is for admin/full surfaces, not the everyday Essential default. |
+| `shell-overview.html` | **Superseded Admin composition reference.** It remains evidence for shared shell mechanics such as search, notification plumbing, account affordances, and responsive navigation. PRD-020 owns the target Admin sidebar, topbar, Overview hierarchy, and route placement; this mockup no longer defines those targets. |
 | `index.html` | Product split between Essential and full/admin experiences. Essential uses a calm top bar and never inherits the dark sidebar. Activity collects @mentions and call-outs. Project switching is via the project title dropdown plus Find. Admin/full view remains reserved for users with admin/full access. |
 | `essential-home.html` | Essential Home with top bar, New project, notification bell, account avatar, greeting, summary error state, needs-you rollup, linked-tool health summary, Ask Opzava entry, project lineup, project-card empty/error states, and project cards with tool tiles, badges, assistant snippets, and status text. |
 | `essential-projects.html` | All projects page with breadcrumb, page title, New project, load error/retry, project search, filters, sort menu, project cards, no-match empty state, and archived project rows with reopen actions for authorized users. |
-| `nav-project-switcher.html` | Full-shell project rail and command-palette navigation. Project list loads for all roles allowed to view projects, shows recents, active state, task/attention counts, async states, offline cached list, stale active-project clearing, and project jumps in Cmd+K. |
+| `nav-project-switcher.html` | **Shared behavior and migration reference.** Project-list loading, authorization, recents, active state, attention counts, async/offline behavior, stale-project clearing, and Cmd+K jumps remain valid. Its full-shell project-rail placement is superseded by PRD-020 and does not add a Projects section to target Admin navigation. |
 | `essential-find.html` | Full-page Find surface with greeting context, scoped suggestions, recent items, projects, to-dos, people, assistants, files/docs, actions, keyboard hints, and Ask Opzava alternate path. |
 | `essential-discovery.html` | Project Discovery board with project back link, assistant entry, status/theme grouping, idea cards, votes, comments, AI suggestions, research notes, add idea, decided/connect actions, and assistant side panel. Discovery behavior that creates durable project work is handed to the Project Management surface (`pm.Card`, deferred), but shell/search/list entry points are in this PRD. |
 | `essential-my-stuff.html` | Cross-project personal dashboard with Needs your input, Following, schedule, review actions, assistant attribution, due dates, empty-done state, and links into calendar/project work. |
@@ -112,7 +123,7 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 
 - The web app must provide a stable shell layout for authenticated Opzava sessions before rendering feature-specific content.
 - Essential navigation must use the calm top bar from the Essential mockups on every everyday screen.
-- Full/admin navigation must use the persistent rail from `shell-overview.html` only for users and routes admitted to the full/admin experience.
+- Admin navigation must use the shared authorization and responsive-shell infrastructure defined here, while PRD-020 defines the exact sidebar primitive, hierarchy, labels, and composition.
 - The shell must preserve active organization and active project context in URLs and/or server-validated state; client cache may speed startup but must not be trusted.
 - The shell must render usable navigation on desktop, tablet, and mobile. Scope breadcrumbs must remain visible at all breakpoints.
 - PWA installability must not bypass server-session gates. Offline shell display is allowed, but privileged data refresh must require normal server authorization.
@@ -122,9 +133,9 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 ### Navigation and project switcher
 
 - Essential top bar entries: Home, My stuff, Messages, Activity, Ask Opzava, Find, New project, notification bell, and account/avatar.
-- Full/admin rail groups: Operate, project list, Observe, Automate, Govern, Essential-view link, global search, and account/avatar.
-- The Operate group must expose one **Dev Board** entry. It must not retain separate target entries named Tasks and Issues.
-- Dev Board route composition must expose Summary, List, Board, Sprints, Docs, Development, and Releases while preserving the active view in a routable URL.
+- The former Operate/project-list/Observe/Automate/Govern rail grouping is superseded. PRD-020 is the sole target contract for Admin groups and destinations; this PRD retains global search, account, authorization, notification, and responsive-shell behavior.
+- The Admin hierarchy owned by PRD-020 must expose one **Dev Board** entry. It must not retain separate target entries named Tasks and Issues.
+- Shared shell/search plumbing must preserve the PRD-019-owned active Dev Board view in a routable URL and authorized search/deep-link results.
 - Project list queries must be available to all authorized project viewers, not admin-only users.
 - Project switcher results must be filtered by `AuthorizationPort` and tenant context.
 - Active project state must be validated against the latest authorized project list on load, route transitions, role changes, and reconnect.
@@ -250,8 +261,8 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 
 ## Acceptance Criteria
 
-- Essential users see the top-bar shell on Home, All projects, My stuff, Find, Discovery, and Notifications; they do not see the full/admin rail.
-- Full/admin users can access the rail shell on admitted routes, including grouped navigation, project list, global search, live status, and notification count.
+- Essential users see the top-bar shell on Home, All projects, My stuff, Find, Discovery, and Notifications; they do not see Admin navigation.
+- Admin users can access admitted routes through the shared shell, including global search, notification plumbing, account controls, and responsive navigation. PRD-020 supplies the target groups, Overview composition, platform/readiness health presentation, and separate attention presentation.
 - Project list and switcher results are filtered by active organization, project grants, tenant lifecycle, and current membership state.
 - A revoked or stale active project is cleared or forbidden on reload/reconnect; it never appears as an unexplained empty project.
 - Home renders needs-you, tools summary, Ask Opzava entry, and project lineup with loading, empty, error, and retry states.
@@ -298,7 +309,8 @@ The solution is a responsive PWA app shell with Opzava-owned navigation, project
 - PRD-004: Internal chat, DMs, project team rooms, mentions, Activity, and notification-producing collaboration events.
 - PRD-005: Ask Opzava and Ask Admin Opzava conversations.
 - PRD-012: Admin monitoring, logs, Incidents, security/audit, alerts, and debug surfaces.
-- PRD-019: Dev Board target navigation, routable views, and workflow-owned attention counts.
+- PRD-019: Dev Board local navigation, routable views, and workflow-owned attention counts.
+- PRD-020: Admin Control Center — shell, navigation, and overview composition; authoritative for Admin-only route hierarchy, exact sidebar/topbar composition, Admin Overview, and placement.
 - ADR-017: Dev Board authority, GitHub synchronization, and execution boundaries.
 - PRD-013: Connections, providers, channels, tools, MCP, and connect wizard for linked-tool details.
 - PRD-016: PWA install/offline behavior and Web Push preferences for push preference management and offline gates.

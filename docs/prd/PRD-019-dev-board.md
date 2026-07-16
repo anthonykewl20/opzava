@@ -249,9 +249,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
     enrollment does not assume an unavailable desktop application.
 98. As an Opzava administrator, I want local machine keys revocable and health visible, so that lost
     or stale runners cannot keep authority.
-99. As a Runner, I want a fenced execution lease with heartbeat, command nonce, monotonic receipt
-    sequence, contract version, worktree, branch, and SHA identity, so that stale or spoofed
-    receipts are rejected.
+99. As a Runner, I want every capacity admission to create a fenced execution lease bound to my
+    enrolled Runner identity, heartbeat, command nonce, monotonic receipt sequence, exact DevTicket
+    contract/version, worktree, branch, and SHA, so that capacity is Runner-local and stale,
+    replayed, or mismatched work is rejected.
 100. As an Opzava administrator, I want every DevTicket executed in its own branch and worktree, so
      that future parallel work has an isolation boundary.
 101. As an Opzava administrator, I want local-runner disconnection to pause work without automatic
@@ -316,10 +317,12 @@ implementations without losing identifiers, comments, evidence, or worklogs.
      blocking activation, so that availability drift does not erase plan approval.
 127. As a Sprint planner, I want material Goal, plan, contract, dependency, risk, or policy changes
      to produce Needs Re-approval, so that queued approval cannot apply to changed work.
-128. As an execution agent, I want autonomous serial execution to allow exactly one implementation
-     DevTicket In Progress, so that worktree conflicts are minimized.
-129. As an execution agent, I want to claim the next Todo DevTicket while the prior one is in
-     Review, so that independent Review does not idle implementation unnecessarily.
+128. As an execution agent, I want `autonomous_serial` to allow at most one Active Sprint
+     implementation DevTicket In Progress, so that Sprint order remains serial even when the Runner
+     has separately governed ordinary-work capacity.
+129. As an execution agent, I want an implementation lease released after its checkpoint and receipt
+     are accepted when the DevTicket enters Review, so that the next ordered Sprint item may start
+     without treating independent Review as implementation capacity.
 130. As an Opzava administrator, I want Review work in progress limited to three, so that
      implementation pauses instead of overwhelming Review.
 131. As an Opzava administrator, I want Slack notified when Review reaches its WIP limit, so that a
@@ -396,6 +399,45 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 163. As a security operator, I want exceptional redaction coordinated across Opzava and GitHub with
      a non-sensitive audit tombstone, so that exposed secrets can be removed without pretending no
      record existed.
+164. As an Opzava administrator, I want implementation capacity configured per enrolled Runner with
+     Focused, Balanced, and capability-bounded Custom presets, so that one machine's admission
+     policy does not become an organization-global slot.
+165. As an Opzava administrator, I want Balanced to be the default two-lease preset, reserving at
+     most one lease for the Active Sprint and admitting at most one explicitly claimed ordinary
+     DevTicket while that Sprint is active, so that ordinary work can progress without making the
+     Sprint parallel.
+166. As an execution agent, I want an ordinary lease admitted only for a Ready non-Sprint DevTicket
+     with an explicit governed claim, resolved dependencies, no exclusive-resource conflict, and its
+     own branch/worktree, so that parallel admission remains deliberate and isolated.
+167. As an Opzava administrator, I want declared scope collisions to trigger coordination rather
+     than pretending file sets can be proven disjoint, so that safe work may continue and later
+     merge conflicts remain agent-remediated.
+168. As an Opzava administrator, I want Balanced to admit up to two ordinary tickets when no Sprint
+     is active, so that idle Sprint-reserved capacity is not wasted.
+169. As a Sprint planner, I want Sprint activation to wait for capacity rather than kill either of
+     two running ordinary leases, so that an Active Sprint begins only after completion or an
+     approved checkpoint/pause frees capacity.
+170. As an Opzava administrator, I want Focused to allow one total implementation lease and queue
+     new contenders without silently preempting admitted work, so that starts and priority changes
+     use governed checkpoint, pause, and preemption decisions.
+171. As an Opzava administrator, I want Custom available only inside Runner-advertised and
+     platform-policy-approved safe limits, so that missing or invalid capability data is rejected
+     rather than guessed.
+172. As an Opzava administrator, I want a capacity downgrade to preserve current leases and block
+     new admissions until usage returns within the limit, so that a settings change never kills
+     active work.
+173. As a Sprint planner, I want Sprint automation forbidden from borrowing ordinary capacity for a
+     second Sprint DevTicket, so that there is still only one Active Sprint and one serial Sprint
+     implementation at a time.
+174. As a Reviewer, I want Reviewer execution capacity and Review WIP separated from implementation
+     leases, with one exclusive fenced lease for the shared local Docker Review stack, so that only
+     stack-mutating or locked-SHA-invalidating work queues while unrelated coding may continue.
+175. As an auditor, I want Runner admission, preset changes, governed pause/preemption, disconnect
+     fencing, and reconciliation authorized and recorded, so that neither settings nor recovery can
+     silently create competing execution.
+176. As an Opzava administrator, I want Admin Overview to project Runner capacity and waiting states
+     without owning Dev Board admission, so that PRD-020 can explain operational state while this
+     contract remains authoritative.
 
 ## Implementation Decisions
 
@@ -493,6 +535,32 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Create a dedicated worktree and branch for each executing DevTicket. Bind checkpoints to
   repository, worktree, branch, HEAD SHA, dirty state summary, command state, Docker state, evidence
   refs, and last confirmed receipt.
+- Scope implementation capacity to each enrolled Runner, never to the organization as one global
+  slot. Every admitted implementation consumes one fenced lease tied to the exact DevTicket
+  contract/version, Runner, worktree, branch, and SHA. Admission and preset changes require an
+  authorized command and durable audit record.
+- Offer three implementation-capacity presets per Runner. **Focused** permits one total lease.
+  **Balanced**, the default, permits two. **Custom** is available only within both the Runner's
+  advertised capabilities and platform policy; missing, stale, or invalid capability data makes
+  Custom unavailable rather than causing Opzava to guess a limit.
+- Under Focused, keep the currently admitted work running and queue new contenders. Starting a
+  different item or changing priority cannot silently preempt it: interruption requires the governed
+  checkpoint, pause, and preemption rules. P0 follows the same command boundary.
+- Under Balanced with an Active Sprint, reserve at most one lease for the Sprint's current serial
+  DevTicket and admit at most one ordinary lease. An ordinary candidate must be Ready, outside the
+  Sprint, explicitly claimed through policy, free of unresolved dependencies and exclusive-resource
+  conflicts, and isolated on its own branch/worktree. A declared scope collision is a visible
+  warning and coordination signal, not a promise that file sets are disjoint; later merge conflicts
+  remain agent-remediated and must rerun affected checks and Review.
+- Under Balanced with no Active Sprint, admit up to two ordinary DevTickets. If a Sprint is
+  activated while both leases are running, do not terminate either: the Sprint enters Waiting for
+  capacity until one completes or a human or authorized assistant approves a governed
+  checkpoint/pause. After activation, do not admit a second ordinary lease.
+- A Custom preset may admit only its safe, policy-approved total. With an Active Sprint it still
+  reserves at most one serial Sprint lease; every remaining lease is ordinary. Reducing capacity
+  never kills an admitted lease and instead blocks new admission until usage is within the new
+  limit. No preset permits a second Active Sprint or lets Sprint automation use ordinary capacity
+  for a second Sprint DevTicket.
 - Do not automatically fail over an offline local runner to cloud execution. Fence the lease, revoke
   preview access, mark `Blocked — Connection Lost / Execution Unknown`, preserve the checkpoint, and
   notify Slack with a continuation summary. On reconnect, reconcile lease, process, worktree,
@@ -506,8 +574,12 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   payloads. Cards contain named secret references and readiness/health only. Resolve values from an
   approved local keyring or vault under the active policy and lease.
 - Configure one independent local Reviewer tool and model in Admin. Review must run on the user's
-  local machine against the shared local Docker stack and an exact commit SHA. Review evidence
-  belongs on the Card; Slack carries only notification and bounded decisions.
+  local machine against the shared local Docker stack and an exact commit SHA. After an accepted
+  checkpoint/receipt moves a DevTicket into Review, release its implementation lease; Reviewer
+  execution capacity and Review WIP are separate. The shared local Docker Review stack has one
+  exclusive fenced lease. Queue only work that uses or mutates that stack, or would invalidate its
+  locked-SHA evidence; unrelated coding may continue. Review evidence belongs on the Card and stays
+  SHA-bound; Slack carries only notification and bounded decisions.
 - Permit an authenticated, expiring, revocable preview tunnel to the local Docker stack. Bind it to
   Admin identity, DevTicket, Review, runner lease, exact build/SHA, and expiry. Revoke it on
   disconnect, lease loss, expiry, security stop, or explicit close.
@@ -521,9 +593,11 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Require activation preflight: approved Goal and Plan, every member Ready, external dependencies
   Done, GitHub healthy and synchronized, chosen runner and Reviewer available, local Docker healthy,
   required named secret references resolvable, and no security stop.
-- Permit exactly one implementation DevTicket In Progress in an Active Sprint. When it reaches
-  Review, the execution assignee may claim the next ordered Todo item. Limit concurrent Review to
-  three; when full, stop claiming and notify Slack.
+- Permit exactly one Sprint implementation DevTicket In Progress in an Active Sprint. When its
+  accepted checkpoint/receipt moves it to Review, release that implementation lease and allow the
+  next ordered Todo item subject to the Runner preset and admission policy. Ordinary leases never
+  authorize a second Sprint DevTicket. Limit concurrent Review to three; when full, stop all new
+  implementation claims and notify Slack without killing already admitted leases.
 - Require an approved Plan revision for Active Sprint add, remove, defer, reorder, or material
   contract changes. A blocking accepted Proposal may propose a revision; a non-blocking accepted
   Proposal remains Backlog. Do not let an agent silently mutate Sprint scope.
@@ -537,6 +611,9 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   `Releases`. Summary prioritizes attention, active work, and changes before metrics. List is one
   canonical dataset grouped by Work Area by default and regroupable by Type, Sprint, lane, Human
   Owner, or Execution Assignee.
+- Expose a read projection of Runner capacity, lease use, and waiting reasons to the Admin Overview
+  specified by PRD-020. That surface may request authorized Dev Board commands but does not own
+  admission, preset, lease, or Sprint state.
 - Base Board on approved prototype Variant B with compact collapsible Backlog; base Card detail on
   Variant A with top-to-bottom reading flow and optional preview; base Sprints on Variant A with
   Sprint history. Follow Jira's information-architecture concept, not its proprietary styling.
@@ -609,8 +686,27 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   never enter Card, webhook, GitHub, Slack, worklog, evidence, audit, or error output.
 - Test Sprint plan and execution behavior through commands: one Active, one Approved/Queued, many
   Drafts, single non-archived membership, Plan revisions, queued preflight, health drift versus
-  material invalidation, one implementation slot, Review WIP three, blocking Proposal, non-blocking
-  Proposal, dependency ordering, pause, cancellation, abortion, completion, and immutable history.
+  material invalidation, exactly one serial Sprint implementation, Review WIP three, blocking
+  Proposal, non-blocking Proposal, dependency ordering, pause, cancellation, abortion, completion,
+  and immutable history.
+- Test Runner-local capacity and preset transitions deterministically. Cover Focused contention and
+  governed preemption; Balanced with one Sprint plus one ordinary lease; Balanced with two ordinary
+  leases and no Sprint; Sprint activation waiting behind two existing ordinary leases; rejection of
+  a second ordinary admission after activation; Custom safe-range validation and unavailability when
+  capabilities are missing or invalid; and a downgrade that preserves leases while blocking new
+  admission.
+- Test ordinary eligibility and isolation: Ready and non-Sprint membership, explicit governed claim,
+  dependencies, exclusive-resource conflicts, separate branch/worktree, visible declared-scope
+  collision warning, agent-remediated merge conflict, and rerun checks/Review. Assert no preset can
+  admit a second Active Sprint or a second concurrent Sprint DevTicket.
+- Test implementation-to-Review handoff separately from reviewer capacity: accepted
+  checkpoint/receipt releases the implementation lease, Review WIP remains three, evidence stays
+  contract/SHA-bound, and the shared local Docker Review lease serializes only stack-mutating,
+  stack-using, or locked-SHA-invalidating work while unrelated coding continues. At Review WIP
+  three, assert new implementation claims stop without terminating already admitted leases.
+- Test authorized/audited admission and settings changes plus disconnect fencing and reconciliation;
+  assert no automatic local-to-cloud failover and no silent preemption. Verify the PRD-020 Admin
+  Overview projection cannot mutate admission state outside the Dev Board command boundary.
 - Test local Docker Review and preview behavior at the user seam: exact SHA, contract version,
   independent reviewer identity, Docker health, evidence attachment, preview tunnel authorization,
   expiry, runner disconnect revocation, and no stale preview after a new build.
@@ -644,6 +740,8 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   a separate grilling and specification.
 - Automatic cloud failover from a disconnected local runner. The active lease pauses and reconciles
   before resume.
+- A second Active Sprint or parallel implementation of two DevTickets from the Active Sprint. Runner
+  presets govern ordinary-work concurrency but never weaken `autonomous_serial` Sprint order.
 - Raw secret storage or display in Dev Board, Slack, GitHub, Docs, comments, worklogs, evidence,
   preview links, or audit.
 - General project management for customers or other departments. Dev Board is an admin-only Opzava

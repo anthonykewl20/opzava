@@ -2,6 +2,22 @@
 
 > **Dev Board execution setup amendment (2026-07-15):** The target Admin setup also enrolls the local execution environment used by Dev Board. It covers a GitHub App health/webhook/outbox panel; an enrolled local machine; an explicit **Codex Desktop / Codex CLI / Claude Code** selector; runner lease, heartbeat, disconnect, reconcile, and resume state; the user's local Docker stack and expiring preview tunnel; reviewer tool and model selection; and the Slack Personal Assistant. These are target requirements, not claims about the current implementation. Today's Connections flow remains a legacy OAuth/manual projection until migrated under PRD-019, ADR-017, and `docs/plan/dev-board-migration-manifest.md`.
 
+> **Admin IA ownership amendment (2026-07-16):** This PRD remains authoritative for integration,
+> provider, channel, tool, GitHub, Runner enrollment, local Docker, reviewer, Personal Assistant,
+> MCP, setup/provisioning, authorization, secret-handling, health-detail, and audit semantics. Its
+> former monolithic **Connections** target is superseded. PRD-020, **Admin Control Center — shell,
+> navigation, and overview composition**, places these capabilities across **Gateway**, **Models &
+> Providers**, **Runners**, **Environments**, **Integrations**, **Engineering Skills**, **MCP
+> Servers**, **Secrets**, **Security & Audit**, and **Settings**. Existing Connections pages and
+> routes are as-built migration inputs, not target IA. PRD-013 does not own the Admin shell,
+> Admin Overview, or global health meaning. Target topbar health is platform/readiness status;
+> its attention count/feed is separate. OpenClaw health remains a contributing source and a
+> Connections/detail fact. Within the Admin Control Center, **Integrations** is limited to Opzava
+> development/platform connections such as GitHub and Slack Personal Assistant delivery. This
+> PRD's retained customer-channel semantics do not place future business/customer connections in
+> Admin; their eventual product surface belongs to the future user dashboard or another approved
+> contract.
+
 ## Problem
 
 Opzava needs one coherent product contract for the integration control plane: tenant Gateway status, model/provider settings, external customer channels, operator-linked coding tools, MCP/tool catalog visibility, and the connect wizard.
@@ -17,14 +33,23 @@ Without this PRD, this slice can drift into unsafe or confusing product shapes:
 - Tenant admins could think they are editing raw Gateway configuration or installing arbitrary executable skills from the browser, even though ADR-003 and ADR-010 require admin/provisioning jobs for those operations.
 - Billing/plan limits could allow more channels, tools, seats, providers, or runtime use than the tenant entitlement permits.
 
-The solution is a Connections and Tools product slice that separates customer channels, model providers, tenant Gateway health, operator-linked tools, MCP/tool policy, and skill governance while presenting them as one scannable control surface. Opzava owns tenant-visible connection metadata, status projections, authorization, plan enforcement, audit, connect intents, tool-link records, admin catalog selections, and UI state. OpenClaw remains harnessed for Gateway runtime health, provider/channel runtime configuration, channel status, tool catalog/effective policy, MCP runtime projection, and skill execution through the broker ACL and provisioning paths. ADR-003, ADR-005, ADR-010, and ADR-014 are authoritative for boundaries.
+The solution is a coherent integration and setup control plane that separates customer channels,
+model providers, tenant Gateway health, operator-linked tools, MCP/tool policy, and skill
+provisioning while allowing PRD-020 to place them in focused Admin destinations. Opzava owns
+tenant-visible connection metadata, status projections, authorization, plan enforcement, audit,
+connect intents, tool-link records, admin catalog selections, and UI state. OpenClaw remains
+harnessed for Gateway runtime health, provider/channel runtime configuration, channel status, tool
+catalog/effective policy, MCP runtime projection, and skill execution through the broker ACL and
+provisioning paths. ADR-003, ADR-005, ADR-010, and ADR-014 are authoritative for boundaries.
 
 ## Goals and Non-goals
 
 ### Goals
 
-- Ship the `connections.html` admin/full-shell page for Gateway, providers, channels, services, agent tools, MCP policy, and health summary.
-- Ship the `settings.html` Connections, Config, Advanced, Deployment, Security, Notifications, and Billing touchpoints that affect integration policy, but keep the primary operational surface in Connections.
+- Preserve and migrate the current `connections.html` capabilities into the focused Admin
+  destinations placed by PRD-020; the existing monolithic page is as-built input, not the target.
+- Ship the settings touchpoints that affect integration policy without treating Connections as the
+  primary container for every setup and operations concern.
 - Ship the `essential-tools.html` and `essential-tools-empty.html` operator-facing linked-tools page.
 - Ship the `essential-connect-wizard.html` four-step modal for linking terminal and desktop tools.
 - Connect external customer channels such as Slack, WhatsApp, and Gmail into the tenant Gateway through broker-mediated ACL/provisioning flows.
@@ -53,18 +78,30 @@ The solution is a Connections and Tools product slice that separates customer ch
 - Build full internal chat. PRD-004 owns Opzava internal messages; this PRD only covers external channel connections and Slack alert/ops delivery settings.
 - Build billing, invoices, subscriptions, or dunning. ADR-014 (and the deferred Billing settings surface) own billing and cost views; this PRD consumes plan/entitlement decisions.
 - Build full admin observability, logs, Incidents, or Debug. PRD-012 owns those surfaces; this PRD links to diagnostics and consumes Gateway health/status.
+- Define the Admin shell, Admin Overview, topbar composition, global platform/readiness health
+  meaning, attention feed, or target route hierarchy. PRD-020 owns those contracts.
 - Define DevTicket workflow, Sprint, Ready, Review, merge, release, or GitHub synchronization semantics. PRD-019 and ADR-017 own those contracts; this PRD owns their setup and health controls.
 - Redesign ADR-003, ADR-005, ADR-010, or ADR-014.
 - Publish this PRD, create issues, call GitHub, or run build/test/lint commands.
 
 ## User Stories
 
-1. As an owner, I want one Connections page for Gateways, providers, channels, and tools, so that integration health is not scattered across settings and debug views.
-2. As an owner, I want Connections to show Connected, Needs attention, and Gateway summary cards, so that I can see whether the tenant runtime is usable at a glance.
-3. As an owner, I want Connections to show counts such as connected systems and needs-attention items, so that I can prioritize reconnects and limit issues.
-4. As an owner, I want a Run health check action, so that I can refresh status after fixing a provider, channel, or Gateway issue.
-5. As an owner, I want an Add connection action, so that new providers, tools, and channels start from the same control surface.
-6. As an owner, I want the OpenClaw gateway section to show Active, Degraded, Suspended, Provisioning, Unreachable, Circuit open, and Unknown states, so that runtime availability is explicit.
+1. As an owner, I want focused Admin destinations for Gateways, providers, channels, tools, and
+   setup that share consistent status and policy semantics, so that organization does not create
+   contradictory facts.
+2. As an owner, I want each destination to show its relevant connected, attention, and health
+   facts while contributing platform/readiness status to PRD-020, so that detail and global status
+   remain coherent without being conflated.
+3. As an owner, I want the Integrations inventory to show connected-system and needs-attention
+   counts, so that I can prioritize reconnects and limit issues without treating inventory as
+   global platform health.
+4. As an owner, I want health-check actions on the owning Gateway, provider, integration, Runner,
+   environment, or MCP surface, so that I can refresh the exact capability I repaired.
+5. As an owner, I want Add integration in Integrations and explicit enrollment/setup actions in
+   their owning focused destinations, so that unlike setup types are not forced through one fake
+   connection flow.
+6. As an owner, I want the Gateway destination to show Active, Degraded, Suspended, Provisioning,
+   Unreachable, Circuit open, and Unknown states, so that runtime availability is explicit.
 7. As an owner, I want Gateway status to include heartbeat freshness, region, route identity, host class, and health-check age, so that stale data does not look healthy.
 8. As an owner, I want Gateway status to show the fleet or agents hosted by the tenant Gateway, so that I know which employees depend on it.
 9. As an owner, I want Gateway status to fail closed when the tenant is suspended or not entitled, so that billing state cannot be bypassed by a reconnect.
@@ -167,7 +204,7 @@ The solution is a Connections and Tools product slice that separates customer ch
 
 | Mockup | Required UX mapping |
 | --- | --- |
-| `connections.html` | Full/admin shell page titled `Connections` with subtitle `Gateways, providers, channels & tools`, Run health check, Add connection, health summary cards for Connected, Needs attention, and Gateway, Gateway & models group, prominent OpenClaw gateway card with status/auth/hosts/heartbeat/region, Model providers table with Provider/Auth/Models/Status/Actions, lead/subagent role badges, a connected-row action menu for Manage, Set as main orchestrator, and Disconnect, Gateway configuration disclosure with exposure/auth/reload/bind/TLS/endpoints/change queue, Provider policy & catalogs disclosure with auth order/credential store/catalogs/pricing/actions, Agent tools & MCP group with Agent tools table, MCP & tool policy disclosure, Channels & services group with service/use/status/last sync, and footer health cadence. Statuses must use text or glyph plus label, never color alone. Secrets and raw Gateway config values must not be shown. |
+| `connections.html` | **As-built migration input, not target IA.** Its Gateway/provider/channel/tool facts, health classifications, actions, freshness, status labels, redaction, and security behavior remain evidence to migrate. Its single Connections container, group placement, shell chrome, and summary composition are superseded by the focused destinations in PRD-020. |
 | `essential-connect-wizard.html` | Single modal wizard rendered as four steps: Step 1 Pick a tool with Claude Code, OpenCode, Codex CLI, Codex Desktop, and Claude Desktop choices; Step 2 Method with MCP recommended and Live agent options where available; Step 3 Copy command with Run it yourself and Let the assistant wire itself tabs, a generated copyable setup command, plain explanation, and no long-lived raw secrets; Step 4 Verify with live waiting state, connected outcome, manual MCP confirmation guidance, and troubleshooting disclosure. Closing or expiring the wizard revokes unused setup tokens. |
 | `essential-tools.html` | Essential shell page titled `Your tools` with breadcrumb, Connect another, subtitle explaining terminal/desktop tools linked to the account, health pill such as `5 of 5 local tools` with reconnect note, linked tool list for Claude Code, OpenCode, Codex CLI, Codex Desktop, and Claude Desktop, statuses Active/Connected/Degraded/Disconnected with reason text, Reconnect action for disconnected tools, Technical details disclosure with copyable reconnect command, action feedback live region, and legend for glyph meanings. |
 | `essential-tools-empty.html` | Empty `Your tools` page with title/subtitle, primary empty hero `Connect your first tool`, explanation that Claude Code, Codex, OpenCode, or another tool can execute work assigned from an owning `pm.Card` or DevTicket and report evidence to Opzava, primary Connect a tool action to the wizard, effort hint, and ghost preview of future linked tools such as Claude Code, Claude Desktop, and a Gateway-backed fleet tool. |
@@ -395,7 +432,9 @@ Net-new screens to design:
 ## Acceptance criteria
 
 - `docs/prd/PRD-013-connections-tools.md` references ADR-003, ADR-005, ADR-010, and ADR-014 and covers the required mockups.
-- Connections renders title, subtitle, Run health check, Add connection, Connected/Needs attention/Gateway summary cards, Gateway & models, Agent tools & MCP, Channels & services, and health cadence.
+- The capabilities evidenced by the current Connections page remain available through the focused
+  PRD-020 destinations, including health checks, connect/setup actions, freshness, Gateway,
+  provider, channel, tool, and MCP detail, without requiring one monolithic Overview.
 - Gateway status shows Active/degraded/offline/suspended/provisioning/stale states with heartbeat freshness and does not render stale status as healthy.
 - Suspended tenants can view safe connection metadata but cannot start runtime, send channels, run tool calls, apply Gateway config, or provision skills.
 - Gateway configuration changes that need admin authority create audited provisioning/platform-ops jobs and do not run from browser code or the hot-path broker token.
@@ -478,7 +517,10 @@ Net-new screens to design:
 - Locked Q3/Q4/Q4b/Q4c decisions in `docs/plan/grilling-decisions.md` for broker ACL, channel credential placement, OpenClaw capability parity, bounded contexts, and admin-only skill install.
 - `docs/plan/capability-parity.md` classifications for Settings/Connections, tools, connect wizard, provider/model status, and external channels.
 - PRD-001 for authentication, setup, organization membership, session revocation, MFA, and workspace onboarding.
-- PRD-002 for app shell, Essential shell, full/admin rail, command/search patterns, notifications, responsive state vocabulary, and settings navigation.
+- PRD-002 for shared authenticated shell infrastructure, Essential shell, command/search patterns,
+  notification plumbing, route admission, and responsive state vocabulary.
+- PRD-020 for Admin Control Center shell/navigation/Overview composition, target placement of the
+  control-plane destinations, platform/readiness health, and the separate attention feed.
 - PRD-004 for internal collaboration, Slack-grade internal chat, notifications, and Web Push behavior.
 - PRD-005 for Ask Opzava and runtime sessions that consume provider/model routing, tool policy, and channel bindings.
 - PRD-006 for AI employee roster, agent detail, automation, channel bindings, tool effective state, and assignment/workload plus run-evidence projections that deep-link to the owning `pm.Card` or DevTicket.

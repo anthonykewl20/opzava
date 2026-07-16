@@ -42,6 +42,9 @@ and its completed slice plan and Worklog are preserved as non-executable history
 - Proposal: pre-acceptance discovery.
 - Incident/ErrorGroup: separate operational aggregate, projected only.
 - Runner: execution location and receipt source, not agent identity.
+- Implementation capacity: a per-enrolled-Runner admission limit expressed as Focused, Balanced, or
+  capability-bounded Custom; never one organization-global slot.
+- Ordinary DevTicket: a Ready non-Sprint DevTicket admitted only by explicit governed claim.
 - Six lanes: Backlog, Todo, Blocked, In Progress, Review, Done.
 
 ## 2. Current as-built register
@@ -80,7 +83,7 @@ The entries below are real code or schema today. They are not the Dev Board targ
 | Current artifact                                                     | Current responsibility                                                | Migration disposition                                                                                                                                                       |
 | -------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `packages/runtime-control/src/application/task-tools.ts`             | Agent-facing Task list/create/update, including old status vocabulary | Replace with Dev Board command adapters. Remove any path that can create/update directly to Done. Preserve stored tool outcomes as execution history.                       |
-| `packages/runtime-control/src/application/tool-execution-harness.ts` | Outcome-first tool execution/idempotency harness                      | Retain as reusable runtime infrastructure if it can carry DevTicket version, actor, lease, and command provenance. It is not by itself the runner execution ledger.         |
+| `packages/runtime-control/src/application/tool-execution-harness.ts` | Outcome-first tool execution/idempotency harness                      | Retain as reusable runtime infrastructure if it can carry DevTicket version, actor, lease, preset/admission, and command provenance. It is not by itself the Runner admission controller or execution ledger. |
 | Runtime-Control assistant conversations/turns/tool outcomes          | Current Ask Admin runtime history                                     | Preserve as OpenClaw/assistant runtime history. Link to DevTicket commands by stable refs where available; do not fold raw turns into Dev Board activity.                   |
 | `apps/mcp-server/src/tools.ts`                                       | Richer current Task/Card tool surface under a separate principal      | Inventory every operation, then replace with one governed Dev Board application seam. Do not port caller-selectable human/reviewer provenance or Done capability unchanged. |
 | `apps/workers/src/link-tokens/issue-mcp-link-token.ts`               | Current MCP link-token support for issue/task work                    | Preserve auth history and evaluate as a connection adapter. It does not replace enrolled-machine keys, leases, fencing, or runner receipts.                                 |
@@ -128,6 +131,7 @@ equivalent retained behavior. Important groups include:
 | Dated docs audits and consensus reviewer outputs                                                         | Explain prior architecture and review decisions                                           | Freeze. Add a target pointer only when search results could mislead an implementer.                                                               |
 | Database migrations `0002`–`0013` listed above                                                           | Immutable schema history                                                                  | Never edit or delete; create forward migrations.                                                                                                  |
 | Prototype branch `prototype/dev-board-v1`, commits `27aa4660`, `a4ecf553`, `8ebfecf5`                    | Approved visual planning evidence for Board B, Card detail A, Sprints A                   | Freeze as throwaway visual artifacts. Do not merge prototype code as production.                                                                  |
+| Prototype branch `prototype/admin-shell-v1`, commit `0dd1bff3`                                           | Selected Admin Overview Variant A evidence for the PRD-020 control-center projection      | Freeze as throwaway visual evidence only. It may display Dev Board capacity but does not define or own admission behavior.                        |
 | Closed/delivered slice issue comments, PRs, commits, CI runs, and GitHub history                         | Durable record of the old implementation                                                  | Preserve. Link from migration audit where a record is imported or quarantined.                                                                    |
 | Vendored `docs/openclaw/**` task/Workboard docs and `mainframe/` runtime code                            | Upstream/runtime concepts, not the stale Opzava Tasks product                             | Do not rename or purge as part of Dev Board cleanup. OpenClaw Workboard remains a distinct runtime concern.                                       |
 
@@ -162,11 +166,11 @@ its Q2-to-Q7 dependency and authorization correction is reflected in the blockin
 | Issue                                                                                                           | Planning outcome                                                                                                                           | Blocked by                                     |
 | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
 | #228 — Wayfinder: Dev Board implementation delivery graph                                                       | Parent map for resolving the remaining architectural unknowns before implementation decomposition                                          | —                                              |
-| #229 — Grill and lock the independent Review Gate contract                                                      | Resolve the independent local Review contract and its evidence, approval, retry, merge, and Done boundaries                                | —                                              |
+| #229 — Grill and lock the independent Review Gate contract                                                      | Resolve independent reviewer execution, Review WIP, the exclusive shared-Docker lease, locked-SHA evidence, approval, retry, merge, and Done boundaries                     | —                                              |
 | #230 — Reconcile DevTicket commands, claims, Blocked, revisions, dependencies, and archive                      | Establish the command boundary, policy ownership, actor authorization, and enforcement seams used by every later investigation             | —                                              |
 | #231 — Reconcile GitHub bootstrap, two-way sync, delivery facts, Actions exceptions, and conflict remediation   | Resolve two-way GitHub authority, idempotency, conflict, capability health, and reconciliation against the command boundary                | #230                                           |
-| #232 — Reconcile Runner, Slack Personal Assistant, Ask Admin, and secret trust seams                            | Resolve enrolled-machine trust, runner leases/fencing, tool selection, remote coordination, and Slack authorization                        | #230                                           |
-| #233 — Reconcile Incident projections, governed interruption, strict Sprint order, and ordinary-work preemption | Resolve blocking/non-blocking discovery, Incident separation, Sprint serial autonomy, pause/recovery, and dependency ordering              | #230, #232                                     |
+| #232 — Reconcile Runner, Slack Personal Assistant, Ask Admin, and secret trust seams                            | Resolve enrolled-machine trust, Runner-advertised capacity, fenced leases, tool selection, remote coordination, reconnect, and Slack authorization                          | #230                                           |
+| #233 — Reconcile Incident projections, governed interruption, strict Sprint order, and ordinary-work preemption | Resolve Focused/Balanced/Custom admission, Sprint waiting and serial reservation, ordinary claims, governed pause/preemption, blocking discoveries, and dependency ordering | #230, #232                                     |
 | #234 — Complete the governed Docs type, planning-log, and invalidation matrix                                   | Resolve PRD/planning/research document authority, version binding, mirroring, and links to DevTickets                                      | #230, #231                                     |
 | #235 — Lock archive, retention, exceptional redaction, tombstone, and revocation behavior                       | Resolve durable history, secret/redaction boundaries, imported records, and four-ledger retention across command, GitHub, and Runner seams | #230, #231, #232                               |
 | #236 — Grill and lock the Releases Gate contract                                                                | Keep staging and live-production promotion separate from Dev Board Review and Done                                                         | —                                              |
@@ -177,6 +181,12 @@ and unpublished until the Review Gate and every planning child resolve and #237 
 independent audit. A planning issue being open does not authorize implementation work, and a future
 implementation issue is not claimable merely because its likely shape appears in PRD-019 or the
 foundation ledger.
+
+The preset state machine and capability advertisement remain owned by Runner/trust investigation
+#232 together with Sprint/admission investigation #233. Reviewer execution and the exclusive shared
+local Docker lease remain owned by Review investigation #229. The selected Admin Variant A prototype
+is projection evidence only; PRD-020 may display these states but cannot settle or own their
+implementation details.
 
 ### Superseded/quarantined Q17 issues #147–#157
 
@@ -194,7 +204,7 @@ closed as “implemented by Dev Board.”
 | #149  | Governed task/review tools                         | Quarantine. Recut around one Dev Board command seam, trusted provenance, independent Reviewer, Slack commands, and runner receipts. Do not retain Lead-Orchestrator-only Review or caller-selected human provenance.                                     |
 | #150  | Issue/Task/PR port                                 | Quarantine but salvage heavily. Recut around GitHub App two-way sync, managed body/labels/comments, PR/check facts, health, outbox, conflicts, and one repo.                                                                                             |
 | #151  | Hosted MCP and OAuth                               | Quarantine. The hosted-MCP/OAuth-server-only design is not carried forward. Its governed connectivity/control intent is being reallocated across the command, GitHub, Runner, and Slack investigations; #237 must record final ownership before closure. |
-| #152  | Dispatcher worker, push/poll                       | Quarantine. Recut ordinary explicit claims versus Sprint `autonomous_serial`, Lead Orchestrator coordination, durable outbox, leases, and runner selection.                                                                                              |
+| #152  | Dispatcher worker, push/poll                       | Quarantine. Recut around Runner-local Focused/Balanced/Custom admission, ordinary explicit claims versus Sprint `autonomous_serial`, governed pause/preemption, durable outbox, fenced leases, and runner selection.                                     |
 | #153  | Gateway-side sandboxed subagent                    | Quarantine. Recut as explicit orchestrator/cloud runner capability; never automatic failover from local. Local-only Review and Docker remain mandatory.                                                                                                  |
 | #154  | Evidence gate and Lead Orchestrator Quality Review | Quarantine pending the separate Review Gate grilling. Preserve adversarial/evidence reality goals, but replace reviewer identity and bind evidence to contract version/SHA/local Docker.                                                                 |
 | #155  | Human-only Done and merge                          | Quarantine pending Review details. Target Done occurs only after review/approval and confirmed merge into `development`; staging/production are Releases.                                                                                                |
@@ -207,7 +217,7 @@ closed as “implemented by Dev Board.”
 | ---------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | #215 — Capture the Dev Board model | **Capture bridge**   | Update with links to PRD-019, ADR-017, foundation decisions, migration manifest, and the selected prototype commits. Summarize the authority, six lanes, Review, Sprints, GitHub mirror, and runner model; then close only when dependents acknowledge the capture. |
 | #210 — Ask Admin Opzava v1 map     | **Active dependent** | Replace “consume Q17” references with “consume PRD-019/ADR-017.” Keep Ask Admin scope separate from Dev Board domain design.                                                                                                                                        |
-| #216 — delegation path             | **Active dependent** | Consume explicit runner identity, fenced lease, ordinary claim versus Sprint mode, offline pause/no automatic failover, and worklog/checkpoint ledgers. Do not inherit #152/#153 unchanged.                                                                         |
+| #216 — delegation path             | **Active dependent** | Consume explicit Runner identity, fenced per-Runner capacity, Focused/Balanced/Custom admission, ordinary claim versus serial Sprint mode, offline pause/no automatic failover, and worklog/checkpoint ledgers. Do not inherit #152/#153 unchanged.                 |
 | #218 — governed Card authority     | **Active dependent** | Use ADR-017's authority matrix, version-bound Slack confirmation, absolute stops, independent Review, and Done-after-merge. Use DevTicket/Card terms.                                                                                                               |
 | #219 — v1 skills                   | **Active dependent** | Rename task-authoring concepts to DevTicket/Ready contract/Proposal/Sprint vocabulary. Skills guide behavior; server commands enforce gates.                                                                                                                        |
 | #220 — assembled Ask Admin v1 spec | **Active dependent** | Cite the canonical Dev Board docs, not the old Q17 contract. Keep Ask Admin implementation slices separate from the future Dev Board issue decomposition.                                                                                                           |
@@ -282,6 +292,10 @@ disposition is a cutover blocker.
 - Do not treat old tool outcomes as signed local-runner receipts.
 - New entries require machine key, lease/fence, nonce, monotonic sequence, contract version,
   worktree/branch/SHA, heartbeat/checkpoint, and reconciliation semantics from ADR-017.
+- Do not infer a legacy organization-wide or Runner capacity limit from concurrent process history.
+  New admissions record the selected Runner preset, effective safe limit, Sprint/ordinary class, and
+  authorized command. Preset, pause/preemption, downgrade, and reconciliation decisions belong in
+  durable Dev Board activity/audit history and cross-link to affected Runner receipts.
 
 ### Synchronization/outbox/conflict ledger
 
@@ -299,8 +313,8 @@ disposition is a cutover blocker.
    create intent, outbox row, runtime outcome ref, route deep link, and relevant GitHub
    issue/comment. Capture a reproducible migration report before schema changes.
 3. **Add target storage and commands.** Create the dedicated Dev Board context, RLS-protected
-   schema, authority-aware commands, four ledgers, GitHub App sync, and runner protocol without
-   redirecting current routes.
+   schema, authority-aware commands, four ledgers, GitHub App sync, Runner-local admission/presets,
+   and runner protocol without redirecting current routes.
 4. **Backfill deterministically.** Preserve IDs and aliases, apply the mapping table above, attach
    source refs, and quarantine every ambiguous record. Do not silently promote Ready, assign roles,
    or bless legacy evidence.
@@ -345,6 +359,17 @@ Cutover is blocked until all of the following are true:
   command seams.
 - The deterministic Postgres/outbox, signed GitHub webhook/conflict, and runner lease/reconnect
   tests pass.
+- Runner-local admission tests pass for Focused contention, Balanced one-Sprint-plus-one-ordinary
+  and two-ordinary modes, Sprint Waiting for capacity without lease termination, Custom safe-range
+  failure, capacity downgrade without termination, and rejection of a second Active Sprint or
+  concurrent second Sprint DevTicket.
+- Review handoff tests prove an accepted checkpoint/receipt releases implementation capacity while
+  reviewer execution and Review WIP remain independent. The one exclusive shared-Docker lease
+  serializes only stack-using/mutating or locked-SHA-invalidating work, and unrelated coding
+  continues.
+- Admission, preset, governed pause/preemption, downgrade, disconnect, and reconciliation changes
+  are authorized and audited. No Overview projection or automatic local-to-cloud failover can mutate
+  this state outside the Dev Board command boundary.
 - One real authenticated browser vertical story passes on the real local Docker stack.
 - `/tasks` and `/issues` redirects resolve to the correct migrated DevTicket or explicit
   archived/quarantined explanation.
@@ -368,6 +393,9 @@ The old context is clean when:
 - current implementation maps remain truthful until code changes, then are regenerated from verified
   code;
 - four ledgers have explicit ownership, retention, and cross-links;
+- no target guidance describes one organization-global implementation slot or says ordinary work
+  must always queue behind an Active Sprint; the per-Runner preset and single serial Sprint rules
+  appear together wherever concurrency is described;
 - legacy code, routes, and tables are retired only after verified cutover; and
 - GitHub history, old worklogs, migrations, prototypes, and decisions remain accessible as
   historical evidence.

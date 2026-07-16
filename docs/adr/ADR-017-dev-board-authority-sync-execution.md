@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted — target architecture, 2026-07-15. Implementation and migration are not yet complete.
+Accepted — target architecture, 2026-07-15; Runner-capacity amendment accepted 2026-07-16.
+Implementation and migration are not yet complete.
 
 This ADR explicitly supersedes the following material **as active guidance for Opzava
 platform-development work**, while retaining it as historical evidence:
@@ -38,7 +39,7 @@ Docker verification, goal-driven Sprints, Docs, Development, and Releases views.
 `Task` to “DevTicket” would not be sufficient: the target has different identity, ownership,
 authority, lifecycle, concurrency, revision, and retention semantics.
 
-The design must prevent five forms of drift:
+The design must prevent six forms of drift:
 
 - **Identity drift:** a DevTicket must not become interchangeable with `pm.Card`, current `Task`,
   GitHub Issue, OpenClaw `workboard.Card`, or Incident/ErrorGroup.
@@ -46,6 +47,8 @@ The design must prevent five forms of drift:
   commands must not bypass Opzava gates.
 - **Execution drift:** an offline or stale runner must not continue under an expired lease or
   produce trusted receipts for changed work.
+- **Capacity drift:** Runner admission, preset changes, Sprint reservation, and Review resources
+  must not be conflated into one organization-wide slot or silently preempt admitted work.
 - **Ordering drift:** webhook delivery, runner receipts, Slack approvals, and Opzava events do not
   share a reliable global order.
 - **History drift:** planning rationale, Card activity, runtime checkpoints, and synchronization
@@ -146,6 +149,31 @@ branch, and worktree rules; it is never an implicit failover target and cannot p
 local-only Review. Runner identity and execution-assignee identity remain distinct. Each DevTicket
 execution uses its own worktree and branch.
 
+Implementation capacity is scoped to each enrolled Runner, not to the organization. Every admitted
+implementation consumes a fenced lease tied to the exact DevTicket Ready contract/version, Runner,
+worktree, branch, and SHA. Admission and settings changes pass through authorized, audited Dev Board
+commands. Use three presets:
+
+- **Focused:** one total implementation lease. Current admitted work is not killed when work
+  contends; new work queues. Starting a different item or changing priority requires the governed
+  checkpoint, pause, and preemption rules. There is no silent preemption, including for P0.
+- **Balanced (default):** two total implementation leases. With an Active Sprint, at most one is
+  reserved for its single serial Sprint DevTicket and at most one may serve an ordinary DevTicket.
+  An ordinary admission requires a Ready non-Sprint DevTicket, an explicit governed claim, no
+  unresolved dependency or exclusive-resource conflict, and its own branch/worktree. Declared scope
+  collision is a warning and coordination signal rather than a promise of disjoint files; later
+  merge conflicts are agent-remediated and revalidated.
+- **Custom:** permitted only within both Runner-advertised capability and platform-policy safe
+  bounds. Missing, stale, or invalid capability data makes Custom unavailable. With an Active
+  Sprint, at most one lease remains the serial Sprint lease and all others are ordinary.
+
+Balanced may admit up to two ordinary DevTickets while no Sprint is active. Activating a Sprint
+while both are running does not kill either lease: Sprint enters Waiting for capacity until one
+completes or a human or authorized assistant approves a governed checkpoint/pause. Once the Sprint
+is active, no second ordinary lease is admitted. A capacity downgrade never kills a lease; it blocks
+new admissions until usage is within the limit. No preset admits a second Active Sprint or lets
+Sprint automation borrow ordinary capacity for a second Sprint DevTicket.
+
 A Runner receipt is trusted only when all of the following match:
 
 - enrolled, non-revoked local machine key or explicitly admitted cloud service identity, with
@@ -177,9 +205,14 @@ must never enter GitHub, Slack, Cards, Docs, comments, worklogs, Review summarie
 URLs, or audit payloads.
 
 Review uses a configured fresh independent local Reviewer tool/model and the shared local Docker
-stack. Evidence is bound to exact Ready contract version and commit SHA. A temporary preview tunnel
-is authenticated, expiring, revocable, and bound to the runner lease and exact build. Detailed
-Review Gate internals remain a separate specification; until it exists, Done fails closed.
+stack. Moving a DevTicket to Review releases its implementation lease only after the checkpoint and
+receipt are accepted. Reviewer execution capacity and Review WIP are separate from implementation
+capacity. The shared local Docker Review stack has one exclusive fenced lease: work that uses or
+mutates the stack, or would invalidate locked-SHA evidence, queues behind it, while unrelated coding
+may continue. Evidence is bound to exact Ready contract version and commit SHA. A temporary preview
+tunnel is authenticated, expiring, revocable, and bound to the relevant Review/Runner authority and
+exact build. Detailed Review Gate internals remain a separate specification; until it exists, Done
+fails closed.
 
 Sprint is a versioned Goal and ordered DevTicket plan for `autonomous_serial` execution, not a Board
 lane. Permit many Draft Sprints, at most one Approved and Queued Sprint, and at most one Active
@@ -189,11 +222,16 @@ Needs Re-approval. Temporary health failures merely block activation and keep th
 
 Activation preflight requires all planned work Ready, external dependencies Done, GitHub healthy and
 synchronized, selected runner and Reviewer available, local Docker healthy, named secret references
-resolvable, and no absolute stop. An Active Sprint permits one implementation DevTicket In Progress.
-After that ticket enters Review, the next planned item may begin. Review WIP is limited to three; at
-the limit, implementation stops claiming and Slack notifies the Admin. Scope changes use an approved
-Plan revision. Sprint history is immutable and is mirrored to a GitHub Milestone plus tracking
-issue.
+resolvable, an available Sprint lease under the Runner preset, and no absolute stop. An Active
+Sprint permits at most one Sprint implementation DevTicket In Progress. After that ticket enters
+Review and releases its implementation lease, the next planned item may begin subject to admission.
+Review WIP is independently limited to three; at the limit, no new implementation work is claimed
+and Slack notifies the Admin, without killing leases already in progress. Scope changes use an
+approved Plan revision. Sprint history is immutable and is mirrored to a GitHub Milestone plus
+tracking issue.
+
+Admin Overview may project capacity, lease use, and waiting reasons under PRD-020, but it owns none
+of the Dev Board admission, preset, lease, Sprint, or Review state described here.
 
 Keep four separate ledgers:
 
@@ -254,10 +292,19 @@ Local autonomous work pauses when its machine disappears. This sacrifices automa
 exchange for avoiding duplicate writers, divergent worktrees, and competing leases. Recovery takes
 an explicit reconciliation step and produces a useful Slack summary.
 
+Runner-local presets admit bounded ordinary parallelism without weakening Sprint serial order.
+Balanced uses otherwise idle capacity for one ordinary DevTicket alongside the Active Sprint, or two
+ordinary DevTickets when no Sprint is active. Admission may wait during activation or a capacity
+downgrade because preserving fenced work is safer than killing it. Declared scope collisions remain
+coordination signals and merge conflicts remain agent-remediated; the architecture does not claim it
+can prove changing file sets are disjoint.
+
 Independent local Review and Docker verification make completion more expensive than moving a card.
-That cost is intentional. Until the separate Review contract is implemented, no DevTicket may reach
-Done. Done ends at merge into `development`; staging and production remain separate and cannot be
-inferred.
+That cost is intentional. Separating implementation capacity, reviewer capacity, Review WIP, and the
+one shared-Docker lease prevents unrelated coding from being serialized behind evidence collection
+while preserving SHA-bound proof. Until the separate Review contract is implemented, no DevTicket
+may reach Done. Done ends at merge into `development`; staging and production remain separate and
+cannot be inferred.
 
 Slack improves away-from-machine responsiveness but is intentionally not a general administration or
 secret channel. Expiring, version-bound nonces and secure-UI-only actions add friction where stale

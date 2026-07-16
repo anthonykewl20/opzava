@@ -2,6 +2,13 @@
 
 > **Dev Board amendment (2026-07-15):** The separate AI task-board target is superseded by PRD-019. PRD-006 continues to own `AgentEmployee`, automation, `Assignment`/`AgentDispatch` projections, roster/detail views, and execution traces. An agent may view its Dev Board assignments and deep-link to the owning DevTicket, but it does not own or maintain an independent task lifecycle.
 
+> **Admin placement amendment (2026-07-16):** AI Workforce remains authoritative for agent
+> identities, roster/detail behavior, automation definitions, assignment projections, and safe run
+> traces. PRD-020, **Admin Control Center — shell, navigation, and overview composition**, owns the
+> Admin placement of **Agents**, **Automations**, and **Sessions & Runs**. References below to the
+> old full rail describe content and migration evidence, not target route hierarchy. This PRD does
+> not create a second task or ticket lifecycle; Dev Board remains authoritative under PRD-019.
+
 ## Problem
 
 Opzava needs a coherent operating surface for managing AI employees after the assistant conversation layer exists. Users can ask Opzava for help, but admins and operators also need to see who is on the AI team, what each employee is allowed to do, which automations keep them working, where their current tasks are, how a run unfolded, and which local/runtime tools are connected.
@@ -46,7 +53,7 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 
 ## User Stories
 
-1. As an admin/full-shell user, I want an Agents page in the full rail, so that I can inspect the AI team from the operations shell.
+1. As an admin/full-shell user, I want the Agents destination placed by PRD-020 to render the AI Workforce roster owned here, so that route placement and roster semantics do not compete.
 2. As an admin/full-shell user, I want the roster header to show total assistants and department count, so that I understand fleet size quickly.
 3. As an admin/full-shell user, I want roster KPI cards for active employees, idle employees, spend today, and health, so that I can see whether the team is working normally.
 4. As an admin/full-shell user, I want agents grouped by department, so that Marketing, Support, Finance, CRM, General-VA, and lead orchestration responsibilities are scannable.
@@ -92,7 +99,7 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 44. As an admin/full-shell user, I want the Settings tab to validate all editable fields before submission, so that invalid policy cannot be provisioned.
 45. As a department lead, I want Assign task to check employee availability, department policy, tier, tools, bindings, project access, and workload before dispatch, so that assigning work cannot bypass governance.
 46. As a department lead, I want assignment failures to show normal states such as approval required, missing binding, rate limited, provisioning required, and Gateway unavailable, so that I know what to fix.
-47. As an admin/full-shell user, I want an Automation page in the full rail, so that schedules, webhooks, and triggers have one home.
+47. As an admin/full-shell user, I want the Automations destination placed by PRD-020 to render the schedules, webhooks, triggers, and runs owned here, so that automation has one semantic owner.
 48. As an admin/full-shell user, I want automation KPI cards for active automations, runs today, failures, and schedules, so that automation health is visible.
 49. As an admin/full-shell user, I want scheduled cron automations listed with name, cadence, next run, last run, and enabled status, so that recurring work is scannable.
 50. As an admin/full-shell user, I want cron cadence shown in both cron expression and human-readable form, so that technical and non-technical users can verify timing.
@@ -146,10 +153,10 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 
 | Mockup | Required UX mapping |
 | --- | --- |
-| `agents.html` | Full/admin Agents roster with full rail, top search, health/live indicator, notification and avatar controls, "Assistants" page title, "Your AI team" subtitle, Org chart and Add assistant actions, KPI cards for active/idle/spend, department sections, lead orchestrator row, department tables, assistant/role/model/status/current task/spend columns, AI attribution, active/idle/offline statuses, department summaries, roster totals, search/filter/no-match/loading/error/offline states, and deep links to agent detail. |
+| `agents.html` | Agents roster content with "Assistants" page title, "Your AI team" subtitle, Org chart and Add assistant actions, KPI cards, department sections, lead orchestrator row, tables, AI attribution, status, search/filter/async states, and detail links. The old full rail/topbar is migration evidence; PRD-020 owns the target Admin container and route placement. |
 | `agent-detail.html` | Agent detail for one `AgentEmployee` with breadcrumb back to Agents, status, department, role, model, MCP/tool posture, Pause and Assign task actions, stats for running tasks/cost/uptime/last seen, stable agent id, tabs for Overview/Activity/Tasks/Memory/Settings, current task progress, today's stats, weekly spend, recent runs, no-runs empty state, advanced configuration disclosures for model/inference/tools/channels/schedule/files/prompts, safe Export JSON behavior, toast/completion notifications, keyboard tab behavior, and no raw secret display. |
 | `task-board.html` | **Superseded target.** This historical AI task-board mockup is a migration reference only. PRD-019 owns Dev Board; agent roster/detail surfaces show assignment projections and deep links without defining another board lifecycle. |
-| `automation.html` | Full/admin Automation page with schedules, webhooks, triggers, run log entry points, New automation action, KPI cards for active automations/runs/failures/schedules, cron schedule table with name/cadence/next run/last run/status, webhook/trigger table with event-to-action, last fired, runs in 24h, status and retry action, recent runs table, footer summary, loading/empty/no-match/error/offline states, and links to standing-order/workflow/run trace detail. |
+| `automation.html` | Automations content with schedules, webhooks, triggers, run-log entry points, New automation, KPI cards, cron and trigger tables, retry behavior, recent runs, async states, and run-trace links. The old full rail/topbar is migration evidence; PRD-020 owns the target Admin container and route placement. |
 | `essential-tools.html` | Essential "Your tools" surface with Essential top bar, Home breadcrumb, Connect another action, explanatory copy, linked local tools list, status summary, rows for Claude Code/OpenCode/Codex CLI/Codex Desktop/Claude Desktop, Active/Connected/Degraded/Disconnected statuses, current activity, reconnect action, per-row menu, technical details disclosure with copy command, status legend, optimistic connect/reconnect working state, and accessible announcements. |
 | `essential-tools-empty.html` | Essential empty tool catalog with same shell, "Connect your first tool" empty state, explanation for Claude Code/Codex/OpenCode/other tools, primary Connect a tool action, one-minute setup hint, ghost preview rows, loading/error/forbidden states, and no requirement that the user know OpenClaw or MCP terminology before choosing a tool. |
 
@@ -363,7 +370,8 @@ The solution is an Opzava-owned AI operations product surface for roster, employ
 - ADR-009: Realtime transport, reconnect/backfill, assistants-in-chat bridge, Activity/notification fan-out, and Web Push consumers.
 - ADR-010: Knowledge Management source of truth, project/org corpus overlays, memory/wiki/vector indexes, source refs, and skill catalog.
 - ADR-011: CRM/channel identity and consent-sensitive customer records where channel bindings or CRM automations target customers.
-- PRD-002: App shell, Essential top bar, full/admin rail, command search, notification bell, Home/My stuff, and shell async states.
+- PRD-002: Shared authenticated shell infrastructure, Essential top bar, command search, notification plumbing, Home/My stuff, route admission, and shell async states.
+- PRD-020: Admin Control Center — shell, navigation, and overview composition; authoritative for Agents, Automations, and Sessions & Runs placement and surrounding Admin chrome.
 - Project Management surface (`pm.Card`, deferred): Projects, `pm.Card`, project tools, project schedules, project Updates, linked-work refs, and `AgentDispatch` from project work.
 - PRD-019: Dev Board, `DevTicket`, assignment/runner/reviewer roles, execution leases, Sprints, GitHub synchronization, and review gates.
 - ADR-017: Dev Board authority, deterministic GitHub sync, and local/cloud execution boundaries.

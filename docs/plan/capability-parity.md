@@ -1,17 +1,65 @@
 # Opzava Capability-Parity Map
 
-Source of truth: `docs/plan/grilling-decisions.md` locked architecture (this map classifies the
-Q1-Q12 plus Q4b/Q4c decision set and is itself the Q13 deliverable; Q14/Q15 landed later and do not
-change classifications), mockup feature surface in `ux-redesign/mockups/*.html`, and OpenClaw docs
-under `docs/openclaw`.
+Current Admin placement authority is [PRD-020](../prd/PRD-020-admin-control-center.md) plus
+[`admin-control-center-foundation-decisions.md`](admin-control-center-foundation-decisions.md).
+This map mirrors their composition boundary and maps it to current code and upstream capabilities.
+The frozen grilling, Control-UI port program, and `ux-redesign/mockups/*.html` remain historical or
+parity evidence, not current placement authority. OpenClaw capability facts remain grounded in
+`docs/openclaw`.
 
-> **Q18 note (2026-07-04):** for ADMIN gateway-ops screens this map is now superseded by the
-> authoritative port program `docs/plan/consensus/port-openclaw-control-ui-program.md` (OpenClaw
-> Control-UI views 1–14, re-implemented through the ACL). Classifications below still govern
-> user-side/product surfaces. CRM is NEVER an admin-dashboard surface (user directive 2026-07-04); its temporary admin implementation was removed 2026-07-15 under GitHub issue #200 and it returns only with the future user-side dashboard.
-> its permanent home is the user-side dashboard.
+> **Current versus target (2026-07-16):** the current shell still exposes the root Overview, Tasks,
+> Issues, Ask Admin, and Connections routes. The target Admin Control Center, sidebar, Variant A
+> Overview, dedicated setup pages, and taxonomy below are not built merely because they are mapped
+> here. CRM, Marketing, and Finance are not Admin destinations. Usage & Costs is operational
+> consumption, quota, capacity, and spend visibility—not billing, invoices, or Finance authority.
 
 > **Dev Board pivot (2026-07-15):** PRD-019/ADR-017 supersede separate Tasks and Issues product surfaces with one **Dev Board**: Summary, List, Board, Sprints, Docs, Development, and Releases. Current `/tasks` and `/issues` modules remain truthful legacy implementation inventory until migrated. OpenClaw Workboard is still deliberately not ported. See `docs/plan/dev-board-migration-manifest.md`; historical issue numbers #147–#157 are not the future implementation source.
+
+## Admin Control Center target (not built)
+
+The selected Admin Overview is **Variant A — Priority Command Center**. Its durable visual evidence
+is commit `0dd1bff305e4049d506b997330c5039485107798`, branch `prototype/admin-shell-v1`, file
+`apps/web/public/prototypes/admin-shell-v1.html`, query `?variant=A`. Fixture data is non-normative.
+The reading order is **Needs Your Attention**, **Active Delivery**, **Development Readiness**, then
+**Recent Activity**. Sprint progress may appear only as source-owned Active Delivery content, not a
+fifth Overview section. Admin Overview is distinct from Dev Board Summary and owns no business
+mutation. Navigation, refresh, and owner-command launch are allowed; the owning context reauthorizes
+every command.
+
+Admission is capability-backed. The shell is stable; the Overview is a request-scoped, sectioned
+composition of source-owned projections. `AuthorizationPort` and tenant admission run before each
+source query, with Postgres RLS where applicable and broker ACL for OpenClaw. Denied sources are not
+queried. Root or deep-link denial is a hard 403. Restricted presentation discloses no source
+existence, IDs, counts, last-known-good data, raw Gateway/OpenClaw references, credentials, or
+secrets. An unexpected downstream 403 is a security/contract failure. Only owner-classified
+browser-safe Opzava projection IDs and deep links may cross the browser boundary.
+
+Each section reports its owner, provenance, `asOf`, checkpoint/version, freshness threshold, and
+`fresh | stale | unavailable | unknown` state; partial failures remain section-local and cannot be
+summed or reported healthy. Platform health/readiness means a capability can safely operate now
+with current evidence. Attention is a separate actor-authorized queue of human actions or decisions;
+degraded health may create attention, but the two are not interchangeable.
+
+| Group | Destinations in order |
+| --- | --- |
+| Pinned | Ask Admin Opzava |
+| DEVELOP | Overview; Dev Board; Runners; Environments |
+| AI RUNTIME | Gateway; Models & Providers; Agents; Runtime Skills; Sessions & Runs; Automations |
+| OPERATE | Health; Incidents; Logs; Usage & Costs |
+| CONFIGURE | Integrations; Engineering Skills; MCP Servers; Secrets; Security & Audit; Settings |
+
+Engineering Skills are the Opzava-governed upstream-tracked/fork-derived engineering catalog;
+Runtime Skills are OpenClaw-native; the Ask Admin skill subset is an effective allowlist, not a third
+catalog; MCP Servers are policy-governed endpoints and projected tools, not skills. An upstream
+OpenClaw capability does not imply current Opzava adapter, BFF, or UI coverage: the Admin pages in
+this section, including Runtime Skills and MCP Servers, are target-only until their ports and
+projections ship. OpenClaw Nodes, OpenClaw Devices, and ADR-017 Dev Board Runners are three distinct
+identities and trust domains: Node pairing and Device pairing are distinct, and neither grants
+Runner admission, leases, worktrees, checkpoints, or Review access; Runner enrollment never grants
+Gateway operator/device scope; co-location on one machine does not merge identity, health,
+revocation, or authority. V1 Integrations and Automations are limited to platform-development and
+runtime administration; customer-channel, campaign, CRM/support, publishing, and Finance workflows
+do not re-enter through those destinations.
 
 ## Classification legend
 
@@ -20,6 +68,7 @@ under `docs/openclaw`.
 | OpenClaw-native (harness)        | OpenClaw already owns the runtime capability. Opzava should harness it through the backend-only `gateway-broker` ACL.                                      |
 | Opzava-owned (build in Postgres) | Opzava is the system of record and must build the product data model, RBAC, workflows, and UI persistence in Postgres.                                     |
 | Hybrid                           | Opzava owns the business/product record, while OpenClaw owns agent runtime, channel runtime, memory indexes, automation, logs, tasks, usage, or approvals. |
+| Composition                      | The surface assembles authorized read projections while every source retains truth, workflow, and mutation authority.                                      |
 
 ## Auth
 
@@ -36,7 +85,8 @@ under `docs/openclaw`.
 
 | Mockup screen / feature area                                                                                              | Classification                   | OpenClaw capability / RPC harnessed                                                                                                        | Owning Opzava bounded context     | Effort |
 | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------- | ------ |
-| `shell-overview.html` - main rail, global search, health pill, live state, KPI dashboard                                  | Hybrid                           | `health`, `system-presence`, `tasks.list`, `sessions.list`, `usage.cost`, `diagnostics.stability`; broker WS events projected to Postgres. | Notifications/Admin-Observability | L      |
+| Admin Control Center shell + Admin Overview (Variant A Priority Command Center; target not built)                        | Composition                      | Sectioned projections from Dev Board, runtime, Connections/Platform-Ops, Observability, and Security; each source retains authority.       | Composition only; no owning bounded context | L |
+| Current root Overview and `shell-overview.html` evidence                                                                  | Current as-built / historical evidence | Current root page/navigation remain until an approved PRD-020 slice replaces them; the mockup does not define target placement.       | web / Notifications/Admin-Observability | S |
 | `essential-home.html`, `essential-projects.html` - Basecamp-style home and project cards                                  | Opzava-owned (build in Postgres) | None for project records; agent/project snippets come from projections.                                                                    | Project Mgmt                      | M      |
 | `essential-my-stuff.html` - personal work rollup, needs-input, following, schedule                                        | Opzava-owned (build in Postgres) | Optional projected `tasks.list`/`cron.runs` for agent-owned work.                                                                          | Project Mgmt                      | M      |
 | `essential-find.html`, `nav-project-switcher.html` - command palette, project switcher, search states                     | Opzava-owned (build in Postgres) | Optional `sessions.list`, `artifacts.list`, `tools.catalog` results indexed into Opzava search.                                            | Project Mgmt                      | M      |
@@ -95,13 +145,15 @@ under `docs/openclaw`.
 | ---------------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ------ |
 | `memory-skills.html` - memory entries, skills catalog, recent artifacts            | Hybrid         | `memory_search`, `wiki_search`, `wiki_get`, OKF import, `skills.status/search/detail/install`, `artifacts.list/get`; Opzava KB and skill catalog are SoT. | Knowledge Mgmt                | L      |
 | Knowledge add/search from project docs, discovery, card evidence, marketing assets | Hybrid         | OpenClaw `memory-wiki` + `memory-lancedb` are rebuildable derived indexes; source docs remain Opzava/object-store.                                        | Knowledge Mgmt                | L      |
-| Admin-only curated skill governance                                                | Hybrid         | `skills.install`/upload requires `operator.admin` via provisioning path; runtime reads `skills.status` and `tools.catalog/effective`.                     | Knowledge Mgmt                | M      |
+| Engineering Skills governance (target; not built)                                  | Opzava-owned (build in Postgres) | Upstream-tracked/fork-derived engineering workflow catalog, provenance, compatibility, and allowed orchestrator/local-harness policy. | Knowledge Mgmt / Runtime-Control | L |
+| Runtime Skills governance (target; not built)                                      | Hybrid         | OpenClaw-native `skills.status/search/detail/install`; dedicated Opzava port/BFF/page coverage is not built.                                              | Knowledge Mgmt / Gateway Runtime | M |
+| Ask Admin skill subset (target; current `skills: []`)                              | Opzava-owned (build in Postgres) | Policy-approved subset; selecting a skill never grants tools and deny-wins effective tool policy remains authoritative.                                  | Runtime-Control / AI Workforce | M |
 
 ## Admin / Ops
 
 | Mockup screen / feature area                                                      | Classification            | OpenClaw capability / RPC harnessed                                                                                                               | Owning Opzava bounded context     | Effort |
 | --------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ------ |
-| `monitoring-health.html` - live metrics, service health, alerts, nodes, endpoints | Hybrid                    | `health`, `diagnostics.stability`, `system-presence`, `node.list/describe`, `node.pair.*`, `logs.tail`; Opzava incident read models.              | Notifications/Admin-Observability | L      |
+| `monitoring-health.html` - live metrics, service health, alerts, nodes, endpoints | Hybrid                    | `health`, `diagnostics.stability`, `system-presence`, `node.list/describe`, `node.pair.*`, `logs.tail`; OpenClaw Node/Device trust never grants Dev Board Runner authority. | Notifications/Admin-Observability | L |
 | `logs.html` - log explorer/live tail                                              | OpenClaw-native (harness) | `logs.tail` with cursor/limit/max-byte controls, redacted and projected as needed.                                                                | Notifications/Admin-Observability | M      |
 | `issues.html` - historical standalone issue/error page                            | Superseded target         | Current code remains a migration input. Incident/ErrorGroup projects into Dev Board Incidents; GitHub-backed development work lives in Dev Board. | Notifications/Admin-Observability / Dev Board | M |
 | `security-audit.html` - pending approvals, users/roles, audit trail               | Hybrid                    | Runtime gates from `exec.approval.*`, `plugin.approval.*`, `device.pair.*`; Opzava RBAC/audit is SoT.                                             | Identity&Access                   | L      |
@@ -113,8 +165,10 @@ under `docs/openclaw`.
 | Mockup screen / feature area                                                                                        | Classification | OpenClaw capability / RPC harnessed                                                                                                                                                                                                                                                       | Owning Opzava bounded context    | Effort |
 | ------------------------------------------------------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ------ |
 | `settings.html` - workspace, agents, connections, security, notifications, advanced, config, deployment    | Hybrid         | `config.get/schema/lookup`, `models.list`, `agents.list/update`, `channels.status`, `tools.catalog/effective`, `usage.status`; sensitive mutations via admin worker.                                                                                                                      | Tenant Provisioning/Platform-Ops | L      |
-| `connections.html` - gateway/models, provider auth, main-orchestrator selection, agent tools/MCP, channels/services | Hybrid         | `health`, `models.list`, `models.authStatus`, worker CLI fallback `openclaw models status`, `config.patch`, `usage.status`, `channels.status`, `web.login.start/wait`, `tools.catalog/effective`, `skills.status`, `config.schema`; sensitive writes stay behind the provisioning worker. | External Channels via ACL        | L      |
-| `essential-tools.html`, `essential-tools-empty.html` - user-visible linked tools health                             | Hybrid         | Tool health projections from `tools.catalog/effective`, MCP inventory, `channels.status`, device/node presence.                                                                                                                                                                           | External Channels via ACL        | M      |
+| `connections.html` - current setup/health surface and migration input                                                | Current as-built / migration input | Existing Gateway/model/provider/channel/device setup; PRD-020 redistributes target placement without claiming it is built.                              | External Channels via ACL | L |
+| Integrations target page (not built)                                                                               | Hybrid         | Development/platform GitHub, Admin Slack, provider, and approved external-service enrollment/health; sensitive writes remain behind secure admin paths. | Connections/Platform-Ops / Security | L |
+| MCP Servers target page (not built)                                                                                | Hybrid         | Policy-governed endpoints and projected tools for explicitly allowed orchestrator/local-harness consumers; dedicated inventory coverage is not built.    | Connections/Platform-Ops / Runtime-Control | M |
+| `essential-tools.html`, `essential-tools-empty.html` - historical linked-tools evidence                             | Hybrid         | Historical `tools.catalog/effective`, MCP, channel, and Node/Device evidence only; not target placement authority.                                       | External Channels via ACL | M |
 | `essential-connect-wizard.html` - connect Claude Code/OpenCode/Codex/Desktop via MCP or live agent                  | Hybrid         | Opzava issues its own MCP/API credential; OpenClaw side can expose `tools.catalog`, `device.pair.*`, `node.pair.*`, `sessions.*` for live-agent mode. No hardcoded secrets.                                                                                                               | External Channels via ACL        | L      |
 
 ## Onboarding
