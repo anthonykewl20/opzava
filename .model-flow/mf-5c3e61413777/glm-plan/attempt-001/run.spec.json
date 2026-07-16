@@ -1,5 +1,0 @@
-{
-  "model": "opus",
-  "objective": "Log both route and principal tenant ids server-side at both existing broker tenant-mismatch guards without changing the opaque returned error",
-  "timeout_seconds": 0
-}

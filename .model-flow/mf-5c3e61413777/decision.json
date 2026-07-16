@@ -1,5 +1,0 @@
-{
-  "decision": "codex_writer_waiver",
-  "reason": "The user explicitly instructed Codex to make the edits after the required GLM runner failed with a missing exit-code artifact.",
-  "user_instruction": "Make the edits now, then verify with the three requested Turbo commands."
-}

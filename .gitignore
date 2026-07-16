@@ -27,3 +27,6 @@ real-validate-artifacts/
 # local-dev secrets file into it, which is untracked but stageable by a `git add -A`.
 .claude/tmp/
 .claude/worktrees/
+
+# Model-flow / codex-exec runner artifacts — disposable, never committed
+.model-flow/

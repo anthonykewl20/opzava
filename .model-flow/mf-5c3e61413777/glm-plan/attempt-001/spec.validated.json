@@ -1,8 +1,0 @@
-{
-  "heartbeat_seconds": 30.0,
-  "model": "opus",
-  "objective": "Log both route and principal tenant ids server-side at both existing broker tenant-mismatch guards without changing the opaque returned error",
-  "resume_session_id": null,
-  "termination_grace_seconds": 10.0,
-  "timeout_seconds": 0.0
-}
