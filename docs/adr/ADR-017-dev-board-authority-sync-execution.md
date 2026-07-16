@@ -12,8 +12,8 @@ platform-development work**, while retaining it as historical evidence:
 - `docs/plan/consensus/tasks-ai-workforce-design.md`.
 - The Tasks-first control framing and the separate native Tasks/Issues surface assumptions in
   `docs/plan/EXECUTION.md`.
-- The platform-development Tasks/Issues portions of PRD-006, PRD-012, and PRD-013 where
-  they conflict with PRD-019.
+- The platform-development Tasks/Issues portions of PRD-006, PRD-012, and PRD-013 where they
+  conflict with PRD-019.
 - Tracker issues #147–#157 as directly executable slices. They remain open historical/quarantined
   records and require replacement or explicit many-to-many mapping before implementation.
 
@@ -33,7 +33,7 @@ task-oriented tools, and the Q17 plan treats GitHub Issue, Task, PR, execution, 
 linked pipeline.
 
 The new product direction makes Opzava the primary operating surface and GitHub the durable
-synchronized record. It adds a strict Ready contract, six guarded lanes, dependency rules,
+synchronized record. It adds a strict Ready Contract Version, six guarded lanes, dependency rules,
 independent Review, local runner enrollment, fenced execution receipts, Slack approvals, local
 Docker verification, goal-driven Sprints, Docs, Development, and Releases views. Renaming current
 `Task` to “DevTicket” would not be sufficient: the target has different identity, ownership,
@@ -57,7 +57,7 @@ The design must prevent six forms of drift:
 The system also needs usable degradation. GitHub outages must not erase cached work, but gates that
 require confirmed durable history must wait. A disconnected local machine must pause rather than
 automatically fail over to cloud execution. Secret exposure and an unhealthy or unverifiable GitHub
-integration are absolute stops, while other exceptions may become explicit Needs Human Approval
+integration are Absolute Stops, while other exceptions may become explicit Needs Human Approval
 requests.
 
 ## Decision
@@ -73,7 +73,7 @@ The authority matrix is:
 | Concern                                                                        | Authoritative owner                                    | Accepted projection or input                                                                                       |
 | ------------------------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
 | Workflow lane and transition decision                                          | Opzava Dev Board                                       | GitHub status labels, Slack actions, UI drag/drop, agent tools, and runner messages are command requests only      |
-| Ready contract and approved version/hash                                       | Opzava Dev Board                                       | Human-readable managed block mirrored to GitHub; GitHub edits become proposed revisions                            |
+| Ready Contract Version and approved version/hash                               | Opzava Dev Board                                       | Human-readable managed block mirrored to GitHub; GitHub edits become proposed revisions                            |
 | Human Owner, Execution Assignee, Lead Orchestrator, Reviewer, Runner selection | Opzava Dev Board                                       | External identities and runtime refs are validated mappings, never authority by assertion                          |
 | Dependencies and Sprint plans                                                  | Opzava Dev Board                                       | GitHub labels, Milestones, and tracking issues are synchronized projections                                        |
 | Human approvals and conflict decisions                                         | Opzava Dev Board                                       | Slack can carry bounded decisions from an authenticated Admin; GitHub cannot approve a gate directly               |
@@ -84,18 +84,18 @@ The authority matrix is:
 | Incident/ErrorGroup lifecycle                                                  | Notifications/Admin-Observability                      | Attention projection and linked remediation DevTickets in Dev Board                                                |
 
 Use six lanes: `Backlog`, `Todo`, `Blocked`, `In Progress`, `Review`, and `Done`. Backlog is shaping
-only. Todo requires an approved Ready snapshot. Claim atomically installs an Execution Assignee and
-fenced lease before In Progress. Blocked records reason, last lane, and checkpoint and returns to
-Todo after resolution. Review is mandatory and independent. Done is admitted only after the
-applicable Review and approval have passed and the exact reviewed change is merged into
-`development`. Staging and production are separate Releases concerns.
+only. Todo requires an approved Ready Contract Version and Ready Approval. Claim atomically installs
+an Execution Assignee and fenced lease before In Progress. Blocked records reason, last lane, and
+checkpoint and returns to Todo after resolution. Review is mandatory and independent. Done is
+admitted only after the applicable Review and approval have passed and the exact reviewed change is
+merged into `development`. Staging and production are separate Releases concerns.
 
-The Ready snapshot is version-bound and contains outcome, bounded scope, sad paths, edge cases,
-acceptance criteria, dependencies, user-level E2E expectations, final behavioral contract, required
-human inputs, named secret references, Human Owner, Type, Work Areas, Priority, optional Severity,
-and Change Risk. Material changes invalidate approval and any evidence tied to the old contract.
-Harmless comments and non-semantic metadata do not. Governed changes use a proposed revision with a
-field-level diff, reason, actor, and consequences.
+The Ready Contract Version is version-bound and contains outcome, bounded scope, sad paths, edge
+cases, acceptance criteria, dependencies, user-level E2E expectations, final behavioral contract,
+required human inputs, named secret references, Human Owner, Type, Work Areas, Priority, optional
+Severity, and Change Risk. Material changes invalidate approval and any evidence tied to the old
+contract. Harmless comments and non-semantic metadata do not. Governed changes use a proposed
+revision with a field-level diff, reason, actor, and consequences.
 
 Represent blocking dependencies as explicit directed edges and reject cycles. A dependent DevTicket
 cannot be claimed until every required dependency is Done. Review changes-requested returns the work
@@ -150,7 +150,7 @@ local-only Review. Runner identity and execution-assignee identity remain distin
 execution uses its own worktree and branch.
 
 Implementation capacity is scoped to each enrolled Runner, not to the organization. Every admitted
-implementation consumes a fenced lease tied to the exact DevTicket Ready contract/version, Runner,
+implementation consumes a fenced lease tied to the exact DevTicket Ready Contract Version, Runner,
 worktree, branch, and SHA. Admission and settings changes pass through authorized, audited Dev Board
 commands. Use three presets:
 
@@ -181,17 +181,20 @@ A Runner receipt is trusted only when all of the following match:
 - active lease ID plus current fencing token;
 - one-time command nonce;
 - monotonically increasing receipt sequence for that lease;
-- exact DevTicket and Ready contract version/hash;
+- exact DevTicket and Ready Contract Version/hash;
 - expected repository, worktree, branch, and commit SHA identity;
 - admitted tool/model capability and current policy.
 
 Heartbeats renew liveness but do not replace receipts. Checkpoints record last confirmed
 repository/process/Docker state and evidence refs. When a local runner disconnects or its lease
-expires, fence the lease, revoke preview access, preserve the checkpoint, mark the execution
-`Blocked — Connection Lost / Execution Unknown`, and notify the Admin through Slack with a
-continuation summary. Do not automatically fail over to a cloud runner. On reconnect, reconcile
-process, worktree, branch, SHA, dirty state, Docker, GitHub, lease, nonce, and sequence before
-permitting resume.
+expires, lock the Claim Attempt and start-delivery evidence before choosing the outcome. If it is
+still `credential_provisioning` and exact evidence proves no start outbox, accepted marker, or
+process, create/reuse **Pre-Start Admission Loss**, fence/revoke, retain resources until every
+grant/tunnel confirmation, and leave Todo without Blocked. If final activation/start enqueue won
+first, the claim is `start_pending` and ambiguity produces
+`Blocked — Connection Lost / Execution Unknown`; started execution uses the same Blocked path with
+its checkpoint preserved. Notify the Admin through Slack and never automatically fail over to a
+cloud runner. Reconnect reconciliation applies to any process-bearing branch before resume.
 
 Slack Personal Assistant is a notification and bounded approval channel. An actionable Slack
 approval is bound to authenticated Admin identity, target aggregate, exact version/hash, allowed
@@ -205,30 +208,35 @@ must never enter GitHub, Slack, Cards, Docs, comments, worklogs, Review summarie
 URLs, or audit payloads.
 
 Review uses a configured fresh independent local Reviewer tool/model and the shared local Docker
-stack. Moving a DevTicket to Review releases its implementation lease only after the checkpoint and
-receipt are accepted. Reviewer execution capacity and Review WIP are separate from implementation
-capacity. The shared local Docker Review stack has one exclusive fenced lease: work that uses or
-mutates the stack, or would invalidate locked-SHA evidence, queues behind it, while unrelated coding
-may continue. Evidence is bound to exact Ready contract version and commit SHA. A temporary preview
-tunnel is authenticated, expiring, revocable, and bound to the relevant Review/Runner authority and
-exact build. Detailed Review Gate internals remain a separate specification; until it exists, Done
-fails closed.
+stack. An accepted exact submission atomically freezes/fences the candidate, creates a prepared
+Review Handoff, moves the DevTicket to Review / Preparing Review, and increments the membership-only
+Review WIP counter. Its implementation lease, capacity, and worktree remain held until finalization
+proves no process exists or the process/worktree is stopped or quarantined and every
+lease-credential and preview-tunnel revocation is confirmed. Only after that finalization may fresh
+Reviewer authority be provisioned or launched. Reviewer execution capacity and Review WIP are
+separate from implementation capacity. The shared local Docker Review stack has one exclusive fenced
+lease: work that uses or mutates the stack, or would invalidate locked-SHA evidence, queues behind
+it, while unrelated coding may continue. Evidence is bound to exact Ready Contract Version and
+commit SHA. A temporary preview tunnel is authenticated, expiring, revocable, and bound to the
+relevant Review/Runner authority and exact build. Detailed Review Gate internals remain a separate
+specification; until it exists, Done fails closed.
 
 Sprint is a versioned Goal and ordered DevTicket plan for `autonomous_serial` execution, not a Board
 lane. Permit many Draft Sprints, at most one Approved and Queued Sprint, and at most one Active
-Sprint. Approval snapshots Goal, Plan, membership/order, each Ready contract, dependency graph,
-risk/approval state, runner/Reviewer policy, and named-secret readiness. Material changes produce
-Needs Re-approval. Temporary health failures merely block activation and keep the Sprint Queued.
+Sprint. Approval snapshots Goal, Plan, membership/order, each Ready Contract Version, dependency
+graph, risk/approval state, runner/Reviewer policy, and named-secret readiness. Material changes
+produce Needs Re-approval. Temporary health failures merely block activation and keep the Sprint
+Queued.
 
 Activation preflight requires all planned work Ready, external dependencies Done, GitHub healthy and
 synchronized, selected runner and Reviewer available, local Docker healthy, named secret references
-resolvable, an available Sprint lease under the Runner preset, and no absolute stop. An Active
+resolvable, an available Sprint lease under the Runner preset, and no Absolute Stop. An Active
 Sprint permits at most one Sprint implementation DevTicket In Progress. After that ticket enters
-Review and releases its implementation lease, the next planned item may begin subject to admission.
-Review WIP is independently limited to three; at the limit, no new implementation work is claimed
-and Slack notifies the Admin, without killing leases already in progress. Scope changes use an
-approved Plan revision. Sprint history is immutable and is mirrored to a GitHub Milestone plus
-tracking issue.
+Review / Preparing Review, the next planned item waits until the Review Handoff finalizes and
+releases its implementation lease, capacity, and worktree subject to admission. Review WIP is
+independently limited to three; at the limit, no new implementation work is claimed and Slack
+notifies the Admin, without killing leases already in progress. Scope changes use an approved Plan
+revision. Sprint history is immutable and is mirrored to a GitHub Milestone plus tracking issue.
 
 Admin Overview may project capacity, lease use, and waiting reasons under PRD-020, but it owns none
 of the Dev Board admission, preset, lease, Sprint, or Review state described here.

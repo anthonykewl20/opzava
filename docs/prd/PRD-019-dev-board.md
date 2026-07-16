@@ -255,11 +255,12 @@ implementations without losing identifiers, comments, evidence, or worklogs.
     replayed, or mismatched work is rejected.
 100. As an Opzava administrator, I want every DevTicket executed in its own branch and worktree, so
      that future parallel work has an isolation boundary.
-101. As an Opzava administrator, I want local-runner disconnection to pause work without automatic
+101. As an Opzava administrator, I want local-runner disconnection to choose Pre-Start Admission
+     Loss when no start occurred or Blocked when start is ambiguous/accepted, without automatic
      cloud failover, so that two environments cannot continue the same lease.
-102. As an Opzava administrator, I want a disconnect to preserve the last confirmed checkpoint and
-     create a Slack notification with a continuation summary, so that I can recover safely when the
-     machine returns.
+102. As an Opzava administrator, I want a disconnect to preserve exact no-start proof or the last
+     confirmed checkpoint and create a Slack continuation summary, so that recovery reflects what
+     actually ran.
 103. As a Runner, I want reconnect reconciliation of process, worktree, branch, SHA, Docker, GitHub,
      lease, and receipt sequence before resume, so that Opzava never performs a blind restart.
 104. As an Opzava administrator, I want local execution and orchestrator-delegated execution
@@ -308,8 +309,9 @@ implementations without losing identifiers, comments, evidence, or worklogs.
      that history and ordering remain accurate.
 123. As a Sprint planner, I want Active Sprint membership changes to require an approved Plan
      revision, so that agents cannot silently expand scope.
-124. As a Sprint planner, I want external dependencies Done before Sprint activation, so that
-     autonomous execution does not begin with known locks.
+124. As a Sprint planner, I want the internal ordered Plan to be dependency-compatible and every
+     external dependency Done before Sprint activation, so that autonomous serial execution cannot
+     deadlock on a later blocker or begin with a known external lock.
 125. As an Opzava administrator, I want a queued Sprint to auto-start only after Ready, GitHub,
      runner, Reviewer, Docker, dependency, and secret-reference preflight passes, so that autonomy
      begins from a verified state.
@@ -320,9 +322,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 128. As an execution agent, I want `autonomous_serial` to allow at most one Active Sprint
      implementation DevTicket In Progress, so that Sprint order remains serial even when the Runner
      has separately governed ordinary-work capacity.
-129. As an execution agent, I want an implementation lease released after its checkpoint and receipt
-     are accepted when the DevTicket enters Review, so that the next ordered Sprint item may start
-     without treating independent Review as implementation capacity.
+129. As an execution agent, I want an accepted exact submission to enter Review as a contained
+     Preparing Review member, with implementation lease, capacity, and worktree released only after
+     no-process or stopped/quarantined proof and every credential/tunnel confirmation, so that the
+     next ordered Sprint item never starts on reusable authority that may still be live.
 130. As an Opzava administrator, I want Review work in progress limited to three, so that
      implementation pauses instead of overwhelming Review.
 131. As an Opzava administrator, I want Slack notified when Review reaches its WIP limit, so that a
@@ -456,9 +459,11 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   Proposals may pause an affected Sprint and notify Slack but do not create GitHub noise before
   acceptance.
 - Use six workflow lanes: Backlog, Todo, Blocked, In Progress, Review, and Done. Backlog is
-  non-executable shaping. Todo requires a Ready snapshot. In Progress requires an active assigned
-  claim. Blocked requires a reason and prior-state/checkpoint metadata. Review is mandatory. Done
-  requires successful independent Review and merge into `development`.
+  non-executable shaping. Todo requires a complete Ready Contract Version plus its exact Ready
+  Approval. In Progress requires verified execution start for the active Claim Attempt and Execution
+  Lease, not assignment or claim creation alone. Blocked requires a reason and prior state/
+  checkpoint metadata. Review is mandatory. Done requires successful independent Review and merge
+  into `development`.
 - Resolve a Blocked execution by returning the DevTicket to Todo after the blocking condition is
   cleared. Do not silently resume a prior lease. A Todo DevTicket whose dependency is not Done
   remains visibly dependency-locked and cannot be claimed.
@@ -514,9 +519,9 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   error, and confirmation. GitHub health reports authentication, repository access, required
   read/write permissions, webhook delivery freshness, rate limit state, replay/outbox lag, and
   reconciliation status.
-- Treat suspected secret exposure and unhealthy or unverifiable GitHub integration as absolute
-  unbypassable stops for affected execution and workflow gates. Other policy exceptions become
-  version-bound Needs Human Approval requests; approval never changes the two absolute-stop classes.
+- Treat suspected secret exposure and unhealthy or unverifiable GitHub integration as unbypassable
+  Absolute Stops for affected execution and workflow gates. Other policy exceptions become
+  version-bound Needs Human Approval Requests; approval never changes the two Absolute Stop classes.
 - Automate agent-authored merge-conflict resolution in an isolated worktree, then rerun affected
   checks and independent Review. Do not give an execution agent a general-purpose ungoverned merge
   authority.
@@ -561,11 +566,14 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   never kills an admitted lease and instead blocks new admission until usage is within the new
   limit. No preset permits a second Active Sprint or lets Sprint automation use ordinary capacity
   for a second Sprint DevTicket.
-- Do not automatically fail over an offline local runner to cloud execution. Fence the lease, revoke
-  preview access, mark `Blocked — Connection Lost / Execution Unknown`, preserve the checkpoint, and
-  notify Slack with a continuation summary. On reconnect, reconcile lease, process, worktree,
-  branch, SHA, Docker, GitHub, and monotonic receipt state before a human-approved or
-  policy-admitted resume.
+- Do not automatically fail over an offline local runner to cloud execution. Lock the Claim Attempt
+  and start-delivery evidence. If it is still `credential_provisioning` and exact evidence proves no
+  start outbox/marker/process, create or reuse **Pre-Start Admission Loss**, stay Todo without
+  Blocked, fence/revoke, and hold capacity/worktree until every grant/tunnel confirmation. If final
+  activation/start enqueue won first, `start_pending` ambiguity—or started execution—produces
+  `Blocked — Connection Lost / Execution Unknown`, preserves the last trusted checkpoint, and
+  requires process/worktree reconciliation. Notify Slack with the branch-accurate continuation
+  summary.
 - Use Slack Personal Assistant as notification and bounded approval/control channel. Approvals are
   tied to the authenticated enrolled Admin, exact target/version/hash, one-time nonce, expiry,
   action, and audit record. Machine enrollment, raw secret entry, security configuration, and
@@ -574,28 +582,36 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   payloads. Cards contain named secret references and readiness/health only. Resolve values from an
   approved local keyring or vault under the active policy and lease.
 - Configure one independent local Reviewer tool and model in Admin. Review must run on the user's
-  local machine against the shared local Docker stack and an exact commit SHA. After an accepted
-  checkpoint/receipt moves a DevTicket into Review, release its implementation lease; Reviewer
-  execution capacity and Review WIP are separate. The shared local Docker Review stack has one
-  exclusive fenced lease. Queue only work that uses or mutates that stack, or would invalidate its
-  locked-SHA evidence; unrelated coding may continue. Review evidence belongs on the Card and stays
-  SHA-bound; Slack carries only notification and bounded decisions.
+  local machine against the shared local Docker stack and an exact commit SHA. An accepted exact
+  checkpoint/receipt moves a DevTicket into Review / Preparing Review and increments membership-only
+  Review WIP, but retains its implementation lease, capacity, and worktree until no-process or
+  stopped/quarantined proof and every lease-credential/tunnel revocation confirmation finalize the
+  Review Handoff. Only then may fresh Reviewer provisioning or launch begin. Reviewer execution
+  capacity and Review WIP are separate. The shared local Docker Review stack has one exclusive
+  fenced lease. Queue only work that uses or mutates that stack, or would invalidate its locked-SHA
+  evidence; unrelated coding may continue. Review evidence belongs on the Card and stays SHA-bound;
+  Slack carries only notification and bounded decisions.
 - Permit an authenticated, expiring, revocable preview tunnel to the local Docker stack. Bind it to
   Admin identity, DevTicket, Review, runner lease, exact build/SHA, and expiry. Revoke it on
-  disconnect, lease loss, expiry, security stop, or explicit close.
+  disconnect, lease loss, expiry, Absolute Stop, or explicit close.
 - Define Sprint as a Goal plus versioned ordered plan for `autonomous_serial` execution, not a lane
   or a label applied to all work. Allow many Draft Sprints, at most one Approved and Queued Sprint,
   and at most one Active Sprint.
 - Bind Sprint approval to Goal version, Plan version, ordered membership, each Ready contract
   version/hash, dependency graph, risk/approval state, runner and Reviewer policy, and named-secret
-  readiness. Material changes produce Needs Re-approval. Temporary liveness or integration health
-  failures leave it Queued and block preflight.
+  readiness. Under exact graph/Plan/member versions, reject any order where an earlier member
+  directly or transitively depends on a later member; the ordered Plan must be a topological order
+  of its internal dependency subgraph. Material changes produce Needs Re-approval. Temporary
+  liveness or integration health failures leave it Queued and block preflight.
 - Require activation preflight: approved Goal and Plan, every member Ready, external dependencies
-  Done, GitHub healthy and synchronized, chosen runner and Reviewer available, local Docker healthy,
-  required named secret references resolvable, and no security stop.
+  Done, dependency-compatible internal order revalidated under the exact current graph/Plan
+  versions, GitHub healthy and synchronized, chosen runner and Reviewer available, local Docker
+  healthy, required named secret references resolvable, and no Absolute Stop.
 - Permit exactly one Sprint implementation DevTicket In Progress in an Active Sprint. When its
-  accepted checkpoint/receipt moves it to Review, release that implementation lease and allow the
-  next ordered Todo item subject to the Runner preset and admission policy. Ordinary leases never
+  accepted exact checkpoint/receipt moves it to Review / Preparing Review, count it in Review WIP
+  but retain implementation lease, capacity, and worktree until the Review Handoff finalizes from
+  verified containment and every credential/tunnel confirmation. Only then may the next ordered Todo
+  item be admitted subject to the Runner preset and admission policy. Ordinary leases never
   authorize a second Sprint DevTicket. Limit concurrent Review to three; when full, stop all new
   implementation claims and notify Slack without killing already admitted leases.
 - Require an approved Plan revision for Active Sprint add, remove, defer, reorder, or material
@@ -687,8 +703,9 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Test Sprint plan and execution behavior through commands: one Active, one Approved/Queued, many
   Drafts, single non-archived membership, Plan revisions, queued preflight, health drift versus
   material invalidation, exactly one serial Sprint implementation, Review WIP three, blocking
-  Proposal, non-blocking Proposal, dependency ordering, pause, cancellation, abortion, completion,
-  and immutable history.
+  Proposal, non-blocking Proposal, direct and transitive dependency ordering (including rejection of
+  an earlier member that depends on a later member), pause, cancellation, abortion, completion, and
+  immutable history.
 - Test Runner-local capacity and preset transitions deterministically. Cover Focused contention and
   governed preemption; Balanced with one Sprint plus one ordinary lease; Balanced with two ordinary
   leases and no Sprint; Sprint activation waiting behind two existing ordinary leases; rejection of
@@ -699,11 +716,35 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   dependencies, exclusive-resource conflicts, separate branch/worktree, visible declared-scope
   collision warning, agent-remediated merge conflict, and rerun checks/Review. Assert no preset can
   admit a second Active Sprint or a second concurrent Sprint DevTicket.
-- Test implementation-to-Review handoff separately from reviewer capacity: accepted
-  checkpoint/receipt releases the implementation lease, Review WIP remains three, evidence stays
+- Test material Revision while Todo credential provisioning is pending as live containment: fence
+  the claim/lease, revoke pending or active credential/tunnel authority, retain capacity/worktree,
+  and delay Backlog apply until no-process or stopped/quarantined proof plus every confirmation.
+  Verify only a zero-grant Todo with no live claim/grant/tunnel uses the idle atomic path.
+  Separately test disconnect/key/lease loss while still provisioning: prove no start was enqueued,
+  remain Todo with a visible failed request and no Blocked Episode, hold resources until every
+  confirmation, and race the same locks against final activation/start enqueue.
+- Test Review Handoff separately from reviewer capacity: accepted exact checkpoint/receipt
+  atomically freezes/fences the candidate, enters Review / Preparing Review, and increments
+  membership-only WIP; implementation lease, capacity, and worktree remain held until no-process or
+  stopped/quarantined proof and every credential/tunnel confirmation finalizes the Review Handoff.
+  Assert reviewer provisioning/launch occurs only after finalization, evidence stays
   contract/SHA-bound, and the shared local Docker Review lease serializes only stack-mutating,
   stack-using, or locked-SHA-invalidating work while unrelated coding continues. At Review WIP
-  three, assert new implementation claims stop without terminating already admitted leases.
+  three, assert new implementation claims stop without terminating already admitted leases. Cover
+  prepared-candidate rebinding after a proven non-semantic correction, cancellation versus material
+  Revision/execution-loss terminal races, immutable finalized history, and archive rejection for
+  every Review member without WIP leakage. A material Revision after handoff finalization must keep
+  finalized history immutable, require the exact #229-authenticated **Review Containment Proof** for
+  stale Reviewer/Docker/tunnel/evidence authority, and then exit Review/decrement WIP/apply without
+  stranding the interruption. Assert changes-requested and Done reject while that interruption is
+  pending; if a verdict wins first, a later Revision re-evaluates from Todo or Done. An Absolute
+  Stop affecting a finalized Review Handoff must preserve the handoff/Review WIP and require that
+  same #229-owned proof over the distinct Reviewer process/lease, shared Docker session/lease,
+  preview tunnel, and evidence authority before stop resolution. Normal changes-requested and Done
+  must consume a distinct #229-authenticated Review Exit Containment Proof for the exact run/result/
+  candidate and every Reviewer process/lease, shared Docker lease/session, test grant/tunnel, and
+  artifact/evidence writer before Review exit and WIP decrement. PR/base-branch facts begin at #229
+  reviewer launch, never at #230 Review admission.
 - Test authorized/audited admission and settings changes plus disconnect fencing and reconciliation;
   assert no automatic local-to-cloud failover and no silent preemption. Verify the PRD-020 Admin
   Overview projection cannot mutate admission state outside the Dev Board command boundary.
@@ -720,7 +761,7 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Test archival, retention, and exceptional redaction behavior: archive/restore, immutable
   relied-upon evidence, raw-log expiry, GitHub coordinated redaction, and preserved non-sensitive
   tombstone.
-- Test the two absolute stops separately from ordinary Needs Human Approval. Secret-exposure and
+- Test the two Absolute Stops separately from ordinary Needs Human Approval. Secret-exposure and
   unverifiable-GitHub states must reject bypass attempts through UI, Slack, GitHub labels, agent
   tools, runner receipts, and direct command APIs.
 
@@ -738,8 +779,9 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Full Releases promotion mechanics, staging and production deployment policy, rollback
   implementation, release-candidate composition rules, and production approval matrix. These require
   a separate grilling and specification.
-- Automatic cloud failover from a disconnected local runner. The active lease pauses and reconciles
-  before resume.
+- Automatic cloud failover from a disconnected local runner. Pre-Start Admission Loss finalizes
+  confirmation-gated no-start containment; a process-bearing lease pauses and reconciles before
+  resume.
 - A second Active Sprint or parallel implementation of two DevTickets from the Active Sprint. Runner
   presets govern ordinary-work concurrency but never weaken `autonomous_serial` Sprint order.
 - Raw secret storage or display in Dev Board, Slack, GitHub, Docs, comments, worklogs, evidence,

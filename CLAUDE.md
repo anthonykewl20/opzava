@@ -27,6 +27,10 @@ Two focused sprints own current work. Everything else is shared foundation or fr
   Record progress in that issue; Dev Board migration work also updates the migration manifest.
 - Q17 and GitHub issues #147–#157 are superseded/quarantined historical evidence — never an
   executable brief. Replacement tickets require explicit human approval before publishing.
+- A resolved Wayfinder memo remains current only when an active map or migration manifest explicitly
+  designates it **current input** until a named synthesis consumes it. A link alone never revives a
+  memo, and an explicit frozen/consumed disposition always wins. For example,
+  `docs/plan/research/wf230-devticket-command-model.md` is designated current #228 input until #237.
 - `docs/plan/EXECUTION.md`, `docs/plan/grilling-decisions.md`, and the remaining
   `docs/plan/consensus/` + `docs/plan/audits/` are frozen historical evidence: don't rewrite them
   or read them as current instructions. (The out-of-scope CRM/billing/marketing consensus records
@@ -46,7 +50,10 @@ Two focused sprints own current work. Everything else is shared foundation or fr
 - `docs/plan/capability-parity.md`: screen ownership and parity map.
 - `docs/plan/grilling-decisions.md`: frozen design record Q1-Q18 plus the locked Dev Board pivot.
 - `docs/plan/consensus/`: frozen evidence, not current truth.
-- `docs/plan/research/`: research notes; the `wf*-ask-admin-*` and `slice2-ask-admin-*` files are current Ask Admin v1 spec inputs, the rest is frozen evidence.
+- `docs/plan/research/`: a resolved memo is current only when an active Wayfinder map/manifest
+  explicitly designates it **current input** until named synthesis (including current Ask Admin
+  inputs and #228's `wf230-devticket-command-model.md` until #237). Linkage alone is insufficient;
+  unrelated, consumed, or explicitly frozen memos remain frozen evidence.
 - `docs/plan/audits/`, `docs/runbooks/`: audits and ops runbooks.
 - `docs/openclaw/`: vendored OpenClaw docs; design to these.
 - `docs/ux-law/`, `ux-redesign/mockups/`: UX reference library and canonical mockups/tokens.
