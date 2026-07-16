@@ -562,9 +562,9 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   with no binding.
 - Keep App registration IDs and private-key/client-secret/webhook-secret refs, ref versions, and
   rotation state as platform-owned configuration behind provisioning/security-service policy and
-  audit, never tenant RLS data or a browser projection. Tenant-scoped Installation/Repository
-  Bindings and receipts retain only an opaque public App configuration/rotation version; they never
-  expose a platform vault ref, secret-ref version, or secret value.
+  audit, never tenant RLS data or a browser projection. Tenant-scoped GitHub Installation Binding,
+  GitHub Repository Binding, and receipt records retain only an opaque public App configuration/
+  rotation version; they never expose a platform vault ref, secret-ref version, or secret value.
 - Admit webhooks in one security order: bound raw bytes, verify the exact-body HMAC, read
   `X-GitHub-Event` only as an untrusted bounded schema hint, then strictly parse the corresponding
   non-persisting signed payload envelope: installation ID only for `installation`/
@@ -620,10 +620,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   snapshot, expected outbox state, and three-way authority validation; never invent an actor or
   event.
 - Give every Issue create intent one immutable public-safe `create` UUID and retain it in every
-  managed-body render/parser, Mirror Shadow, and pending/confirmed Issue Binding. Keep delivery
-  `event` UUIDs separate and mutable; they can never recover create identity. Unknown create outcome
-  recovery requires the immutable create UUID plus expected App/installation/request facts, even
-  after later body/contract renders.
+  managed-body render/parser, Mirror Shadow, and pending/confirmed GitHub Issue Binding. Keep
+  delivery `event` UUIDs separate and mutable; they can never recover create identity. Unknown
+  create outcome recovery requires the immutable create UUID plus expected App/installation/request
+  facts, even after later body/contract renders.
 - Give a linked-existing Issue `origin=link`, `create=none`, and one immutable public-safe link UUID
   retained through every render/parser/shadow/binding. A link never fabricates App-create
   provenance, and no later body event may convert origin or replace either correlation identity.
@@ -682,9 +682,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   authentication. Atomically reserve unique issuer/token ID, scoped nonce, canonical request hash,
   and the corresponding ordinary command receipt so concurrent replay cannot produce a second or
   partial semantic request. Enforce the exhaustive `wf230` v1 Actions source policy: append native
-  provider facts, request field-code-only `ready.validate`, or open an eligible Needs Human Approval
-  Request. Reject generic governed commands and deployment/release mutations unless their owning
-  domain and `wf230` explicitly add a versioned policy row; adapter configuration cannot widen it.
+  provider facts (including deployment facts as observations), request field-code-only
+  `ready.validate`, or open an eligible Needs Human Approval Request. Reject generic governed
+  commands and deployment/rollback/release mutations unless their owning domain and `wf230`
+  explicitly add a versioned policy row; adapter configuration cannot widen it.
 - Implement `DisconnectGitHub` as one idempotent saga per exact binding generation. Fence token mint
   and outbound claims, drain or retain unknown effects, and record provider uninstall/revocation/
   expiry separately from local cleanup. Lost provider responses remain `provider_outcome_unknown`;
@@ -901,9 +902,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Prove setup cannot bind another user's valid installation, Backlog mirror text cannot claim Ready
   without the exact approval, an Actions OIDC token/request cannot replay or cross repository/
   workflow/run/SHA, and a malicious Runner cannot obtain the write token or push any ref outside one
-  authorized old/new-SHA broker operation. Also prove Actions provider-fact, field-code-only
-  `ready.validate`, and eligible Needs Human Approval families work while a generic command or
-  deployment/release request leaves zero integration/command receipt or domain mutation.
+  authorized old/new-SHA broker operation. Also prove Actions provider-fact append (including
+  deployment observations), field-code-only `ready.validate`, and eligible Needs Human Approval
+  Request families work while a generic governed command or deployment/rollback/release request
+  leaves zero integration/command receipt or domain mutation.
 - Through the real local-Docker secure UI and the fixed scratch GitHub App, complete install with
   expiring user tokens, inject a lost user/refresh-token revocation response, and prove no binding
   or local zeroing occurs until GitHub confirms revocation/expiry. Inspect tenant HTTP/DB/browser

@@ -18,11 +18,12 @@ implementation authority or product code.
    dimensional integration health. It is a module inside the Dev Board bounded context, not a new
    bounded context or a second workflow authority.
 3. Dev Board remains the sole workflow authority. A verified App webhook may request only the
-   `wf230` App-source families; a GitHub Action may only append native provider facts, request
-   field-code-only `ready.validate`, or open an eligible Needs Human Approval Request. Every other
-   governed/deployment/release Action family rejects absent an explicit versioned owner plus `wf230`
-   policy change. No webhook, worker, label, Action, adapter response, or provider fact mutates
-   lane, Ready, assignment, dependency, Sprint, approval, Review, Release, or Done state directly.
+   `wf230` App-source families; a GitHub Action may only append native provider facts, including
+   deployment facts as observations, request field-code-only `ready.validate`, or open an eligible
+   Needs Human Approval Request. Generic governed commands and deployment/rollback/release mutations
+   reject absent an explicit versioned owner plus `wf230` policy change. No webhook, worker, label,
+   Action, adapter response, or provider fact mutates lane, Ready, assignment, dependency, Sprint,
+   approval, Review, Release, or Done state directly.
 4. GitHub owns its native repository, Issue, comment, PR, provider branch/ref/SHA, commit, check,
    repository-review, and merge identities and facts. Opzava owns the current immutable work
    contract, its explicit draft or Ready-approved state, and all workflow decisions. Shared
@@ -138,7 +139,7 @@ Provider constraints with architectural consequences:
 | Tests prove RLS and close-worker races but not two-way provider behavior                                      | `packages/project-management/src/__tests__/slice25e-issues.integration.test.ts`; `packages/adapters/src/github/__tests__/issues.test.ts`; `tests/e2e/drives/connections-github.mjs` | Preserve as migration regression evidence; add the real seams below.                                                                                                      |
 
 The configured repository constructor value is not presently enforced by every adapter call. The new
-adapter accepts only an already-admitted Repository Binding; it never accepts an arbitrary
+adapter accepts only an already-admitted GitHub Repository Binding; it never accepts an arbitrary
 owner/name from a browser, agent, webhook field, or job payload.
 
 ## Ownership, modules, and durable records
@@ -194,7 +195,7 @@ facts, source hashes, observed/recorded times, and evidence refs.
 | Reconciliation Epoch           | scope, cursor/pages, claimed generation/token, start/end snapshot, completeness, gaps, convergence result                                                                                                                                                                                                                                        | sync                     |
 | Sync Conflict                  | exact field/scope/base/Opzava/provider versions and safe values/refs; blocking class; monotonic conflict version; `open`, `decision_required`, `resolution_pending_mirror`, or `resolved`; resolution command/hash/ref and confirmation                                                                                                          | sync/conflict            |
 | Integration Health Snapshot    | dimension statuses, evidence, scope, evaluated policy version, last-good ref, reconciliation proof                                                                                                                                                                                                                                               | sync/health              |
-| Actions Request Receipt        | unique `(issuer, jti)` and workspace/repository/command-family/nonce; audience/subject; workflow refs/SHAs; run/attempt/actor/event/ref/requested SHA; canonical request hash; disposition and atomically reserved command receipt ref                                                                                                           | sync/activity            |
+| Actions Request Receipt        | unique `(issuer, jti)` and workspace/repository/family/nonce; audience/subject; workflow refs/SHAs; run/attempt/actor/event/ref/requested SHA; applicable native deployment-observation identity; canonical request hash; disposition and atomically reserved command receipt ref                                                                | sync/activity            |
 | Authorized Git Ref Update      | exact #232 lease/purpose/ref/old/new SHA/bundle hash/nonce/expiry; broker claim/fence; provider attempt and confirmation; never token value                                                                                                                                                                                                      | runner/sync              |
 | GitHub Disconnect Saga         | unique binding generation + idempotency key/request hash; outbound fence/drain; provider uninstall/revocation/expiry state including `provider_outcome_unknown` or `revocation_required`; local cleanup; terminal disposition; reconnect generation                                                                                              | sync/health/config       |
 
@@ -321,10 +322,10 @@ capability unhealthy; it is not silently dropped.
 7. Under the pending-install and repository-binding locks, after token cleanup is provider-confirmed
    and locally zeroed, the same transaction revalidates the initiating Admin's live session,
    unchanged identity, current tenant membership, and current integration-admin authorization/policy
-   version. It then confirms one Installation Binding and the one production Repository Binding,
-   records health `reconciling`, and consumes state. A demotion, revocation, session expiry, tenant
-   switch, or policy denial rejects finalization with no binding and expires/denies the pending
-   proof safely.
+   version. It then confirms one GitHub Installation Binding and the one production GitHub
+   Repository Binding, records health `reconciling`, and consumes state. A demotion, revocation,
+   session expiry, tenant switch, or policy denial rejects finalization with no binding and
+   expires/denies the pending proof safely.
 8. A complete first reconciliation and managed-label capability probe must pass before health may
    become `healthy` or any Ready/provider-dependent gate may open.
 
@@ -344,11 +345,11 @@ closed. It never tenant-binds the claimed installation.
   evaluated exactly, not against desired configuration;
 - unsuspend/reinstall never restores health by itself: mint/probe and full reconciliation must pass;
 - `DisconnectGitHub` is a durable saga, not a local delete. The first authorized request locks the
-  exact Installation/Repository Binding generation and atomically records one
-  `GitHub Disconnect Saga` keyed by caller idempotency key plus canonical request hash, marks the
-  binding `disconnecting`, advances its outbound fence, rejects new token mint/claims, and drains
-  each claimed outbox effect to confirmed, conflict-bound, or retained `outcome_unknown`. Same-key/
-  same-hash retries return that saga; hash mismatch rejects with zero second saga.
+  exact generation of the GitHub Installation Binding and GitHub Repository Binding and atomically
+  records one `GitHub Disconnect Saga` keyed by caller idempotency key plus canonical request hash,
+  marks the binding `disconnecting`, advances its outbound fence, rejects new token mint/claims, and
+  drains each claimed outbox effect to confirmed, conflict-bound, or retained `outcome_unknown`.
+  Same-key/ same-hash retries return that saga; hash mismatch rejects with zero second saga.
 - The saga chooses the exact provider action from credential ownership and current policy: uninstall
   the dedicated App installation or revoke the legacy OAuth/PAT authorization when Opzava has
   verified authority; otherwise enter `revocation_required` and show one secure-UI provider action.
@@ -449,16 +450,16 @@ deliveries and manual redelivery is time-bounded, a gap always schedules snapsho
 
 ### Create
 
-1. The stable create intent carries DevTicket ID, Repository Binding ID, contract version/hash,
-   renderer version, canonical request hash, and one unguessable public-safe immutable
+1. The stable create intent carries DevTicket ID, GitHub Repository Binding ID, contract
+   version/hash, renderer version, canonical request hash, and one unguessable public-safe immutable
    `create_correlation_id` UUID. It is allocated once per logical create intent, retained unchanged
    across that intent's numbered transport attempts, and never reused by another DevTicket or
    logical create intent.
 2. The canonical Issue body includes `origin=create create=<create_correlation_id> link=none` inside
    the managed marker. Every later renderer/parser, Mirror Shadow, and pending or confirmed GitHub
-   Issue Binding retains that exact origin/value; an outbox `event` identifies a mutable delivery
-   attempt and can never replace or recover create identity. The outbox claim is fenced by claim
-   token/generation and checks current binding/health before each attempt.
+   GitHub Issue Binding retains that exact origin/value; an outbox `event` identifies a mutable
+   delivery attempt and can never replace or recover create identity. The outbox claim is fenced by
+   claim token/generation and checks current binding/health before each attempt.
 3. A definitive provider rejection records its normalized category. A retryable pre-send failure may
    back off. A timeout, connection loss after send, malformed success, or crash before provider
    confirmation enters `outcome_unknown`; it does **not** call create again.
@@ -495,11 +496,11 @@ A fresh complete provider observation supplies immutable repository and Issue id
 observation version/hash. The stable link intent allocates one public-safe immutable
 `link_correlation_id`, records `origin=link`, and never claims that Opzava created the provider
 Issue. The canonical body uses `origin=link create=none link=<link_correlation_id>`; every later
-renderer/parser, Mirror Shadow, and Issue Binding retains that exact origin/value. The Dev Board
-command locks the unique binding key. Caller-provided URL or number, text marker, or search result
-alone is never proof. If health/observation becomes stale before commit, the link rejects and must
-be re-observed; acceptance is not partially preserved through an unverified external link. A later
-body event cannot convert linked provenance to created provenance or fabricate a create UUID.
+renderer/parser, Mirror Shadow, and GitHub Issue Binding retains that exact origin/value. The Dev
+Board command locks the unique binding key. Caller-provided URL or number, text marker, or search
+result alone is never proof. If health/observation becomes stale before commit, the link rejects and
+must be re-observed; acceptance is not partially preserved through an unverified external link. A
+later body event cannot convert linked provenance to created provenance or fabricate a create UUID.
 
 ### Other uncertain mutations
 
@@ -545,10 +546,10 @@ state, and exact Ready Approval ID or `none`, not provider line endings. A Backl
 explicit missing fields and `Draft · Not Ready approved`; only the exact current Ready Approval may
 render `Ready approved`. Mirror confirmation never implies Ready or approval. The immutable origin
 and exactly one correlation are copied unchanged into every subsequent render, parser result, Mirror
-Shadow, and Issue Binding: `origin=create` requires `create=<uuid> link=none`, while `origin=link`
-requires `create=none link=<uuid>`. Changing, dropping, combining, or converting those fields is an
-identity conflict. The outbox `event` UUID is only a delivery correlation and may change between
-writes. It is neither create/link identity nor authority. The parser returns one of
+Shadow, and GitHub Issue Binding: `origin=create` requires `create=<uuid> link=none`, while
+`origin=link` requires `create=none link=<uuid>`. Changing, dropping, combining, or converting those
+fields is an identity conflict. The outbox `event` UUID is only a delivery correlation and may
+change between writes. It is neither create/link identity nor authority. The parser returns one of
 `valid_expected`, `valid_changed`, `missing`, `duplicate`, `malformed`, `moved`, `trailing_content`,
 `identity_mismatch`, or `renderer_unsupported`.
 
@@ -770,12 +771,13 @@ the Opzava form; an App, Action, Runner, agent recommendation, webhook, or outbo
 authorize it.
 
 Its trusted command envelope and canonical request hash bind the unknown-effect ID and version;
-effect kind; original stable intent, immutable correlation and safe request hash; exact App,
-Installation/Repository Binding and DevTicket; every complete observation epoch shown to the human,
-including time range and canonical membership fingerprints; current binding/shadow/health and
-reconciliation versions; the choice `keep_waiting`, `abandon_publication`, or
-`authorize_numbered_reattempt`; the explicit delayed-visibility/duplicate-risk acknowledgement for a
-reattempt; actor/session/authorization/policy versions; one-use approval nonce; and idempotency key.
+effect kind; original stable intent, immutable correlation and safe request hash; exact App, GitHub
+Installation Binding, GitHub Repository Binding, and DevTicket; every complete observation epoch
+shown to the human, including time range and canonical membership fingerprints; current
+binding/shadow/health and reconciliation versions; the choice `keep_waiting`, `abandon_publication`,
+or `authorize_numbered_reattempt`; the explicit delayed-visibility/duplicate-risk acknowledgement
+for a reattempt; actor/session/authorization/policy versions; one-use approval nonce; and
+idempotency key.
 
 The command locks the unknown effect, intent, binding, current observations, outbox, and receipt in
 canonical order. It rejects with zero writes if an exact candidate now exists, any version or hash
@@ -804,7 +806,8 @@ authorize it.
 The trusted command envelope and canonical request hash bind:
 
 - Sync Conflict ID and expected monotonic conflict version;
-- DevTicket, Installation/Repository/Issue Binding, and field key;
+- DevTicket, GitHub Installation Binding, GitHub Repository Binding, GitHub Issue Binding, and field
+  key;
 - exact base Mirror Shadow ID/digest and Opzava version/event;
 - exact current authoritative Opzava aggregate/contract/value version and safe digest;
 - one complete fresh Provider Observation ID/epoch, provider object/update observation, and safe
@@ -856,7 +859,7 @@ contract.
 
 A development fact binds only through:
 
-- immutable Repository Binding and provider PR/resource IDs;
+- immutable GitHub Repository Binding and provider PR/resource IDs;
 - the Opzava-owned Execution Lease and governed branch/purpose binding correlated to authenticated
   Runner worktree/local-branch observations;
 - exact base repository/ref/SHA, head repository/ref/SHA, locked candidate SHA, and merge-tree/merge
@@ -894,9 +897,10 @@ Actions-originated command uses one explicit OIDC request protocol:
    Actions endpoint. No long-lived Opzava secret is stored in GitHub.
 2. Before reserving any command receipt, Opzava verifies JWT algorithm/key against GitHub's current
    OIDC discovery/JWKS, exact issuer/audience/subject, time bounds and single-use `jti`; immutable
-   Repository Binding ID; `ref`, head/base/SHA where applicable; `workflow_ref`, `workflow_sha`,
-   optional allowlisted `job_workflow_ref`/`job_workflow_sha`; `run_id`, `run_attempt`, `actor_id`,
-   event/environment policy; and current provider facts for that run/job/check/SHA.
+   GitHub Repository Binding ID; `ref`, head/base/SHA where applicable; `workflow_ref`,
+   `workflow_sha`, optional allowlisted `job_workflow_ref`/`job_workflow_sha`; `run_id`,
+   `run_attempt`, `actor_id`, event/environment policy; and current provider facts for that
+   run/job/check/SHA.
 3. The canonical request binds DevTicket, one of the exhaustive `wf230` GitHub Actions source-policy
    families, expected aggregate/contract/policy versions, safe payload hash, one-use nonce, and
    those exact OIDC/run claims. In one transaction, Opzava locks/reserves a unique `(issuer, jti)`
@@ -912,17 +916,17 @@ are insufficient correlation.
 
 Actions may:
 
-- report native check/workflow/status facts;
+- report native check/workflow/status/deployment facts as append-only observations;
 - request `ready.validate` with only the field-code-safe result allowed by `wf230`;
 - request an eligible Needs Human Approval Request tied to exact target/version/hash/policy/nonce.
 
 Actions may not approve its own request, claim a human identity, directly change a DevTicket, bypass
 either Absolute Stop, turn a GitHub close/green check into Done, grant merge authority, request a
-generic governed command, or request a deployment/release mutation. The exhaustive v1 source policy
-is provider-fact append, `ready.validate`, and eligible Needs Human Approval Request only. Any wider
-command family requires an explicit versioned change by that command's owning domain plus a matching
-`wf230` source-policy amendment; adapter configuration alone cannot widen it. The UI label for an
-eligible blocked request is `Needs Human Approval`, never “policy bypassed.”
+generic governed command, or request a deployment/rollback/release mutation. The exhaustive v1
+source policy is provider-fact append, `ready.validate`, and eligible Needs Human Approval Request
+only. Any wider command family requires an explicit versioned change by that command's owning domain
+plus a matching `wf230` source-policy amendment; adapter configuration alone cannot widen it. The UI
+label for an eligible blocked request is `Needs Human Approval`, never “policy bypassed.”
 
 ## Automated merge-conflict remediation
 
@@ -1126,9 +1130,10 @@ deterministic raw fixtures signed with test secret versions—not mocked verific
   configuration key/rotation version and never carries a platform App registration ID, vault ref,
   secret-ref identity, or secret-ref version;
 - concurrent OIDC `(issuer,jti)`/nonce reuse with same and different request hashes, proving the
-  Actions receipt and `wf230` command receipt commit atomically or not at all; prove provider-fact,
-  `ready.validate`, and eligible Needs Human Approval families are admitted while generic governed
-  commands and deployment/release mutations create zero receipts/effects;
+  Actions receipt and `wf230` command receipt commit atomically or not at all; prove provider-fact
+  append (including native deployment observations), `ready.validate`, and eligible Needs Human
+  Approval Request families are admitted while generic governed commands and deployment/rollback/
+  release mutations create zero receipts/effects;
 - concurrent/replayed `DisconnectGitHub` same/different-hash requests, outbound claims racing the
   fence, provider-response loss, `revocation_required`, stale finalizers, and reconnect attempts,
   proving one saga, no post-fence token mint/outbox claim, no local-cleanup success before provider
@@ -1194,8 +1199,8 @@ second production repository. Drive real API mutations and actual signed deliver
 - PR binding, force-push/base/head drift, checks/statuses/Actions facts, mergeability
   unknown/conflict, governed merge confirmation, early/external merge, and OIDC request issuer/
   audience/JWKS/`jti`/repository/workflow/run/attempt/ref/SHA binding and replay rejection; prove
-  the three exhaustive Actions families and reject generic governed commands and deployment/release
-  mutations;
+  the three exhaustive Actions families—including native deployment facts as observations—and reject
+  generic governed commands and deployment/rollback/release mutations;
 - fault-inject a lost Authorized Git Ref Update response and separately observe intended new SHA,
   unchanged old SHA, and a third-party third SHA; prove confirmation, bounded unresolved escalation,
   and visible ref conflict respectively, with one remediation run and no automatic second push;
@@ -1218,7 +1223,7 @@ Docker, and the fixed provider seam, prove an Admin can:
    before acceptance while managed publication remains pending, and see stale/concurrent ownership
    fail without a partial second DevTicket/binding/intent;
 4. merge a Proposal with and without governed-work changes and see planning evidence plus at most
-   one proposed Revision, with no new DevTicket, Issue Binding, create/link intent, provider
+   one proposed Revision, with no new DevTicket, GitHub Issue Binding, create/link intent, provider
    request, or GitHub Issue;
 5. edit shared context in GitHub and see deterministic Opzava convergence;
 6. see a managed-contract edit become a Revision, not an overwrite;
@@ -1233,9 +1238,9 @@ Docker, and the fixed provider seam, prove an Admin can:
 11. resolve a same-field Sync Conflict in Opzava, see stale competing decisions rejected, and see
     `resolution_pending_mirror` become resolved only after confirmed mirror-back;
 12. see truthful degraded/unhealthy/unverifiable health and scoped gate reasons;
-13. see Actions append provider facts, request field-code-only `ready.validate`, or request
-    `Needs Human Approval`, while generic governed commands and deployment/release mutations reject
-    with no receipt;
+13. see Actions append provider facts including native deployment observations, request
+    field-code-only `ready.validate`, or request `Needs Human Approval`, while generic governed
+    commands and deployment/rollback/release mutations reject with no receipt;
 14. see external merge require Post-Merge Review and no false Done;
 15. inspect all evidence in Card/Development/health views in light/dark, keyboard, and narrow
     viewport;
@@ -1256,7 +1261,7 @@ No model token is a synchronization, state-machine, or assertion oracle.
 
 1. Add the deep `DevBoard.GitHubIntegration` module's tables/ports/workers through expand-contract
    while legacy reads remain live. No target write calls GitHub from a DevTicket transaction.
-2. Register/install the App and confirm one immutable Repository Binding. Complete first full
+2. Register/install the App and confirm one immutable GitHub Repository Binding. Complete first full
    reconciliation before enabling target writes.
 3. Backfill every `issue_projection` with immutable provider repository/Issue IDs and initial Mirror
    Shadows. Classify missing, renamed, deleted, and conflicting provider resources explicitly.
@@ -1271,9 +1276,11 @@ No model token is a synchronization, state-machine, or assertion oracle.
    indefinite dual-write.
 8. Cut Connect GitHub to the App, cut workers to the new inbox/outbox/reconciler, and stop new
    legacy create/close intents. Verify all legacy queues terminally classified.
-9. Revoke provider OAuth/PAT credentials where possible, record `revocation_required` where secure
-   human provider action remains, then remove local refs, `GITHUB_TOKEN`, `GITHUB_OAUTH_CLIENT_ID`,
-   the OAuth device-flow service/UI, and the manual close worker.
+9. Disable active OAuth/PAT credential use and remove `GITHUB_TOKEN`, `GITHUB_OAUTH_CLIENT_ID`, the
+   OAuth device-flow service/UI, manual close worker, and legacy write paths. Revoke provider
+   credentials where possible. Where secure human provider action remains, record
+   `revocation_required` and retain only the quarantined, non-exportable cleanup handle; destroy and
+   zero the final local credential handle/ref only after provider-confirmed revocation or expiry.
 10. Redirect `/issues` only after authenticated browser parity and rollback evidence. Rollback may
     restore legacy **read** surfaces during the bounded window; it never restores two write owners.
 
@@ -1302,12 +1309,12 @@ owner. “Skipped” is a cutover blocker.
 
 The final tracer-bullet graph must preserve vertical, real seams:
 
-1. App bootstrap + immutable Installation/Repository Binding + dimensional health and secure
-   callback proof.
+1. App bootstrap + immutable GitHub Installation Binding and GitHub Repository Binding + dimensional
+   health and secure callback proof.
 2. Verified webhook HTTP inbox + Secret-Safe normalized receipt + Postgres RLS/dedupe.
 3. One accepted DevTicket create/link intent through provider confirmation, unknown-outcome
-   recovery, unique Issue Binding, and the exact `ResolveUnknownMirrorEffect` no-auto-reissue/
-   Human-Owner-resolution lifecycle.
+   recovery, unique GitHub Issue Binding, and the exact `ResolveUnknownMirrorEffect` no-auto-reissue
+   and Human-Owner-resolution lifecycle.
 4. Canonical managed body/labels + comment/worklog identity + three-way Mirror Shadows and exact
    versioned/idempotent `ResolveSyncConflict` lifecycle through provider confirmation.
 5. Provider-fact projection and exact PR/base/head/SHA/check/review correlation.

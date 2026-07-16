@@ -149,13 +149,14 @@ suspected-secret content creates no Release receipt/rejection record.
 Rollback is a new deployment attempt to a previously verified immutable manifest and never rewrites
 `main`, tags, GitHub Releases, old manifests, or historical Release state. Release owns the
 deploy/rollback command and Incident owns operational lifecycle. In v1, GitHub Actions may append
-verified native provider facts, request field-code-only `ready.validate`, or open an eligible exact
-Needs Human Approval Request; it cannot request a Release deployment/rollback mutation or approve
-anything. Widening this exhaustive source policy requires a versioned change by the owning domain
-and the #230 source policy, not adapter configuration. Suspected secret exposure and unhealthy or
-unverifiable GitHub remain unbypassable for ordinary release operations while sanitized
-safety-reducing containment remains available. The complete command, approval, evidence, saga,
-failure, and test contract is `docs/plan/research/wf236-releases-gate-contract.md`.
+verified native provider facts, including deployment facts as observations, request field-code-only
+`ready.validate`, or open an eligible exact Needs Human Approval Request; it cannot request a
+Release deployment/rollback mutation or approve anything. Widening this exhaustive source policy
+requires a versioned change by the owning domain and the #230 source policy, not adapter
+configuration. Suspected secret exposure and unhealthy or unverifiable GitHub remain unbypassable
+for ordinary release operations while sanitized safety-reducing containment remains available. The
+complete command, approval, evidence, saga, failure, and test contract is
+`docs/plan/research/wf236-releases-gate-contract.md`.
 
 The Ready Contract Version is version-bound and contains outcome, bounded scope, sad paths, edge
 cases, acceptance criteria, dependencies, user-level E2E expectations, final behavioral contract,
@@ -237,10 +238,10 @@ verdict, and evidence refs. High-volume execution telemetry stays in Opzava. Cor
 new record rather than rewriting relied-upon history.
 
 Each Issue create intent owns one immutable public-safe `create` correlation UUID. The managed body,
-all later render/parser results, Mirror Shadows, and pending/confirmed Issue Binding retain that
-exact identity. Mutable outbox `event` UUIDs identify delivery attempts only and can never recover a
-lost create response. Recovery requires the create UUID plus expected App, installation, repository,
-and request facts, including after a later body or contract render.
+all later render/parser results, Mirror Shadows, and pending/confirmed GitHub Issue Binding retain
+that exact identity. Mutable outbox `event` UUIDs identify delivery attempts only and can never
+recover a lost create response. Recovery requires the create UUID plus expected App, installation,
+repository, and request facts, including after a later body or contract render.
 
 A linked-existing Issue instead stores immutable `origin=link`, `create=none`, and one link
 correlation UUID through every render/parser/shadow/binding. It never fabricates provider-create
@@ -338,9 +339,10 @@ expected versions, payload hash, and nonce before the ordinary trusted command b
 transaction uniquely reserves `(issuer, jti)`, the scoped repository/command-family nonce, canonical
 request hash, and corresponding trusted command receipt; concurrent reuse cannot commit a partial or
 second semantic request. The exhaustive v1 Actions source policy permits only native provider-fact
-append, field-code-only `ready.validate`, and an eligible exact Needs Human Approval Request.
-Generic governed commands, deployment/release mutations, and authority widened only in adapter
-configuration reject with zero receipt/effect. Labels remain projections.
+append, including deployment facts as observations, field-code-only `ready.validate`, and an
+eligible exact Needs Human Approval Request. Generic governed commands, deployment/rollback/release
+mutations, and authority widened only in adapter configuration reject with zero receipt/effect.
+Labels remain projections.
 
 `DisconnectGitHub` is an idempotent durable saga over one binding generation. It fences token mint
 and outbound claims, drains or preserves every in-flight unknown, and separately records provider
@@ -545,4 +547,6 @@ existed.
 The legacy `GITHUB_TOKEN`/PAT Issue path and OAuth App device-flow connection are migration sources,
 not alternate target credentials. Cutover drains or classifies every create intent and close-outbox
 row, reconciles provider orphans/unknown outcomes, proves App-backed bindings and full convergence,
-then revokes provider credentials where possible and removes their local refs and write paths.
+then disables their active use and legacy write paths. Final local credential-handle/ref destruction
+waits for provider-confirmed revocation or expiry; an unresolved account-owner action retains only a
+quarantined cleanup handle in `revocation_required`.
