@@ -1,5 +1,10 @@
 # PRD-019: Dev Board — governed Opzava platform-development workspace
 
+> **WF-231 amendment status:** GitHub bootstrap/mirror details added by the #231 resolution are a
+> prepared inactive candidate until parent map #228 records verified closure and the migration
+> manifest designates the memo current for #237. The previously approved PRD remains current; these
+> staged additions do not become implementation authority early.
+
 ## Problem Statement
 
 Opzava platform development is currently split across an internal Tasks board and a separate GitHub
@@ -27,11 +32,15 @@ architecture under a new label.
 
 Create a dedicated admin-only **Dev Board** bounded context for developing the Opzava platform. Its
 canonical work unit is a **DevTicket**; a **Card** is only the visual representation of that
-DevTicket. Opzava owns the workflow, approved work contract, assignments, dependencies, Sprint
-plans, approvals, and conflict decisions. A synchronized GitHub Issue is the durable secondary
-mirror and supplies the visible issue number and URL. GitHub remains authoritative for
-repository-native pull request, commit, check, review, and merge facts. OpenClaw and enrolled local
-runners remain authoritative only for their own runtime facts.
+DevTicket. Opzava owns the workflow, current immutable work contract, explicit draft or
+Ready-approved state, assignments, dependencies, Sprint plans, approvals, and conflict decisions. A
+synchronized GitHub Issue is the durable secondary mirror and supplies the visible issue number and
+URL. GitHub remains authoritative for repository-native pull request, branch/ref/SHA, commit, check,
+repository-review, and merge facts. Opzava owns Runner selection and Execution Lease authorization/
+binding/fence plus the governed execution branch/purpose binding. Enrolled Runners own only signed
+local process, worktree, branch, command, heartbeat, and checkpoint observations under that
+authority; correlation to GitHub refs transfers none. OpenClaw remains authoritative only for its
+own runtime facts.
 
 The main Board has six guarded lanes: `Backlog`, `Todo`, `Blocked`, `In Progress`, `Review`, and
 `Done`. Backlog is for shaping and grilling. Todo contains only work whose versioned Ready contract
@@ -206,8 +215,9 @@ implementations without losing identifiers, comments, evidence, or worklogs.
     integration does not damage repository conventions.
 77. As an Opzava administrator, I want a GitHub status-label edit treated as a transition request,
     so that GitHub actions still pass Opzava gates.
-78. As an Opzava administrator, I want human comments synchronized one-to-one in both directions, so
-    that either surface retains the same discussion.
+78. As an Opzava administrator, I want verified mapped-human comments synchronized one-to-one in
+    both directions while bot/App/unknown comments retain their external attribution, so that either
+    surface keeps the discussion without granting automation a human or agent identity.
 79. As an execution agent, I want each meaningful milestone, pause, failure, handoff, and completion
     appended as an immutable GitHub worklog comment, so that agent activity has durable history.
 80. As a Reviewer, I want the Review result mirrored as a structured evidence summary with contract
@@ -516,14 +526,50 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   `Detected -> Triaged -> Mitigating -> Monitoring -> Resolved -> Postmortem`. Project it into Dev
   Board for attention. Link permanent remediation as a Bug or Technical Task. Never persist an
   Incident as a DevTicket Type or include it directly in a Sprint.
-- Use a GitHub App and webhook integration. Opzava owns workflow, gates, approved contract,
-  assignments, dependencies, Sprints, approvals, and conflict decisions. GitHub owns issue
-  number/URL and repository-native PR, commit, check, review, and merge facts. Shared descriptive
-  fields synchronize deterministically.
+- Use a GitHub App and webhook integration. Opzava owns workflow, gates, the current immutable
+  contract and its explicit draft or Ready-approved state, assignments, dependencies, Sprints,
+  approvals, and conflict decisions. GitHub owns issue number/URL and repository-native PR, branch/
+  ref/SHA, commit, check, repository-review, and merge facts. Shared descriptive fields synchronize
+  deterministically. Opzava owns Runner selection, Execution Lease authorization/binding/fence, and
+  the governed execution branch/purpose binding. The Runner owns only signed local process,
+  worktree, branch, command, heartbeat, and checkpoint observations under that authority;
+  correlation never transfers authority to GitHub or the Runner.
+- Bind the tenant to the provider-verified App installation and exactly one production repository by
+  immutable provider IDs. Treat owner/name as mutable routing/display data, setup callback values as
+  untrusted until provider-corroborated, and installation tokens as short-lived credentials that
+  never become product truth or persistent connection identity.
+- Require the same authenticated Admin to complete an ephemeral GitHub App user-authorization proof
+  that the selected installation/repository is accessible to that GitHub user. App authentication
+  alone does not associate a spoofable callback ID with a tenant. Resolve the required GitHub App
+  client secret from its platform vault ref only inside the bounded server-side authorization-code
+  exchange with the exact redirect URI and PKCE verifier; never expose or persist its value outside
+  the vault, and audit only its safe ref/config version and access outcome. Destroy the user and
+  refresh tokens after recording only immutable provider identities and safe proof metadata. The
+  final binding transaction must revalidate that same Admin's live session, membership, and current
+  integration-admin authorization/policy version; demotion, revocation, expiry, tenant change, or
+  policy denial fails closed with no binding.
+- Keep App registration IDs and private-key/client-secret/webhook-secret ref versions and rotation
+  state as platform-owned configuration behind provisioning/security-service policy and audit, never
+  tenant RLS data or a browser projection. Tenant-scoped Installation/Repository Bindings and
+  receipts refer to that configuration without exposing its secret refs or values.
+- Admit webhooks in one security order: bound raw bytes, verify the exact-body HMAC, read
+  `X-GitHub-Event` only as an untrusted bounded schema hint, then strictly parse the corresponding
+  non-persisting signed payload envelope: installation ID only for `installation`/
+  `installation_target` lifecycle, action plus installation/repository IDs for action-bearing
+  repository events, installation/repository IDs with no required or invented action for actionless
+  `create`/`delete`/`push`/`status`, or installation plus bounded added/removed repository-ID sets
+  for `installation_repositories`. Resolve the server-owned binding from those signed IDs, fully
+  parse the subscribed event schema and its schema-specific action presence/value, cross-check the
+  envelope and header-selected event family, run Secret-Safe Ingress, durably persist a normalized
+  safe receipt, then return `2xx`. Nothing parses before signature verification; never persist the
+  raw provider payload.
 - Split a GitHub Issue body into human-readable summary/context and a managed
   `Opzava Work Contract vN` block. Edits to the managed block become proposed revisions. Namespaced
   managed labels encode type, priority, risk, optional severity, areas, status, and Sprint while
   preserving unrelated repository labels.
+- Render the current immutable contract version with explicit `Draft · Not Ready approved` or exact
+  `Ready approved` status and Ready Approval identity. Backlog missing fields remain visible shaping
+  state; GitHub mirror creation or echo never implies readiness or approval.
 - Synchronize human comments one-to-one. Append immutable agent worklog comments at meaningful
   milestones, pauses, failures, handoffs, and completion. Append a structured Review summary
   carrying contract version, locked SHA, checks, verdict, and artifact references. Keep high-volume
@@ -534,20 +580,91 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Use per-aggregate monotonic versions, GitHub delivery-ID deduplication, Opzava event-ID
   deduplication, and snapshot reconciliation after sequence gaps. There is no global order across
   GitHub, Opzava, Slack, and runners.
+- Reconcile every synchronized field against its last mutually confirmed Mirror Shadow. Because
+  GitHub mutations have no general compare-and-swap or exactly-once guarantee, a lost create,
+  comment, body, or label response enters outcome-unknown reconciliation and never blind-retries.
+  For identity-bearing Issue/comment effects, zero matches after any number of complete scans do not
+  prove absence and never trigger an automatic reissue. Only a version-bound, single-use Human Owner
+  resolution may explicitly accept duplicate risk and authorize a numbered reattempt; any late
+  original is reconciled and deterministically contained by its immutable correlation.
+- Make `ResolveUnknownMirrorEffect` the only zero-match terminalization/reattempt command for an
+  ambiguous Issue/comment effect. Bind it to the unknown-effect/version, stable intent/correlation,
+  App/install/repository/DevTicket, safe request hash, every complete observation epoch shown,
+  binding/shadow/health/reconciliation versions, exact choice and duplicate-risk acknowledgement,
+  actor/session/policy, single-use approval nonce, and idempotency key. It rejects stale,
+  incomplete, unhealthy, already-resolved, candidate-now-present, or racing requests atomically.
+  Keep-waiting retains unknown; abandon records visible non-publication without claiming absence;
+  reattempt consumes approval and creates one numbered outbox attempt without confirming or
+  advancing shadow.
+- Treat GitHub Issue body writes as whole-value writes with no documented conditional-write/CAS.
+  Double-fetch immediately before one serialized write, append only Secret-Safe normalized pre-write
+  evidence, re-read the result, and expose a `potential_body_overwrite` conflict with side-by-side
+  recovery whenever an intervening edit is observable. Never promise lossless preservation for an
+  edit GitHub never exposed inside the final race window.
+- Confirm identity-creating Issue/comment operations only through stable correlation plus verified
+  App/provider identity. Idempotent set-field projections such as labels, milestone, state, and
+  managed-body digest may converge after a permanently missed webhook only from a complete fresh
+  snapshot, expected outbox state, and three-way authority validation; never invent an actor or
+  event.
+- Give every Issue create intent one immutable public-safe `create` UUID and retain it in every
+  managed-body render/parser, Mirror Shadow, and pending/confirmed Issue Binding. Keep delivery
+  `event` UUIDs separate and mutable; they can never recover create identity. Unknown create outcome
+  recovery requires the immutable create UUID plus expected App/installation/request facts, even
+  after later body/contract renders.
+- Give a linked-existing Issue `origin=link`, `create=none`, and one immutable public-safe link UUID
+  retained through every render/parser/shadow/binding. A link never fabricates App-create
+  provenance, and no later body event may convert origin or replace either correlation identity.
+- Classify every provider comment actor as `mapped_human`, `expected_opzava_app`,
+  `third_party_app_or_bot`, or `unknown_or_deleted`, preserving immutable provider actor identity,
+  kind, and mapping evidence. Only a mapped human becomes a Human Comment; only the fully correlated
+  expected App confirms an outbox record. Every other class remains an attributed provider-backed
+  external comment with zero human, agent, assignment, approval, or workflow authority.
+- Map GitHub assignees by immutable provider user identity. Only an explicitly mapped human
+  Execution Assignee is provider-projectable; AI agents, local/orchestrator identities, and humans
+  without a GitHub-user mapping remain Opzava-only. Zero mapped provider users is therefore
+  converged for an unassigned or Opzava-only-assigned DevTicket. One differing mapped user requests
+  the ordinary exact-version assignment command; more than one opens a cardinality conflict and
+  blocks start. Preserve every unmapped GitHub collaborator and apply only add/remove deltas for
+  mapped identities; never replace the assignee array, fabricate an agent mapping, unassign an
+  Opzava-only agent from provider absence, or infer Human Owner.
 - Auto-merge concurrent changes to different shared fields. Append comments/worklogs. For concurrent
   changes to the same governed field, create a visible Sync Conflict. Contract, dependency,
   assignment, approval, and Sprint conflicts pause affected execution; harmless display metadata
   does not. Human Owner resolves governed conflicts in Opzava and the result mirrors to GitHub.
+- Make `ResolveSyncConflict` the only same-field selection command. Bind it to the exact conflict
+  version, field/bindings, base shadow, current Opzava aggregate/value version, complete fresh
+  provider observation, selected safe value/digest, actor/session, authorization/policy versions,
+  nonce, idempotency key, and request hash. Choices are keep exact Opzava, accept exact GitHub
+  through the ordinary field owner, or apply an explicit Secret-Safe merge through that owner.
+  Ordinary Revision/approval/gate rules still apply; a required decision keeps the conflict blocking
+  and emits no mirror write. Atomically record one decision and `resolution_pending_mirror` outbox
+  intent, but advance the Mirror Shadow and mark resolved only after exact provider confirmation.
+  Reject stale versions/observations and racing decisions with no partial owner command, shadow, or
+  outbox effect.
 - Persist retryable outbound writes in a durable sync outbox with attempts, claims, backoff, last
   error, and confirmation. GitHub health reports authentication, repository access, required
   read/write permissions, webhook delivery freshness, rate limit state, replay/outbox lag, and
   reconciliation status.
+- Scope health and recovery by App, installation, repository, capability, and affected DevTicket or
+  fact. A successful probe alone never resolves unhealthy/unverifiable state: recovery also requires
+  no ambiguous mutation or binding conflict and one complete post-repair reconciliation with
+  dead/unknown inbox and outbox work explicitly drained, superseded, or conflict-bound.
 - Treat suspected secret exposure and unhealthy or unverifiable GitHub integration as unbypassable
   Absolute Stops for affected execution and workflow gates. Other policy exceptions become
   version-bound Needs Human Approval Requests; approval never changes the two Absolute Stop classes.
 - Automate agent-authored merge-conflict resolution in an isolated worktree, then rerun affected
   checks and independent Review. Do not give an execution agent a general-purpose ungoverned merge
   authority.
+- Never expose a raw write-capable installation token to a Runner or worktree. A trusted Git
+  transport broker validates the signed lease, nonce, exact ref, old/new SHAs, and pack/bundle hash,
+  then performs the single authorized provider push; repository rulesets are defense in depth.
+- Accept Actions-originated command requests only through a short-lived GitHub OIDC protocol bound
+  to an Opzava-specific audience, immutable repository, allowlisted workflow/reusable-workflow and
+  SHA, run/attempt, actor/event, ref/SHA, DevTicket/action/expected versions, payload hash, and
+  one-use nonce. Webhooks, labels, comments, actor names, and temporal matching are not command
+  authentication. Atomically reserve unique issuer/token ID, scoped nonce, canonical request hash,
+  and the corresponding ordinary command receipt so concurrent replay cannot produce a second or
+  partial semantic request.
 - Support one production repository in v1: the Opzava repository. A fixed scratch repository may be
   used only as test infrastructure. Multiple repository product behavior is deferred.
 - Enroll local machines in Admin with machine identity, public key, owner, OS, supported tool,
@@ -658,8 +775,10 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   Sprint history. Follow Jira's information-architecture concept, not its proprietary styling.
   Support global light and dark themes.
 - Make Card activity tabs Comments, History, Worklog, Agent Execution, and Review Evidence. Surface
-  repository-native PR, branch, worktree, commit, check, Review, approval, merge, Docker, and sync
-  facts without making Opzava the source of those GitHub facts.
+  repository-native PR, branch/ref/SHA, commit, check, repository-review, and merge facts separately
+  from Opzava-owned lease/binding/fence state and Runner-signed local process, worktree, branch,
+  heartbeat, checkpoint, and Docker observations. Opzava is neither the source of GitHub-native or
+  Runner-observed facts nor does accepting those facts transfer their source authority.
 - End Development at merge into `development`. Keep Releases as a separate view governed by a
   distinct Release aggregate with lifecycle `Draft`, `Candidate`, `Staging`, `StagingApproved`,
   `ProductionReady`, `Released`, `Superseded`, and `Cancelled`. Release attention is a derived set,
@@ -748,7 +867,52 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   fixed scratch repository used strictly as test infrastructure. Cover issue creation/linking,
   managed body block, label ownership, comments, worklogs, delivery dedupe, out-of-order delivery,
   sequence gap reconciliation, retry outbox, same-field conflict, different-field merge, GitHub edit
-  as proposal, permission loss, rate exhaustion, and recovery.
+  as proposal, spoofed setup callback, exact-body signature failure, response-loss/unknown mutation,
+  copied correlation marker, silently dropped provider mutation, permission loss, rate exhaustion,
+  incomplete reconciliation, and recovery.
+- Prove setup cannot bind another user's valid installation, Backlog mirror text cannot claim Ready
+  without the exact approval, an Actions OIDC token/request cannot replay or cross repository/
+  workflow/run/SHA, and a malicious Runner cannot obtain the write token or push any ref outside one
+  authorized old/new-SHA broker operation.
+- Prove a complete reconciliation detects deletion of an old bound comment even when its webhook was
+  missed. Because provider pagination is mutable, require two consecutive identical complete
+  comment-ID/content-fingerprint traversals with stable available start/end collection observations;
+  concurrent add/delete/edit or page drift restarts the proof and cannot declare absence/health.
+  Also prove concurrent same/different-hash reuse of one Actions OIDC token/nonce yields exactly one
+  atomic integration-plus-command receipt result.
+- Prove create-response loss followed by a later contract/body render still recovers exactly one
+  Issue through the unchanged `create` UUID, and that a changed/dropped create marker cannot fall
+  back to a delivery `event` UUID.
+- Fault-inject an Issue create and comment post whose provider objects appear only after repeated
+  complete zero-match scans. Prove neither effect is automatically reissued, the late exact
+  correlation binds once, and a separately approved numbered reattempt records its single-use Human
+  Owner decision and contains any eventual duplicate deterministically.
+- Prove linking a pre-existing Issue retains `origin=link`, `create=none`, and one immutable link
+  UUID across every render/parser/shadow/binding without fabricating create history or permitting
+  origin conversion.
+- Prove copied markers from mapped humans, the expected Opzava App, third-party Apps/bots, and
+  unknown/deleted actors retain exact actor classification: only mapped humans create Human
+  Comments, only a fully correlated expected-App write confirms an outbox record, and external
+  automation has no human/agent/approval authority.
+- Prove a human edit in the final whole-body no-CAS window never receives a false lossless claim and
+  exposes any detectable overwrite evidence for recovery; a permanently missed set-field webhook
+  converges only from complete snapshot/authority proof; and zero/one/multiple/mixed mapped GitHub
+  assignees preserve unmapped collaborators and block start deterministically when required. Prove
+  an AI-agent/local-orchestrator Execution Assignee remains authoritative and converged when GitHub
+  has zero mapped users, without fabricated mapping or false unassignment.
+- Prove installation, repository-set, and repository-scoped webhook envelopes admit only their exact
+  signed immutable IDs; action-bearing schemas require a valid action while actionless
+  `create`/`delete`/`push`/`status` accept no invented action and reject schema/action disagreement;
+  final setup fails after Admin demotion/session revocation; and platform App private-key,
+  client-secret, and webhook-secret refs/values never enter tenant/browser data. Prove missing/
+  wrong/retired client-secret exchange fails closed and audited rotation selects only an active
+  version without exposing it.
+- Prove concurrent `ResolveSyncConflict` requests, stale conflict/domain/provider observations,
+  owner-command decision requirements, pending-mirror provider drift, and stale outbox finalizers
+  yield one decision/intent, no premature shadow advance, and a visible fresh conflict.
+- Prove concurrent `ResolveUnknownMirrorEffect` requests, stale observations/health/bindings,
+  consumed approvals, and late provider appearance racing an approved numbered reattempt yield one
+  decision/attempt, no automated absence inference, and deterministic correlation-based containment.
 - Use a deterministic runner-protocol seam for enrolled machine signatures, leases, fencing tokens,
   command nonces, monotonic receipt sequences, contract versions, worktree/branch/SHA identity,
   checkpointing, heartbeat expiry, disconnect, stale receipt rejection, reconnect reconciliation,

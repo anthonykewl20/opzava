@@ -25,7 +25,7 @@ A candidate must pass the deletion test (deleting the status quo moves complexit
 | 12 | Derive eslint boundaries from the workspace catalog | APPLIED (`e53651ac`) - verified lint-equivalent (forced `pnpm lint` identical zero-violation output before/after). |
 | 13 | Split `assistant-conversations.ts` | APPLIED (`9543bd87`). |
 | 14 | Centralize the link-token scope whitelist | APPLIED (`125119c2`). |
-| 15 | Narrow `IssueTrackerProvider` to `"github"` | SUPERSEDED - do not deepen the legacy `IssueTrackerPort`; retire/adapt it through the Dev Board migration. V1's target `DevBoardMirrorPort` has one GitHub App adapter and one repository. |
+| 15 | Narrow `IssueTrackerProvider` to `"github"` | SUPERSEDED - do not deepen the legacy `IssueTrackerPort`; retire/adapt it through the Dev Board migration. V1's target `DevBoardMirrorPort` facade composes focused provider capabilities implemented by one GitHub App adapter for one repository. |
 | 16 | Collapse the two `canMutate` predicates | NOT APPLICABLE - no `canMutate` predicate exists in `packages/runtime-control` (verified by grep); the genuine duplication is the executor skeleton, covered by candidate 6. |
 | 17 | Hide `model-provider-taxonomy` data behind accessors | APPLIED (`4c8ea3d6`). |
 | gaps | ObjectStore contract, lazy pg client, migration-gate tests | APPLIED (`df42bb49`). |
@@ -174,7 +174,7 @@ Each card names its source module doc so the claim can be verified against the c
 
 ### 15. Narrow legacy `IssueTrackerProvider` to `"github"`
 - Source: [modules/ports.md](modules/ports.md).
-- **Superseded by PRD-019/ADR-017.** The current `IssueTrackerPort` is legacy migration input, so narrowing its provider union is churn in a seam scheduled for retirement/adaptation. V1 instead introduces one GitHub App adapter behind the target `DevBoardMirrorPort` for the single Opzava repository; future repository/provider expansion requires a new approved contract rather than speculative generality in the old port.
+- **Superseded by PRD-019/ADR-017.** The current `IssueTrackerPort` is legacy migration input, so narrowing its provider union is churn in a seam scheduled for retirement/adaptation. V1 instead introduces a `DevBoardMirrorPort` application facade composed from focused provider capabilities implemented by one GitHub App adapter for the single Opzava repository; future repository/provider expansion requires a new approved contract rather than speculative generality in the old port.
 - Strength: SPECULATIVE.
 
 ### 16. Collapse the two identical `canMutate` predicates in runtime-control

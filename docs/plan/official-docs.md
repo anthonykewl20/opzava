@@ -29,10 +29,11 @@ Validate against official documentation before coding any API. Training knowledg
 | `ws` | https://github.com/websockets/ws | Node WebSocket client/server API and backpressure behavior. |
 | Vitest | https://vitest.dev | Unit/integration test runner, workspace config, coverage, and watch behavior. |
 | Playwright | https://playwright.dev/docs/intro | Browser e2e testing, fixtures, locators, and CI/browser installation. |
+| GitHub Apps, REST API, webhooks, and Actions OIDC | https://docs.github.com/en/apps, https://docs.github.com/en/rest, https://docs.github.com/en/webhooks, https://docs.github.com/en/actions/reference/security/oidc | WF-231 checked App permissions/install and user tokens, required client-secret authorization-code exchange with PKCE, setup/user-installation association, endpoint permissions, Issues/comments, signatures, event-specific action presence (including actionless create/delete/push/status), handling/redelivery/order, rate limits, REST best practices, and Actions OIDC claims on 2026-07-17. Use the exact raw request body for signature verification; a spoofable setup callback ID requires ephemeral user-to-installation proof; webhook facts are not Actions command authentication. |
 
 ## Current locked pins
 
-Pin source: `docs/plan/research/slice1-foundation-stack.md`, especially its "Locked pins for the Slice 1 scaffold" section. That section overrides the raw version table where they conflict.
+Foundation-stack pins below come from `docs/plan/research/slice1-foundation-stack.md`, especially its "Locked pins for the Slice 1 scaffold" section; that section overrides the raw version table where they conflict. Provider-specific rows name their own authoritative decision source inline.
 
 | Tech | Locked pin |
 | --- | --- |
@@ -50,6 +51,15 @@ Pin source: `docs/plan/research/slice1-foundation-stack.md`, especially its "Loc
 | Traefik | `3.6.1` |
 | Turborepo | `2.10.x` |
 | Vitest | `4` |
+
+## Prepared target provider pins
+
+These pins are recorded for resolved planning candidates but are not current implementation
+authority until their named activation gate closes.
+
+| Tech | Prepared pin and activation gate |
+| --- | --- |
+| GitHub REST API version | `2026-03-10` (WF-231 provider-adapter pin; inactive until #228 records verified #231 closure and the migration manifest designates it current for #237; changing it after activation requires an explicit tested adapter migration) |
 
 ## Validation tools
 
