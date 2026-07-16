@@ -18,7 +18,9 @@
     "e2e:connections-apikey-argv": "node tests/e2e/drives/connections-apikey-argv.mjs",
     "e2e:connections-github": "node tests/e2e/drives/connections-github.mjs",
     "e2e:connections-oldbugs": "node tests/e2e/drives/connections-oldbugs.mjs",
-    "e2e:connections-disconnect-orphan": "node tests/e2e/drives/connections-disconnect-orphan.mjs"
+    "e2e:connections-models": "node tests/e2e/drives/connections-models.mjs",
+    "e2e:connections-disconnect-orphan": "node tests/e2e/drives/connections-disconnect-orphan.mjs",
+    "e2e:connections-disconnect-routable-models": "node tests/e2e/drives/connections-disconnect-routable-models.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

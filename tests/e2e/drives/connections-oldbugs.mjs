@@ -33,6 +33,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 import { BASE, realLogin, artifactDir } from "../lib/session.mjs";
+import { providerCard } from "../lib/selectors.mjs";
 
 const TIER = /best subagents/i;
 const P1 = "Moonshot";
@@ -40,6 +41,11 @@ const P1 = "Moonshot";
 // provider-agnostic, so driving it once (Moonshot) is enough — a second pass would only double a
 // minutes-long rollback. Z.AI is deliberately NOT used here: it holds a real credential.
 const P2 = "Xiaomi";
+// Provider ids for the card grid's structural selector. P1/P2 are display labels (the row-action
+// menu's aria-label is `Row actions for <label>`, and the logs read better with the label), so the
+// card selector resolves the id here — once, as a constant, never via a DOM text match. #181's
+// table->card port rotted the old `tr` text selector; this keeps it structural.
+const PROVIDER_ID = { [P1]: "moonshot", [P2]: "xiaomi" };
 const bogusKey = (tag) => `sk-opzava-drive-${tag}-${"0".repeat(36)}`;
 // The rejection is only reported after the worker has probed AND rolled the credential back, and
 // the rollback paces one gateway logout per agent — the UI poller allows 10 minutes, so we do too.
@@ -55,15 +61,29 @@ const note = (step, ok, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${step}${detail ? ` — ${detail}` : ""}`);
 };
 
-
-const row = (page, provider) => page.locator("tr", { hasText: provider }).first();
+const row = (page, provider) => {
+  const id = PROVIDER_ID[provider];
+  if (id === undefined) {
+    throw new Error(`No provider id mapped for "${provider}"; add it to PROVIDER_ID.`);
+  }
+  return page.locator(providerCard(id)).first();
+};
 
 // Read the row live from the DOM. NEVER reload: a status that only appears after a reload is the
-// #128 bug, so reloading here would hide the very thing under test.
+// #128 bug, so reloading here would hide the very thing under test. A missing card FAILS LOUDLY:
+// the old `.catch(() => "")` turned "no such element" into "it says nothing", which let the
+// prior-run cleanup loop below run zero iterations after #181's port, silently. A zero-match now
+// throws naming the provider and selector, so this class of rot cannot pass silently again.
 async function rowText(page, provider) {
-  return (await row(page, provider).innerText().catch(() => ""))
-    .replace(/\s+/g, " ")
-    .trim();
+  const card = row(page, provider);
+  if ((await card.count()) === 0) {
+    const id = PROVIDER_ID[provider];
+    const selector = providerCard(id);
+    throw new Error(
+      `Provider "${provider}" (id "${id}") has no card in the DOM — selector ${selector} matched nothing. The connections card grid changed; update lib/selectors.mjs.`,
+    );
+  }
+  return (await card.innerText()).replace(/\s+/g, " ").trim();
 }
 
 async function waitForRow(page, provider, matcher, timeoutMs) {
@@ -92,11 +112,16 @@ async function openRowMenu(page, provider) {
 }
 
 async function submitBogusKey(page, provider, tag) {
-  await row(page, provider).getByRole("button", { name: /^connect$/i }).click();
+  await row(page, provider)
+    .getByRole("button", { name: /^connect$/i })
+    .click();
   const keyInput = page.locator('input[placeholder*="Paste"]').first();
   await keyInput.waitFor({ state: "visible", timeout: 15_000 });
   await keyInput.fill(bogusKey(tag));
-  await page.getByRole("button", { name: /^(connect|save|update)/i }).last().click();
+  await page
+    .getByRole("button", { name: /^(connect|save|update)/i })
+    .last()
+    .click();
 }
 
 // Watch the open connect dialog until the operation is terminal. Terminal states:
@@ -114,7 +139,14 @@ async function watchForRejection(page, provider, timeoutMs) {
   let sawTransientConnected = false;
   let lastAlert = "";
   while (Date.now() < deadline) {
-    lastAlert = (await page.getByRole("alert").allInnerTexts().catch(() => []))
+    // Best-effort read of the transient alert region during a 10-min poll: an empty or detached
+    // alert list is an expected mid-poll state, not a structural miss, so it must NOT throw here.
+    lastAlert = (
+      await page
+        .getByRole("alert")
+        .allInnerTexts()
+        .catch(() => [])
+    )
       .join(" | ")
       .replace(/\s+/g, " ")
       .trim();
@@ -124,7 +156,14 @@ async function watchForRejection(page, provider, timeoutMs) {
     if (lastAlert !== "") {
       return { outcome: "failed-other", text: lastAlert, sawTransientConnected };
     }
-    const body = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ");
+    // `body` always exists; the catch tolerates a transient read failure (a refresh/navigation
+    // mid-poll) while scanning for the success notice. Best-effort, not a structural assertion.
+    const body = (
+      await page
+        .locator("body")
+        .innerText()
+        .catch(() => "")
+    ).replace(/\s+/g, " ");
     if (/Connection updated|Provider connected in Opzava Gateway/i.test(body)) {
       return { outcome: "connected", text: "success notice shown", sawTransientConnected };
     }
@@ -139,7 +178,10 @@ async function watchForRejection(page, provider, timeoutMs) {
 async function disconnect(page, provider) {
   await openRowMenu(page, provider);
   await page.getByRole("menuitem", { name: /disconnect/i }).click();
-  await page.getByRole("button", { name: /disconnect/i }).last().click();
+  await page
+    .getByRole("button", { name: /disconnect/i })
+    .last()
+    .click();
   const settled = await waitForRow(page, provider, /not connected|available/i, 240_000);
   const body = (await page.locator("body").innerText()).replace(/\s+/g, " ");
   return {
@@ -198,7 +240,11 @@ note(
   rolledBack.text.slice(0, 70),
 );
 
-await page.getByRole("button", { name: /^close$/i }).last().click().catch(() => {});
+await page
+  .getByRole("button", { name: /^close$/i })
+  .last()
+  .click()
+  .catch(() => {});
 await page.waitForTimeout(600);
 await page.screenshot({ path: `${OUT}/04-final-row.png`, fullPage: true });
 
@@ -221,7 +267,11 @@ try {
   const agents = Array.isArray(parsed) ? parsed : (parsed?.agents?.list ?? []);
   const subagents = agents.filter((agent) => String(agent?.id ?? "").startsWith("subagent-"));
 
-  note("#185: the gateway actually has subagents to check", subagents.length > 0, `${subagents.length} found`);
+  note(
+    "#185: the gateway actually has subagents to check",
+    subagents.length > 0,
+    `${subagents.length} found`,
+  );
   for (const subagent of subagents) {
     const tools = subagent.tools;
     const allow = tools?.allow ?? [];
@@ -245,5 +295,7 @@ writeFileSync(`${OUT}/findings.json`, JSON.stringify({ findings, consoleErrors }
 await browser.close();
 
 const failed = findings.filter((f) => !f.ok);
-console.log(`\n${failed.length === 0 ? "DRIVE PASSED" : `DRIVE FAILED (${failed.length})`} — ${OUT}`);
+console.log(
+  `\n${failed.length === 0 ? "DRIVE PASSED" : `DRIVE FAILED (${failed.length})`} — ${OUT}`,
+);
 process.exit(failed.length === 0 ? 0 : 1);

@@ -11,10 +11,14 @@ const OUT = process.argv[2] ?? artifactDir("connections-github");
 
 mkdirSync(OUT, { recursive: true });
 
-
-
 async function hasVisible(locator) {
-  return (await locator.count()) > 0 && (await locator.first().isVisible().catch(() => false));
+  return (
+    (await locator.count()) > 0 &&
+    (await locator
+      .first()
+      .isVisible()
+      .catch(() => false))
+  );
 }
 
 async function detectGitHubConnected(page) {
@@ -119,9 +123,36 @@ try {
   if (findings.length > 0) {
     throw new Error(findings.join("; "));
   }
-  console.log("connections-github-drive OK:", OUT);
-  if (skipped.length > 0) {
-    console.log("skipped:", skipped.join("; "));
+
+  // A green exit must mean the flow was actually exercised. On the default stack both branches route
+  // to skipped[] and exercised[] stays empty — that is NOT a pass, so it exits 2 (precondition
+  // failed) with an actionable message instead of printing "OK" and exiting 0 (the vacuous pass
+  // #238 exists to kill). This is a precondition signal, not a blocking gate or a retry loop.
+  if (exercised.length === 0) {
+    const skippedLines =
+      skipped.length > 0
+        ? skipped.map((reason) => `  - ${reason}`).join("\n")
+        : "  (no branch was reached)";
+    console.error(
+      [
+        "",
+        "PRECONDITION FAILED — this drive exercised NOTHING, so it proved nothing.",
+        "It exits 0 only when it actually drives a GitHub flow.",
+        "Skipped branches:",
+        skippedLines,
+        "",
+        "To make this drive run:",
+        "  - Set GITHUB_OAUTH_CLIENT_ID in .env and restart the stack, then re-run to exercise the device-flow branch (catalog-started-github-device-flow).",
+        "  - Connect a real GitHub account to exercise the connected + disconnect branch (connected-github-present-in-rail, disconnect-returned-github-to-catalog).",
+        "",
+      ].join("\n"),
+    );
+    process.exitCode = 2;
+  } else {
+    console.log("connections-github-drive OK:", OUT);
+    if (skipped.length > 0) {
+      console.log("skipped:", skipped.join("; "));
+    }
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

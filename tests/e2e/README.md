@@ -18,11 +18,11 @@ node tests/e2e/drives/connections.mjs # or call any script directly, with an opt
 
 ## Layout
 
-| Path                           | What it is                                                                                                                                                                                                                                                                            |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `drives/*.mjs`                 | One flow each, exercising real interactions and asserting real outcomes. A UI slice ships or extends a drive here.                                                                                                                                                                    |
-| `probes/*.mjs`                 | Narrow one-shot or exploratory probes kept for the flows they inspect (e.g. `setup-token-url` #127, `elect-orchestrator-model`, `repro-disconnect-flip`).                                                                                                                              |
-| `lib/session.mjs`              | The live stack's URL, the seeded credentials, the one real login, and the artifact-dir helper. Change them here, nowhere else.                                                                                                                                                        |
+| Path              | What it is                                                                                                                                                |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `drives/*.mjs`    | One flow each, exercising real interactions and asserting real outcomes. A UI slice ships or extends a drive here.                                        |
+| `probes/*.mjs`    | Narrow one-shot or exploratory probes kept for the flows they inspect (e.g. `setup-token-url` #127, `elect-orchestrator-model`, `repro-disconnect-flip`). |
+| `lib/session.mjs` | The live stack's URL, the seeded credentials, the one real login, and the artifact-dir helper. Change them here, nowhere else.                            |
 
 ## Conventions
 
@@ -32,6 +32,17 @@ node tests/e2e/drives/connections.mjs # or call any script directly, with an opt
   vacuous — where a drive proves the _absence_ of something (e.g. `connections-apikey-argv` proves a
   credential never reaches the container's process list), it must also assert it _observed the
   window_ in which that thing would have appeared.
+- **Exit codes.** A drive exits `0` only when it exercised the flow and it passed; `1` when it
+  exercised the flow and the product is broken; `2` when it could not exercise the flow at all
+  (precondition failed — the provider/env the flow needs is absent on this stack). A run that
+  exercised nothing must never exit `0`: that is a vacuous pass, so the drive prints a loud
+  precondition message and exits `2` instead. `connections-models` and
+  `connections-disconnect-orphan` set the precedent for the exit-`2` shape.
+- **Provider-card selectors come from `lib/selectors.mjs`.** Do not hand-roll
+  `article[data-provider-id]` or `[data-provider-tier]` in a drive: #181's table→card port silently
+  rotted two drives that did. Resolve the provider id at the call site (the catalog id, not the
+  display label) and build the selector with `providerCard(id)` / `providerTier(tier)`, so a future
+  port breaks in one place instead of passing green against nothing.
 - **Artifacts** (screenshots + `*-report.json`) go to
   `real-validate-artifacts/<prefix>-<timestamp>/`, which is gitignored. Pass `[outDir]` to pin one.
 - Env overrides: `REAL_BASE`, `REAL_EMAIL`, `REAL_PASSWORD`.

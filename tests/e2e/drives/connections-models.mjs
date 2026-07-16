@@ -22,12 +22,16 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 import { BASE, realLogin, artifactDir } from "../lib/session.mjs";
+import { providerCard } from "../lib/selectors.mjs";
 
 const GATEWAY = process.env.REAL_GATEWAY_CONTAINER ?? "opzava-openclaw-platform-gateway-1";
 
 // Display case: bundle whose catalog exists only as a plugin-generated file.
 const BUNDLE_TIER = /bundles/i;
 const BUNDLE_LABEL = "OpenCode Go";
+// The structural card id behind the label. The catalog read targets providerCard(BUNDLE_PROVIDER_ID),
+// not a text match, so #181's table->card port cannot rot it the way it rotted the old `tr` selector.
+const BUNDLE_PROVIDER_ID = "opencode-go";
 
 // Toggle case: the connected provider. glm-4.7-flash is in Z.AI's 14-model catalog but not
 // enabled; it is not the primary, not a fallback, and not the last enabled zai model, so both
@@ -76,7 +80,10 @@ async function waitForSwitchState(page, checked, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   let last = "";
   while (Date.now() < deadline) {
-    last = (await targetSwitch(page).getAttribute("aria-checked").catch(() => null)) ?? "";
+    last =
+      (await targetSwitch(page)
+        .getAttribute("aria-checked")
+        .catch(() => null)) ?? "";
     if (last === String(checked)) {
       return { ok: true, state: last };
     }
@@ -105,7 +112,16 @@ await page.goto(`${BASE}/connections/providers`, { waitUntil: "networkidle" });
 // -------------------------------------------------- bundle catalog surfaced on the row (#184 core)
 await page.getByRole("tab", { name: BUNDLE_TIER }).click();
 await page.waitForTimeout(600);
-const bundleRow = page.locator("tr", { hasText: BUNDLE_LABEL }).first();
+// Structural card lookup (not a text match): #181's table->card port rotted the old `tr` selector.
+// This sits OUTSIDE the toggle try-block below on purpose — a missing card must crash the drive
+// loudly (never swallowed), naming the provider and selector so the rot is obvious.
+const bundleRow = page.locator(providerCard(BUNDLE_PROVIDER_ID));
+if ((await bundleRow.count()) === 0) {
+  const selector = providerCard(BUNDLE_PROVIDER_ID);
+  throw new Error(
+    `Provider "${BUNDLE_LABEL}" (id "${BUNDLE_PROVIDER_ID}") has no card in the DOM — selector ${selector} matched nothing. The connections card grid changed; update lib/selectors.mjs.`,
+  );
+}
 const bundleText = (await bundleRow.innerText()).replace(/\s+/g, " ").trim();
 const bundleSuffix = bundleText.match(/\+(\d+) in catalog/);
 note(
@@ -118,11 +134,16 @@ await page.screenshot({ path: `${OUT}/01-bundle-catalog.png`, fullPage: true });
 // -------------------------------------------------- catalog listed in the connected provider's dialog
 await page.getByRole("tab", { name: TOGGLE_TIER }).click();
 await page.waitForTimeout(600);
+// #181's port also moved Manage OUT of the row-actions dropdown and onto the card's own footer
+// button (provider-card.tsx:136-145); the dropdown now holds only set-main and disconnect. The old
+// `menuitem /manage/i` matched nothing, so this drive died here even after the card selector was
+// fixed. The label comes from actionLabel() (provider-presentation.ts:117): a connected provider
+// reads "Manage" — anchored, so a provider sitting in "Fix"/"Connect" fails loudly instead of
+// opening the wrong dialog.
 await page
-  .getByRole("button", { name: new RegExp(`Row actions for ${TOGGLE_LABEL}`, "i") })
-  .first()
+  .locator(providerCard(TOGGLE_PROVIDER_ID))
+  .getByRole("button", { name: /^manage$/i })
   .click();
-await page.getByRole("menuitem", { name: /manage/i }).click();
 await page.getByRole("heading", { name: /^models$/i }).waitFor({ timeout: 15_000 });
 const switchCount = await page.getByRole("switch").count();
 const checkedCount = await page.locator('[role="switch"][aria-checked="true"]').count();
@@ -140,10 +161,16 @@ await page.screenshot({ path: `${OUT}/02-models-dialog.png`, fullPage: true });
 // exception, and a restore it cannot prove is a loud failure, not a shrug.
 try {
   if (targetWasEnabled) {
-    console.log(`INFO  ${TARGET_REF} was enabled before the run (prior-run leftover) — disabling first`);
+    console.log(
+      `INFO  ${TARGET_REF} was enabled before the run (prior-run leftover) — disabling first`,
+    );
     await targetSwitch(page).click();
     const cleanup = await waitForSwitchState(page, false, TOGGLE_WINDOW_MS);
-    note(`prior-run cleanup: ${TARGET_REF} disabled first`, cleanup.ok, `aria-checked=${cleanup.state}`);
+    note(
+      `prior-run cleanup: ${TARGET_REF} disabled first`,
+      cleanup.ok,
+      `aria-checked=${cleanup.state}`,
+    );
   }
 
   await targetSwitch(page).click();
@@ -183,11 +210,17 @@ try {
       allowedModelRefs().includes(TARGET_REF) || enabledDefaultsKeys().includes(TARGET_REF);
     if (leftover()) {
       if (!page.isClosed()) {
-        await targetSwitch(page).click().catch(() => {});
+        await targetSwitch(page)
+          .click()
+          .catch(() => {});
         await waitForSwitchState(page, false, TOGGLE_WINDOW_MS);
       }
       if (leftover()) {
-        note(`RESTORE FAILED — ${TARGET_REF} left enabled on the gateway`, false, "clean up manually");
+        note(
+          `RESTORE FAILED — ${TARGET_REF} left enabled on the gateway`,
+          false,
+          "clean up manually",
+        );
       } else {
         console.log(`INFO  crash-path restore: ${TARGET_REF} disabled again`);
       }
@@ -200,5 +233,7 @@ try {
 }
 
 const failed = findings.filter((f) => !f.ok);
-console.log(`\n${failed.length === 0 ? "DRIVE PASSED" : `DRIVE FAILED (${failed.length})`} — ${OUT}`);
+console.log(
+  `\n${failed.length === 0 ? "DRIVE PASSED" : `DRIVE FAILED (${failed.length})`} — ${OUT}`,
+);
 process.exit(failed.length === 0 ? 0 : 1);
