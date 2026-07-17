@@ -5,6 +5,12 @@
 > manifest designate its memo current planning input until #237 consumes and freezes it. This is
 > target-contract authority, not a claim that product behavior is implemented.
 
+> **WF-232 amendment status:** Runner enrollment, capability, command, fact, containment, and
+> coordination details added by WF-232 are a prepared inactive candidate until reviewed #232
+> landing, tracker closure, and the matching #228 parent-map pointer designate them current.
+> Existing accepted Dev Board behavior remains current; these staged additions do not activate
+> early.
+
 ## Problem Statement
 
 Opzava platform development is currently split across an internal Tasks board and a separate GitHub
@@ -671,13 +677,14 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Automate agent-authored merge-conflict resolution in an isolated worktree, then rerun affected
   checks and independent Review. Do not give an execution agent a general-purpose ungoverned merge
   authority.
-- Never expose a raw write-capable installation token to a Runner or worktree. A trusted Git
-  transport broker validates the signed lease, nonce, exact ref, old/new SHAs, and pack/bundle hash,
-  then performs the single authorized provider push; repository rulesets are defense in depth. A
-  lost response enters the same Authorized Git Ref Update record: exact intended SHA confirms,
-  unchanged old SHA stays bounded unresolved without blind retry, and any third SHA becomes a
-  visible ref conflict requiring fresh authorization. No reconciliation path launches a duplicate
-  remediation run.
+- Never expose a raw write-capable installation token to a Runner or worktree. Raw bundle bytes use
+  only signed/scanned artifact ingress; ref-only WSS carries the admitted artifact reference and
+  digests. A trusted Git transport broker fetches/re-hashes the artifact, validates the signed
+  lease, nonce, exact ref, old/new SHAs, and pack/bundle hash, then performs the single authorized
+  provider push; repository rulesets are defense in depth. A lost response enters the same
+  Authorized Git Ref Update record: exact intended SHA confirms, unchanged old SHA stays bounded
+  unresolved without blind retry, and any third SHA becomes a visible ref conflict requiring fresh
+  authorization. No reconciliation path launches a duplicate remediation run.
 - Accept Actions-originated requests only through a short-lived GitHub OIDC protocol bound to an
   Opzava-specific audience, immutable repository, allowlisted workflow/reusable-workflow and SHA,
   run/attempt, actor/event, ref/SHA, family-specific target/expected versions, payload hash, and

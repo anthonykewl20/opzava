@@ -344,10 +344,13 @@ policy, exact audience, exact workload subject/service-deployment identity, maxi
 and clock skew, and tenant/service eligibility. An arbitrary self-declared issuer URL, cloud API
 key, GitHub token, or Runner-supplied tenant claim is never a trust anchor.
 
-1. An authorized Platform Admin asks the provisioning worker to admit one named cloud service. One
-   transaction creates a short-lived, single-use **Cloud Enrollment Grant** bound to tenant, exact
-   issuer-policy version, audience, subject, service-deployment ID, `cloud_service` Runner type,
-   UUID challenge ID, 256-bit server challenge, 256-bit grant nonce, expiry, and audit row.
+1. An authorized Platform Admin—an authenticated Human Owner/Admin exercising a current platform-
+   scoped grant for this exact action, tenant/service scope, policy version, and expiry, not a new
+   actor or transitive role—asks the provisioning worker to admit one named cloud service. That
+   grant conveys no Runner, OpenClaw, GitHub, secret, lease, or workflow authority. One transaction
+   creates a short-lived, single-use **Cloud Enrollment Grant** bound to tenant, exact issuer-policy
+   version, audience, subject, service-deployment ID, `cloud_service` Runner type, UUID challenge
+   ID, 256-bit server challenge, 256-bit grant nonce, expiry, and audit row.
 2. The cloud service generates its Runner Ed25519 key in its service keystore and obtains a fresh
    workload-identity JWT from the pinned issuer. It submits the grant ID; public key; JWT; fresh
    client nonce; protocol/build range; and a Runner-key signature over the server challenge, grant
@@ -631,9 +634,13 @@ Provisional Socket
   → connection_proof verified
   → epoch transaction commits (old epoch superseded)
   → connection_accepted verified by Runner
-  → signed time-anchor exchange attempted
   → connection_ready admitted
-  → Current (delivery enabled)
+  ├─ admitted Enforcer key exists → signed time-anchor exchange
+  │    ├─ accepted → Current
+  │    └─ unavailable → DiagnosticsOnly → bounded anchor retry
+  └─ first enrollment → DiagnosticsBootstrap
+       → one capability challenge/submission → Enforcer key admitted
+       → signed time-anchor exchange → Current
 ```
 
 1. The Runner opens the dedicated WSS role/path and sends an unsigned bounded `runner_hello`
@@ -663,12 +670,19 @@ Provisional Socket
    `reconciliationFactReplayAfterSequence`. The server-confirmed delivery ACK cursor and each fact
    cursor are the server's greatest contiguous admitted values. `deliveryReplayAfterCursor` is the
    effective lower replay boundary defined below. Every cursor is inclusive. The Runner verifies it,
-   persists/ACKs every missing trust bundle through the specialized path below, performs the
-   required signed time-anchor exchange, and replies with signed `connection_ready` under that exact
-   epoch/transcript, accepted trust bundle, and time-anchor result. No command delivery or Runner
-   fact is accepted before `connection_ready`. Without an available current time anchor, the ready
-   connection remains diagnostics/containment-only and cannot arm/renew or execute. Admitting ready
-   atomically marks that epoch `Current` with its time-anchor binding.
+   persists/ACKs every missing trust bundle through the specialized path below and replies with
+   signed `connection_ready` under that exact epoch/transcript, accepted trust bundle, and
+   time-anchor result. No command delivery or Runner fact is accepted before `connection_ready`.
+   When an already admitted Enforcer outcome key exists, the Runner first completes the signed time-
+   anchor exchange and an available binding atomically marks the epoch `Current`; an unavailable
+   binding marks it `DiagnosticsOnly`, which permits only bounded time-anchor retry and live ACK/
+   trust control frames, never a capability or action order. On a first enrollment, where no
+   Enforcer key can yet sign the echo, an unavailable binding with safe reason
+   `enforcer_key_not_admitted` atomically marks the epoch `DiagnosticsBootstrap`, not `Current`.
+   That state permits only the bounded first-capability exception below plus its live fact-ACK
+   delivery. No execution, containment authority, reconciliation, trust rotation, provider action,
+   grant/preview action, or other Registry order is available until a later accepted time anchor
+   atomically promotes this same epoch to `Current`.
 
 The ceremony objects are closed schemas. `runner_hello` contains exactly `protocolVersion`,
 `messageKind="runner.hello"`, `runnerId`, `enrollmentEpoch`, `keyId`, `bootIncarnation`,
@@ -811,15 +825,18 @@ blocks new admission and invokes the exact WF-230 containment/loss path when an 
 longer has its required capability.
 
 Capability evidence follows a typed, challenge-bound sequence; connection establishment alone never
-makes a Runner execution-eligible:
+makes a Runner execution-eligible. `DiagnosticsBootstrap` closes the first-enrollment Enforcer-key/
+time-anchor cycle without granting authority:
 
-1. On a Current connection, Runner Registry issues a signed `capability_manifest_challenge` order
-   with challenge ID/nonce, expected enrollment/key/connection/boot, required probe schema and
-   policy version, the complete allowlisted probe specifications and managed-enforcement deny
-   canaries with expected outcomes, their digests, prior manifest hash/sequence, and expiry.
+1. On a `Current` connection, or exactly once on a fresh `DiagnosticsBootstrap` epoch with no prior
+   capability observation or admitted Enforcer key, Runner Registry issues a signed
+   `capability_manifest_challenge` order with challenge ID/nonce, expected
+   enrollment/key/connection/boot, required probe schema and policy version, the complete
+   allowlisted probe specifications and managed-enforcement deny canaries with expected outcomes,
+   their digests, prior manifest hash/sequence, and expiry.
 2. The Runner performs only the allowlisted probes and sends a signed
-   `capability_manifest_submission` Semantic Runner Fact in a current-connection transport frame
-   with the exact challenge/nonce, monotonically increasing `capabilitySequence`, manifest
+   `capability_manifest_submission` Semantic Runner Fact in an authenticated ready-epoch transport
+   frame with the exact challenge/nonce, monotonically increasing `capabilitySequence`, manifest
    object/hash, complete signed probe-result and deny-canary receipt bodies plus their digests,
    Lease Enforcer outcome public key and challenge-bound key-possession proof, observed/expiry
    times, and no arbitrary command output. Submission does not self-approve a capability.
@@ -831,10 +848,31 @@ makes a Runner execution-eligible:
    allowed Harness Adapter/tool/version/modes/features, effective isolation/repository features,
    admitted managed enforcement bindings, hard safe implementation maximum, local/cloud eligibility,
    policy and Adapter-authorization versions, and expiry.
-4. A `capability_manifest_admitted` or `capability_manifest_rejected` Semantic Runner Order, signed
-   by the purpose-authorized server semantic-order key, binds the submission and admission/reason
-   code. Execution Admission may use only the current persisted Capability Admission; a Runner
-   cannot claim eligibility from the result order itself.
+4. On the first bootstrap only, admission of the proved Enforcer outcome key permits the specialized
+   signed time-anchor exchange. An accepted anchor atomically promotes the epoch from
+   `DiagnosticsBootstrap` to `Current`; failure or lateness leaves it diagnostics-only. Only then
+   does a `capability_manifest_admitted` or `capability_manifest_rejected` Semantic Runner Order,
+   signed by the purpose-authorized server semantic-order key, bind the submission and
+   admission/reason code. Execution Admission may use only the current persisted Capability
+   Admission; a Runner cannot claim eligibility from the result order itself.
+
+The bootstrap challenge/submission is non-authority diagnostics. It may run only the complete
+server-allowlisted probes and one-use deny canaries bound into the challenge; it cannot create or
+adopt a worktree, activate/use a grant, open a preview, spawn/continue a process, mutate Git or a
+provider, issue another command family, or satisfy execution eligibility. Because no signed time
+anchor exists yet, the server evaluates `challengeExpiresAt` against its trusted receive time. A
+submission received after that bound is admitted only as authenticated stale sequence-closing
+evidence and produces rejection after Current is available; it never admits a capability or Enforcer
+key. A second bootstrap challenge, any non-capability fact, or any other order in
+`DiagnosticsBootstrap` is rejected before journaling or side effect.
+
+The bootstrap writes a separate narrow **Enforcer Key Admission** only after the challenge-bound
+key-possession proof, Runner/enrollment/boot identity, approved Enforcer build identity, and key-ID/
+bytes uniqueness verify. That record authorizes only time-anchor echo verification and autonomous
+authority-reducing outcomes; it is not Capability Admission or execution eligibility. Other probe/
+canary failures may still yield a rejected Capability Admission after anchor promotion. Invalid or
+unverifiable Enforcer-key proof cannot create this record, so the epoch remains diagnostics-only and
+must close into secure recovery/re-enrollment rather than bypass the anchor.
 
 The challenge payload's expected key ID, connection epoch, and boot incarnation must equal its
 persisted original delivery envelope plus the submitted ordinary-fact signer/manifest producer
@@ -865,7 +903,7 @@ enforcerKeyProofSignature = Ed25519.sign(
     RFC8785({ challengeId, challengeNonce, enforcerKeyId,
               enforcerOutcomePublicKey, capabilityManifestHash })
 )
-managedEnforcementKeyProofSignature = Ed25519.sign(
+enforcementKeyProofSignature = Ed25519.sign(
   enforcementDecisionPrivateKey,
   UTF8("opzava.runner.managed-enforcement-key-proof.v1\0") ||
     RFC8785({ challengeId, challengeNonce, enforcementAdapterId,
@@ -1303,6 +1341,10 @@ expired. If expiry races an already begun non-atomic operation, the Runner stops
 enters the owning containment/reconciliation path; a late Runner Receipt cannot make the action
 authoritative. Exact redelivery returns the original rejection. Registry-only orders use the same
 check with the current signed connection time anchor; without a valid anchor, action fails closed.
+The sole narrow exception is the first-enrollment `capability_manifest_challenge` and its one
+`capability_manifest_submission` while the epoch is `DiagnosticsBootstrap`: the server evaluates
+that challenge's expiry by trusted receive time as defined above. No result order or other
+Registry/action command shares this exception.
 
 The closed binding unions are:
 
@@ -1352,6 +1394,42 @@ mismatch rejects the order before journaling. `payload` is a closed union select
 | `prepare_object_bundle_upload`           | `artifactAdmissionId`, `uploadNonce`, `publicationPreparationId`, `publicationNonce`, `exactRef`, `expectedOldSha`, `proposedNewSha`, `proposedTreeSha`, `objectManifestDigest`, `maxBundleBytes`, `scanPolicyVersion`, `uploadExpiresAt`                                                                                                                   |
 | `prepare_exact_ref_publication`          | `publicationPreparationId`, `publicationNonce`, `exactRef`, `expectedOldSha`, `proposedNewSha`, `proposedTreeSha`, `objectManifestDigest`, `objectBundleDigest`, `objectBundleArtifactRef`, `publicationPolicyVersion`, `preparationExpiresAt`                                                                                                              |
 | `request_reconciliation_observation`     | `reconciliationObservationId`, `inventorySchemaVersion`, `expectedExecutionFactSequenceByLease`, `expectedAutonomousFactSequenceByLease`, `expectedCapabilityFactSequence`, `expectedReconciliationFactSequence`, `observationDeadlineAt`                                                                                                                   |
+
+The command-to-fact relation is also closed. `journaled_rejected` before any local action produces
+no persistent fact for any row. Otherwise the exact permitted primary facts and cardinality are:
+
+| `commandKind`                            | Permitted persistent fact result                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capability_manifest_challenge`          | Exactly one `capability_manifest_submission`; on first enrollment it is the sole fact permitted in `DiagnosticsBootstrap`.                                                                                                                                                                                                       |
+| `capability_manifest_admitted`           | None; this is a terminal Registry notification acknowledged only by transport ACK.                                                                                                                                                                                                                                               |
+| `capability_manifest_rejected`           | None; this is a terminal Registry notification acknowledged only by transport ACK.                                                                                                                                                                                                                                               |
+| `request_managed_enforcement_quiescence` | Exactly one `managed_enforcement_quiescence_report`.                                                                                                                                                                                                                                                                             |
+| `prepare_execution_registration`         | Exactly one `process_registration_reserved` or `command_rejected_no_action`; a governed pre-action block may instead return exactly one `human_input_required` or `policy_denied`.                                                                                                                                               |
+| `activate_secret_grants`                 | Exactly one `secret_grants_activated` or `secret_grant_activation_failed`; a governed pre-action block may instead return exactly one `human_input_required` or `policy_denied`.                                                                                                                                                 |
+| `arm_lease_enforcer`                     | Exactly one `lease_enforcer_armed`; a governed pre-action block may instead return exactly one `human_input_required` or `policy_denied`.                                                                                                                                                                                        |
+| `renew_lease_enforcer`                   | Exactly one `lease_enforcer_renewed`; failure to accept/renew creates no substitute command fact and invokes autonomous containment under the last accepted authority.                                                                                                                                                           |
+| `fence_lease_enforcer`                   | Exactly one `lease_enforcer_fenced`; further cleanup facts require the separately delivered containment/disposition orders or the autonomous source.                                                                                                                                                                             |
+| `start_execution`                        | Exactly one `execution_started` or `command_rejected_no_action`; a governed pre-spawn block may instead return exactly one `human_input_required` or `policy_denied`. After `execution_started`, zero or more `managed_harness_envelope`, governed `human_input_required`, or `policy_denied` runtime facts may use this source. |
+| `checkpoint_execution`                   | Exactly one `checkpoint_recorded`; a governed pre-action block may instead return exactly one `human_input_required` or `policy_denied`.                                                                                                                                                                                         |
+| `checkpoint_and_stop_or_quarantine`      | In order: exactly one `checkpoint_recorded`; then one `local_grant_disposition_observed` iff grant handles are nonempty; then one `preview_delivery_closed` iff preview handles are nonempty; then exactly one `containment_confirmed` or `containment_incomplete`.                                                              |
+| `revoke_local_grant`                     | Exactly one `local_grant_disposition_observed`.                                                                                                                                                                                                                                                                                  |
+| `close_preview_delivery`                 | Exactly one `preview_delivery_closed`.                                                                                                                                                                                                                                                                                           |
+| `prepare_object_bundle_upload`           | No Semantic Runner Fact; the separately bounded signed artifact-ingress response is the only upload result. A governed pre-action block may instead return exactly one `human_input_required` or `policy_denied`.                                                                                                                |
+| `prepare_exact_ref_publication`          | Exactly one `exact_ref_publication_submission`; a governed pre-action block may instead return exactly one `human_input_required` or `policy_denied`.                                                                                                                                                                            |
+| `request_reconciliation_observation`     | Exactly one `reconciliation_observation`.                                                                                                                                                                                                                                                                                        |
+
+As a pre-action replacement, `human_input_required` is legal only when the order carries a
+`governed_input` binding for that exact Ready-approved phase. `policy_denied` must bind the current
+server-selected policy version and exact command phase even when human input is not enabled. A
+replacement occurs before the primary effect and cannot be combined with a primary fact. After an
+accepted start, runtime Human/policy facts bind that same start source, use `spawnState="working"`
+until the process state changes, and create Blocked/containment input only; they never grant the
+requested action. Human/policy facts are forbidden for Registry notification, renew, fence,
+containment, revoke, close, and reconciliation rows. A managed-harness fact after start is ongoing
+process output, not a second start result. The six autonomous authority-reducing fact kinds are not
+responses to a delivered command and may use only the autonomous source contract below. Any other
+`commandKind`/`factKind`, wrong multiplicity/order, or second terminal result is rejected before
+fact ACK or workflow mutation.
 
 `request_managed_enforcement_quiescence` may produce only `managed_enforcement_quiescence_report`;
 its rotation/admission/adapter/nonce/expected-cursor fields must equal the originating order
@@ -1425,10 +1503,10 @@ authority.
 
 Runner enrollment returns a versioned **Server Command Trust Bundle** over the authenticated setup
 channel. The bundle pins an Opzava Runner command root and separately purpose-authorized
-Registry-ceremony, connection-acceptance, time-anchor, semantic-order, delivery-envelope, and
-connection-control public keys with key ID, algorithm, activation/retirement interval, and
-trust-bundle version. The Runner stores only public material and refuses a command key not
-authorized for that exact purpose.
+Registry-ceremony, connection-acceptance, time-anchor, semantic-order, delivery-envelope, fact-
+admission, and connection-control public keys with key ID, algorithm, activation/retirement
+interval, and trust-bundle version. The Runner stores only public material and refuses a command key
+not authorized for that exact purpose.
 
 The bundle chain is scoped to one `(runnerId, enrollmentEpoch)` and starts at version 1 for every
 new enrollment epoch. The bundle is a closed I-JSON object with exactly `protocolVersion`,
@@ -1554,15 +1632,28 @@ no still-authorized overlap key can deliver a verifiable update, the Runner admi
 must use the secure recovery/re-enrollment path. A bundle is never fetched from an arbitrary URL,
 accepted from Slack/MCP, or skipped because `connection_accepted` merely advertised its version.
 
-Every persistent Semantic Runner Fact receives a live, signed **Server Fact Admission ACK Frame** on
-the current connection. Its closed schema is exactly
-`{ protocolVersion, messageKind:"runner.fact_admission_ack", admissionAckId, admissionAckRevision, runnerId, enrollmentEpoch, connectionEpoch, transcriptHash, factId, factKind, factDigest, sequenceBinding, admissionDisposition, admittedContiguousCursor, safeReasonCode, serverReceivedAt, serverConnectionControlKeyId, admissionAckHash, admissionAckSignature }`.
+Every persistent Semantic Runner Fact receives an immutable signed **Server Fact Admission ACK
+Snapshot** delivered inside a separately signed current-connection frame. The connection-independent
+snapshot's closed schema is exactly
+`{ protocolVersion, messageKind:"runner.fact_admission_ack_snapshot", admissionAckId, admissionAckRevision, runnerId, enrollmentEpoch, factId, factKind, factDigest, sequenceBinding, admissionDisposition, admittedContiguousCursor, safeReasonCode, serverReceivedAt, serverFactAdmissionKeyId, admissionAckHash, admissionAckSignature }`.
 `admissionDisposition` is exactly `admitted`, `duplicate_admitted`, `pending_gap`, or
 `rejected_terminal`; `admittedContiguousCursor` is the canonical unsigned-decimal cursor for the
 fact's exact sequence domain and cannot advance across a gap. The digest/signature remove the hash
 and then signature respectively under `opzava.runner.fact-admission-ack.digest.v1\0` and
 `opzava.runner.fact-admission-ack.signature.v1\0`, signed only by a purpose-authorized
-connection-control key.
+fact-admission key in the server trust bundle. The snapshot contains no connection epoch,
+transcript, outer delivery ID, or current-socket key.
+
+The **Fact Admission ACK Delivery** closed schema is exactly
+`{ protocolVersion, messageKind:"runner.fact_admission_ack_delivery", admissionAckDeliveryId, runnerId, enrollmentEpoch, connectionEpoch, transcriptHash, admissionAckSnapshot, admissionAckSnapshotHash, sentAt, serverConnectionControlKeyId, admissionAckDeliveryHash, admissionAckDeliverySignature }`.
+`admissionAckSnapshotHash` equals the embedded snapshot's `admissionAckHash`. The delivery digest
+and signature remove their own hash and signature under
+`opzava.runner.fact-admission-ack-delivery.digest.v1\0` and
+`opzava.runner.fact-admission-ack-delivery.signature.v1\0`; a current purpose-authorized connection-
+control key signs it. The outer Runner/enrollment identities equal the snapshot, while connection
+epoch/transcript equal the socket receiving it. Exact replay on the same connection returns the same
+delivery; replay after reconnect creates a new outer delivery ID/hash/signature around the unchanged
+inner snapshot.
 
 One `factId` maps permanently and only to one `factDigest`; another digest under that ID is
 collision regardless of ACK state. One `admissionAckId` names that fact's admission-ACK stream, and
@@ -1575,16 +1666,22 @@ monotonically from `pending_gap` to `admitted` or `rejected_terminal`. `admitted
 `admitted` and the cursor is identical. The cursor never regresses, and no later ACK may rewrite a
 rejected fact or turn a different digest into a duplicate.
 
-The Runner durably records the highest valid ACK revision before advancing its server-confirmed and
-prune-safe cursors. It may prune a journaled fact only after `admitted` or `duplicate_admitted`
-closes that exact contiguous position; `pending_gap` and `rejected_terminal` are retained under the
-bounded incident/retention policy and never count as evidence completeness. When replay fills a
-missing sequence, the server applies the held fact in order and emits the next signed revision on
-the same `admissionAckId`, moving `pending_gap` to `admitted`; if validation can never succeed it
-moves only to `rejected_terminal`. The latest signed snapshot is durably replayable on the current
-or a later connection even if the original ACK was lost. Reconnect cursor exchange repeats these
-same server-confirmed cursors and latest ACK revisions, so live ACK and reconnect recovery cannot
-disagree. Managed Harness output follows this ordinary execution-fact ACK path; a transport ACK or
+The Runner verifies an inner snapshot signer against the server trust chain valid at
+`serverReceivedAt`, then verifies the outer delivery under the current connection-control key. Key
+rotation retains the historical verification chain until every snapshot protected by it is prune-
+safe; a later connection never re-signs or rewrites the inner admission decision. The Runner durably
+records the highest valid ACK revision before advancing its server-confirmed and prune-safe cursors.
+It may prune a journaled fact only after `admitted` or `duplicate_admitted` closes that exact
+contiguous position; `pending_gap` and `rejected_terminal` are retained under the bounded
+incident/retention policy and never count as evidence completeness. When replay fills a missing
+sequence, the server applies the held fact in order and emits the next signed revision on the same
+`admissionAckId`, moving `pending_gap` to `admitted`; if validation can never succeed it moves only
+to `rejected_terminal`. The latest signed snapshot is durably replayable on the current or a later
+connection even if the original delivery was lost; only its outer delivery binding changes.
+Reconnect cursor exchange repeats these same server-confirmed cursors and latest ACK revisions, so
+live ACK and reconnect recovery cannot disagree. The first-enrollment capability fact may receive
+this delivery while its epoch is `DiagnosticsBootstrap`; no other bootstrap fact or server frame is
+permitted. Managed Harness output follows this ordinary execution-fact ACK path; a transport ACK or
 socket write is never fact admission.
 
 ### Runner-to-server transport frames and semantic facts
@@ -1643,9 +1740,12 @@ order and authorizes only authority-reducing checkpoint, fence, stop/quarantine,
 preview close for those triggers. It cannot launch, renew, use a grant, or create workflow
 authority. Only `lease_enforcer_fenced`, `checkpoint_recorded`, `containment_confirmed`,
 `containment_incomplete`, `local_grant_disposition_observed`, and `preview_delivery_closed` may use
-the autonomous source. Their request ID equals `autonomousContainmentId`; the Enforcer authority
-identity/hash/sequence/nonce must equal the last accepted arm/renew authority. All other facts
-require their delivered source variant.
+the autonomous source. The source's `autonomousContainmentId` is the request identity for
+`lease_enforcer_fenced`; `checkpoint_recorded.checkpointRequestId`, both containment variants'
+`containmentRequestId`, `local_grant_disposition_observed.grantDispositionRequestId`, and
+`preview_delivery_closed.previewDispositionRequestId` each equal it byte-for-byte. The Enforcer
+authority identity/hash/sequence/nonce must equal the last accepted arm/renew authority. All other
+facts require their delivered source variant.
 
 Capability-manifest and managed-enforcement-quiescence facts require the capability sequence,
 Registry source, and both `none` observations. Ordinary execution facts require the execution
@@ -1671,7 +1771,7 @@ The closed `payload` union selected by `factKind` is:
 | `secret_grant_activation_failed`                                          | `grantSetDigest`, `grantActivationDispositions`, `activationOutcomeDigest`, `reasonCode`, `noSpawnProofDigest`                                                                                                                                                                                                                                                                                                          |
 | `lease_enforcer_armed`, `lease_enforcer_renewed`, `lease_enforcer_fenced` | `enforcerOutcome`                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `execution_started`                                                       | `spawnMarkerDigest`, `processIdentityDigest`, `workingObservationDigest`                                                                                                                                                                                                                                                                                                                                                |
-| `checkpoint_recorded`                                                     | `checkpointId`, `repositoryHeadSha`, `dirtyStateDigest`, `processStateDigest`, `grantStateDigest`, `containerPortStateDigest`, `artifactRefs`                                                                                                                                                                                                                                                                           |
+| `checkpoint_recorded`                                                     | `checkpointId`, `checkpointRequestId`, `repositoryHeadSha`, `dirtyStateDigest`, `processStateDigest`, `grantStateDigest`, `containerPortStateDigest`, `artifactRefs`                                                                                                                                                                                                                                                    |
 | `containment_confirmed`                                                   | `containmentRequestId`, `containmentDisposition`, `processSetDigest`, `worktreeStateDigest`, `remainingResourceRefs`                                                                                                                                                                                                                                                                                                    |
 | `containment_incomplete`                                                  | `containmentRequestId`, `containmentDisposition`, `processSetDigest`, `worktreeStateDigest`, `remainingResourceRefs`, `reasonCode`                                                                                                                                                                                                                                                                                      |
 | `local_grant_disposition_observed`                                        | `grantDispositionRequestId`, `grantDispositions`, `localDispositionDigest`                                                                                                                                                                                                                                                                                                                                              |
@@ -1692,11 +1792,12 @@ broker operations `(leaseId,brokerCapabilityId,requestSequence)`; container/port
 `(artifactId,contentDigest)`; remaining resources `(resourceKind,resourceId)`; managed skill/MCP
 refs by their explicitly named first field; and every other row by the ID explicitly stated in its
 owning schema. Equal complete identity keys are duplicates and rejected, so no unspecified
-tie-breaker remains. Every nested item is a closed schema versioned by the containing
-`protocolVersion` or named schema/policy version. Artifact refs, action refs, and remaining-resource
-refs are opaque safe IDs, never paths, URLs with bearer tokens, logs, prompts, or secrets. Exact
-nested schemas for `capabilityManifest`, `enforcerOutcome`, and reconciliation inventory are defined
-in their owning sections in this memo; no implementation may add an unlisted field.
+tie-breaker remains. Every nested item uses the containing `protocolVersion` or its explicitly named
+schema/policy version; no nested item is unversioned or implementation-extensible. Artifact refs,
+action refs, and remaining-resource refs are opaque safe IDs, never paths, URLs with bearer tokens,
+logs, prompts, or secrets. Exact nested schemas for `capabilityManifest`, `enforcerOutcome`, and
+reconciliation inventory are defined in their owning sections in this memo; no implementation may
+add an unlisted field.
 
 Observation variants are exact by fact kind: capability and reconciliation use `none`/`none`.
 `command_rejected_no_action` uses `none`/`none` only for
@@ -1712,6 +1813,12 @@ envelope. Enforcer fence, containment, and grant disposition allow exactly `rese
 publication require `observed_process`. A pre-spawn Human/policy fact uses
 `execution_workspace`/`reserved_process` with payload `spawnState="absent"`; after spawn it requires
 `observed_process` and payload/observation `spawnState` equality. No other combination is allowed.
+
+For delivered checkpoints, `checkpoint_recorded.checkpointRequestId` equals the originating
+`checkpoint_execution.checkpointRequestId`; under `checkpoint_and_stop_or_quarantine` it equals that
+order's `containmentRequestId`. The multi-fact containment order also uses that same value as its
+grant-disposition, preview-disposition, and containment request ID. These equalities, and the
+autonomous equalities above, are required before sequence admission.
 
 The reconciliation arrays also have closed item schemas:
 
@@ -1837,14 +1944,30 @@ exactly `{ mcpServerId, mcpRevisionDigest }`, sorted by their first field.
 
 `decisionReceipt` is exactly `{ kind:"not_applicable" }` for an envelope not caused by a tool call,
 or
-`{ kind:"tool_call", decisionReceiptId, callId, decisionSequence, decisionUseNonce, runnerId, enrollmentEpoch, leaseId, fenceToken, processRegistrationId, launchAttemptId, managedEnforcementAdmissionId, projectedToolName, approvedToolSchemaHash, canonicalArgumentsDigest, targetBindingDigest, toolInvocationDigest, profileRevision, policyRevision, decision, reasonCode, decidedAt, enforcementDecisionKeyId, decisionReceiptDigest, decisionReceiptSignature }`.
+`{ kind:"tool_call", decisionReceiptId, callId, decisionSequence, decisionUseNonce, runnerId, enrollmentEpoch, leaseId, fenceToken, processRegistrationId, launchAttemptId, managedEnforcementAdmissionId, projectedToolName, approvedToolSchemaHash, canonicalArgumentsDigest, managedToolTargetBinding, targetBindingDigest, toolInvocationDigest, profileRevision, policyRevision, decision, reasonCode, decidedAt, enforcementDecisionKeyId, decisionReceiptDigest, decisionReceiptSignature }`.
 `decision` is `allow` or `deny`; its sequence is contiguous per managed-enforcement admission. The
 receipt digest/signature use the domains `opzava.runner.managed-enforcement-decision.digest.v1\0`
 and `opzava.runner.managed-enforcement-decision.signature.v1\0` with the admitted enforcement
 decision key and the standard remove-digest/remove-signature pattern. `canonicalArgumentsDigest`
 hashes the schema-validated RFC 8785 arguments under
-`opzava.runner.managed-tool-arguments.digest.v1\0`. `toolInvocationDigest` hashes exactly
-`{ callId, projectedToolName, approvedToolSchemaHash, canonicalArgumentsDigest, targetBindingDigest, runnerId, enrollmentEpoch, leaseId, fenceToken, processRegistrationId, launchAttemptId, managedEnforcementAdmissionId, profileRevision, policyRevision }`
+`opzava.runner.managed-tool-arguments.digest.v1\0`.
+
+`managedToolTargetBinding` is exactly `{ kind:"none" }` or
+`{ kind:"governed_target", targetNamespace, targetOpaqueId, targetRevision, targetScopeDigest }`.
+`none` is legal only when the admitted tool-schema row explicitly declares the invocation
+targetless. Otherwise `targetNamespace` is a versioned enum from that row, `targetOpaqueId` is a
+server-owned opaque identifier (never a path, credential-bearing URL, model-supplied hostname, or
+secret), `targetRevision` pins the admitted target version, and `targetScopeDigest` binds its
+tenant/ repository/resource scope. `targetBindingDigest` is exactly
+`SHA256(UTF8("opzava.runner.managed-tool-target-binding.digest.v1\0") || RFC8785(managedToolTargetBinding))`.
+The receipt and the actual Adapter invocation must equality-match the target object resolved from
+the accepted Adapter plan plus current server-owned tool/MCP/skill policy. The Adapter recomputes
+the object and digest after schema validation and immediately before CAS reservation/forwarding.
+Changed namespace, opaque ID, revision, scope, targetless substitution, or argument-derived
+redirection denies before forwarding and contains any direct bypass.
+
+`toolInvocationDigest` hashes exactly
+`{ callId, projectedToolName, approvedToolSchemaHash, canonicalArgumentsDigest, managedToolTargetBinding, targetBindingDigest, runnerId, enrollmentEpoch, leaseId, fenceToken, processRegistrationId, launchAttemptId, managedEnforcementAdmissionId, profileRevision, policyRevision }`
 under `opzava.runner.managed-tool-invocation.digest.v1\0`.
 
 `decisionUseReceipt` is `{ kind:"not_applicable" }` only with a not-applicable decision. Otherwise
@@ -2035,10 +2158,14 @@ platform is execution-eligible only when its Adapter probe proves this fail-clos
 daemon timer or in-process heartbeat alone is insufficient.
 
 The connection ceremony also completes a signed NTP-style exchange directly with the independently
-supervised Enforcer, relayed but not authored by the Runner daemon. Its persisted `timeAnchorId`
-binds server send/receive instants, Enforcer monotonic receipt/send counters, probe nonce, the exact
-signed time policy and digest, a policy-capped conservative `transportUncertaintyMs`, and expiry.
-`timePolicy` is the closed object
+supervised Enforcer, relayed but not authored by the Runner daemon. An existing enrollment completes
+it before becoming `Current`; a first enrollment completes it only after the bounded
+`DiagnosticsBootstrap` capability submission has proved and admitted the Enforcer outcome key. The
+probe/echo/accept frames are the only post-submission bootstrap frames, and acceptance atomically
+promotes the epoch; no capability result or execution order precedes them. Its persisted
+`timeAnchorId` binds server send/receive instants, Enforcer monotonic receipt/send counters, probe
+nonce, the exact signed time policy and digest, a policy-capped conservative
+`transportUncertaintyMs`, and expiry. `timePolicy` is the closed object
 `{ timePolicyVersion, maxTimeAnchorRoundTripMs, fixedTransportMarginMs, maxTransportUncertaintyMs, maxClockDriftPpm, maxAnchorAgeMs }`;
 every value after the version is a canonical unsigned-decimal millisecond/count string under its
 configured narrower range. `timePolicyDigest` is
@@ -2243,12 +2370,15 @@ base refs. Before every launch/reconcile the Supervisor:
 
 Neither a local nor cloud Runner receives a GitHub App installation token, repository Contents-write
 credential, deploy key, or equivalent write authority in its environment, grant set, worktree, or
-vendor harness. To publish, the Runner submits a signed bundle containing repository, exact ref,
-expected old SHA, proposed new SHA, lease/fence/contract/worktree identity, commit/object manifest,
-and command nonce to #231's trusted Git transport broker. That broker reauthorizes current provider
-health/permissions and expected ref state, transfers/verifies the exact objects, performs the
-conditional ref update with server-held credentials, and records native GitHub facts. A rejection or
-old-SHA conflict is a provider/synchronization fact, never permission for Runner-side force push.
+vendor harness. To publish, raw immutable object-bundle bytes first enter the signed/scanned
+artifact ingress below. The Runner then submits only the admitted artifact reference/digests plus
+repository, exact ref, expected old SHA, proposed new SHA, lease/fence/contract/worktree identity,
+commit/object manifest, and command nonce through ref-only WSS to #231's trusted Git transport
+broker. That broker fetches and independently re-hashes the artifact, then reauthorizes current
+provider health/permissions and expected ref state, transfers/verifies the exact objects, performs
+the conditional ref update with server-held credentials, and records native GitHub facts. A
+rejection or old-SHA conflict is a provider/synchronization fact, never permission for Runner-side
+force push.
 
 The #231 handoff is explicit and typed, with a prior server-owned artifact-admission stage.
 Execution Admission first emits `prepare_object_bundle_upload`, binding one
@@ -2363,11 +2493,15 @@ need a registration that did not yet exist:
    local/cloud grant Adapter returns one signed `secret_grants_activated` receipt covering every
    required handle, injection destination, expiry and disposition cursor, or a signed
    `secret_grant_activation_failed` receipt with stable safe reason/per-handle disposition. Partial
-   activation is failure and triggers disposal; neither outcome contains a value.
+   activation is failure and triggers disposal; neither outcome contains a value. A zero-grant claim
+   still receives this order and must return `secret_grants_activated` with empty activated- handle
+   and broker-binding arrays; the signed activation-outcome digest body also includes the empty
+   disposition array under the canonical empty-set `grantSetDigest`.
 5. Spawn remains structurally impossible until Execution Admission has accepted registration,
-   Enforcer-arm, and all-required-grants-active receipts, then emits one `start_execution` order
-   binding those accepted semantic-fact digest values and the same process registration/launch
-   attempt. Duplicate start delivery returns the journaled original disposition.
+   Enforcer-arm, and the typed activation receipt (empty or all-required-grants-active), then emits
+   one `start_execution` order binding those accepted semantic-fact digest values and the same
+   process registration/launch attempt. Duplicate start delivery returns the journaled original
+   disposition.
 
 Before spawn the Supervisor therefore durably records:
 
@@ -2661,10 +2795,12 @@ the secure UI.
 - Preview uses a server-owned authorization exchanged through an authenticated browser flow; no
   bearer credential is embedded in a URL, Card, Slack message, or receipt. Runner
   delivery/revocation binds exact authority/build/expiry. Details remain #229-owned.
-- A cloud Runner always reports `local_review_transport=false`. It may implement an exact commit and
-  submit the signed old/new-SHA ref-update bundle to #231's trusted Git transport broker; it never
-  receives repository write credentials or pushes directly. The separately enrolled local Reviewer
-  then verifies the resulting exact SHA. Cloud cannot satisfy or bypass Review.
+- A cloud Runner always reports `local_review_transport=false`. It may implement an exact commit,
+  upload immutable raw bundle bytes only through signed/scanned artifact ingress, and submit the
+  admitted artifact reference/digests plus signed old/new-SHA ref update through ref-only WSS to
+  #231's trusted Git transport broker; it never receives repository write credentials or pushes
+  directly. The separately enrolled local Reviewer then verifies the resulting exact SHA. Cloud
+  cannot satisfy or bypass Review.
 
 Both Runner types may advertise `managed_ordinary` and `managed_autonomous_serial`. Runner selection
 is explicit in the claim/Sprint approval inputs. A local lease cannot migrate to cloud mid-flight;
@@ -2746,6 +2882,7 @@ receipt another command relied on.
 | Secret canary appears in output/diff/frame                    | reject/quarantine before durable unsafe persistence and open Absolute Stop                        |
 | Adapter requires interactive input or current policy denies   | typed governed outcome; Blocked/contain as phase requires; new Human command/policy version only  |
 | Managed allow receipt is reused or arguments change           | invocation digest/use CAS rejects; no second forward; contain bypass                              |
+| Managed target ID/revision/scope is substituted               | target-object equality/digest rejects before forward; contain any direct bypass                   |
 | Concurrent Broker calls race the last permitted use           | one pre-dispatch reservation wins; loser never resolves secret or dispatches                      |
 | Managed artifact is oversized or policy-disallowed            | typed safe rejection disposition; no artifact ref or unsafe content                               |
 | Exact-ref submission uses stale old SHA or altered objects    | #231 handoff/provider rejection; no force push and no publication fact                            |
@@ -2791,11 +2928,14 @@ This research ticket specifies tests; it does not claim an unbuilt protocol pass
   proof, and nested Enforcer outcome vectors. Prove every self-exclusion, purpose key, family
   sequence, outer `frameDigest`, and inner `factDigest` collision result across languages.
 - Publish challenge-defined probe/canary bodies and receipts, managed decision/invocation/use
-  receipts, managed-enforcement quiescence order/report/freeze, live fact-admission ACK snapshots,
-  every process/no-action/no-spawn/start proof, rotation/recovery proof hashes, managed-artifact
-  dispositions, and object-bundle ingress receipts. Prove exact purpose keys, scalar adapter sort
-  plus nested-array duplicate rejection, self-exclusions, replay/collision, monotone ACK revisions,
-  one-use, and safe rejection variants.
+  receipts, managed-enforcement quiescence order/report/freeze, fact-admission ACK snapshots and
+  current-connection delivery frames, every process/no-action/no-spawn/start proof,
+  rotation/recovery proof hashes, managed-artifact dispositions, and object-bundle ingress receipts.
+  Prove exact purpose keys, scalar adapter sort plus nested-array duplicate rejection,
+  self-exclusions, replay/collision, monotone ACK revisions, one-use, and safe rejection variants.
+- Publish the exhaustive command-kind/fact-kind matrix, including zero-fact Registry/upload rows,
+  multi-fact containment order, zero-grant activation, and delivered/autonomous checkpoint request-
+  ID equality. Reject every crossed kind, multiplicity, ordering, and request-ID vector.
 - Publish exact time-anchor probe/echo/accepted and Enforcer deadline vectors at zero/max drift,
   zero/max anchor age, slow/fast monotonic clocks, round-trip/margin cap, overflow, expiry, and
   duplicate/collision boundaries. The derived deadline must never exceed server authority.
@@ -2813,6 +2953,11 @@ This research ticket specifies tests; it does not claim an unbuilt protocol pass
   durable delivery, ACK, typed receipt, backpressure, reconnect cursor, and unresolved-delivery
   replay. Replay proof/nonces on another socket, mutate negotiation, lose `connection_accepted`, and
   report a cursor ahead of server truth; none may skip delivery or revive an epoch.
+- On a first enrollment with no admitted Enforcer key, prove `connection_ready` enters
+  `DiagnosticsBootstrap`; permit only one capability challenge/submission and its ACK delivery,
+  evaluate expiry by server receive time, admit the proved Enforcer key, complete the signed time
+  anchor, and only then promote to `Current`. Reject a late/second challenge, any other order/fact,
+  any worktree/grant/process/provider effect, and every execution admission before promotion.
 - Assert `serverConfirmedDeliveryAckCursor` and the effective
   `deliveryReplayAfterCursor=min(reported, confirmed)` separately for behind/equal/ahead reports;
   reject every unknown/cross-family feature literal and non-intersection selection.
@@ -2832,8 +2977,12 @@ This research ticket specifies tests; it does not claim an unbuilt protocol pass
   A forged/wrong-purpose/gapped ACK cannot advance or claim evidence completeness. Hold a later fact
   as `pending_gap`, fill the missing sequence, and require a higher signed ACK revision on the same
   admission-ACK stream to move it to `admitted`; an older or changed same-revision snapshot rejects.
-  Attempt Runner-key rotation after server admission but before ACK persistence and prove cutover is
-  rejected until the stored ACK replays and the signed prune-safe cursors equal server truth.
+  Across reconnect, assert the inner ACK snapshot/hash/signature stays byte-identical while the
+  outer ACK-delivery ID/connection/transcript/hash/signature changes and verifies under the current
+  connection-control key. Reject a connection-bound inner snapshot and a historical signer outside
+  its trust interval. Attempt Runner-key rotation after server admission but before ACK persistence
+  and prove cutover is rejected until the stored ACK replays and the signed prune-safe cursors equal
+  server truth.
 - Repeat the previous case for an autonomous-Enforcer fact and for daemon restart with a changed
   outer `bootIncarnation`; only a fact whose original boot belonged to a prior authenticated epoch
   and whose immutable sequence/digest is next may replay. Prove a late capability replay closes its
@@ -2869,6 +3018,8 @@ This research ticket specifies tests; it does not claim an unbuilt protocol pass
   activation receipt → start delivery → ACK → durable spawn marker → signed start receipt → inbox →
   WF-230 transition worker. Prove no process can spawn before the three preconditions and exact
   retries create no second registration, grant activation, Enforcer authority, or process.
+- Repeat the saga with zero required grants and require the typed empty-set activation order/fact; a
+  direct Phase-A `start_pending` transition or start delivery before that fact must fail.
 - Drive credential-provisioning no-start loss, signed no-process rejection, crash after spawn before
   receipt, partial grant failure/disposal, `human_input_required`, `policy_denied`, late receipt
   after fence, Enforcer arm/renew/fence duplicate/collision/gap, preview-delivery close success and
@@ -2885,7 +3036,9 @@ This research ticket specifies tests; it does not claim an unbuilt protocol pass
   and invocation digests, one-use forward CAS/receipt, profile/policy drift, rotation/revocation,
   direct-call bypass detection, producer-sequence replay, output redaction/quarantine, per-artifact
   oversize/policy-disallowed receipts, and skill/MCP revision binding. A bypass or mismatched
-  receipt contains execution; unsafe content never becomes Card evidence.
+  receipt contains execution; unsafe content never becomes Card evidence. Substitute target kind,
+  namespace, opaque ID, revision, scope digest, and `none` for a governed target; every mismatch
+  must deny before forwarding and the exact admitted target must succeed once.
 
 ### 5. Real OS repository/process fixture
 
@@ -2898,11 +3051,12 @@ This research ticket specifies tests; it does not claim an unbuilt protocol pass
   survive, kill both, corrupt journal continuity, and reboot. The independent OS containment
   primitive must stop/quarantine or leave execution unknown; no case may silently continue or
   release capacity/grants.
-- Exercise #231's trusted Git transport broker with an exact signed old/new-SHA bundle. Prove stale
-  preparation order and authenticated `exact_ref_publication_submission` handoff. Prove stale old
-  SHA, wrong objects/ref/lease/fence/nonce, replay/collision, provider-health loss, and force-update
-  attempts fail, and prove no GitHub installation/Contents-write credential enters Runner state or
-  environment.
+- Exercise #231's trusted Git transport broker with an exact signed old/new-SHA plus admitted-
+  artifact-reference/digests handoff; raw bundle bytes must be fetched from artifact ingress. Prove
+  stale preparation order and authenticated `exact_ref_publication_submission` handoff. Prove stale
+  old SHA, wrong objects/ref/lease/fence/nonce, replay/collision, provider-health loss, and
+  force-update attempts fail, and prove no GitHub installation/Contents-write credential enters
+  Runner state or environment.
 - Exercise the prior `prepare_object_bundle_upload` and artifact-ingress seam with the raw bundle
   unavailable to WSS: exact metadata/body replay returns one admission; changed bytes/metadata,
   Runner-claimed clean versus ingress-detected secret, oversize, failed scan, policy-disallowed

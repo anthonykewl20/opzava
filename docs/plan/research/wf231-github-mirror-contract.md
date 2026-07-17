@@ -178,9 +178,11 @@ or a renamed `IssueTrackerPort`:
 - `DevelopmentFactsPort`: fetch PR, branch/base/head, commits, checks/statuses, repository reviews,
   Actions runs, deployment observations, and merge facts;
 - `CodeHostMergePort`: dispatch **only** a #229-authorized exact merge request and read its outcome;
-- `AuthorizedGitRefUpdatePort`: accept a signed #232 Runner ref-update request/bundle only for an
-  already-authorized branch/purpose/lease and perform the provider push inside a trusted transport
-  broker; the raw write-capable installation token never reaches the Runner or worktree;
+- `AuthorizedGitRefUpdatePort`: accept a signed #232 Runner ref-update request carrying only the
+  admitted artifact reference/digests plus exact ref/old/new SHA for an already-authorized branch/
+  purpose/lease. Raw bundle bytes arrive through signed/scanned artifact ingress; the trusted
+  transport broker fetches and independently re-hashes them before provider push, and the raw write-
+  capable installation token never reaches the Runner or worktree;
 - `ProviderClockAndRatePort`: normalize response date, primary/secondary limit signals,
   `Retry-After`, reset, and conditional-read metadata.
 
@@ -1399,11 +1401,13 @@ seams; objective final acceptance criteria; explicit pass/fail user-level valida
 end-to-end evidence expectations; migration/rollback; and every provider resource it may create or
 clean up. Missing any PRD-019 Ready field or WF-231-specific field keeps the ticket out of Todo.
 
-## Prepared resolution
+## Resolved and current input
 
-#231 may be resolved only after the parent map verifies this App/Installation/Repository identity
-split; safe webhook ingress order; no-blind-retry ambiguous-mutation contract; canonical managed
-Issue representation; field-level authority and three-way Mirror Shadow algorithm; provider-fact
-correlation; Actions request limits; #229/#232 remediation seams; dimensional scoped health/Absolute
-Stop recovery; real-seam matrix; and legacy credential/outbox cutover. Only then may the map and
-migration manifest designate this memo current input for #237 without reopening it.
+The parent map verified the App/Installation/Repository identity split; safe webhook ingress order;
+no-blind-retry ambiguous-mutation contract; canonical managed Issue representation; field-level
+authority and three-way Mirror Shadow algorithm; provider-fact correlation; Actions request limits;
+#229/#232 remediation seams; dimensional scoped health/Absolute Stop recovery; real-seam matrix; and
+legacy credential/outbox cutover. The resolution landed at
+`1db502d722ca33285148251a7660695868ad6a30`, #231 is closed, and #228 plus the migration manifest
+designate this memo current planning input until #237 consumes and freezes it. This status does not
+claim the target behavior is implemented.

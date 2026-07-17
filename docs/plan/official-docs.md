@@ -67,14 +67,14 @@ where they conflict. Provider-specific rows name their own authoritative decisio
 | Turborepo                         | `2.10.x`                                                                                                                                                                |
 | Vitest                            | `4`                                                                                                                                                                     |
 
-## Prepared target provider pins
+## Current planning-provider pins
 
-These pins are recorded for resolved planning candidates but are not current implementation
-authority until their named activation gate closes.
+These pins are current target-planning inputs from landed and closed planning contracts. They do not
+claim the corresponding provider adapter behavior is implemented.
 
-| Tech                    | Prepared pin and activation gate                                                                                                                                                                                                    |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GitHub REST API version | `2026-03-10` (WF-231 provider-adapter pin; inactive until #228 records verified #231 closure and the migration manifest designates it current for #237; changing it after activation requires an explicit tested adapter migration) |
+| Tech                    | Prepared pin and activation gate                                                                                                                                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GitHub REST API version | `2026-03-10` (landed/closed WF-231 provider-adapter pin at `1db502d722ca33285148251a7660695868ad6a30`; #228 and the migration manifest designate it current input until #237 consumes/freezes it; changing it requires an explicit tested adapter migration) |
 
 ## Validation tools
 

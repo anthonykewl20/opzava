@@ -5,6 +5,11 @@
 · map [#228](https://github.com/anthonykewl20/opzava/issues/228)<br> **Date:** 2026-07-16<br>
 **Status:** resolved design input; no product code or production schema is implemented by this memo
 
+> **WF-232 compatibility amendment:** The Process Registration → Enforcer arm → typed grant-
+> activation → start ordering below is a prepared inactive correction until reviewed #232 landing,
+> tracker closure, and the matching #228 pointer designate it current. WF-230's existing accepted
+> aggregate authority remains current meanwhile.
+
 ## Decision summary
 
 The target is a dedicated Dev Board write model, not an extension of the legacy Project Management
@@ -1117,14 +1122,18 @@ stable `ClaimRequested` intent, install/confirm the Execution Assignee, create C
 (`ClaimAttempt(credential_provisioning)`), reserve capacity, grant an Execution Lease with a new
 fencing token/nonce scope, reserve exact `LeaseCredentialAccessGrant` rows from the Ready-approved
 named secret refs, append `LeaseCredentialAccessReserved`, and enqueue idempotent broker/local
-provisioning outboxes. No value enters Opzava. With zero required grants, that transaction instead
-enters `start_pending`, arms the start deadline, and enqueues Runner start exactly once. With a
-nonempty set it arms a bounded provisioning deadline and remains `credential_provisioning`; start
-delivery/admission remains held until every required broker activation confirmation records the
-grants `active`, atomically arms the start deadline, changes the Claim Attempt to `start_pending`,
-emits `LeaseCredentialAccessActivated`, and enqueues start delivery exactly once. No start deadline
-exists during provisioning. Lane remains Todo, and projections show `Starting`/reserved rather than
-claimable.
+provisioning outboxes. No value enters Opzava. Every claim, including a claim with zero required
+grants, remains `credential_provisioning` while the Runner completes the same ordered admission
+sequence: accepted Process Registration, accepted Lease Enforcer arm, and one typed secret-grant
+activation result. For zero grants that result is `secret_grants_activated` with empty activated-
+handle and broker-binding arrays; its signed activation-outcome digest body also carries the empty
+disposition array and exact empty-set `grantSetDigest`. It is not a shortcut to start. For a
+nonempty set, bounded broker activation must confirm every required grant `active`. Only after the
+corresponding activation fact is admitted does one transaction arm the start deadline, change the
+Claim Attempt to `start_pending`, emit `LeaseCredentialAccessActivated` (whose set may be empty),
+and enqueue Runner start exactly once. No direct Phase-A start delivery exists, and no start
+deadline exists during registration, Enforcer arm, or grant activation. Lane remains Todo, and
+projections show `Starting`/reserved rather than claimable.
 
 `ConfirmLeaseCredentialAccessProvision` consumes a verified broker delivery under exact named-ref,
 grant, Claim Attempt/lease/fence, Ready, and Absolute Stop versions. It activates only a current

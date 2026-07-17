@@ -331,13 +331,14 @@ Review #229 remains the only owner of independent verdict and exact merge author
 integration only dispatches an already-authorized merge and confirms native facts. Runner/trust #232
 remains the only owner of fenced worktree/process execution and signed remediation receipts; the
 integration may request conflict remediation but cannot launch an agent or grant general merge
-authority. A raw write-capable installation token never reaches the Runner. The trusted Git
-transport broker verifies one signed lease/nonce/exact-ref/old-SHA/new-SHA bundle request and
-performs the provider push. A lost push response enters one durable Authorized Git Ref Update
-reconciliation: intended new SHA confirms, unchanged old SHA remains bounded unresolved without a
-blind repush, and any third SHA becomes a visible ref conflict requiring fresh authorization. The
-same record admits no duplicate remediation run. A confirmed new remediation SHA invalidates stale
-evidence and returns through independent Review.
+authority. A raw write-capable installation token never reaches the Runner. Immutable bundle bytes
+enter only signed/scanned artifact ingress; the ref-only WSS handoff carries the admitted artifact
+reference/digests plus lease/nonce/exact-ref/old-SHA/new-SHA. The trusted Git transport broker
+fetches and independently re-hashes the bytes before the provider push. A lost push response enters
+one durable Authorized Git Ref Update reconciliation: intended new SHA confirms, unchanged old SHA
+remains bounded unresolved without a blind repush, and any third SHA becomes a visible ref conflict
+requiring fresh authorization. The same record admits no duplicate remediation run. A confirmed new
+remediation SHA invalidates stale evidence and returns through independent Review.
 
 GitHub webhook facts and labels cannot authenticate an Actions command. An allowlisted workflow uses
 a short-lived GitHub OIDC token with an Opzava-specific audience and a canonical request. Opzava
@@ -464,8 +465,10 @@ admission cutoffs; Runner-observed time is diagnostic except where an owning com
 bounded arbitration rule.
 
 Neither local nor cloud Runner receives a GitHub App installation token, Contents-write credential,
-deploy key, or equivalent repository-write authority. It submits a signed exact-ref/expected-old-
-SHA/proposed-new-SHA/object bundle to #231's trusted Git transport broker, which reauthorizes and
+deploy key, or equivalent repository-write authority. Raw immutable object-bundle bytes enter only
+through signed/scanned artifact ingress. The Runner then submits the admitted artifact reference,
+digests, exact ref, expected-old SHA, and proposed-new SHA through the ref-only WSS handoff; #231's
+trusted Git transport broker reauthorizes, fetches and independently re-hashes the bytes, and
 performs the conditional provider update with server-held credentials. Secret values are forbidden
 from agent-harness environment variables as well as prompts, arguments, logs, worktrees, receipts,
 and evidence.
